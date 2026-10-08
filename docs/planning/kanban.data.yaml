@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-06
+  last_reconciled: 2026-10-08
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,60 +9,30 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-07T02:40:00"
-    at: "2026-10-07T02:40:00"
-    outcome: "escalated"
-    headline: "Frigate2's computer has been off the network since about 02:08 on 10-06. All Frigate2 person and motion sensors have been unavailable for about 24 hours, and nothing alerted. UniFi Protect is still detecting people. DO: power-cycle or check the Frigate2 host. I sent you a quiet page."
-    acknowledged: false
-  - fid: "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-07T02:40:01"
-    at: "2026-10-07T02:40:01"
-    outcome: "escalated"
-    headline: "Confirmed in code: on one path, URA can switch battery grid-charging on before it pauses an EV that is already charging. The overlap lasts up to 5 minutes. I no longer need your note on review finding D-MED-2. APPROVE a Tier-3 fix plan (return the EV pause ahead of the grid-charge command)."
-    acknowledged: false
-  - fid: "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-07T03:05:00"
-    at: "2026-10-07T03:05:00"
-    outcome: "escalated"
-    headline: "New: the front-door Z-Wave lock and all its sensors have been offline for at least 8 days, so HA can't lock it or show battery or jam alerts. This is a device problem, not URA. DO: check the batteries, then ping or re-interview the lock in Z-Wave JS."
-    acknowledged: false
-  - fid: "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-07T03:05:01"
-    at: "2026-10-07T03:05:01"
+  - fid: "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-08T02:20:01"
+    at: "2026-10-08T02:20:01"
     outcome: "measured"
-    headline: "Prior-art scan is done. URA already knows which room each resident's phone is in, and how fresh that is. What's missing is a map from each side door to the room next to it. This looks buildable as a small extension if those rooms have their own Bluetooth coverage. That's the next measurement, so the card moved to investigating."
+    headline: "Front lock still offline, so the batteries aren't swapped yet. URA's lock sweep only reads the lock's state, so it shouldn't drain the battery. I'll measure the drain rate after you swap them."
     acknowledged: false
-  - fid: "EC-LKG-NEVER-PERSISTED-1@2026-10-07T03:30:00"
-    at: "2026-10-07T03:30:00"
-    outcome: "done"
-    headline: "Closed: all five battery records now save again (last saved 01:55 tonight). They had been frozen since 07-23."
+  - fid: "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-08T02:20:00"
+    at: "2026-10-08T02:20:00"
+    outcome: "measured"
+    headline: "Your room-memory hint was right. URA's room-to-room log can vouch for residents at the garage door: 60% of unnamed garage crossings have a resident's phone moving by that door within a minute, versus 10% by chance. The front door is too busy to help. Moved to planning, garage only."
     acknowledged: false
-  - fid: "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-07T03:30:01"
-    at: "2026-10-07T03:30:01"
-    outcome: "done"
-    headline: "Closed: the first automatic HVAC hand-back since the fix (10-05) recorded its borrow ID as intended."
+  - fid: "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-08T02:10:01"
+    at: "2026-10-08T02:10:01"
+    outcome: "parked"
+    headline: "Parked as you suggested. The 5-minute ordering gap has no measured cost. Over 8 days the EV and battery grid-charging overlapped 4.5 hours, and site load peaked at 16 kW, about a third of the 200 A mains. Side note: the 'no EV while grid-charging' rule isn't actually holding, but it's harmless today."
     acknowledged: false
-  - fid: "URA-ATTRIBUTE-CHURN-1@2026-10-07T03:30:02"
-    at: "2026-10-07T03:30:02"
-    outcome: "done"
-    headline: "Closed: the Living Room occupancy entity now writes at most 32 history rows per 5 minutes while occupied. The pass mark was under 119."
-    acknowledged: false
-  - fid: "SAFETY-HUMIDITY-JUNK-READING-1@2026-10-07T03:30:03"
-    at: "2026-10-07T03:30:03"
-    outcome: "done"
-    headline: "Closed (proven in tests): no false low-humidity safety alerts since the fix shipped on 10-03. No junk 0% reading has happened since, so the live trigger wasn't exercised."
-    acknowledged: false
-  - fid: "ENVOY-STREAM-AB-48H-1@2026-10-07T03:30:04"
-    at: "2026-10-07T03:30:04"
-    outcome: "done"
-    headline: "Closed a stale card: the Envoy stream add-on test already finished as NO-GO (it made battery cut-outs worse). The add-on is stopped. That result is in the v5.103.39 notes."
+  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-10-08T02:10:00"
+    at: "2026-10-08T02:10:00"
+    outcome: "measured"
+    headline: "Your pool-camera crop: found the AC unit and the cloth pile in a phantom frame. Night detections don't line up with any compressor running, so it's a static shape under night IR. Masking both should fix it. Frigate2 is still offline, so I've staged the mask coordinates and will apply them when it's back."
     acknowledged: false
   - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-07T02:10:00"
     at: "2026-10-07T02:10:00"
     outcome: "done"
     headline: "Board fix: the switch-restore fix shipped in v5.103.39, but the board still had it in review. Moved it to shipped. 'HVAC 46 Vacancy Auto-Off' is still OFF. Turn it back on unless you turned it off on purpose."
-    acknowledged: false
-  - fid: "WAITING-OP-LANE-SWEEP@overnight@2026-10-07T03:40:00"
-    at: "2026-10-07T03:40:00"
-    outcome: "measured"
-    headline: "Re-checked the cards waiting on you against live data. The garage door was closed at sunset on 10-06, so the cover test still isn't staged. Pool-equipment phantom detections were still 127-178 a night before Frigate2 dropped off. The Bond hubs still flood HA's log (~24,000 lines an hour), so it only covers the last ~45 minutes. The HA tool couldn't connect tonight; I read logs and states over SSH instead, so no check is a false all-clear."
     acknowledged: false
   - fid: "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-06T01:55:00"
     at: "2026-10-06T01:55:00"
@@ -398,41 +368,6 @@ meta:
     at: "2026-10-01T03:25:00"
     outcome: "measured"
     headline: "Front-side camera re-measured: motion fired about 150 times a day but person detection only once in 3 days. It looks masked or tuned, not dead. Your answer about a 09-14/15 zone change still decides it."
-    acknowledged: false
-  - fid: "DB-SIZE-GROWTH-1@2026-09-30T02:30:00"
-    at: "2026-09-30T02:30:00"
-    outcome: "escalated"
-    headline: "The URA database is 1.35 GB because three room-history tables (temperature/humidity, energy, occupancy) have never been trimmed since November. With their indexes they are 72% of the file, growing ~3 MB a day. The code only ever looks back 30 days. Deleting history is irreversible, so it's your pick: keep 90 days (my recommendation), 365, or everything."
-    acknowledged: false
-  - fid: "ENPHASE-BATTERY-CUTOUTS-1@2026-09-30T02:40:00"
-    at: "2026-09-30T02:40:00"
-    outcome: "done"
-    headline: "Closed the peak battery cut-out card: with the Envoy stream add-on off, the 09-29 peak had 9 cut-outs against 37-94 when it was on. It's still off. The stream-as-battery-source idea is parked for the same reason."
-    acknowledged: false
-  - fid: "PERSON-STATIONARY-TRACKER-BLIP-1@2026-09-30T03:00:00"
-    at: "2026-09-30T03:00:00"
-    outcome: "escalated"
-    headline: "Your phantom 'home' blip is still happening after the tracker trim: on 09-28 at 07:51, while you were away, your phone tracker dropped and you read 'home' for 0.1 s, which fired a zone 1 pre-arrival. A Mac mini tracker (m4promacmini_2) is attached to your person again. Remove it in Settings > People and I'll re-check."
-    acknowledged: false
-  - fid: "ENVOY-FLAKINESS-181243-1@2026-09-30T03:00:00"
-    at: "2026-09-30T03:00:00"
-    outcome: "escalated"
-    headline: "Envoy after the 2026.9.4 update: drops are down to 10 and 19 a day (from 110-160), but that's not fixed. A 3.9 h hang still happened on 09-28, and stopping the stream add-on muddies the comparison. Pick: I draft an upstream bug report for you to post, or we accept this rate and close."
-    acknowledged: false
-  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-09-30T02:45:00"
-    at: "2026-09-30T02:45:00"
-    outcome: "measured"
-    headline: "Recorder log-flood check: the pantry adaptive-lighting automation is still on and still running, so it wasn't disabled. I couldn't read HA logs tonight (the HA MCP was down), so this is NOT an all-clear on either error flood."
-    acknowledged: false
-  - fid: "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-09-30T03:15:00"
-    at: "2026-09-30T03:15:00"
-    outcome: "measured"
-    headline: "The garage-door guard for room covers was already built and reviewed on its branch last night; I moved the card to review. Still owed before merging: a full-suite comparison. Not deployed."
-    acknowledged: false
-  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-09-30T03:15:00"
-    at: "2026-09-30T03:15:00"
-    outcome: "parked"
-    headline: "Confirmed that presence, security and safety anomaly learning is thrown away at every restart (last saved 09-04 to 09-14). Not built tonight because the anomaly cycle already in progress edits the same save code. It goes right after that merges."
     acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
@@ -9677,6 +9612,8 @@ cards:
     alongside live _2; fix-if-revived = tiebreak _prefer_canonical by last_updated recency not canonical
     name.'
 - id: PERIMETER-PHANTOM-XCORR-1
+  measured_2026_10_08_overnight: "Applying the decision (2026-10-08 02:05). (1) FRAME: URA snapshot pool_equipment_1791269893 (10-06 01:58 CDT, a phantom fire) shows the AC condenser bottom-left (about x 0.03-0.25, y 0.74-1.0 of the 1280x720 detect frame) and the cloth/tarp pile mid-left (about x 0.26-0.34, y 0.48-0.60); nobody in frame. (2) Frigate2's config (repo snapshot configs/snapshots/frigate2/config.yaml-2026-10-04-pre-reolink-substream:584-606) has NO motion or object mask on pool_equipment. (3) HYPOTHESIS TEST: is it the condenser's spinning fan (motion) or a static shape? Correlated 594 night person-ON edges (10-03..10-06) with each thermostat's hvac_action=cooling: ONs during cooling vs night-time cooling share = zone 2 42% vs 39%, zone 3 48% vs 46%, zone 1 29% vs 33% (lift 0.87-1.06; same with +/-5 min). 594/605 ONs are at night. READ: not tied to the compressor running -> a STATIC false positive under night IR, so masking the AC unit (your call) is the right lever and the cloth pile should go in the same mask. Caveat: which thermostat drives this condenser was not determined. (4) BLOCKED: Frigate2 (192.168.13.18) still does not answer ping at 02:01 CDT 10-08, so the mask cannot be applied tonight."
+  operator_decision_2026_10_07: "Crop out the ac unit in the pool equipment view. I think this is the problem (board instruction 2026-10-07 13:11, posted on the waiting-lane sweep feed entry that reported the pool-equipment phantom counts)"
   remeasured_2026_10_07_overnight: "Full re-measure (due 10-07): binary_sensor.pool_equipment_person_occupancy_2 ON events, night 19:00-07:00 CDT: 10-04/05 = 178, 10-05/06 = 127 (to 00:30Z, when Frigate2 still ran); daytime 10-05 = 2. So the DO (clear the cloth pile / mask pool_equipment) is not done or did not help. Further nights cannot be measured until Frigate2 is back on the network (off since 10-06 02:08 CDT, PERIMETER-DETECTION-WENT-DARK-1). Source: ssh-proxied HA /api/history."
   interim_2026_10_05_overnight: "INTERIM re-measure (full one due ~10-07): pool_equipment Frigate2 person ONs are still nightly and heavy - night 10-03/04 (19:00-07:00 CDT) ~297, night 10-04/05 ~113 by 02:00 CDT, near-zero in daytime. So the DO (clear the cloth pile / mask pool_equipment on Frigate2) does not look done yet, or did not help. Source: ssh-proxied HA /api/history, binary_sensor.pool_equipment_person_occupancy_2."
   measured_2026_10_04_overnight: "ANSWERED BY DATA: the earlier drop was NOT a fix. It coincided with Frigate2 object detection being dark (10-01 ~16:00 -> 10-03 ~07:00 CDT, see PERIMETER-DETECTION-WENT-DARK-1). Since detection returned, binary_sensor.pool_equipment_person_occupancy_2 fired 133 times on 10-03 (53 of them 22:00-06:00) and 28 more between 00:00 and 02:11 CDT 10-04, against 8-16/day on 09-27..09-29. URA notification_log: pool_equipment raised 18 CRITICAL perimeter alerts tonight between 21:02 and 00:53 CDT, each delivered on companion + iMessage + Pushover + WhatsApp, plus 13 HIGH (companion) 17:34-20:54 CDT. No CRITICAL from it after 00:53 CDT (later rows LOW). Not changed by the overnight pass (camera config is homelab-side and outward-facing)."
@@ -9686,8 +9623,8 @@ cards:
     across NVRs
   thread: security
   rank: {value: 7, time_criticality: 4, effort: 13}
-  status: waiting_operator
-  updated: "2026-10-07 02:45"
+  status: "waiting_me"
+  updated: "2026-10-08 02:10"
   verify_2026_09_27: 'RE-VERIFIED STILL BLOCKED (overnight 2026-09-27 02:01): Frigate2 is still off the network (no ping, ARP incomplete, all _2 person_occupancy unavailable since 09-25 19:18), so fresh alerts cannot be hand-traced across NVRs. No work done. Unblocks when PERIMETER-DETECTION-WENT-DARK-1 clears.'
   verify_2026_09_12: 'INVESTIGATE-flagged -> MEASURE complete (Tier-3, do-NOT-build-B-alone CONFIRMED). notification_log hazard_type=exterior_person 30d: 4662 alerts/mo (~155/day!), CRITICAL 1824 / HIGH 2438. Single-vs-corroborated (different cam within +/-20s): ~86.8% SINGLE-source (CRIT 91.4%, HIGH 81.2%). BUT the split is a camera-COVERAGE artifact NOT a phantom signal: single-source concentrates in structurally-uncorroboratable cams — front_side_ptz 1065/1127 (94%), pool_equipment, back_yard, hot_tub (Frigate-2-only, no overlapping cam) — and front_side_ptz is the SAME cam that caught the operator REAL garage walk-in. A blanket demote-single->LOW would floor ~87% of alerts incl. genuine approach detections. So B-alone is UNSAFE (confirms the operator fence). Real levers: A (at-detection snapshot timing) + per-camera street-masking/detection-tuning + track-linker spatial confidence for single-NVR cams; cross-NVR demote only meaningful for the few multi-NVR-overlap cams. ASIDE: 155/day exterior_person + ~75 unacked CRITICAL re-pages (NM-REPAGE) = a real ALERT-FATIGUE surface worth its own look. NEXT -> operator: this stays measure-only/parked per the Tier-3 fence; the volume/fatigue finding may deserve a separate card.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -9726,7 +9663,7 @@ cards:
     >=2 root causes (phantom vs real-person-late-snapshot). The scoped cross-NVR severity-demote would
     WRONGLY demote real late-snapshot events like this one. Operator: "hand examine this again." Fix direction
     may be snapshot PRE-ROLL / capture-at-detection-timestamp, not (only) corroboration.'
-  next: "DO (config-first, no code): clear or move the cloth pile in the pool-equipment enclosure, or add a Frigate2 mask/zone on pool_equipment. The 'drop' I asked about was Frigate2 being dark, and the phantoms are back (below). -> I re-measure night-time pool_equipment detections and pages 3 nights later. PICK (unchanged) the cross-check option for the code side; Tier 3, no build without your go."
+  next: "ME (operator-approved 10-07): when Frigate2 is back on the network, back up its config.yaml, add a person object-filter mask on pool_equipment covering the AC condenser (0.03,0.74 -> 0.25,1.0) AND the cloth pile (0.26,0.48 -> 0.34,0.60), checking the mask syntax against the running Frigate 0.17 docs first, restart Frigate, snapshot the config into homelab configs/snapshots/frigate2/, then re-count night person ONs on binary_sensor.pool_equipment_person_occupancy_2 (baseline 127-297/night). Success = under 10/night. If it stays high, the cause is something else in frame."
   refs:
   - custom_components/universal_room_automation/perimeter_alert.py
   - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
@@ -30874,13 +30811,16 @@ cards:
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   sweep_2026_10_05: 'Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.'
 - id: CENSUS-ATHOME-RESIDENT-CORROBORATOR-1
+  parsimony: {problem: "unnamed garage crossings by residents whose phone never leaves home are counted as possible visitors", verdict: SIMPLIFY}
+  measured_2026_10_08_overnight: "CONFIRMED (garage) / REFUTED-AS-USEFUL (front door). PRIOR ART per your pointer: URA's room-to-room layer already exists. TransitionDetector (transitions.py:38; listener API async_add_listener :150, DB read get_recent_transitions :675) writes per-person room moves to the room_transitions table (362,664 rows since 2026-01-04, live through 10-08 01:59). The hierarchical-memory facade is meant to expose the same data as each room's physical neighbours (memory_facade.py:_compose_locality :874-907, self_neighbors), but that cache is still unpopulated in Stage 1. So no new door-to-room config map is needed: the adjacency can be read from room_transitions. MEASUREMENT (URA DB, 09-30 -> 10-08; person_entry_exit_events timestamps are UTC, calibrated by hit rate): for each unnamed crossing, did any resident (Oji / Ezinne / Jaya) have a room move into or out of the door-side rooms within +/-60 s? GARAGE (rooms Garage A + Kitchen Hallway Garage): 66/110 = 60% vs 10% at random times and 10% at the same clock time on other days = 6x lift (72% at +/-120 s). FRONT (Foyer + Receiving Room, cameras doorbell_lite / madrone_g6_entry / front_door_aerial): 44% vs 21-30% base, under 2x lift, because those rooms are busy, so it is not a usable voucher. Caveats: crossing rows double-log across camera legs (garage_a_person_count + garage_a_person_occupancy_2), so 110 is rows, not episodes; a visitor walking through the garage while a resident is in it would be mis-vouched (rare on this house, not measured)."
+  operator_decision_2026_10_07: "See if there is infrastructure in room memory that allows us to do this more efficiently. The idea is that memory allows room to room communication and optimization (board instruction 2026-10-07 13:19)"
   prior_art_2026_10_07_overnight: "PRIOR-ART SCAN DONE (read-only agent, develop 750cc06ab; orchestrator spot-read of the cited symbols pending at plan time). REUSE: per-person BLE room with freshness = person_coordinator.data[person] (location / tracking_status / last_bermuda_update; STALE handling person_coordinator.py:608-616, STALE_THRESHOLD_SECONDS const.py:240); census already turns it into a freshness-gated per-area resident count, camera_census.py:2809 _ble_home_by_area (+ room->area map :2480). MISSING: a door -> adjacent interior room/area map - CONF_DOOR_GROUPS (const.py:2735) and CONF_DOOR_INTERIOR_NEIGHBOURS (const.py:2739, used transit_validator.py:1113-1128 / _get_interior_cameras_near :2187) map door to interior CAMERAS; a route exists door_group -> interior camera -> CameraInfo.area_id (camera_census.py:158) -> _ble_home_by_area. NOT COVERED TODAY: egress identity JOIN is face-only (transit_validator.py:1357 _resolve_egress_face_identity; its only phone check is the not_home veto :1835-1850), and BLE crossing attribution (camera_census.py:4113, registered :4582) needs a home<->not_home edge, which a phone that stays home never makes. Manual (IDENTITY_FUSION_CAMERAS_MANUAL.md §6 gap table) does not list this gap - add it at plan time. Verdict: buildable as a small extension at the transit_validator crossing-resolve step, IF the side door's adjacent room is BLE-resolvable (undetermined - that is the measurement)."
   groomed_2026_10_05_overnight: "Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRESS-BLE-ENTRY-ATTACH-1 refutation), so the true at-home-resident residual can only be sized after D1 ships."
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
   thread: census
-  status: "investigating"
+  status: "pre_planning"
   created: '2026-10-05 02:22'
-  updated: "2026-10-07 03:05"
+  updated: "2026-10-08 02:20"
   refinement_status: "refined"
   tags: [tier-2, measure-before-build, institutional-context]
   rank: {value: 4, time_criticality: 2, effort: 5}
@@ -30892,7 +30832,7 @@ cards:
      estimator clears at the next empty-house window.'
   origin: {date: '2026-10-04', gist: 'PLANNING_census_inputs_first.md R2.3 item 4 / Path alpha-beta; listed as to-mint in the 10-04 resume memo'}
   why: 'Budget of ~3-4 unattributable episodes/day (front porch bursts + the 12:38-12:42 garage_a cluster on 10-03).'
-  next: "PLAN (me, Tier 2, after CENSUS-INPUTS-FIRST-1 D2+ settles): measure first - per side door (front porch, garage_a), is the adjacent interior room BLE-direct (is_room_direct_ble) and how often is a resident ACTIVE there in the 60 s before an unnamed crossing (replay over last week's census door events). If the hit rate is useful, plan the small extension below; if the adjacent room is not BLE-resolvable, close as the accepted Path-beta gap."
+  next: "PLAN (me, Tier 2 elevated to 3 framing-disjoint reviews because census feeds guest mode): GARAGE ONLY. At an unnamed garage_a crossing, vouch it as resident when room_transitions (via TransitionDetector, REUSE) shows a resident moving into or out of Garage A / Kitchen Hallway Garage within a knob window (default 60 s, Number rung). Learn the door-side rooms from room_transitions rather than adding a config map. Leave the front door as the accepted gap. Plan review before build; the plan must state what a mis-vouched visitor would look like in census_snapshots."
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
@@ -30974,14 +30914,17 @@ cards:
     context: 'Interior over-count input defect found in the same footage audit.'
   sweep_2026_10_05: 'Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.'
 - id: EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1
+  parsimony: {problem: "manager path can turn grid-charging on up to 5 min before the EV pause", verdict: PARK}
+  value_check_2026_10_08_overnight: "VALUE MEASURED (HA recorder via REST, 09-29 -> 10-08). EV + grid-charge-switch-ON overlaps are common and long, not 5-minute: 4h33m total over 8 days with an EV over 3 kW while switch.enpower_482348004678_charge_from_grid read on (10-05 01:16-03:17 = 122 min, 10-06 01:13-02:57 = 103 min, 09-30 13:37-14:00 = 23 min, plus about 10 short ones on 10-01). The breaker load in those windows was LOW: the battery was barely charging (envoy current_battery_discharge -0.04 to -0.11 kW on 10-05/10-06), and the WORST window (09-30 daytime, battery charging up to 8.6 kW with the EV at 12.2 kW) peaked at 16.2 kW site load (sensor.span_panel_current_power) against 200 A mains (sensor.span_left/right_main_breaker_rating) = about 34% of the mains. The Envoy's own binary_sensor..._pcs_ev_charger_main_breaker_trip_avoidance never turned on. VERDICT: PARK. The 5-minute ordering gap has no measured breaker cost; the operator's read stands. RESIDUAL (recorded, not carded): the docstring's second rule (no EV running while charge-from-grid is on in hardware, energy.py:7056-7058) is NOT holding in practice; it looks harmless because the switch can be on while the battery is not drawing, but it means the guard is not the protection people think it is."
+  operator_decision_2026_10_07: "Check on value. 5 mins not that deep. (board instruction 2026-10-07 13:22)"
   traced_2026_10_07_overnight: "CONFIRMED in code (read-only trace, develop 750cc06ab; orchestrator did not re-run a mutation, this is a read). Manager path: CoordinatorManager -> energy.evaluate() (energy.py:1331) -> check_period_transition (1344) -> _evaluate_battery (1349, def 6969) RETURNS ServiceCallActions incl. the CFG switch.turn_on (7009-7038, ledger stamp 7021-7024) with NO EV pause and without _execute_breaker_safe_dispatch. Timer path: _execute_breaker_safe_dispatch (7042-7230) pauses EVs FIRST (pause_reason='breaker' 7173-7174, dispatched 7193-7201) then CFG (7208) - invariant stated in its docstring 7053-7058. Existing guard _ev_start_hold_label (7333-7348) blocks EV STARTS only, never pauses a running EV. Exposure: until the next timer tick pauses the EV - worst case one decision interval (DEFAULT_DECISION_INTERVAL_MINUTES=5, energy_const.py:183); possibly seconds if the TOU boundary tick lands first (ordering vs the manager's evaluate not determined). Grid-import cost = EV kW x battery grid-charge kW overlap for <=5 min per off-peak onset."
   paged_2026_10_05_overnight: "Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone)."
   search_2026_10_05_overnight: "Searched develop, feature/ec-degraded-data-p1, every .claude/worktrees/*/docs/reviews and the memory dir for the EC p1 D-MED-2 text: not found (the D-MED-2 hits are other cycles: arrester comfort delay, DP drain target, ec blind-window guard v5.28.0). Only the 10-04 resume memo mentions it. Cannot verify the claim without the source -> operator ANSWER."
   title: On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1)
   thread: energy
-  status: "waiting_operator"
+  status: "parked"
   created: '2026-10-05 02:22'
-  updated: "2026-10-07 02:40"
+  updated: "2026-10-08 02:10"
   refinement_status: initial
   tags: [tier-3, no-fabrication-verify]
   rank: {value: 6, time_criticality: 3, effort: 8}
@@ -30992,7 +30935,7 @@ cards:
      the main path.'
   origin: {date: '2026-10-04', gist: '"Card still to mint: manager-path TOU CFG-ON-before-EV-pause (D-MED-2)" - 10-04 resume memo'}
   why: 'Breaker-safety ordering (cf. arbitrage ladder review B-CRIT-1, grid-on before EV pause). CAPTURE NOTE: the 10-05 overnight pass could NOT find the D-MED-2 text in any review record on develop, feature/ec-degraded-data-p1 or its worktree - the exact site is unverified; this card holds the memo claim only.'
-  next: "APPROVE (Tier 3, your checkpoint): fix the manager path so EV breaker-pause actions are returned AHEAD of the charge-from-grid ON action in _evaluate_battery (energy.py:7009-7038), reusing self._ev.determine_arbitrage_actions(..., pause_reason='breaker') - the same pause the timer path already issues first (energy.py:7173-7201). -> I write the Tier-3 plan (two plan reviews) and build it with four framing-disjoint reviews. Your earlier ANSWER about the D-MED-2 wording is no longer needed: the v5.103.39 README states the residual and the code confirms it (below)."
+  next: "PARKED 2026-10-08 (low value per your call + measurement). REVIVE IF site load during an EV + grid-charge overlap exceeds about 30 kW (sensor.span_panel_current_power), the Envoy trip-avoidance sensor ever turns on, or a bigger EVSE/battery is added. On revival, fix BOTH the 5-minute manager-path ordering and the second (resume-side) rule together."
   refs: [memory project_session_pickup_2026_10_04, docs/reviews/code-review/arbitrage_solar_attainability_ladder.md B-CRIT-1]
   links:
     related: [EC-DEGRADED-DATA-POLICY-1]
@@ -31044,11 +30987,13 @@ cards:
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
+  checked_2026_10_08_overnight: "Lock still unavailable at 02:05 CDT 10-08 (REST: state unavailable, restored, last_changed 10-06 19:41Z), so the batteries have not been swapped yet. ON THE SWEEP QUESTION (read security.py:1668-1760, _evaluate_lock_check): URA's periodic lock check only READS the HA state. It sends no Z-Wave traffic unless it finds the lock unlocked, when it sends one lock.lock. So the sweep itself should not drain batteries; repeated lock.lock commands could. compliance_log has no front-lock rows after 2026-05-08, so past command counts cannot be measured from the URA DB. A drain measurement is only possible after the swap. Z-Wave controller move noted as your resilience idea (not carded; it is a physical/homelab change)."
+  operator_decision_2026_10_07: "Yes the locks are dead battery for front door. It ran down quick, not sure if that's repeated sweeps doing that. I'll change and you can measure. Also thinking of moving to the other z wave controller since that's Poe and can be moved (resilience) (board instruction 2026-10-07 13:21)"
   title: The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery
   status: waiting_operator
   thread: security
   created: '2026-10-07 03:05'
-  updated: '2026-10-07 03:05'
+  updated: "2026-10-08 02:20"
   refinement_status: initial
   problem_solution:
   - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'
@@ -31066,7 +31011,7 @@ cards:
   parsimony: {problem: 'front-entry lock entities unavailable >= 8 days (whole recorder window)', verdict: BUILD}
   sweep_2026_10_07: 'Swept board, history, BACKLOG for kwikset / zwave / front lock / periodic lock check: no card. Possibly ADJACENT to the gap that sensor.<room>_unavailable_entities does not track actuators (CLAUDE.md troubleshooting step 2) - a dead lock is invisible except for one log line. NEW.'
   rank: {value: 6, time_criticality: 5, effort: 1}
-  next: 'DO: replace / check the front-door lock batteries, then (if still dead) open Z-Wave JS and Ping or Re-interview the lock node. -> I confirm lock.doorlock_kwikset_zwave_frontentry reads locked/unlocked and its battery sensor reports, then close this card.'
+  next: "DO: swap the front-door lock batteries (Z-Wave controller move optional, your call). -> I then measure: battery % slope per week on the lock's battery sensor, plus how many lock.lock commands URA and other automations send it (recorder logbook), and say whether anything is draining it faster than normal (Kwikset is roughly 6-12 months on a set)."
   refs:
   - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
 parked:
