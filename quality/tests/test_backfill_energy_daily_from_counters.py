@@ -154,13 +154,17 @@ def test_resolve_metadata_id(recorder):
 
 def test_statistics_sum_at_boundary_exact(recorder, tz):
     b = _dt.datetime(2026, 7, 2, 0, 0, tzinfo=tz)
-    assert mod._statistics_sum_at_boundary(recorder, 1, b) == 1010.0
+    val, kind = mod._statistics_sum_at_boundary(recorder, 1, b)
+    assert val == 1010.0
+    assert kind == "exact"
 
 
 def test_statistics_sum_at_boundary_missing_returns_none(recorder, tz):
     # offset=3 was skipped for both counters.
     b = _dt.datetime(2026, 7, 4, 0, 0, tzinfo=tz)
-    assert mod._statistics_sum_at_boundary(recorder, 1, b) is None
+    val, kind = mod._statistics_sum_at_boundary(recorder, 1, b)
+    assert val is None
+    assert kind == "missing"
 
 
 def test_daily_delta_basic():
@@ -294,3 +298,234 @@ def test_fmt_num_no_concatenation():
 
 def test_fmt_num_none():
     assert mod._fmt_num(None).strip() == "—"
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL: one-sided None must not clobber a live column.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_writes_one_sided_none_preserves_other_column(tmp_path):
+    """repro from reviewer: existing import=10, export=1; a backfill row
+    (import=None, export=2.0) must NOT write import=0.0 — it must leave
+    import at 10 and update only export."""
+    ura_path = tmp_path / "ura.db"
+    conn = sqlite3.connect(ura_path)
+    conn.executescript(URA_ENERGY_DAILY_DDL)
+    conn.execute(
+        "INSERT INTO energy_daily (date, import_kwh, export_kwh) "
+        "VALUES ('2026-07-01', 10.0, 1.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    row = mod.DayRow(
+        date="2026-07-01", import_kwh=None, export_kwh=2.0, source="recorder",
+    )
+    ura = sqlite3.connect(ura_path)
+    existing = mod._read_existing(ura, ["2026-07-01"])
+    ura.close()
+    mod._apply_writes(str(ura_path), [row], existing, force_overwrite=False)
+
+    conn = sqlite3.connect(ura_path)
+    r = conn.execute(
+        "SELECT import_kwh, export_kwh, billing_source FROM energy_daily "
+        "WHERE date='2026-07-01'"
+    ).fetchone()
+    conn.close()
+    assert r == (10.0, 2.0, "recorder_backfill")
+
+
+def test_apply_writes_one_sided_none_insert_leaves_null(tmp_path):
+    """INSERT path for a brand-new row with export=None must leave
+    export_kwh NULL (not 0.0)."""
+    ura_path = tmp_path / "ura.db"
+    conn = sqlite3.connect(ura_path)
+    conn.executescript(URA_ENERGY_DAILY_DDL)
+    conn.commit()
+    conn.close()
+    row = mod.DayRow(
+        date="2026-07-01", import_kwh=5.0, export_kwh=None, source="recorder",
+    )
+    mod._apply_writes(str(ura_path), [row], existing={}, force_overwrite=False)
+    conn = sqlite3.connect(ura_path)
+    r = conn.execute(
+        "SELECT import_kwh, export_kwh FROM energy_daily WHERE date='2026-07-01'"
+    ).fetchone()
+    conn.close()
+    assert r == (5.0, None)
+
+
+# ---------------------------------------------------------------------------
+# HIGH: tz is DST-aware; boundaries land at TRUE local midnight across
+# both DST transitions. 2026-03-08 (spring forward: 23h day),
+# 2026-11-01 (fall back: 25h day) in America/Chicago.
+# ---------------------------------------------------------------------------
+
+
+def _mk_recorder_with_midnight_rows(tz_name: str, dates_sums: dict):
+    """Build a recorder with one 'sum' row per listed local-midnight date.
+    Keys are ISO-date strings in the TZ."""
+    from zoneinfo import ZoneInfo
+    conn = sqlite3.connect(":memory:")
+    for stmt in RECORDER_DDL.strip().split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+    conn.execute(
+        "INSERT INTO statistics_meta (id, statistic_id, source, "
+        "unit_of_measurement, has_sum, mean_type) VALUES "
+        "(1, ?, 'recorder', 'kWh', 1, 0), (2, ?, 'recorder', 'kWh', 1, 0)",
+        (IMPORT_ENTITY, EXPORT_ENTITY),
+    )
+    tz = ZoneInfo(tz_name)
+    for iso, s in dates_sums.items():
+        d = _dt.date.fromisoformat(iso)
+        midnight = _dt.datetime.combine(d, _dt.time.min, tzinfo=tz)
+        conn.execute(
+            "INSERT INTO statistics (metadata_id, start_ts, state, sum) "
+            "VALUES (1, ?, ?, ?)",
+            (midnight.timestamp(), 0.0, s),
+        )
+        conn.execute(
+            "INSERT INTO statistics (metadata_id, start_ts, state, sum) "
+            "VALUES (2, ?, ?, ?)",
+            (midnight.timestamp(), 0.0, s / 10.0),
+        )
+    conn.commit()
+    return conn
+
+
+def test_dst_spring_forward_boundary_lands_at_local_midnight():
+    """America/Chicago spring-forward: 2026-03-08 is a 23h day. The
+    boundary at 2026-03-09 00:00 local must be EXACTLY 23*3600s after
+    2026-03-08 00:00 local, and we must find the row written at
+    local-midnight (not UTC-midnight)."""
+    from zoneinfo import ZoneInfo
+    rec = _mk_recorder_with_midnight_rows(
+        "America/Chicago",
+        {"2026-03-07": 100.0, "2026-03-08": 110.0, "2026-03-09": 123.0},
+    )
+    tz = ZoneInfo("America/Chicago")
+    b_before = _dt.datetime(2026, 3, 8, 0, 0, tzinfo=tz)
+    b_after = _dt.datetime(2026, 3, 9, 0, 0, tzinfo=tz)
+    # Verify the 23-hour day.
+    assert b_after.timestamp() - b_before.timestamp() == 23 * 3600
+    val_before, kind_before = mod._statistics_sum_at_boundary(rec, 1, b_before)
+    val_after, kind_after = mod._statistics_sum_at_boundary(rec, 1, b_after)
+    assert kind_before == "exact" and kind_after == "exact"
+    assert val_before == 110.0 and val_after == 123.0
+
+    rows = mod.compute_rows(
+        rec, IMPORT_ENTITY, EXPORT_ENTITY,
+        _dt.date(2026, 3, 7), _dt.date(2026, 3, 8), tz="America/Chicago",
+    )
+    by = {r.date: r for r in rows}
+    assert by["2026-03-07"].import_kwh == 10.0
+    assert by["2026-03-08"].import_kwh == 13.0  # 23h day, sum - sum
+
+
+def test_dst_fall_back_boundary_lands_at_local_midnight():
+    """America/Chicago fall-back: 2026-11-01 is a 25h day."""
+    from zoneinfo import ZoneInfo
+    rec = _mk_recorder_with_midnight_rows(
+        "America/Chicago",
+        {"2026-10-31": 200.0, "2026-11-01": 215.0, "2026-11-02": 245.0},
+    )
+    tz = ZoneInfo("America/Chicago")
+    b_before = _dt.datetime(2026, 11, 1, 0, 0, tzinfo=tz)
+    b_after = _dt.datetime(2026, 11, 2, 0, 0, tzinfo=tz)
+    assert b_after.timestamp() - b_before.timestamp() == 25 * 3600
+
+    rows = mod.compute_rows(
+        rec, IMPORT_ENTITY, EXPORT_ENTITY,
+        _dt.date(2026, 10, 31), _dt.date(2026, 11, 1), tz="America/Chicago",
+    )
+    by = {r.date: r for r in rows}
+    assert by["2026-10-31"].import_kwh == 15.0
+    assert by["2026-11-01"].import_kwh == 30.0  # 25h day, sum - sum
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM: unit scaling (kWh pass-through, Wh scaled, unknown refuses).
+# ---------------------------------------------------------------------------
+
+
+def _mk_unit_recorder(unit: str):
+    conn = sqlite3.connect(":memory:")
+    for stmt in RECORDER_DDL.strip().split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+    conn.execute(
+        "INSERT INTO statistics_meta (id, statistic_id, source, "
+        "unit_of_measurement, has_sum, mean_type) VALUES "
+        "(1, ?, 'recorder', ?, 1, 0), (2, ?, 'recorder', 'kWh', 1, 0)",
+        (IMPORT_ENTITY, unit, EXPORT_ENTITY),
+    )
+    return conn
+
+
+def test_resolve_metadata_kwh_scale_one():
+    conn = _mk_unit_recorder("kWh")
+    r = mod._resolve_metadata(conn, IMPORT_ENTITY)
+    assert r is not None and r[1] == 1.0
+
+
+def test_resolve_metadata_wh_scale_thousandth():
+    conn = _mk_unit_recorder("Wh")
+    r = mod._resolve_metadata(conn, IMPORT_ENTITY)
+    assert r is not None and r[1] == 0.001
+
+
+def test_resolve_metadata_unknown_unit_refused(capsys):
+    conn = _mk_unit_recorder("MJ")
+    r = mod._resolve_metadata(conn, IMPORT_ENTITY)
+    assert r is None
+    err = capsys.readouterr().err
+    assert "unknown unit" in err
+
+
+def test_compute_rows_scales_wh_to_kwh(tz):
+    """A Wh-reporting counter with sum deltas in Wh must be returned in
+    kWh (×0.001)."""
+    conn = sqlite3.connect(":memory:")
+    for stmt in RECORDER_DDL.strip().split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+    conn.execute(
+        "INSERT INTO statistics_meta (id, statistic_id, source, "
+        "unit_of_measurement, has_sum, mean_type) VALUES "
+        "(1, ?, 'recorder', 'Wh', 1, 0), (2, ?, 'recorder', 'kWh', 1, 0)",
+        (IMPORT_ENTITY, EXPORT_ENTITY),
+    )
+    day0 = _dt.date(2026, 7, 1)
+
+    def midnight(d):
+        return _dt.datetime.combine(d, _dt.time.min, tzinfo=tz).timestamp()
+
+    # import counter: Wh — sum goes 1_000_000 → 1_010_000 → 1_030_000
+    # (i.e. 10 kWh then 20 kWh)
+    for offset, s in enumerate([1_000_000.0, 1_010_000.0, 1_030_000.0]):
+        d = day0 + _dt.timedelta(days=offset)
+        conn.execute(
+            "INSERT INTO statistics (metadata_id, start_ts, state, sum) "
+            "VALUES (1, ?, 0.0, ?)",
+            (midnight(d), s),
+        )
+    # export counter: kWh — 100 → 101 → 103
+    for offset, s in enumerate([100.0, 101.0, 103.0]):
+        d = day0 + _dt.timedelta(days=offset)
+        conn.execute(
+            "INSERT INTO statistics (metadata_id, start_ts, state, sum) "
+            "VALUES (2, ?, 0.0, ?)",
+            (midnight(d), s),
+        )
+    conn.commit()
+    rows = mod.compute_rows(
+        conn, IMPORT_ENTITY, EXPORT_ENTITY,
+        _dt.date(2026, 7, 1), _dt.date(2026, 7, 2), tz=tz,
+    )
+    by = {r.date: r for r in rows}
+    assert by["2026-07-01"].import_kwh == 10.0  # 10_000 Wh → 10 kWh
+    assert by["2026-07-02"].import_kwh == 20.0  # 20_000 Wh → 20 kWh
+    assert by["2026-07-01"].export_kwh == 1.0   # already kWh
+    assert by["2026-07-02"].export_kwh == 2.0

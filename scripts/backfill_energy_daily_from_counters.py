@@ -53,6 +53,12 @@ import datetime as _dt
 import sqlite3
 import sys
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+DEFAULT_TZ = "America/Chicago"
+# Known kWh unit spellings in HA statistics_meta.unit_of_measurement.
+_KWH_UNITS = {"kwh", "kWh".lower()}
+_WH_UNITS = {"wh", "Wh".lower()}
 
 
 # Window (seconds) around the exact local-midnight boundary within which
@@ -78,28 +84,53 @@ def _iter_dates(start: _dt.date, end: _dt.date):
         cur += _dt.timedelta(days=1)
 
 
-def _resolve_metadata_id(
+def _resolve_metadata(
     conn: sqlite3.Connection, entity_id: str
-) -> int | None:
+) -> tuple[int, float] | None:
+    """Return (metadata_id, unit_scale_to_kwh) for `entity_id`.
+
+    unit_scale: 1.0 for kWh, 0.001 for Wh. Unknown units → refuse
+    (return None) so we never silently publish 1000x values.
+    """
     try:
         cur = conn.execute(
-            "SELECT id FROM statistics_meta WHERE statistic_id = ?",
+            "SELECT id, unit_of_measurement FROM statistics_meta "
+            "WHERE statistic_id = ?",
             (entity_id,),
         )
         row = cur.fetchone()
-        return int(row[0]) if row else None
+        if not row:
+            return None
+        unit = (row[1] or "").strip().lower()
+        if unit in _KWH_UNITS:
+            scale = 1.0
+        elif unit in _WH_UNITS:
+            scale = 0.001
+        else:
+            print(f"  WARN unknown unit {row[1]!r} for {entity_id}; "
+                  f"refusing to backfill this counter",
+                  file=sys.stderr)
+            return None
+        return (int(row[0]), scale)
     except Exception as e:  # noqa: BLE001
         print(f"  WARN statistics_meta lookup failed for {entity_id}: {e}",
               file=sys.stderr)
         return None
 
 
+# Backward-compatible shim: older tests may import _resolve_metadata_id.
+def _resolve_metadata_id(conn, entity_id):
+    r = _resolve_metadata(conn, entity_id)
+    return r[0] if r else None
+
+
 def _statistics_sum_at_boundary(
     conn: sqlite3.Connection,
     metadata_id: int,
     boundary: _dt.datetime,
-) -> float | None:
-    """Return `sum` from the statistics row aligned to `boundary`.
+) -> tuple[float | None, str]:
+    """Return (`sum`, match_kind) from the statistics row aligned to
+    `boundary`. match_kind ∈ {"exact", "fallback", "missing"}.
 
     Prefers an exact-start_ts match; falls back to the latest row within
     `BOUNDARY_WINDOW_S` seconds before the boundary (never after — we
@@ -107,7 +138,6 @@ def _statistics_sum_at_boundary(
     """
     bts = boundary.timestamp()
     try:
-        # 1. Exact boundary.
         cur = conn.execute(
             "SELECT sum FROM statistics "
             "WHERE metadata_id = ? AND start_ts = ? AND sum IS NOT NULL",
@@ -115,9 +145,8 @@ def _statistics_sum_at_boundary(
         )
         row = cur.fetchone()
         if row is not None and row[0] is not None:
-            return float(row[0])
+            return (float(row[0]), "exact")
 
-        # 2. Nearest-prior within window.
         cur = conn.execute(
             "SELECT sum FROM statistics "
             "WHERE metadata_id = ? AND start_ts <= ? AND start_ts >= ? "
@@ -127,11 +156,11 @@ def _statistics_sum_at_boundary(
         )
         row = cur.fetchone()
         if row is not None and row[0] is not None:
-            return float(row[0])
+            return (float(row[0]), "fallback")
     except Exception as e:  # noqa: BLE001
         print(f"  WARN statistics read failed @ {boundary}: {e}",
               file=sys.stderr)
-    return None
+    return (None, "missing")
 
 
 def _daily_delta(prev_sum: float | None, next_sum: float | None) -> float | None:
@@ -172,48 +201,78 @@ def _read_existing(
     return rows
 
 
+def _coerce_tz(tz) -> _dt.tzinfo:
+    """Accept a tzinfo or an IANA name string; default = America/Chicago."""
+    if tz is None:
+        return ZoneInfo(DEFAULT_TZ)
+    if isinstance(tz, _dt.tzinfo):
+        return tz
+    try:
+        return ZoneInfo(str(tz))
+    except ZoneInfoNotFoundError as e:
+        raise SystemExit(f"ERROR: unknown timezone {tz!r}: {e}")
+
+
 def compute_rows(
     recorder_conn: sqlite3.Connection,
     import_entity: str,
     export_entity: str,
     start: _dt.date,
     end: _dt.date,
-    tz: _dt.tzinfo | None = None,
+    tz=None,
+    report_boundary_kinds: bool = False,
 ) -> list[DayRow]:
     """Pure function: compute per-day DayRow list from a recorder DB
-    connection. Factored out for testing."""
-    if tz is None:
-        tz = _dt.datetime.now().astimezone().tzinfo
-    imp_meta = _resolve_metadata_id(recorder_conn, import_entity)
-    exp_meta = _resolve_metadata_id(recorder_conn, export_entity)
-    if imp_meta is None:
-        print(f"  WARN no statistics_meta row for {import_entity}",
+    connection. Factored out for testing.
+
+    `tz`: tzinfo or IANA name (default America/Chicago). DST-aware — each
+    boundary is built via `ZoneInfo`, so days that cross a DST transition
+    land at TRUE local midnight (23h or 25h long).
+    """
+    tz = _coerce_tz(tz)
+    imp = _resolve_metadata(recorder_conn, import_entity)
+    exp = _resolve_metadata(recorder_conn, export_entity)
+    if imp is None:
+        print(f"  WARN no usable statistics_meta row for {import_entity}",
               file=sys.stderr)
-    if exp_meta is None:
-        print(f"  WARN no statistics_meta row for {export_entity}",
+    if exp is None:
+        print(f"  WARN no usable statistics_meta row for {export_entity}",
               file=sys.stderr)
+    imp_meta, imp_scale = (imp if imp else (None, 1.0))
+    exp_meta, exp_scale = (exp if exp else (None, 1.0))
 
     boundaries = [
         _dt.datetime.combine(d, _dt.time.min, tzinfo=tz)
         for d in _iter_dates(start, end + _dt.timedelta(days=1))
     ]
-    imp_sum: dict[_dt.datetime, float | None] = {}
-    exp_sum: dict[_dt.datetime, float | None] = {}
+    imp_sum: dict[_dt.datetime, tuple[float | None, str]] = {}
+    exp_sum: dict[_dt.datetime, tuple[float | None, str]] = {}
     for b in boundaries:
         imp_sum[b] = (
             _statistics_sum_at_boundary(recorder_conn, imp_meta, b)
-            if imp_meta is not None else None
+            if imp_meta is not None else (None, "missing")
         )
         exp_sum[b] = (
             _statistics_sum_at_boundary(recorder_conn, exp_meta, b)
-            if exp_meta is not None else None
+            if exp_meta is not None else (None, "missing")
         )
+        if report_boundary_kinds:
+            print(f"  boundary {b.isoformat()} import={imp_sum[b][1]} "
+                  f"export={exp_sum[b][1]}")
 
     rows: list[DayRow] = []
     for i in range(len(boundaries) - 1):
         day = boundaries[i].date().isoformat()
-        imp_d = _daily_delta(imp_sum[boundaries[i]], imp_sum[boundaries[i + 1]])
-        exp_d = _daily_delta(exp_sum[boundaries[i]], exp_sum[boundaries[i + 1]])
+        a_imp, _ = imp_sum[boundaries[i]]
+        b_imp, _ = imp_sum[boundaries[i + 1]]
+        a_exp, _ = exp_sum[boundaries[i]]
+        b_exp, _ = exp_sum[boundaries[i + 1]]
+        imp_d = _daily_delta(a_imp, b_imp)
+        exp_d = _daily_delta(a_exp, b_exp)
+        if imp_d is not None:
+            imp_d *= imp_scale
+        if exp_d is not None:
+            exp_d *= exp_scale
         src = "recorder" if (imp_d is not None or exp_d is not None) else "skip_novalue"
         rows.append(DayRow(date=day, import_kwh=imp_d, export_kwh=exp_d, source=src))
     return rows
@@ -243,24 +302,29 @@ def _apply_writes(
                 print(f"  SKIP(novalue) {row.date}")
                 continue
             if live is not None:
+                # None-PRESERVING: a one-sided None (e.g. import=None,
+                # export=1.0) MUST NOT clobber the live import_kwh value.
+                # COALESCE(?, import_kwh) keeps the live column when the
+                # bind is NULL.
                 conn.execute(
                     """
                     UPDATE energy_daily
-                       SET import_kwh = ?,
-                           export_kwh = ?,
+                       SET import_kwh = COALESCE(?, import_kwh),
+                           export_kwh = COALESCE(?, export_kwh),
                            billing_source = 'recorder_backfill'
                      WHERE date = ?
                     """,
-                    (row.import_kwh or 0.0, row.export_kwh or 0.0, row.date),
+                    (row.import_kwh, row.export_kwh, row.date),
                 )
             else:
+                # INSERT leaves the None side NULL (not 0.0).
                 conn.execute(
                     """
                     INSERT INTO energy_daily
                         (date, import_kwh, export_kwh, billing_source)
                     VALUES (?, ?, ?, 'recorder_backfill')
                     """,
-                    (row.date, row.import_kwh or 0.0, row.export_kwh or 0.0),
+                    (row.date, row.import_kwh, row.export_kwh),
                 )
         conn.commit()
     finally:
@@ -337,6 +401,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--to", dest="dto", required=True)
     p.add_argument("--apply", action="store_true", default=False)
     p.add_argument("--force-overwrite", action="store_true", default=False)
+    p.add_argument("--tz", default=DEFAULT_TZ,
+                   help=f"IANA timezone for day boundaries (default {DEFAULT_TZ}). "
+                        f"DST-aware via zoneinfo.")
+    p.add_argument("--show-boundary-kinds", action="store_true", default=False,
+                   help="Print per-boundary match kind (exact|fallback|missing).")
     args = p.parse_args(argv)
 
     start = _dt.date.fromisoformat(args.dfrom)
@@ -350,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rows = compute_rows(
             rec, args.import_entity, args.export_entity, start, end,
+            tz=args.tz,
+            report_boundary_kinds=args.show_boundary_kinds,
         )
     finally:
         rec.close()
