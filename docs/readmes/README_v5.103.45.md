@@ -1,6 +1,6 @@
 # URA v5.103.45 — Bill sensors from meter counters
 
-Tier 2-DB: plan + 2 plan re-reviews, 3 framing-disjoint build reviews (A data integrity, B lifecycle/consumers, C test authority), fix pass, orchestrator re-drill (29/29 sites caught), full-suite name-diff clean after a clock-leak test fix. Plan: docs/planning/PLANNING_ec_billing_emporia_counters.md.
+Tier 2-DB: plan + 2 plan re-reviews, 3 framing-disjoint build reviews (A data integrity, B lifecycle/consumers, C test authority), fix pass, orchestrator re-drill (29/29 sites caught), full-suite name-diff clean after a clock-leak test fix. Plan: docs/planning/PLANNING_ec_billing_emporia_counters.md. Cards: ENERGY-BILL-ACCURACY-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1 (the impossible daily rows).
 
 ## Problem
 URA's bill/cost sensors read 24–34% low against PEC bills (import 1,854 / 2,104 / 2,360 kWh vs 2,778 / 2,752 / 3,564). The bill tracker integrated the Envoy's live grid power, and every Envoy dropout lost energy permanently. Four `energy_daily` rows had impossible consumption (≈ lifetime counter × 1000) from a missing day-start value.
