@@ -787,19 +787,6 @@ def test_presence_guest_exit_still_works_while_degraded():
     assert result not in (None, HouseState.AWAY, HouseState.GUEST)
 
 
-def test_presence_degraded_flip_triggers_inference():
-    """B4: a dark→healthy transition on the signal payload triggers
-    inference immediately (change-detection block in
-    _handle_census_update picks up the camera_input_dark key)."""
-    import inspect as _insp
-    from custom_components.universal_room_automation.domain_coordinators import (
-        presence as presence_mod,
-    )
-    src = _insp.getsource(presence_mod.PresenceCoordinator._handle_census_update)
-    assert "old_camera_input_dark" in src
-    assert "old_camera_input_dark != self._census_camera_input_dark" in src
-
-
 def test_presence_alpha_veto_fires_when_camera_healthy():
     """Discriminator: same inputs, healthy camera → α-veto DOES fire.
 
@@ -825,33 +812,14 @@ def test_presence_alpha_veto_fires_when_camera_healthy():
     assert engine._veto_path == "active"
 
 
-def test_presence_handles_census_camera_input_dark_payload_key():
-    """`_handle_census_update` captures the NARROW `camera_input_dark`
-    key off the signal payload into `_census_camera_input_dark`."""
-    import inspect as _insp
-    from custom_components.universal_room_automation.domain_coordinators import (
-        presence as presence_mod,
-    )
-    src = _insp.getsource(presence_mod.PresenceCoordinator._handle_census_update)
-    assert '"camera_input_dark"' in src
-    assert "_census_camera_input_dark" in src
-
-
-def test_census_signal_payload_includes_narrow_camera_input_dark():
-    """WIRE-IN ANCHOR: SIGNAL_CENSUS_UPDATED payload carries the NARROW
-    `camera_input_dark` key (producer side) — not just degraded_mode."""
-    import inspect as _insp
-    from custom_components.universal_room_automation import camera_census as cc_mod
-    src = _insp.getsource(cc_mod)
-    assert '"camera_input_dark": bool(' in src
-    i_face = src.find('"face_recognized_count": len(_face_recognized)')
-    assert i_face >= 0
-    i_dark_in_window = src.find(
-        '"camera_input_dark"', i_face, i_face + 2000,
-    )
-    assert i_dark_in_window >= 0, (
-        "camera_input_dark not present inside SIGNAL_CENSUS_UPDATED block"
-    )
+# Review-C deletion: the former source-grep tests
+# `test_presence_handles_census_camera_input_dark_payload_key` and
+# `test_census_signal_payload_includes_narrow_camera_input_dark` were
+# removed. Their behavioral replacements are below:
+#   * census producer   → test_census_producer_latch_rises_on_fleet_unavailable_and_clears
+#                       + test_census_producer_payload_reflects_latch
+#   * presence handler  → test_handle_census_update_captures_camera_input_dark
+#                       + test_handle_census_update_dark_flip_schedules_inference
 
 
 # ---------------------------------------------------------------------------
@@ -924,13 +892,243 @@ def test_hysteresis_latch_asymmetric_band():
     assert apply_camera_input_dark_hysteresis(True, f_s2_bad) is True
 
 
-def test_shared_helper_used_in_optimizer_and_census():
-    """Both the optimizer evaluator and the census call the SAME
-    compute_camera_input_dark_frame helper (one definition)."""
-    import inspect as _insp
-    from custom_components.universal_room_automation.domain_coordinators import (
-        optimization as opt_mod,
+# ---------------------------------------------------------------------------
+# Review-C — BEHAVIORAL coverage for the census producer + presence chain.
+# These tests drive production methods end-to-end (no source greps). Each
+# is anchored to a specific mutation callout the reviewer identified.
+# ---------------------------------------------------------------------------
+
+
+def _make_census(sensors):
+    """Build a PersonCensus wired to a FakeCameraManager."""
+    from custom_components.universal_room_automation.camera_census import (
+        PersonCensus,
     )
-    from custom_components.universal_room_automation import camera_census as cc_mod
-    assert "compute_camera_input_dark_frame" in _insp.getsource(opt_mod)
-    assert "compute_camera_input_dark_frame" in _insp.getsource(cc_mod)
+    hass = _MockHass()
+    cm = _FakeCameraManager(sensors)
+    census = PersonCensus(hass, cm)
+    for s in sensors:
+        hass.states.set(s, "0")  # default available / empty
+    return census, hass, cm
+
+
+def test_census_producer_latch_rises_on_fleet_unavailable_and_clears():
+    """M2a + M2b BEHAVIORAL: driving _refresh_camera_input_dark_latch
+    against a fake 24/24 unavailable fleet latches True; recovery clears
+    (hysteresis below CLEAR + status_2 nominal).
+
+    Mutations this test is REQUIRED to catch:
+      M2a — mutate the hysteresis call to always return False → latch
+            never rises on dark.
+      M2b — call the shared helper with None in place of the camera
+            manager → denominator is 0 → dark_now False → latch never
+            rises.
+    """
+    sensors = [f"sensor.cam{i}_person_count" for i in range(24)]
+    census, hass, _ = _make_census(sensors)
+    # Initially nominal — latch is False.
+    census._refresh_camera_input_dark_latch()
+    assert census._camera_input_dark_latched is False
+
+    # Fleet goes dark → latch rises.
+    _set_all(hass, sensors, "unavailable")
+    census._refresh_camera_input_dark_latch()
+    assert census._camera_input_dark_latched is True
+
+    # Full recovery below CLEAR, status_2 nominal → latch clears.
+    _set_all(hass, sensors, "0")
+    census._refresh_camera_input_dark_latch()
+    assert census._camera_input_dark_latched is False
+
+
+def test_census_producer_payload_reflects_latch():
+    """M2c BEHAVIORAL: _build_census_signal_payload emits
+    camera_input_dark that reflects _camera_input_dark_latched. Mutating
+    the payload value to a hardcoded False falsifies this test."""
+    sensors = [f"sensor.cam{i}_person_count" for i in range(3)]
+    census, hass, _ = _make_census(sensors)
+    # Dummy house/property result stubs with the attrs the method reads.
+    class _R:
+        total_persons = 0
+        identified_count = 0
+        unidentified_count = 0
+        confidence = "none"
+        source_agreement = "single_source"
+        degraded_mode = False
+        peak_held = False
+
+    house = _R()
+    prop = _R()
+
+    # Latch True → payload True.
+    census._camera_input_dark_latched = True
+    p = census._build_census_signal_payload(
+        house, prop, 0, 0, 0, "2026-10-09T00:00:00",
+    )
+    assert p["camera_input_dark"] is True
+
+    # Latch False → payload False.
+    census._camera_input_dark_latched = False
+    p = census._build_census_signal_payload(
+        house, prop, 0, 0, 0, "2026-10-09T00:00:00",
+    )
+    assert p["camera_input_dark"] is False
+
+
+def test_zero_denominator_with_status2_unavailable_is_not_dark():
+    """M4 BEHAVIORAL: empty camera list + sensor.frigate_status_2
+    'unavailable' → dark_now False. The zero-denominator guard
+    protects Protect-only houses even when the auxiliary trigger is
+    bad. A mutation that drops the `denominator > 0` guard falsifies
+    this test."""
+    from custom_components.universal_room_automation.camera_census import (
+        compute_camera_input_dark_frame,
+    )
+    hass = _MockHass()
+    hass.states.set("sensor.frigate_status_2", "unavailable")
+    frame = compute_camera_input_dark_frame(hass, _FakeCameraManager([]))
+    assert frame.denominator == 0
+    assert frame.status2_bad is True
+    assert frame.dark_now is False, (
+        "zero-denominator must guard dark_now False even if status_2 bad"
+    )
+
+
+def test_dwell_discriminator_200s_no_fire_280s_fires():
+    """M11 BEHAVIORAL: dwell gating is real.
+      * _since = now-200s → NO finding (200 < 270 dwell).
+      * _since = now-280s → EXACTLY ONE finding (280 > 270 dwell).
+    Mutating `if dwell < CAMERA_INPUT_DEGRADED_DWELL_S` to `if False`
+    (or inverting the comparison) falsifies this test."""
+    from homeassistant.util import dt as _dt
+    sensors = [f"sensor.cam{i}_person_count" for i in range(24)]
+    coord, hass = _coord(sensors=sensors, status2="running")
+    _set_all(hass, sensors, "unavailable")
+
+    # Dwell = 200s (< 270): no fire.
+    coord._camera_input_dark_since = _dt.utcnow() - timedelta(seconds=200)
+    out = coord._evaluate_camera_input_dark_dimension()
+    assert out == [], "200s dwell is below threshold — must not fire"
+
+    # Dwell = 280s (> 270): fires exactly once.
+    coord._camera_input_dark_fired = False
+    coord._camera_input_dark_since = _dt.utcnow() - timedelta(seconds=280)
+    out = coord._evaluate_camera_input_dark_dimension()
+    assert len(out) == 1, "280s dwell exceeds threshold — must fire"
+
+
+# ---------------------------------------------------------------------------
+# Presence chain — behavioral.
+# ---------------------------------------------------------------------------
+
+
+def _presence_coord():
+    """Build a lightly-mocked PresenceCoordinator ready to drive
+    _handle_census_update + _run_inference."""
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    hass.states = MagicMock()
+    hass.states.async_all.return_value = []
+    hass.states.get = lambda eid: None
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries.return_value = []
+    hass.bus = MagicMock()
+    scheduled = []
+    hass.async_create_task = lambda coro: (
+        scheduled.append(coro) or (coro.close() if hasattr(coro, "close") else None)
+    )
+    coord = PresenceCoordinator(hass)
+    hass.data["universal_room_automation"]["coordinator_manager"] = MagicMock()
+    coord._enabled = True
+    return coord, hass, scheduled
+
+
+def test_handle_census_update_captures_camera_input_dark():
+    """M7 BEHAVIORAL: _handle_census_update sets
+    _census_camera_input_dark from the payload."""
+    coord, hass, scheduled = _presence_coord()
+    coord._census_camera_input_dark = False
+    coord._handle_census_update({
+        "interior_count": 0, "unidentified_count": 0,
+        "confidence": "none",
+        "camera_input_dark": True,
+    })
+    assert coord._census_camera_input_dark is True
+
+    # Paired False case: a False payload clears the flag.
+    coord._handle_census_update({
+        "interior_count": 0, "unidentified_count": 0,
+        "confidence": "none",
+        "camera_input_dark": False,
+    })
+    assert coord._census_camera_input_dark is False
+
+
+def test_handle_census_update_dark_flip_schedules_inference():
+    """M9 BEHAVIORAL: a flip of camera_input_dark schedules
+    _run_inference even when counts are unchanged. Removing the
+    `old_camera_input_dark != ...` clause from the change-detection
+    predicate falsifies this test."""
+    coord, hass, scheduled = _presence_coord()
+    # Seed the handler so counts match on the next call (change-only path).
+    coord._census_count = 0
+    coord._unidentified_count = 0
+    coord._census_confidence = "none"
+    coord._census_camera_input_dark = False
+    scheduled.clear()
+    # Payload with SAME counts/confidence but FLIPPED camera_input_dark.
+    coord._handle_census_update({
+        "interior_count": 0, "unidentified_count": 0,
+        "confidence": "none",
+        "camera_input_dark": True,
+    })
+    assert len(scheduled) == 1, (
+        "a dark→healthy / healthy→dark flip must trigger inference"
+    )
+
+
+def test_run_inference_passes_camera_input_dark_kwarg_to_infer():
+    """M8 BEHAVIORAL: _run_inference threads
+    camera_input_degraded=self._census_camera_input_dark into infer().
+
+    Hardcoding `camera_input_degraded=False` at the kwarg assignment
+    falsifies this test (and the paired False case below)."""
+    import asyncio
+    coord, hass, _ = _presence_coord()
+    coord._census_camera_input_dark = True
+
+    captured = {}
+
+    def spy_infer(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    coord._inference_engine.infer = spy_infer
+    try:
+        asyncio.get_event_loop().run_until_complete(
+            coord._run_inference("test")
+        )
+    except Exception:
+        pass
+    assert captured.get("camera_input_degraded") is True, (
+        f"expected True; got {captured.get('camera_input_degraded')!r}"
+    )
+
+
+def test_run_inference_passes_camera_input_dark_false_when_healthy():
+    """M8 paired-False: healthy fleet → kwarg False."""
+    import asyncio
+    coord, hass, _ = _presence_coord()
+    coord._census_camera_input_dark = False
+    captured = {}
+    coord._inference_engine.infer = lambda **k: captured.update(k) or None
+    try:
+        asyncio.get_event_loop().run_until_complete(
+            coord._run_inference("test")
+        )
+    except Exception:
+        pass
+    assert captured.get("camera_input_degraded") is False
