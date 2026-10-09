@@ -594,6 +594,7 @@ cards:
   next: "Closed 2026-10-08 (validated 10-03; fresh-install residual folded into ONBOARDING-SIMPLIFY-1)."
   why: 'Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natural gate to monetize each feature 1 by 1. HVAC, Energy and Security are pretty big modules." Adjacent: ONBOARDING-SIMPLIFY phase 2 S4 (Add Coordinator dead end points to the switch).'
 - id: HVAC-GARAGE-GUARD-STAGED-SUNSET-1
+  trigger_check_2026_10_09_overnight: "Revival trigger NOT fired: recorder, sun.sun below_horizon edges 10-01..10-08 (19:10-19:19 CDT): both cover.konnected_f0f5bd523b00_garage_door and cover.ratgdov25i_dbfe2a_door were closed at every sunset. Stays parked."
   disposition_2026_10_08_soak_exit: "PARKED under the Soak Exit rule (discriminator could not be evaluated inside its ~1-week window: 10-02 -> 10-08). The guard is proven in the test suite with mutation drills (v5.103.28); the live proof is a nice-to-have, and re-checking it every night only adds noise to your queue."
   reverified_2026_10_08_overnight: "Still not staged on 10-07 (sun below_horizon 00:11Z; cover.konnected_f0f5bd523b00_garage_door open only 23:43-23:46Z, closed at sunset; cover.ratgdov25i_dbfe2a_door closed all evening). Sixth night unexercised."
   reverified_2026_10_07_overnight: "Still not staged: 10-06 sunset 19:13 CDT; cover.konnected_f0f5bd523b00_garage_door was closed at sunset (open briefly 17:47 and 18:52, closed by 18:53; open again 21:08-21:09) and cover.ratgdov25i_dbfe2a_door closed. DO still open."
@@ -604,7 +605,7 @@ cards:
   thread: hvac
   status: "parked"
   created: '2026-10-02 22:00'
-  updated: "2026-10-08 02:35"
+  updated: "2026-10-09 02:28"
   next: "PARKED 2026-10-08. REVIVE when any garage cover (cover.konnected_f0f5bd523b00_garage_door / cover.ratgdov25i_dbfe2a_door) is open at the moment sun.sun goes below_horizon, whether by chance or because you stage it. Then I check ura_activity_log for the cover skip and that the door did not move, and close the card. Any overnight pass can run that check in one recorder query."
   why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
