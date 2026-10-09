@@ -168,6 +168,50 @@ if _ura_pkg_name not in sys.modules:
     _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
     sys.modules[_ura_pkg_name] = _ura_pkg
 
+# automation.py gained top-level sibling imports since this test was written
+# (`from .cover_ownership import ...` and `from .fan_veto import ...`). Rather
+# than giving the stub package a real __path__ (which would chain-load
+# fan_veto -> domain_coordinators.house_state -> `from homeassistant.util
+# import dt as dt_util` and bind `homeassistant.util.dt` as a REAL package
+# attribute — poisoning sibling test files that only replace the
+# sys.modules["homeassistant.util.dt"] entry and not the attribute),
+# pre-stub exactly the two sibling modules automation.py imports at
+# module-top-level with the specific symbols it binds. Everything deeper
+# (`from .domain_coordinators.xxx import ...` and lazy `.fan_veto` /
+# `.const` re-imports inside methods) is already lazy and either lands
+# inside this test's existing stubs or on paths these tests never hit.
+# FORCE bathroom's dt stub into sys.modules so automation.py's
+# `from homeassistant.util import dt as dt_util` binds to the stub, not the
+# real HA module. Without this, `setdefault` above left the real HA dt in
+# sys.modules (the pytest-homeassistant plugin imports it at session start),
+# so `_automation_dt_util = _automation_mod.dt_util` captured the real
+# module, and the per-test `_set_now()` / autouse teardown mutated REAL
+# `homeassistant.util.dt.utcnow` to a naive-utcnow lambda — poisoning
+# every sibling test file (notably test_v47x_weather_manager) that
+# transitively imports the same real module and compares against
+# tz-aware datetimes.
+sys.modules["homeassistant.util.dt"] = _dt_mock
+# Also set it as an attribute on `homeassistant.util` — `from X import Y`
+# resolves via getattr(X, 'Y') first and the real HA util already bound a
+# `.dt` attribute at session start (pytest-homeassistant plugin). Save the
+# original so our autouse teardown can restore it and avoid leaking the
+# stub into sibling test files.
+_real_ha_dt = None
+try:
+    import homeassistant.util as _ha_util_pkg  # type: ignore
+    _real_ha_dt = getattr(_ha_util_pkg, "dt", None)
+    _ha_util_pkg.dt = _dt_mock
+except Exception:  # noqa: BLE001
+    _ha_util_pkg = None  # type: ignore[assignment]
+
+# Give the stub package a real __path__ so sibling imports in automation.py
+# (`from .cover_ownership import ...`, `from .fan_veto import ...`) and
+# sensor.py's deeper chain resolve to the real modules without a per-sibling
+# stub explosion.
+_ura_pkg_obj = sys.modules[_ura_pkg_name]
+if not getattr(_ura_pkg_obj, "__path__", None):
+    _ura_pkg_obj.__path__ = [_ura_root]
+
 _const_full = "custom_components.universal_room_automation.const"
 if _const_full not in sys.modules:
     _load_module(_const_full, os.path.join(_ura_root, "const.py"))
@@ -205,6 +249,29 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
 )
 
 _automation_dt_util = _automation_mod.dt_util
+
+# After automation.py (and its sibling chain) has been imported and has
+# captured its `dt_util` reference, restore the real `homeassistant.util.dt`
+# module as the `homeassistant.util.dt` attribute of the `homeassistant.util`
+# package. Without this, sibling test files collected later — notably
+# test_v47x_weather_manager.py, which replaces sys.modules["homeassistant.util.dt"]
+# but can only reach the real module via the package attribute — bind our
+# stub as their `dt_util`, so the real `(now - last_changed)` tz-aware
+# subtraction they rely on raises TypeError and the provider is marked
+# UNAVAILABLE across the whole weather suite.
+if _real_ha_dt is not None and _ha_util_pkg is not None:
+    try:
+        _ha_util_pkg.dt = _real_ha_dt
+    except Exception:  # noqa: BLE001
+        pass
+# Also drop the stub out of sys.modules so later files that `=`-assign a
+# fresh dt mock (weather) and files that fall through to the real module
+# both see a clean slate. Our `_automation_dt_util` reference above still
+# points at the stub, so per-test `_set_now()` + autouse clock-reset
+# mutations stay scoped to this module.
+if sys.modules.get("homeassistant.util.dt") is _dt_mock and _real_ha_dt is not None:
+    sys.modules["homeassistant.util.dt"] = _real_ha_dt
+
 _automation_mod.SERVICE_TURN_ON = "turn_on"
 _automation_mod.SERVICE_TURN_OFF = "turn_off"
 _automation_mod.STATE_ON = "on"
@@ -244,6 +311,13 @@ def _make_automation(
     coordinator = MagicMock()
     coordinator.entry = MagicMock()
     coordinator.entry.options = {}
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 A-H1 (2026-09-19) added
+    # `_refresh_config()` at the top of handle_humidity_based_fan_control,
+    # which rebuilds self.config from `{**entry.data, **entry.options}`.
+    # Without a real dict on `.data`, the MagicMock unpack produced {} and
+    # wiped the test harness config on every tick. Expose the harness
+    # config as the entry's data so the refresh is a no-op.
+    coordinator.entry.data = {}  # populated below with the actual config
     coordinator._became_occupied_time = None
 
     config = {
@@ -259,6 +333,9 @@ def _make_automation(
     if extra_config:
         config.update(extra_config)
 
+    # Mirror the config onto entry.data so `_refresh_config()` yields the
+    # same dict (data | options) rather than wiping it to {}.
+    coordinator.entry.data = dict(config)
     automation = RoomAutomation(hass=hass, config=config, coordinator=coordinator)
     automation.is_sleep_mode_active = lambda: sleep_active
     automation._is_hvac_managing_fans = lambda: False
@@ -1542,6 +1619,13 @@ def _load_sensor_module():
         sys.modules[_agg_full] = _mock_module(
             _agg_full,
             AggregationEntity=type("AggregationEntity", (), {}),
+            # sensor.py (line 121) imports `_get_room_coordinators` at
+            # module top; without this shell attr the import raises and
+            # pytest.skip() leaves a half-loaded sensor module in
+            # sys.modules, so a later test in the same session returns
+            # the broken module and fails with AttributeError on the
+            # score-sensor classes instead of skipping cleanly.
+            _get_room_coordinators=lambda *a, **kw: [],
         )
     # Shell `.domain_coordinators` package + the energy_billing helper.
     _dc_full = "custom_components.universal_room_automation.domain_coordinators"
@@ -1555,9 +1639,26 @@ def _load_sensor_module():
         sys.modules[_eb_full] = _mock_module(
             _eb_full, _get_effective_rate_kwh=lambda *a, **kw: 0.0,
         )
+    # sensor.py imports a handful of dispatcher signal constants from
+    # .domain_coordinators.signals at module top (plus lazy per-method
+    # imports). Expose the names referenced at top-level so sensor.py's
+    # module exec succeeds; stub values are inert string signals.
+    _signals_full = (
+        "custom_components.universal_room_automation.domain_coordinators.signals"
+    )
+    if _signals_full not in sys.modules:
+        sys.modules[_signals_full] = _mock_module(
+            _signals_full,
+            SIGNAL_HOUSE_POLICY_UPDATE="ura_house_policy_update",
+        )
     try:
         return _load_module(_sensor_full, os.path.join(_ura_root, "sensor.py"))
     except Exception as exc:  # noqa: BLE001
+        # _load_module sets sys.modules[_sensor_full] BEFORE exec_module;
+        # if exec failed, scrub the half-loaded entry so a later test in
+        # the same session re-attempts (and fails or succeeds cleanly)
+        # instead of inheriting a module missing the score-sensor classes.
+        sys.modules.pop(_sensor_full, None)
         pytest.skip(f"sensor.py not loadable under test harness: {exc}")
 
 
