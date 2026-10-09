@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T02:22:29-05:00_ - _Data commit: `bda7fcccac8c`_ - _last_reconciled: 2026-10-09_
+_Generated: 2026-10-09T02:22:37-05:00_ - _Data commit: `464440b12423`_ - _last_reconciled: 2026-10-09_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-10-09T02:22:29-05:00_ - _Data commit: `bda7fcccac8c`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 7 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -175,7 +175,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
 
 ### `DASHBOARD-V8-FIX-BATCH-1` - URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards — _#1 · WSJF 4.0 · v6 tc4 u2 /e3_
@@ -278,11 +278,30 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
-thread: **platform** - status: **planned** - approval: **explicit**
-_created 2026-08-19 07:45 · updated 2026-10-06 02:25 · refined_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
+thread: **presence** - status: **planned** - approval: **unreviewed**
+_created 2026-08-19 13:40 · updated 2026-09-29 01:05_
+- **Problem / Solution:**
+  - DECISION (operator 2026-08-19, chose use D from the routine-detector menu): surface per-person routine health as a DASHBOARD with a COLOR SIGNATURE. Explicitly SENSOR-ONLY, NO notifications — reaffirms the original PLANNING_v4.6.1 non-go...
+- **Why:** Highest-value use of the routine signal (aging-in-place / wellbeing / "you have been off-routine N days"), and the lowest-risk delivery (display, no trust path, no notify). BUT a care signal that cries wolf is worse than none — so the co...
+- **Next:** Depends on ROUTINE-DETECTOR-NO-DISCHARGE-1 (the color is only meaningful once the signal can return to stable + is calibrated). Build shape (Tier 2-DB): D0 measure-before-build probe of the live JS/severity distribution + per-person-vs-h...
+- **Refs:** ROUTINE-DETECTOR-NO-DISCHARGE-1; docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md
+- **Forensic keys (5):**
+  - `disposition_2026_09_26_groom`: UNBLOCKED 2026-09-26: its dependency ROUTINE-DETECTOR-NO-DISCHARGE-1 is done (discharge shipped + 445 legacy rows cleared), so the colour signal can now return to stable.
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 8 - blocked on the routine-detector discharge; Tier 2-DB.
+  - `operator_decision_2026_09_12`: UNBLOCKED + APPROVED — operator decided (on ROUTINE-DETECTOR-NO-DISCHARGE-1) to build the care dashboard in ura-v8 Presence tab + 14d auto-decay. Blocker resolved (discharge design = time-TTL). NEXT: build the Presence-tab care surface (...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
+  - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
+
+## 🔨 In progress (1)
+_being built_
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-08-19 07:45 · updated 2026-10-09 02:25 · refined_
 - **Next:** BUILD (me, Tier 1-2 test-only): fix test_v47x_weather_manager.py (47) and test_bathroom_exhaust_intelligence_cycle.py (23) failures, one builder at a time behind the HVAC arc builds; re-measure with scripts/suite_namediff.py; then size t...
-- **Forensic keys (20):**
+- **Forensic keys (21):**
+  - `gate_2026_10_09_overnight`: FOUR-STEP GATE for the bathroom_exhaust slice. (1) validity STILL-REAL: run alone on develop 464440b12 -> collection ERROR, ModuleNotFoundError custom_components.universal_room_automation.cover_ownership (the file stubs the package with ...
   - `verified_2026_10_06_overnight`: VERIFY-BEFORE-WORK by running both named files ALONE on develop 7df38c09b. (1) test_v47x_weather_manager.py: 76 passed - PARTIALLY-DONE/standalone-clean; its failures are order-dependent only (in-suite). (2) test_bathroom_exhaust_intelli...
   - `disposition_2026_09_26_groom`: CALL MADE (operator 2026-09-26: 'make some calls'): option (A) CHEAP PATH FIRST. Already delivered today: cached-baseline suite_namediff.py + builder definition-of-done + targeted reviewer re-confirms (2c5a72d98). Next: card and drive th...
   - `shipped_2026_09_26_speed_changes`: Operator: "make the changes now to make the test strategy and fix ups faster. We need it for the arc". Commit 2c5a72d98 on develop: (1) scripts/suite_namediff.py — the develop baseline is cached in .claude/suite-cache keyed by the git tr...
@@ -303,26 +322,6 @@ _created 2026-08-19 07:45 · updated 2026-10-06 02:25 · refined_
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
-
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
-thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-19 13:40 · updated 2026-09-29 01:05_
-- **Problem / Solution:**
-  - DECISION (operator 2026-08-19, chose use D from the routine-detector menu): surface per-person routine health as a DASHBOARD with a COLOR SIGNATURE. Explicitly SENSOR-ONLY, NO notifications — reaffirms the original PLANNING_v4.6.1 non-go...
-- **Why:** Highest-value use of the routine signal (aging-in-place / wellbeing / "you have been off-routine N days"), and the lowest-risk delivery (display, no trust path, no notify). BUT a care signal that cries wolf is worse than none — so the co...
-- **Next:** Depends on ROUTINE-DETECTOR-NO-DISCHARGE-1 (the color is only meaningful once the signal can return to stable + is calibrated). Build shape (Tier 2-DB): D0 measure-before-build probe of the live JS/severity distribution + per-person-vs-h...
-- **Refs:** ROUTINE-DETECTOR-NO-DISCHARGE-1; docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md
-- **Forensic keys (5):**
-  - `disposition_2026_09_26_groom`: UNBLOCKED 2026-09-26: its dependency ROUTINE-DETECTOR-NO-DISCHARGE-1 is done (discharge shipped + 445 legacy rows cleared), so the colour signal can now return to stable.
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 8 - blocked on the routine-detector discharge; Tier 2-DB.
-  - `operator_decision_2026_09_12`: UNBLOCKED + APPROVED — operator decided (on ROUTINE-DETECTOR-NO-DISCHARGE-1) to build the care dashboard in ura-v8 Presence tab + 14d auto-decay. Blocker resolved (discharge design = time-TTL). NEXT: build the Presence-tab care surface (...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
-  - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
-
-## 🔨 In progress (0)
-_being built_
-
-_(none)_
 
 ## 🔍 Review (3)
 _under review_

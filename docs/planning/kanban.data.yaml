@@ -20855,6 +20855,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  gate_2026_10_09_overnight: "FOUR-STEP GATE for the bathroom_exhaust slice. (1) validity STILL-REAL: run alone on develop 464440b12 -> collection ERROR, ModuleNotFoundError custom_components.universal_room_automation.cover_ownership (the file stubs the package with __path__=[]; automation.py now has relative sibling imports). The full-suite baseline (suite-cache 71aded1150a0, 10-09) still has 23 failing names there, the top file. test_v47x_weather_manager.py passes alone (76) but has 17 failing names in-suite, so it is order-dependent and is the next slice. (1b) config-first: N/A (test harness). (2) prior-art: REUSE quality/tests/_ura_const_support.py (ensure_ura_const / ensure_ura_signals complete-module helpers) and the real-package import pattern other tests use; no new infrastructure. (3) parsimony: BUILD (one test file). (4) cost/benefit: test-only, zero production risk, removes 23 of 152 baseline failures (15%) -> Tier 1, build to review."
   verified_2026_10_06_overnight: "VERIFY-BEFORE-WORK by running both named files ALONE on develop 7df38c09b. (1) test_v47x_weather_manager.py: 76 passed - PARTIALLY-DONE/standalone-clean; its failures are order-dependent only (in-suite). (2) test_bathroom_exhaust_intelligence_cycle.py: WORSE than recorded - COLLECTION ERROR (ModuleNotFoundError custom_components.universal_room_automation.cover_ownership, then fan_veto): the file builds a stub package with __path__=[] and automation.py gained relative sibling imports (cover_ownership v5.103.28). FIXED the collection on fix/bathroom-exhaust-test-cover-ownership-stub @ c2bfa5274 (stub package gets the real directory as __path__, 4 lines, test-only): now 37 passed / 28 failed / 1 skipped. Remaining 28 are stale expectations (e.g. AttributeError: sensor has no ComfortScoreSensor / EnergyEfficiencyScoreSensor x5; humidity-gate timestamps None x6; empty action lists x9) -> builder pass next, test-only."
   disposition_2026_09_26_groom: 'CALL MADE (operator 2026-09-26: ''make some calls''): option (A) CHEAP PATH FIRST. Already delivered today: cached-baseline suite_namediff.py + builder definition-of-done + targeted reviewer re-confirms (2c5a72d98). Next: card and drive the concentrated failing files (weather_manager 47, bathroom_exhaust 23 = 36% of 194) as Tier 1-2 test fixes, then re-measure and size the re-arch against what remains.'
   shipped_2026_09_26_speed_changes: 'Operator: "make the changes now to make the test strategy and fix ups
@@ -20952,10 +20953,10 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: planned
+  status: "in_progress"
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: "2026-10-06 02:25"
+  updated: "2026-10-09 02:25"
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
