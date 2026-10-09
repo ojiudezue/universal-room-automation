@@ -1,6 +1,6 @@
 # AUDIT: per-device-class state-duration distributions (OC-STUCK-SENSOR-GENERALIZE-1, step 2)
 
-Measured 2026-10-09 ~02:30 CDT by the overnight pass. Read-only, one shot, over the HA recorder (last 7 days,
+Measured 2026-10-09 ~02:20 CDT by the overnight pass. Read-only, one shot, over the HA recorder (last 7 days,
 binary_sensor only, device_class from core.entity_registry; disabled entities excluded).
 Script: `scripts/probes/stuck_sensor_duration_probe.py` (run as `ssh ha "python3 -" < script`).
 

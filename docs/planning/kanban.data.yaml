@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "DASHBOARD-V8-FIX-BATCH-1@2026-10-09T02:26:00"
+    at: "2026-10-09T02:26:00"
+    outcome: "done"
+    headline: "The Climate countdown cards (zone \"away in\" and the manual-change grace/halfway timers) are already on the v8 dashboard and render correctly. Closed with no change made."
+    acknowledged: false
   - fid: "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-09T02:25:00"
     at: "2026-10-09T02:25:00"
     outcome: "measured"
@@ -30169,21 +30174,22 @@ cards:
     related: [DASHBOARD-V8-FIX-BATCH-1]
   rank: {value: 5, time_criticality: 3, effort: 1}
 - id: DASHBOARD-V8-FIX-BATCH-1
+  verified_2026_10_09_overnight: "ALREADY-DONE (verify-before-work, no dashboard write made). The live lovelace.ura_v8 Climate view (views[6]) already carries both countdown cards this next asked for. Section 1 \"Zone Timers\" is a markdown card reading sensor.ura_hvac_coordinator_zone_{n}_status away_due_at (\"Away at H:MM (in N min)\"). Section 2 \"Manual Changes\" reads sensor.ura_hvac_coordinator_override_arrester_state zones[].grace_until / compromise_until. Both are commented \"URA v5.103.22+\". Render check via ha_eval_template (strict) of the countdown logic against live state: OK. All 3 zones occupied so away=none; all arrester zones idle so grace/compromise=None. Backup taken first anyway: homelab configs/snapshots/haos/lovelace.ura_v8-2026-10-09-pre-climate-countdown.json (gitignored)."
   folded_2026_10_01_anomaly_partial: 'FOLDED IN (adjacency: same dashboard lovelace.ura_v8, same backup-then-patch procedure), from the HVAC-ANOMALY-BLIND-1 soak exit 10-01: the v5.103.25 D6 patch was never applied - lovelace.ura_v8 has zero occurrences of ''partial'', the URA Anomalies auto-entities filter excludes only nominal/normal/unavailable/unknown/none, so the HVAC and Security anomaly sensors (both legitimately ''partial'') show as false alarms, and the Coordinators label lacks a partial case. Procedure: docs/ha-config-snapshots/d6_anomaly_partial_dashboard_patch.py. ALSO for the next groom: README_v5.103.25 section 5 named five follow-up cards that were never minted (HVAC-COMFORT-DEVIATION-PRODUCER-1, ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1, DASH-ANOMALY-COVERAGE-BADGE-1) - each needs an adjacency sweep before minting.'
   title: 'URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards'
   thread: dashboarding
-  status: planned
+  status: "done"
   groom_2026_09_29: 'MOVED waiting_operator -> planned. VERIFIED APPLIED: live /config/.storage/lovelace.ura_v8 was modified 2026-09-28 23:20. Compared with the pre-change backup docs/ha-config-snapshots/lovelace_ura_v8_backup_2026_09_28.json: _identified_people refs 0 -> 26; the stale AV Closet switch (switch_shelly1pmgen3_wifi_avcloset) replaced by switch.av_closet_shelly1pmminig4_avcloset; _current_occupants refs 49 -> 23, and the 12 distinct ids left all exist in core.entity_registry; a Music view was added (7 -> 8 views). RESIDUAL STILL OPEN: the Climate countdown cards. ha_config_get_dashboard search for away_due_at finds no card, and the storage file has 0 away_due_at / grace_until / compromise_until refs. Those attributes are live since v5.103.22 (README_v5.103.22 L2a PASS), so the residual is unblocked and is my work.'
   approval: explicit
   approved_by: 'operator 2026-09-28 (approved; the fix batch was applied the same night)'
   created: '2026-09-28 22:50'
-  updated: '2026-10-01 05:20'
+  updated: "2026-10-09 02:26"
   tags: [dashboard, lovelace, audit]
   origin:
     date: '2026-09-28'
     gist: 'operator asked to review the v8 Lovelace dashboard and recommend updates, paying attention to aesthetics and layout'
   why: 'Full audit in docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md (955 refs checked; snippets test-rendered live). BUGS: Net Energy -73.7 (see ENERGY-CONSUMPTION-FORECAST-POISONED-1); Cost Today shows $0.11 from a still-learning prediction (real accrued $3.71); Solar Forecast is the whole-day Solcast total, ~20% above the Envoy over 7 days; House Draw falls to 0 on Envoy dropouts (switch it to the SPAN sum); security "all closed" reads two renamed door ids while Garage A is open, and 20 of 26 window sensors are not reporting; 27 dead _current_occupants refs (real: _identified_people); "Occupied Now" double-counts HVAC-occupied sensors; the AV Closet switch was replaced by switch.av_closet_shelly1pmminig4_avcloset (the CLAUDE.md troubleshooting example is stale too); 183 disabled entities in room pop-ups. ADDITIONS: Climate zone timers and arrester card, Energy rate/cost/sync-mismatch cards, People presence cards. LAYOUT: Now tab status row first with 3 heroes in one row, music moved out, duplicates removed, one switch style, rename table.'
-  next: 'BUILD (me, dashboard-only, reversible): back up lovelace.ura_v8, then add the Climate countdown cards: zone "away in" from sensor.ura_hvac_coordinator_zone_{n}_status away_due_at, and arrester grace / compromise end from the arrester state sensor zones[].grace_until / compromise_until (markdown, 1-min resolution, per audit section on Climate). Test-render with ha_eval_template, then close this card.'
+  next: "none: closed (countdowns already live on the v8 Climate view)."
   links:
     related: [LOVELACE-V8-STALE-ENTITY-REFS-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1]
   rank: {value: 6, time_criticality: 4, effort: 3}
