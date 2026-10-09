@@ -4138,7 +4138,11 @@ CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
 # strictly less than CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD.
 CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD: Final = 0.75
 CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD: Final = 0.25
-CAMERA_INPUT_DEGRADED_DWELL_S: Final = 300
+# A-MED-2 fix-up: dwell set BELOW the 300 s cycle so a two-cycle
+# outage reliably trips the dwell rather than racing with the cycle
+# tick. 270 s = one cycle + ~90% of the second cycle. If a future
+# cycle cadence changes, this must stay strictly below it.
+CAMERA_INPUT_DEGRADED_DWELL_S: Final = 270
 BOOT_SETTLE_S: Final = 180
 
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.

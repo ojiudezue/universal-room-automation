@@ -4461,17 +4461,35 @@ class OptimizationCoordinator(BaseCoordinator):
         if len(findings) <= OPTIMIZER_MAX_FINDINGS_PER_CYCLE:
             return findings
         sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        # Preserve META rows separately — they bypass the cap.
-        meta = [f for f in findings
-                if f.dimension == OptimizationDimension.META]
-        non_meta = [f for f in findings
-                    if f.dimension != OptimizationDimension.META]
-        non_meta.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
-        # Reserve space for the META rows so the total stays under the cap.
-        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(meta)
+
+        def _is_camera_input_dark(f) -> bool:
+            # A-MED-2 LOW-2: exempt the fleet-dark one-shot from the
+            # per-cycle cap, same posture as META. The latch is set
+            # when the finding is emitted; if the cap dropped it the
+            # NM would never deliver, defeating the whole tripwire.
+            dkey = getattr(f, "dedup_key", None)
+            return (
+                isinstance(dkey, tuple)
+                and len(dkey) >= 1
+                and dkey[0] == "camera_input_dark"
+            )
+
+        # Preserve META rows AND camera_input_dark separately — both
+        # bypass the cap.
+        exempt = [f for f in findings
+                  if f.dimension == OptimizationDimension.META
+                  or _is_camera_input_dark(f)]
+        non_exempt = [f for f in findings
+                      if f.dimension != OptimizationDimension.META
+                      and not _is_camera_input_dark(f)]
+        non_exempt.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
+        meta = exempt  # alias kept for the log line below
+        # Reserve space for the exempt rows so the total stays under the cap.
+        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(exempt)
         if keep < 0:
             keep = 0
-        capped = non_meta[:keep] + meta
+        non_meta = non_exempt  # alias for the log line
+        capped = non_exempt[:keep] + exempt
         _LOGGER.warning(
             "Optimizer cycle produced %d findings (cap=%d) — truncated "
             "to %d highest-severity rows + %d META; %d rows dropped to "

@@ -401,6 +401,72 @@ def test_camera_input_dark_frigate_status_2_or_trigger():
     assert out[0].payload["fraction"] == 0.0
 
 
+def test_camera_input_dark_mid_band_resets_dwell_anchor():
+    """A-MED-2 LOW-1: a mid-band tick (fraction between CLEAR and FIRE,
+    status_2 nominal) must reset `_since` so an above-CLEAR flap can't
+    accumulate false dwell."""
+    sensors = [f"sensor.cam{i}_person_count" for i in range(24)]
+    coord, hass = _coord(sensors=sensors, status2="running")
+    _set_all(hass, sensors, "unavailable")
+    # Arm the dwell anchor on dark.
+    coord._evaluate_camera_input_dark_dimension()
+    assert coord._camera_input_dark_since is not None
+    # Partial recovery to 10/24 unavailable (fraction 0.417): below FIRE
+    # 0.75, above CLEAR 0.25 → not degraded_now.
+    for s in sensors[:14]:
+        hass.states.set(s, "0")
+    coord._evaluate_camera_input_dark_dimension()
+    assert coord._camera_input_dark_since is None, (
+        "mid-band must reset `_since` (LOW-1)"
+    )
+
+
+def test_camera_input_dark_exempt_from_cap_findings():
+    """A-MED-2 LOW-2: _cap_findings exempts the camera_input_dark
+    one-shot (same posture as META). A flood of other high findings
+    cannot drop the fleet-dark NM."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+    )
+    hass = _MockHass()
+    coord = OptimizationCoordinator(hass)
+    # Build a flood that EXCEEDS the cap, with ONE camera_input_dark
+    # at the bottom of the list (so a naive sort by severity would drop
+    # it if it weren't exempt).
+    flood = []
+    for i in range(OPTIMIZER_MAX_FINDINGS_PER_CYCLE + 50):
+        flood.append(OptimizationFinding(
+            timestamp="t", level="room", target_id=f"r{i}",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high", confidence=0.9, score=0.0,
+            description="flood",
+            dedup_key=("sensor_health", f"r{i}"),
+        ))
+    cid_finding = OptimizationFinding(
+        timestamp="t", level="house", target_id="house",
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.95, score=0.0,
+        description="fleet dark",
+        dedup_key=("camera_input_dark", "fleet"),
+    )
+    flood.append(cid_finding)
+    capped = coord._cap_findings(flood)
+    assert cid_finding in capped, (
+        "camera_input_dark must survive _cap_findings (LOW-2 exemption)"
+    )
+
+
+def test_camera_input_dark_dwell_constant_below_cycle():
+    """A-MED-2: DWELL < 300s cycle so a two-cycle outage reliably trips."""
+    from custom_components.universal_room_automation.const import (
+        CAMERA_INPUT_DEGRADED_DWELL_S,
+    )
+    assert CAMERA_INPUT_DEGRADED_DWELL_S < 300
+
+
 def test_camera_input_dark_kill_switch(monkeypatch):
     """FIRE_THRESHOLD > 1.0 disables the fire path (kill switch)."""
     from custom_components.universal_room_automation.domain_coordinators import (
