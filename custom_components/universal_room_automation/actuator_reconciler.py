@@ -868,6 +868,14 @@ class ActuatorReconciler:
                         is_sleep_hours=False, is_dark=is_dark,
                     )
                     _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
+                    # v5.103.42 post-deploy fix: house_state=sleep ⇒
+                    # SLEEP slot params for night lights even when the
+                    # per-room sleep gate is off. Mirrors canonical's
+                    # narrow helper so both controllers agree.
+                    if automation is not None and getattr(
+                        automation, "_house_state_is_sleep", lambda: False,
+                    )():
+                        _mode = "sleep"
                     # Review fix (R3): mirror the sleep guard at :824 —
                     # switch.* night lights have no brightness/colour, so
                     # they must receive {} and plain turn_on. _nl_params
@@ -930,6 +938,22 @@ class ActuatorReconciler:
             return DesiredState(
                 state="off", domain=domain, service="turn_off",
                 reason="exit_light_off",
+            )
+        # v5.103.42 post-deploy fix: when the main exit action is
+        # ``leave_on`` the main-light branch above returns None, but the
+        # night-light rule still asserted this entity ON at entry. Mirror
+        # the canonical exit (which now turns off the night-light subset
+        # unconditionally) so both controllers agree OFF-when-vacant for
+        # night lights, honouring CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY via the
+        # ``off_set`` carve-out already applied above.
+        if (
+            night_lights
+            and entity_id in night_lights
+            and entity_id in off_set
+        ):
+            return DesiredState(
+                state="off", domain=domain, service="turn_off",
+                reason="exit_night_light_off",
             )
         return None
 

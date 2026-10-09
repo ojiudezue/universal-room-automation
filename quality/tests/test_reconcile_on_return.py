@@ -615,7 +615,9 @@ def _canonical_light_decision(occupied, sleep, is_dark, entry_action,
         if is_night:
             if occupied:
                 return "on"
-            return "off" if exit_action == LIGHT_ACTION_TURN_OFF else None
+            # v5.103.42 post-deploy fix: night lights OFF on vacancy
+            # regardless of exit_action (fix/night-light-offpath).
+            return "off"
         return "off"
     if occupied:
         # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-M1): membership in
@@ -635,6 +637,13 @@ def _canonical_light_decision(occupied, sleep, is_dark, entry_action,
         return "on" if should_on else None
     # vacant
     if exit_action == LIGHT_ACTION_TURN_OFF:
+        return "off"
+    # v5.103.42 post-deploy fix (fix/night-light-offpath): night lights the
+    # rule turned on go OFF on vacancy regardless of main exit_action, except
+    # entries in CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY (not exercised in this
+    # fixture). Both canonical _control_lights_exit and reconciler
+    # _resolve_light vacant branch agree.
+    if is_night:
         return "off"
     return None
 
