@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T02:12:57-05:00_ - _Data commit: `4f0d8a07736e`_ - _last_reconciled: 2026-10-09_
+_Generated: 2026-10-09T02:22:29-05:00_ - _Data commit: `bda7fcccac8c`_ - _last_reconciled: 2026-10-09_
 
 
 ## Columns
@@ -329,7 +329,7 @@ _under review_
 
 ### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _#1 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **presence** - status: **review** - approval: **implied**
-_created 2026-10-07 02:15 · updated 2026-10-09 02:35 · initial_
+_created 2026-10-07 02:15 · updated 2026-10-09 02:22 · initial_
 - **Problem / Solution:**
   - Problem: when a room's motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA's log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedro...
 - **Origin:** 2026-10-07 - overnight pass log read (HA core log via SSH + supervisor proxy, 20,000 lines = 01:17-02:01 CDT) - 131 Master Bedroom + 85 Exercise Room "stuck on" WARNINGs

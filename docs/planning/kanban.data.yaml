@@ -9,8 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - fid: "STUCK-SENSOR-WARNING-PER-TICK-1@2026-10-09T02:35:00"
-    at: "2026-10-09T02:35:00"
+  - fid: "STUCK-SENSOR-WARNING-PER-TICK-1@2026-10-09T02:22:00"
+    at: "2026-10-09T02:22:00"
     outcome: "built"
     headline: "Stuck-sensor log spam fix is ready to ship: the warning is written once when a sensor gets stuck, not 3 times a minute. Tests and the full suite are clean. It waits for a daytime deploy."
     acknowledged: false
@@ -31068,7 +31068,7 @@ cards:
   status: "review"
   thread: presence
   created: '2026-10-07 02:15'
-  updated: "2026-10-09 02:35"
+  updated: "2026-10-09 02:22"
   refinement_status: initial
   problem_solution:
   - 'Problem: when a room''s motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA''s log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA''s log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
