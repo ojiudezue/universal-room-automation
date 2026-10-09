@@ -2514,10 +2514,20 @@ class EnergyCoordinator(BaseCoordinator):
 
                 # Restore daily billing accumulators
                 self._billing.restore_daily(snapshot)
-                # §D7: recompute outage-days on restart (no RestoreEntity).
-                self.hass.async_create_task(
-                    self._refresh_outage_days_this_cycle()
+                # §D7 + B-L1/B-L2 (REV 4 review fix-up): recompute
+                # outage-days on restart (no RestoreEntity). Use the
+                # tracked background-task API so the loop keeps a strong
+                # reference until completion. Falls back to the fire-
+                # and-forget creator if the HA runtime lacks the newer
+                # API (test stubs).
+                _refresh_coro = self._refresh_outage_days_this_cycle()
+                _create_bg = getattr(
+                    self.hass, "async_create_background_task", None,
                 )
+                if _create_bg is not None:
+                    _create_bg(_refresh_coro, "ura_ec_refresh_outage_days")
+                else:
+                    self.hass.async_create_task(_refresh_coro)
 
                 # B-HIGH-1/2 (fix-up): restore peak-avoidance accumulators
                 # from the sibling energy_state blob (json). Never fatal.

@@ -88,17 +88,28 @@ class CounterAccrualTracker:
         self,
         import_last: float | None,
         export_last: float | None,
+        snapshot_ts: float | None = None,
     ) -> None:
         """Restore baselines from the midnight snapshot row.
 
-        REV 4 D5 LOW-2: this is called BEFORE the date-mismatch early
-        return in ``CostTracker.restore_daily`` so a restart spanning
-        midnight does not lose the post-midnight energy.
+        REV 4 D5 LOW-2 + B-L3: this is called BEFORE the date-mismatch
+        early return in ``CostTracker.restore_daily`` so a restart
+        spanning midnight does not lose the post-midnight energy.
+
+        B-L3 (REV 4 review fix-up): the caller passes `snapshot_ts` so
+        the first tick after restore has a real elapsed window (and
+        therefore a real cap) instead of accepting an uncapped delta
+        over an unbounded gap. Without the stamp, a restart gap of hours
+        collapsed to a single uncapped single-rate book.
         """
         if import_last is not None:
             self._import_last = float(import_last)
+            if snapshot_ts is not None and self._import_last_ts is None:
+                self._import_last_ts = float(snapshot_ts)
         if export_last is not None:
             self._export_last = float(export_last)
+            if snapshot_ts is not None and self._export_last_ts is None:
+                self._export_last_ts = float(snapshot_ts)
 
     # ------------------------------------------------------------------
     # Read-side
@@ -147,8 +158,13 @@ class CounterAccrualTracker:
     ) -> float:
         """Return accepted kWh delta for one leg, updating caps and resets.
 
-        Caller is responsible for storing (current, now_ts) into the per-
-        leg last fields; this helper only computes the delta.
+        A-HIGH-1 (REV 4 fix-up): a value-drop RESET is NOT a zero accrual.
+        The counter is a daily total — when it drops from `last` to
+        `current`, `current` is the NEW DAY's accrual-to-now. Booking 0
+        would silently lose every midnight tick's energy AND every
+        restart-across-midnight tick's energy. We book `min(current, cap)`
+        on that leg: the delta from the implicit baseline-of-0 to
+        `current`, bounded by the elapsed-scaled plausibility cap.
         """
         if current is None:
             return 0.0
@@ -156,12 +172,24 @@ class CounterAccrualTracker:
             # First observation: seed baseline, no accrual.
             return 0.0
         if current < last - RESET_EPSILON_KWH:
-            # Daily reset — new baseline starts at current.
+            # Daily reset — counter zeroed since last tick; `current` is
+            # the new day's accrual-to-now, bounded by elapsed-scaled cap.
             _LOGGER.info(
-                "Counter reset detected on %s (last=%.3f current=%.3f)",
+                "Counter reset detected on %s (last=%.3f current=%.3f) — "
+                "booking current as post-reset accrual.",
                 leg_name, last, current,
             )
-            return 0.0
+            booked = max(0.0, current)
+            if last_ts is not None:
+                elapsed_h = max(0.0, (now_ts - last_ts) / 3600.0)
+                cap = MAX_COUNTER_KW_PLAUSIBLE * elapsed_h
+                if cap > 0 and booked > cap:
+                    _LOGGER.warning(
+                        "Reset-day accrual on %s capped: raw=%.3f cap=%.3f",
+                        leg_name, booked, cap,
+                    )
+                    booked = cap
+            return booked
         raw_delta = max(0.0, current - last)
         if last_ts is None:
             # No elapsed stamp; accept delta without a cap (first tick after
@@ -204,26 +232,21 @@ class CounterAccrualTracker:
             leg_name="export",
         )
 
-        # Determine the span's start — the earlier of the two legs' prior
-        # stamps. If both missing (first tick), span is zero.
-        prior_ts = min(
-            [t for t in (self._import_last_ts, self._export_last_ts) if t is not None],
-            default=None,
-        )
-
-        # TOU pro-ration — split the deltas across period boundaries by
-        # time (uniform within the span; a counter does not expose intra-
-        # tick power). Each slice gets a share equal to its fraction of
-        # the span.
-        # Each slice is (period, import_kwh, export_kwh, slice_start_dt).
-        # The slice_start_dt is passed back so CostTracker prices each
-        # slice at the LIVE rate for that instant (operator req 2026-10-09:
-        # TOU by reference, no cached rate across ticks or slices).
-        slices: list[tuple[str, float, float, datetime]] = []
-        if prior_ts is not None and prior_ts < now_ts and (imp_delta > 0 or exp_delta > 0):
-            total_s = now_ts - prior_ts
-            cursor = datetime.fromtimestamp(prior_ts, tz=now.tzinfo)
+        # A-MED-1 (REV 4 review fix-up): PER-LEG spans. A stale leg must
+        # NOT stretch the other leg's pro-ration window or the cached
+        # net-kW. Each leg's slices are generated against ITS OWN
+        # prior_ts; `last_net_kw` is only refreshed when at least one
+        # leg produced a real reading this tick (B-H1).
+        def _slice_leg(delta: float, leg_prior_ts: float | None):
+            """Return (slices_for_leg, elapsed_h). Slices are tuples of
+            (period, imp_kwh, exp_kwh, slice_start_dt) with only this
+            leg's energy populated; the opposite leg's energy is 0.0."""
+            if delta <= 0 or leg_prior_ts is None or leg_prior_ts >= now_ts:
+                return [], 0.0
+            total_s = now_ts - leg_prior_ts
+            cursor = datetime.fromtimestamp(leg_prior_ts, tz=now.tzinfo)
             end = now
+            out: list[tuple[str, float, float, datetime]] = []
             while cursor < end:
                 try:
                     period = self._tou.get_current_period(cursor)
@@ -237,16 +260,31 @@ class CounterAccrualTracker:
                     slice_end = end
                 else:
                     slice_end = boundary
-                frac = max(0.0, (slice_end.timestamp() - cursor.timestamp()) / total_s)
-                slices.append((
-                    period,
-                    imp_delta * frac,
-                    exp_delta * frac,
-                    cursor,
-                ))
+                frac = max(
+                    0.0,
+                    (slice_end.timestamp() - cursor.timestamp()) / total_s,
+                )
+                out.append((period, delta * frac, 0.0, cursor))
                 cursor = slice_end
-        elif imp_delta > 0 or exp_delta > 0:
-            # Single slice at current period (no elapsed baseline yet).
+            return out, total_s / 3600.0
+
+        imp_slices_raw, imp_elapsed_h = _slice_leg(imp_delta, self._import_last_ts)
+        exp_slices_raw, exp_elapsed_h = _slice_leg(exp_delta, self._export_last_ts)
+        # Distinct per-leg slices concatenated. CostTracker.accumulate
+        # iterates and prices each at the slice start time via the
+        # shared TOU engine (by reference).
+        slices: list[tuple[str, float, float, datetime]] = []
+        for p, imp_kwh, _z, dt_ in imp_slices_raw:
+            slices.append((p, imp_kwh, 0.0, dt_))
+        for p, exp_kwh_wrong_slot, _z, dt_ in exp_slices_raw:
+            # _slice_leg put the leg's energy in the imp field (slot 1);
+            # for export slices the real energy belongs in slot 2.
+            slices.append((p, 0.0, exp_kwh_wrong_slot, dt_))
+
+        # If the baseline was first-observed on this tick (both legs had
+        # last_ts=None entering), produce a single "now" slice so a
+        # first-real tick's accrual (reset path) is priced at `now`.
+        if not slices and (imp_delta > 0 or exp_delta > 0):
             try:
                 period = self._tou.get_current_period(now)
             except Exception:  # noqa: BLE001
@@ -256,20 +294,28 @@ class CounterAccrualTracker:
         # Update per-leg state. Advance stamp only when we have a reading;
         # a missing reading leaves last_ts alone so a later catch-up
         # computes a legitimate elapsed_h.
-        if imp is not None:
+        imp_real_read = imp is not None
+        exp_real_read = exp is not None
+        if imp_real_read:
             if self._import_last is not None and imp > self._import_last + RESET_EPSILON_KWH:
                 self._import_last_advance_ts = now_ts
             self._import_last = imp
             self._import_last_ts = now_ts
-        if exp is not None:
+        if exp_real_read:
             if self._export_last is not None and exp > self._export_last + RESET_EPSILON_KWH:
                 self._export_last_advance_ts = now_ts
             self._export_last = exp
             self._export_last_ts = now_ts
 
-        # Cache last net kW for peak-avoidance (D6).
-        if prior_ts is not None and now_ts > prior_ts:
-            elapsed_h = (now_ts - prior_ts) / 3600.0
+        # B-H1 (REV 4 review fix-up): refresh _last_net_kw ONLY when at
+        # least one leg produced a REAL reading this tick AND there was
+        # a prior stamp to measure against. Outage (both legs is None)
+        # leaves the cache alone — `last_net_kw()` then returns None
+        # after MAX_AGE. "Unchanged but available" (delta=0) is a valid
+        # 0 kW tick — we DO refresh with 0.0 (defined behaviour per
+        # operator review req 2026-10-09).
+        if imp_real_read or exp_real_read:
+            elapsed_h = max(imp_elapsed_h, exp_elapsed_h)
             if elapsed_h > 0:
                 self._last_net_kw = (imp_delta - exp_delta) / elapsed_h
                 self._last_net_kw_ts = now_ts

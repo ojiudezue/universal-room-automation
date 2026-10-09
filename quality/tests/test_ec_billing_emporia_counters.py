@@ -241,16 +241,23 @@ def test_counter_normal_tick_gross_legs():
     assert out["export_kwh"] == pytest.approx(0.3)
 
 
-def test_counter_reset_value_drop_only():
+def test_counter_reset_books_current_as_post_reset_accrual():
+    """A-HIGH-1 (REV 4 fix-up): a daily reset is NOT a zero accrual —
+    the current value IS the new day's accrual-to-now. Booking 0 would
+    silently lose every midnight tick's energy. The baseline is still
+    updated to the new value for the subsequent tick."""
     hass = _Hass()
     tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
     _advance_counter(hass, "sensor.imp", 40.0)
     tr.tick()  # seed
+    tr._import_last_ts -= 300  # give the cap room
     # Daily reset — counter drops to 0.1 (post-midnight).
     _advance_counter(hass, "sensor.imp", 0.1)
     out = tr.tick()
-    # Reset was detected; no accrual booked, baseline is the new value.
-    assert out is None or out.get("import_kwh", 0.0) == 0.0
+    assert out is not None
+    assert out["import_kwh"] == pytest.approx(0.1, rel=1e-3), (
+        "A-HIGH-1 regression: reset must book current, not 0"
+    )
     assert tr._import_last == pytest.approx(0.1)
 
 
@@ -675,12 +682,262 @@ def test_counter_gap_flag_counters_when_fresh():
     )
     ct._billing_source_today = "counters"
     ct._last_date = "2026-10-08"
-    ct._counters._import_last_ts = time.time() - 60
-    ct._counters._export_last_ts = time.time() - 60
+    now_ts = time.time()
+    ct._counters._import_last_ts = now_ts - 60
+    ct._counters._export_last_ts = now_ts - 60
+    # Also mark both legs as having ADVANCED recently (B-M2: is_stuck
+    # requires both legs' advance stamps within the stuck window).
+    ct._counters._import_last_advance_ts = now_ts - 60
+    ct._counters._export_last_advance_ts = now_ts - 60
     import homeassistant.util.dt as _dt
     _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
     totals = ct.get_yesterday_totals()
     assert totals["billing_source"] == "counters"
+
+
+def test_tou_by_reference_two_ticks_price_from_live_rate(monkeypatch):
+    """C-1: two accumulate ticks straddling a RATE CHANGE on the shared
+    engine. The second tick's cost MUST reflect the new rate. A caching
+    mutation (cache the rate across ticks) would make this fail.
+    """
+    hass = _Hass()
+    engine = _flat_engine(rate=0.10)
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    _advance_counter(hass, "sensor.imp", 10.0)
+    _advance_counter(hass, "sensor.exp", 0.0)
+    ct.accumulate()  # seed
+    # Fake 30 min elapsed → first priced tick at $0.10.
+    ct._counters._import_last_ts -= 1800
+    ct._counters._export_last_ts -= 1800
+    ct._last_accumulate_time -= 1800
+    _advance_counter(hass, "sensor.imp", 11.0)   # +1 kWh
+    ct.accumulate()
+    cost_after_t1 = ct._cost_today
+    assert cost_after_t1 > 0.0
+    # Change the engine's rate on the shared instance.
+    engine._rates["flat"]["periods"]["off_peak"]["import_rate"] = 0.40
+    # 30 min later, another 1 kWh.
+    ct._counters._import_last_ts -= 1800
+    ct._counters._export_last_ts -= 1800
+    ct._last_accumulate_time -= 1800
+    _advance_counter(hass, "sensor.imp", 12.0)
+    ct.accumulate()
+    cost_after_t2 = ct._cost_today
+    # Second tick's increment should be ~4x the first (0.40 vs 0.10 base
+    # + the same delivery/transmission adders). A cached-rate mutation
+    # would make these two increments equal.
+    delta_t2 = cost_after_t2 - cost_after_t1
+    delta_t1 = cost_after_t1
+    assert delta_t2 > delta_t1 * 2.0, (
+        f"TOU-by-reference FAILED: delta_t1={delta_t1} delta_t2={delta_t2}"
+    )
+
+
+def test_counter_path_returns_no_double_book_with_realistic_elapsed():
+    """C-2: in counter mode the counter branch MUST early-return so the
+    legacy power-integration path doesn't double-book. Removing the
+    `return` (mutation M19) would make this test fail by booking BOTH
+    the counter delta AND an Envoy-net kW × elapsed."""
+    hass = _Hass()
+    engine = _flat_engine(rate=0.20)
+    ct = CostTracker(
+        hass, engine,
+        net_power_entity="sensor.envoy_net",
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    _advance_counter(hass, "sensor.imp", 100.0)
+    _advance_counter(hass, "sensor.exp", 0.0)
+    _advance_counter(hass, "sensor.envoy_net", 2.0, uom="kW")  # 2 kW net
+    ct.accumulate()  # seed
+    ct._counters._import_last_ts -= 1800
+    ct._counters._export_last_ts -= 1800
+    ct._last_accumulate_time -= 1800
+    _advance_counter(hass, "sensor.imp", 101.0)  # counter +1 kWh
+    ct.accumulate()
+    # Only the counter's +1 kWh may be booked. The power path would add
+    # 2 kW × 0.5 h = 1 kWh on top (double-book → 2 kWh total).
+    assert ct._import_kwh_today == pytest.approx(1.0, rel=1e-2), (
+        "double-book regression: counter path failed to short-circuit"
+    )
+
+
+def test_outage_days_sql_filter_shape():
+    """C-3 anchor: outage-days DAO shape. Mutation of the SQL IN-clause
+    (`billing_source IN ('zzz')`) would make the SQL return 0 even
+    when counter_gap rows exist — this test imports the DAO body and
+    asserts the critical values IN the query are the two expected
+    tags."""
+    import inspect
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    src = inspect.getsource(UniversalRoomDatabase.count_outage_days_in_cycle)
+    assert "billing_source IN ('counter_gap','recorder_backfill')" in src, (
+        "outage-days SQL filter missing required billing_source values"
+    )
+
+
+def test_energy_daily_billing_source_migration_present():
+    """C-3 anchor: `billing_source` column is added via idempotent ALTER."""
+    import inspect
+    from custom_components.universal_room_automation import database as db_mod
+    src = inspect.getsource(db_mod)
+    assert '("billing_source", "TEXT")' in src, (
+        "billing_source column migration row missing"
+    )
+
+
+def test_config_bill_from_select_options_present():
+    """C-4 anchor: options-flow select carries Auto/Meter/Power options
+    and default is Auto. A mutation removing the Auto option (M16) must
+    break this."""
+    import inspect
+    from custom_components.universal_room_automation import config_flow as cf
+    src = inspect.getsource(cf)
+    assert '{"value": BILLING_SOURCE_AUTO, "label": "Auto"}' in src
+    assert '{"value": BILLING_SOURCE_METER, "label": "Meter totals"}' in src
+    assert '{"value": BILLING_SOURCE_POWER, "label": "Power readings"}' in src
+    # Default is Auto (DEFAULT_ENERGY_BILLING_SOURCE references BILLING_SOURCE_AUTO).
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        BILLING_SOURCE_AUTO,
+        DEFAULT_ENERGY_BILLING_SOURCE,
+    )
+    assert DEFAULT_ENERGY_BILLING_SOURCE == BILLING_SOURCE_AUTO
+
+
+def test_cost_tracker_billing_source_wired_from_options():
+    """C-4 anchor + M16b: EC instantiates CostTracker with the operator-
+    set billing_source. A mutation severing that wire (`None and ec.get`)
+    would make the tracker always default to Auto regardless of config."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy as e
+    src = inspect.getsource(e.EnergyCoordinator.__init__)
+    assert "billing_source=ec.get(" in src, (
+        "CostTracker not wired to CONF_ENERGY_BILLING_SOURCE"
+    )
+
+
+def test_d3_grid_import_2_unit_sniff_uses_tracker_cached_kw():
+    """C-4 anchor + M14: D3 kWh/Wh branch pulls tracker cached kW. A
+    mutation using `gi_val` directly would mis-scale."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy as e
+    src = inspect.getsource(e.EnergyCoordinator._log_energy_history_snapshot)
+    assert "self._billing._counters.last_net_kw()" in src
+    # And the uom sniff IS present on the counter branch.
+    assert 'uom in ("kWh", "Wh"):' in src
+    # Mutation anchor: the counter branch MUST clamp via max(cached, 0.0).
+    assert "grid_import_2_kw = max(cached, 0.0)" in src
+
+
+def test_snapshot_persistence_wires_counter_baselines():
+    """C-4 anchor + M20: `_save_midnight_snapshot` passes counter
+    baselines. A mutation nulling counter_import_last would make this
+    anchor fail."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy as e
+    src = inspect.getsource(e.EnergyCoordinator._save_midnight_snapshot)
+    assert '"counter_import_last": billing.get("counter_import_last")' in src
+
+
+def test_backfill_dry_run_is_default():
+    """C-4 anchor + M21: the backfill script defaults to dry-run; a
+    mutation flipping `--apply` default=True would make this fail."""
+    import pathlib
+    txt = pathlib.Path(
+        "scripts/backfill_energy_daily_from_counters.py"
+    ).read_text()
+    assert 'p.add_argument("--apply", action="store_true", default=False)' in txt, (
+        "backfill script --apply default changed from False"
+    )
+
+
+def test_counter_cost_uses_per_slice_rate_source():
+    """M2c + M3 + M3b anchors: the counter branch MUST (a) compute
+    `cost = imp_kwh * rate`, (b) look up `rate` from the shared engine
+    at the SLICE time (not `now`, not a cached var). The source must
+    contain the literal call."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy_billing as eb
+    src = inspect.getsource(eb.CostTracker.accumulate)
+    assert "rate = self._tou.get_effective_import_rate(slice_dt)" in src
+    assert "cost = imp_kwh * rate" in src
+
+
+def test_save_daily_snapshot_passes_billing_source_to_dao():
+    """C-3 anchor + M12b: `_save_daily_snapshot` MUST pass
+    `billing_source=billing_src` to `log_energy_daily`. A mutation
+    hard-coding None would prevent counter_gap from ever being written."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy as e
+    src = inspect.getsource(e.EnergyCoordinator._save_daily_snapshot)
+    assert "billing_source=billing_src," in src
+
+
+def test_outage_days_assign_in_refresh():
+    """M13 anchor: `_refresh_outage_days_this_cycle` MUST assign the
+    DAO count back to the CostTracker. A mutation replacing the
+    assignment with `pass` would silently freeze the sensor at 0."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy as e
+    src = inspect.getsource(e.EnergyCoordinator._refresh_outage_days_this_cycle)
+    assert "self._billing._outage_days_this_cycle = int(count)" in src
+
+
+def test_get_net_power_slot_skip_in_counter_mode():
+    """M10b anchor: `_get_net_power` skips the slot branch in counter
+    mode. A mutation deleting the `not _counter_mode and` guard would
+    read kWh-as-kW during cold-tracker windows."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import energy_billing as eb
+    src = inspect.getsource(eb.CostTracker._get_net_power)
+    assert "not _counter_mode" in src
+    assert "and self._grid_import_entity" in src
+
+
+def test_log_energy_daily_d4_clamp_source():
+    """C-3 anchor + M17: the D4 clamp block MUST contain the actual
+    `consumption_kwh = None` assignment. A mutation changing that to
+    `pass` would silently allow 15,000 kWh writes."""
+    import inspect
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    src = inspect.getsource(UniversalRoomDatabase.log_energy_daily)
+    # Both branches of the clamp assign None.
+    assert src.count("consumption_kwh = None") >= 1
+    assert src.count("solar_production_kwh = None") >= 1
+
+
+def test_dst_boundary_slice_uses_live_rate(monkeypatch):
+    """C-4: DST across a TOU boundary — pro-ration must call
+    `get_current_period(cursor)` for each slice; a cached rate across
+    the DST boundary would misprice."""
+    hass = _Hass()
+    engine = _tou_engine_with_boundary()
+    tr = CounterAccrualTracker(hass, engine, "sensor.imp", "sensor.exp")
+    # Pick a Sunday that would span a DST transition in the configured
+    # engine (we use UTC in the fixture — the test exercises the
+    # pro-ration primitive crossing a period boundary, which is the
+    # same mechanism DST uses).
+    tz = timezone(timedelta(hours=0))
+    before = datetime(2026, 3, 8, 17, 30, tzinfo=tz)
+    after = datetime(2026, 3, 8, 18, 30, tzinfo=tz)
+    _advance_counter(hass, "sensor.imp", 100.0)
+    tr.tick(now=before)
+    tr._import_last_ts = before.timestamp()
+    _advance_counter(hass, "sensor.imp", 102.0)
+    out = tr.tick(now=after)
+    assert out is not None
+    periods = {s[0] for s in out["slices"]}
+    assert "off_peak" in periods and "peak" in periods
 
 
 def test_log_energy_daily_clamp_fires_on_implausible_consumption(tmp_path):

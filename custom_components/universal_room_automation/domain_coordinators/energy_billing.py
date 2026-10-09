@@ -311,8 +311,23 @@ class CostTracker:
                     self._billing_source_today == "counters"
                 )
                 if in_counter_mode:
-                    if stale_s is not None and stale_s > (
-                        COUNTER_OUTAGE_FALLBACK_HRS * 3600
+                    # B-M2 (REV 4 review fix-up): a counter that is
+                    # AVAILABLE but has not ADVANCED beyond the stuck
+                    # window during a day with known nonzero consumption
+                    # should also count toward counter_gap. The stuck
+                    # detector in CounterAccrualTracker already enforces
+                    # the window; combine it with the staleness check so
+                    # a "frozen but polling" counter is flagged.
+                    is_stuck = False
+                    try:
+                        is_stuck = self._counters.is_stuck()
+                    except Exception:  # noqa: BLE001
+                        is_stuck = False
+                    if (
+                        (stale_s is not None and stale_s > (
+                            COUNTER_OUTAGE_FALLBACK_HRS * 3600
+                        ))
+                        or is_stuck
                     ):
                         source = "counter_gap"
                     else:
@@ -519,10 +534,23 @@ class CostTracker:
         # baseline value is still valid for the first-tick delta on the new
         # day because the counter will have reset at midnight (value-drop
         # reset detector handles that path).
+        # B-L3 (REV 4 review fix-up): parse `updated_at` from the DB
+        # snapshot and pass it to the tracker as `snapshot_ts` so the
+        # first tick after restore has a real elapsed window + cap.
+        _snap_ts: float | None = None
+        _raw_updated = snapshot.get("updated_at")
+        if _raw_updated:
+            try:
+                _parsed = dt_util.parse_datetime(_raw_updated)
+                if _parsed is not None:
+                    _snap_ts = _parsed.timestamp()
+            except Exception:  # noqa: BLE001
+                _snap_ts = None
         if self._counters is not None:
             self._counters.restore(
                 snapshot.get("counter_import_last"),
                 snapshot.get("counter_export_last"),
+                snapshot_ts=_snap_ts,
             )
             src = snapshot.get("billing_source_today")
             if src:

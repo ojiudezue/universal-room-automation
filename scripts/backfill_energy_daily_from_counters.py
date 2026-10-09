@@ -30,7 +30,6 @@ Add `--apply` to write; otherwise the script is read-only.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import datetime as _dt
 import os
 import sqlite3
@@ -128,27 +127,22 @@ def _read_existing(
     return rows
 
 
-async def _apply_writes(
+def _apply_writes(
     ura_db_path: str,
     rows: list[DayRow],
     existing: dict[str, dict],
     force_overwrite: bool,
 ) -> None:
-    # Import the production DAO lazily — this script runs with the URA
-    # repo on sys.path.
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "ura_database",
-        os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "custom_components", "universal_room_automation", "database.py",
-        ),
-    )
-    _mod = importlib.util.module_from_spec(spec)
-    # database.py imports relative paths — the backfill cannot run it
-    # fully. Fallback: raw SQL UPSERT using the same shape the DAO uses.
-    # Documented in header: "writes via the DAO shape"; here we hand-
-    # execute the same statement to avoid pulling in HA deps.
+    """A-HIGH-2 (REV 4 review fix-up): UPDATE only `import_kwh`,
+    `export_kwh`, and `billing_source` on EXISTING rows (never
+    INSERT OR REPLACE — that wiped `import_cost`/`export_credit`/
+    `net_cost` to 0 and NULL-ed the live predictions). On rows where
+    the row does not yet exist, INSERT with just those three columns
+    (plus date) and leave cost/prediction columns at their defaults.
+
+    A row with live `consumption_kwh` / `solar_production_kwh` is
+    skipped unless `--force-overwrite`.
+    """
     conn = sqlite3.connect(ura_db_path)
     try:
         for row in rows:
@@ -163,17 +157,27 @@ async def _apply_writes(
             if row.import_kwh is None and row.export_kwh is None:
                 print(f"  SKIP(novalue) {row.date}")
                 continue
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO energy_daily
-                    (date, import_kwh, export_kwh,
-                     import_cost, export_credit, net_cost,
-                     consumption_kwh, solar_production_kwh,
-                     billing_source)
-                VALUES (?, ?, ?, 0, 0, 0, NULL, NULL, 'recorder_backfill')
-                """,
-                (row.date, row.import_kwh or 0.0, row.export_kwh or 0.0),
-            )
+            if live is not None:
+                # UPDATE only — preserve costs + predictions.
+                conn.execute(
+                    """
+                    UPDATE energy_daily
+                       SET import_kwh = ?,
+                           export_kwh = ?,
+                           billing_source = 'recorder_backfill'
+                     WHERE date = ?
+                    """,
+                    (row.import_kwh or 0.0, row.export_kwh or 0.0, row.date),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO energy_daily
+                        (date, import_kwh, export_kwh, billing_source)
+                    VALUES (?, ?, ?, 'recorder_backfill')
+                    """,
+                    (row.date, row.import_kwh or 0.0, row.export_kwh or 0.0),
+                )
         conn.commit()
     finally:
         conn.close()
@@ -228,33 +232,54 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         ura.close()
 
-    print(f"{'date':<12}{'imp_backfill':>14}{'exp_backfill':>14}"
-          f"{'imp_existing':>14}{'exp_existing':>14}  {'action':<24}")
+    # Dry-run output — per-column BEFORE / AFTER for every row.
+    hdr = (
+        f"{'date':<12}"
+        f"{'imp_before':>12}{'imp_after':>12}"
+        f"{'exp_before':>12}{'exp_after':>12}"
+        f"  {'cons_before':>12}{'cons_after':>12}"
+        f"  {'bs_before':>18}{'bs_after':>18}  {'action':<22}"
+    )
+    print(hdr)
     for row in rows:
-        live = existing.get(row.date, {})
+        live = existing.get(row.date, {}) or {}
         live_imp = live.get("import_kwh")
         live_exp = live.get("export_kwh")
+        live_cons = live.get("consumption_kwh")
+        live_bs = live.get("billing_source")
         if row.source == "skip_novalue":
             action = "SKIP(novalue)"
+            after_imp, after_exp, after_cons, after_bs = (
+                live_imp, live_exp, live_cons, live_bs,
+            )
         elif (
             live.get("consumption_kwh") is not None
             or live.get("solar_production_kwh") is not None
-        ):
-            action = "SKIP(live>backfill)" if not args.apply else "KEEP_LIVE"
+        ) and not args.force_overwrite:
+            action = "SKIP(live>backfill)"
+            after_imp, after_exp, after_cons, after_bs = (
+                live_imp, live_exp, live_cons, live_bs,
+            )
         else:
-            action = "WOULD_WRITE" if not args.apply else "WRITE"
+            action = "WOULD_UPDATE" if live else "WOULD_INSERT"
+            after_imp = row.import_kwh
+            after_exp = row.export_kwh
+            # UPDATE-only path leaves consumption untouched.
+            after_cons = live_cons
+            after_bs = "recorder_backfill"
+        fmt = lambda v: ("—" if v is None else f"{v}")
         print(
             f"{row.date:<12}"
-            f"{(row.import_kwh if row.import_kwh is not None else '—'):>14}"
-            f"{(row.export_kwh if row.export_kwh is not None else '—'):>14}"
-            f"{(live_imp if live_imp is not None else '—'):>14}"
-            f"{(live_exp if live_exp is not None else '—'):>14}  "
-            f"{action:<24}"
+            f"{fmt(live_imp):>12}{fmt(after_imp):>12}"
+            f"{fmt(live_exp):>12}{fmt(after_exp):>12}"
+            f"  {fmt(live_cons):>12}{fmt(after_cons):>12}"
+            f"  {fmt(live_bs):>18}{fmt(after_bs):>18}  "
+            f"{action:<22}"
         )
 
     if args.apply:
-        print("Applying writes (UPSERT via DAO-equivalent INSERT OR REPLACE) …")
-        asyncio.run(_apply_writes(args.ura_db, rows, existing, args.force_overwrite))
+        print("Applying UPDATE-only writes (never INSERT OR REPLACE) …")
+        _apply_writes(args.ura_db, rows, existing, args.force_overwrite)
         print("Done.")
     else:
         print("Dry-run — no writes performed. Rerun with --apply to commit.")

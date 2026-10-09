@@ -2065,21 +2065,41 @@ class UniversalRoomDatabase:
 
                 # PLANNING_ec_billing_emporia_counters §D5a cleanup —
                 # the 4 known bad rows (MWh×1000 against zero snapshot).
-                # Idempotent: UPDATE … WHERE date IN (…) AND consumption_kwh IS NOT NULL.
+                # A-LOW (REV 4 review fix-up): one-shot idempotent via
+                # `energy_state` marker. Once the cleanup has run, a
+                # legitimate future rewrite (e.g. backfill or operator
+                # edit) of those four dates will NOT be re-NULLed on a
+                # subsequent restart.
                 try:
-                    bad_dates = (
-                        "2026-06-19", "2026-08-20",
-                        "2026-08-28", "2026-08-30",
+                    marker_cur = await db.execute(
+                        "SELECT value FROM energy_state WHERE key = ?",
+                        ("d5a_cleanup_2026_bad_rows_done",),
                     )
-                    await db.execute(
-                        "UPDATE energy_daily "
-                        "SET consumption_kwh = NULL, solar_production_kwh = NULL "
-                        "WHERE date IN (?,?,?,?) "
-                        "AND (consumption_kwh IS NOT NULL "
-                        "     OR solar_production_kwh IS NOT NULL)",
-                        bad_dates,
-                    )
-                    await db.commit()
+                    marker = await marker_cur.fetchone()
+                    if marker is None:
+                        bad_dates = (
+                            "2026-06-19", "2026-08-20",
+                            "2026-08-28", "2026-08-30",
+                        )
+                        await db.execute(
+                            "UPDATE energy_daily "
+                            "SET consumption_kwh = NULL, "
+                            "    solar_production_kwh = NULL "
+                            "WHERE date IN (?,?,?,?) "
+                            "AND (consumption_kwh IS NOT NULL "
+                            "     OR solar_production_kwh IS NOT NULL)",
+                            bad_dates,
+                        )
+                        await db.execute(
+                            "INSERT OR REPLACE INTO energy_state "
+                            "(key, value, updated_at) VALUES (?, ?, ?)",
+                            (
+                                "d5a_cleanup_2026_bad_rows_done",
+                                "1",
+                                dt_util.utcnow().isoformat(),
+                            ),
+                        )
+                        await db.commit()
                 except Exception as e:
                     _LOGGER.warning(
                         "energy_daily D5a cleanup failed: %s", e
