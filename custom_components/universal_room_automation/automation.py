@@ -1265,6 +1265,24 @@ class RoomAutomation:
 
         if not self.should_execute_automation(state_data):
             _LOGGER.debug("Skipping automation - sleep mode active")
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 operator ruling 2026-10-09:
+            # the sleep-protection + bypass-not-reached gate suppresses
+            # MAIN lights / covers / fans ONLY. During house Sleep,
+            # night lights always come on in an occupied room at sleep
+            # brightness/colour. ``_turn_on_night_lights`` already
+            # respects the manual-hold cooldown. Guard with try/except
+            # so a failure here cannot poison the gate return.
+            if occupied and self.config.get(CONF_NIGHT_LIGHTS, []):
+                try:
+                    _LOGGER.info(
+                        "Sleep-gate [%s]: main suppressed, firing night lights",
+                        room_name,
+                    )
+                    await self._turn_on_night_lights(mode="sleep")
+                except Exception:  # noqa: BLE001 — fail-safe
+                    _LOGGER.exception(
+                        "Sleep-gate night-light turn-on failed [%s]", room_name,
+                    )
             return
 
         if occupied:

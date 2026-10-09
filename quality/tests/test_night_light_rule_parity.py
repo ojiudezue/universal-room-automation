@@ -380,6 +380,66 @@ def test_is_sleep_lighting_active_gate_preserved():
     assert room.auto.is_sleep_lighting_active() is False
 
 
+def test_canonical_sleep_bypass_not_reached_fires_night_lights():
+    """Operator ruling 2026-10-09 (NIGHT-LIGHT-ACTION-SELECTOR-1):
+    sleep_protection ON + per-room sleep clock active + bypass count NOT
+    reached ⇒ ``handle_occupancy_change`` returns early for main lights
+    BUT still fires the night light at sleep brightness/colour. Failure
+    mode fixed: Master Bath Toilet entered 04:49 CDT with no URA action.
+    """
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_ENTRY_LIGHT_ACTION: const.LIGHT_ACTION_TURN_ON,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    # Force sleep-mode-active True and keep bypass count at 0 so the gate
+    # blocks. ``STATE_MOTION_DETECTED`` False keeps the counter at 0.
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 0
+    _run(room.auto.handle_occupancy_change(True, {const.STATE_MOTION_DETECTED: False}))
+    ids = _turn_on_entity_ids(room)
+    assert "light.night" in ids, "sleep-gate must still fire night light"
+    assert "light.main" not in ids, "sleep-gate must NOT fire main light"
+    on_calls = [c for c in _light_calls(room.hass, "turn_on")
+                if "light.night" in (c.data.get("entity_id") or [])]
+    from custom_components.universal_room_automation.lighting.resolver import (
+        night_light_turn_on_params,
+    )
+    expected = night_light_turn_on_params(room.auto.config, "sleep")
+    assert any(c.data.get("brightness_pct") == expected.get("brightness_pct")
+               for c in on_calls), f"must use SLEEP params: {on_calls}"
+
+
+def test_canonical_sleep_bypass_not_reached_vacancy_untouched():
+    """Vacancy path under the sleep gate: no night-light turn-ON leak.
+    (Vacancy OFF is v5.103.43 reconciler territory, not the entry gate.)"""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 0
+    _run(room.auto.handle_occupancy_change(False, {const.STATE_MOTION_DETECTED: False}))
+    assert "light.night" not in _turn_on_entity_ids(room)
+
+
+def test_reconciler_sleep_bypass_not_reached_night_light_on():
+    """Parity: reconciler asserts ON for night light under sleep + occupied
+    regardless of per-room bypass counter — reconciler reads
+    ``is_sleep_lighting_active``, not ``should_execute_automation``."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    _set_sleep(room, True)
+    room.auto._sleep_motion_count = 0
+    out = _resolve(room, "light.night")
+    assert out is not None and out.state == "on"
+
+
 def test_r3_m2_reconciler_params_match_canonical_helper_evening():
     const = _c()
     room = _mk(**{
