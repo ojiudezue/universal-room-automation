@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.44
+# Universal Room Automation vv5.103.45
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -291,6 +291,7 @@ async def async_setup_entry(
             # v3.7.0-E4: Billing + Cost sensors
             EnergyCoordCostTodaySensor(hass, entry),
             EnergyCostCycleSensor(hass, entry),
+            EnergyMeterOutageDaysSensor(hass, entry),
             EnergyPredictedBillSensor(hass, entry),
             # v4.3.0 D4: Arbitrage savings tracking
             EnergyArbitrageSavingsTodaySensor(hass, entry),
@@ -10797,6 +10798,61 @@ class EnergyCoordCostTodaySensor(AggregationEntity, SensorEntity):
             "import_cost": status.get("import_cost_today"),
             "export_kwh": status.get("export_kwh_today"),
             "export_credit": status.get("export_credit_today"),
+            # PLANNING_ec_billing_emporia_counters §D7 additive attributes.
+            "billing_source_today": status.get("billing_source_today"),
+            "counter_last_update": status.get("counter_last_update"),
+            "outage_days_this_cycle": status.get("outage_days_this_cycle"),
+        }
+
+
+class EnergyMeterOutageDaysSensor(AggregationEntity, SensorEntity):
+    """Count of outage-flagged days in the current billing cycle.
+
+    PLANNING_ec_billing_emporia_counters §D7 (REV 4 op req 2026-10-09):
+    one producer (DB query via `_refresh_outage_days_this_cycle`), two
+    surfaces — this sensor's `native_value` and the EC cost-today
+    attribute `outage_days_this_cycle` both read the same CostTracker
+    field. Survives restart by RE-COMPUTE at EC `_restore_midnight_snapshot`
+    time (NOT RestoreEntity).
+
+    Entity: sensor.ura_meter_outage_days
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:meter-electric-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "d"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_meter_outage_days"
+        self._attr_name = "Meter outage days"
+        self._attr_device_info = _energy_device_info()
+
+    def _status(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        try:
+            return energy.billing_status or {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    @property
+    def native_value(self) -> int | None:
+        v = self._status().get("outage_days_this_cycle")
+        return int(v) if v is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        s = self._status()
+        return {
+            "counter_last_update": s.get("counter_last_update"),
+            "billing_source_today": s.get("billing_source_today"),
         }
 
 

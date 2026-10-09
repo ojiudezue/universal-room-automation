@@ -581,3 +581,16 @@ Each P1 site was reviewed and left un-gated in v3 to keep the ship surgical: fil
 - **D-MED-2** (drain-site sensor): drain-site inline gate marks `_onset_deferred` when held (`battery_out_of_capacity and not overnight_release and not daytime_release`) so `binary_sensor.ura_ev_charge_onset_active` reflects drain-site holds. Daytime `soc_recovered` leg remains INTENTIONALLY ungated (baseline preservation).
 - **C-MEDIUM-1 future-edit hazard**: #4/#5 (drain-release) gate via an INLINE boolean (`overnight_release = battery_out_of_capacity and (onset_permits or dp_forcing or must_start_by_reached)`), NOT via a funnel call. A future edit to the funnel WILL NOT reach them. Tests `test_wirein_ev_drain_release_held_via_determine_actions` / plug companion anchor this.
 - **`release_all_*` (#12)** — `release_all_grid_cap` (both tiers) and `release_all_fill_priority` (both tiers) remain un-gated in v3 (rare edge paths; follow-up card recommended).
+
+
+### Billing meters for other installs (PLANNING_ec_billing_emporia_counters, REV 4)
+
+The two existing options-flow fields point the billing path at per-install meters — no entity ids are hard-coded in code:
+
+- `CONF_ENERGY_GRID_IMPORT_ENTITY` — a POWER sensor (W or kW) OR an energy daily counter (kWh or Wh, `total` / `total_increasing`). PEC install today uses the Emporia `sensor.mains_vue_3_mainsfromgrid_energy_today` counter.
+- `CONF_ENERGY_GRID_EXPORT_ENTITY` — same, for export. PEC install uses `sensor.main_panels_mains_vue_3_mainstogrid_energy_today`.
+- `CONF_ENERGY_BILLING_SOURCE` — "Bill from" named select: **Auto** (default — detect counter vs power by `unit_of_measurement`), **Meter totals** (force counter accrual), **Power readings** (force the legacy power-integration path).
+
+Counter detection: `_is_counter_mode()` in `energy_billing.py` checks the import slot's uom (`kWh` / `Wh`) when source is Auto; Meter totals force counter mode unconditionally. The counter path pro-rates deltas across TOU boundaries by calling the shared `TOURateEngine.get_next_period_change_dt(t)` and `get_effective_import_rate(t)` / `get_export_rate(t)` **by reference at each slice time** — no rate tables cached across ticks or slices.
+
+Flat-rate installs are supported: a single-period rate file labelled `off_peak` covering `[0,24]` passes `_validate_parsed_data` (loader at `energy_tou.py:320` requires an `off_peak` period but imposes no minimum period count). The accrual loop handles `get_next_period_change_dt` returning None by pricing the whole delta at the current rate — no infinite loop, no dropped delta.
