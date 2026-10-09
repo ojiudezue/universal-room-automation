@@ -3270,12 +3270,23 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True iff census most-recent house.degraded_mode is True."""
+        """Return True iff the NARROW camera_input_dark latch is set.
+
+        Fix-up A-MED-1/B2: reads
+        ``PersonCensus._camera_input_dark_latched`` — the shared,
+        hysteresis-latched derivation that requires Frigate configured
+        AND (fraction>=FIRE OR frigate_status_2 bad). This is NOT
+        ``CensusResult.house.degraded_mode`` (which is permanently True
+        on a Protect-only house and reads True whenever Frigate is down
+        + Protect binary is up — not actionable as a dark signal).
+        """
         try:
-            result = self._census()
-            if result is None:
+            cens = self.hass.data.get(DOMAIN, {}).get("census")
+            if cens is None:
                 return False
-            return bool(getattr(result.house, "degraded_mode", False))
+            return bool(
+                getattr(cens, "_camera_input_dark_latched", False)
+            )
         except Exception:  # noqa: BLE001
             return False
 

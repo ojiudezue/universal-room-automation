@@ -540,8 +540,13 @@ def test_camera_input_degraded_binary_sensor_registered():
     assert hasattr(bs_mod, "CameraInputDegradedBinarySensor")
 
 
-def test_camera_input_degraded_binary_sensor_mirrors_degraded_mode():
-    """Binary sensor state tracks CensusResult.house.degraded_mode."""
+def test_camera_input_degraded_binary_sensor_mirrors_narrow_latch():
+    """Binary sensor state tracks the NARROW
+    PersonCensus._camera_input_dark_latched — NOT raw degraded_mode.
+
+    This encodes B2's one-definition-of-dark: a Protect-only house
+    reads OFF even though CensusResult.degraded_mode would be True.
+    """
     from custom_components.universal_room_automation.binary_sensor import (
         CameraInputDegradedBinarySensor,
     )
@@ -551,23 +556,46 @@ def test_camera_input_degraded_binary_sensor_mirrors_degraded_mode():
     s = CameraInputDegradedBinarySensor(hass, entry)
     assert s.is_on is False
 
-    # Install a fake census with degraded_mode True.
+    class _Census:
+        _camera_input_dark_latched = True
+        _face_producer_health_reason = "frigate_down"
+
+    hass.data["universal_room_automation"]["census"] = _Census()
+    assert s.is_on is True
+
+    # Flip to healthy — latch clears.
+    _Census._camera_input_dark_latched = False
+    assert s.is_on is False
+
+
+def test_binary_sensor_off_on_protect_only_house():
+    """DISCRIMINATOR for B2: a Protect-only house has
+    CensusResult.degraded_mode permanently True but the NARROW latch
+    stays False (denominator = 0). The binary sensor reads OFF."""
+    from custom_components.universal_room_automation.binary_sensor import (
+        CameraInputDegradedBinarySensor,
+    )
+    hass = _MockHass()
+    entry = _MockEntry("cm", "coordinator_manager")
+    s = CameraInputDegradedBinarySensor(hass, entry)
+
     class _House:
-        degraded_mode = True
+        degraded_mode = True  # Protect-only census marks True...
 
     class _Result:
         house = _House()
 
     class _Census:
         last_result = _Result()
-        _face_producer_health_reason = "frigate_down"
+        # ...but the NARROW latch is False because denominator == 0.
+        _camera_input_dark_latched = False
+        _face_producer_health_reason = "inert_no_frigate"
 
     hass.data["universal_room_automation"]["census"] = _Census()
-    assert s.is_on is True
-
-    # Flip to healthy.
-    _House.degraded_mode = False
-    assert s.is_on is False
+    assert s.is_on is False, (
+        "Protect-only house must read OFF — degraded_mode is NOT the "
+        "trust gate"
+    )
 
 
 def test_camera_input_degraded_binary_sensor_attributes():
@@ -663,40 +691,112 @@ def test_presence_alpha_veto_fires_when_camera_healthy():
     assert engine._veto_path == "active"
 
 
-def test_presence_handles_census_degraded_mode_payload_key():
-    """`_handle_census_update` captures `degraded_mode` off the signal
-    payload into `_census_degraded_mode`.
-
-    Mutation drill: removing the try-block that reads the key from the
-    payload causes this test to go red.
-    """
+def test_presence_handles_census_camera_input_dark_payload_key():
+    """`_handle_census_update` captures the NARROW `camera_input_dark`
+    key off the signal payload into `_census_camera_input_dark`."""
     import inspect as _insp
     from custom_components.universal_room_automation.domain_coordinators import (
         presence as presence_mod,
     )
     src = _insp.getsource(presence_mod.PresenceCoordinator._handle_census_update)
-    assert "degraded_mode" in src, (
-        "_handle_census_update does not read degraded_mode from payload"
-    )
-    assert "_census_degraded_mode" in src
+    assert '"camera_input_dark"' in src
+    assert "_census_camera_input_dark" in src
 
 
-def test_census_signal_payload_includes_degraded_mode():
-    """WIRE-IN ANCHOR: SIGNAL_CENSUS_UPDATED payload carries
-    `degraded_mode` (producer side)."""
+def test_census_signal_payload_includes_narrow_camera_input_dark():
+    """WIRE-IN ANCHOR: SIGNAL_CENSUS_UPDATED payload carries the NARROW
+    `camera_input_dark` key (producer side) — not just degraded_mode."""
     import inspect as _insp
     from custom_components.universal_room_automation import camera_census as cc_mod
     src = _insp.getsource(cc_mod)
-    assert '"degraded_mode"' in src
-    # Confirm it's inside the SIGNAL_CENSUS_UPDATED dispatch block —
-    # look for both markers in the same window.
-    # Co-locate with the face_recognized_count payload key — the known
-    # marker inside the dispatch dict literal.
+    assert '"camera_input_dark": bool(' in src
     i_face = src.find('"face_recognized_count": len(_face_recognized)')
     assert i_face >= 0
-    i_degraded_in_window = src.find(
-        '"degraded_mode"', i_face, i_face + 2000,
+    i_dark_in_window = src.find(
+        '"camera_input_dark"', i_face, i_face + 2000,
     )
-    assert i_degraded_in_window >= 0, (
-        "degraded_mode not present inside SIGNAL_CENSUS_UPDATED block"
+    assert i_dark_in_window >= 0, (
+        "camera_input_dark not present inside SIGNAL_CENSUS_UPDATED block"
     )
+
+
+# ---------------------------------------------------------------------------
+# A-MED-1 / B2 — ONE DEFINITION OF DARK (shared helper, Protect-only off).
+# ---------------------------------------------------------------------------
+
+
+def test_compute_camera_input_dark_frame_zero_denominator_is_false():
+    """Protect-only (no Frigate cameras) → dark_now False. B2
+    discriminator — the whole point of the narrow definition."""
+    from custom_components.universal_room_automation.camera_census import (
+        compute_camera_input_dark_frame,
+    )
+    hass = _MockHass()
+    frame = compute_camera_input_dark_frame(hass, _FakeCameraManager([]))
+    assert frame.denominator == 0
+    assert frame.dark_now is False
+
+
+def test_compute_camera_input_dark_frame_fleet_unavailable():
+    """24/24 unavailable + Frigate configured → dark_now True."""
+    from custom_components.universal_room_automation.camera_census import (
+        compute_camera_input_dark_frame,
+    )
+    sensors = [f"sensor.cam{i}_person_count" for i in range(24)]
+    hass = _MockHass()
+    for s in sensors:
+        hass.states.set(s, "unavailable")
+    frame = compute_camera_input_dark_frame(
+        hass, _FakeCameraManager(sensors),
+    )
+    assert frame.denominator == 24
+    assert frame.unavailable_count == 24
+    assert frame.fraction == 1.0
+    assert frame.dark_now is True
+
+
+def test_compute_camera_input_dark_frame_status2_or_trigger():
+    """0 unavailable but frigate_status_2 bad → dark_now True."""
+    from custom_components.universal_room_automation.camera_census import (
+        compute_camera_input_dark_frame,
+    )
+    sensors = [f"sensor.cam{i}_person_count" for i in range(10)]
+    hass = _MockHass()
+    for s in sensors:
+        hass.states.set(s, "0")
+    hass.states.set("sensor.frigate_status_2", "unavailable")
+    frame = compute_camera_input_dark_frame(
+        hass, _FakeCameraManager(sensors),
+    )
+    assert frame.status2_bad is True
+    assert frame.dark_now is True
+
+
+def test_hysteresis_latch_asymmetric_band():
+    """apply_camera_input_dark_hysteresis contract matches the
+    asymmetric band."""
+    from custom_components.universal_room_automation.camera_census import (
+        apply_camera_input_dark_hysteresis, CameraInputDarkFrame,
+    )
+    f_dark = CameraInputDarkFrame(10, 10, 1.0, "running", False, True, [])
+    assert apply_camera_input_dark_hysteresis(False, f_dark) is True
+    f_mid = CameraInputDarkFrame(10, 5, 0.5, "running", False, False, [])
+    assert apply_camera_input_dark_hysteresis(True, f_mid) is True
+    f_clear = CameraInputDarkFrame(10, 1, 0.1, "running", False, False, [])
+    assert apply_camera_input_dark_hysteresis(True, f_clear) is False
+    f_s2_bad = CameraInputDarkFrame(
+        10, 1, 0.1, "unavailable", True, True, [],
+    )
+    assert apply_camera_input_dark_hysteresis(True, f_s2_bad) is True
+
+
+def test_shared_helper_used_in_optimizer_and_census():
+    """Both the optimizer evaluator and the census call the SAME
+    compute_camera_input_dark_frame helper (one definition)."""
+    import inspect as _insp
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    from custom_components.universal_room_automation import camera_census as cc_mod
+    assert "compute_camera_input_dark_frame" in _insp.getsource(opt_mod)
+    assert "compute_camera_input_dark_frame" in _insp.getsource(cc_mod)
