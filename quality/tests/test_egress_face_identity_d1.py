@@ -839,3 +839,63 @@ def test_canonicalizer_ambiguous_input_stamps_no_identity_at_register():
     assert census._egress_face_ids == {}, (
         "ambiguous first-name must not enter the census union"
     )
+
+
+# ---------------------------------------------------------------------------
+# CENSUS-NAME-SPACE-DEDUP-1 (2026-10-09) — display-name space/hyphen forms
+# must canonicalize to the URA slug namespace BEFORE match, else
+# `identified_persons` carries both "oji udezue" and "oji_udezue" and
+# `identified_count` double-counts one resident into GUEST mode.
+# ---------------------------------------------------------------------------
+
+
+def test_canonicalizer_space_form_resolves_to_slug():
+    """Display name 'Oji Udezue' (UniFi Protect face-name form) must
+    canonicalize to the tracked URA slug 'oji_udezue'."""
+    census = _make_census_with_tracked(["person.oji_udezue"])
+    assert census._canonical_person_slug("Oji Udezue") == "oji_udezue"
+    # Multiple runs of whitespace also collapse.
+    assert census._canonical_person_slug("Oji   Udezue") == "oji_udezue"
+    # Leading/trailing whitespace does not block the match.
+    assert census._canonical_person_slug("  Oji Udezue  ") == "oji_udezue"
+
+
+def test_canonicalizer_hyphen_form_resolves_to_slug():
+    """Hyphenated display name 'Oji-Udezue' must canonicalize to the
+    tracked URA slug 'oji_udezue'."""
+    census = _make_census_with_tracked(["person.oji_udezue"])
+    assert census._canonical_person_slug("Oji-Udezue") == "oji_udezue"
+
+
+def test_canonicalizer_space_form_still_fails_closed_on_ambiguity():
+    """Space-form 'Oji Smith' with two tracked persons sharing first
+    name 'oji' must still fail-CLOSED (empty) — normalisation runs
+    BEFORE the ambiguity gate, and no direct match helps."""
+    census = _make_census_with_tracked(
+        ["person.oji_udezue", "person.oji_smith"],
+    )
+    # Ambiguous first-token head 'oji'; the full normalised slug
+    # 'oji_smith' happens to match directly, so this one resolves
+    # (direct hit wins over the first-token ambiguity gate). The
+    # ambiguity gate still guards the first-name-only case:
+    assert census._canonical_person_slug("Oji Smith") == "oji_smith"
+    # Bare first name is still ambiguous -> fail-CLOSED.
+    assert census._canonical_person_slug("Oji") == ""
+
+
+def test_house_fuse_space_form_face_and_slug_ble_counts_once():
+    """CENSUS-NAME-SPACE-DEDUP-1 live-repro: BLE emits URA slug
+    'oji_udezue', the egress-face register receives Protect-form
+    'Oji Udezue' (space). Pre-fix: identified_count == 2 (double-
+    count -> false GUEST). Post-fix: identified_count == 1."""
+    census = _make_census_with_tracked(["person.oji_udezue"])
+    census.register_egress_face(
+        "Oji Udezue", datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC),
+    )
+    result = _house_apply(
+        census, ble_persons=["oji_udezue"], face_recognized_slugs=[],
+    )
+    assert result.identified_count == 1, (
+        "space-form face name must fuse with slug-form BLE as ONE person"
+    )
+    assert result.identified_persons == ["oji_udezue"]
