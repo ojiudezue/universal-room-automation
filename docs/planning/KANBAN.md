@@ -2,14 +2,8 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T02:09:11-05:00_ - _Data commit: `2437c09018d6`_ - _last_reconciled: 2026-10-08_
+_Generated: 2026-10-09T02:11:11-05:00_ - _Data commit: `e3949086928a`_ - _last_reconciled: 2026-10-09_
 
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.103.42.md (2026-10-09) is newer than last_reconciled (2026-10-08)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -359,7 +353,7 @@ _created 2026-10-05 · updated 2026-10-06 02:55 · refined_
 
 ### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review** - approval: **explicit**
-_created 2026-10-03 16:00 · updated 2026-10-09 02:35_
+_created 2026-10-03 16:00 · updated 2026-10-09 02:12_
 - **Why:** SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the sa...
 - **Next:** SHIP (operator-timed, daytime): merge feature/ec-ev-toggle-tripwire-rebased (2f84c1cd3, 3 commits on develop 7df38c09b) to develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deplo...
 - **Forensic keys (4):**
@@ -373,7 +367,7 @@ _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
 thread: **security** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-07 03:05 · updated 2026-10-09 02:30 · initial_
+_created 2026-10-07 03:05 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
 - **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
@@ -390,7 +384,7 @@ _created 2026-10-07 03:05 · updated 2026-10-09 02:30 · initial_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#2 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-09 02:30 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -427,7 +421,7 @@ _created 2026-09-16 03:30 · updated 2026-10-09 02:30 · refined_
 
 ### `HA-TRUSTED-PROXIES-UI-MIGRATION-1` - Remove the now-ignored YAML http/trusted_proxies block (HA already imported it into the UI on 2026-08-12) — _#3 · WSJF 10.0 · v4 tc4 u2 /e1_
 thread: **platform** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-09 02:30 · refined_
+_created 2026-10-05 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
   - Problem: HA already moved the reverse-proxy trust settings from configuration.yaml into its own UI settings on 2026-08-12, but the old YAML block is still in the file, so HA shows two repair warnings and a future reader may think the YAM...
 - **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
@@ -474,11 +468,12 @@ _created 2026-10-05 02:22 · initial_
 
 ### `BLE-PROXY-PLACEMENT-1` - Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes — _#6 · WSJF 6.0 · v7 tc3 u2 /e2_
 thread: **presence** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-05 02:25_
+_created 2026-10-05 · updated 2026-10-09 02:12_
 - **Why:** Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Gara...
-- **Next:** DO: place proxies in that order (Foyer first); assign areas in HA. ANSWER: which room is the unassigned "Screek BP1_B" scanner in -> I set its area. (Jaya scanner_areas fix RETRACTED 2026-10-05: person_coordinator.py:983-1003 maps the ro...
+- **Next:** DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back.
 - **Tags:** tier-1, config-first
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `reverified_2026_10_09_overnight`: The "which room is Screek BP1_B in" ANSWER appears to be done: its entities (button.screek_bp1_b_factory_reset / _safe_mode_boot) now carry area = Study A. BUT the device is UNAVAILABLE (both buttons unavailable; sensor.jaya_bedroom_ipho...
   - `reverified_2026_10_05_overnight`: New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-...
   - `sweep_2026_10_05`: ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> ...
 
@@ -508,7 +503,7 @@ _created 2026-09-30 08:40 · updated 2026-10-08 03:20_
 
 ### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#9 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-09 02:30 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
@@ -544,7 +539,7 @@ _created 2026-08-20 14:15 · updated 2026-10-09 02:30 · initial_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#10 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-09 02:30 · initial_
+_created 2026-09-29 04:20 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
 - **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
@@ -588,7 +583,7 @@ _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#12 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-09-14 00:20 · updated 2026-10-09 02:30 · refined_
+_created 2026-09-14 00:20 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
@@ -704,22 +699,7 @@ _created 2026-08-18 10:20 · updated 2026-09-29 01:05 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: branch census-p12-exterior-dashboard is 12 commits ahead of main in ~/Code/ura-dashboard-pwa (a whole PWA release: D3 exterior KEEP-BOTH + PWA-CONTROL-LIST-1 + v6....
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
-### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#20 · WSJF 4.0 · v4 tc2 u2 /e2_
-thread: **census** - status: **waiting_operator**
-_created 2026-10-05 02:22 · initial_
-- **Problem / Solution:**
-  - Problem: the family_room camera sees the covered patio through the window, so outdoor guests on the patio are counted as indoor occupants (on 10-03 most visible guests were on the patio from 15:00 to 21:00). Solution: config first - a de...
-- **Origin:** 2026-10-04 - AUDIT_census_footage_ground_truth_2026_10_03.md :19; listed as "patio camera gap" in the 10-04 resume memo
-- **Why:** Inflates the interior head-count exactly during gatherings, when the count matters most.
-- **Next:** DO (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor...
-- **Tags:** tier-1, config-first
-- **Refs:** docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md
-- **Forensic keys (3):**
-  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
-  - `config_first_2026_10_05_overnight`: CONFIG-ONLY verdict. URA consumers of this camera (live core.config_entries + entity registry): the integration entry camera_person_entities lists camera.family_room (platform frigate = Frigate2) AND camera.family_room_high_resolution_ch...
-  - `sweep_2026_10_05`: Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.
-
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#21 · WSJF 4.0 · v9 tc9 u2 /e5_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#20 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **waiting_operator** - approval: **implied**
 _created 2026-09-17 02:20 · updated 2026-10-07 02:45 · refined_
 - **Problem / Solution:**
@@ -742,6 +722,22 @@ _created 2026-09-17 02:20 · updated 2026-10-07 02:45 · refined_
   - `REVIEWED_2026_09_17`: BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this...
   - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
   - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
+
+### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#21 · WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **census** - status: **waiting_operator**
+_created 2026-10-05 02:22 · updated 2026-10-09 02:12 · initial_
+- **Problem / Solution:**
+  - Problem: the family_room camera sees the covered patio through the window, so outdoor guests on the patio are counted as indoor occupants (on 10-03 most visible guests were on the patio from 15:00 to 21:00). Solution: config first - a de...
+- **Origin:** 2026-10-04 - AUDIT_census_footage_ground_truth_2026_10_03.md :19; listed as "patio camera gap" in the 10-04 resume memo
+- **Why:** Inflates the interior head-count exactly during gatherings, when the count matters most.
+- **Next:** DO (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor...
+- **Tags:** tier-1, config-first
+- **Refs:** docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md
+- **Forensic keys (4):**
+  - `reverified_2026_10_09_overnight`: Still open (Frigate2 half): the live Frigate2 config read ~02:05 CDT 10-09 (homelab snapshot config.yaml-2026-10-09-pre-pool-equipment-mask) has NO motion mask, object mask or zones on cameras.family_room (only enabled/detect/ffmpeg). Th...
+  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
+  - `config_first_2026_10_05_overnight`: CONFIG-ONLY verdict. URA consumers of this camera (live core.config_entries + entity registry): the integration entry camera_person_entities lists camera.family_room (platform frigate = Frigate2) AND camera.family_room_high_resolution_ch...
+  - `sweep_2026_10_05`: Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.
 
 ### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#22 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **waiting_operator**
@@ -939,7 +935,7 @@ _I owe something_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#1 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_me** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-10-09 02:30 · refined_
+_created 2026-08-17 23:58 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -992,7 +988,7 @@ _created 2026-09-29 23:20 · updated 2026-10-03 02:16_
 
 ### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#2 · WSJF 7.0 · v6 tc6 u2 /e2_
 thread: **platform** - status: **shipped_organic** - approval: **implied**
-_created 2026-10-04 02:40 · updated 2026-10-09 02:30 · initial_
+_created 2026-10-04 02:40 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
 - **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
@@ -1027,7 +1023,7 @@ _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 
 ### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **shipped_organic**
-_created 2026-09-29 22:10 · updated 2026-10-09 03:10_
+_created 2026-09-29 22:10 · updated 2026-10-09 02:12_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
 - **Next:** Me, attended session, dispose by 2026-10-15: run the forcing checks from README_v5.103.29 Slice D (a room with the leave-on list AND automation on + a house Away, or a forced away pulse) and one manual-hold-vs-AI-rule check. Both pass ->...
 - **Forensic keys (4):**
@@ -1038,7 +1034,7 @@ _created 2026-09-29 22:10 · updated 2026-10-09 03:10_
 
 ### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#6 · WSJF 2.4 · v5 tc3 u4 /e5_
 thread: **lights** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-15 · updated 2026-10-09 02:55 · refined_
+_created 2026-09-15 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
   - Problem: a room has one setting that says what its lights should do when you walk in — on, on-if-dark, off, leave alone, or nothing. Night lights have no such setting of their own; they quietly inherit that one. So picking "nothing" for ...
 - **Origin:** 2026-09-15 - Offered the operator a binary A/B on the entry=none + sleep divergence; they rejected both and named the real fix — the control is overloaded, split it.
@@ -1086,7 +1082,7 @@ _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 
 ### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#9 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
-_created 2026-09-29 22:30 · updated 2026-10-09 03:10_
+_created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
 - **Next:** VERIFY (with ZONE-DIALOGS-CLEANUP-1): open House options in Simple and in Advanced and confirm they read cleanly -> I close the house half done and card the per-coordinator dialog pass as its own item (the residual).
 - **Forensic keys (1):**
@@ -1227,7 +1223,7 @@ _created 2026-09-27 02:40 · initial_
 
 ### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#8 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **hygiene** - status: **parked** - approval: **implied**
-_created 2026-10-03 02:55 · updated 2026-10-09 02:30 · initial_
+_created 2026-10-03 02:55 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: when Home Assistant shuts down, URA's freeze watchdog runs its stop handler, which tries to cancel the very one-time listener that is calling it. Home Assistant has already removed that listener, so it logs an ERROR 'Unable to r...
 - **Origin:** 2026-10-03 - Overnight pass, reading the full core log (hassio proxy) to dispose BOOT-EVENT-LOOP-FREEZE-1: line 2026-10-03 00:33:14.402 ERROR (SyncWorker_55) homeassistant.core Unable to remove unknown job listener ... _loop_stall_watchd...
@@ -2021,7 +2017,7 @@ _created 2026-09-27 · updated 2026-10-08 03:00_
 
 ### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#69 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hygiene** - status: **parked**
-_created 2026-10-03 01:00 · updated 2026-10-09 02:30_
+_created 2026-10-03 01:00 · updated 2026-10-09 02:12_
 - **Why:** Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.
 - **Next:** REVIVAL TRIGGER = the next attended deploy/restart: read ha_get_logs source=system within ~10 min of boot (or the shutdown window) and look for a FanPolicyOracle fallback WARNING in system_log within ~10 min of boot. Absent -> done; pres...
 - **Forensic keys (6):**
@@ -2275,9 +2271,30 @@ _created 2026-09-05 17:35 · initial_
 ## ✅ Done (291)
 _closed, evidence in refs_
 
+### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-10-04 00:10 · updated 2026-10-09 02:12_
+- **Why:** Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display...
+- **Next:** none: closed. The absolute-level check rides ENERGY-CONSUMPTION-FORECAST-POISONED-1.
+- **Forensic keys (3):**
+  - `disposed_2026_10_09_overnight`: DONE, met with a residual. Discriminator: the predicted-energy sensors should deflate at the ship and then stay flat. HA long-term statistics (daily mean) for sensor.universal_room_automation_predicted_energy_week: 1573 / 1690 / 1796 / 1...
+  - `review_2026_10_04_overnight`: REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2...
+  - `verified_2026_10_04_overnight`: VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus qualit...
+
+### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-10-03 01:20 · updated 2026-10-09 02:12_
+- **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
+- **Next:** none: closed (live-validated in README_v5.103.39).
+- **Forensic keys (4):**
+  - `disposed_2026_10_09_overnight`: DONE (soak exit). Shipped in v5.103.39 (git tag --contains 645af019c = v5.103.39; it is also in v5.103.42). The README_v5.103.39 "Validated 2026-10-06" table has PASS on every EC row: EV/plug starts only via allowed paths, no EV start wh...
+  - `preship_gap_2026_10_05_overnight`: PRE-SHIP GAP (process, not code): no Post-Review Documentation record exists for EC p1. git diff develop...feature/ec-degraded-data-p1 touches no docs/reviews/code-review/ file, and its worktree (.claude/worktrees/agent-aebf583902376cc85...
+  - `reconciled_2026_10_05_overnight`: CARD-WAS-STALE: its next (PICK on doc section 7, likely no Phase-1 build) predates the operator decisions of 10-03/10-04. Ground truth: phase 1 WAS planned (docs/planning/PLANNING_ec_enphase_resilience_and_p1_adjust.md, still untracked i...
+  - `investigation_2026_10_03_overnight`: Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-...
+
 ### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **presence** - status: **done** - approval: **unreviewed**
-_created 2026-08-31 19:05 · updated 2026-10-09 02:55 · initial_
+_created 2026-08-31 19:05 · updated 2026-10-09 02:12 · initial_
 - **Problem / Solution:**
   - Problem: for rooms whose entry-light action is none (e.g. Master Bedroom, Patio, Game Room), the two light controllers disagree during sleep: the reconciler would turn the night light ON (its sleep branch runs before the entry-action che...
 - **Origin:** 2026-08-31 - light automation audit F2/F3
@@ -2291,27 +2308,6 @@ _created 2026-08-31 19:05 · updated 2026-10-09 02:55 · initial_
   - `SUPERSEDED_QUESTION_2026_09_15`: The A-or-B PICK on this card is WITHDRAWN. The operator rejected both options and diagnosed the real problem: the entry-light action field is OVERLOADED — it encodes both "what should the main lights do" and, by accident, "what should th...
   - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
-
-### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **done**
-_created 2026-10-04 00:10 · updated 2026-10-09 02:30_
-- **Why:** Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display...
-- **Next:** none: closed. The absolute-level check rides ENERGY-CONSUMPTION-FORECAST-POISONED-1.
-- **Forensic keys (3):**
-  - `disposed_2026_10_09_overnight`: DONE, met with a residual. Discriminator: the predicted-energy sensors should deflate at the ship and then stay flat. HA long-term statistics (daily mean) for sensor.universal_room_automation_predicted_energy_week: 1573 / 1690 / 1796 / 1...
-  - `review_2026_10_04_overnight`: REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2...
-  - `verified_2026_10_04_overnight`: VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus qualit...
-
-### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **energy** - status: **done**
-_created 2026-10-03 01:20 · updated 2026-10-09 02:30_
-- **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
-- **Next:** none: closed (live-validated in README_v5.103.39).
-- **Forensic keys (4):**
-  - `disposed_2026_10_09_overnight`: DONE (soak exit). Shipped in v5.103.39 (git tag --contains 645af019c = v5.103.39; it is also in v5.103.42). The README_v5.103.39 "Validated 2026-10-06" table has PASS on every EC row: EV/plug starts only via allowed paths, no EV start wh...
-  - `preship_gap_2026_10_05_overnight`: PRE-SHIP GAP (process, not code): no Post-Review Documentation record exists for EC p1. git diff develop...feature/ec-degraded-data-p1 touches no docs/reviews/code-review/ file, and its worktree (.claude/worktrees/agent-aebf583902376cc85...
-  - `reconciled_2026_10_05_overnight`: CARD-WAS-STALE: its next (PICK on doc section 7, likely no Phase-1 build) predates the operator decisions of 10-03/10-04. Ground truth: phase 1 WAS planned (docs/planning/PLANNING_ec_enphase_resilience_and_p1_adjust.md, still untracked i...
-  - `investigation_2026_10_03_overnight`: Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-...
 
 ### `CM-COORDINATORS-ADD-ONE-BY-ONE-1` - Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **onboarding** - status: **done**

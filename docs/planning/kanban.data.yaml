@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-08
+  last_reconciled: 2026-10-09
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,58 +9,58 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - fid: "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-09T03:10:00"
-    at: "2026-10-09T03:10:00"
+  - fid: "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "measured"
     headline: "Room-lighting redesign: all five build slices shipped by v5.103.29, but the release never got a live check. Done tonight where possible: entry lights, Sleep night lights and dusk behave. Away-sweep and manual-hold checks need a daytime test."
     acknowledged: false
-  - fid: "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-09T02:55:00"
-    at: "2026-10-09T02:55:00"
+  - fid: "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "done"
     headline: "The old mismatch, where the main controller kept night lights off in Sleep while the background fixer turned them on, is closed. Both now follow the same rule, confirmed live last night."
     acknowledged: false
-  - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-09T02:55:00"
-    at: "2026-10-09T02:55:00"
+  - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "measured"
     headline: "Night-light release checked live: dusk turn-ons once per entry, night lights on in Sleep from both controllers, dark-room detection right. The closet main light that came on in Sleep was your own HA automation, not URA. Still to check: boot log and a bright-day case."
     acknowledged: false
-  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "escalated"
     headline: "The Proxmox log flood (~4,800 lines/hour) has stopped, and HA now keeps about 4 hours of logs instead of under 1. Nothing changed in HA config, so did you change something on Proxmox? The garage-porch Sonoff is back online too."
     acknowledged: false
-  - fid: "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "done"
     headline: "Energy-history fix closed. The weekly prediction dropped about 5x exactly at the 10-05 release (about 1,900 to about 390 kWh) and has held steady since. Whether the new level is exactly right rides the open energy-forecast card."
     acknowledged: false
-  - fid: "EC-DEGRADED-DATA-POLICY-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "EC-DEGRADED-DATA-POLICY-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "done"
     headline: "EC degraded-data phase 1 closed. It shipped in v5.103.39 and every live check in that release's validation table passed. Leftovers already have their own cards."
     acknowledged: false
-  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "parked"
     headline: "Cannot verify unattended: HA's logs rotate out within hours of a restart, so the boot window is always gone by night. Parked. The check now rides the next attended deploy. NOT an all-clear."
     acknowledged: false
-  - fid: "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "parked"
     headline: "Cannot verify unattended: HA's logs rotate out within hours of a restart, so the boot window is always gone by night. Parked. The check now rides the next attended deploy. NOT an all-clear."
     acknowledged: false
-  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "measured"
     headline: "The pool-equipment camera still logs about 218 false \"person\" sightings a night. I backed up Frigate2's config and staged the approved mask. I did not apply it overnight because that restarts the camera system while the house sleeps. It goes in at the next daytime session."
     acknowledged: false
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "measured"
     headline: "The outdoor person detector (Frigate2) is back. It has been running since yesterday 12:14 and 13 cameras have reported 381 person sightings since then. It has hung 5 times since mid-September, so the Coral vs scheduled-restart pick still stands."
     acknowledged: false
-  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-09T02:30:00"
-    at: "2026-10-09T02:30:00"
+  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-09T02:12:00"
+    at: "2026-10-09T02:12:00"
     outcome: "measured"
     headline: "Vacancy Auto-Off is back on (you turned it on at 21:00). The code fix is live; I close the card after the next restart that follows a setup failure, or by 10-12 on the test proof."
     acknowledged: false
@@ -453,7 +453,7 @@ cards:
   status: "done"
   shipped_version: v5.103.39
   created: '2026-10-04 00:10'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   next: "none: closed. The absolute-level check rides ENERGY-CONSUMPTION-FORECAST-POISONED-1."
   why: 'Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display-only (no decision consumer per database.py:3004 comment).'
 - id: ENPHASE-REALTIME-TRIAL-1
@@ -498,7 +498,7 @@ cards:
   thread: energy
   status: "review"
   created: '2026-10-03 16:00'
-  updated: "2026-10-09 02:35"
+  updated: "2026-10-09 02:12"
   next: "SHIP (operator-timed, daytime): merge feature/ec-ev-toggle-tripwire-rebased (2f84c1cd3, 3 commits on develop 7df38c09b) to develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deploy.sh --cards. Full-suite name-diff result is recorded on the card (rebased_2026_10_06_overnight)."
   why: 'SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the safety net. Operator approved Q8 (alarm) 2026-10-03.'
 - id: ENVOY-STREAM-AB-48H-1
@@ -531,7 +531,7 @@ cards:
   status: "done"
   shipped_version: v5.103.39
   created: '2026-10-03 01:20'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   next: "none: closed (live-validated in README_v5.103.39)."
   why: 'SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026-10-01) turned rare outages into frequent ones. Children: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1 (both approved, both ON HOLD pending this decision).'
 - id: EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1
@@ -556,7 +556,7 @@ cards:
   status: "parked"
   shipped_version: v5.103.37
   created: '2026-10-03 01:00'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   why: 'Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.'
 - id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
   disposition_2026_10_08_soak_exit: "SOAK EXIT -> DONE (met, with residual folded). The stale 'Investigate' next was superseded: the feature shipped in v5.103.37 + hotfix v5.103.38 and was validated live on 2026-10-03 (README_v5.103.37/38 tables: 8 coordinators registered, Enabled switches truthful, coordinators_added = all 8, migration flag set, no CM reload storm). RESIDUAL: a FRESH install adding coordinators one by one has not been observed live (this house was migrated, not installed). Folded into ONBOARDING-SIMPLIFY-1's second-home VERIFY rather than a new card."
@@ -2990,7 +2990,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -9688,7 +9688,7 @@ cards:
   thread: security
   rank: {value: 7, time_criticality: 4, effort: 13}
   status: "waiting_me"
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   verify_2026_09_27: 'RE-VERIFIED STILL BLOCKED (overnight 2026-09-27 02:01): Frigate2 is still off the network (no ping, ARP incomplete, all _2 person_occupancy unavailable since 09-25 19:18), so fresh alerts cannot be hand-traced across NVRs. No work done. Unblocks when PERIMETER-DETECTION-WENT-DARK-1 clears.'
   verify_2026_09_12: 'INVESTIGATE-flagged -> MEASURE complete (Tier-3, do-NOT-build-B-alone CONFIRMED). notification_log hazard_type=exterior_person 30d: 4662 alerts/mo (~155/day!), CRITICAL 1824 / HIGH 2438. Single-vs-corroborated (different cam within +/-20s): ~86.8% SINGLE-source (CRIT 91.4%, HIGH 81.2%). BUT the split is a camera-COVERAGE artifact NOT a phantom signal: single-source concentrates in structurally-uncorroboratable cams — front_side_ptz 1065/1127 (94%), pool_equipment, back_yard, hot_tub (Frigate-2-only, no overlapping cam) — and front_side_ptz is the SAME cam that caught the operator REAL garage walk-in. A blanket demote-single->LOW would floor ~87% of alerts incl. genuine approach detections. So B-alone is UNSAFE (confirms the operator fence). Real levers: A (at-detection snapshot timing) + per-camera street-masking/detection-tuning + track-linker spatial confidence for single-NVR cams; cross-NVR demote only meaningful for the few multi-NVR-overlap cams. ASIDE: 155/day exterior_person + ~75 unacked CRITICAL re-pages (NM-REPAGE) = a real ALERT-FATIGUE surface worth its own look. NEXT -> operator: this stays measure-only/parked per the Tier-3 fence; the volume/fatigue finding may deserve a separate card.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -15427,7 +15427,7 @@ cards:
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: "2026-10-09 02:55"
+  updated: "2026-10-09 02:12"
   refinement_status: "refined"
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
@@ -15513,7 +15513,7 @@ cards:
     at night, not a defect with one correct answer — I should not pick it for you.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH-1 shipped but did NOT close entry=none parity. Needs operator decision on intended behavior.'
   created: 2026-08-31 19:05
-  updated: "2026-10-09 02:55"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   approval: unreviewed
   sibling_of: NIGHT-LIGHT-NO-OFF-PATH-1
@@ -24454,7 +24454,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -27716,7 +27716,7 @@ cards:
   thread: perimeter
   status: 'waiting_operator'
   created: '2026-09-16 03:30'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
@@ -30519,7 +30519,7 @@ cards:
   thread: presence
   status: 'waiting_operator'
   created: '2026-09-29 04:20'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
@@ -30615,7 +30615,7 @@ cards:
   links: {related: [HVAC-KNOB-LABEL-PASS-1, CM-CONFIG-FLOW-UX-1]}
   rank: {value: 3, time_criticality: 2, effort: 2}
 - id: ROOM-LIGHTING-SETUP-REDESIGN-1
-  updated: "2026-10-09 03:10"
+  updated: "2026-10-09 02:12"
   reverified_2026_10_09_overnight: "CARD-WAS-WRONG (next): the \"PICK approve layout\" next is stale. git log on develop shows EVERY slice shipped. Slice B 58936f880, Slice B-prime 1e752f8df, Slice C 31e388bc0 (light manual hold, URA write mark on all writers, Room lights switch), Slice D 40e8db6a1 (house-state awareness), Slice E f49585305 (time-of-day slots + scenes), merged 0deec0234 as v5.103.29; v5.103.33 deduped the darkness setting. Guest was deliberately deferred and lives on LIGHTS-GUEST-MODE-BEHAVIOUR-1. README_v5.103.29 had NO live validation; a partial table was written tonight (Validated 2026-10-09). PASS: entry-list restriction (Study A), Sleep precedence, dusk control. NOT EVALUATED: Slice D away sweep, manual hold vs AI rule, Slice E scenes, because no live room exercises them (Kitchen, the only leave-on room, has its automation off; no room sets Slice E keys)."
   title: Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time
   thread: ux
@@ -30644,7 +30644,7 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, HOUSE-DIALOGS-CLEANUP-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
 - id: HOUSE-DIALOGS-CLEANUP-1
-  updated: "2026-10-09 03:10"
+  updated: "2026-10-09 02:12"
   reverified_2026_10_09_overnight: "House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: \"Zone/House Simple/Advanced: pending operator UI\"). The \"Me: plan house then coordinators\" next is half stale: the house pass is shipped, and the per-coordinator dialog pass (in this card's title) is the unbuilt residual."
   title: House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)
   thread: ux
@@ -30738,7 +30738,7 @@ cards:
   shipped_version: "5.103.39"
   reconcile_2026_10_07_overnight: "CARD-WAS-WRONG (lane): commit 63523e0ed is an ancestor of tags v5.103.39/40/41 (git merge-base --is-ancestor), so this fix SHIPPED in v5.103.39 (2026-10-05 13:52 CDT) without being named in deploy.sh --cards; the board still said review. Moved to shipped_organic. Live 2026-10-07 02:05 CDT: switch.ura_hvac_coordinator_zone_sweep (HVAC 46 Vacancy Auto-Off) is still OFF (unchanged since before 10-04 per recorder) - the fix stops NEW wrong OFF restores, it does not turn an already-off switch back on, so the operator DO below is still open. Discriminator (dispose by 2026-10-12): at the next restart that follows a URA setup failure, no default-ON URA switch comes back OFF (recorder: no on->off at the restart timestamp for switch.ura_*)."
   created: '2026-10-04 02:40'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   approval: implied
   tags: [tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe]
@@ -30784,7 +30784,7 @@ cards:
   thread: hygiene
   status: "parked"
   created: '2026-10-03 02:55'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
@@ -30830,22 +30830,23 @@ cards:
   rank: {value: 4, time_criticality: 4, effort: 1}
   status: "waiting_operator"
   created: '2026-10-05'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   tags: [tier-1, multi-home]
   why: 'Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.10 change (release ~Oct 7). Main house configuration.yaml:87-91 has use_x_forwarded_for + trusted_proxies [172.30.33.0/24, 192.168.13.73] (add-on subnet + reverse proxy). If the migration misbehaves the reverse-proxied access (PWA/remote) breaks with 400s.'
   next: "APPROVE: I back up configuration.yaml and delete its http: block (lines 87-93; the UI already holds all four proxies), then after your next normal restart I confirm the two http repairs are gone and the PWA / remote access still loads. (Or DO it yourself.) Same check on Wigton when you are next on that network."
   sweep_2026_10_05: 'NEW: no prior card on http/trusted_proxies.'
 - id: BLE-PROXY-PLACEMENT-1
+  reverified_2026_10_09_overnight: "The \"which room is Screek BP1_B in\" ANSWER appears to be done: its entities (button.screek_bp1_b_factory_reset / _safe_mode_boot) now carry area = Study A. BUT the device is UNAVAILABLE (both buttons unavailable; sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable), so the scanner is not contributing right now. Proxy placement (Foyer first) cannot be verified from HA alone."
   reverified_2026_10_05_overnight: "New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-to-screek_bp1_b sensors unavailable since 00:26Z (REST /api/states). So it currently contributes nothing wherever it is; when you answer which room it is in, also DO power-cycle / re-join it. Proxy placement DO unchanged."
   title: "Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes"
   thread: presence
   rank: {value: 7, time_criticality: 3, effort: 2}
   status: waiting_operator
   created: '2026-10-05'
-  updated: "2026-10-05 02:25"
+  updated: "2026-10-09 02:12"
   tags: [tier-1, config-first]
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
-  next: 'DO: place proxies in that order (Foyer first); assign areas in HA. ANSWER: which room is the unassigned "Screek BP1_B" scanner in -> I set its area. (Jaya scanner_areas fix RETRACTED 2026-10-05: person_coordinator.py:983-1003 maps the room''s own area directly regardless of scanner_areas; the override only ADDS the bathroom scanners (Tier 2, weight 0.6, needs motion corroboration). Borrowing is intended and correct; adding jaya_bedroom would change nothing.)'
+  next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 - id: CENSUS-INPUTS-FIRST-1
   live_replay_2026_10_08: 'Post-v5.103.39 live replay (10-05 18:56Z -> 10-08, 29 door rows, 3,030 house snapshots): dedup clean (0 dup pairs within 30 s), direction resolved 29/29, person_id 48% (was 19%). REGRESSION: peak_person_count populated 17/17 rows until 10-06 01:06Z then NULL for all 12 rows from 10-06 12:33Z onward - producer check needed. House total still wrong: post-guest (truth ~3 when home) reads 2 46% / 1 38% / 0 15% / 3 0.3%; GUEST state 3 of 6 fired after the guest left (10-06 08:15-09:30 CDT). Caveat: daytime absences not logged, so true-away vs camera-miss not separated. Verdict: door inputs fixed but not sufficient -> hybrid estimator still GO.'
@@ -30988,13 +30989,14 @@ cards:
     context: 'Memo sequences it after the inputs-first cycle; restart-adjacent house-state hazards are tracked on HA-CORE-RESTART-STORM-1.'
   sweep_2026_10_05: 'Board grep AWAY fence / boot away: none; restart storm card ADJACENT. NEW.'
 - id: CENSUS-PATIO-THROUGH-GLASS-1
+  reverified_2026_10_09_overnight: "Still open (Frigate2 half): the live Frigate2 config read ~02:05 CDT 10-09 (homelab snapshot config.yaml-2026-10-09-pre-pool-equipment-mask) has NO motion mask, object mask or zones on cameras.family_room (only enabled/detect/ffmpeg). The UniFi Protect half was NOT checked: the unifi-protect MCP failed to connect this run, so that is a gap, not a pass."
   paged_2026_10_05_overnight: "Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone)."
   config_first_2026_10_05_overnight: "CONFIG-ONLY verdict. URA consumers of this camera (live core.config_entries + entity registry): the integration entry camera_person_entities lists camera.family_room (platform frigate = Frigate2) AND camera.family_room_high_resolution_channel (unifiprotect); room Living Room room_cameras = camera.family_room; zone Entertainment zone_cameras = binary_sensor.family_room_person_occupancy (frigate). Both NVRs see through the glass, so a mask in only one leaves the other counting the patio. The fix is NVR-side configuration (operator-owned homelab config); no URA code is needed unless neither NVR can mask the window."
   title: The family-room camera counts people on the covered patio through the glass as being inside
   thread: census
   status: "waiting_operator"
   created: '2026-10-05 02:22'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   tags: [tier-1, config-first]
   rank: {value: 4, time_criticality: 2, effort: 2}
@@ -31093,7 +31095,7 @@ cards:
   status: waiting_operator
   thread: security
   created: '2026-10-07 03:05'
-  updated: "2026-10-09 02:30"
+  updated: "2026-10-09 02:12"
   refinement_status: initial
   problem_solution:
   - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'

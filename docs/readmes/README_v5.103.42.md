@@ -23,7 +23,7 @@ Night lights had no rule of their own. They rode on the main lights' "on entry" 
 - Turning off the operator's HA night-light automations — operational step after each room is onboarded and its URA automation is on.
 
 ## Live validation
-### Validated 2026-10-09 (overnight pass, ~02:45 CDT; live HA manifest = v5.103.42, restarts 10-08 12:24 and 17:20 CDT; house Sleep from 22:00:33 CDT)
+### Validated 2026-10-09 (overnight pass, ~02:10 CDT; live HA manifest = v5.103.42, restarts 10-08 12:24 and 17:20 CDT; house Sleep from 22:00:33 CDT)
 
 | Check | Result | Evidence |
 |---|---|---|
