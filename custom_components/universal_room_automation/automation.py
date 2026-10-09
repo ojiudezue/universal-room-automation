@@ -1266,13 +1266,20 @@ class RoomAutomation:
         if not self.should_execute_automation(state_data):
             _LOGGER.debug("Skipping automation - sleep mode active")
             # NIGHT-LIGHT-ACTION-SELECTOR-1 operator ruling 2026-10-09:
-            # the sleep-protection + bypass-not-reached gate suppresses
-            # MAIN lights / covers / fans ONLY. During house Sleep,
-            # night lights always come on in an occupied room at sleep
-            # brightness/colour. ``_turn_on_night_lights`` already
-            # respects the manual-hold cooldown. Guard with try/except
-            # so a failure here cannot poison the gate return.
-            if occupied and self.config.get(CONF_NIGHT_LIGHTS, []):
+            # the per-room sleep-clock gate (``is_sleep_mode_active`` +
+            # ``CONF_SLEEP_BYPASS_MOTION`` not reached — automation.py
+            # :1180/:1201) suppresses MAIN lights / covers / fans ONLY.
+            # Night lights still follow the normal occupancy rule:
+            #   - occupied -> ON at sleep brightness/colour
+            #   - vacant   -> OFF (minus ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY``)
+            # ``_turn_on_night_lights`` respects the manual-hold cooldown;
+            # on vacancy ``release_light_holds_on_vacancy`` has already
+            # cleared any ON-hold above. Guard both with try/except so a
+            # failure here cannot poison the gate return. Normal exit path
+            # calls ``reset_sleep_bypass`` (automation.py:1276); mirror it
+            # on the gated vacancy so bypass motion counting restarts clean.
+            night_lights = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+            if occupied and night_lights:
                 try:
                     _LOGGER.info(
                         "Sleep-gate [%s]: main suppressed, firing night lights",
@@ -1283,6 +1290,14 @@ class RoomAutomation:
                     _LOGGER.exception(
                         "Sleep-gate night-light turn-on failed [%s]", room_name,
                     )
+            elif (not occupied) and night_lights:
+                try:
+                    await self._sleep_gate_turn_off_night_lights()
+                except Exception:  # noqa: BLE001 — fail-safe
+                    _LOGGER.exception(
+                        "Sleep-gate night-light turn-off failed [%s]", room_name,
+                    )
+                self.reset_sleep_bypass()
             return
 
         if occupied:
@@ -1745,6 +1760,44 @@ class RoomAutomation:
             )
             _LOGGER.debug("Turned on %d regular switch(es)", len(switches_as_lights))
     
+    async def _sleep_gate_turn_off_night_lights(self) -> None:
+        """Night-light-only OFF emitted when the sleep-protection gate blocks
+        a vacancy transition. Mirrors ``_control_lights_exit`` narrowing to
+        the ``CONF_NIGHT_LIGHTS`` subset of ``effective_exit_set`` so
+        ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY`` is honoured; main lights,
+        covers, fans are never touched by this path.
+        """
+        from .lighting.resolver import effective_exit_set
+        night_set = set(self.config.get(CONF_NIGHT_LIGHTS, []) or [])
+        if not night_set:
+            return
+        off_set = [e for e in effective_exit_set(self.config) if e in night_set]
+        if not off_set:
+            return
+        actual_lights = [e for e in off_set if not e.startswith("switch.")]
+        switches_as_lights = [e for e in off_set if e.startswith("switch.")]
+        if actual_lights:
+            await self._safe_service_call(
+                "light",
+                SERVICE_TURN_OFF,
+                {
+                    "entity_id": actual_lights,
+                    "transition": self.config.get(CONF_LIGHT_TRANSITION_OFF, 3),
+                },
+                blocking=False,
+            )
+        if switches_as_lights:
+            await self._safe_service_call(
+                "switch",
+                SERVICE_TURN_OFF,
+                {"entity_id": switches_as_lights},
+                blocking=False,
+            )
+        _LOGGER.info(
+            "Sleep-gate [%s]: vacancy OFF for %d night-light(s)",
+            self.config.get("room_name", "Unknown"), len(off_set),
+        )
+
     async def _turn_on_night_lights(self, mode: str = "sleep") -> None:
         """Turn on night lights with mode-specific settings.
 

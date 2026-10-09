@@ -411,9 +411,83 @@ def test_canonical_sleep_bypass_not_reached_fires_night_lights():
                for c in on_calls), f"must use SLEEP params: {on_calls}"
 
 
+def test_canonical_sleep_bypass_not_reached_vacancy_turns_off_night():
+    """Review A MEDIUM 2026-10-09: under the sleep gate, a vacancy
+    (occupied=False) must still turn OFF night lights (v5.103.43 rule),
+    while leaving main lights untouched. ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY``
+    is honoured. The gate must NOT fire a night-light turn-ON on vacancy."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 0
+    _run(room.auto.handle_occupancy_change(False, {const.STATE_MOTION_DETECTED: False}))
+    assert "light.night" not in _turn_on_entity_ids(room), \
+        "vacancy must not fire ON"
+    off_ids: list[str] = []
+    for c in _light_calls(room.hass, "turn_off"):
+        e = c.data.get("entity_id")
+        off_ids.extend([e] if isinstance(e, str) else (e or []))
+    assert "light.night" in off_ids, f"night light must turn OFF: {off_ids}"
+    assert "light.main" not in off_ids, f"main must stay untouched: {off_ids}"
+
+
+def test_canonical_sleep_bypass_vacancy_leave_on_night_light_carved_out():
+    """LEAVE_ON_WHEN_EMPTY carve-out honoured on the gated vacancy path."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+        const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.night"],
+    })
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 0
+    _run(room.auto.handle_occupancy_change(False, {const.STATE_MOTION_DETECTED: False}))
+    off_ids: list[str] = []
+    for c in _light_calls(room.hass, "turn_off"):
+        e = c.data.get("entity_id")
+        off_ids.extend([e] if isinstance(e, str) else (e or []))
+    assert "light.night" not in off_ids, \
+        f"leave-on-when-empty night light must NOT be turned OFF: {off_ids}"
+
+
+def test_canonical_sleep_bypass_vacancy_resets_bypass_counter():
+    """Mirror the normal exit path: ``reset_sleep_bypass`` fires on the
+    gated vacancy so bypass counting restarts clean on next entry."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 2
+    _run(room.auto.handle_occupancy_change(False, {const.STATE_MOTION_DETECTED: False}))
+    assert room.auto._sleep_motion_count == 0
+
+
+def test_canonical_sleep_bypass_vacancy_does_not_turn_on_night_lights():
+    """Review B LOW 2026-10-09 (occupied-guard coverage): a vacant room
+    under the gate MUST NOT reach the ``_turn_on_night_lights`` branch.
+    Mutating the guard (dropping ``occupied and``) would fire ON on
+    vacancy; this test discriminates the correct guard from a bypass."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: True,
+        const.CONF_SLEEP_BYPASS_MOTION: 3,
+    })
+    room.auto.is_sleep_mode_active = lambda: True
+    room.auto._sleep_motion_count = 0
+    _run(room.auto.handle_occupancy_change(False, {const.STATE_MOTION_DETECTED: False}))
+    on_calls = [c for c in _light_calls(room.hass, "turn_on")
+                if "light.night" in (c.data.get("entity_id") or [])]
+    assert on_calls == [], f"gated vacancy must not fire ON: {on_calls}"
+
+
 def test_canonical_sleep_bypass_not_reached_vacancy_untouched():
-    """Vacancy path under the sleep gate: no night-light turn-ON leak.
-    (Vacancy OFF is v5.103.43 reconciler territory, not the entry gate.)"""
+    """Legacy guard: no night-light turn-ON leak on vacancy. (Kept
+    alongside the new OFF-assertion test above.)"""
     const = _c()
     room = _mk(**{
         const.CONF_SLEEP_PROTECTION_ENABLED: True,
