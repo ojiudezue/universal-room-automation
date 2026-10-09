@@ -1150,23 +1150,31 @@ class RoomAutomation:
         """Sleep semantics for CHOOSING LIGHTS only (night lights on entry).
 
         Operator ruling 2026-09-30 (REV 2.5): house-state Sleep OR the room's
-        sleep clock chooses the sleep night-light slot. Nothing else reads
-        house-state Sleep, so an early or forced house Sleep never blocks
-        covers, exits or fans.
-
-        v5.103.42 post-deploy fix (Living Room 02:37 CDT 2026-10-09 regression):
-        the house-state Sleep branch is NO LONGER gated on
-        ``CONF_SLEEP_PROTECTION_ENABLED``. Previously a room without sleep
-        protection enabled took the non-sleep night-light sub-branch under
-        house Sleep and lit the evening slot — operator intent is "sleep
-        mode when the house is in Sleep." Clock-only sleep behaviour for
-        every other consumer (``is_sleep_mode_active``) is unchanged.
+        sleep clock. Nothing else reads house-state Sleep, so an early or
+        forced house Sleep never blocks covers, exits or fans.
         """
         if self.is_sleep_mode_active():
             return True
+        if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
+            return False
         try:
             return (self._read_current_house_state() or "").lower() == "sleep"
         except Exception:  # noqa: BLE001 — fail-open to clock
+            return False
+
+    def _house_state_is_sleep(self) -> bool:
+        """Narrow helper: house_state == 'sleep' (ignores per-room sleep gate).
+
+        Used ONLY by the non-sleep night-light turn-on paths so a room
+        without sleep protection enabled still gets SLEEP-slot
+        brightness/colour on its night lights under house Sleep. Does
+        NOT widen ``is_sleep_lighting_active`` — the main-light sleep
+        authority (``_turn_off_non_night_lights`` in canonical and
+        ``sleep_non_night_off`` in the reconciler) is unchanged.
+        """
+        try:
+            return (self._read_current_house_state() or "").lower() == "sleep"
+        except Exception:  # noqa: BLE001 — fail-safe
             return False
 
     def is_sleep_mode_active(self) -> bool:
@@ -1374,6 +1382,13 @@ class RoomAutomation:
             from .lighting.resolver import resolve_slot as _resolve_slot
             _slot = _resolve_slot(is_sleep_hours=False, is_dark=is_dark)
             _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
+            # v5.103.42 post-deploy fix: when the house is in Sleep,
+            # night lights should take the SLEEP brightness/colour slot
+            # even for rooms with CONF_SLEEP_PROTECTION_ENABLED=False.
+            # Narrow helper — does NOT widen is_sleep_lighting_active, so
+            # the main-light sleep authority is untouched.
+            if self._house_state_is_sleep():
+                _mode = "sleep"
             await self._turn_on_night_lights(mode=_mode)
             self.coordinator.set_last_action(
                 "turn_on",
