@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "STUCK-SENSOR-WARNING-PER-TICK-1@2026-10-09T02:35:00"
+    at: "2026-10-09T02:35:00"
+    outcome: "built"
+    headline: "Stuck-sensor log spam fix is ready to ship: the warning is written once when a sensor gets stuck, not 3 times a minute. Tests and the full suite are clean. It waits for a daytime deploy."
+    acknowledged: false
   - fid: "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-09T02:12:00"
     at: "2026-10-09T02:12:00"
     outcome: "measured"
@@ -31057,12 +31062,13 @@ cards:
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
   next: "SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release README, name this card in deploy.sh --cards. Live check at that restart: no shutdown-stage timeouts on log_census / nudge-eval, no DB write failed: shutdown timeout."
 - id: STUCK-SENSOR-WARNING-PER-TICK-1
+  built_to_review_2026_10_09_overnight: "BUILT-TO-REVIEW. Branch fix/stuck-sensor-warn-once rebased onto develop (was 19 behind -> 0), force-pushed, HEAD 33b730db4. The anchor fix from 10-07 is present (d30d5df5f, AST wire-in test). ORCHESTRATOR call-neuter drill re-run tonight: replacing the call at coordinator.py:3165 with pass -> test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD FAILS (1 failed / 37 passed); restored, tree clean. Diff read: NM condition, latch key, exclusion set and kinds map are byte-identical (moved into the helper unchanged), which meets the card constraint. Full-suite name-diff vs develop (scripts/suite_namediff.py): CLEAN, 0 NEW / 0 GONE (branch 149 failed / 14264 passed, the same names as baseline). Review record: docs/reviews/code-review/STUCK-SENSOR-WARNING-PER-TICK-1_warn_once.md. Draft README: docs/planning/DRAFT_README_stuck_sensor_warn_once.md. NOT deployed (overnight contract)."
   build_2026_10_07_overnight: "Built on fix/stuck-sensor-warn-once (16648bd99): helper _emit_p22_stuck_sensor_for_tick logs WARNING only when the per-day latch key is first added (with the NM), DEBUG otherwise; 37 stuck tests green; builder helper-level drill red->green. ORCHESTRATOR CALL-NEUTER DRILL FAILED: replacing the call in _async_update_data with pass left all 37 green (hollow wire-in anchor) - sent back for an enclosing-method anchor test. Live corroboration: HA system_log shows the Exercise Room stuck warning counted 483 times since 10-06 23:21 CDT."
   title: The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once
-  status: in_progress
+  status: "review"
   thread: presence
   created: '2026-10-07 02:15'
-  updated: "2026-10-07 03:05"
+  updated: "2026-10-09 02:35"
   refinement_status: initial
   problem_solution:
   - 'Problem: when a room''s motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA''s log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA''s log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
@@ -31084,7 +31090,7 @@ cards:
   links:
     related: [RECORDER-BLOAT-LOGFLOOD-1]
     context: 'RECORDER-BLOAT-LOGFLOOD-1 tracks the log floods that shrink HA''s log window; this card removes URA''s own contribution.'
-  next: 'BUILD (me, overnight): worktree build + test + review -> review lane; ship with the next daytime deploy.'
+  next: "SHIP (operator-timed, daytime deploy): merge fix/stuck-sensor-warn-once (33b730db4) to develop, fold docs/planning/DRAFT_README_stuck_sensor_warn_once.md into the release README, and name the card in deploy.sh --cards. Post-restart: system_log shows the \"stuck on\" WARNING once per sensor, not hundreds."
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
