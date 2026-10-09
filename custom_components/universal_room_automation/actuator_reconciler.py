@@ -931,6 +931,22 @@ class ActuatorReconciler:
                 state="off", domain=domain, service="turn_off",
                 reason="exit_light_off",
             )
+        # v5.103.42 post-deploy fix: when the main exit action is
+        # ``leave_on`` the main-light branch above returns None, but the
+        # night-light rule still asserted this entity ON at entry. Mirror
+        # the canonical exit (which now turns off the night-light subset
+        # unconditionally) so both controllers agree OFF-when-vacant for
+        # night lights, honouring CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY via the
+        # ``off_set`` carve-out already applied above.
+        if (
+            night_lights
+            and entity_id in night_lights
+            and entity_id in off_set
+        ):
+            return DesiredState(
+                state="off", domain=domain, service="turn_off",
+                reason="exit_night_light_off",
+            )
         return None
 
     def _resolve_fan(

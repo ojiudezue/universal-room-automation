@@ -1150,13 +1150,20 @@ class RoomAutomation:
         """Sleep semantics for CHOOSING LIGHTS only (night lights on entry).
 
         Operator ruling 2026-09-30 (REV 2.5): house-state Sleep OR the room's
-        sleep clock. Nothing else reads house-state Sleep, so an early or
-        forced house Sleep never blocks covers, exits or fans.
+        sleep clock chooses the sleep night-light slot. Nothing else reads
+        house-state Sleep, so an early or forced house Sleep never blocks
+        covers, exits or fans.
+
+        v5.103.42 post-deploy fix (Living Room 02:37 CDT 2026-10-09 regression):
+        the house-state Sleep branch is NO LONGER gated on
+        ``CONF_SLEEP_PROTECTION_ENABLED``. Previously a room without sleep
+        protection enabled took the non-sleep night-light sub-branch under
+        house Sleep and lit the evening slot — operator intent is "sleep
+        mode when the house is in Sleep." Clock-only sleep behaviour for
+        every other consumer (``is_sleep_mode_active``) is unchanged.
         """
         if self.is_sleep_mode_active():
             return True
-        if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
-            return False
         try:
             return (self._read_current_house_state() or "").lower() == "sleep"
         except Exception:  # noqa: BLE001 — fail-open to clock
@@ -1491,8 +1498,6 @@ class RoomAutomation:
     async def _control_lights_exit(self, state_data: dict[str, Any]) -> None:
         """Control lights on exit."""
         action = self.config.get(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
-        if action != LIGHT_ACTION_TURN_OFF:
-            return
 
         # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D1): UNCONDITIONAL union.
         # Night lights behave like any occupancy light — OFF on vacancy
@@ -1504,8 +1509,25 @@ class RoomAutomation:
         # Slice B' (v5.103.28): route through effective_exit_set so
         # CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is honoured. ABSENT ⇒ today's
         # unconditional union.
+        #
+        # v5.103.42 post-deploy fix (Living Room 02:37/02:50 CDT 2026-10-09
+        # regression): when the room's MAIN ``exit_light_action`` is
+        # ``leave_on`` the main-light exit branch rightly skips, but the
+        # night-light rule still turned the night lights on at entry. The
+        # night lights the rule asserted MUST turn off when the room empties
+        # regardless of the main action, unless the entity is in
+        # ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY``. ``effective_exit_set``
+        # already carves that leave-on list out, so the night-light subset
+        # of ``off_set`` is the correct target when the main action is not
+        # ``turn_off``.
         from .lighting.resolver import effective_exit_set
         off_set = effective_exit_set(self.config)
+        if action != LIGHT_ACTION_TURN_OFF:
+            night_lights = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+            _night_set = set(night_lights)
+            off_set = [e for e in off_set if e in _night_set]
+            if not off_set:
+                return
         lights = off_set
         if not lights:
             return

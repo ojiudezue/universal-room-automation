@@ -231,6 +231,109 @@ def test_r3_m2_reconciler_params_match_canonical_helper_day():
     assert out.params == expected
 
 
+# ---------------------------------------------------------------------------
+# v5.103.42 post-deploy — exit_action dimension + sleep mode selection.
+# Living Room (02:37/02:50 CDT 2026-10-09) regression: night light turned
+# on by the rule stayed on after vacancy because exit_light_action=leave_on
+# gated the OFF path.
+# ---------------------------------------------------------------------------
+
+
+def _turn_off_entity_ids(room):
+    return _turn_on_entity_ids(room, service="turn_off")
+
+
+def test_canonical_exit_leave_on_still_turns_off_night_light():
+    """main exit=leave_on + vacancy ⇒ night light STILL turned off."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    _run(room.auto._control_lights_exit({}))
+    assert "light.night" in _turn_off_entity_ids(room)
+    # Main light is NOT turned off under leave_on.
+    assert "light.main" not in _turn_off_entity_ids(room)
+
+
+def test_canonical_exit_leave_on_respects_leave_on_list():
+    """leave_on list carries night light ⇒ do NOT turn off."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+        const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.night"],
+    })
+    _run(room.auto._control_lights_exit({}))
+    assert "light.night" not in _turn_off_entity_ids(room)
+
+
+def test_canonical_exit_turn_off_unchanged():
+    """exit=turn_off path byte-identical: full union OFF (except leave_on)."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_TURN_OFF,
+    })
+    _run(room.auto._control_lights_exit({}))
+    ids = _turn_off_entity_ids(room)
+    assert "light.night" in ids
+    assert "light.main" in ids
+
+
+def test_reconciler_vacant_leave_on_night_light_off():
+    """Reconciler agrees with canonical: night light OFF on vacancy under
+    exit=leave_on."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    out = _resolve(room, "light.night", occupied=False)
+    assert out is not None and out.state == "off"
+
+
+def test_reconciler_vacant_leave_on_main_light_no_opinion():
+    """Non-night-light member under exit=leave_on stays untouched."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    out = _resolve(room, "light.main", occupied=False)
+    assert out is None
+
+
+def test_reconciler_vacant_leave_on_night_in_leave_on_list_no_opinion():
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+        const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.night"],
+    })
+    out = _resolve(room, "light.night", occupied=False)
+    assert out is None
+
+
+def test_is_sleep_lighting_active_follows_house_state_without_sleep_protection():
+    """v5.103.42 fix: house_state=sleep ⇒ sleep lighting True even when
+    CONF_SLEEP_PROTECTION_ENABLED=False (Living Room 02:37 CDT regression)."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: False,
+    })
+    # Force non-sleep clock, then stub house state.
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    assert room.auto.is_sleep_lighting_active() is True
+    # And canonical takes the sleep branch — ``sleep`` mode, not ``evening``.
+    _run(room.auto._control_lights_entry({}))
+    assert "light.night" in _turn_on_entity_ids(room)
+
+
+def test_is_sleep_lighting_active_home_night_not_sleep():
+    """house_state=home_night is NOT sleep (discriminator)."""
+    const = _c()
+    room = _mk(**{const.CONF_SLEEP_PROTECTION_ENABLED: False})
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "home_night"
+    assert room.auto.is_sleep_lighting_active() is False
+
+
 def test_r3_m2_reconciler_params_match_canonical_helper_evening():
     const = _c()
     room = _mk(**{
