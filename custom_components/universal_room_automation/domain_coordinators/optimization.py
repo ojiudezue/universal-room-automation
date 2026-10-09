@@ -4640,7 +4640,22 @@ class OptimizationCoordinator(BaseCoordinator):
         # in the helper so a persisted lowercase allowlist matches an
         # Enum-valued finding.dimension. See CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS.
         from ._nm_cycle_a import should_defer_high_to_digest
-        if should_defer_high_to_digest(self.hass, finding):
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-1 / B1: exempt the
+        # camera_input_dark fleet-dark one-shot from the HIGH→digest
+        # defer gate. The fleet-dark finding is a once-per-episode
+        # operator wake-up — if it gets rolled into the daily digest it
+        # defeats the entire tripwire. Keyed on dedup_key[0] rather
+        # than on dimension (SENSOR_HEALTH) so the sensor_health
+        # dimension's room-level findings keep deferring to digest by
+        # default (we are NOT allowlisting all of sensor_health).
+        _dkey = getattr(finding, "dedup_key", None)
+        _is_camera_input_dark = (
+            isinstance(_dkey, tuple)
+            and len(_dkey) >= 1
+            and _dkey[0] == "camera_input_dark"
+        )
+        if (not _is_camera_input_dark
+                and should_defer_high_to_digest(self.hass, finding)):
             _LOGGER.info(
                 "Optimizer: HIGH finding (dimension=%s) deferred to "
                 "daily digest (not in NM allowlist)",

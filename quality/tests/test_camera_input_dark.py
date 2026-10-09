@@ -418,6 +418,85 @@ def test_camera_input_dark_kill_switch(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# A-HIGH-1 / B1 — DELIVERY: camera_input_dark MUST reach NM with the
+# default (empty) allowlist. Drives the REAL _notify_if_severe through
+# should_defer_high_to_digest. A regression that re-closes the defer
+# gate (removing the dedup_key exemption) turns this test red.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_camera_input_dark_pages_nm_despite_default_allowlist():
+    """DELIVERY: a camera_input_dark high finding MUST call nm.async_notify
+    with the default (empty) allowlist — bypasses the digest-defer gate
+    for this specific dedup_key."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    hass = _MockHass()
+    hass.data["universal_room_automation"]["camera_manager"] = (
+        _FakeCameraManager([])
+    )
+    # NM present with the real `async_notify` surface mocked.
+    nm = MagicMock()
+    nm.async_notify = AsyncMock()
+    hass.data["universal_room_automation"]["notification_manager"] = nm
+    # CM entry with the DEFAULT (empty) allowlist — this is the live config.
+    entries = [_MockEntry("cm", "coordinator_manager")]
+    hass.config_entries = _MockConfigEntries(entries)
+    coord = OptimizationCoordinator(hass)
+
+    f = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="house", target_id="house",
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.95, score=0.0,
+        description="camera input dark",
+        payload={"kind": "camera_input_dark", "denominator": 24},
+        dedup_key=("camera_input_dark", "fleet"),
+    )
+    await coord._notify_if_severe(f)
+    assert nm.async_notify.await_count == 1, (
+        "camera_input_dark must bypass the HIGH→digest defer gate "
+        "with the default (empty) allowlist"
+    )
+
+
+@pytest.mark.asyncio
+async def test_other_sensor_health_high_still_defers_by_default():
+    """Discriminator: a vanilla sensor_health HIGH (different dedup_key
+    namespace) still defers to digest with the default allowlist, so we
+    did NOT allowlist all of sensor_health."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    hass = _MockHass()
+    hass.data["universal_room_automation"]["camera_manager"] = (
+        _FakeCameraManager([])
+    )
+    nm = MagicMock()
+    nm.async_notify = AsyncMock()
+    hass.data["universal_room_automation"]["notification_manager"] = nm
+    entries = [_MockEntry("cm", "coordinator_manager")]
+    hass.config_entries = _MockConfigEntries(entries)
+    coord = OptimizationCoordinator(hass)
+
+    f = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id="kitchen",
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.95, score=0.0,
+        description="sensor_health stuck",
+        payload={},
+        dedup_key=("sensor_health", "kitchen", "sensor.kitchen_temp"),
+    )
+    await coord._notify_if_severe(f)
+    assert nm.async_notify.await_count == 0, (
+        "sensor_health HIGH must still defer to digest by default"
+    )
+
+
+# ---------------------------------------------------------------------------
 # WIRE-IN ANCHOR: evaluator must be registered in the cycle.
 # ---------------------------------------------------------------------------
 
