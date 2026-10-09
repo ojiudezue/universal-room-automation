@@ -867,6 +867,15 @@ def test_canonicalizer_hyphen_form_resolves_to_slug():
     assert census._canonical_person_slug("Oji-Udezue") == "oji_udezue"
 
 
+def test_canonicalizer_multiword_known_guest_stays_guest():
+    """A multi-word known_face_guests entry ('Ojini Okafor') must still
+    route the face name to guest:ojini, never into the resident set."""
+    census = _make_census_with_tracked(["person.oji_udezue"])
+    census._get_known_face_guests = lambda: ["Ojini Okafor"]
+    assert census._canonical_person_slug("Ojini Okafor") == "guest:ojini"
+    assert census._canonical_person_slug("ojini") == "guest:ojini"
+
+
 def test_canonicalizer_space_form_still_fails_closed_on_ambiguity():
     """Space-form 'Oji Smith' with two tracked persons sharing first
     name 'oji' must still fail-CLOSED (empty) — normalisation runs

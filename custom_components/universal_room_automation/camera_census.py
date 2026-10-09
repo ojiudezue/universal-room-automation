@@ -3547,7 +3547,8 @@ class PersonCensus:
         except Exception:  # noqa: BLE001 — options read is best-effort
             guests = []
         for g in guests:
-            g_head = str(g).strip().lower().split("_", 1)[0]
+            # Same space/hyphen normalisation as the incoming name above.
+            g_head = "_".join(str(g).lower().replace("-", " ").split()).split("_", 1)[0]
             if g_head and g_head == head:
                 return f"guest:{head}"
         # Fallback: preserve the (lowercased) identifier verbatim.
