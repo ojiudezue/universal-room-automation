@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "195",
+  "author": "ojiudezue",
+  "session_id": "claude_20261009_161839_ship_v5_103_46",
+  "timestamp": "2026-10-09T16:18:39Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.46 shipped: Bill counters: live fix-ups",
+  "summary": "Bill counters: live fix-ups",
+  "why": "Switching the live install to Emporia counters exposed: restart/save lost energy since the last snapshot (seed tick discarded), counter kW was 3x high (15-min delta / 5-min tick), a power-mode kWh misread, no way to clear grid fields, and no log explaining counter mode. Two reviews; orchestrator re-drilled; suite clean.",
+  "implications": "Shipped ENERGY-BILL-ACCURACY-1 at v5.103.46; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.46.md (Live criteria).",
+  "revisit_trigger": "log contains the counter-mode activation line after restart; billing_source_today=counters; end-of-day import_kwh_today within 2% of sensor.mains_vue_3_mainsfromgrid_energy_today",
+  "refs": {
+    "cards": [
+      "ENERGY-BILL-ACCURACY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.46.md"
+    ],
+    "release_notes": "After a restart or settings save the first meter reading is now billed (no loss); counter kW computed from the meter's own update window; power-readings mode ignores kWh meters; settings can clear grid meters; one-time diagnostic logs for counter mode."
+  }
+}
