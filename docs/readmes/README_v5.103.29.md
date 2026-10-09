@@ -854,3 +854,17 @@ pass BEFORE deploy.
 None of the deferrals block the ship; each is either an operator
 question, a follow-up card triggered by post-deploy behaviour, or an
 explicit plan non-goal.
+
+## Live validation
+### Validated 2026-10-09 (overnight pass, partial; observational criteria only; live HA = v5.103.42, which carries all slices A-E)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Slice A/B: rooms with a working lux sensor light on entry at dusk (control) | PASS | Master Closet night light on 18:07 CDT 10-08 at its own sensor reading 4 lx; Living Room dusk entries 20:01/20:41 (see README_v5.103.42 table). |
+| Slice B': entry turns on ONLY `CONF_LIGHTS_ON_ENTRY`, not the whole `CONF_LIGHTS` list | PASS | Study A has 6 lights and `lights_on_entry = [light.smart_light_2303…]`. `ura_activity_log` 10-01 -> 10-09: every Study A `light_turn_on` (3) targets that one light; none of the other 5 lights was ever turned on by URA. |
+| Slice B': leave-on list kept on at exit | NOT EVALUABLE live | The only room using it (Kitchen, `lights_leave_on_when_empty = [kitchen overhead]`, `away_turn_off_leave_on = True`) has `switch.kitchen_automation` OFF by operator choice since 09-27, so 0 URA light actions in 8 days. In-suite proof only. |
+| Slice D: Sleep precedence (night lights in Sleep) | PASS | 10-08 night: Living Room night light on at 22:22 CDT (house = sleep since 22:00), Master Bath reconciler `sleep_night_light` 22:54 / `sleep_non_night_off` 23:30. |
+| Slice D: away sweep of the leave-on list, boot-settle gate, no-flap | NOT EVALUATED | Needs a forced house state or a real Away with a room that has the leave-on list AND automation on. None exists today (Kitchen automation off). Attended. |
+| Slice D: D2 manual hold suppresses an AI-rule turn_off | NOT EVALUATED | Needs a deliberate manual change + AI rule. Attended. |
+| Slice E: no Slice E keys set -> behaviour identical to Slice D | PASS (config) | No URA room carries any `light_evening_*` / `light_scene_*` key (config_entries scan 10-09), so every room runs the byte-identical no-key path. The scene / slot criteria are therefore unexercised. |
+| Options-step layout (B' pickers moved, Advanced hint) | PENDING operator UI | UI-only; covered by ROOM-DIALOGS / ZONE-DIALOGS operator VERIFY. |

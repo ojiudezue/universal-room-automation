@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T02:07:09-05:00_ - _Data commit: `b633217cc16a`_ - _last_reconciled: 2026-10-08_
+_Generated: 2026-10-09T02:09:11-05:00_ - _Data commit: `2437c09018d6`_ - _last_reconciled: 2026-10-08_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.42.md (2026-10-09) is newer than last_reconciled (2026-10-08)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -1021,10 +1027,11 @@ _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 
 ### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **shipped_organic**
-_created 2026-09-29 22:10_
+_created 2026-09-29 22:10 · updated 2026-10-09 03:10_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
-- **Next:** PICK (operator): approve the role-picker layout proposed in chat 2026-09-29 and which of the "missed" items to include -> I write the plan (Institutional context + prior-art scan of automation.py light paths), plan review, build, deploy ...
-- **Forensic keys (3):**
+- **Next:** Me, attended session, dispose by 2026-10-15: run the forcing checks from README_v5.103.29 Slice D (a room with the leave-on list AND automation on + a house Away, or a forced away pulse) and one manual-hold-vs-AI-rule check. Both pass ->...
+- **Forensic keys (4):**
+  - `reverified_2026_10_09_overnight`: CARD-WAS-WRONG (next): the "PICK approve layout" next is stale. git log on develop shows EVERY slice shipped. Slice B 58936f880, Slice B-prime 1e752f8df, Slice C 31e388bc0 (light manual hold, URA write mark on all writers, Room lights sw...
   - `build_2026_09_29`: Plan REV 2.3 (+2.3.1/2.3.2) reviewed. Builder decomposed into slices (all committed scope). DONE on feature/room-lighting-roles @ 58936f880 (held): Slice A resolver (effective_entry_set/exit_set) + resolver-equivalence test (28) + D0/D8 ...
   - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
   - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
@@ -1069,19 +1076,21 @@ _created 2026-10-05 02:22 · updated 2026-10-05 02:36 · refined_
   - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
   - `sweep_2026_10_05`: Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.
 
-### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#8 · WSJF 2.0 · v3 tc1 u2 /e3_
-thread: **ux** - status: **shipped_organic**
-_created 2026-09-29 22:30_
-- **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
-- **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
-
-### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#9 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#8 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Why:** Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...
 - **Next:** VERIFY (any time): open one zone's options (Simple and Advanced) and confirm the menu reads cleanly -> I close this card and HOUSE-DIALOGS-CLEANUP-1 together.
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog ...
+
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#9 · WSJF 2.0 · v3 tc1 u2 /e3_
+thread: **ux** - status: **shipped_organic**
+_created 2026-09-29 22:30 · updated 2026-10-09 03:10_
+- **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
+- **Next:** VERIFY (with ZONE-DIALOGS-CLEANUP-1): open House options in Simple and in Advanced and confirm they read cleanly -> I close the house half done and card the per-coordinator dialog pass as its own item (the residual).
+- **Forensic keys (1):**
+  - `reverified_2026_10_09_overnight`: House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: "Zone/House Simple/Advanced: pending operator UI"). The "Me: plan house then coordinators" next is half stale: the house pass is shipped, and the per-coor...
 
 ### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#10 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**

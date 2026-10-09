@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-09T03:10:00"
+    at: "2026-10-09T03:10:00"
+    outcome: "measured"
+    headline: "Room-lighting redesign: all five build slices shipped by v5.103.29, but the release never got a live check. Done tonight where possible: entry lights, Sleep night lights and dusk behave. Away-sweep and manual-hold checks need a daytime test."
+    acknowledged: false
   - fid: "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-09T02:55:00"
     at: "2026-10-09T02:55:00"
     outcome: "done"
@@ -30610,6 +30615,8 @@ cards:
   links: {related: [HVAC-KNOB-LABEL-PASS-1, CM-CONFIG-FLOW-UX-1]}
   rank: {value: 3, time_criticality: 2, effort: 2}
 - id: ROOM-LIGHTING-SETUP-REDESIGN-1
+  updated: "2026-10-09 03:10"
+  reverified_2026_10_09_overnight: "CARD-WAS-WRONG (next): the \"PICK approve layout\" next is stale. git log on develop shows EVERY slice shipped. Slice B 58936f880, Slice B-prime 1e752f8df, Slice C 31e388bc0 (light manual hold, URA write mark on all writers, Room lights switch), Slice D 40e8db6a1 (house-state awareness), Slice E f49585305 (time-of-day slots + scenes), merged 0deec0234 as v5.103.29; v5.103.33 deduped the darkness setting. Guest was deliberately deferred and lives on LIGHTS-GUEST-MODE-BEHAVIOUR-1. README_v5.103.29 had NO live validation; a partial table was written tonight (Validated 2026-10-09). PASS: entry-list restriction (Study A), Sleep precedence, dusk control. NOT EVALUATED: Slice D away sweep, manual hold vs AI rule, Slice E scenes, because no live room exercises them (Kitchen, the only leave-on room, has its automation off; no room sets Slice E keys)."
   title: Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time
   thread: ux
   status: shipped_organic
@@ -30620,7 +30627,7 @@ cards:
   why: 'Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out) - roles are global per room, not per light. Adjacency: ROOM-DIALOGS-USABILITY-SWEEP-1 (wording only, done/held) - this is structure. NEW.'
   scope_2026_09_29: 'Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors only list + classify (incl. auto-detected features); every role ("which ones should URA do X with") lives in its behaviour step, pickers limited to enumerated devices. The rule exposes existing violations in the Devices step: Night Lights (config-only), Auto-On/Off Devices, Auto-Off Only Devices, Auto Devices, Manual Devices. Scope widens to a role-vs-inventory sweep of all room steps + one-time migration of stored values; lighting role pickers are the centrepiece.'
   ranking_2026_09_29: 'Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation.py:341 is fans - light hold NOT verified to exist); 3 URA room light switch (operator idea: virtual on/off for all room lights, mediated by URA, counts as a manual change); 4 house-state awareness (away all off, sleep night lights, guest); 5 time-of-day brightness/color (extends const.py:898-901 night-light day/sleep); 6 scenes (pair with 5); 7 darkness source (lux exists; add borrow + sun fallback); 8 walk-through rooms (park); 9 alert lights (ride with 1). Cut line: batch 1 = 1-4, batch 2 = 5-6, 7 anytime, park 8.'
-  next: 'PICK (operator): approve the role-picker layout proposed in chat 2026-09-29 and which of the "missed" items to include -> I write the plan (Institutional context + prior-art scan of automation.py light paths), plan review, build, deploy held.'
+  next: "Me, attended session, dispose by 2026-10-15: run the forcing checks from README_v5.103.29 Slice D (a room with the leave-on list AND automation on + a house Away, or a forced away pulse) and one manual-hold-vs-AI-rule check. Both pass -> done. If no room will ever use leave-on or scenes, close done on the in-suite proof and say so."
   links: {related: [ROOM-DIALOGS-USABILITY-SWEEP-1]}
   rank: {value: 4, time_criticality: 2, effort: 3}
 - id: ZONE-DIALOGS-CLEANUP-1
@@ -30637,6 +30644,8 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, HOUSE-DIALOGS-CLEANUP-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
 - id: HOUSE-DIALOGS-CLEANUP-1
+  updated: "2026-10-09 03:10"
+  reverified_2026_10_09_overnight: "House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: \"Zone/House Simple/Advanced: pending operator UI\"). The \"Me: plan house then coordinators\" next is half stale: the house pass is shipped, and the per-coordinator dialog pass (in this card's title) is the unbuilt residual."
   title: House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)
   thread: ux
   status: shipped_organic
@@ -30644,7 +30653,7 @@ cards:
   created: '2026-09-29 22:30'
   origin: 'Operator 2026-09-29: priority order is Room dialog, then House and Zone, then coordinators; "power user mess".'
   why: 'Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.'
-  next: 'Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.'
+  next: "VERIFY (with ZONE-DIALOGS-CLEANUP-1): open House options in Simple and in Advanced and confirm they read cleanly -> I close the house half done and card the per-coordinator dialog pass as its own item (the residual)."
   links: {related: [ZONE-DIALOGS-CLEANUP-1, CM-CONFIG-FLOW-UX-1, ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
 - id: ROOM-TYPE-TRIMMED-MENU-1
