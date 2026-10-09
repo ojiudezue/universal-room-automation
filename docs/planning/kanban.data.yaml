@@ -15451,7 +15451,7 @@ cards:
     action, so "none" silently means two different things
   thread: lights
   status: shipped_organic
-  shipped_version: v5.103.43
+  shipped_version: v5.103.44
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'

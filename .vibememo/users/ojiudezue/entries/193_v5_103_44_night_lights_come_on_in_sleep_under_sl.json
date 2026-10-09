@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "193",
+  "author": "ojiudezue",
+  "session_id": "claude_20261009_131153_ship_v5_103_44",
+  "timestamp": "2026-10-09T13:11:53Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.44 shipped: Night lights come on in Sleep under sleep protection",
+  "summary": "Night lights come on in Sleep under sleep protection",
+  "why": "Master Bath Toilet got no night light at 04:49 because the sleep-protection motion gate (bypass=3) short-circuited all automation, and the reconciler is state-change driven so it never fired. Operator ruled (a): sleep protection only suppresses main lights. Review A found the gated exit path also skipped the night-light off rule (would recreate stuck-on); fixed in-cycle with test + drill.",
+  "implications": "Shipped NIGHT-LIGHT-ACTION-SELECTOR-1 at v5.103.44; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.44.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log: Master Bath Toilet first sleep-window entry shows night-light turn_on (sleep) without main-light turn_on, and a night-light turn_off on vacancy",
+  "refs": {
+    "cards": [
+      "NIGHT-LIGHT-ACTION-SELECTOR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.44.md"
+    ],
+    "release_notes": "During Sleep, an occupied room's night lights come on even while sleep protection is ignoring motion; main lights, fans and covers still wait. Leaving turns those night lights off."
+  }
+}
