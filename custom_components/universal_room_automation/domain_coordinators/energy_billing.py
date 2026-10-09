@@ -162,6 +162,10 @@ class CostTracker:
         # Day-flag written to `energy_daily.billing_source` at midnight.
         self._billing_source_today: str | None = None
         self._counter_last_update: str | None = None
+        # A-MED (2026-10-09): one-shot diagnostic flags so the hot path
+        # emits each log at most once per CostTracker instance.
+        self._logged_power_mode_kwh_slot: bool = False
+        self._logged_counter_mode_false_with_slots: bool = False
         # §D7 (REV 4 op req): single producer for the outage counter;
         # consumed by both the EC attribute and the dedicated sensor.
         self._outage_days_this_cycle: int = 0
@@ -240,7 +244,27 @@ class CostTracker:
         ):
             import_state = self.hass.states.get(self._grid_import_entity)
             export_state = self.hass.states.get(self._grid_export_entity)
-            if (
+            # Operator 2026-10-09: when billing_source=power_readings is
+            # explicitly selected but the configured grid slots are kWh/Wh
+            # counters, DO NOT mis-read a daily-total kWh value as kW.
+            # Fall through to the Envoy net-power branch instead. This is
+            # distinct from counter-mode (which was skipped above because
+            # the operator forced power mode); the slot_uom check is a
+            # typing guard, not a mode gate.
+            _imp_uom = (
+                import_state.attributes.get("unit_of_measurement")
+                if import_state is not None else None
+            )
+            if _imp_uom in ("kWh", "Wh"):
+                if not self._logged_power_mode_kwh_slot:
+                    _LOGGER.info(
+                        "Billing power-readings mode selected but import "
+                        "slot '%s' is a %s counter; ignoring kWh slots and "
+                        "falling back to Envoy net power. (one-shot)",
+                        self._grid_import_entity, _imp_uom,
+                    )
+                    self._logged_power_mode_kwh_slot = True
+            elif (
                 import_state and import_state.state not in ("unknown", "unavailable")
                 and export_state and export_state.state not in ("unknown", "unavailable")
             ):
@@ -377,21 +401,16 @@ class CostTracker:
         # and the cap collapses to zero.
         # (dup header kept for diff clarity)
 
-        # Calculate energy since last accumulation
-        if self._last_accumulate_time is None:
-            self._last_accumulate_time = now_ts
-            # Counter-mode seed: let the tracker observe baselines even on
-            # the very first accumulate so `_import_last_ts` is set.
-            if self._counters is not None and self._is_counter_mode():
-                try:
-                    self._counters.tick(now)
-                    self._billing_source_today = "counters"
-                    self._counter_last_update = now.isoformat()
-                except Exception:  # noqa: BLE001
-                    pass
-            return
-
-        elapsed_hours = (now_ts - self._last_accumulate_time) / 3600.0
+        # B-HIGH (2026-10-09 fix-up): the first accumulate after a
+        # snapshot restore MUST book the restored-baseline delta — the
+        # prior build threw that tick's slices away and lost
+        # (midnight → first-tick) energy on every restart. In counter mode
+        # we now fall through to the counter-mode block below; the tracker
+        # knows how to produce slices from a restored baseline. The power
+        # path still needs its seed (`_last_accumulate_time`) to compute a
+        # legitimate elapsed window on the SECOND tick, so we capture the
+        # prior stamp here and short-circuit the power path only.
+        _prev_last_accumulate_time = self._last_accumulate_time
         self._last_accumulate_time = now_ts
 
         # PLANNING_ec_billing_emporia_counters §D2 + §D6b: counter accrual.
@@ -401,8 +420,33 @@ class CostTracker:
         # counter staleness window — counters catch up losslessly.
         # The elapsed > 1h guard is BYPASSED in counter mode (gap-recovery
         # deltas are legitimate and already capped per-leg).
+        # A-MED (2026-10-09): one-shot diagnostic when both grid slots are
+        # configured but counter mode evaluates False (the live-regression
+        # signature). Captures source, uom, and both entity IDs so an
+        # operator reload surfaces the exact gating condition.
+        if (
+            not self._logged_counter_mode_false_with_slots
+            and self._grid_import_entity
+            and self._grid_export_entity
+            and self._counters is not None
+            and not self._is_counter_mode()
+        ):
+            _LOGGER.info(
+                "Billing counter mode evaluated FALSE while both slots "
+                "set: source=%s uom=%s import=%s export=%s. (one-shot)",
+                self._billing_source, self._grid_slot_uom(),
+                self._grid_import_entity, self._grid_export_entity,
+            )
+            self._logged_counter_mode_false_with_slots = True
+
         if self._counters is not None and self._is_counter_mode():
             tick = self._counters.tick(now)
+            if self._billing_source_today != "counters":
+                _LOGGER.info(
+                    "Billing entering counter mode: source=%s imp=%s exp=%s uom=%s",
+                    self._billing_source, self._grid_import_entity,
+                    self._grid_export_entity, self._grid_slot_uom(),
+                )
             self._billing_source_today = "counters"
             self._counter_last_update = now.isoformat()
             if tick is not None:
@@ -431,6 +475,11 @@ class CostTracker:
             self._update_prediction(now)
             return
 
+        # Power path: seed on the first tick (no prior stamp to measure
+        # against), then integrate from the SECOND tick onward.
+        if _prev_last_accumulate_time is None:
+            return
+        elapsed_hours = (now_ts - _prev_last_accumulate_time) / 3600.0
         if elapsed_hours <= 0 or elapsed_hours > 1:
             return  # Skip unreasonable intervals
 
