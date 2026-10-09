@@ -30150,7 +30150,8 @@ cards:
 - id: ENERGY-BILL-ACCURACY-1
   title: 'URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration'
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.45
   rank: {value: 8, time_criticality: 5, effort: 5}
   updated: '2026-10-09 10:00'
   origin: 'Operator 2026-10-09: "Check energy measurements and predictions including bill predictions for accuracy... I want related sensors and dashboards to be accurate."'
@@ -30164,7 +30165,8 @@ cards:
   INSTANCE_2026_10_01_nightly_null_rows: 'NEW MEASUREMENT, changes the option choice. URA DB energy_daily: consumption_kwh, solar_production_kwh and predicted_consumption_kwh are ALL NULL on 14 of the last 17 days (09-13, 09-16..09-23, 09-26..09-30 NULL; only 09-24 and 09-25 have values; 09-14/15 rows are missing entirely). Cause (HA recorder): the Envoy lifetime counters are unavailable across local midnight almost every night - they drop at ~04:05-04:07Z (23:05 CDT) and come back ~05:48-05:56Z (00:48-00:56 CDT) on 09-27, 09-28, 09-29, 09-30 and 10-01; on 09-25/26 they were available but lifetime_energy_production read the stuck 0.045505 value. The rollover in energy.py (~2759-2823) reads all counters at the first update after the date changes; with them unavailable both the derived and legacy paths yield None, the row is written with NULLs, the forecast learner gets no actual for that day, and the snapshots reset to None and are re-seeded mid-morning, so the NEXT day is a partial-day delta too. Consequence: since mid-September the consumption forecast has been learning from almost nothing, which is a bigger and more current harm than the 4 poisoned rows. Implication for the PICK: Option F as written (both endpoints must be accepted, else NULL) would keep ~85% of days NULL while the nightly Envoy outage persists; the parked HIGH-7-full piece (seed the rollover from the last-known-good reading when the live counter is unavailable - counters are flat or nearly flat at midnight) is what actually recovers these days, so it should move INTO the build. Log read not possible this run (home-assistant MCP failed to connect), so I did not confirm the rollover''s warning lines; the recorder + DB evidence above stands on its own.'
   title: The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh
   thread: energy
-  status: 'waiting_operator'
+  status: shipped_organic
+  shipped_version: v5.103.45
   groom_2026_09_29: 'ADJACENCY sweep: ENVOY-FLAKINESS-181243-1 (its title names "corrupt consumption_today") and COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 share this producer family. That makes them ADJACENT, not DUPLICATE: different fix surfaces (forecast history hygiene vs integration flaps vs coverage audit input). Linked with context; the dangling link id ENVOY-FLAKINESS was fixed. Rank unchanged.'
   created: '2026-09-28 22:50'
   updated: "2026-10-04 03:05"

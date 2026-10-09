@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "194",
+  "author": "ojiudezue",
+  "session_id": "claude_20261009_142851_ship_v5_103_45",
+  "timestamp": "2026-10-09T14:28:51Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.45 shipped: Bill sensors from meter counters",
+  "summary": "Bill sensors from meter counters",
+  "why": "URA bill sensors were 24-34% low vs three PEC bills because the tracker integrated Envoy live power and every dropout lost energy. Operator asked to fix existing EC code, use TOU by reference, keep meters configurable, and accepted a separate tracker class after reviews showed per-leg booking, single delta owner and no double count are structural there. Reviews caught midnight-reset loss, a destructive backfill, outage reading as 0 kW and hollow TOU tests; orchestrator caught a clock leak polluting the suite.",
+  "implications": "Shipped ENERGY-BILL-ACCURACY-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1 at v5.103.45; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.45.md (Live criteria).",
+  "revisit_trigger": "After the config step and one full day: URA import_kwh_today within 2% of sensor.mains_vue_3_mainsfromgrid_energy_today at 23:59; billing_source_today=counters; no energy_daily consumption >240 kWh",
+  "refs": {
+    "cards": [
+      "ENERGY-BILL-ACCURACY-1",
+      "ENERGY-CONSUMPTION-FORECAST-POISONED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.45.md"
+    ],
+    "release_notes": "Bill/cost sensors can now accrue from kWh meter counters (import/export separately, priced by the live TOU engine; flat rate supported), losing nothing across meter gaps. New 'Bill from' setting (Auto default; power-sensor installs unchanged), Meter outage days sensor + attributes, day-start guard for impossible daily rows, safe backfill script."
+  }
+}
