@@ -1070,15 +1070,18 @@ class StateInferenceEngine:
         # the indoor-clear debounce. Default False → caller-omitted
         # means v5.7.0 grace-only behavior (invariant preservation).
         sustained_external_empty: bool = False,
-        # FRIGATE-FLEET-DARK (Rev 2 D3-b): when True, the camera-input
-        # fleet is dark (Frigate down OR all platforms unavailable).
-        # Suppresses path α (ACTIVE-only AWAY veto) because the "0
-        # unidentified / 0 face" denominator is unreliable in that
-        # case — treating silence as "no one here" is the exact failure
-        # mode. Default False preserves byte-identity for every existing
-        # caller/test (invariant I3). Does NOT affect path β (which
-        # gates on indoor zones directly) or the plain "nobody home"
-        # pathway above (census_count == 0 AND no zone occupied).
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-2/B3: when True, the
+        # camera-input fleet is dark (narrow: Frigate IS configured
+        # AND (fraction>=FIRE OR frigate_status_2 bad)). SKIPS path α
+        # (ACTIVE-only AWAY veto) because the "0 unidentified / 0
+        # face" denominator is unreliable in that case — treating
+        # silence as "no one here" is the exact failure mode. Does
+        # NOT short-circuit the engine: control falls through to path
+        # β, GUEST exit, SLEEP, and the rest of the ladder. Default
+        # False preserves byte-identity for every existing caller /
+        # test (invariant I3). Does not affect the plain "nobody
+        # home" pathway above (census_count == 0 AND no zone
+        # occupied) or path β (which gates on indoor zones directly).
         camera_input_degraded: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
@@ -1150,25 +1153,26 @@ class StateInferenceEngine:
         # unidentified_count == 0 clause remains — an unidentified camera
         # body legitimately means SOMEONE is here. Path β below deliberately
         # unchanged (asymmetric — see plan review efec78928).
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-2/B3: when the camera-input
+        # fleet is dark, `unidentified_count` and `face_recognized_count`
+        # are both 0 because nothing can be SEEN — not because nobody
+        # is home. SKIP path α (so a dark fleet cannot false-escalate
+        # AWAY via the ACTIVE-only veto) but FALL THROUGH to path β
+        # and the rest of the ladder (GUEST exit, SLEEP) — do NOT
+        # `return None`, which would stall GUEST→HOME re-entry and
+        # SLEEP transitions. The NM one-shot from the optimizer
+        # camera_input_dark evaluator carries the operator signal;
+        # here we only refuse to use path α's silence-is-away short
+        # circuit.
         if (
-            all_tracked_persons_away
+            not camera_input_degraded
+            and all_tracked_persons_away
             and unidentified_count == 0
             and face_recognized_count == 0
         ):
             if current_state == HouseState.AWAY:
                 self._veto_path = "active"
                 return None  # Already away
-            # FRIGATE-FLEET-DARK (Rev 2 D3-b): when the camera-input
-            # fleet is dark, `unidentified_count` and `face_recognized_count`
-            # are both 0 because nothing can be seen — not because nobody
-            # is home. Suppress the transition and hold the last-known
-            # house state (Bug Class #7 "stale data" applied as prefer-
-            # last-known-over-wrong-known). The NM one-shot from the
-            # optimizer camera_input_dark evaluator carries the operator
-            # signal; here we refuse to escalate on silence.
-            if camera_input_degraded:
-                self._veto_path = "none"
-                return None
             self._confidence = 0.95  # higher than camera-driven 0.85
             self._veto_path = "active"
             return HouseState.AWAY

@@ -666,6 +666,74 @@ def test_presence_alpha_veto_suppressed_when_camera_dark():
     assert engine._veto_path == "none"
 
 
+def test_presence_beta_still_reaches_away_while_degraded_outdoor_only():
+    """A-HIGH-2/B3: degraded fleet + outdoor-only zone + all away → path
+    β STILL reaches AWAY. This proves the α-gate is a SKIP, not a
+    short-circuit — the engine falls through to β, GUEST exit, SLEEP."""
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        StateInferenceEngine, HouseState,
+    )
+    engine = StateInferenceEngine(sleep_start_hour=22, sleep_end_hour=6)
+    now = datetime(2026, 10, 9, 12, 0, 0)
+    result = engine.infer(
+        census_count=0,
+        current_state=HouseState.HOME_DAY,
+        any_zone_occupied=True,  # outdoor-only pool zone, say
+        unidentified_count=0,
+        face_recognized_count=0,
+        all_tracked_persons_away=True,
+        all_trusted_or_lost_away_persons_away=True,
+        any_indoor_zone_occupied=False,  # indoor is clear
+        grace_elapsed_for_lost_away=True,
+        lost_away_persons_present=False,
+        sleep_exempt_state=False,
+        now=now,
+        camera_input_degraded=True,
+    )
+    assert result == HouseState.AWAY, (
+        "path β must still reach AWAY even while camera input is dark"
+    )
+    assert engine._veto_path.startswith("lost_admitted") or (
+        engine._veto_path == "lost_admitted"
+    )
+
+
+def test_presence_guest_exit_still_works_while_degraded():
+    """A-HIGH-2/B3: GUEST → HOME_* exit must still fire when the fleet is
+    dark. The gate used to `return None`, which stalled this exit."""
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        StateInferenceEngine, HouseState,
+    )
+    engine = StateInferenceEngine(sleep_start_hour=22, sleep_end_hour=6)
+    now = datetime(2026, 10, 9, 12, 0, 0)
+    result = engine.infer(
+        census_count=1,
+        current_state=HouseState.GUEST,
+        any_zone_occupied=True,
+        unidentified_count=0,
+        face_recognized_count=0,
+        guest_gate_armed=False,  # guest signal cleared
+        all_tracked_persons_away=True,
+        now=now,
+        camera_input_degraded=True,
+    )
+    # Should be a time-based HOME state, NOT None, NOT AWAY, NOT GUEST.
+    assert result not in (None, HouseState.AWAY, HouseState.GUEST)
+
+
+def test_presence_degraded_flip_triggers_inference():
+    """B4: a dark→healthy transition on the signal payload triggers
+    inference immediately (change-detection block in
+    _handle_census_update picks up the camera_input_dark key)."""
+    import inspect as _insp
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as presence_mod,
+    )
+    src = _insp.getsource(presence_mod.PresenceCoordinator._handle_census_update)
+    assert "old_camera_input_dark" in src
+    assert "old_camera_input_dark != self._census_camera_input_dark" in src
+
+
 def test_presence_alpha_veto_fires_when_camera_healthy():
     """Discriminator: same inputs, healthy camera → α-veto DOES fire.
 
