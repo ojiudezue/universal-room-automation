@@ -6178,9 +6178,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "grid_import": CONF_ENERGY_GRID_IMPORT_ENTITY,
                 "grid_export": CONF_ENERGY_GRID_EXPORT_ENTITY,
             }
+            # A-LOW (2026-10-09): if the operator both ticked "Clear X"
+            # AND picked a new entity for X in the SAME submit, the new
+            # entity wins (clearing is for the "I set this once and now
+            # want it empty" case; a fresh pick is a stronger signal).
             for _choice in _clear_grid:
                 _ck = _clear_map.get(_choice)
-                if _ck:
+                if _ck and not user_input.get(_ck):
                     saved_options.pop(_ck, None)
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""

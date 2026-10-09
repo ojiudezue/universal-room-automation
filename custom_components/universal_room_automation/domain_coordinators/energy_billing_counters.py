@@ -154,20 +154,22 @@ class CounterAccrualTracker:
         self,
         current: float | None,
         last: float | None,
-        last_ts: float | None,
-        now_ts: float,
+        window_s: float | None,
         *,
         leg_name: str,
     ) -> float:
-        """Return accepted kWh delta for one leg, updating caps and resets.
+        """Return accepted kWh delta for one leg, bounded by `window_s`.
 
-        A-HIGH-1 (REV 4 fix-up): a value-drop RESET is NOT a zero accrual.
-        The counter is a daily total — when it drops from `last` to
-        `current`, `current` is the NEW DAY's accrual-to-now. Booking 0
-        would silently lose every midnight tick's energy AND every
-        restart-across-midnight tick's energy. We book `min(current, cap)`
-        on that leg: the delta from the implicit baseline-of-0 to
-        `current`, bounded by the elapsed-scaled plausibility cap.
+        A-HIGH (2026-10-09 fix-up): the cap window MUST be the ADVANCE
+        window — the time since the counter last ADVANCED (or since first
+        observation) — NOT the time since the last tick. A 15-min Emporia
+        cadence has 2 silent 5-min ticks followed by one advancing tick;
+        capping the advance at `MAX_COUNTER_KW_PLAUSIBLE × 5min` truncates
+        every real reading. Caller passes `window_s` computed from
+        `prior_advance_ts or prior_obs_ts`.
+
+        A-HIGH-1 (REV 4): a value-drop RESET books `current` (bounded)
+        rather than 0 — the midnight-reset case.
         """
         if current is None:
             return 0.0
@@ -176,15 +178,15 @@ class CounterAccrualTracker:
             return 0.0
         if current < last - RESET_EPSILON_KWH:
             # Daily reset — counter zeroed since last tick; `current` is
-            # the new day's accrual-to-now, bounded by elapsed-scaled cap.
+            # the new day's accrual-to-now, bounded by advance-window cap.
             _LOGGER.info(
                 "Counter reset detected on %s (last=%.3f current=%.3f) — "
                 "booking current as post-reset accrual.",
                 leg_name, last, current,
             )
             booked = max(0.0, current)
-            if last_ts is not None:
-                elapsed_h = max(0.0, (now_ts - last_ts) / 3600.0)
+            if window_s is not None and window_s > 0:
+                elapsed_h = max(0.0, window_s / 3600.0)
                 cap = MAX_COUNTER_KW_PLAUSIBLE * elapsed_h
                 if cap > 0 and booked > cap:
                     _LOGGER.warning(
@@ -194,15 +196,15 @@ class CounterAccrualTracker:
                     booked = cap
             return booked
         raw_delta = max(0.0, current - last)
-        if last_ts is None:
+        if window_s is None or window_s <= 0:
             # No elapsed stamp; accept delta without a cap (first tick after
             # restart with a restored baseline).
             return raw_delta
-        elapsed_h = max(0.0, (now_ts - last_ts) / 3600.0)
+        elapsed_h = max(0.0, window_s / 3600.0)
         cap = MAX_COUNTER_KW_PLAUSIBLE * elapsed_h
         if raw_delta > cap and cap > 0:
             _LOGGER.warning(
-                "Counter jump on %s exceeds cap: raw=%.3f cap=%.3f (elapsed_h=%.3f)",
+                "Counter jump on %s exceeds cap: raw=%.3f cap=%.3f (window_h=%.3f)",
                 leg_name, raw_delta, cap, elapsed_h,
             )
             return cap
@@ -225,29 +227,47 @@ class CounterAccrualTracker:
         imp = self._read_counter(self._import_entity)
         exp = self._read_counter(self._export_entity)
 
-        # Compute deltas BEFORE updating state so we keep the previous ts.
-        imp_delta = self._leg_delta(
-            imp, self._import_last, self._import_last_ts, now_ts,
-            leg_name="import",
+        # A-HIGH (2026-10-09): per-leg ADVANCE window — the time this
+        # tick's delta actually represents. Prefer the last ADVANCE stamp
+        # (so a 15-min accrual seen on an advancing tick is scored at
+        # 15min / 3 ≈ 4 kW, not the 5-min inter-tick / 12 kW). Fall back
+        # to the first-observation stamp when the leg has not yet advanced
+        # (restore + first real tick path).
+        def _window_s(adv_ts: float | None, obs_ts: float | None) -> float | None:
+            base = adv_ts if adv_ts is not None else obs_ts
+            if base is None:
+                return None
+            w = now_ts - base
+            return w if w > 0 else None
+
+        imp_window_s = _window_s(
+            self._import_last_advance_ts, self._import_last_ts
         )
-        exp_delta = self._leg_delta(
-            exp, self._export_last, self._export_last_ts, now_ts,
-            leg_name="export",
+        exp_window_s = _window_s(
+            self._export_last_advance_ts, self._export_last_ts
         )
 
-        # A-MED-1 (REV 4 review fix-up): PER-LEG spans. A stale leg must
-        # NOT stretch the other leg's pro-ration window or the cached
-        # net-kW. Each leg's slices are generated against ITS OWN
-        # prior_ts; `last_net_kw` is only refreshed when at least one
-        # leg produced a real reading this tick (B-H1).
-        def _slice_leg(delta: float, leg_prior_ts: float | None):
-            """Return (slices_for_leg, elapsed_h). Slices are tuples of
+        # Compute deltas BEFORE updating state so we keep the previous ts.
+        imp_delta = self._leg_delta(
+            imp, self._import_last, imp_window_s, leg_name="import",
+        )
+        exp_delta = self._leg_delta(
+            exp, self._export_last, exp_window_s, leg_name="export",
+        )
+
+        # A-MED-1 + A-HIGH-caveat-1 (2026-10-09): PER-LEG ADVANCE-window
+        # pro-ration. The slices represent kWh accrued OVER the advance
+        # window (not since the last silent tick). `leg_window_s` is the
+        # same honest window used by the cap and the kW derivation.
+        def _slice_leg(delta: float, leg_window_s: float | None):
+            """Return (slices_for_leg, window_h). Slices are tuples of
             (period, imp_kwh, exp_kwh, slice_start_dt) with only this
             leg's energy populated; the opposite leg's energy is 0.0."""
-            if delta <= 0 or leg_prior_ts is None or leg_prior_ts >= now_ts:
+            if delta <= 0 or leg_window_s is None or leg_window_s <= 0:
                 return [], 0.0
-            total_s = now_ts - leg_prior_ts
-            cursor = datetime.fromtimestamp(leg_prior_ts, tz=now.tzinfo)
+            total_s = leg_window_s
+            start_ts = now_ts - total_s
+            cursor = datetime.fromtimestamp(start_ts, tz=now.tzinfo)
             end = now
             out: list[tuple[str, float, float, datetime]] = []
             while cursor < end:
@@ -271,8 +291,8 @@ class CounterAccrualTracker:
                 cursor = slice_end
             return out, total_s / 3600.0
 
-        imp_slices_raw, imp_elapsed_h = _slice_leg(imp_delta, self._import_last_ts)
-        exp_slices_raw, exp_elapsed_h = _slice_leg(exp_delta, self._export_last_ts)
+        imp_slices_raw, imp_elapsed_h = _slice_leg(imp_delta, imp_window_s)
+        exp_slices_raw, exp_elapsed_h = _slice_leg(exp_delta, exp_window_s)
         # Distinct per-leg slices concatenated. CostTracker.accumulate
         # iterates and prices each at the slice start time via the
         # shared TOU engine (by reference).
@@ -294,34 +314,75 @@ class CounterAccrualTracker:
                 period = "unknown"
             slices.append((period, imp_delta, exp_delta, now))
 
-        # Update per-leg state. Advance stamp only when we have a reading;
-        # a missing reading leaves last_ts alone so a later catch-up
-        # computes a legitimate elapsed_h.
+        # A-HIGH (2026-10-09): detect ADVANCE before mutating per-leg state
+        # — needed for the honest kW derivation below.
         imp_real_read = imp is not None
         exp_real_read = exp is not None
-        if imp_real_read:
-            if self._import_last is not None and imp > self._import_last + RESET_EPSILON_KWH:
-                self._import_last_advance_ts = now_ts
-            self._import_last = imp
-            self._import_last_ts = now_ts
-        if exp_real_read:
-            if self._export_last is not None and exp > self._export_last + RESET_EPSILON_KWH:
-                self._export_last_advance_ts = now_ts
-            self._export_last = exp
-            self._export_last_ts = now_ts
+        imp_advanced = (
+            imp_real_read
+            and self._import_last is not None
+            and imp > self._import_last + RESET_EPSILON_KWH
+        )
+        exp_advanced = (
+            exp_real_read
+            and self._export_last is not None
+            and exp > self._export_last + RESET_EPSILON_KWH
+        )
+        # Also treat a value-drop reset as a producing event for the kW
+        # refresh denominator (post-reset delta is bookable energy).
+        imp_reset = (
+            imp_real_read
+            and self._import_last is not None
+            and imp < self._import_last - RESET_EPSILON_KWH
+        )
+        exp_reset = (
+            exp_real_read
+            and self._export_last is not None
+            and exp < self._export_last - RESET_EPSILON_KWH
+        )
 
-        # B-H1 (REV 4 review fix-up): refresh _last_net_kw ONLY when at
-        # least one leg produced a REAL reading this tick AND there was
-        # a prior stamp to measure against. Outage (both legs is None)
-        # leaves the cache alone — `last_net_kw()` then returns None
-        # after MAX_AGE. "Unchanged but available" (delta=0) is a valid
-        # 0 kW tick — we DO refresh with 0.0 (defined behaviour per
-        # operator review req 2026-10-09).
-        if imp_real_read or exp_real_read:
-            elapsed_h = max(imp_elapsed_h, exp_elapsed_h)
-            if elapsed_h > 0:
-                self._last_net_kw = (imp_delta - exp_delta) / elapsed_h
-                self._last_net_kw_ts = now_ts
+        # A-HIGH (2026-10-09): refresh _last_net_kw ONLY on an ADVANCE
+        # tick (or reset), and derive each leg's kW from ITS OWN advance
+        # window — never from the inter-tick elapsed. On a silent tick
+        # (delta == 0 on both legs) leave the cache alone; `last_net_kw()`
+        # expires it after COUNTER_NET_POWER_MAX_AGE_S honestly.
+        if imp_advanced or exp_advanced or imp_reset or exp_reset:
+            imp_kw = 0.0
+            exp_kw = 0.0
+            if (
+                (imp_advanced or imp_reset)
+                and imp_window_s is not None and imp_window_s > 0
+            ):
+                imp_kw = imp_delta / (imp_window_s / 3600.0)
+            if (
+                (exp_advanced or exp_reset)
+                and exp_window_s is not None and exp_window_s > 0
+            ):
+                exp_kw = exp_delta / (exp_window_s / 3600.0)
+            self._last_net_kw = imp_kw - exp_kw
+            self._last_net_kw_ts = now_ts
+
+        # Update per-leg state. A-HIGH (2026-10-09): `_last_ts` only
+        # advances on first observation OR on an advance/reset — a silent
+        # tick (counter value unchanged, Emporia between 15-min polls)
+        # must NOT rewrite `_last_ts`, or the cap window and the
+        # advance-fallback both collapse to the EC-tick interval. This
+        # also fixes staleness_s() semantics: "stale" now means
+        # "no advance seen in N seconds", not "no tick observed".
+        if imp_real_read:
+            if imp_advanced or imp_reset:
+                self._import_last_advance_ts = now_ts
+                self._import_last_ts = now_ts
+            elif self._import_last is None:
+                self._import_last_ts = now_ts  # first-observation seed
+            self._import_last = imp
+        if exp_real_read:
+            if exp_advanced or exp_reset:
+                self._export_last_advance_ts = now_ts
+                self._export_last_ts = now_ts
+            elif self._export_last is None:
+                self._export_last_ts = now_ts
+            self._export_last = exp
 
         if imp_delta == 0.0 and exp_delta == 0.0 and not slices:
             return None
