@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-09T02:55:00"
+    at: "2026-10-09T02:55:00"
+    outcome: "done"
+    headline: "The old mismatch, where the main controller kept night lights off in Sleep while the background fixer turned them on, is closed. Both now follow the same rule, confirmed live last night."
+    acknowledged: false
+  - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-09T02:55:00"
+    at: "2026-10-09T02:55:00"
+    outcome: "measured"
+    headline: "Night-light release checked live: dusk turn-ons once per entry, night lights on in Sleep from both controllers, dark-room detection right. The closet main light that came on in Sleep was your own HA automation, not URA. Still to check: boot log and a bright-day case."
+    acknowledged: false
   - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-09T02:30:00"
     at: "2026-10-09T02:30:00"
     outcome: "escalated"
@@ -15396,6 +15406,7 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  validated_2026_10_09_overnight: "LIVE VALIDATION written into README_v5.103.42 (Validated 2026-10-09 table). Live HA = v5.103.42. PASS: dusk once-per-entry (Living Room, entry=none, 3 turn-ons each paired with its own occupancy_entry); Sleep night lights on via BOTH controllers (Living Room main controller 22:22, Master Bath reconciler sleep_night_light 22:54); room-sensor darkness (Master Closet 18:07 at 4 lx). The Master Closet MAIN switch on at 22:27 in Sleep was the operator's HA automation automation.master_closet_storage_smart_lighting_v2 (recorder context_parent -> automation_triggered), NOT URA. NOT EVALUATED: boot errors (log-read gap). PENDING: the bright-daytime no-night-light check."
   onboarding_2026_10_08: 'New URA rooms created 2026-10-08 with URA automation switch OFF: Master Closet (01M4E5E14Z6YMW6KBD7QF74FDJ), Master Closet Storage (01M4E5H48Q118FW94HXNBGH9YW), Powder (01M4E5Z39WDX7GBTPZJX4352CQ, zone unset, no humidity sensor - H&T being retired), Staircase (01M4E5ZSJNH9QP6NMSWYXB0G36, Back Hallway, no camera motion). Operator HA automations for these rooms stay ON until the operator turns each room''s URA automation on; only then turn the HA automation off (never delete). Dining light moved: Jaya Bathroom night light + lux removed (Jaya Bathroom now has no lux sensor), Dining Room gained it as light + night light.'
   retirement_rule_2026_10_08: 'Operator: automations are TURNED OFF, never deleted. Before turning any off, confirm the room/hallway is onboarded in URA with that light in its config. Coverage check 2026-10-08 (lights in automations vs URA room lights/night_lights): COVERED - Master Toilet Closet adaptive (Master Bath Toilet), Pantry, Master Bath vanity LEDs, Ziri Bath, Stair Closet, Garage Hallway Adaptive (cabinet dimmer). PARTIAL - Master Toilet automation (toilet fan switch not in URA), Laundry x2 (laundry2_sw2 not in URA). NOT COVERED - Powder (no URA room), Master Closet x3 (no URA room), Staircase (no URA room), Guest Bathroom + Guest Toilet (guestroom1bath light / guest toilet switches not in Guest Bedroom 1 Bathroom config), Garage Hallway 3rdR light (_2 entity not in room), Master Hallway (room exists, light not configured), Jaya Night Light (old non-_2 entity). CONFIG BUG: the moved light light.rgbw_motion_lux_3rdr_wifi_matter_jayabath_2 is now physically in Dining Room but still in URA Jaya Bathroom night_lights (Dining Room has 0 lights).'
   operator_2026_10_08_pick: 'PICK = A + C: outside Sleep, night lights on only when the room is dark (room lux / existing is_dark threshold), plus a per-room daytime opt-in. Sleep: always on when occupied regardless of main-light setting. Config must be economical + easy: proposed shape = ONE new checkbox "Use night lights by day" (default off); colour/brightness fields move to Advanced (defaults red-at-Sleep, 4000K day); NO 3-way night-light action selector (dropped - rule makes it unnecessary); no new timers (URA vacancy timers). Plan REV 3 must re-derive D1-D4 from this shape. Then retire operator HA night-light automations in batches (disable first, delete after confirm). Withdrawn finding: "Dining Room Night Light" automation is correctly named - operator moved the light.'
@@ -15411,7 +15422,7 @@ cards:
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: "2026-10-08 03:55"
+  updated: "2026-10-09 02:55"
   refinement_status: "refined"
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
@@ -15455,7 +15466,7 @@ cards:
     problem: One field encodes two independent intentions (regular-light entry behaviour and
       night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
     verdict: BUILD
-  next: "PICK (plan REV 2, section 'Default - OPERATOR PICK'): (A) new rooms and the 7 rooms follow the main-light setting, so in Breakfast Nook, Game Room, Jaya Bathroom, Living Room, Master Bedroom, Patio and Ziri Bathroom the night light STOPS coming on when someone is in the room during Sleep; (B) RECOMMENDED: a one-time migration sets those 7 rooms' night lights to 'Always on', which keeps what they do today; (C) you choose per room. -> I build it (3 framing-disjoint reviews) to the review lane."
+  next: "Me, dispose by 2026-10-15: at the next attended session (a) read system_log within ~10 min of the restart for automation/actuator_reconciler/lighting errors, and (b) on a bright day, check that no night light comes on in an occupied room without \"Use night lights by day\" (ura_activity_log light_turn_on rows vs sun/lux). Both pass -> done. The stale \"PICK plan REV 2\" was superseded: the shipped rule is night-light-wins (REV 3)."
   links:
     related: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1, NIGHT-LIGHT-NO-OFF-PATH-1, KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1]
     blocks: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1]
@@ -15469,10 +15480,11 @@ cards:
   - automation.py:974 (canonical early-return on NONE), :991 (sleep/night-light branch)
   - docs/planning/PLANNING_night_light_off_path.md:110 (the deferred deliverable this resumes)
 - id: LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1
+  disposed_2026_10_09_overnight: "DONE. Closed by v5.103.42 (NIGHT-LIGHT-ACTION-SELECTOR-1), which shipped the night-light-wins rule through one shared helper for both controllers, plus the parity oracle updated to the R3-M1 contract (commit 8d7c664c1, review B = cross-controller parity). Live discriminator from the 10-08 night: in Sleep, the main controller turned the Living Room night light on (entry=none room, 22:22 CDT), and the reconciler independently set the Master Bath night light on with reason sleep_night_light (22:54). Both controllers now agree on an entry=none room in Sleep, where the old divergence had the main controller off and the reconciler on."
   title: Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing
     parity break)
   thread: presence
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.42
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 3 - blocked on the selector; small parity fix after.'
   rank: {value: 4, time_criticality: 2, effort: 3}
@@ -15496,7 +15508,7 @@ cards:
     at night, not a defect with one correct answer — I should not pick it for you.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH-1 shipped but did NOT close entry=none parity. Needs operator decision on intended behavior.'
   created: 2026-08-31 19:05
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-09 02:55"
   refinement_status: initial
   approval: unreviewed
   sibling_of: NIGHT-LIGHT-NO-OFF-PATH-1
@@ -15517,11 +15529,7 @@ cards:
   why: AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must
     be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench
     the split.
-  next: 'BLOCKED BY NIGHT-LIGHT-ACTION-SELECTOR-1 — no operator input needed here any more. When
-    the selector lands, both the canonical path (automation.py:974) and the reconciler must read
-    the SAME resolved night-light policy, and this divergence closes with a parity test that
-    DISCRIMINATES: identical sleep+entry conditions, two rooms with opposite selector values,
-    each controller agreeing per room.'
+  next: "none: closed by v5.103.42."
   refs:
   - docs/planning/AUDIT_room_light_automation.md F2/F3
   - automation.py:973/980; actuator_reconciler.py:746
