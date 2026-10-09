@@ -169,17 +169,12 @@ if _ura_pkg_name not in sys.modules:
     sys.modules[_ura_pkg_name] = _ura_pkg
 
 # automation.py gained top-level sibling imports since this test was written
-# (`from .cover_ownership import ...` and `from .fan_veto import ...`). Rather
-# than giving the stub package a real __path__ (which would chain-load
-# fan_veto -> domain_coordinators.house_state -> `from homeassistant.util
-# import dt as dt_util` and bind `homeassistant.util.dt` as a REAL package
-# attribute — poisoning sibling test files that only replace the
-# sys.modules["homeassistant.util.dt"] entry and not the attribute),
-# pre-stub exactly the two sibling modules automation.py imports at
-# module-top-level with the specific symbols it binds. Everything deeper
-# (`from .domain_coordinators.xxx import ...` and lazy `.fan_veto` /
-# `.const` re-imports inside methods) is already lazy and either lands
-# inside this test's existing stubs or on paths these tests never hit.
+# (`from .cover_ownership import ...` and `from .fan_veto import ...`), so the
+# stub package below is given the REAL package __path__. That chain-loads
+# fan_veto -> domain_coordinators.house_state, which binds
+# `homeassistant.util.dt`; the dt stub is therefore forced in BEFORE the
+# automation import and the real module is restored right after it, so sibling
+# test files are not poisoned (see the restore block after `_automation_dt_util`).
 # FORCE bathroom's dt stub into sys.modules so automation.py's
 # `from homeassistant.util import dt as dt_util` binds to the stub, not the
 # real HA module. Without this, `setdefault` above left the real HA dt in
