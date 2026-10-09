@@ -1669,6 +1669,15 @@ class PersonCensus:
                 "source_agreement": house_result.source_agreement,
                 # GAP-A D8: camera-only identity count for path-α veto.
                 "face_recognized_count": len(_face_recognized),
+                # FRIGATE-FLEET-DARK (Rev 2 D3): propagate the existing
+                # `CensusResult.house.degraded_mode` into the signal so
+                # presence can gate the α-veto on it (don't downgrade to
+                # AWAY when the camera input is dark — Bug Class #7
+                # stale-vs-wrong idiom: prefer last-known over
+                # wrong-known).
+                "degraded_mode": bool(
+                    getattr(house_result, "degraded_mode", False)
+                ),
                 # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
                 "peak_held": bool(getattr(house_result, "peak_held", False)),
                 "peak_age_seconds": _peak_age_seconds,

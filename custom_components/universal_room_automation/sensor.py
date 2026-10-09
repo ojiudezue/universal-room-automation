@@ -125,6 +125,27 @@ from .room_classification import get_room_classification
 _LOGGER = logging.getLogger(__name__)
 
 
+def _camera_input_dark_latch_state(hass) -> bool:
+    """FRIGATE-FLEET-DARK (Rev 2 D3-c) helper: read the fleet-dark NM
+    latch flag off the OptimizationCoordinator safely.
+
+    Returns False if the coordinator manager or optimization
+    coordinator are not yet registered — the attribute is diagnostic;
+    a missing truth reads as "not fired" rather than throwing.
+    """
+    try:
+        cm = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if cm is None:
+            return False
+        coordinators = getattr(cm, "coordinators", None) or {}
+        opt = coordinators.get("optimization")
+        if opt is None:
+            return False
+        return bool(getattr(opt, "_camera_input_dark_fired", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -3665,6 +3686,13 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
             "frigate_count": result.house.frigate_count,
             "unifi_count": result.house.unifi_count,
             "degraded_mode": result.house.degraded_mode,
+            # FRIGATE-FLEET-DARK (Rev 2 D3-c): surface the twin NM-latch
+            # state alongside the immediate `degraded_mode` flag so
+            # operators can see both the pure mirror and the dwell-
+            # gated one-shot in one place.
+            "camera_input_dark_fired": _camera_input_dark_latch_state(
+                self.hass,
+            ),
             "active_platforms": result.house.active_platforms,
             "last_updated": result.timestamp.isoformat() if result.timestamp else None,
         }

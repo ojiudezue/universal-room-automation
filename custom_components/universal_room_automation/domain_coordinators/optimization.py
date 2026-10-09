@@ -101,6 +101,10 @@ from ..const import (
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
     CAMERA_STUCK_ON_THRESHOLD_S,
     CAMERA_STUCK_ON_OVERRIDES_S,
+    CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+    CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
+    CAMERA_INPUT_DEGRADED_DWELL_S,
+    BOOT_SETTLE_S,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
@@ -600,6 +604,34 @@ class OptimizationCoordinator(BaseCoordinator):
         # from a cold start how long a sensor was already stuck.
         self._camera_on_since: dict[str, datetime] = {}
         self._camera_stuck_fired: set[str] = set()
+        # FRIGATE-FLEET-DARK (PLANNING_frigate_down_tripwire.md Rev 2 D1):
+        # fleet-scope (singleton) latch for the camera_input_dark one-shot
+        # NM. Discharges on hysteresis clear (fraction < CLEAR AND
+        # frigate_status_2 nominal for one tick). RAM-only by design — a
+        # restart re-arms once per episode after boot settle + dwell
+        # (accepted per plan §5; the fleet-dark N-restart cardinality is
+        # bounded at one bark per restart during an ongoing outage).
+        self._camera_input_dark_fired: bool = False
+        # First tick each eval has to see the fleet degraded continuously
+        # to count against the dwell; cleared on recovery below CLEAR.
+        self._camera_input_dark_since: datetime | None = None
+        # Diagnostics for the D3 binary_sensor attribute payload — set
+        # every eval tick so operators can read the latest fraction /
+        # count even when the latch hasn't fired yet.
+        self._camera_input_dark_last_fraction: float = 0.0
+        self._camera_input_dark_last_unavailable: int = 0
+        self._camera_input_dark_last_denominator: int = 0
+        self._camera_input_dark_last_affected: list[str] = []
+        self._camera_input_dark_last_status2_state: str | None = None
+        # One-time inert log (zero-denominator / Protect-only house) so
+        # we don't spam. Mirrors camera_census.py:3832's "inert_no_frigate"
+        # paragraph.
+        self._camera_input_dark_inert_logged: bool = False
+        # Boot-settle reference: `BOOT_SETTLE_S` is measured from
+        # coordinator construction (an acceptable proxy for ha_started
+        # per plan §5 — the optimizer is set up during the integration
+        # bring-up alongside the rest of URA, so the delta is sub-second).
+        self._camera_input_dark_boot_ref: datetime = dt_util.utcnow()
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
         # RAM-only by design: a restart re-persists once per stuck sensor,
@@ -933,6 +965,14 @@ class OptimizationCoordinator(BaseCoordinator):
             # Phase 1 dimensions.
             ("sensor_health", self._evaluate_sensor_health_dimension),
             ("camera_stuck", self._evaluate_camera_stuck_dimension),
+            # FRIGATE-FLEET-DARK (Rev 2 D1): fleet-scope camera-input
+            # tripwire. Sibling of camera_stuck (stuck-ON vs. gone-dark
+            # — disjoint failure modes). Emits via OptimizationFinding
+            # with dedup_key=("camera_input_dark", "fleet") so the
+            # existing finding → NM pipeline handles the one-shot
+            # delivery.
+            ("camera_input_dark",
+             self._evaluate_camera_input_dark_dimension),
             ("comfort", self._evaluate_comfort_dimension),
             # Phase 3 — room-level.
             ("occupancy_accuracy", self._evaluate_occupancy_accuracy_dimension),
@@ -1950,6 +1990,242 @@ class OptimizationCoordinator(BaseCoordinator):
                 },
                 dedup_key=("camera_stuck", cam_key),
             ))
+        return findings
+
+    def _evaluate_camera_input_dark_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Fleet-wide camera-input tripwire — FRIGATE-FLEET-DARK Rev 2 D1.
+
+        Fires exactly ONE finding per fleet-dark episode when either:
+          * fraction of configured ``sensor.*_person_count`` entities in
+            ``{unavailable, unknown}`` >= CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD
+          * OR ``sensor.frigate_status_2`` state is ``unavailable`` /
+            ``unknown``
+        AND dwell >= CAMERA_INPUT_DEGRADED_DWELL_S AND we are past the
+        BOOT_SETTLE_S grace window since coordinator construction.
+
+        Zero-denominator (Protect-only / 2nd-home rollout) is inert —
+        one-time setup log, zero findings. Mirrors ``inert_no_frigate``
+        at ``camera_census.py:3832``.
+
+        The finding carries ``dedup_key = ("camera_input_dark", "fleet")``;
+        the existing optimizer finding → NM pipeline
+        (``_notify_if_severe``) handles cross-cycle NM dedup. A fleet
+        latch ``_camera_input_dark_fired`` discharges once the fraction
+        drops below CLEAR AND ``frigate_status_2`` is nominal for one
+        tick (hysteresis — plan finding #5).
+
+        Separately, ``_camera_input_dark_last_*`` attributes are set
+        every tick so the D3 binary_sensor can surface the fraction /
+        count / status attributes even before the latch fires.
+
+        Kill switch: ``CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD > 1.0``
+        disables the fire path. ``BOOT_SETTLE_S = 0`` disables boot
+        suppression.
+        """
+        findings: list[OptimizationFinding] = []
+        kill_switch = CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD > 1.0
+        now = dt_util.utcnow()
+
+        # 1) Fleet enumeration from the shared CameraIntegrationManager.
+        #    Single source of truth for the Frigate person_count sensor
+        #    list (REUSE per plan §2 — do not re-enumerate here).
+        denominator = 0
+        unavailable_now = 0
+        affected: list[str] = []
+        try:
+            cm = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+            frigate_cams = (
+                cm.get_all_frigate_cameras() if cm is not None else []
+            )
+        except Exception:  # noqa: BLE001
+            frigate_cams = []
+        person_count_sensors: list[str] = [
+            ci.person_count_sensor for ci in frigate_cams
+            if getattr(ci, "person_count_sensor", None)
+        ]
+        denominator = len(person_count_sensors)
+
+        # 2) Zero-denominator inert branch. Mirrors census's
+        #    `inert_no_frigate` reason — no Frigate cameras configured
+        #    (e.g. a Protect-only 2nd-home rollout).
+        if denominator == 0:
+            if not self._camera_input_dark_inert_logged:
+                _LOGGER.info(
+                    "camera_input_dark_inert_no_frigate — no Frigate "
+                    "person_count sensors enumerated; tripwire inert "
+                    "for this deployment"
+                )
+                self._camera_input_dark_inert_logged = True
+            # Keep diagnostic attributes zeroed so the binary_sensor
+            # payload reads cleanly.
+            self._camera_input_dark_last_fraction = 0.0
+            self._camera_input_dark_last_unavailable = 0
+            self._camera_input_dark_last_denominator = 0
+            self._camera_input_dark_last_affected = []
+            self._camera_input_dark_last_status2_state = None
+            return findings
+
+        # 3) Count unavailable/unknown entries.
+        for eid in person_count_sensors:
+            try:
+                st = self._state_value(eid)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st is None:
+                # Missing state object counts as unavailable for the
+                # purposes of this tripwire — nothing is coming out of
+                # the sensor either way.
+                unavailable_now += 1
+                if len(affected) < 10:
+                    affected.append(eid)
+                continue
+            try:
+                s = str(st.state).strip().lower()
+            except Exception:  # noqa: BLE001
+                s = ""
+            if s in ("unavailable", "unknown", "", "none"):
+                unavailable_now += 1
+                if len(affected) < 10:
+                    affected.append(eid)
+
+        fraction = (
+            float(unavailable_now) / float(denominator)
+            if denominator > 0 else 0.0
+        )
+
+        # 4) frigate_status_2 OR-trigger — read via states (resolver
+        #    lives in camera_census; this is a direct read of the
+        #    canonical id per IDENTITY_FUSION_CAMERAS_MANUAL `_2` rule).
+        status2_state: str | None = None
+        try:
+            _s2 = self.hass.states.get("sensor.frigate_status_2")
+            if _s2 is not None:
+                status2_state = str(_s2.state)
+        except Exception:  # noqa: BLE001
+            status2_state = None
+        status2_bad = (
+            isinstance(status2_state, str)
+            and status2_state.strip().lower() in (
+                "unavailable", "unknown", "", "none"
+            )
+        )
+        # status_2 is "not bad" when it's either missing (we only care
+        # about status_2 as an OR-trigger when present+bad) OR present
+        # and reading a nominal value.
+        status2_not_bad = not status2_bad
+
+        # Diagnostics — set every tick regardless of latch state.
+        self._camera_input_dark_last_fraction = fraction
+        self._camera_input_dark_last_unavailable = unavailable_now
+        self._camera_input_dark_last_denominator = denominator
+        self._camera_input_dark_last_affected = list(affected)
+        self._camera_input_dark_last_status2_state = status2_state
+
+        # 5) Hysteresis clear — the latch discharges when fraction
+        #    drops below CLEAR AND status_2 is nominal for this tick.
+        #    Also reset the dwell `_since` anchor so a subsequent
+        #    re-flap starts counting from scratch.
+        if (
+            fraction < CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD
+            and status2_not_bad
+        ):
+            if self._camera_input_dark_fired:
+                _LOGGER.info(
+                    "camera_input_dark cleared: fraction=%.3f (clear<%.3f) "
+                    "status2=%s",
+                    fraction,
+                    CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
+                    status2_state,
+                )
+            self._camera_input_dark_fired = False
+            self._camera_input_dark_since = None
+
+        if kill_switch:
+            return findings
+
+        # 6) Does the condition hold right now?
+        degraded_now = (
+            fraction >= CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD
+            or status2_bad
+        )
+
+        if not degraded_now:
+            # Not currently degraded but above CLEAR threshold — do not
+            # reset `_since` here; the hysteresis block above owns the
+            # clear transition. Just no-op this tick.
+            return findings
+
+        # 7) Boot-settle gate — suppress during the first BOOT_SETTLE_S
+        #    after coordinator construction (plan §5). The dwell anchor
+        #    starts at discharge, not retroactively.
+        boot_elapsed = (
+            now - self._camera_input_dark_boot_ref
+        ).total_seconds()
+        if boot_elapsed < BOOT_SETTLE_S:
+            # Keep `_since` unset so dwell cannot complete during
+            # suppression. Resets to current tick once past settle.
+            self._camera_input_dark_since = None
+            _LOGGER.debug(
+                "camera_input_dark boot-settle suppressed "
+                "(elapsed=%.1fs < %ds)",
+                boot_elapsed, BOOT_SETTLE_S,
+            )
+            return findings
+
+        # 8) Dwell accumulation.
+        if self._camera_input_dark_since is None:
+            self._camera_input_dark_since = now
+            return findings
+        dwell = (now - self._camera_input_dark_since).total_seconds()
+        if dwell < CAMERA_INPUT_DEGRADED_DWELL_S:
+            return findings
+        if self._camera_input_dark_fired:
+            # Latched — do not re-emit.
+            return findings
+
+        # 9) Fire.
+        self._camera_input_dark_fired = True
+        trigger_reason = (
+            "frigate_status_2_down"
+            if status2_bad and fraction < CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD
+            else "fleet_unavailable"
+        )
+        description = (
+            f"Camera input dark: {unavailable_now}/{denominator} Frigate "
+            f"person_count sensors unavailable ({fraction * 100:.0f}%), "
+            f"sensor.frigate_status_2={status2_state!r}, dwell={int(dwell)}s. "
+            f"Reload the Frigate integration if the server is back online."
+        )
+        _LOGGER.warning(
+            "camera_input_dark FIRE: fraction=%.3f (threshold=%.3f) "
+            "unavailable=%d/%d status2=%s trigger=%s",
+            fraction, CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+            unavailable_now, denominator, status2_state, trigger_reason,
+        )
+        findings.append(OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high",
+            confidence=0.95,
+            score=0.0,
+            description=description,
+            proposed_action=None,
+            payload={
+                "kind": "camera_input_dark",
+                "fraction": round(fraction, 4),
+                "unavailable_count": unavailable_now,
+                "denominator": denominator,
+                "frigate_status_2_state": status2_state,
+                "affected_entities": list(affected),
+                "dwell_s": int(dwell),
+                "trigger_reason": trigger_reason,
+            },
+            dedup_key=("camera_input_dark", "fleet"),
+        ))
         return findings
 
     def _exterior_person_sensors(self) -> dict[str, str]:

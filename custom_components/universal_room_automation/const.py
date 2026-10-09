@@ -4119,6 +4119,28 @@ CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
     "pool_equipment": 28800,
 }
 
+# ================================================================
+# FRIGATE-FLEET-DARK TRIPWIRE (PLANNING_frigate_down_tripwire.md Rev 2).
+#
+# Fires one NM when the Frigate `sensor.*_person_count` fleet goes dark
+# (fraction of configured sensors in {unavailable, unknown} >= fire
+# threshold) OR `sensor.frigate_status_2` is unavailable/unknown, for a
+# continuous dwell window and past a boot settle grace. The latch
+# discharges on hysteresis clear (fraction < clear + status_2 nominal).
+#
+# Rung: module constant — safety/correctness bounds, not operator policy.
+# Retune is a reviewed code change (small blast radius).
+#
+# Kill-switch semantics:
+#   CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD > 1.0  -> fire path disabled.
+#   BOOT_SETTLE_S = 0                           -> boot suppression off.
+# Hysteresis invariant: CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD must stay
+# strictly less than CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD.
+CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD: Final = 0.75
+CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD: Final = 0.25
+CAMERA_INPUT_DEGRADED_DWELL_S: Final = 300
+BOOT_SETTLE_S: Final = 180
+
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated
 # the noise floor with unactionable "you might tweak X" pages that belonged

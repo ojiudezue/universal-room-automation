@@ -1070,6 +1070,16 @@ class StateInferenceEngine:
         # the indoor-clear debounce. Default False → caller-omitted
         # means v5.7.0 grace-only behavior (invariant preservation).
         sustained_external_empty: bool = False,
+        # FRIGATE-FLEET-DARK (Rev 2 D3-b): when True, the camera-input
+        # fleet is dark (Frigate down OR all platforms unavailable).
+        # Suppresses path α (ACTIVE-only AWAY veto) because the "0
+        # unidentified / 0 face" denominator is unreliable in that
+        # case — treating silence as "no one here" is the exact failure
+        # mode. Default False preserves byte-identity for every existing
+        # caller/test (invariant I3). Does NOT affect path β (which
+        # gates on indoor zones directly) or the plain "nobody home"
+        # pathway above (census_count == 0 AND no zone occupied).
+        camera_input_degraded: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
@@ -1148,6 +1158,17 @@ class StateInferenceEngine:
             if current_state == HouseState.AWAY:
                 self._veto_path = "active"
                 return None  # Already away
+            # FRIGATE-FLEET-DARK (Rev 2 D3-b): when the camera-input
+            # fleet is dark, `unidentified_count` and `face_recognized_count`
+            # are both 0 because nothing can be seen — not because nobody
+            # is home. Suppress the transition and hold the last-known
+            # house state (Bug Class #7 "stale data" applied as prefer-
+            # last-known-over-wrong-known). The NM one-shot from the
+            # optimizer camera_input_dark evaluator carries the operator
+            # signal; here we refuse to escalate on silence.
+            if camera_input_degraded:
+                self._veto_path = "none"
+                return None
             self._confidence = 0.95  # higher than camera-driven 0.85
             self._veto_path = "active"
             return HouseState.AWAY
@@ -1417,6 +1438,13 @@ class PresenceCoordinator(BaseCoordinator):
         # this instead of census_count to close the forgotten-phone
         # inflation. Signal payload: face_recognized_count.
         self._face_recognized_count: int = 0
+        # FRIGATE-FLEET-DARK (Rev 2 D3-b): the current camera-input
+        # `degraded_mode` as reported by camera_census on the latest
+        # SIGNAL_CENSUS_UPDATED payload. True when Frigate is down OR
+        # all platforms are unavailable (see camera_census.py:1905,
+        # :1917). Gates path α's AWAY-veto so a dark fleet does not
+        # masquerade as "0 unidentified" and false-escalate AWAY.
+        self._census_degraded_mode: bool = False
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
         # pre-v4.7.14.1 semantic (raw configured-person count from
@@ -4606,6 +4634,17 @@ class PresenceCoordinator(BaseCoordinator):
         except (ValueError, TypeError):
             self._face_recognized_count = 0
 
+        # FRIGATE-FLEET-DARK (Rev 2 D3-b): read `degraded_mode` from the
+        # census payload. Default False preserves byte-identity for
+        # legacy senders (invariant I3) and for test stubs that do not
+        # populate the key.
+        try:
+            self._census_degraded_mode = bool(
+                census_data.get("degraded_mode", False)
+            )
+        except (ValueError, TypeError):
+            self._census_degraded_mode = False
+
         # v4.6.2.2: Read confidence fields for guest gate — default to "none"
         # if not present (backward compat with any caller not yet sending them).
         try:
@@ -6326,6 +6365,11 @@ class PresenceCoordinator(BaseCoordinator):
             # Presence batch fix-up: independent multi-tick signal for
             # the D2 immediate-engage limb. See infer() kwarg docstring.
             sustained_external_empty=_sustained_external_empty,
+            # FRIGATE-FLEET-DARK (Rev 2 D3-b): gate path α on this so a
+            # dark camera fleet cannot false-escalate AWAY. Source:
+            # SIGNAL_CENSUS_UPDATED payload `degraded_mode` captured in
+            # `_handle_census_update`.
+            camera_input_degraded=self._census_degraded_mode,
         )
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
