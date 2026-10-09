@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T02:22:37-05:00_ - _Data commit: `464440b12423`_ - _last_reconciled: 2026-10-09_
+_Generated: 2026-10-09T02:23:04-05:00_ - _Data commit: `a1de6586167c`_ - _last_reconciled: 2026-10-09_
 
 
 ## Columns
@@ -120,15 +120,16 @@ _created 2026-08-18 02:30 · updated 2026-10-08 03:10 · refined_
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#5 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-14 02:20 · updated 2026-09-19 03:10 · initial_
+_created 2026-09-14 02:20 · updated 2026-10-09 02:25 · initial_
 - **Problem / Solution:**
   - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
 - **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
-- **Next:** PLAN, do not build. Tier 2 minimum (new finding dimension on a shared coordinator with NM reach). Before any build brief: (1) prior-art scan of sensor_health + the existing unavailable-entity surfaces; (2) measure per-device-class change...
+- **Next:** PLAN (me, Tier 2): with step 2 measured (AUDIT_stuck_sensor_duration_distributions.md), write the plan: (1) prior-art scan of sensor_health + the unavailable-entity surfaces + the existing room-level P22 stuck check (coordinator.py _emit...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Parsimony:** [BUILD] URA has no sensor-keyed liveness check; every stuck-sensor incident so far was found by hand.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `measured_2026_10_09_overnight`: STEP (2) DONE: per-device-class duration distributions measured over 7 days of recorder data, in docs/planning/AUDIT_stuck_sensor_duration_distributions.md (script scripts/probes/stuck_sensor_duration_probe.py). Key numbers: motion p90 l...
   - `THE_STRUCTURAL_GAP`: MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS...
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
