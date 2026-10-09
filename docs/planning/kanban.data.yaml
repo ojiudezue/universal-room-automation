@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "TEST-STRATEGY-REARCH-1@2026-10-09T02:44:00"
+    at: "2026-10-09T02:44:00"
+    outcome: "built"
+    headline: "Test suite: fixed the bathroom-fan test file that could not even load. 23 failing tests now pass, nothing new broke, and no production code changed. Ready to merge; the weather-manager file is next."
+    acknowledged: false
   - fid: "CENSUS-INPUTS-FIRST-1@2026-10-09T02:27:00"
     at: "2026-10-09T02:27:00"
     outcome: "measured"
@@ -20873,6 +20878,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  built_to_review_2026_10_09_overnight: "BATHROOM SLICE BUILT-TO-REVIEW (test-only, no production code). Branch fix/test-bathroom-exhaust-collection HEAD 7bb1b5715 (ura-builder 812547a60 + orchestrator comment fix). Root cause: the file stubbed the URA package with __path__=[], and automation.py gained sibling imports (cover_ownership, fan_veto). Fixing that exposed 3 rotted harness issues: (a) _refresh_config() (09-19) rebuilt config from a MagicMock entry.data and wiped it; (b) a half-loaded sensor.py stayed in sys.modules after pytest.skip; (c) the autouse clock fixture mutated the REAL homeassistant.util.dt.utcnow, poisoning sibling files. Fixes: real __path__, config mirrored onto entry.data, sys.modules scrub on load failure, dt stub forced in before the automation import and real dt restored right after. No assertion changed and none deleted, skipped or xfailed (builder report, diff read by orchestrator). ORCHESTRATOR VERIFY: file alone 66 passed; full-suite name-diff vs develop (scripts/suite_namediff.py, /tmp/namediff_bath_1009.log) = CLEAN, 0 NEW, 23 GONE (all 23 bathroom_exhaust names). Baseline failing set 152 -> 129. test_v47x_weather_manager.py still has 17 in-suite failures (order-dependent; it passes alone), so that is the next slice."
   gate_2026_10_09_overnight: "FOUR-STEP GATE for the bathroom_exhaust slice. (1) validity STILL-REAL: run alone on develop 464440b12 -> collection ERROR, ModuleNotFoundError custom_components.universal_room_automation.cover_ownership (the file stubs the package with __path__=[]; automation.py now has relative sibling imports). The full-suite baseline (suite-cache 71aded1150a0, 10-09) still has 23 failing names there, the top file. test_v47x_weather_manager.py passes alone (76) but has 17 failing names in-suite, so it is order-dependent and is the next slice. (1b) config-first: N/A (test harness). (2) prior-art: REUSE quality/tests/_ura_const_support.py (ensure_ura_const / ensure_ura_signals complete-module helpers) and the real-package import pattern other tests use; no new infrastructure. (3) parsimony: BUILD (one test file). (4) cost/benefit: test-only, zero production risk, removes 23 of 152 baseline failures (15%) -> Tier 1, build to review."
   verified_2026_10_06_overnight: "VERIFY-BEFORE-WORK by running both named files ALONE on develop 7df38c09b. (1) test_v47x_weather_manager.py: 76 passed - PARTIALLY-DONE/standalone-clean; its failures are order-dependent only (in-suite). (2) test_bathroom_exhaust_intelligence_cycle.py: WORSE than recorded - COLLECTION ERROR (ModuleNotFoundError custom_components.universal_room_automation.cover_ownership, then fan_veto): the file builds a stub package with __path__=[] and automation.py gained relative sibling imports (cover_ownership v5.103.28). FIXED the collection on fix/bathroom-exhaust-test-cover-ownership-stub @ c2bfa5274 (stub package gets the real directory as __path__, 4 lines, test-only): now 37 passed / 28 failed / 1 skipped. Remaining 28 are stale expectations (e.g. AttributeError: sensor has no ComfortScoreSensor / EnergyEfficiencyScoreSensor x5; humidity-gate timestamps None x6; empty action lists x9) -> builder pass next, test-only."
   disposition_2026_09_26_groom: 'CALL MADE (operator 2026-09-26: ''make some calls''): option (A) CHEAP PATH FIRST. Already delivered today: cached-baseline suite_namediff.py + builder definition-of-done + targeted reviewer re-confirms (2c5a72d98). Next: card and drive the concentrated failing files (weather_manager 47, bathroom_exhaust 23 = 36% of 194) as Tier 1-2 test fixes, then re-measure and size the re-arch against what remains.'
@@ -20971,10 +20977,10 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: "in_progress"
+  status: "review"
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: "2026-10-09 02:25"
+  updated: "2026-10-09 02:44"
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
@@ -21024,7 +21030,7 @@ cards:
     develop''s numbers — re-measure against that branch once it ships. This does NOT unblock the card:
     it is still blocked_by TEST-HARNESS-REAL-HA-DEFAULT-1, which is a separate operator PICK. It does
     mean the job may be materially smaller than 87 tests'' worth.'
-  next: 'BUILD (me, Tier 1-2 test-only): fix test_v47x_weather_manager.py (47) and test_bathroom_exhaust_intelligence_cycle.py (23) failures, one builder at a time behind the HVAC arc builds; re-measure with scripts/suite_namediff.py; then size the re-arch.'
+  next: "MERGE (test-only, no deploy needed): merge fix/test-bathroom-exhaust-collection (7bb1b5715) to develop. It removes 23 baseline failures with 0 new. Then the next slice: find what poisons test_v47x_weather_manager.py in suite order (17 names; it passes alone) with a bisect over the files collected before it. After that, re-measure and size the re-architecture."
   refs: SUITE-ORDER-POLLUTION-1; scripts/hooks/pytest_serialize.sh; AUDIT_fan_recheck_bug_hunt.md (hollow
     class); step_chatter_review_C.md (C-CRIT); v5.8.0 incident memory (real-coord construction risk)
   pytest_restore_hook_2026_08_19: 'CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates
