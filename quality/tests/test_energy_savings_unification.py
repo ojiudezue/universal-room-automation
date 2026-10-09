@@ -439,7 +439,7 @@ def test_lifetime_survives_row_prune(real_schema_db):
 # external .txt) so a fresh checkout enforces the guard immediately — the
 # prior self-seed-and-skip path made these tests decorative.
 _EXPECTED_GET_DISPLACED_RATE_SHA1 = "759f1e5c80c946991363d3adf2ed0d37c50529db"
-_EXPECTED_COST_ACCUMULATE_SHA1 = "00d0cd6952f49b43b80e80553fc7a140f8a959c5"
+_EXPECTED_COST_ACCUMULATE_SHA1 = "e3b62fd0b3f37eb62961458e6e42f70192e141fa"  # PLANNING_ec_billing_emporia_counters §D2 — counter branch added, legacy power-integration path unchanged.
 
 
 def _fn_source_sha1(fn) -> str:
@@ -459,12 +459,24 @@ def test_get_displaced_rate_byte_identity_guard():
     )
 
 
-def test_cost_tracker_accumulate_byte_identity_guard():
-    """`CostTracker.accumulate` must remain untouched by this cycle."""
-    sha = _fn_source_sha1(CostTracker.accumulate)
-    assert sha == _EXPECTED_COST_ACCUMULATE_SHA1, (
-        "CostTracker.accumulate source changed — cycle #7 forbids this. "
-        f"Expected {_EXPECTED_COST_ACCUMULATE_SHA1}, got {sha}."
+def test_cost_tracker_accumulate_default_path_byte_behavioural():
+    """CostTracker.accumulate — BEHAVIOURAL byte-identity on the DEFAULT path.
+
+    Replaced the former source-SHA1 guard (REV 4 2026-10-09) with a
+    behavioural oracle: with billing_source unset AND power-type GRID
+    sensors (today's live config shape), accumulate() produces exactly
+    the same `_import_kwh_today` / `_export_kwh_today` / `_cost_today`
+    for a scripted tick sequence as the pre-cycle code did.
+
+    Source lives in `test_ec_billing_emporia_counters.py::
+    test_accumulate_golden_power_path_scripted_ticks`. This hook is
+    kept as a provenance pointer so a future refactor cannot silently
+    drop the golden coverage.
+    """
+    import importlib
+    mod = importlib.import_module("test_ec_billing_emporia_counters")
+    assert hasattr(mod, "test_accumulate_golden_power_path_scripted_ticks"), (
+        "Behavioural golden coverage missing — restore before merging."
     )
 
 

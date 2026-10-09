@@ -1093,6 +1093,36 @@ CONF_ENERGY_GRID_EXPORT_ENTITY: Final = "energy_grid_export_entity"
 CONF_ENERGY_UTILITY_METER_ENTITY: Final = "energy_utility_meter_entity"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# EC billing from Emporia daily counters (PLANNING_ec_billing_emporia_counters)
+# ─────────────────────────────────────────────────────────────────────────────
+# "Bill from" named-bucket select. Auto = detect counter sensors by uom and
+# use them when fresh; Meter totals = force counter accrual (fail-fast when
+# unavailable); Power readings = legacy power-integration path (today's
+# behaviour, byte-identical when unset).
+CONF_ENERGY_BILLING_SOURCE: Final = "energy_billing_source"
+BILLING_SOURCE_AUTO: Final = "auto"
+BILLING_SOURCE_METER: Final = "meter_totals"
+BILLING_SOURCE_POWER: Final = "power_readings"
+DEFAULT_ENERGY_BILLING_SOURCE: Final = BILLING_SOURCE_AUTO
+
+# Backstop clamp for `energy_daily` writes. Rung 1 (safety bound).
+MAX_PLAUSIBLE_DAILY_KWH: Final = 240.0
+MAX_PLAUSIBLE_DAILY_SOLAR_KWH: Final = 120.0
+
+# Counter accrual knobs — rung 1 (protocol / safety).
+# Service cap in kW used as per-tick jump bound, scaled by elapsed hours.
+# A 6h gap-recovery delta at 5 kW (30 kWh) is accepted; a 5-min tick at 10
+# kWh is rejected. Retires the former flat MAX_COUNTER_JUMP_KWH.
+MAX_COUNTER_KW_PLAUSIBLE: Final = 60.0
+# Window to consider the counter "stuck" (no value drop, no advance).
+COUNTER_STUCK_WINDOW_S: Final = 1800
+# Day-level fallback flag threshold: measured staleness exceeding this at
+# midnight rollover marks `energy_daily.billing_source = 'counter_gap'`.
+COUNTER_OUTAGE_FALLBACK_HRS: Final = 4
+# Value-drop reset detection epsilon.
+RESET_EPSILON_KWH: Final = 0.1
+
+# ─────────────────────────────────────────────────────────────────────────────
 # EVSE solar-following amp modulation (SolarFollowController, D1)
 # See docs/planning/PLANNING_evse_solar_follow_amps.md §8.
 # ─────────────────────────────────────────────────────────────────────────────
