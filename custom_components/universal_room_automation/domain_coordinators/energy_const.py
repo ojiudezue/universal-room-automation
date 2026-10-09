@@ -1121,6 +1121,13 @@ COUNTER_STUCK_WINDOW_S: Final = 1800
 COUNTER_OUTAGE_FALLBACK_HRS: Final = 4
 # Value-drop reset detection epsilon.
 RESET_EPSILON_KWH: Final = 0.1
+# Counter-mode max-age for the cached net-kW inference. Emporia daily
+# counters update every ~15 min (not every tick), so the Envoy-tuned
+# `DEFAULT_NET_POWER_MAX_AGE_S=180` is wrong here — "unchanged for 3 min"
+# is NOT a stale counter. Must comfortably cover one update cadence +
+# jitter without accepting an outage as fresh (rung 1: safety-adjacent,
+# tied to vendor polling, change requires code review).
+COUNTER_NET_POWER_MAX_AGE_S: Final = 1200  # 20 min
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EVSE solar-following amp modulation (SolarFollowController, D1)

@@ -32,8 +32,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    COUNTER_NET_POWER_MAX_AGE_S,
     COUNTER_STUCK_WINDOW_S,
-    DEFAULT_NET_POWER_MAX_AGE_S,
     MAX_COUNTER_KW_PLAUSIBLE,
     RESET_EPSILON_KWH,
 )
@@ -125,7 +125,10 @@ class CounterAccrualTracker:
         if self._last_net_kw is None or self._last_net_kw_ts is None:
             return None
         age = time.time() - self._last_net_kw_ts
-        if age > DEFAULT_NET_POWER_MAX_AGE_S:
+        # Cadence-aware: Emporia daily counters update ~every 15 min, so a
+        # 3-min Envoy-tuned staleness bound would freeze peak-avoidance
+        # inputs during normal operation. See COUNTER_NET_POWER_MAX_AGE_S.
+        if age > COUNTER_NET_POWER_MAX_AGE_S:
             return None
         return self._last_net_kw
 

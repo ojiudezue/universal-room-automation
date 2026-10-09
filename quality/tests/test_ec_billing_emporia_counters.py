@@ -345,14 +345,22 @@ def test_counter_proration_none_boundary_terminates(monkeypatch):
 
 
 def test_counter_last_net_kw_stale_returns_none():
-    """REV 4 D6 LOW-1: last_net_kw() returns None past DEFAULT_NET_POWER_MAX_AGE_S."""
+    """last_net_kw() returns None past COUNTER_NET_POWER_MAX_AGE_S
+    (cadence-aware; Emporia daily counters update every ~15 min, so the
+    Envoy-tuned 180s bound would freeze mid-cadence)."""
     hass = _Hass()
     tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
     tr._last_net_kw = 2.5
     tr._last_net_kw_ts = time.time()
     assert tr.last_net_kw() == pytest.approx(2.5)
+    # Within the counter-tuned window: still fresh.
     tr._last_net_kw_ts = (
         time.time() - energy_const.DEFAULT_NET_POWER_MAX_AGE_S - 10
+    )
+    assert tr.last_net_kw() == pytest.approx(2.5)
+    # Past the counter-tuned window: stale.
+    tr._last_net_kw_ts = (
+        time.time() - energy_const.COUNTER_NET_POWER_MAX_AGE_S - 10
     )
     assert tr.last_net_kw() is None
 
@@ -435,6 +443,29 @@ def test_get_net_power_power_mode_unchanged():
     _advance_counter(hass, "sensor.exp", 0, uom="W")
     net = ct._get_net_power()
     assert net == pytest.approx(1.5)
+
+
+def test_get_net_power_power_mode_rejects_kwh_slot(monkeypatch):
+    """Operator 2026-10-09: billing_source=power_readings MUST NOT mis-read
+    a kWh daily-counter slot value as kW. Must fall through to the Envoy
+    net-power branch (which here is unset → None, no mis-booking)."""
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_POWER,
+    )
+    # kWh daily counters at ~54 kWh — this is what triggered the live
+    # regression (treated as "54 kW" by the power branch).
+    _advance_counter(hass, "sensor.imp", 54.521, uom="kWh")
+    _advance_counter(hass, "sensor.exp", 1.2, uom="kWh")
+    net = ct._get_net_power()
+    assert net is None, (
+        "power mode must NOT mis-read kWh counters as kW; must fall "
+        "through to Envoy (unset → None)"
+    )
 
 
 # ===========================================================================

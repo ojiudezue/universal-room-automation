@@ -240,7 +240,25 @@ class CostTracker:
         ):
             import_state = self.hass.states.get(self._grid_import_entity)
             export_state = self.hass.states.get(self._grid_export_entity)
-            if (
+            # Operator 2026-10-09: when billing_source=power_readings is
+            # explicitly selected but the configured grid slots are kWh/Wh
+            # counters, DO NOT mis-read a daily-total kWh value as kW.
+            # Fall through to the Envoy net-power branch instead. This is
+            # distinct from counter-mode (which was skipped above because
+            # the operator forced power mode); the slot_uom check is a
+            # typing guard, not a mode gate.
+            _imp_uom = (
+                import_state.attributes.get("unit_of_measurement")
+                if import_state is not None else None
+            )
+            if _imp_uom in ("kWh", "Wh"):
+                _LOGGER.info(
+                    "Billing power-readings mode selected but import slot "
+                    "'%s' is a %s counter; ignoring kWh slots and falling "
+                    "back to Envoy net power.",
+                    self._grid_import_entity, _imp_uom,
+                )
+            elif (
                 import_state and import_state.state not in ("unknown", "unavailable")
                 and export_state and export_state.state not in ("unknown", "unavailable")
             ):
@@ -403,6 +421,12 @@ class CostTracker:
         # deltas are legitimate and already capped per-leg).
         if self._counters is not None and self._is_counter_mode():
             tick = self._counters.tick(now)
+            if self._billing_source_today != "counters":
+                _LOGGER.info(
+                    "Billing entering counter mode: source=%s imp=%s exp=%s uom=%s",
+                    self._billing_source, self._grid_import_entity,
+                    self._grid_export_entity, self._grid_slot_uom(),
+                )
             self._billing_source_today = "counters"
             self._counter_last_update = now.isoformat()
             if tick is not None:
