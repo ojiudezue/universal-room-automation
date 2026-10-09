@@ -628,12 +628,19 @@ class EnergyCoordinator(BaseCoordinator):
                 self._solar_follow._up_min_ticks = SOLAR_FOLLOW_UP_MIN_TICKS
         except (TypeError, ValueError, ImportError):
             pass
+        from .energy_const import (
+            CONF_ENERGY_BILLING_SOURCE,
+            DEFAULT_ENERGY_BILLING_SOURCE,
+        )
         self._billing = CostTracker(
             hass, self._tou,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
             solar_entity=ec.get(CONF_ENERGY_SOLAR_ENTITY),
             grid_import_entity=ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY),
             grid_export_entity=ec.get(CONF_ENERGY_GRID_EXPORT_ENTITY),
+            billing_source=ec.get(
+                CONF_ENERGY_BILLING_SOURCE, DEFAULT_ENERGY_BILLING_SOURCE
+            ),
         )
         # Energy Savings Unification (cycle #7): peak-avoidance accumulator.
         # Isolated from CostTracker so any fault here cannot touch
@@ -2507,6 +2514,10 @@ class EnergyCoordinator(BaseCoordinator):
 
                 # Restore daily billing accumulators
                 self._billing.restore_daily(snapshot)
+                # §D7: recompute outage-days on restart (no RestoreEntity).
+                self.hass.async_create_task(
+                    self._refresh_outage_days_this_cycle()
+                )
 
                 # B-HIGH-1/2 (fix-up): restore peak-avoidance accumulators
                 # from the sibling energy_state blob (json). Never fatal.
@@ -2555,6 +2566,10 @@ class EnergyCoordinator(BaseCoordinator):
                 "import_cost_today": billing.get("import_cost_today", 0),
                 "export_credit_today": billing.get("export_credit_today", 0),
                 "net_cost_today": billing.get("cost_today", 0),
+                # §D5 (REV 4) — persist counter baselines + today's source.
+                "counter_import_last": billing.get("counter_import_last"),
+                "counter_export_last": billing.get("counter_export_last"),
+                "billing_source_today": billing.get("billing_source_today"),
             })
 
             # B-HIGH-1/2 (fix-up): persist peak-avoidance accumulators
@@ -2909,6 +2924,26 @@ class EnergyCoordinator(BaseCoordinator):
         """Read Envoy lifetime battery energy charged (MWh, monotonically increasing)."""
         return self._get_state_float(self._entity_lifetime_battery_charged)
 
+    @staticmethod
+    def _is_valid_lifetime_baseline(
+        snap: float | None, current: float | None
+    ) -> bool:
+        """PLANNING_ec_billing_emporia_counters §D5a — baseline-validity.
+
+        A valid baseline for a lifetime-delta computation requires: snap
+        and current both known, snap strictly > 0 (zero means the entity
+        was unavailable at midnight and never seeded), and current >= snap
+        (monotonic — a negative delta is an Envoy reboot). On failure the
+        caller MUST write consumption_kwh = NULL rather than ×1000-ing a
+        kWh-vs-kWh-baseline that is actually MWh-vs-zero (the 4 bad rows
+        2026-06-19 / 08-20 / 08-28 / 08-30). DO NOT remove ×1000 at the
+        call sites: units are MWh (uom verified live 2026-10-09).
+        """
+        return (
+            snap is not None and current is not None
+            and snap > 0.0 and current >= snap
+        )
+
     def _maybe_reset_daily(self) -> None:
         """Reset daily counters and feed accuracy tracking if date changed.
 
@@ -2939,20 +2974,33 @@ class EnergyCoordinator(BaseCoordinator):
             actual_kwh = None
             solar_produced_kwh = None
 
+            # §D5a (REV 4): fail-closed on ANY of the 5 legs' baseline
+            # being invalid (None, zero, or non-monotonic). Writes NULL
+            # rather than silently multiplying MWh×1000 against a zero
+            # snapshot — the mechanism that produced the 4 bad rows.
+            _d5a_derived_ok = (
+                self._last_reset_date
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_production_snapshot, current_production
+                )
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_net_import_snapshot, current_net_import
+                )
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_net_export_snapshot, current_net_export
+                )
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_battery_charged_snapshot,
+                    current_battery_charged,
+                )
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_battery_discharged_snapshot,
+                    current_battery_discharged,
+                )
+            )
+
             # v3.14.0: Primary path — derive from 5 independent lifetime sensors
-            if (
-                self._lifetime_production_snapshot is not None
-                and self._lifetime_net_import_snapshot is not None
-                and self._lifetime_net_export_snapshot is not None
-                and self._lifetime_battery_charged_snapshot is not None
-                and self._lifetime_battery_discharged_snapshot is not None
-                and current_production is not None
-                and current_net_import is not None
-                and current_net_export is not None
-                and current_battery_charged is not None
-                and current_battery_discharged is not None
-                and self._last_reset_date
-            ):
+            if _d5a_derived_ok:
                 # Lifetime values are in MWh — convert deltas to kWh
                 grid_import_kwh = (current_net_import - self._lifetime_net_import_snapshot) * 1000.0
                 solar_produced_kwh = (current_production - self._lifetime_production_snapshot) * 1000.0
@@ -2983,10 +3031,14 @@ class EnergyCoordinator(BaseCoordinator):
                         grid_import_kwh, solar_self_consumed, net_battery_kwh, actual_kwh,
                     )
             # Fallback: legacy delta (net grid import only, known inaccurate with net-consumption CT)
+            # §D5a: baseline-validity guard — fail-closed if the lifetime
+            # consumption snapshot is zero/None. Without this guard a
+            # restart leaving snap=0 produced MWh×1000 kWh garbage rows.
             elif (
-                self._lifetime_consumption_snapshot is not None
-                and current_lifetime is not None
-                and self._last_reset_date
+                self._last_reset_date
+                and self._is_valid_lifetime_baseline(
+                    self._lifetime_consumption_snapshot, current_lifetime
+                )
             ):
                 delta_mwh = current_lifetime - self._lifetime_consumption_snapshot
                 actual_kwh = delta_mwh * 1000.0
@@ -2994,6 +3046,12 @@ class EnergyCoordinator(BaseCoordinator):
                     "Using legacy consumption delta (net import only) = %.1f kWh — "
                     "derived sensors not yet available",
                     actual_kwh,
+                )
+            else:
+                _LOGGER.info(
+                    "D5a: skipping legacy consumption derivation — invalid baseline "
+                    "(snap=%s current=%s)",
+                    self._lifetime_consumption_snapshot, current_lifetime,
                 )
 
             # Guard: reject negative or zero actual consumption (e.g., partial Envoy reboot)
@@ -3092,6 +3150,38 @@ class EnergyCoordinator(BaseCoordinator):
             if self._lifetime_battery_discharged_snapshot is None and current_battery_discharged is not None:
                 self._lifetime_battery_discharged_snapshot = current_battery_discharged
 
+    async def _refresh_outage_days_this_cycle(self) -> None:
+        """Recompute `_outage_days_this_cycle` on the CostTracker.
+
+        §D7 single producer (REV 4 op req 2026-10-09). Called at setup
+        and after each daily rollover; no new timer. On restart the
+        value is RE-COMPUTED from the DB (not RestoreEntity-restored).
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            from homeassistant.util import dt as _dt
+            cycle_start = self._billing._get_cycle_start(_dt.now())
+            next_month = cycle_start.month + 1
+            next_year = cycle_start.year
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+            try:
+                cycle_end = cycle_start.replace(
+                    year=next_year, month=next_month
+                )
+            except ValueError:
+                from datetime import timedelta as _td
+                cycle_end = cycle_start + _td(days=30)
+            count = await db.count_outage_days_in_cycle(
+                cycle_start.isoformat(), cycle_end.isoformat()
+            )
+            self._billing._outage_days_this_cycle = int(count)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("outage-days refresh failed: %s", e)
+
     async def _save_daily_snapshot(
         self,
         totals: dict,
@@ -3108,6 +3198,13 @@ class EnergyCoordinator(BaseCoordinator):
         if db is None:
             return
         try:
+            billing_src = None
+            try:
+                billing_src = self._billing.get_status().get(
+                    "billing_source_today"
+                )
+            except Exception:  # noqa: BLE001
+                pass
             await db.log_energy_daily(
                 date_str=totals["date"],
                 import_kwh=totals["import_kwh"],
@@ -3122,12 +3219,15 @@ class EnergyCoordinator(BaseCoordinator):
                 prediction_error_pct=prediction_error_pct,
                 adjustment_factor=adjustment_factor,
                 predicted_consumption_source=predicted_consumption_source,
+                billing_source=billing_src,
             )
             _LOGGER.info(
                 "Saved daily energy snapshot for %s: import=%.1f export=%.1f cost=$%.2f",
                 totals["date"], totals["import_kwh"], totals["export_kwh"],
                 totals["net_cost"],
             )
+            # §D7: recompute outage-days after each rollover.
+            await self._refresh_outage_days_this_cycle()
         except Exception as e:
             _LOGGER.error("Failed to save daily energy snapshot: %s", e)
 
@@ -3202,6 +3302,13 @@ class EnergyCoordinator(BaseCoordinator):
         # Need both data sources
         current_lifetime = self._get_lifetime_consumption()
         if current_lifetime is None or self._lifetime_consumption_snapshot is None:
+            return
+        # §D5a: skip the divergence log when the baseline is invalid —
+        # otherwise a snap=0 restart produces a bogus "divergence" of
+        # (current MWh × 1000) kWh vs Envoy's real today kWh.
+        if not self._is_valid_lifetime_baseline(
+            self._lifetime_consumption_snapshot, current_lifetime
+        ):
             return
 
         # v4.3.1: None-safe — _entity_consumption_today is None when EC was

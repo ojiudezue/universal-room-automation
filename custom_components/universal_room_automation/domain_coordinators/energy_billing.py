@@ -13,10 +13,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    BILLING_SOURCE_AUTO,
+    BILLING_SOURCE_METER,
+    BILLING_SOURCE_POWER,
     DEFAULT_BILL_CYCLE_START_DAY,
+    DEFAULT_ENERGY_BILLING_SOURCE,
     PEAK_AVOIDANCE_MIN_SERVED_KW,
     PEC_FIXED_CHARGES,
 )
+from .energy_billing_counters import CounterAccrualTracker
 from .energy_tou import TOURateEngine
 from ..const import (
     CONF_ELECTRICITY_RATE,
@@ -105,6 +110,7 @@ class CostTracker:
         solar_entity: str | None = None,
         grid_import_entity: str | None = None,
         grid_export_entity: str | None = None,
+        billing_source: str | None = None,
     ) -> None:
         """Initialize cost tracker.
 
@@ -141,6 +147,54 @@ class CostTracker:
         self._predicted_bill: float | None = None
         self._last_accumulate_time: float | None = None
 
+        # PLANNING_ec_billing_emporia_counters §D2: counter accrual tracker.
+        # Instantiated unconditionally so `_counters.last_net_kw()` is always
+        # callable; the counter path is only taken when the configured
+        # IMPORT/EXPORT slots are kWh counters (sniffed in `accumulate`).
+        self._counters = CounterAccrualTracker(
+            hass, tou_engine,
+            import_entity=grid_import_entity,
+            export_entity=grid_export_entity,
+        )
+        self._billing_source = (
+            billing_source or DEFAULT_ENERGY_BILLING_SOURCE
+        )
+        # Day-flag written to `energy_daily.billing_source` at midnight.
+        self._billing_source_today: str | None = None
+        self._counter_last_update: str | None = None
+        # §D7 (REV 4 op req): single producer for the outage counter;
+        # consumed by both the EC attribute and the dedicated sensor.
+        self._outage_days_this_cycle: int = 0
+
+    def _grid_slot_uom(self) -> str | None:
+        """Return the uom of the IMPORT grid slot (None if unavailable).
+
+        Used to detect counter-mode: a kWh/Wh slot signals the operator
+        pointed GRID_IMPORT at a daily counter rather than a power sensor.
+        """
+        if not self._grid_import_entity:
+            return None
+        try:
+            state = self.hass.states.get(self._grid_import_entity)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None:
+            return None
+        return state.attributes.get("unit_of_measurement") or None
+
+    def _is_counter_mode(self) -> bool:
+        """Counter-mode is active when operator selects Meter totals OR
+        under Auto when the import slot's uom is kWh/Wh."""
+        if self._billing_source == BILLING_SOURCE_POWER:
+            return False
+        if self._billing_source == BILLING_SOURCE_METER:
+            return bool(self._grid_import_entity and self._grid_export_entity)
+        # Auto: sniff.
+        uom = self._grid_slot_uom()
+        return uom in ("kWh", "Wh") and bool(
+            self._grid_import_entity and self._grid_export_entity
+        )
+
     def _get_net_power(self) -> float | None:
         """Get net power in kW (positive=importing, negative=exporting).
 
@@ -160,8 +214,30 @@ class CostTracker:
         from .energy_battery import _state_age_s
         from .energy_const import DEFAULT_NET_POWER_MAX_AGE_S
 
-        # Prefer direct grid sensors (e.g., Emporia mains_from_grid / mains_to_grid)
-        if self._grid_import_entity and self._grid_export_entity:
+        # PLANNING_ec_billing_emporia_counters §D6: counter-mode conditional.
+        # When the GRID_IMPORT slot is a kWh/Wh counter, the raw slot value
+        # is a daily total — reading it as kW would feed peak-avoidance a
+        # 40 "kW" value at end-of-day. Hand off to the tracker's cached kW
+        # (REV 4 LOW-1: that getter returns None when stale). On a cold
+        # cache we FALL THROUGH to the Envoy net-power branch — do NOT
+        # fall into the slot branch below, which would mis-read kWh as kW.
+        _counter_mode = (
+            self._counters is not None and self._is_counter_mode()
+        )
+        if _counter_mode:
+            cached = self._counters.last_net_kw()
+            if cached is not None:
+                return cached
+            # cold / stale tracker → skip the slot branch (would mis-read
+            # kWh as kW); fall through to Envoy net-power below.
+
+        # Prefer direct grid sensors (power mode only — kWh slots are
+        # handled by the counter branch above).
+        if (
+            not _counter_mode
+            and self._grid_import_entity
+            and self._grid_export_entity
+        ):
             import_state = self.hass.states.get(self._grid_import_entity)
             export_state = self.hass.states.get(self._grid_export_entity)
             if (
@@ -259,6 +335,43 @@ class CostTracker:
         elapsed_hours = (now_ts - self._last_accumulate_time) / 3600.0
         self._last_accumulate_time = now_ts
 
+        # PLANNING_ec_billing_emporia_counters §D2 + §D6b: counter accrual.
+        # Under Auto / Meter totals with kWh slots, gross-per-leg kWh is
+        # booked from the Emporia daily counters pro-rated across TOU
+        # periods. Under Auto no intra-day power accrual happens during a
+        # counter staleness window — counters catch up losslessly.
+        # The elapsed > 1h guard is BYPASSED in counter mode (gap-recovery
+        # deltas are legitimate and already capped per-leg).
+        if self._counters is not None and self._is_counter_mode():
+            tick = self._counters.tick(now)
+            self._billing_source_today = "counters"
+            self._counter_last_update = now.isoformat()
+            if tick is not None:
+                # TOU BY REFERENCE (operator 2026-10-09): price each slice
+                # at the LIVE rate for the slice's instant via the shared
+                # engine — never cache rates across slices or ticks.
+                for period, imp_kwh, exp_kwh, slice_dt in tick.get("slices", []):
+                    if imp_kwh > 0:
+                        rate = self._tou.get_effective_import_rate(slice_dt)
+                        cost = imp_kwh * rate
+                        self._import_kwh_today += imp_kwh
+                        self._import_cost_today += cost
+                        self._cost_today += cost
+                        self._import_kwh_cycle += imp_kwh
+                        self._cost_this_cycle += cost
+                    if exp_kwh > 0:
+                        export_rate = self._tou.get_export_rate(slice_dt)
+                        credit = exp_kwh * export_rate
+                        self._export_kwh_today += exp_kwh
+                        self._export_credit_today += credit
+                        self._cost_today -= credit
+                        self._export_kwh_cycle += exp_kwh
+                        self._cost_this_cycle -= credit
+            # Update bill prediction and return — do NOT also run the
+            # power-integration path (would double-book).
+            self._update_prediction(now)
+            return
+
         if elapsed_hours <= 0 or elapsed_hours > 1:
             return  # Skip unreasonable intervals
 
@@ -353,6 +466,24 @@ class CostTracker:
         """
         snapshot_date = snapshot.get("snapshot_date", "")
         today = dt_util.now().date().isoformat()
+
+        # PLANNING_ec_billing_emporia_counters §D5 LOW-2 (REV 4 verify):
+        # restore the counter baseline BEFORE the date-mismatch early return.
+        # Otherwise a restart spanning midnight would seed the first tick at
+        # the current counter value and lose the midnight→restart energy.
+        # The counter itself tracks a daily total — a stale (yesterday)
+        # baseline value is still valid for the first-tick delta on the new
+        # day because the counter will have reset at midnight (value-drop
+        # reset detector handles that path).
+        if self._counters is not None:
+            self._counters.restore(
+                snapshot.get("counter_import_last"),
+                snapshot.get("counter_export_last"),
+            )
+            src = snapshot.get("billing_source_today")
+            if src:
+                self._billing_source_today = src
+
         if snapshot_date != today:
             _LOGGER.debug(
                 "Midnight snapshot date %s != today %s, skipping billing restore",
@@ -450,6 +581,18 @@ class CostTracker:
             "predicted_bill": self.predicted_bill,
             "prediction_label": self.prediction_label,
             "current_effective_rate": round(self.current_effective_rate, 6),
+            # PLANNING_ec_billing_emporia_counters §D7 — additive attributes.
+            "billing_source_today": self._billing_source_today,
+            "counter_last_update": self._counter_last_update,
+            "counter_import_last": (
+                self._counters.snapshot().get("counter_import_last")
+                if self._counters is not None else None
+            ),
+            "counter_export_last": (
+                self._counters.snapshot().get("counter_export_last")
+                if self._counters is not None else None
+            ),
+            "outage_days_this_cycle": self._outage_days_this_cycle,
         }
 
 

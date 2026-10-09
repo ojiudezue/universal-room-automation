@@ -1,0 +1,306 @@
+"""Emporia daily-counter accrual tracker (PLANNING_ec_billing_emporia_counters).
+
+Sole mutator of counter state. CostTracker reads via ``last_net_kw()`` and
+delegates kWh accrual to ``tick()``. Two independent legs — import and
+export — are tracked, with value-drop-only reset detection, elapsed-scaled
+jump cap, TOU-boundary pro-ration, and a stuck-counter detector.
+
+Rules of the road:
+- Tracker holds last counter values + last-tick wall-clock + last cached kW.
+- A value drop (new < last - RESET_EPSILON_KWH) is treated as a daily reset;
+  the delta is reset-to-current (not reset-to-zero) so a mid-day reset at
+  k kWh does not credit k kWh of extra accrual.
+- The per-tick kWh delta is capped at MAX_COUNTER_KW_PLAUSIBLE * elapsed_h.
+  Jumps above the cap are LOGGED and truncated; the leftover is dropped
+  (safety over completeness: a 500 kWh single-tick spike is Emporia noise,
+  not real energy).
+- Pro-ration across TOU-period boundaries is done via
+  ``TOURateEngine.get_next_period_change_dt(now)``.
+- ``last_net_kw()`` returns the kW inferred at the most recent tick as the
+  net = import_kw - export_kw. Returns None if the cached value is older
+  than ``DEFAULT_NET_POWER_MAX_AGE_S`` (REV 4 D6 LOW-1).
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timedelta
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+
+from .energy_const import (
+    COUNTER_STUCK_WINDOW_S,
+    DEFAULT_NET_POWER_MAX_AGE_S,
+    MAX_COUNTER_KW_PLAUSIBLE,
+    RESET_EPSILON_KWH,
+)
+from .energy_tou import TOURateEngine
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class CounterAccrualTracker:
+    """Per-leg accrual tracker driven by Emporia daily kWh counters."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        tou_engine: TOURateEngine,
+        import_entity: str | None = None,
+        export_entity: str | None = None,
+    ) -> None:
+        self.hass = hass
+        self._tou = tou_engine
+        self._import_entity = import_entity
+        self._export_entity = export_entity
+
+        # Per-leg state: last observed counter value + wall-clock timestamp
+        # when it was observed. _last_tick_time is per-leg so a stale leg
+        # does not freeze the other.
+        self._import_last: float | None = None
+        self._export_last: float | None = None
+        self._import_last_ts: float | None = None
+        self._export_last_ts: float | None = None
+
+        # Last-tick cached net kW + its stamp (for D6 _get_net_power).
+        self._last_net_kw: float | None = None
+        self._last_net_kw_ts: float | None = None
+
+        # Stuck detector: track the time a leg last ADVANCED (saw a +delta).
+        self._import_last_advance_ts: float | None = None
+        self._export_last_advance_ts: float | None = None
+
+    # ------------------------------------------------------------------
+    # Snapshot / restore
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> dict[str, Any]:
+        """Serialise state for midnight snapshot persistence."""
+        return {
+            "counter_import_last": self._import_last,
+            "counter_export_last": self._export_last,
+        }
+
+    def restore(
+        self,
+        import_last: float | None,
+        export_last: float | None,
+    ) -> None:
+        """Restore baselines from the midnight snapshot row.
+
+        REV 4 D5 LOW-2: this is called BEFORE the date-mismatch early
+        return in ``CostTracker.restore_daily`` so a restart spanning
+        midnight does not lose the post-midnight energy.
+        """
+        if import_last is not None:
+            self._import_last = float(import_last)
+        if export_last is not None:
+            self._export_last = float(export_last)
+
+    # ------------------------------------------------------------------
+    # Read-side
+    # ------------------------------------------------------------------
+
+    def last_net_kw(self) -> float | None:
+        """Last tick's inferred net kW, or None if stale.
+
+        REV 4 D6 LOW-1: returns None once the cache is older than
+        ``DEFAULT_NET_POWER_MAX_AGE_S``; otherwise peak-avoidance reads
+        a frozen kW for the whole counter-staleness window.
+        """
+        if self._last_net_kw is None or self._last_net_kw_ts is None:
+            return None
+        age = time.time() - self._last_net_kw_ts
+        if age > DEFAULT_NET_POWER_MAX_AGE_S:
+            return None
+        return self._last_net_kw
+
+    # ------------------------------------------------------------------
+    # Core tick
+    # ------------------------------------------------------------------
+
+    def _read_counter(self, entity_id: str | None) -> float | None:
+        if not entity_id:
+            return None
+        try:
+            state = self.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None or state.state in ("unknown", "unavailable", None):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    def _leg_delta(
+        self,
+        current: float | None,
+        last: float | None,
+        last_ts: float | None,
+        now_ts: float,
+        *,
+        leg_name: str,
+    ) -> float:
+        """Return accepted kWh delta for one leg, updating caps and resets.
+
+        Caller is responsible for storing (current, now_ts) into the per-
+        leg last fields; this helper only computes the delta.
+        """
+        if current is None:
+            return 0.0
+        if last is None:
+            # First observation: seed baseline, no accrual.
+            return 0.0
+        if current < last - RESET_EPSILON_KWH:
+            # Daily reset — new baseline starts at current.
+            _LOGGER.info(
+                "Counter reset detected on %s (last=%.3f current=%.3f)",
+                leg_name, last, current,
+            )
+            return 0.0
+        raw_delta = max(0.0, current - last)
+        if last_ts is None:
+            # No elapsed stamp; accept delta without a cap (first tick after
+            # restart with a restored baseline).
+            return raw_delta
+        elapsed_h = max(0.0, (now_ts - last_ts) / 3600.0)
+        cap = MAX_COUNTER_KW_PLAUSIBLE * elapsed_h
+        if raw_delta > cap and cap > 0:
+            _LOGGER.warning(
+                "Counter jump on %s exceeds cap: raw=%.3f cap=%.3f (elapsed_h=%.3f)",
+                leg_name, raw_delta, cap, elapsed_h,
+            )
+            return cap
+        return raw_delta
+
+    def tick(
+        self,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Advance both legs; return {'import_kwh','export_kwh','slices'} or None.
+
+        'slices' is a list of (period_name, import_kwh, export_kwh) pro-rated
+        across TOU boundaries covered by the elapsed window. If either leg
+        has no accepted delta the entry is 0.0 on that side. Returns None
+        if neither leg produced a delta AND we had no baseline (nothing to do).
+        """
+        if now is None:
+            now = dt_util.now()
+        now_ts = now.timestamp()
+        imp = self._read_counter(self._import_entity)
+        exp = self._read_counter(self._export_entity)
+
+        # Compute deltas BEFORE updating state so we keep the previous ts.
+        imp_delta = self._leg_delta(
+            imp, self._import_last, self._import_last_ts, now_ts,
+            leg_name="import",
+        )
+        exp_delta = self._leg_delta(
+            exp, self._export_last, self._export_last_ts, now_ts,
+            leg_name="export",
+        )
+
+        # Determine the span's start — the earlier of the two legs' prior
+        # stamps. If both missing (first tick), span is zero.
+        prior_ts = min(
+            [t for t in (self._import_last_ts, self._export_last_ts) if t is not None],
+            default=None,
+        )
+
+        # TOU pro-ration — split the deltas across period boundaries by
+        # time (uniform within the span; a counter does not expose intra-
+        # tick power). Each slice gets a share equal to its fraction of
+        # the span.
+        # Each slice is (period, import_kwh, export_kwh, slice_start_dt).
+        # The slice_start_dt is passed back so CostTracker prices each
+        # slice at the LIVE rate for that instant (operator req 2026-10-09:
+        # TOU by reference, no cached rate across ticks or slices).
+        slices: list[tuple[str, float, float, datetime]] = []
+        if prior_ts is not None and prior_ts < now_ts and (imp_delta > 0 or exp_delta > 0):
+            total_s = now_ts - prior_ts
+            cursor = datetime.fromtimestamp(prior_ts, tz=now.tzinfo)
+            end = now
+            while cursor < end:
+                try:
+                    period = self._tou.get_current_period(cursor)
+                except Exception:  # noqa: BLE001
+                    period = "unknown"
+                try:
+                    boundary = self._tou.get_next_period_change_dt(cursor)
+                except Exception:  # noqa: BLE001
+                    boundary = None
+                if boundary is None or boundary >= end:
+                    slice_end = end
+                else:
+                    slice_end = boundary
+                frac = max(0.0, (slice_end.timestamp() - cursor.timestamp()) / total_s)
+                slices.append((
+                    period,
+                    imp_delta * frac,
+                    exp_delta * frac,
+                    cursor,
+                ))
+                cursor = slice_end
+        elif imp_delta > 0 or exp_delta > 0:
+            # Single slice at current period (no elapsed baseline yet).
+            try:
+                period = self._tou.get_current_period(now)
+            except Exception:  # noqa: BLE001
+                period = "unknown"
+            slices.append((period, imp_delta, exp_delta, now))
+
+        # Update per-leg state. Advance stamp only when we have a reading;
+        # a missing reading leaves last_ts alone so a later catch-up
+        # computes a legitimate elapsed_h.
+        if imp is not None:
+            if self._import_last is not None and imp > self._import_last + RESET_EPSILON_KWH:
+                self._import_last_advance_ts = now_ts
+            self._import_last = imp
+            self._import_last_ts = now_ts
+        if exp is not None:
+            if self._export_last is not None and exp > self._export_last + RESET_EPSILON_KWH:
+                self._export_last_advance_ts = now_ts
+            self._export_last = exp
+            self._export_last_ts = now_ts
+
+        # Cache last net kW for peak-avoidance (D6).
+        if prior_ts is not None and now_ts > prior_ts:
+            elapsed_h = (now_ts - prior_ts) / 3600.0
+            if elapsed_h > 0:
+                self._last_net_kw = (imp_delta - exp_delta) / elapsed_h
+                self._last_net_kw_ts = now_ts
+
+        if imp_delta == 0.0 and exp_delta == 0.0 and not slices:
+            return None
+        return {
+            "import_kwh": imp_delta,
+            "export_kwh": exp_delta,
+            "slices": slices,
+        }
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
+    def is_stuck(self, now_ts: float | None = None) -> bool:
+        """True if BOTH legs have not advanced within COUNTER_STUCK_WINDOW_S."""
+        if now_ts is None:
+            now_ts = time.time()
+        def _stuck(ts: float | None) -> bool:
+            return ts is None or (now_ts - ts) > COUNTER_STUCK_WINDOW_S
+        return _stuck(self._import_last_advance_ts) and _stuck(
+            self._export_last_advance_ts
+        )
+
+    def staleness_s(self, now_ts: float | None = None) -> float | None:
+        """Age in seconds since the newer of the two legs last ticked."""
+        if now_ts is None:
+            now_ts = time.time()
+        candidates = [t for t in (self._import_last_ts, self._export_last_ts) if t is not None]
+        if not candidates:
+            return None
+        return now_ts - max(candidates)

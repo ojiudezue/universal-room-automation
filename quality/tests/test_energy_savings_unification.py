@@ -439,7 +439,7 @@ def test_lifetime_survives_row_prune(real_schema_db):
 # external .txt) so a fresh checkout enforces the guard immediately — the
 # prior self-seed-and-skip path made these tests decorative.
 _EXPECTED_GET_DISPLACED_RATE_SHA1 = "759f1e5c80c946991363d3adf2ed0d37c50529db"
-_EXPECTED_COST_ACCUMULATE_SHA1 = "00d0cd6952f49b43b80e80553fc7a140f8a959c5"
+_EXPECTED_COST_ACCUMULATE_SHA1 = "e3b62fd0b3f37eb62961458e6e42f70192e141fa"  # PLANNING_ec_billing_emporia_counters §D2 — counter branch added, legacy power-integration path unchanged.
 
 
 def _fn_source_sha1(fn) -> str:

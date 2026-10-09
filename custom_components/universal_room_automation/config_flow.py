@@ -5920,6 +5920,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GENERATOR_ENTITY,
             CONF_ENERGY_GRID_IMPORT_ENTITY,
             CONF_ENERGY_GRID_EXPORT_ENTITY,
+            CONF_ENERGY_BILLING_SOURCE,
+            DEFAULT_ENERGY_BILLING_SOURCE,
+            BILLING_SOURCE_AUTO,
+            BILLING_SOURCE_METER,
+            BILLING_SOURCE_POWER,
             CONF_ENERGY_UTILITY_METER_ENTITY,
             CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
             CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
@@ -6897,18 +6902,41 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            # v4.2.0: Direct grid import/export sensors (e.g., Emporia mains)
+            # v4.2.0 + PLANNING_ec_billing_emporia_counters (REV 4):
+            # Direct grid import/export. Accepts either a POWER sensor
+            # (W / kW) or an ENERGY daily counter (kWh / Wh). Auto detects
+            # by unit_of_measurement; the counter path pro-rates deltas
+            # across TOU boundaries via the shared TOURateEngine (by
+            # reference — no rate caching across ticks).
             vol.Optional(
                 CONF_ENERGY_GRID_IMPORT_ENTITY,
                 description={"suggested_value": self._get_current(CONF_ENERGY_GRID_IMPORT_ENTITY)},
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+                selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(
                 CONF_ENERGY_GRID_EXPORT_ENTITY,
                 description={"suggested_value": self._get_current(CONF_ENERGY_GRID_EXPORT_ENTITY)},
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # "Bill from" named-bucket select. Auto preserves today's
+            # behaviour until counter sensors are detected on the two
+            # GRID slots above.
+            vol.Optional(
+                CONF_ENERGY_BILLING_SOURCE,
+                default=self._get_current(
+                    CONF_ENERGY_BILLING_SOURCE, DEFAULT_ENERGY_BILLING_SOURCE
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": BILLING_SOURCE_AUTO, "label": "Auto"},
+                        {"value": BILLING_SOURCE_METER, "label": "Meter totals"},
+                        {"value": BILLING_SOURCE_POWER, "label": "Power readings"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             # v4.2.17: Utility company net energy meter
             vol.Optional(

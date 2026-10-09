@@ -2018,7 +2018,9 @@ class UniversalRoomDatabase:
                 # v3.7.12: Add accuracy + temperature columns to energy_daily
                 # R1 (2026-07-16): + predicted_consumption_source (source marker
                 # for which estimator arm produced predicted_consumption_kwh).
-                # Additive migration only.
+                # PLANNING_ec_billing_emporia_counters (REV 4): + billing_source
+                # nullable column (counters/power_integration/counter_gap/
+                # recorder_backfill). Additive migration only.
                 try:
                     cursor = await db.execute("PRAGMA table_info(energy_daily)")
                     ed_columns = {row[1] for row in await cursor.fetchall()}
@@ -2028,6 +2030,7 @@ class UniversalRoomDatabase:
                         ("prediction_error_pct", "REAL"),
                         ("adjustment_factor", "REAL"),
                         ("predicted_consumption_source", "TEXT"),
+                        ("billing_source", "TEXT"),
                     ]:
                         if col not in ed_columns:
                             await db.execute(
@@ -2036,6 +2039,51 @@ class UniversalRoomDatabase:
                     await db.commit()
                 except Exception as e:
                     _LOGGER.warning("energy_daily migration failed: %s", e)
+
+                # PLANNING_ec_billing_emporia_counters §D5 (REV 4) —
+                # additive counter columns on energy_midnight_snapshot.
+                try:
+                    cursor = await db.execute(
+                        "PRAGMA table_info(energy_midnight_snapshot)"
+                    )
+                    ems_columns = {row[1] for row in await cursor.fetchall()}
+                    for col, col_type in [
+                        ("counter_import_last", "REAL"),
+                        ("counter_export_last", "REAL"),
+                        ("billing_source_today", "TEXT"),
+                    ]:
+                        if col not in ems_columns:
+                            await db.execute(
+                                f"ALTER TABLE energy_midnight_snapshot "
+                                f"ADD COLUMN {col} {col_type}"
+                            )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning(
+                        "energy_midnight_snapshot migration failed: %s", e
+                    )
+
+                # PLANNING_ec_billing_emporia_counters §D5a cleanup —
+                # the 4 known bad rows (MWh×1000 against zero snapshot).
+                # Idempotent: UPDATE … WHERE date IN (…) AND consumption_kwh IS NOT NULL.
+                try:
+                    bad_dates = (
+                        "2026-06-19", "2026-08-20",
+                        "2026-08-28", "2026-08-30",
+                    )
+                    await db.execute(
+                        "UPDATE energy_daily "
+                        "SET consumption_kwh = NULL, solar_production_kwh = NULL "
+                        "WHERE date IN (?,?,?,?) "
+                        "AND (consumption_kwh IS NOT NULL "
+                        "     OR solar_production_kwh IS NOT NULL)",
+                        bad_dates,
+                    )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning(
+                        "energy_daily D5a cleanup failed: %s", e
+                    )
 
                 # v3.13.0: Add tou_period column to energy_history
                 # Column populated by log_energy_history in M2 (v3.13.1)
@@ -4666,15 +4714,47 @@ class UniversalRoomDatabase:
         prediction_error_pct: float | None = None,
         adjustment_factor: float | None = None,
         predicted_consumption_source: str | None = None,
+        billing_source: str | None = None,
     ) -> None:
         """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency.
 
         R1 (2026-07-16): ``predicted_consumption_source`` marks which
         estimator arm produced ``predicted_consumption_kwh``:
-        ``v1_regression`` / ``dow_legacy`` / ``fallback`` (const strings in
-        ``energy_const.PRED_CONSUMPTION_SOURCE_*``).
+        ``v1_regression`` / ``dow_legacy`` / ``fallback``.
+
+        PLANNING_ec_billing_emporia_counters §D4 (REV 4): backstop clamp
+        on ``consumption_kwh`` / ``solar_production_kwh``. With §D5a's
+        baseline-validity guard in place this clamp should never fire on
+        healthy data (expected post-cycle: zero hits). It is kept as a
+        belt-and-braces guard against any residual Bug Class #53 miss.
         """
         try:
+            from .domain_coordinators.energy_const import (
+                MAX_PLAUSIBLE_DAILY_KWH,
+                MAX_PLAUSIBLE_DAILY_SOLAR_KWH,
+            )
+            if (
+                consumption_kwh is not None
+                and consumption_kwh > MAX_PLAUSIBLE_DAILY_KWH
+            ):
+                _LOGGER.warning(
+                    "energy_daily D4 clamp fired: consumption_kwh=%.1f > %.1f "
+                    "— writing NULL (date=%s)",
+                    consumption_kwh, MAX_PLAUSIBLE_DAILY_KWH, date_str,
+                )
+                consumption_kwh = None
+            if (
+                solar_production_kwh is not None
+                and solar_production_kwh > MAX_PLAUSIBLE_DAILY_SOLAR_KWH
+            ):
+                _LOGGER.warning(
+                    "energy_daily D4 clamp fired: solar_production_kwh=%.1f "
+                    "> %.1f — writing NULL (date=%s)",
+                    solar_production_kwh, MAX_PLAUSIBLE_DAILY_SOLAR_KWH,
+                    date_str,
+                )
+                solar_production_kwh = None
+
             async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_daily
@@ -4682,14 +4762,14 @@ class UniversalRoomDatabase:
                      net_cost, consumption_kwh, solar_production_kwh,
                      predicted_consumption_kwh, avg_temperature,
                      prediction_error_pct, adjustment_factor,
-                     predicted_consumption_source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     predicted_consumption_source, billing_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date_str, import_kwh, export_kwh, import_cost,
                     export_credit, net_cost, consumption_kwh,
                     solar_production_kwh, predicted_consumption_kwh,
                     avg_temperature, prediction_error_pct, adjustment_factor,
-                    predicted_consumption_source,
+                    predicted_consumption_source, billing_source,
                 ))
                 await db.commit()
         except Exception as e:
@@ -4731,6 +4811,28 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error querying energy daily for cycle: %s", e)
             return {"days": 0, "import_kwh": 0, "export_kwh": 0,
                     "import_cost": 0, "export_credit": 0, "net_cost": 0}
+
+    async def count_outage_days_in_cycle(
+        self, cycle_start: str, cycle_end: str
+    ) -> int:
+        """PLANNING_ec_billing_emporia_counters §D7: count energy_daily
+        rows in [cycle_start, cycle_end) tagged counter_gap / recorder_backfill.
+
+        Single producer for both the EC attribute and the dedicated sensor.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM energy_daily "
+                    "WHERE date >= ? AND date < ? "
+                    "AND billing_source IN ('counter_gap','recorder_backfill')",
+                    (cycle_start, cycle_end),
+                )
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            _LOGGER.error("count_outage_days_in_cycle failed: %s", e)
+            return 0
 
     async def get_energy_daily_recent(self, days: int = 30) -> list[dict]:
         """Get recent energy_daily rows for accuracy restore + regression.
@@ -5122,8 +5224,10 @@ class UniversalRoomDatabase:
                          lifetime_battery_charged, lifetime_battery_discharged,
                          import_kwh_today, export_kwh_today,
                          import_cost_today, export_credit_today, net_cost_today,
+                         counter_import_last, counter_export_last,
+                         billing_source_today,
                          updated_at)
-                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     data.get("snapshot_date"),
                     data.get("lifetime_consumption"),
@@ -5137,6 +5241,9 @@ class UniversalRoomDatabase:
                     data.get("import_cost_today", 0),
                     data.get("export_credit_today", 0),
                     data.get("net_cost_today", 0),
+                    data.get("counter_import_last"),
+                    data.get("counter_export_last"),
+                    data.get("billing_source_today"),
                     now,
                 ))
                 await db.commit()
