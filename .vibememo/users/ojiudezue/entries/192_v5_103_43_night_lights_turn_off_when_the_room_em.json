@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "192",
+  "author": "ojiudezue",
+  "session_id": "claude_20261009_105832_ship_v5_103_43",
+  "timestamp": "2026-10-09T10:58:32Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.43 shipped: Night lights turn off when the room empties",
+  "summary": "Night lights turn off when the room empties",
+  "why": "5.103.42 made night lights turn ON independent of the main entry action but left OFF tied to the main exit action, so a leave_on room (Living Room) kept its night light on all night; proven from recorder + activity log. First fix also dropped the sleep-protection gate to get Sleep colour, which both reviewers showed would switch main lights off in Sleep for unprotected rooms; replaced with a night-light-only helper. Master Toilet no-light was disproven as a regression (sleep-protection motion bypass=3), left for operator decision.",
+  "implications": "Shipped NIGHT-LIGHT-ACTION-SELECTOR-1, LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1 at v5.103.43; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.43.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log: Living Room night-light turn_off within vacancy timeout after an occupied->vacant transition at night; sleep-time night-light turn_on rows in rooms without sleep protection log mode sleep not evening; no main-light turn_off on entry during Sleep in those rooms",
+  "refs": {
+    "cards": [
+      "NIGHT-LIGHT-ACTION-SELECTOR-1",
+      "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.43.md"
+    ],
+    "release_notes": "Night lights the rule turned on now turn off when the room empties regardless of the main exit setting (except leave-on-when-empty lights), and use Sleep colour/brightness whenever the house is in Sleep. Main-light behaviour unchanged."
+  }
+}

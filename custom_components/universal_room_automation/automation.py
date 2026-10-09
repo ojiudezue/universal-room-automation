@@ -1162,6 +1162,21 @@ class RoomAutomation:
         except Exception:  # noqa: BLE001 — fail-open to clock
             return False
 
+    def _house_state_is_sleep(self) -> bool:
+        """Narrow helper: house_state == 'sleep' (ignores per-room sleep gate).
+
+        Used ONLY by the non-sleep night-light turn-on paths so a room
+        without sleep protection enabled still gets SLEEP-slot
+        brightness/colour on its night lights under house Sleep. Does
+        NOT widen ``is_sleep_lighting_active`` — the main-light sleep
+        authority (``_turn_off_non_night_lights`` in canonical and
+        ``sleep_non_night_off`` in the reconciler) is unchanged.
+        """
+        try:
+            return (self._read_current_house_state() or "").lower() == "sleep"
+        except Exception:  # noqa: BLE001 — fail-safe
+            return False
+
     def is_sleep_mode_active(self) -> bool:
         """Check if sleep protection is currently active.
 
@@ -1367,6 +1382,13 @@ class RoomAutomation:
             from .lighting.resolver import resolve_slot as _resolve_slot
             _slot = _resolve_slot(is_sleep_hours=False, is_dark=is_dark)
             _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
+            # v5.103.42 post-deploy fix: when the house is in Sleep,
+            # night lights should take the SLEEP brightness/colour slot
+            # even for rooms with CONF_SLEEP_PROTECTION_ENABLED=False.
+            # Narrow helper — does NOT widen is_sleep_lighting_active, so
+            # the main-light sleep authority is untouched.
+            if self._house_state_is_sleep():
+                _mode = "sleep"
             await self._turn_on_night_lights(mode=_mode)
             self.coordinator.set_last_action(
                 "turn_on",
@@ -1491,8 +1513,6 @@ class RoomAutomation:
     async def _control_lights_exit(self, state_data: dict[str, Any]) -> None:
         """Control lights on exit."""
         action = self.config.get(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
-        if action != LIGHT_ACTION_TURN_OFF:
-            return
 
         # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D1): UNCONDITIONAL union.
         # Night lights behave like any occupancy light — OFF on vacancy
@@ -1504,8 +1524,25 @@ class RoomAutomation:
         # Slice B' (v5.103.28): route through effective_exit_set so
         # CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is honoured. ABSENT ⇒ today's
         # unconditional union.
+        #
+        # v5.103.42 post-deploy fix (Living Room 02:37/02:50 CDT 2026-10-09
+        # regression): when the room's MAIN ``exit_light_action`` is
+        # ``leave_on`` the main-light exit branch rightly skips, but the
+        # night-light rule still turned the night lights on at entry. The
+        # night lights the rule asserted MUST turn off when the room empties
+        # regardless of the main action, unless the entity is in
+        # ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY``. ``effective_exit_set``
+        # already carves that leave-on list out, so the night-light subset
+        # of ``off_set`` is the correct target when the main action is not
+        # ``turn_off``.
         from .lighting.resolver import effective_exit_set
         off_set = effective_exit_set(self.config)
+        if action != LIGHT_ACTION_TURN_OFF:
+            night_lights = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+            _night_set = set(night_lights)
+            off_set = [e for e in off_set if e in _night_set]
+            if not off_set:
+                return
         lights = off_set
         if not lights:
             return

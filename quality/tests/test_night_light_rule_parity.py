@@ -231,6 +231,155 @@ def test_r3_m2_reconciler_params_match_canonical_helper_day():
     assert out.params == expected
 
 
+# ---------------------------------------------------------------------------
+# v5.103.42 post-deploy — exit_action dimension + sleep mode selection.
+# Living Room (02:37/02:50 CDT 2026-10-09) regression: night light turned
+# on by the rule stayed on after vacancy because exit_light_action=leave_on
+# gated the OFF path.
+# ---------------------------------------------------------------------------
+
+
+def _turn_off_entity_ids(room):
+    return _turn_on_entity_ids(room, service="turn_off")
+
+
+def test_canonical_exit_leave_on_still_turns_off_night_light():
+    """main exit=leave_on + vacancy ⇒ night light STILL turned off."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    _run(room.auto._control_lights_exit({}))
+    assert "light.night" in _turn_off_entity_ids(room)
+    # Main light is NOT turned off under leave_on.
+    assert "light.main" not in _turn_off_entity_ids(room)
+
+
+def test_canonical_exit_leave_on_respects_leave_on_list():
+    """leave_on list carries night light ⇒ do NOT turn off."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+        const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.night"],
+    })
+    _run(room.auto._control_lights_exit({}))
+    assert "light.night" not in _turn_off_entity_ids(room)
+
+
+def test_canonical_exit_turn_off_unchanged():
+    """exit=turn_off path byte-identical: full union OFF (except leave_on)."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_TURN_OFF,
+    })
+    _run(room.auto._control_lights_exit({}))
+    ids = _turn_off_entity_ids(room)
+    assert "light.night" in ids
+    assert "light.main" in ids
+
+
+def test_reconciler_vacant_leave_on_night_light_off():
+    """Reconciler agrees with canonical: night light OFF on vacancy under
+    exit=leave_on."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    out = _resolve(room, "light.night", occupied=False)
+    assert out is not None and out.state == "off"
+
+
+def test_reconciler_vacant_leave_on_main_light_no_opinion():
+    """Non-night-light member under exit=leave_on stays untouched."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+    })
+    out = _resolve(room, "light.main", occupied=False)
+    assert out is None
+
+
+def test_reconciler_vacant_leave_on_night_in_leave_on_list_no_opinion():
+    const = _c()
+    room = _mk(**{
+        const.CONF_EXIT_LIGHT_ACTION: const.LIGHT_ACTION_LEAVE_ON,
+        const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.night"],
+    })
+    out = _resolve(room, "light.night", occupied=False)
+    assert out is None
+
+
+def test_canonical_house_sleep_without_sleep_protection_uses_sleep_mode():
+    """v5.103.42 fix (narrow helper): house_state=sleep ⇒ night light fires
+    with SLEEP brightness/colour, not evening, even when
+    CONF_SLEEP_PROTECTION_ENABLED=False — AND main lights are NOT turned off
+    (is_sleep_lighting_active NOT widened; main-light sleep authority intact).
+    """
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: False,
+        const.CONF_ENTRY_LIGHT_ACTION: const.LIGHT_ACTION_NONE,
+    })
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    _set_dark(room, True)
+    # Sleep-slot colour marker to discriminate from evening/day.
+    room.auto.config[const.CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS] = 7
+    _run(room.auto._control_lights_entry({}))
+    assert "light.night" in _turn_on_entity_ids(room)
+    # No main-light OFF emitted by this function.
+    off_calls = [c for c in _light_calls(room.hass, "turn_off")]
+    assert off_calls == [], f"main-light OFF leaked: {off_calls}"
+    # Night light dispatched with sleep brightness (7), not day/evening default.
+    on_calls = [c for c in _light_calls(room.hass, "turn_on")
+                if "light.night" in (c.data.get("entity_id") or [])]
+    assert any(c.data.get("brightness_pct") == 7 for c in on_calls), \
+        f"night light must use sleep brightness: {on_calls}"
+
+
+def test_reconciler_house_sleep_without_sleep_protection_sleep_params():
+    """Reconciler mirror: house_state=sleep + sleep protection off ⇒ night
+    light params match the SAME helper the sleep slot feeds."""
+    const = _c()
+    room = _mk(**{const.CONF_SLEEP_PROTECTION_ENABLED: False})
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    _set_dark(room, True)
+    out = _resolve(room, "light.night")
+    assert out is not None and out.state == "on"
+    from custom_components.universal_room_automation.lighting.resolver import (
+        night_light_turn_on_params,
+    )
+    assert out.params == night_light_turn_on_params(room.auto.config, "sleep")
+
+
+def test_reconciler_house_sleep_without_sleep_protection_main_light_untouched():
+    """Main (non-night) light under house Sleep + sleep protection off:
+    the reconciler must NOT force it OFF (is_sleep_lighting_active is NOT
+    widened — sleep_non_night_off path stays gated by the per-room clock)."""
+    const = _c()
+    room = _mk(**{
+        const.CONF_SLEEP_PROTECTION_ENABLED: False,
+        const.CONF_ENTRY_LIGHT_ACTION: const.LIGHT_ACTION_TURN_ON,
+    })
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    _set_dark(room, True)
+    out = _resolve(room, "light.main")
+    # Non-sleep entry branch: main=TURN_ON + is_dark=T ⇒ ON (not OFF).
+    assert out is not None and out.state == "on"
+
+
+def test_is_sleep_lighting_active_gate_preserved():
+    """Regression guard: house_state=sleep with CONF_SLEEP_PROTECTION_ENABLED
+    False does NOT flip is_sleep_lighting_active True (change (3) reverted)."""
+    const = _c()
+    room = _mk(**{const.CONF_SLEEP_PROTECTION_ENABLED: False})
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    assert room.auto.is_sleep_lighting_active() is False
+
+
 def test_r3_m2_reconciler_params_match_canonical_helper_evening():
     const = _c()
     room = _mk(**{
