@@ -648,7 +648,7 @@ def test_counter_reset_then_next_tick_accrues_from_new_baseline():
     assert out["import_kwh"] == pytest.approx(1.5, rel=1e-3)
 
 
-def test_counter_gap_flag_set_when_staleness_exceeds_threshold():
+def test_counter_gap_flag_set_when_staleness_exceeds_threshold(monkeypatch):
     """D6b: at rollover, if counter staleness > COUNTER_OUTAGE_FALLBACK_HRS,
     the yesterday_totals dict reports billing_source='counter_gap'."""
     hass = _Hass()
@@ -665,13 +665,13 @@ def test_counter_gap_flag_set_when_staleness_exceeds_threshold():
     ct._counters._import_last_ts = time.time() - 5 * 3600
     ct._counters._export_last_ts = time.time() - 5 * 3600
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 0, 1))
     totals = ct.get_yesterday_totals()
     assert totals is not None
     assert totals["billing_source"] == "counter_gap"
 
 
-def test_counter_gap_flag_counters_when_fresh():
+def test_counter_gap_flag_counters_when_fresh(monkeypatch):
     hass = _Hass()
     engine = _flat_engine()
     ct = CostTracker(
@@ -690,7 +690,7 @@ def test_counter_gap_flag_counters_when_fresh():
     ct._counters._import_last_advance_ts = now_ts - 60
     ct._counters._export_last_advance_ts = now_ts - 60
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 0, 1))
     totals = ct.get_yesterday_totals()
     assert totals["billing_source"] == "counters"
 

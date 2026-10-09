@@ -137,7 +137,7 @@ def test_d5a_derived_site_null_consumption_when_baseline_zero(monkeypatch):
     monkeypatch.setattr(ec, "_get_lifetime_battery_discharged", lambda: 1.5)
     # Fake today to force the date-changed branch.
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 0, 1))
 
     ec._maybe_reset_daily()
     # One snapshot call recorded; consumption_kwh is None (fail-closed).
@@ -162,7 +162,7 @@ def test_d5a_legacy_site_null_when_baseline_zero_current_nonzero(monkeypatch):
     monkeypatch.setattr(ec, "_get_lifetime_battery_charged", lambda: None)
     monkeypatch.setattr(ec, "_get_lifetime_battery_discharged", lambda: None)
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 0, 1))
     ec._maybe_reset_daily()
     assert len(ec.saved_calls) == 1
     assert ec.saved_calls[0]["consumption_kwh"] is None, (
@@ -192,7 +192,7 @@ def test_d5a_legacy_site_null_consumption_when_baseline_none(monkeypatch):
     monkeypatch.setattr(ec, "_get_lifetime_battery_charged", lambda: None)
     monkeypatch.setattr(ec, "_get_lifetime_battery_discharged", lambda: None)
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 0, 1))
 
     ec._maybe_reset_daily()
     assert len(ec.saved_calls) == 1
@@ -215,7 +215,7 @@ def test_d5a_crosscheck_site_skips_divergence_log_when_baseline_zero(monkeypatch
         get=lambda eid: state if eid == "sensor.e_today" else None
     ))
     import homeassistant.util.dt as _dt
-    _dt.now = lambda: datetime(2026, 10, 9, 14, 0)
+    monkeypatch.setattr(_dt, "now", lambda: datetime(2026, 10, 9, 14, 0))
 
     caplog.clear()
     import logging as _lg
