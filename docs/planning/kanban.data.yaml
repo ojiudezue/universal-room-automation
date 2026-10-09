@@ -30151,7 +30151,7 @@ cards:
   title: 'URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration'
   thread: energy
   status: shipped_organic
-  shipped_version: v5.103.45
+  shipped_version: v5.103.46
   rank: {value: 8, time_criticality: 5, effort: 5}
   updated: '2026-10-09 10:00'
   origin: 'Operator 2026-10-09: "Check energy measurements and predictions including bill predictions for accuracy... I want related sensors and dashboards to be accurate."'

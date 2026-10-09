@@ -345,14 +345,22 @@ def test_counter_proration_none_boundary_terminates(monkeypatch):
 
 
 def test_counter_last_net_kw_stale_returns_none():
-    """REV 4 D6 LOW-1: last_net_kw() returns None past DEFAULT_NET_POWER_MAX_AGE_S."""
+    """last_net_kw() returns None past COUNTER_NET_POWER_MAX_AGE_S
+    (cadence-aware; Emporia daily counters update every ~15 min, so the
+    Envoy-tuned 180s bound would freeze mid-cadence)."""
     hass = _Hass()
     tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
     tr._last_net_kw = 2.5
     tr._last_net_kw_ts = time.time()
     assert tr.last_net_kw() == pytest.approx(2.5)
+    # Within the counter-tuned window: still fresh.
     tr._last_net_kw_ts = (
         time.time() - energy_const.DEFAULT_NET_POWER_MAX_AGE_S - 10
+    )
+    assert tr.last_net_kw() == pytest.approx(2.5)
+    # Past the counter-tuned window: stale.
+    tr._last_net_kw_ts = (
+        time.time() - energy_const.COUNTER_NET_POWER_MAX_AGE_S - 10
     )
     assert tr.last_net_kw() is None
 
@@ -435,6 +443,29 @@ def test_get_net_power_power_mode_unchanged():
     _advance_counter(hass, "sensor.exp", 0, uom="W")
     net = ct._get_net_power()
     assert net == pytest.approx(1.5)
+
+
+def test_get_net_power_power_mode_rejects_kwh_slot(monkeypatch):
+    """Operator 2026-10-09: billing_source=power_readings MUST NOT mis-read
+    a kWh daily-counter slot value as kW. Must fall through to the Envoy
+    net-power branch (which here is unset → None, no mis-booking)."""
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_POWER,
+    )
+    # kWh daily counters at ~54 kWh — this is what triggered the live
+    # regression (treated as "54 kW" by the power branch).
+    _advance_counter(hass, "sensor.imp", 54.521, uom="kWh")
+    _advance_counter(hass, "sensor.exp", 1.2, uom="kWh")
+    net = ct._get_net_power()
+    assert net is None, (
+        "power mode must NOT mis-read kWh counters as kW; must fall "
+        "through to Envoy (unset → None)"
+    )
 
 
 # ===========================================================================
@@ -640,8 +671,12 @@ def test_counter_reset_then_next_tick_accrues_from_new_baseline():
     # Reset to 0.1 at midnight.
     _advance_counter(hass, "sensor.imp", 0.1)
     tr.tick()
-    # Advance tracker's recorded time so cap is non-zero.
+    # Advance both observation AND advance stamps so the honest cap window
+    # is non-zero on the next tick (A-HIGH 2026-10-09: cap window is driven
+    # by the advance stamp, not the observation stamp).
     tr._import_last_ts -= 600
+    if tr._import_last_advance_ts is not None:
+        tr._import_last_advance_ts -= 600
     _advance_counter(hass, "sensor.imp", 1.6)   # +1.5 kWh post-reset
     out = tr.tick()
     assert out is not None, "reset branch must leave baseline at 0.1 so next tick books 1.5 kWh"
@@ -721,9 +756,14 @@ def test_tou_by_reference_two_ticks_price_from_live_rate(monkeypatch):
     assert cost_after_t1 > 0.0
     # Change the engine's rate on the shared instance.
     engine._rates["flat"]["periods"]["off_peak"]["import_rate"] = 0.40
-    # 30 min later, another 1 kWh.
+    # 30 min later, another 1 kWh. Rewind both the OBSERVATION stamps
+    # (power-path seed) and the ADVANCE stamp (counter-path window).
     ct._counters._import_last_ts -= 1800
     ct._counters._export_last_ts -= 1800
+    if ct._counters._import_last_advance_ts is not None:
+        ct._counters._import_last_advance_ts -= 1800
+    if ct._counters._export_last_advance_ts is not None:
+        ct._counters._export_last_advance_ts -= 1800
     ct._last_accumulate_time -= 1800
     _advance_counter(hass, "sensor.imp", 12.0)
     ct.accumulate()
@@ -952,3 +992,151 @@ def test_log_energy_daily_clamp_fires_on_implausible_consumption(tmp_path):
     assert clamped is None
     good = MAX - 10.0
     assert (None if good > MAX else good) == pytest.approx(good)
+
+
+# ===========================================================================
+# Fix-up review (2026-10-09) — A-HIGH kW math, B-HIGH seed-after-restore,
+# A-MED one-shot logs. Monkeypatch-only time control.
+# ===========================================================================
+
+def test_counter_kw_derived_from_advance_window_not_tick_interval(monkeypatch):
+    """A-HIGH 2026-10-09: 1.0 kWh over a 15-min advance window → 4.0 kW,
+    NOT the 12 kW an EC-tick (5-min) elapsed would produce. A mutation
+    that uses the inter-tick elapsed instead of the advance window would
+    make this assertion fail."""
+    hass = _Hass()
+    tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
+    # T0: seed the baseline (no advance yet).
+    _advance_counter(hass, "sensor.imp", 100.0)
+    _advance_counter(hass, "sensor.exp", 0.0)
+    tr.tick()
+    # T0+5m silent tick (counter unchanged — Emporia didn't update).
+    tr._import_last_ts -= 300
+    tr._export_last_ts -= 300
+    tr.tick()
+    assert tr.last_net_kw() is None, (
+        "silent tick must NOT seed a bogus kW; only an advance may"
+    )
+    # T0+15m: counter advances by 1.0 kWh over the 15-min advance window.
+    # Rewind the observation stamp (was just set by the silent tick).
+    tr._import_last_ts -= 600  # another 10 min since prior silent tick
+    tr._export_last_ts -= 600
+    _advance_counter(hass, "sensor.imp", 101.0)
+    tr.tick()
+    kw = tr.last_net_kw()
+    assert kw == pytest.approx(4.0, rel=5e-2), (
+        f"kW must be derived from the 15-min advance window → ~4.0 kW; got {kw}"
+    )
+
+
+def test_counter_last_net_kw_held_across_silent_ticks_until_expiry(monkeypatch):
+    """A-HIGH 2026-10-09: once set on an advance, kW is HELD across
+    silent ticks and only expires via COUNTER_NET_POWER_MAX_AGE_S — not
+    refreshed to 0 on an unchanged-but-fresh observation."""
+    hass = _Hass()
+    tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
+    _advance_counter(hass, "sensor.imp", 10.0)
+    _advance_counter(hass, "sensor.exp", 0.0)
+    tr.tick()  # seed
+    # Advance window of 900s (15 min).
+    tr._import_last_ts -= 900
+    tr._export_last_ts -= 900
+    _advance_counter(hass, "sensor.imp", 11.0)  # +1 kWh in 15 min → 4 kW
+    tr.tick()
+    assert tr.last_net_kw() == pytest.approx(4.0, rel=5e-2)
+    # A silent tick 5 min later must NOT overwrite the kW with 0.
+    tr._import_last_ts -= 300
+    tr._export_last_ts -= 300
+    tr.tick()
+    assert tr.last_net_kw() == pytest.approx(4.0, rel=5e-2), (
+        "silent-tick refresh regression — kW must be held, not re-set to 0"
+    )
+
+
+def test_counter_seed_tick_books_slices_after_restore(monkeypatch):
+    """B-HIGH 2026-10-09: a snapshot restore + first accumulate MUST book
+    the delta from the restored baseline. The prior build short-circuited
+    this tick to a bare seed and lost (snapshot_ts → first_tick) energy
+    on every restart."""
+    hass = _Hass()
+    engine = _flat_engine(rate=0.20)
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    # Live counters currently read 15.0 (import) / 2.0 (export).
+    _advance_counter(hass, "sensor.imp", 15.0)
+    _advance_counter(hass, "sensor.exp", 2.0)
+    # Simulate a snapshot restore 20 min ago: baselines 14.0 / 1.5.
+    import time as _time
+    snap_ts = _time.time() - 1200
+    ct._counters.restore(14.0, 1.5, snapshot_ts=snap_ts)
+    # First accumulate — MUST book the delta, not throw it away.
+    ct.accumulate()
+    assert ct._import_kwh_today == pytest.approx(1.0, abs=1e-3), (
+        f"first-tick-after-restore lost import energy: got "
+        f"{ct._import_kwh_today} kWh (expected 1.0)"
+    )
+    assert ct._export_kwh_today == pytest.approx(0.5, abs=1e-3)
+    assert ct._billing_source_today == "counters"
+    # Second accumulate with no further counter change → no double-book.
+    _import_before = ct._import_kwh_today
+    ct.accumulate()
+    assert ct._import_kwh_today == pytest.approx(_import_before, abs=1e-6), (
+        "second tick with no counter advance must not re-book"
+    )
+
+
+def test_counter_mode_false_with_slots_logs_once(caplog):
+    """A-MED 2026-10-09: one-shot diagnostic when both grid slots are set
+    but counter mode is False (the live-regression signature)."""
+    import logging
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_POWER,  # forces counter False
+    )
+    # Slots are power sensors (W) — counter mode must evaluate False.
+    _advance_counter(hass, "sensor.imp", 1000, uom="W")
+    _advance_counter(hass, "sensor.exp", 0, uom="W")
+    assert ct._is_counter_mode() is False
+    with caplog.at_level(logging.INFO, logger=(
+        "custom_components.universal_room_automation."
+        "domain_coordinators.energy_billing"
+    )):
+        ct.accumulate()
+        ct.accumulate()
+        ct.accumulate()
+    n = sum(1 for r in caplog.records if "counter mode evaluated FALSE" in r.getMessage())
+    assert n == 1, f"expected exactly one one-shot log, got {n}"
+
+
+def test_power_mode_kwh_slot_log_is_one_shot(caplog):
+    """A-MED 2026-10-09: the power-mode kWh-slot warning is one-shot."""
+    import logging
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_POWER,
+    )
+    _advance_counter(hass, "sensor.imp", 54.521, uom="kWh")
+    _advance_counter(hass, "sensor.exp", 1.2, uom="kWh")
+    with caplog.at_level(logging.INFO, logger=(
+        "custom_components.universal_room_automation."
+        "domain_coordinators.energy_billing"
+    )):
+        for _ in range(3):
+            ct._get_net_power()
+    n = sum(
+        1 for r in caplog.records
+        if "ignoring kWh slots" in r.getMessage()
+    )
+    assert n == 1, f"expected one-shot kWh-slot log, got {n}"

@@ -6164,9 +6164,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # value. Drop the key so blank = derived Envoy solar entity.
             # Never persist "": runtime setdefault would keep it and solar
             # would silently resolve to nothing.
+            # Operator 2026-10-09: explicit "clear" path for grid import/
+            # export entity slots. The EntitySelector doesn't accept the
+            # empty string and null round-trips are swallowed by the
+            # {**options, **user_input} merge below, so there was no way
+            # to UN-configure a kWh counter once set. Mirrors the rooms
+            # `clear_sensor_fields` pattern (:12391).
+            _clear_grid = user_input.pop("clear_grid_fields", []) or []
             saved_options = {**self._config_entry.options, **user_input}
             if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
                 saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+            _clear_map = {
+                "grid_import": CONF_ENERGY_GRID_IMPORT_ENTITY,
+                "grid_export": CONF_ENERGY_GRID_EXPORT_ENTITY,
+            }
+            # A-LOW (2026-10-09): if the operator both ticked "Clear X"
+            # AND picked a new entity for X in the SAME submit, the new
+            # entity wins (clearing is for the "I set this once and now
+            # want it empty" case; a fresh pick is a stronger signal).
+            for _choice in _clear_grid:
+                _ck = _clear_map.get(_choice)
+                if _ck and not user_input.get(_ck):
+                    saved_options.pop(_ck, None)
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
@@ -6919,6 +6938,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": self._get_current(CONF_ENERGY_GRID_EXPORT_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # Operator 2026-10-09: clear-path for the two grid slots.
+            # EntitySelector rejects "" and null is swallowed by the merge,
+            # so without this a kWh counter cannot be un-configured once
+            # set. Choices clear the matching stored key on save.
+            vol.Optional(
+                "clear_grid_fields", default=[],
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": "grid_import", "label": "Clear grid import entity"},
+                        {"value": "grid_export", "label": "Clear grid export entity"},
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
             ),
             # "Bill from" named-bucket select. Auto preserves today's
             # behaviour until counter sensors are detected on the two
