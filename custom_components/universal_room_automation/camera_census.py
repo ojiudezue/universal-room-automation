@@ -3499,6 +3499,19 @@ class PersonCensus:
         s = str(name).strip().lower()
         if not s:
             return ""
+        # CENSUS-NAME-SPACE-DEDUP-1 (2026-10-09): normalise runs of
+        # whitespace and hyphens to a single "_" BEFORE direct- /
+        # first-token- / guest-matching, so display-name forms like
+        # "Oji Udezue" (UniFi Protect face names) and "Oji-Udezue"
+        # collapse to the URA slug namespace ("oji_udezue") rather than
+        # passing through as a divergent third name. Without this,
+        # `identified_persons` contained both "oji udezue" (space) and
+        # "oji_udezue" and double-counted one resident into GUEST mode.
+        # Preserves fail-closed ambiguity + guest:<head> fallthrough:
+        # the only change is the shape of `s` before matching.
+        s = "_".join(s.replace("-", " ").split())
+        if not s:
+            return ""
         tracked = self._get_tracked_person_slugs()
         # Direct-match (already URA-canonical, incl. any casing).
         if s in tracked:
@@ -3534,7 +3547,8 @@ class PersonCensus:
         except Exception:  # noqa: BLE001 — options read is best-effort
             guests = []
         for g in guests:
-            g_head = str(g).strip().lower().split("_", 1)[0]
+            # Same space/hyphen normalisation as the incoming name above.
+            g_head = "_".join(str(g).lower().replace("-", " ").split()).split("_", 1)[0]
             if g_head and g_head == head:
                 return f"guest:{head}"
         # Fallback: preserve the (lowercased) identifier verbatim.
