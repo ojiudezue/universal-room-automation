@@ -615,7 +615,9 @@ def _canonical_light_decision(occupied, sleep, is_dark, entry_action,
         if is_night:
             if occupied:
                 return "on"
-            return "off" if exit_action == LIGHT_ACTION_TURN_OFF else None
+            # v5.103.42 post-deploy fix: night lights OFF on vacancy
+            # regardless of exit_action (fix/night-light-offpath).
+            return "off"
         return "off"
     if occupied:
         # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-M1): membership in
