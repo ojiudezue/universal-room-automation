@@ -30147,6 +30147,17 @@ cards:
     value: 6
     time_criticality: 5
     effort: 3
+- id: ENERGY-BILL-ACCURACY-1
+  title: 'URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration'
+  thread: energy
+  status: review
+  rank: {value: 8, time_criticality: 5, effort: 5}
+  updated: '2026-10-09 10:00'
+  origin: 'Operator 2026-10-09: "Check energy measurements and predictions including bill predictions for accuracy... I want related sensors and dashboards to be accurate."'
+  why: 'energy_daily import 1,854/2,104/2,360 kWh vs bills 2,778/2,752/3,564. CostTracker integrated Envoy current net power; dropouts lost energy (fail-closed, no backfill). Emporia daily counters match bill ~98%.'
+  adjacency: 'ADJACENT to ENERGY-CONSUMPTION-FORECAST-POISONED-1 (same energy_daily table; the 4 impossible rows = baseline-zero, fixed in the same release via D5a guard).'
+  operator_rulings: 'Fix existing EC code; TOU by reference only; meters configurable for other installs (existing GRID_IMPORT/EXPORT fields); flat rate must work; Option B (separate tracker class) accepted after reviews; Meter outage days as sensor AND attribute; v8 cost card gets a meter line.'
+  next: 'Deploy 5.103.45, then set EC options (Grid import/export entity = Emporia daily counters, Bill from = Auto), add v8 card line, validate import within 2% of Emporia after a full day; offer backfill dry run.'
 - id: ENERGY-CONSUMPTION-FORECAST-POISONED-1
   INSTANCE_2026_10_04_overnight: "Folded in EC-CONSUMPTION-DROPOUT-DAYS-1 (closed as duplicate). NEW ROWS since the 10-01 measurement: energy_daily 10-02 85.8 kWh and 10-03 97.9 kWh consumption, both with solar_production_kwh 0.0. LTS shows lifetime_energy_production stuck at 0.045505 MWh at the 00:00 CDT hour on 10-01, 10-02, 10-03 and 10-04, so both snapshot endpoints carried the glitch value, the solar delta was 0 and consumption lost all solar self-use. This is the UNDER-count form of the same defect. The OVER-count form (one endpoint glitched, e.g. 18,850 kWh rows) has not recurred because the value has stayed stuck at both ends. Net effect: all 4 non-NULL energy_daily rows since 09-13 (09-24 48.2, 09-25 78.1, 10-02 85.8, 10-03 97.9) are under-counts of roughly 100-130 kWh against the 184-224 kWh September normal, and they are the only fresh inputs the day-of-week forecast has had for three weeks. The plausibility bound in Option F/S must therefore reject solar==0 on a sunny day (or any lifetime read below the last good value), not only the huge over-count. Open sub-question carried from the folded card: which Emporia entity is the whole-house total (a candidate gap-fill witness alongside the SPAN pair)."
   logread_2026_10_01_overnight: 'LOG READ (hassio proxy, 09-30 20:46 -> 10-01 02:11 CDT) corroborates INSTANCE_2026_10_01: the energy coordinator logs "Consumption cross-check divergence: Envoy today=30081.86 kWh, our lifetime delta=0.00 kWh" every hour (21:00, 22:04, 23:04, ...). Two things in that line: the Envoy "today" consumption figure is ~30,100 kWh, i.e. the LIFETIME counter (30.1 MWh) shown in kWh, so the today-sensor cannot be used as a cross-check; and our own delta is 0.00 because the midnight snapshot was re-seeded mid-day after a blank rollover. Envoy timeout logged at 23:07:00 CDT (the nightly drop).'
