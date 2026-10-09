@@ -291,10 +291,37 @@ class CostTracker:
         """Return yesterday's daily totals if we have them (before reset).
 
         Must be called BEFORE accumulate() on date change to capture
-        the previous day's data before it's wiped.
+        the previous day's data before it's wiped. §D6b (REV 4): the
+        returned dict carries `billing_source` — 'counter_gap' when
+        counter mode AND measured staleness exceeded
+        COUNTER_OUTAGE_FALLBACK_HRS at rollover; 'counters' when counter
+        mode AND fresh; 'power_integration' otherwise. Writer-at-midnight
+        for the day flag (no new timer).
         """
         if not self._last_date or self._last_date == dt_util.now().date().isoformat():
             return None  # No date change yet or same day
+
+        # Determine the day flag source at rollover (operator req).
+        from .energy_const import COUNTER_OUTAGE_FALLBACK_HRS
+        source = None
+        if self._billing_source != BILLING_SOURCE_POWER and self._counters is not None:
+            try:
+                stale_s = self._counters.staleness_s()
+                in_counter_mode = self._is_counter_mode() or (
+                    self._billing_source_today == "counters"
+                )
+                if in_counter_mode:
+                    if stale_s is not None and stale_s > (
+                        COUNTER_OUTAGE_FALLBACK_HRS * 3600
+                    ):
+                        source = "counter_gap"
+                    else:
+                        source = "counters"
+            except Exception:  # noqa: BLE001
+                source = None
+        if source is None:
+            source = "power_integration"
+
         return {
             "date": self._last_date,
             "import_kwh": round(self._import_kwh_today, 4),
@@ -302,6 +329,7 @@ class CostTracker:
             "import_cost": round(self._import_cost_today, 4),
             "export_credit": round(self._export_credit_today, 4),
             "net_cost": round(self._cost_today, 4),
+            "billing_source": source,
         }
 
     def accumulate(self) -> None:
@@ -327,9 +355,25 @@ class CostTracker:
         # Reset cycle counters if we passed the cycle day
         self._check_cycle_reset(now)
 
+        # PLANNING_ec_billing_emporia_counters §D2 + §D6b: counter accrual.
+        # Must run BEFORE the first-tick early return below so the counter
+        # tracker seeds its baselines on the very first accumulate call;
+        # otherwise the first real booking tick has no `_import_last_ts`
+        # and the cap collapses to zero.
+        # (dup header kept for diff clarity)
+
         # Calculate energy since last accumulation
         if self._last_accumulate_time is None:
             self._last_accumulate_time = now_ts
+            # Counter-mode seed: let the tracker observe baselines even on
+            # the very first accumulate so `_import_last_ts` is set.
+            if self._counters is not None and self._is_counter_mode():
+                try:
+                    self._counters.tick(now)
+                    self._billing_source_today = "counters"
+                    self._counter_last_update = now.isoformat()
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
         elapsed_hours = (now_ts - self._last_accumulate_time) / 3600.0

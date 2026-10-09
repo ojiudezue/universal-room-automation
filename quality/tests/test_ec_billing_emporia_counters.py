@@ -528,6 +528,161 @@ def test_outage_days_sensor_state_matches_attribute():
     # here we verify the one producer, two surfaces contract.
 
 
+def test_accumulate_golden_power_path_scripted_ticks():
+    """GOLDEN: with billing_source unset (Auto) AND power-type GRID
+    sensors (today's live config shape), accumulate() produces exactly
+    the same import_kwh / export_kwh / cost_today as the pre-cycle
+    power-integration arithmetic for a scripted tick sequence incl. a
+    stale tick that must be skipped. The counter branch is a no-op
+    pass-through in this mode (counter_mode == False).
+
+    This replaces the byte-identity SHA1 check with a behavioural
+    oracle — the contract is behavioural, not textual.
+    """
+    hass = _Hass()
+    engine = _flat_engine(rate=0.10)
+    import_rate = engine.get_effective_import_rate(datetime.now(timezone.utc))
+    export_rate = engine.get_export_rate(datetime.now(timezone.utc))
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+    )  # AUTO default
+    # Script:
+    #   t0 seed → no accrual
+    #   t0 + 30min: 2 kW import (fresh) → +1.0 kWh, cost += 1 * import_rate
+    #   t0 + 60min: STALE (last_reported way old) → tick skipped
+    #   t0 + 90min: 1 kW export (fresh) → +0.5 kWh export,
+    #               cost -= 0.5 * export_rate
+    _advance_counter(hass, "sensor.imp", 2000, uom="W")
+    _advance_counter(hass, "sensor.exp", 0, uom="W")
+    assert ct._is_counter_mode() is False
+    ct.accumulate()  # seed
+    # +30 min
+    ct._last_accumulate_time -= 1800
+    ct.accumulate()
+    # +60 min — mark both legs STALE (>DEFAULT_NET_POWER_MAX_AGE_S).
+    old = datetime.now(timezone.utc) - timedelta(seconds=10_000)
+    hass._states["sensor.imp"].last_reported = old
+    hass._states["sensor.exp"].last_reported = old
+    before_import = ct._import_kwh_today
+    ct._last_accumulate_time -= 1800
+    ct.accumulate()
+    assert ct._import_kwh_today == pytest.approx(before_import), (
+        "stale tick must be skipped — fail-closed contract"
+    )
+    # +90 min — refresh with export flow (1 kW out).
+    _advance_counter(hass, "sensor.imp", 0, uom="W")
+    _advance_counter(hass, "sensor.exp", 1000, uom="W")
+    ct._last_accumulate_time -= 1800
+    ct.accumulate()
+    # Expected arithmetic — same as pre-cycle produced for this script.
+    expected_import_kwh = 1.0  # 2 kW × 0.5 h
+    expected_export_kwh = 0.5  # 1 kW × 0.5 h
+    expected_cost = (
+        expected_import_kwh * import_rate - expected_export_kwh * export_rate
+    )
+    assert ct._import_kwh_today == pytest.approx(expected_import_kwh, rel=5e-3)
+    assert ct._export_kwh_today == pytest.approx(expected_export_kwh, rel=5e-3)
+    assert ct._cost_today == pytest.approx(expected_cost, rel=1e-2)
+    # Counter tracker never touched.
+    assert ct._counters._import_last is None
+    assert ct._counters._export_last is None
+
+
+def test_cost_tracker_counter_mode_books_per_leg_kwh():
+    """Drives CostTracker.accumulate in counter mode and asserts the
+    import/export booking fires. Mutation anchor for the per-leg
+    booking site (neutering `if imp_kwh > 0:` makes this fail)."""
+    hass = _Hass()
+    engine = _flat_engine(rate=0.10)
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    _advance_counter(hass, "sensor.imp", 10.0)
+    _advance_counter(hass, "sensor.exp", 2.0)
+    ct.accumulate()  # seed
+    # Advance tracker's baseline time so cap allows the delta.
+    ct._counters._import_last_ts -= 600
+    ct._counters._export_last_ts -= 600
+    _advance_counter(hass, "sensor.imp", 13.0)   # +3 kWh
+    _advance_counter(hass, "sensor.exp", 2.5)    # +0.5 kWh
+    ct.accumulate()
+    assert ct._import_kwh_today == pytest.approx(3.0, rel=1e-3), (
+        "import booking site FAILED to accrue — guard the per-leg block"
+    )
+    assert ct._export_kwh_today == pytest.approx(0.5, rel=1e-3)
+    assert ct._cost_today != 0.0
+
+
+def test_counter_reset_then_next_tick_accrues_from_new_baseline():
+    """Mutation anchor on `if current < last - RESET_EPSILON_KWH:`.
+    Without the reset branch, the delta of (small − large) is still
+    clamped to 0 — the real tell is the NEXT tick after reset: it must
+    accrue from the new (post-midnight) baseline. Neutering the reset
+    makes `_import_last` stay at the pre-reset high value, and the next
+    tick's delta becomes negative-then-clamped → NO accrual, failing
+    this assertion."""
+    hass = _Hass()
+    tr = CounterAccrualTracker(hass, _flat_engine(), "sensor.imp", "sensor.exp")
+    _advance_counter(hass, "sensor.imp", 40.0)
+    tr.tick()
+    # Reset to 0.1 at midnight.
+    _advance_counter(hass, "sensor.imp", 0.1)
+    tr.tick()
+    # Advance tracker's recorded time so cap is non-zero.
+    tr._import_last_ts -= 600
+    _advance_counter(hass, "sensor.imp", 1.6)   # +1.5 kWh post-reset
+    out = tr.tick()
+    assert out is not None, "reset branch must leave baseline at 0.1 so next tick books 1.5 kWh"
+    assert out["import_kwh"] == pytest.approx(1.5, rel=1e-3)
+
+
+def test_counter_gap_flag_set_when_staleness_exceeds_threshold():
+    """D6b: at rollover, if counter staleness > COUNTER_OUTAGE_FALLBACK_HRS,
+    the yesterday_totals dict reports billing_source='counter_gap'."""
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    ct._billing_source_today = "counters"
+    ct._last_date = "2026-10-08"  # yesterday
+    # Simulate counter has not ticked in >4h.
+    ct._counters._import_last_ts = time.time() - 5 * 3600
+    ct._counters._export_last_ts = time.time() - 5 * 3600
+    import homeassistant.util.dt as _dt
+    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    totals = ct.get_yesterday_totals()
+    assert totals is not None
+    assert totals["billing_source"] == "counter_gap"
+
+
+def test_counter_gap_flag_counters_when_fresh():
+    hass = _Hass()
+    engine = _flat_engine()
+    ct = CostTracker(
+        hass, engine,
+        grid_import_entity="sensor.imp",
+        grid_export_entity="sensor.exp",
+        billing_source=energy_const.BILLING_SOURCE_METER,
+    )
+    ct._billing_source_today = "counters"
+    ct._last_date = "2026-10-08"
+    ct._counters._import_last_ts = time.time() - 60
+    ct._counters._export_last_ts = time.time() - 60
+    import homeassistant.util.dt as _dt
+    _dt.now = lambda: datetime(2026, 10, 9, 0, 1)
+    totals = ct.get_yesterday_totals()
+    assert totals["billing_source"] == "counters"
+
+
 def test_log_energy_daily_clamp_fires_on_implausible_consumption(tmp_path):
     """Behavioural: the D4 clamp replaces a consumption > 240 with NULL."""
     import sqlite3

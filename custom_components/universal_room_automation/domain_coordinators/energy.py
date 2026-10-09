@@ -3198,13 +3198,19 @@ class EnergyCoordinator(BaseCoordinator):
         if db is None:
             return
         try:
-            billing_src = None
-            try:
-                billing_src = self._billing.get_status().get(
-                    "billing_source_today"
-                )
-            except Exception:  # noqa: BLE001
-                pass
+            # §D6b: prefer the per-day flag computed at rollover (reflects
+            # the day being closed, incl. counter_gap when staleness
+            # exceeded COUNTER_OUTAGE_FALLBACK_HRS). Falls back to the
+            # live `billing_source_today` if the totals dict omits it
+            # (older callers / tests).
+            billing_src = totals.get("billing_source") if isinstance(totals, dict) else None
+            if not billing_src:
+                try:
+                    billing_src = self._billing.get_status().get(
+                        "billing_source_today"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             await db.log_energy_daily(
                 date_str=totals["date"],
                 import_kwh=totals["import_kwh"],
@@ -3501,7 +3507,11 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:
                 pass
 
-            # v4.2.17: Read Emporia mains import power for grid_import_2
+            # v4.2.17 + §D3 (REV 4): unit sniff. If the slot is a kWh/Wh
+            # DAILY counter (the Emporia case), the raw value is a daily
+            # total, NOT a power. Read the tracker's cached kW instead;
+            # if the tracker is cold leave grid_import_2 as None rather
+            # than writing kWh-as-kW.
             grid_import_2_kw = None
             if self._grid_import_entity:
                 gi_state = self.hass.states.get(self._grid_import_entity)
@@ -3509,7 +3519,21 @@ class EnergyCoordinator(BaseCoordinator):
                     try:
                         gi_val = float(gi_state.state)
                         uom = gi_state.attributes.get("unit_of_measurement", "W")
-                        if uom == "kW":
+                        if uom in ("kWh", "Wh"):
+                            # Counter slot — ask tracker for cached kW.
+                            try:
+                                cached = (
+                                    self._billing._counters.last_net_kw()
+                                    if self._billing is not None
+                                    and self._billing._counters is not None
+                                    else None
+                                )
+                            except Exception:  # noqa: BLE001
+                                cached = None
+                            if cached is not None:
+                                grid_import_2_kw = max(cached, 0.0)
+                            # else: leave None (do NOT mis-scale as kW).
+                        elif uom == "kW":
                             grid_import_2_kw = max(gi_val, 0)
                         else:
                             # Assume watts

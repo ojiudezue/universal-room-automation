@@ -546,3 +546,63 @@ Expected byte-identity SHA1 for `CostTracker.accumulate` in `test_energy_savings
 - D6b `counter_gap` midnight writer (today the day flag is set only when `_billing_source_today` is "counters"; the >4h gap-at-midnight writer is a follow-up).
 - D8 historical backfill script (operator-approved separate run).
 - D5a backfill-reseed on restart (seeding from `energy_midnight_snapshot` when `_lifetime_*_snapshot` is None): current restore code already does this if the row has values; a specific regression test is a follow-up.
+
+
+---
+
+## Build 2026-10-09 (continuation) — finish the job
+
+Operator pushback: deferred pieces must be built, not carded. All built on the same branch.
+
+### Deliverables added
+- **D6b counter_gap writer at midnight.** `CostTracker.get_yesterday_totals()` now carries `billing_source` keyed by rollover-time counter staleness. `_save_daily_snapshot` passes this to `log_energy_daily(billing_source=...)`. Flag values: `counter_gap` (counter mode AND staleness > `COUNTER_OUTAGE_FALLBACK_HRS × 3600`), `counters` (counter mode AND fresh), `power_integration` (power mode). `sensor.ura_meter_outage_days` is now a live producer — no longer hollow.
+- **D3 `grid_import_2` unit sniff.** `energy.py:_log_energy_history_snapshot` now reads uom and, for kWh/Wh, pulls `self._billing._counters.last_net_kw()` instead of mis-scaling kWh-as-kW. Cold tracker → leaves `grid_import_2 = NULL` (no fabricated value).
+- **D8 backfill script.** `scripts/backfill_energy_daily_from_counters.py` — dry-run default, `--apply` opt-in, UPSERT via INSERT-OR-REPLACE (DAO-shape), never lowers a live non-NULL (`SKIP(live>backfill)` unless `--force-overwrite`), per-day BEFORE/AFTER table, backfilled rows tagged `billing_source='recorder_backfill'`.
+- **D5a BEHAVIOURAL tests at ALL THREE sites.** `test_ec_billing_d5a_baseline_guard_sites.py` drives the real `EnergyCoordinator._maybe_reset_daily` (derived :2957 AND legacy :2992) and `_crosscheck_consumption` (:3222) via `_energy_bootstrap` + `object.__new__(EC)` + the minimum attribute surface. Each test asserts fail-closed with the exact bug trigger (snap=0.0 current=15.6).
+- **Byte-identity = behavioural golden.** The former source-SHA1 guard in `test_energy_savings_unification.py::test_cost_tracker_accumulate_byte_identity_guard` is replaced with a provenance pointer to `test_accumulate_golden_power_path_scripted_ticks` — a scripted tick sequence (seed → +30m 2 kW fresh → +60m STALE → +90m 1 kW export fresh) proving `_import_kwh_today`/`_export_kwh_today`/`_cost_today` match pre-cycle arithmetic exactly on the DEFAULT path (billing_source unset, power sensors). Stale ticks are skipped (fail-closed contract). Counter tracker is never touched.
+
+### What changed in CostTracker.accumulate — precisely
+Three additive hunks, no reordered semantics on the power path:
+1. **Counter seed BEFORE first-tick early return** (new, counter-mode only). `_counters.tick(now)` is called so baselines seed on the very first call; sets `_billing_source_today='counters'` + `_counter_last_update`. In power mode this is a no-op (`_is_counter_mode()` returns False).
+2. **Counter branch AFTER elapsed computation** (new, counter-mode only). Books per-leg kWh via `_counters.tick(now)` across TOU slices, prices each slice at the engine's live rate for that instant, updates predictions, returns. In power mode falls through unchanged.
+3. **Elapsed > 1h guard unchanged.** Byte-identical to pre-cycle: `if elapsed_hours <= 0 or elapsed_hours > 1: return`.
+4. **Legacy power-integration path unchanged.** `_get_net_power()` → `energy_kwh = abs(net) * elapsed_hours` → import/export booking → `_update_prediction(now)`. Byte-identical.
+
+### Tests confirmed present
+| Requirement | Test |
+|---|---|
+| TOU-by-reference (rate change → next tick honoured) | `test_tou_by_reference_rate_change_takes_effect_next_tick` |
+| Flat-rate (None-boundary) + multi-hour gap | `test_counter_proration_flat_rate_single_slice`, `test_counter_proration_none_boundary_terminates` |
+| Per-leg solar-transition / gross-per-leg | `test_counter_normal_tick_gross_legs`, `test_cost_tracker_counter_mode_books_per_leg_kwh` |
+| TOU pro-ration across boundary + DST | `test_counter_tou_proration_uses_get_next_period_change_dt` (DST follow-up anchored on same mechanism via engine `get_current_period`) |
+| Midnight reset race | `test_counter_reset_value_drop_only`, `test_counter_reset_then_next_tick_accrues_from_new_baseline` |
+| Restart across midnight | `test_counter_restore_before_date_mismatch` (D5 LOW-2) |
+| Elapsed-scaled jump cap | `test_counter_elapsed_scaled_jump_cap` |
+| Outage-days sensor == attribute + recompute at startup | `test_outage_days_sensor_state_matches_attribute`; recompute wired via `_refresh_outage_days_this_cycle()` from `_restore_midnight_snapshot` (code-anchored). |
+| Migration idempotence | `test_log_energy_daily_clamp_fires_on_implausible_consumption` + `database.py` idempotent-ALTER pattern (ADD COLUMN guarded by PRAGMA) |
+| D5a baseline guard at each of 3 sites | `test_d5a_derived_site_null_consumption_when_baseline_zero`, `test_d5a_legacy_site_null_when_baseline_zero_current_nonzero`, `test_d5a_crosscheck_site_skips_divergence_log_when_baseline_zero`, `test_d5a_helper_rejects_zero_and_non_monotonic` |
+| Default-path golden | `test_accumulate_golden_power_path_scripted_ticks` |
+
+### Mutation drill table (14 sites) — PYTHONDONTWRITEBYTECODE=1, __pycache__ cleared, restore verified bitwise
+
+| Site | Expected failing test | Result |
+|---|---|---|
+| counter delta read (`raw_delta = max(0, …)`) | `test_counter_normal_tick_gross_legs` | FAIL ✓ |
+| per-leg import booking in accumulate | `test_cost_tracker_counter_mode_books_per_leg_kwh` | FAIL ✓ |
+| pro-ration boundary loop (`while cursor < end:`) | `test_counter_tou_proration_uses_get_next_period_change_dt` | FAIL ✓ |
+| None / flat branch (`if boundary is None …`) | `test_counter_proration_none_boundary_terminates` | FAIL ✓ |
+| elapsed-scaled jump cap | `test_counter_elapsed_scaled_jump_cap` | FAIL ✓ |
+| reset detection (`if current < last - RESET_EPSILON_KWH:`) | — DIAGNOSTIC ONLY: the `max(0.0, cur-last)` clamp already prevents mis-accrual on a drop; the reset branch is a log-emitting marker, not a load-bearing decision. Documented. | n/a |
+| D5 LOW-2 restore-before-early-return | `test_counter_restore_before_date_mismatch` | FAIL ✓ |
+| `last_net_kw` staleness (D6 LOW-1) | `test_counter_last_net_kw_stale_returns_none` | FAIL ✓ |
+| `_get_net_power` counter-mode branch | `test_get_net_power_counter_mode_returns_tracker_cached_kw` | FAIL ✓ |
+| D5a baseline guard — derived :2957 | `test_d5a_derived_site_null_consumption_when_baseline_zero` | FAIL ✓ |
+| D5a baseline guard — legacy :2992 | `test_d5a_legacy_site_null_when_baseline_zero_current_nonzero` | FAIL ✓ |
+| D5a baseline guard — crosscheck :3222 | `test_d5a_crosscheck_site_skips_divergence_log_when_baseline_zero` | FAIL ✓ |
+| D6b counter_gap writer | `test_counter_gap_flag_set_when_staleness_exceeds_threshold` | FAIL ✓ |
+| outage-days producer field | `test_outage_days_sensor_state_matches_attribute` | FAIL ✓ |
+
+Post-drill `git status --porcelain` clean on tracked files; all `.pyc` cleared between drills.
+
+### Test suite final
+`PYTHONPATH=quality .venv-ha/bin/python -m pytest` across the 9 affected suites: **166 passed**.
