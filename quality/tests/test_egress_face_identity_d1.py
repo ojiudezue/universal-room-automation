@@ -889,8 +889,18 @@ def test_house_fuse_space_form_face_and_slug_ble_counts_once():
     'Oji Udezue' (space). Pre-fix: identified_count == 2 (double-
     count -> false GUEST). Post-fix: identified_count == 1."""
     census = _make_census_with_tracked(["person.oji_udezue"])
+    # Register with BLE provenance so the STRICT face-producer-down
+    # gate in `_get_egress_face_ids_fresh` (which this test harness
+    # has no Frigate cameras to clear) does NOT filter the entry out
+    # before the fuse — otherwise the test is a hollow anchor (passes
+    # even with normalisation removed, because the egress entry is
+    # dropped before union). The register timestamp MUST align with
+    # `_house_apply`'s `now` (2026-08-18 12:00) — a future-dated
+    # register makes `(now - ts) < 0` which `_get_egress_face_ids_fresh`
+    # prunes as stale, which is a second way to hollow the test.
     census.register_egress_face(
-        "Oji Udezue", datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC),
+        "Oji Udezue", datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC),
+        provenance="ble",
     )
     result = _house_apply(
         census, ble_persons=["oji_udezue"], face_recognized_slugs=[],
