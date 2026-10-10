@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T10:51:06-05:00_ - _Data commit: `8c12d39b561b`_ - _last_reconciled: 2026-10-10_
+_Generated: 2026-10-10T13:54:17-05:00_ - _Data commit: `81b762dad532`_ - _last_reconciled: 2026-10-10_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-10T10:51:06-05:00_ - _Data commit: `8c12d39b561b`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 0 |
@@ -44,10 +44,16 @@ _created 2026-10-10 13:55_
   - `homelab_findings_2026_10_10`: RESOLVED for the Madrone->Wigton path: Wigton UDM Pro IPS (Notify and Block) logged 17 THREAT_BLOCKED_V3 events in 7 days, all with Madrone sources (13 from 192.168.13.149), matching every observed window to the minute (13:37, 14:08, 14:...
   - `facts_2026_10_10`: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1` - Master Toilet night light during sleep not confirmed live after v5.103.43/.44 - no URA night-light action logged for 5 sleep-window sessions — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **lighting** - status: **investigating**
+_created 2026-10-10 19:40_
+- **Why:** 5 qualifying sleep-window occupancy sessions in Master Bath Toilet, zero matching ura_activity_log night-light entries; the physical night light's on/off history does not correlate with the sessions. Either a non-URA actuation path (devi...
+- **Next:** MEASURE: per session, line up occupancy edges, house_state (sleep), the room's sleep-protection gate decision, configured night_lights entity, and the light's state history + context (URA vs device-local). Then confirm-or-refute; fix onl...
+- **Forensic keys (1):**
+  - `related`: NIGHT-LIGHT-ACTION-SELECTOR-1
 
 ## 🧭 Pre-planning (7)
 _idea being decomposed_

@@ -30953,6 +30953,16 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
+- id: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
+  title: Master Toilet night light during sleep not confirmed live after v5.103.43/.44 - no URA night-light action logged for 5 sleep-window sessions
+  thread: lighting
+  status: investigating
+  created: "2026-10-10 19:40"
+  updated: "2026-10-10 19:40"
+  origin: "Live validation 2026-10-10 of README_v5.103.43/.44 (night 10-09 22:00 -> 10-10 08:00 CDT). Operator originally reported 'went into the master toilet and no night lights' (2026-10-08)."
+  why: "5 qualifying sleep-window occupancy sessions in Master Bath Toilet, zero matching ura_activity_log night-light entries; the physical night light's on/off history does not correlate with the sessions. Either a non-URA actuation path (device-local automation on the Sonoff/RGBW unit) or the sleep-protection night-light path still not firing in this room."
+  next: "MEASURE: per session, line up occupancy edges, house_state (sleep), the room's sleep-protection gate decision, configured night_lights entity, and the light's state history + context (URA vs device-local). Then confirm-or-refute; fix only if URA path is shown not firing."
+  related: [NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: WIGTON-URA-REENABLE-1
   title: Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on)
   thread: wigton
