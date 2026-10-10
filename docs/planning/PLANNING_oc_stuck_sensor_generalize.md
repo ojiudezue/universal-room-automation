@@ -461,3 +461,377 @@ Recommended tier: **Tier 2** (two framing-disjoint reviews — A: correctness
 + edge cases incl. unavailable-is-a-break; B: lifecycle + restart + volume
 cap + recorder read bound — plus Live Validation and a README validation
 table).
+
+---
+
+# Revision 2 — SUPERSEDES Rev 1 (2026-10-10)
+
+**Supersedes which Rev 1 sections:** Extend-vs-new verdict; D2 (dropped);
+D3 producer design (switched to in-memory with persisted last-ON timestamp,
+not recorder); Knob ladder (removed SENSOR_STUCK_ON_* entries, added
+availability + persistence knobs); Suppression/discharge table (new row for
+`_sensor_never_fires_fired` discharge via local pop); Open PICKs (Picks 1,
+2, 3 moot/retired); Deliverable list (D1 scoped, D2 dropped, D3 kept, D4
+registers one evaluator, D5 knob list changed, D6 unchanged).
+
+**Rev 1 text above is retained for history.** Where Rev 1 and Rev 2
+disagree, Rev 2 wins. Line references below re-verified against develop
+`49b20bdfb` on 2026-10-10 (optimization.py: evaluator tuple at 966,
+`_evaluate_camera_stuck_dimension` at 1921, `_exterior_person_sensors` at
+2182-ish, `_evaluate_sensor_health_dimension` recovery clear at 2259-2270
+clearing only `("sensor_health", room, eid)` keys, `_filter_repeat_sensor_health`
+at 4149). Rev 1 line numbers are historical artefacts and should be read
+as "the same symbol one or two hundred lines up or down".
+
+## Rev 2 — Parsimony verdict: SIMPLIFY
+
+Plan reviewer flagged D2 as a duplicate of the room-level P22 continuous
+stuck detector plus the OC `camera_stuck` evaluator plus the camera_census
+`get_stuck_cameras` list — three detectors already covering the same
+physical sensors. Operator parsimony verdict: **SIMPLIFY**.
+
+**Drop D2 entirely.** The room-level P22 check in coordinator.py:1824 /
+2208-2234 / 3065-3072 stays the single stuck-ON detector for room sensors
+(motion / mmwave / occupancy). OC `_evaluate_camera_stuck_dimension`
+(optimization.py:1921) stays the stuck-ON detector for perimeter + egress
+cameras. We do **NOT** add an OC "mirror" evaluator over
+`get_stuck_sensor_kinds()`. The operator-visible surface gap that would
+justify a mirror has not been demonstrated: both P22 and camera_stuck
+already feed `sensor.ura_stuck_signal_watchdog` (sensor.py:5323-5351) and
+NM. A mirror would add a second notification path for the same event.
+
+Default: no mirror. Revival trigger: a specific operator-visible stuck
+sensor that P22 and `camera_stuck` BOTH miss, cited with
+file:line + the observation it was missed (not a theoretical gap).
+
+## Rev 2 — Extend-vs-new verdict (replaces Rev 1 section)
+
+**EXTEND the OC `SENSOR_HEALTH` dimension with ONE new evaluator:
+`_evaluate_sensor_never_fires_dimension` (D3).** Reasons:
+
+1. Stuck-ON for room sensors is already covered by room P22
+   (coordinator.py:364 `_stuck_sensor_hours=4.0`, 2208-2234 producer, 3065-3072
+   per-tick path, 2235-2363 Store persistence, 2338-2341 daily rollover,
+   2861-2866 `_is_sensor_on` treats unavailable/unknown as off → unavailable
+   already acts as a break).
+2. Stuck-ON for exterior cameras is already covered by OC
+   `_evaluate_camera_stuck_dimension` (optimization.py:1921) + camera_census
+   `get_stuck_cameras` (camera_census.py:2945).
+3. The ONLY shape with no existing detector is **class-expected sensors
+   that have produced ZERO ON transitions over a long horizon** — the
+   CAMERA-ZERO-FIRE-DETECTORS-1 case. That is D3.
+4. The row-volume safety net `_filter_repeat_sensor_health`
+   (optimization.py:4149) is still reused for D3 at ≤1 row/entity/day.
+
+Rejected alternatives: (a) OC mirror over `get_stuck_sensor_kinds()` —
+creates a second notification for the same event, no operator-visible gap
+cited; (b) room-level never-fires via P22 — P22 is scoped to a
+RoomCoordinator and only sees entities configured for THAT room, so it
+cannot see exterior cameras as room inputs, and it carries no
+7-day-horizon machinery.
+
+## Rev 2 — Falsifiable invariant (narrowed)
+
+**"For every raw device sensor URA is configured to consume in classes
+{motion, occupancy}, a class-expected sensor that produces zero ON
+transitions over `SENSOR_NEVER_FIRES_HORIZON_S` AND has been available for
+at least `SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION` of that window
+produces at most ONE `sensor_never_fires` finding per sensor per local
+day."** AND **"For any single stuck-ON sensor, the total count of NM
+notifications per local day across P22 + camera_stuck + the new OC
+evaluator is at most 1."** The second clause is the no-double-surface
+check: because we are shipping D3 only, this reduces to "D3 does not emit
+`sensor_stuck`, and never-fires does not fire for an entity that P22 or
+camera_stuck already flagged in the same day" (trivially true — different
+dedup keys and different conditions, codified in test).
+
+Reviewer D's break list: unavailable gaps masquerading as "no ON
+transitions" (H2); URA-aggregate occupancy sensors leaking into the
+never-fires list (M1); re-silence within 24h of recovery not persisting a
+new row (M2); local-midnight DST fall-back / spring-forward double-fire
+(M4); horizon kill-switch (0) actually disabling.
+
+## Rev 2 — Deliverables (final list)
+
+- **D1 (scoped):** `_watched_raw_sensors` resolver — unchanged in intent;
+  URA-aggregate filter uses the entity registry
+  (`er.async_get(hass).async_get(eid).platform == DOMAIN`), NOT the
+  `universal_room_automation_` entity_id prefix (per M1). No registry
+  entry → include + log at debug. Realistic test: a room whose
+  `CONF_OCCUPANCY_SENSORS` contains a URA zone/room occupancy
+  binary_sensor (platform == DOMAIN) — the filter MUST drop it.
+- **D2 — DROPPED.** See parked list below.
+- **D3:** `_evaluate_sensor_never_fires_dimension` — kept; producer
+  switched to in-memory per Rev 2 H1; availability gate added per Rev 2
+  H2; local discharge pop added per Rev 2 M2; DST test named per Rev 2 M4.
+- **D4:** Register ONE evaluator in the tuple at optimization.py:966 —
+  `("sensor_never_fires", self._evaluate_sensor_never_fires_dimension)`.
+  Instance fields: `_sensor_last_on_seen: dict[str, datetime]`,
+  `_sensor_never_fires_fired: set[str]`,
+  `_sensor_never_fires_fired_date: str | None`,
+  `_sensor_available_since: dict[str, datetime]`.
+  Acceptance (replaces Rev 1 D4 timing-log check): assert the evaluator
+  returns a `list[OptimizationFinding]` whose length equals the number of
+  class-expected silent sensors in the fixture (**per-evaluator output
+  count**, not a timing log — per LOW L3).
+- **D5 (knob list changed):** see Rev 2 knob table below. Rev 1's
+  `SENSOR_STUCK_ON_THRESHOLD_S`, `SENSOR_STUCK_ON_OVERRIDES_S` are
+  **removed** (D2 dropped).
+- **D6:** unchanged — tests + README live-validation table.
+
+### D3 — Rev 2 producer design (in-memory, with persisted last-ON)
+
+Rev 1 planned a recorder read per entity each tick. Operator decision
+(H1): **prefer in-memory**. Track `last_on_seen[eid]` from LIVE
+state-change events (`async_track_state_change_event` on the resolved D1
+list) and from the OC tick read of `hass.states.get(eid)`; start the
+horizon clock at OC start-of-tracking time.
+
+- No recorder reads in v1.
+- No `hass.data[recorder]` dependency; no executor jobs.
+- Fire only when `now - max(oc_tracking_start, last_on_seen[eid]) ≥
+  SENSOR_NEVER_FIRES_HORIZON_S` AND the availability gate (H2) holds.
+
+**Honest restart-cadence trade (operator-mandated):**
+
+The pure in-memory PICK 2A design means the horizon clock resets on every
+restart (reload, HA restart, URA integration reload). For a 7-day horizon
+to fire, URA must be up continuously for ≥ 7 days. Prior-art memory
+indicates URA restarts/reloads at a cadence that frequently exceeds daily
+in incident periods (reload-storm investigations across the v5.100 arc,
+v5.5.3 Tier-3 arc, routine develop deploys, Config-entry reload after
+options-flow edits). Typical steady-state uptime between reloads: on the
+order of **1-3 days**, not 7. Pure PICK 2A therefore makes D3 effectively
+dormant most of the time — the horizon is almost never reached.
+
+**Recommendation (operator pick required):** a **lightweight persisted
+last-ON timestamp** per entity, as the better trade. Specifically:
+
+- Persist a single HA Store blob at key
+  `optimization.sensor_never_fires_last_on_seen` — one dict
+  `{entity_id: last_on_seen_iso}`, debounced to **at most one write per
+  entity per hour**, flushed on `homeassistant.async_stop`.
+- On OC setup: restore the dict; horizon clock = `max(restored_last_on,
+  oc_tracking_start_for_entity)`. If the restored timestamp is older than
+  the horizon on first tick after restart, the evaluator fires once (which
+  is desired — the entity really has been silent).
+- Size: 500 entities × ~80 B each ≈ 40 KB blob. Precedent:
+  coordinator.py:2235-2279 `_stuck_store_key` is the same pattern for the
+  room-level stuck tracker.
+- LoC: ~40 (one Store key, one restore in `async_added_to_hass`, one
+  debounced write on state-change-to-on, one dict probe in evaluator).
+- Review impact: Tier 2 unchanged (no shared primitive touched).
+
+**Alternative if operator rejects persistence (pure PICK 2A kept):**
+also knob the horizon down to **48h or 72h** (`SENSOR_NEVER_FIRES_HORIZON_S
+= 172800 or 259200`) so the horizon is reachable within one typical
+uptime. Trade: more false-positives for exterior detectors on genuinely
+quiet nights, and the recommended value becomes a policy call rather than
+a measured one (the AUDIT measured 7d).
+
+**My recommendation:** persist. The 40 LoC pays for the measured
+7d horizon surviving the real restart cadence. State the consequence
+honestly: without persistence AND without a shorter horizon, D3 ships
+dormant.
+
+### D3 — Rev 2 availability gate (H2)
+
+Never-fires fires only when:
+
+1. The entity's current state is NOT in `{unavailable, unknown}`.
+2. The entity has been available for at least
+   `SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION` (default **0.8** = 80%)
+   of the horizon window. Tracked via a simple `_sensor_available_since`
+   dict updated on state-change: when the sensor transitions out of
+   unavailable/unknown, we stamp `now`; when it transitions INTO
+   unavailable/unknown, we subtract `(now - last_available_stamp)` from an
+   accrued-available-seconds counter. On evaluator tick, require
+   `accrued_available_s ≥ fraction * horizon_s`.
+
+Unavailable is sensor_health's job (optimization.py `_evaluate_sensor_health_dimension`
+~2200), not never-fires. Repro that this gate now blocks: a room mmwave
+unavailable for 8 days produces one `sensor_health` unavailable finding
+and ZERO `sensor_never_fires` findings for the same eid.
+
+Test: `test_never_fires_blocked_by_unavailability_mostly_offline`.
+
+### D3 — Rev 2 M1 (resolver): entity-registry platform match
+
+The URA-aggregate filter MUST use
+`er.async_get(hass).async_get(eid)` and check `entry.platform == DOMAIN`.
+Entity-id prefix match (`universal_room_automation_*`) is wrong — URA
+sensors do not uniformly carry that id prefix. Realistic test case:
+construct a room whose `CONF_OCCUPANCY_SENSORS` contains a URA
+zone-anyone binary_sensor (platform == DOMAIN); assert D1 drops it. No
+registry entry → include with a `WARN` log (so stray external sensors are
+still watched, not silently skipped).
+
+Tests: `test_watched_raw_sensors_filters_ura_platform_entity`,
+`test_watched_raw_sensors_includes_unregistered_with_warn`.
+
+### D3 — Rev 2 M2 (discharge for the new key)
+
+optimization.py:2259-2270 (verified in Rev 2 re-read against develop) only
+clears `_sensor_health_last_persisted` entries whose stringified
+dedup_key begins with `("sensor_health", room, eid)` — the recovery
+branch of `_evaluate_sensor_health_dimension`. The new
+`("sensor_never_fires", eid)` key is **NOT** cleared by that recovery
+path, so a re-silence within 24h of recovery would fire the finding (good)
+but `_filter_repeat_sensor_health` would suppress the DB row (bad —
+anomaly_log would miss it; NM would still fire; the two outputs
+disagree).
+
+**Fix location (local to D3, does NOT edit the shared helper):** inside
+`_evaluate_sensor_never_fires_dimension`, when we observe the discharge
+condition (any ON transition in the horizon → we remove the eid from
+`_sensor_never_fires_fired`), also pop every
+`_sensor_health_last_persisted` key whose first tuple element stringifies
+to `("sensor_never_fires", eid)` — same ≤5-line idiom as the sensor_health
+recovery branch at 2265-2270, just targeted at the new key. This keeps
+the fix local to D3 and leaves `_filter_repeat_sensor_health` untouched
+→ **Tier 2 stays correct, NOT elevated to Tier 2-DB.**
+
+(If a reviewer argues the discharge belongs INSIDE
+`_filter_repeat_sensor_health` for symmetry with sensor_health recovery,
+that would elevate to Tier 2-DB — explicitly flagged as the elevation
+trigger.)
+
+Test: `test_never_fires_resilence_within_24h_persists_a_row`.
+
+### D3 — Rev 2 M4 (invariant form + DST test)
+
+Invariant (narrowed): **"at most one `sensor_never_fires` finding per
+sensor per local day."** Daily latch clears at local midnight via
+`_sensor_never_fires_fired_date`. The 30h-episode double-fire concern from
+Rev 1 does not apply to D3 (there is no "episode" for never-fires; the
+condition is a flat threshold crossing).
+
+DST test (named): `test_never_fires_daily_latch_dst_fall_back_does_not_double_fire`
+— fixture ticks the clock across the 2026-11-01 02:00 → 01:00 fall-back in
+America/Chicago; the evaluator must NOT emit a second finding for the
+same eid in the two overlapping 01:00 hours. Companion spring-forward test
+is nice-to-have, not required for v1 (fall-back is the double-count
+hazard; spring-forward collapses time rather than duplicating it).
+
+## Rev 2 — Knob ladder (replaces Rev 1 table)
+
+| Number | Default | Rung | Why |
+|---|---|---|---|
+| `SENSOR_NEVER_FIRES_HORIZON_S` | 604800 (7d) | **Module constant** (const.py, near line 4103) | Matches the AUDIT measurement window. 0 disables (kill-switch). Only a reviewed change should alter it; a shorter window raises false-positives on legitimately dormant exterior detectors. |
+| `SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION` | 0.8 | **Module constant** (const.py) | H2 gate. 0.8 means "available for at least 80% of the horizon". Below this, the sensor's silence is sensor_health's problem, not never-fires'. |
+| `SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S` | 3600 (1h) | **Module constant** (const.py) | Debounces Store writes for the persisted-last-ON blob to ≤1 write/entity/hour. Only present if operator picks the persisted-last-ON option. |
+
+Rev 1's `SENSOR_STUCK_ON_THRESHOLD_S`, `SENSOR_STUCK_ON_OVERRIDES_S`, and
+`SENSOR_NEVER_FIRES_RECORDER_CACHE_TTL_S` are all **removed**: the first
+two with D2; the third because the recorder is no longer called.
+
+Bug Class #63 (coincidental-equality / dual-threshold smell) is dissolved
+by this simplification: there is now ONE stuck-ON threshold in URA
+(coordinator.py:364 `_stuck_sensor_hours = 4.0`), not two.
+
+## Rev 2 — Suppression / discharge story (replaces Rev 1 table)
+
+| Suppression | Discharge (re-fires when) | Backstop | Restart behaviour |
+|---|---|---|---|
+| `_sensor_never_fires_fired[eid]` | the entity emits any ON transition observed by the OC listener (pops the eid from the latch AND pops the matching `_sensor_health_last_persisted` key per M2) | daily latch clear at local midnight via `_sensor_never_fires_fired_date` | fresh set on restart; first tick after restart re-fires if the restored `last_on_seen` is older than the horizon. |
+| `_filter_repeat_sensor_health` (24h per-row suppressor, optimization.py:4149) | 24h elapsed from last persist; OR evaluator-local pop on recovery per M2 | 24h backstop | `_sensor_health_last_persisted` is in-memory; on restart the next finding persists immediately. |
+| `_sensor_last_on_seen[eid]` (horizon clock) | state-change-to-on for the entity (immediate) | — | restored from Store (if operator picks persisted-last-ON) OR reset to OC start (if operator picks pure in-memory + short horizon). |
+| `_sensor_available_since[eid]` + accrued-available counter (H2) | state-change into unavailable/unknown decrements accrual; state-change back out resets stamp | — | reset at restart; first horizon window after restart will not satisfy the 0.8-availability gate for its first few days — this is a conscious cost of in-memory, and part of why persisting last_on_seen is recommended. |
+
+## Rev 2 — Non-goals (adjusted)
+
+Add to Rev 1 non-goals:
+- NO OC stuck-ON mirror (no `_evaluate_sensor_stuck_dimension`).
+- NO recorder reads from OC in v1.
+- NO edit to `_filter_repeat_sensor_health` (keeps cycle Tier 2, not
+  Tier 2-DB).
+
+Remove from Rev 1 non-goals:
+- The clause about "CAMERA-STUCK-SENSOR-TRIPWIRE-1 folds into this
+  evaluator in a follow-up cleanup" — the fold is now permanently
+  cancelled; `_evaluate_camera_stuck_dimension` is the production path.
+
+## Rev 2 — Open operator decisions
+
+Retired as moot: Rev 1 Pick 1 (threshold choice), Pick 2 (Store
+persistence of `_sensor_stuck_on_since`), Pick 3 (keep or fold
+`camera_stuck`). All three were about D2, which is dropped.
+
+**Open Pick (NEW, operator decision required):**
+
+- **PICK A (RECOMMENDED):** Persist a lightweight
+  `last_on_seen[eid]` dict via HA Store (one Store key, ~40 KB blob, ~1
+  write/entity/hour debounce, restored at setup). D3 fires at 7d horizon
+  across restarts; typical URA uptime (1-3 days) does not matter.
+  **PICK B:** Pure in-memory PICK 2A as literally stated by the operator
+  directive. Also knob horizon down to **72h** so the horizon is
+  reachable within one typical uptime. D3 is louder and policy-based
+  rather than measurement-based.
+  **Why PICK A:** the Rev 1 producer explicitly cited the AUDIT 7d
+  horizon; dropping to 72h to accommodate restart cadence is a policy
+  concession when ~40 LoC of Store persistence preserves the measured
+  horizon. The restart-storm memory (2026-09-10 reload storm; v5.100 arc)
+  argues the cadence problem is real and not reliably fixable upstream.
+
+- Rev 1 Pick 4 (class scope = `{motion, occupancy}`) — **UNCHANGED,
+  PICK A stands.** Raw devices only.
+- Rev 1 Pick 5 (never-fires horizon = 7d) — **UNCHANGED, PICK A stands**
+  IF Pick-A (persist) is chosen; otherwise horizon drops to 72h under
+  Pick-B.
+
+## Rev 2 — Tier (unchanged, but owners re-scoped)
+
+**Tier 2** (two framing-disjoint reviews + Live Validation).
+
+- **Reviewer A — Correctness + edge cases:** D1 resolver filter via entity
+  registry, class gate, availability-fraction accounting (H2),
+  daily-latch DST fall-back, discharge pop (M2) correctly stringifies the
+  dedup key, kill-switch (horizon=0) actually returns `[]`.
+- **Reviewer B — Lifecycle + restart + volume cap + no-recorder
+  invariant:** OC start-of-tracking semantics, Store blob restore / write
+  debounce / `async_stop` flush (if Pick A), state-change listener
+  cleanup on reload, `_filter_repeat_sensor_health` still ≤1 row/entity/day
+  for the new key, confirm `grep recorder optimization.py` returns zero
+  new hits (no event-loop blocking DB call), confirm no new NM paging
+  surface beyond `sensor_health` allowlist.
+- Elevate to **Tier 2-DB** ONLY if the M2 fix moves inside
+  `_filter_repeat_sensor_health` (it should not; it stays local to D3).
+
+## Rev 2 — Plan Completion / parked
+
+Items from Rev 1 that will NOT ship in this cycle, with reason + revival
+trigger:
+
+- **D2 `_evaluate_sensor_stuck_dimension` — DROPPED (parsimony SIMPLIFY).**
+  Reason: room-level P22 (coordinator.py:1824 / 2208-2234 / 3065-3072)
+  already detects stuck-ON for all room motion/mmwave/occupancy inputs;
+  OC `_evaluate_camera_stuck_dimension` (optimization.py:1921) covers
+  exterior cameras; a third detector would create multi-notification for
+  the same event. **Revival trigger:** a specific operator-visible stuck
+  sensor that P22 AND `camera_stuck` BOTH miss, cited with the entity_id,
+  the observed stuck window, and the code paths that failed to flag it.
+  Theoretical gaps do not qualify; a reproduced miss does.
+- Rev 1 D5 constants `SENSOR_STUCK_ON_THRESHOLD_S` and
+  `SENSOR_STUCK_ON_OVERRIDES_S` — not added (fall out of D2 drop).
+- Rev 1 D5 constant `SENSOR_NEVER_FIRES_RECORDER_CACHE_TTL_S` — not added
+  (recorder-less producer).
+- "CAMERA-STUCK-SENSOR-TRIPWIRE-1 folds into generalized evaluator in a
+  follow-up" — cancelled; the Rev 1 fold was predicated on D2.
+- Non-goals from Rev 1 that remain parked: numeric-value stuck (shape 3),
+  actuator-unavailability (shape 4), class expansion beyond
+  {motion, occupancy}, quarantine arms. Unchanged.
+
+## Rev 2 — LOW adjustments
+
+- **Sequencing:** build D3 **after** `fix/stuck-sensor-warn-once`
+  (33b730db4) merges to develop. That branch edits coordinator.py-only
+  (boot INFO naming latched sensors) and shares the P22 surface this
+  cycle leans on for the invariant's "at most 1 NM per sensor per day"
+  clause. No code collision expected, but ordering keeps the
+  Reviewer-A/B framings against a stable P22 baseline.
+- **D4 acceptance check:** per-evaluator output COUNT, not a timing log
+  (per plan-review LOW L3).
+- **Line refs:** Rev 2 cites `966`, `1921`, `2259-2270`, `4149` from
+  develop `49b20bdfb`. Rev 1 refs (`934-935`, `1881`, `1992-1994`,
+  `3922`) have drifted and should be read as the same symbol a few
+  hundred lines away.
