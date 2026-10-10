@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-09T23:54:09-05:00_ - _Data commit: `f29cc7eddfa3`_ - _last_reconciled: 2026-10-09_
+_Generated: 2026-10-10T02:00:23-05:00_ - _Data commit: `88883e6f10e5`_ - _last_reconciled: 2026-10-09_
 
 
 ## Columns
@@ -17,9 +17,9 @@ _Generated: 2026-10-09T23:54:09-05:00_ - _Data commit: `f29cc7eddfa3`_ - _last_r
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 15 |
+| 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 83 |
-| ✅ Done | 291 |
+| ✅ Done | 294 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -426,16 +426,39 @@ _created 2026-09-30 08:40 · updated 2026-10-08 03:20_
 - **Forensic keys (1):**
   - `verified_2026_10_08_overnight`: STILL-REAL: no CONF_LIGHTS_GUEST_MODE in custom_components (grep 03:20 CDT); README_v5.103.29 'Guest — deferred' confirms Guest = same as Home for lights today. Card had no updated field (hygiene fix).
 
-### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#7 · WSJF 5.0 · v4 tc4 u2 /e2_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-29 04:20 · updated 2026-10-09 02:12 · initial_
+- **Problem / Solution:**
+  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
+- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
+- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
+- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
+- **Tags:** tier-1, found-during-probe, config-first
+- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
+- **Forensic keys (10):**
+  - `reverified_2026_10_09_overnight`: Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore).
+  - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
+  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
+  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
+  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
+  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
+  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
+  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
+  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
+  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
+
+### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-09 02:12 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-10 02:25 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
-- **Next:** ANSWER: did you change anything on the Proxmox side around 10-08 (restart the hosts, update the integration, add a cert)? The ~4,800/h warning flood has stopped and I cannot see why from the HA side. -> If yes, I close the Proxmox pick a...
+- **Next:** PICK for the biggest remaining flood (WattBox, ~110 events/h x4 lines): (A) I back up configuration.yaml and add a logger: block setting pywattbox and custom_components.wattbox to error (config only, takes effect at your next normal rest...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (25):**
+- **Forensic keys (26):**
+  - `remeasured_2026_10_10_overnight`: PROXMOX + BOND FLOODS RESOLVED (unexplained), second night running. ha_get_logs error_log (journald now reaches back ~3.5 h, 10-09 22:35 -> 10-10 02:03): 0 InsecureRequestWarning lines and 0 homeassistant.components.bond lines; neither a...
   - `remeasured_2026_10_09_overnight`: The PROXMOX FLOOD IS ABSENT in every window I sampled, but the reason is unknown, so this is not yet a close. ha_get_logs error_log searches for InsecureRequestWarning / "Unverified HTTPS" / proxmox found 0 lines at offsets 0, 10000 and ...
   - `reverified_2026_10_08_overnight`: Not actioned yet: /config/configuration.yaml has no logger: block (grep 02:30 CDT), so no InsecureRequestWarning filter exists. PICK still needed. LOG-READ GAP: the home-assistant MCP could not connect tonight (CONNECTION_FAILED to 192.1...
   - `remeasured_2026_10_07_overnight`: Bond flood unchanged: HA core log (hassio proxy, last 20,000 lines) spans only 01:17-02:01 CDT (44 min); 18,010 of those lines are homeassistant.components.bond.entity tracebacks (~24k lines/h). system_log since the 10-06 14:37 boot: 'li...
@@ -461,28 +484,6 @@ _created 2026-08-20 14:15 · updated 2026-10-09 02:12 · initial_
   - `verify_2026_09_30_overnight`: STILL-NEEDS-OPERATOR, PARTLY UNVERIFIED. REST read 02:45 CDT: automation.pantry_plug_in_adaptive_lighting is still ON and last ran 2026-09-30 01:35Z, so it was not disabled; number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstart...
   - `verify_2026_10_02_overnight`: LOG-READ GAP CLOSED. The home-assistant MCP could not connect this run either, so I read HA's own system_log (system_log/list over the HA websocket, run on the HA host via ssh; deduplicated WARNING+ with counts since first occurrence). (...
-
-### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#8 · WSJF 5.0 · v4 tc4 u2 /e2_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-09 02:12 · initial_
-- **Problem / Solution:**
-  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
-- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
-- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
-- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
-- **Tags:** tier-1, found-during-probe, config-first
-- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (10):**
-  - `reverified_2026_10_09_overnight`: Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore).
-  - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
-  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
-  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
-  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
-  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
-  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
-  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
-  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
-  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#9 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
@@ -916,7 +917,7 @@ _created 2026-08-17 23:58 · updated 2026-10-09 02:12 · refined_
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
   - `verify_2026_09_29_overnight`: PREMISE PARTLY CHANGED. Recorder person_occupancy_2 ON rows/day: back_yard 88 (09-27) -> 7 (09-28); pool_equipment 13 -> 8 -> 3 (09-29 so far, to 02:00). The cause is unknown: your DO, or just a quiet day. Not closing on one day.
 
-## 🚀 Shipped (organic open) (15)
+## 🚀 Shipped (organic open) (12)
 _live, awaiting proof_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -967,26 +968,7 @@ _created 2026-09-29 23:20 · updated 2026-10-03 02:16_
   - `reconcile_2026_09_30_overnight`: LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rul...
   - `measured_2026_09_29`: Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored co...
 
-### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#3 · WSJF 7.0 · v6 tc6 u2 /e2_
-thread: **platform** - status: **shipped_organic** - approval: **implied**
-_created 2026-10-04 02:40 · updated 2026-10-09 02:12 · initial_
-- **Problem / Solution:**
-  - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
-- **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
-- **Why:** MEASURED (HA recorder, 10 days, 59 switch.ura_* / universal_room_automation* entities, ~22 restarts each): exactly 2 switches changed value across a restart, both at 10-03 21:59Z, the restart after the 61-min CM outage: guest_mode_actuat...
-- **Next:** Me, dispose by 2026-10-12: at the next restart that follows a URA setup failure, check that no default-ON URA switch comes back OFF (recorder: no on->off for switch.ura_* at the restart timestamp). If no such restart happens by 10-12, cl...
-- **Tags:** tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe
-- **Parsimony:** [BUILD] After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live).
-- **Refs:** custom_components/universal_room_automation/switch.py:3982; docs/QUALITY_CONTEXT.md:2101; docs/BACKLOG.md:1596
-- **Forensic keys (6):**
-  - `reverified_2026_10_09_overnight`: OPERATOR DO DONE: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) went off->on at 2026-10-08 21:00:32 CDT with no restart around it (the restarts were 12:24 and 17:20, and it correctly came back OFF from both because it was off...
-  - `reverified_2026_10_08_overnight`: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) still OFF at 02:40 CDT (last_changed 10-06 19:39Z = the v5.103.41 boot). It was off before that restart, so the restore guard correctly kept it off; it needs your setting. Re-lane...
-  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
-  - `built_2026_10_04_overnight`: BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder),...
-  - `reconcile_2026_10_07_overnight`: CARD-WAS-WRONG (lane): commit 63523e0ed is an ancestor of tags v5.103.39/40/41 (git merge-base --is-ancestor), so this fix SHIPPED in v5.103.39 (2026-10-05 13:52 CDT) without being named in deploy.sh --cards; the board still said review....
-  - `gate_2026_10_04`: 1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUS...
-
-### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#4 · WSJF 5.0 · v7 tc6 u2 /e3_
+### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#3 · WSJF 5.0 · v7 tc6 u2 /e3_
 thread: **energy** - status: **shipped_organic** - approval: **blocked**
 _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
 - **Origin:** 2026-09-28 - operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)
@@ -1002,7 +984,7 @@ _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
   - `plan_2026_09_29_overnight`: PLANNED and plan-reviewed overnight. Plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md. Rev 1 FAILED plan review (2 CRITICAL + 6 HIGH, docs/reviews/code-review/plan_review_energy_lifetime_counter_poisoning.md). The ceilin...
   - `verify_2026_10_02_overnight`: STILL-REAL, unchanged picks (URA DB energy_daily + HA REST, read-only). 10-01 also has an all-NULL row (consumption_kwh, solar_production_kwh and predicted_consumption_kwh are empty for 09-28, 09-29, 09-30 and 10-01), so the count is now...
 
-### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#5 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#4 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 20:15_
 - **Why:** Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same ris...
@@ -1010,7 +992,7 @@ _created 2026-09-29 20:15_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `ROOM-TYPE-TRIMMED-MENU-1` - Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape — _#6 · WSJF 3.5 · v4 tc1 u2 /e2_
+### `ROOM-TYPE-TRIMMED-MENU-1` - Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape — _#5 · WSJF 3.5 · v4 tc1 u2 /e2_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 - **Why:** Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type inste...
@@ -1018,33 +1000,7 @@ _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): the board said pre_planning, but it SHIPPED in v5.103.35 (README_v5.103.35.md 'ROOM-TYPE-TRIMMED-MENU-1 - room menu trimmed by room type, Simple/Advanced'). Live table: 'pending oper...
 
-### `ENERGY-BILL-ACCURACY-1` - URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration — _#7 · WSJF 3.0 · v8 tc5 u2 /e5_
-thread: **energy** - status: **shipped_organic**
-_updated 2026-10-09 10:00_
-- **Why:** energy_daily import 1,854/2,104/2,360 kWh vs bills 2,778/2,752/3,564. CostTracker integrated Envoy current net power; dropouts lost energy (fail-closed, no backfill). Emporia daily counters match bill ~98%.
-- **Next:** Deploy 5.103.45, then set EC options (Grid import/export entity = Emporia daily counters, Bill from = Auto), add v8 card line, validate import within 2% of Emporia after a full day; offer backfill dry run.
-- **Forensic keys (2):**
-  - `adjacency`: ADJACENT to ENERGY-CONSUMPTION-FORECAST-POISONED-1 (same energy_daily table; the 4 impossible rows = baseline-zero, fixed in the same release via D5a guard).
-  - `operator_rulings`: Fix existing EC code; TOU by reference only; meters configurable for other installs (existing GRID_IMPORT/EXPORT fields); flat rate must work; Option B (separate tracker class) accepted after reviews; Meter outage days as sensor AND attr...
-
-### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#8 · WSJF 2.7 · v4 tc2 u2 /e3_
-thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-08-31 19:05 · updated 2026-10-09 02:12 · initial_
-- **Problem / Solution:**
-  - Problem: for rooms whose entry-light action is none (e.g. Master Bedroom, Patio, Game Room), the two light controllers disagree during sleep: the reconciler would turn the night light ON (its sleep branch runs before the entry-action che...
-- **Origin:** 2026-08-31 - light automation audit F2/F3
-- **Why:** AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench the split.
-- **Next:** none: closed by v5.103.42.
-- **Tags:** no-fabrication-verify
-- **Refs:** docs/planning/AUDIT_room_light_automation.md F2/F3; automation.py:973/980; actuator_reconciler.py:746
-- **Forensic keys (5):**
-  - `disposed_2026_10_09_overnight`: DONE. Closed by v5.103.42 (NIGHT-LIGHT-ACTION-SELECTOR-1), which shipped the night-light-wins rule through one shared helper for both controllers, plus the parity oracle updated to the R3-M1 contract (commit 8d7c664c1, review B = cross-c...
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 3 - blocked on the selector; small parity fix after.
-  - `SUPERSEDED_QUESTION_2026_09_15`: The A-or-B PICK on this card is WITHDRAWN. The operator rejected both options and diagnosed the real problem: the entry-light action field is OVERLOADED — it encodes both "what should the main lights do" and, by accident, "what should th...
-  - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
-
-### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#9 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#6 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:10 · updated 2026-10-09 02:12_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
@@ -1055,7 +1011,7 @@ _created 2026-09-29 22:10 · updated 2026-10-09 02:12_
   - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
   - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
 
-### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#10 · WSJF 2.4 · v5 tc3 u4 /e5_
+### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#7 · WSJF 2.4 · v5 tc3 u4 /e5_
 thread: **lights** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-15 · updated 2026-10-09 02:12 · refined_
 - **Problem / Solution:**
@@ -1078,7 +1034,7 @@ _created 2026-09-15 · updated 2026-10-09 02:12 · refined_
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.
   - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
 
-### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#11 · WSJF 2.1 · v7 tc4 u6 /e8_
+### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#8 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-09 02:27 · refined_
 - **Problem / Solution:**
@@ -1097,7 +1053,7 @@ _created 2026-10-05 02:22 · updated 2026-10-09 02:27 · refined_
   - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
   - `sweep_2026_10_05`: Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.
 
-### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#12 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#9 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Why:** Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...
@@ -1105,7 +1061,7 @@ _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog ...
 
-### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#13 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#10 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
@@ -1113,7 +1069,7 @@ _created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 - **Forensic keys (1):**
   - `reverified_2026_10_09_overnight`: House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: "Zone/House Simple/Advanced: pending operator UI"). The "Me: plan house then coordinators" next is half stale: the house pass is shipped, and the per-coor...
 
-### `CENSUS-NAME-SPACE-DEDUP-1` - Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue") — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-NAME-SPACE-DEDUP-1` - Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue") — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **census** - status: **shipped_organic**
 _created 2026-10-09 12:40_
 - **Why:** _canonical_person_slug (camera_census.py:3462) lowercases and splits on '_' only. 'oji udezue' misses direct and first-token match and is returned verbatim, so the union holds two names for one person -> identified_count +1 -> GUEST.
@@ -1123,7 +1079,7 @@ _created 2026-10-09 12:40_
   - `related`: CENSUS-INPUTS-FIRST-1
   - `sweep_2026_10_09`: NEW - board/BACKLOG grep for 'canonical'/'space' found no card; adjacent to EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (introduced the canonicaliser).
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#15 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-10-08 03:00 · refined_
 - **Problem / Solution:**
@@ -2307,8 +2263,56 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (291)
+## ✅ Done (294)
 _closed, evidence in refs_
+
+### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _WSJF 7.0 · v6 tc6 u2 /e2_
+thread: **platform** - status: **done** - approval: **implied**
+_created 2026-10-04 02:40 · updated 2026-10-10 02:30 · initial_
+- **Problem / Solution:**
+  - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
+- **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
+- **Why:** MEASURED (HA recorder, 10 days, 59 switch.ura_* / universal_room_automation* entities, ~22 restarts each): exactly 2 switches changed value across a restart, both at 10-03 21:59Z, the restart after the 61-min CM outage: guest_mode_actuat...
+- **Next:** none: closed 2026-10-10.
+- **Tags:** tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe
+- **Parsimony:** [BUILD] After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live).
+- **Refs:** custom_components/universal_room_automation/switch.py:3982; docs/QUALITY_CONTEXT.md:2101; docs/BACKLOG.md:1596
+- **Forensic keys (7):**
+  - `disposed_2026_10_10_overnight`: DONE (met; the exact after-URA-crash path is proven in-suite, not live). HA recorder, last 72 h, all switch.ura_* / switch.*_automation entities: 396 restore cycles where a switch that was ON went unavailable/unknown and came back - 396 ...
+  - `reverified_2026_10_09_overnight`: OPERATOR DO DONE: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) went off->on at 2026-10-08 21:00:32 CDT with no restart around it (the restarts were 12:24 and 17:20, and it correctly came back OFF from both because it was off...
+  - `reverified_2026_10_08_overnight`: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) still OFF at 02:40 CDT (last_changed 10-06 19:39Z = the v5.103.41 boot). It was off before that restart, so the restore guard correctly kept it off; it needs your setting. Re-lane...
+  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
+  - `built_2026_10_04_overnight`: BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder),...
+  - `reconcile_2026_10_07_overnight`: CARD-WAS-WRONG (lane): commit 63523e0ed is an ancestor of tags v5.103.39/40/41 (git merge-base --is-ancestor), so this fix SHIPPED in v5.103.39 (2026-10-05 13:52 CDT) without being named in deploy.sh --cards; the board still said review....
+  - `gate_2026_10_04`: 1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUS...
+
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _WSJF 2.7 · v4 tc2 u2 /e3_
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-08-31 19:05 · updated 2026-10-10 02:15 · initial_
+- **Problem / Solution:**
+  - Problem: for rooms whose entry-light action is none (e.g. Master Bedroom, Patio, Game Room), the two light controllers disagree during sleep: the reconciler would turn the night light ON (its sleep branch runs before the entry-action che...
+- **Origin:** 2026-08-31 - light automation audit F2/F3
+- **Why:** AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench the split.
+- **Next:** none: closed by v5.103.42.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/planning/AUDIT_room_light_automation.md F2/F3; automation.py:973/980; actuator_reconciler.py:746
+- **Forensic keys (6):**
+  - `reconcile_2026_10_10_overnight`: Lane fix: the 10-09 pass recorded the DONE disposition (v5.103.42 closed it, live Sleep-night evidence 10-08) but left status shipped_organic. Moved to done; no new evidence needed.
+  - `disposed_2026_10_09_overnight`: DONE. Closed by v5.103.42 (NIGHT-LIGHT-ACTION-SELECTOR-1), which shipped the night-light-wins rule through one shared helper for both controllers, plus the parity oracle updated to the R3-M1 contract (commit 8d7c664c1, review B = cross-c...
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 3 - blocked on the selector; small parity fix after.
+  - `SUPERSEDED_QUESTION_2026_09_15`: The A-or-B PICK on this card is WITHDRAWN. The operator rejected both options and diagnosed the real problem: the entry-light action field is OVERLOADED — it encodes both "what should the main lights do" and, by accident, "what should th...
+  - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
+
+### `ENERGY-BILL-ACCURACY-1` - URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration — _WSJF 3.0 · v8 tc5 u2 /e5_
+thread: **energy** - status: **done**
+_updated 2026-10-10 02:15_
+- **Why:** energy_daily import 1,854/2,104/2,360 kWh vs bills 2,778/2,752/3,564. CostTracker integrated Envoy current net power; dropouts lost energy (fail-closed, no backfill). Emporia daily counters match bill ~98%.
+- **Next:** none: closed 2026-10-10. Residual noted below (switch-over day row) is not carded - about $2 on the cycle total; say the word if you want it re-derived.
+- **Forensic keys (3):**
+  - `validated_2026_10_10_overnight`: DONE (met, small residual). Live, v5.103.46 since the 10-09 11:27 restart; EC options set by operator (import=sensor.mains_vue_3_mainsfromgrid_energy_today, export=sensor.main_panels_mains_vue_3_mainstogrid_energy_today, billing_source=a...
+  - `adjacency`: ADJACENT to ENERGY-CONSUMPTION-FORECAST-POISONED-1 (same energy_daily table; the 4 impossible rows = baseline-zero, fixed in the same release via D5a guard).
+  - `operator_rulings`: Fix existing EC code; TOU by reference only; meters configurable for other installs (existing GRID_IMPORT/EXPORT fields); flat rate must work; Option B (separate tracker class) accepted after reviews; Meter outage days as sensor AND attr...
 
 ### `DASHBOARD-V8-FIX-BATCH-1` - URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards — _WSJF 4.0 · v6 tc4 u2 /e3_
 thread: **dashboarding** - status: **done** - approval: **explicit**
