@@ -123,25 +123,85 @@ def _install_fake_er(monkeypatch, registry: _MockRegistry) -> None:
     monkeypatch.setattr(_hh, "entity_registry", fake_er, raising=False)
 
 
-def _make_coord(room_name: str = "Master Hallway", entry_id: str = "entry_abc123"):
-    """Build a UniversalRoomCoordinator stand-in that routes resolver calls
-    through the REAL coordinator.py method, not a stub."""
-    _unpollute_coordinator_module()
-    from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
-        UniversalRoomCoordinator,
-    )
+class _ResolverShim:
+    """Plain, non-Mock, non-stub coord stand-in. We bind the REAL resolver
+    / gate methods from coordinator.py onto this class so a test invoking
+    ``shim._is_automation_enabled()`` executes production code — without
+    going through ``UniversalRoomCoordinator.__new__``, which another test
+    file (test_hvac_presence_timer_knobs.py) can poison by swapping the
+    class for ``MagicMock`` in sys.modules."""
 
+
+_RESOLVER_METHODS = (
+    "_resolve_room_switch_entity_id",
+    "_get_room_switch_state",
+    "_is_automation_enabled",
+    "_is_cover_automation_enabled",
+    "_is_ai_automation_enabled",
+    "_is_override_occupied",
+    "_is_override_vacant",
+)
+
+
+def _load_real_coordinator_module():
+    """Import the REAL coordinator module even if a sibling test has
+    stubbed sys.modules['...coordinator'] with a MagicMock-bearing
+    namespace. Falls through to the normal import on a clean suite."""
+    _unpollute_coordinator_module()
+    import importlib  # noqa: PLC0415
+    coord = importlib.import_module(
+        "custom_components.universal_room_automation.coordinator"
+    )
+    cls = getattr(coord, "UniversalRoomCoordinator", None)
+    if cls is None or getattr(cls, "__module__", "") != (
+        "custom_components.universal_room_automation.coordinator"
+    ) or not all(hasattr(cls, m) for m in _RESOLVER_METHODS):
+        # Still polluted — force a hard reload bypassing sys.modules.
+        import importlib.util  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+        src = (
+            Path(__file__).resolve().parents[2]
+            / "custom_components"
+            / "universal_room_automation"
+            / "coordinator.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "custom_components.universal_room_automation.coordinator_real_for_tests",
+            src,
+        )
+        coord = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(coord)
+    return coord
+
+
+_BOUND_METHODS: dict[str, callable] = {}
+
+
+def _ensure_methods_bound() -> None:
+    if _BOUND_METHODS:
+        return
+    coord_mod = _load_real_coordinator_module()
+    cls = coord_mod.UniversalRoomCoordinator
+    for name in _RESOLVER_METHODS:
+        _BOUND_METHODS[name] = getattr(cls, name)
+
+
+def _make_coord(room_name: str = "Master Hallway", entry_id: str = "entry_abc123"):
+    """Build a plain shim whose resolver methods are the REAL ones."""
+    _ensure_methods_bound()
     hass = _MockHass()
     entry = SimpleNamespace(
         entry_id=entry_id,
         data={"room_name": room_name},
         options={},
     )
-    coord = UniversalRoomCoordinator.__new__(UniversalRoomCoordinator)
+    coord = _ResolverShim()
     coord.hass = hass
     coord.entry = entry
     coord._switch_entity_id_cache = {}
     coord._switch_entity_id_miss_count = {}
+    for name, func in _BOUND_METHODS.items():
+        setattr(coord, name, types.MethodType(func, coord))
     return coord
 
 
