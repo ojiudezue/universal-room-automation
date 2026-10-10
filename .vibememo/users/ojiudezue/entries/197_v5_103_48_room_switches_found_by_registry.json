@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "197",
+  "author": "ojiudezue",
+  "session_id": "claude_20261010_155106_ship_v5_103_48",
+  "timestamp": "2026-10-10T15:51:06Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.48 shipped: Room switches found by registry",
+  "summary": "Room switches found by registry",
+  "why": "URA built switch names from the room name and fell back to ON when HA had named the entity differently (doubled prefix on new rooms, brackets, operator renames), so OFF switches were ignored on Wigton (19 rooms) and 8 main-house rooms. Resolving through the entity registry by unique_id makes the gate independent of entity naming for every future install.",
+  "implications": "Shipped ROOM-SWITCH-LOOKUP-BY-NAME-1 at v5.103.48; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.48.md (Live criteria).",
+  "revisit_trigger": "If any 'room switch not found' warning appears for an existing room, or a room with Automation OFF still actuates.",
+  "refs": {
+    "cards": [
+      "ROOM-SWITCH-LOOKUP-BY-NAME-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.48.md"
+    ],
+    "release_notes": "Room control switches (Automation, AI, Manual, Cover, Overrides, Auto recovery) are now resolved by unique_id, so OFF works whatever the entity is named; one warning if a switch is missing instead of silently treating it as ON."
+  }
+}

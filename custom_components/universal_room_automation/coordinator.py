@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.47
+# Universal Room Automation vv5.103.48
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -334,6 +334,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # occupied→vacant edge.
         self._last_occupied_since_for_handler: datetime | None = None
         self._unsub_state_listeners = []
+
+        # ROOM-SWITCH-LOOKUP-BY-NAME-1 (2026-10-10): resolve this room's
+        # control switches (automation / manual_mode / ai_automation /
+        # cover_automation / override_occupied / override_vacant /
+        # auto_recovery) via the entity registry by unique_id
+        # (`{entry_id}_{suffix}`), not by a built name slug. HA names new
+        # rooms as `switch.{slug}_{slug}_{suffix}` (device + entity), so
+        # the old name-built lookup silently returned None and gates
+        # defaulted to ENABLED while the operator's switch said OFF.
+        # Cache the resolved entity_id per suffix; a hass.states miss
+        # invalidates it so a user rename re-resolves.
+        self._switch_entity_id_cache: dict[str, str] = {}
+        # Review-A fix-up (ROOM-SWITCH-LOOKUP-BY-NAME-1): the very first
+        # coordinator refresh can race the switch platform's add — resolve
+        # legitimately misses because the entities do not yet exist. A
+        # bare warn-once set would then burn the single allowed warning
+        # on a false positive and silence every real miss thereafter.
+        # Count misses per suffix instead; warn exactly once, on the
+        # SECOND consecutive miss, which clears the startup race while
+        # still surfacing a persistent misconfiguration.
+        self._switch_entity_id_miss_count: dict[str, int] = {}
 
         # Debounce: require sensors active for N seconds before confirming entry
         self._occupancy_first_detected: datetime | None = None
@@ -2963,13 +2984,70 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         return counts
     
+    def _resolve_room_switch_entity_id(self, suffix: str) -> str | None:
+        """Resolve this room's control-switch entity_id for ``suffix``.
+
+        ROOM-SWITCH-LOOKUP-BY-NAME-1 (2026-10-10): the switches are owned
+        by this room's config entry and registered under unique_id
+        ``{entry_id}_{suffix}`` (see entity.UniversalRoomEntity). Resolve
+        via the entity registry — survives HA's double-prefix entity_id
+        slug on new rooms and any operator rename. Fall back to the old
+        name-built slug only if the registry lookup misses (legacy
+        single-prefix installs). On total miss, WARN once per
+        (entry, suffix) and return None.
+        """
+        cached = self._switch_entity_id_cache.get(suffix)
+        if cached is not None and self.hass.states.get(cached) is not None:
+            return cached
+        # Registry resolution by unique_id — the durable identity.
+        resolved: str | None = None
+        unique_id = f"{self.entry.entry_id}_{suffix}"
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            registry = er.async_get(self.hass)
+            resolved = registry.async_get_entity_id("switch", DOMAIN, unique_id)
+        except Exception:  # noqa: BLE001 — never break the gate on a registry hiccup
+            resolved = None
+        if resolved is not None:
+            self._switch_entity_id_cache[suffix] = resolved
+            self._switch_entity_id_miss_count.pop(suffix, None)
+            return resolved
+        # Fallback: legacy single-prefix name-built id.
+        room_slug = self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')
+        fallback = f"switch.{room_slug}_{suffix}"
+        if self.hass.states.get(fallback) is not None:
+            self._switch_entity_id_cache[suffix] = fallback
+            self._switch_entity_id_miss_count.pop(suffix, None)
+            return fallback
+        # Neither path resolved. Warn exactly once per suffix, on the
+        # SECOND consecutive miss — tolerating the brand-new-room first-
+        # refresh race where the switch platform has not yet set up.
+        misses = self._switch_entity_id_miss_count.get(suffix, 0) + 1
+        self._switch_entity_id_miss_count[suffix] = misses
+        if misses == 2:
+            _LOGGER.warning(
+                "Room %s: control switch '%s' not found (unique_id=%s, "
+                "fallback name=%s); using default gate semantics",
+                self.entry.data.get('room_name'), suffix, unique_id, fallback,
+            )
+        return None
+
     def _get_room_switch_state(self, suffix: str) -> bool | None:
         """Check a room-level switch state. Returns None if switch not found."""
-        room_slug = self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')
-        entity_id = f"switch.{room_slug}_{suffix}"
+        entity_id = self._resolve_room_switch_entity_id(suffix)
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None:
-            return None
+            # Entity renamed or disappeared since cache — invalidate once
+            # and re-resolve from the registry.
+            self._switch_entity_id_cache.pop(suffix, None)
+            entity_id = self._resolve_room_switch_entity_id(suffix)
+            if entity_id is None:
+                return None
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                return None
         return state.state == "on"
 
     def _is_automation_enabled(self) -> bool:

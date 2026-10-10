@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.47
+# Universal Room Automation vv5.103.48
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -77,7 +77,17 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _room_switch_entity_id(coordinator: "UniversalRoomCoordinator", suffix: str) -> str:
-    """Build entity_id for a room-level switch."""
+    """Resolve entity_id for a room-level switch.
+
+    ROOM-SWITCH-LOOKUP-BY-NAME-1 (2026-10-10): delegate to the coordinator's
+    registry-backed resolver so Override Occupied/Vacant mutual exclusion
+    targets the real entity_id (HA often names new rooms with a double-slug
+    prefix). Fall back to the legacy name-built slug only when the registry
+    cannot resolve it — matches the coordinator's gate semantics.
+    """
+    resolved = coordinator._resolve_room_switch_entity_id(suffix)
+    if resolved is not None:
+        return resolved
     slug = coordinator.entry.data.get("room_name", "unknown").lower().replace(" ", "_")
     return f"switch.{slug}_{suffix}"
 

@@ -16,7 +16,13 @@ Post-deploy fixes for v5.103.45, found while switching the live install to the E
 - New "Clear grid meters" option on the Energy settings page.
 - One-time log lines when counter mode turns on, and when it is off while both meters are set (with the reason).
 
-## Live validation (prospective)
-- After restart: log shows the counter-mode line with source/uom/entities; cost-today attribute `billing_source_today` = counters.
-- Import today steps up at each Emporia update; by end of day within 2% of the Emporia daily counter.
-- No URA errors at boot.
+## Live validation — Validated 2026-10-10 (overnight pass, HA restarted 2026-10-09 11:27 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `billing_source_today` = counters | PASS | `sensor.ura_energy_coordinator_energy_cost_today` attr `billing_source_today: counters`, `counter_last_update` 01:56:58; `energy_daily` 2026-10-09 row `billing_source=counters` |
+| Import within 2% of Emporia | PASS | 10-10 02:05: URA `energy_import_today` 13.858 kWh vs `sensor.mains_vue_3_mainsfromgrid_energy_today` 13.8579. 10-09 after switch-over: URA +4.67 kWh vs Emporia +4.61 kWh (1.3%) |
+| No URA errors at boot | PASS | system_log since boot: URA entries are WARNING only, no ERROR |
+| Counter-mode log line | not checked live | INFO line fell outside the readable error_log window; the attribute above is the authoritative signal |
+
+Residual (not carded, ~$2): the 10-09 row reads 59.19 kWh vs Emporia 80.80 because the pre-switch morning was carried over from the old power-integration total. 10-07/10-08 were already replaced by `recorder_backfill`.

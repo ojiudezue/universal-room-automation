@@ -15,8 +15,13 @@ URA's bill/cost sensors read 24–34% low against PEC bills (import 1,854 / 2,10
 ## Post-deploy step (operator config)
 Energy Coordinator options: Grid import entity = `sensor.mains_vue_3_mainsfromgrid_energy_today`, Grid export entity = `sensor.main_panels_mains_vue_3_mainstogrid_energy_today`, Bill from = Auto.
 
-## Live validation (prospective)
-- Cost today attribute `billing_source_today` = counters after the config step; `sensor.ura_meter_outage_days` present.
-- After one full day: URA import today within ±2% of the Emporia daily counter (ideally a day with Envoy dropouts).
-- `energy_daily` has no consumption > 240 kWh rows; the 4 bad dates are NULL.
-- No URA errors at boot.
+## Live validation — Validated 2026-10-10 (overnight pass; v5.103.46 fix-ups live since the 2026-10-09 11:27 CDT restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `billing_source_today` = counters; meter-outage sensor present | PASS | cost-today attr `billing_source_today: counters`; `sensor.ura_energy_coordinator_meter_outage_days` = 11 (entity id differs from the `sensor.ura_meter_outage_days` written above) |
+| Import within ±2% of Emporia after a full day | PASS | 10-09 post-switch delta URA +4.67 vs Emporia +4.61 kWh (1.3%); 10-10 02:05 URA 13.858 vs Emporia 13.8579. See README_v5.103.46 |
+| No `energy_daily` consumption > 240 kWh; bad dates NULL | PASS | URA DB: 214 rows, max consumption 224.7, 0 rows > 240 |
+| No URA errors at boot | PASS | system_log since boot: URA WARNINGs only |
+
+Not fixed by this release (tracked on ENERGY-CONSUMPTION-FORECAST-POISONED-1): `consumption_kwh` / `solar_production_kwh` are still NULL on 22 of the days since 09-10, and 10-02..10-04 stored solar 0.0 with predicted consumption 743-1,204 kWh.
