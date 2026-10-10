@@ -30953,6 +30953,16 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
+- id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
+  title: Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)
+  thread: tests
+  status: inbox
+  created: "2026-10-10 21:00"
+  updated: "2026-10-10 21:00"
+  origin: "v5.103.49 full-suite name-diff 2026-10-10: test_d2_late_local_night_then_next_local_morning_fires_nm, test_d_next_day_resets_latch, test_g_kill_switch_disables in quality/tests/test_ec_ev_toggle_tripwire.py fail in suite order, pass isolated on both sides."
+  why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
+  next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
+  related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
 - id: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
   title: Master Toilet night light during sleep not confirmed live after v5.103.43/.44 - no URA night-light action logged for 5 sleep-window sessions
   thread: lighting

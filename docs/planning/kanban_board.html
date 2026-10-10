@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-10T13:54:17-05:00</b></span>
-<span>data <b>81b762dad532</b></span>
+<span>generated <b>2026-10-10T13:59:01-05:00</b></span>
+<span>data <b>a50b6b3a82d1</b></span>
 <span>reconciled <b>2026-10-10</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">8<span class="den"> / 151</span></span>
+<span class="metric">8<span class="den"> / 152</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 77 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -766,7 +766,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>2</b></span>
+<span>Inbox <b>3</b></span>
 <span>Investigating <b>1</b></span>
 <span>Pre-planning <b>7</b></span>
 <span>Planned <b>8</b></span>
@@ -780,10 +780,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">3</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card" data-id="DASH-QUICK-ACTIONS-1" draggable="true"><summary><span class="id">DASH-QUICK-ACTIONS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 3.0 · v5 tc2 u2 /e3</span><span class="title">Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched)</span><div class="tagline">dashboarding</div></summary><div class="body"><dl class="kv"><div class="cardmeta">updated 2026-10-08 08:10</div><dt>Why</dt><dd>One-tap house-wide actions; today these need several taps across rooms.</dd><dt>Next</dt><dd>PICK: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -&gt; build scripts + first tab driven by URA config.</dd><dt>Forensic (4)</dt><dd><ul class="forensic"><li><code>adjacency</code>: ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.</li><li><code>findings_2026_10_08</code>: Each Bond patio cover is ALSO exposed via HomeKit (cover.patio_N and cover.patio_N_2) - pick one control path, hide the other. 97 shade covers, 2 garage covers (konnected esphome + one other).</li><li><code>operator_2026_10_08</code>: No entity-name guessing - source every target from URA config. Patio = Bond. Garage = ratgdo + GDO blaQ. Quick actions restricted to common areas, plus an &quot;all&quot; option. Add lock. Leaving/Good night are scenes - devil is in the details.</li><li><code>sources_2026_10_08</code>: Targets resolved from URA config: Patio room covers = cover.patio_1..5 (Bond); garages = CM security_garage_entities [cover.ratgdov25i_dbfe2a_door (Garage B), cover.konnected_f0f5bd523b00_garage_door (Garage A, GDO blaQ)]; locks = CM sec...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 <details class="card" data-id="WIGTON-HA-UNRESPONSIVE-1" draggable="true"><summary><span class="id">WIGTON-HA-UNRESPONSIVE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠</span><span class="title">Wigton HA reported stalling locally (Omonele, operator); Madrone-&gt;Wigton dropouts were Wigton UDM IPS blocks (fixed)</span><div class="tagline">wigton</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-10 13:55</div><dt>Why</dt><dd>Possible event-loop stall in the devices step (area entity discovery) on a large area registry, or unrelated host load. Logs show CFLOW-TIMING lines for options init (fast); no devices-step timing captured.</dd><dt>Next</dt><dd>Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>homelab_findings_2026_10_10</code>: RESOLVED for the Madrone-&gt;Wigton path: Wigton UDM Pro IPS (Notify and Block) logged 17 THREAT_BLOCKED_V3 events in 7 days, all with Madrone sources (13 from 192.168.13.149), matching every observed window to the minute (13:37, 14:08, 14:...</li><li><code>facts_2026_10_10</code>: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1" draggable="true"><summary><span class="id">EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)</span><div class="tagline">tests</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-10 21:00</div><dt>Why</dt><dd>Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).</dd><dt>Next</dt><dd>Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>related</code>: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -1297,7 +1298,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>81b762dad532</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>a50b6b3a82d1</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

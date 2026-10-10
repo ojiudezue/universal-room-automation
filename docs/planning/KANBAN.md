@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T13:54:17-05:00_ - _Data commit: `81b762dad532`_ - _last_reconciled: 2026-10-10_
+_Generated: 2026-10-10T13:59:01-05:00_ - _Data commit: `a50b6b3a82d1`_ - _last_reconciled: 2026-10-10_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 3 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
@@ -21,7 +21,7 @@ _Generated: 2026-10-10T13:54:17-05:00_ - _Data commit: `81b762dad532`_ - _last_r
 | 🅿️ Parked | 83 |
 | ✅ Done | 294 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#1 · WSJF 3.0 · v5 tc2 u2 /e3_
@@ -43,6 +43,14 @@ _created 2026-10-10 13:55_
 - **Forensic keys (2):**
   - `homelab_findings_2026_10_10`: RESOLVED for the Madrone->Wigton path: Wigton UDM Pro IPS (Notify and Block) logged 17 THREAT_BLOCKED_V3 events in 7 days, all with Madrone sources (13 from 192.168.13.149), matching every observed window to the minute (13:37, 14:08, 14:...
   - `facts_2026_10_10`: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...
+
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tests** - status: **inbox**
+_created 2026-10-10 21:00_
+- **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
+- **Next:** Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching.
+- **Forensic keys (1):**
+  - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
