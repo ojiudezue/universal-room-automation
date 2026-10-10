@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "198",
+  "author": "ojiudezue",
+  "session_id": "claude_20261010_194614_ship_v5_103_49",
+  "timestamp": "2026-10-10T19:46:14Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.49 shipped: Review-lane batch",
+  "summary": "Review-lane batch",
+  "why": "Four reviewed builds sat unmerged since overnight cycles; batching them behind one full-suite name-diff on the merged tree (0 new, 23 gone) ships the log-flood fix, the ~3 min restart stall fix (writes after the writer stops now fail fast instead of waiting 5 min), and a code trip-wire for the residual EV toggling loop instead of soak watching.",
+  "implications": "Shipped STUCK-SENSOR-WARNING-PER-TICK-1, SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, EC-EV-TOGGLE-TRIPWIRE-1, TEST-STRATEGY-REARCH-1 at v5.103.49; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.49.md (Live criteria).",
+  "revisit_trigger": "If a restart still logs census/nudge shutdown timeouts, if stuck-sensor warnings repeat within a day, or if ev_toggle_tripwire fires on a normal charging day.",
+  "refs": {
+    "cards": [
+      "STUCK-SENSOR-WARNING-PER-TICK-1",
+      "SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1",
+      "EC-EV-TOGGLE-TRIPWIRE-1",
+      "TEST-STRATEGY-REARCH-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.49.md"
+    ],
+    "release_notes": "Stuck-sensor warning once per episode; HA restarts no longer stall on URA DB writes; EV charger flip-flop alert (alert-only); bathroom-exhaust test collection fixed."
+  }
+}

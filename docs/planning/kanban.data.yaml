@@ -570,7 +570,8 @@ cards:
   approval: "explicit"
   title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   created: '2026-10-03 16:00'
   updated: "2026-10-10 03:20"
   next: "SHIP (operator-timed, daytime): merge feature/ec-ev-toggle-tripwire-rebased (2f84c1cd3, 3 commits on develop 7df38c09b) to develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deploy.sh --cards. Full-suite name-diff result is recorded on the card (rebased_2026_10_06_overnight)."
@@ -21027,7 +21028,8 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
   updated: "2026-10-10 03:20"
@@ -31239,7 +31241,8 @@ cards:
   title: "HA shutdown waits ~8 min on URA census DB writes"
   thread: platform
   rank: {value: 5, time_criticality: 3, effort: 5}
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   created: '2026-10-05'
   updated: "2026-10-10 03:20"
   tags: [tier-2db, mechanism-in-source]
@@ -31250,7 +31253,8 @@ cards:
   built_to_review_2026_10_09_overnight: "BUILT-TO-REVIEW. Branch fix/stuck-sensor-warn-once rebased onto develop (was 19 behind -> 0), force-pushed, HEAD 33b730db4. The anchor fix from 10-07 is present (d30d5df5f, AST wire-in test). ORCHESTRATOR call-neuter drill re-run tonight: replacing the call at coordinator.py:3165 with pass -> test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD FAILS (1 failed / 37 passed); restored, tree clean. Diff read: NM condition, latch key, exclusion set and kinds map are byte-identical (moved into the helper unchanged), which meets the card constraint. Full-suite name-diff vs develop (scripts/suite_namediff.py): CLEAN, 0 NEW / 0 GONE (branch 149 failed / 14264 passed, the same names as baseline). Review record: docs/reviews/code-review/STUCK-SENSOR-WARNING-PER-TICK-1_warn_once.md. Draft README: docs/planning/DRAFT_README_stuck_sensor_warn_once.md. NOT deployed (overnight contract)."
   build_2026_10_07_overnight: "Built on fix/stuck-sensor-warn-once (16648bd99): helper _emit_p22_stuck_sensor_for_tick logs WARNING only when the per-day latch key is first added (with the NM), DEBUG otherwise; 37 stuck tests green; builder helper-level drill red->green. ORCHESTRATOR CALL-NEUTER DRILL FAILED: replacing the call in _async_update_data with pass left all 37 green (hollow wire-in anchor) - sent back for an enclosing-method anchor test. Live corroboration: HA system_log shows the Exercise Room stuck warning counted 483 times since 10-06 23:21 CDT."
   title: The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   thread: presence
   created: '2026-10-07 02:15'
   updated: "2026-10-10 03:20"
