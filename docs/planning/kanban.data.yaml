@@ -30938,19 +30938,21 @@ cards:
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 - id: CENSUS-NAME-SPACE-DEDUP-1
+  reconcile_2026_10_10_overnight: "Lane OK (shipped_organic, v5.103.47). The old next (builder instructions) was stale - the build shipped. v5.103.47 is installed on HA (manifest v5.103.47) but not loaded: no HA restart since 10-09 11:27."
   title: Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue")
   thread: census
   status: shipped_organic
   shipped_version: v5.103.47
   tier: 1
   created: "2026-10-09 12:40"
-  updated: "2026-10-09 12:40"
+  updated: "2026-10-10 03:15"
   origin: "Census clean replay 2026-10-09 (CENSUS-INPUTS-FIRST-1 clean_replay_2026_10_09): 6/6 GUEST triggers false, all from this double-count."
   why: "_canonical_person_slug (camera_census.py:3462) lowercases and splits on '_' only. 'oji udezue' misses direct and first-token match and is returned verbatim, so the union holds two names for one person -> identified_count +1 -> GUEST."
-  next: "ura-builder: normalise whitespace/hyphens to '_' before matching; test both fuse sites; 2 reviews; ship; re-run the 10-08 replay window as discriminator (GUEST false positives -> 0)."
+  next: "Me, after your next daytime restart: check sensor attributes for identified_persons holding one name form per resident, and re-run the 10-08 replay window (shared with CENSUS-INPUTS-FIRST-1). 0 GUEST flips from the name pair -> done."
   related: [CENSUS-INPUTS-FIRST-1]
   sweep_2026_10_09: "NEW - board/BACKLOG grep for 'canonical'/'space' found no card; adjacent to EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (introduced the canonicaliser)."
 - id: CENSUS-INPUTS-FIRST-1
+  reconcile_2026_10_10_overnight: "CARD-WAS-WRONG on next: it said ura-planner is writing Rev 4. Rev 4 was committed 2026-10-05 (e08c69168, PLANNING_census_inputs_first.md:762+) and D1 shipped in v5.103.39. The live gate since then is the clean replay of 10-09, which put the estimator at NO-GO until the name-dedup fix ships. That fix (CENSUS-NAME-SPACE-DEDUP-1) is in v5.103.47: installed on HA, but not loaded yet - HA has not restarted since 10-09 11:27 (the house is asleep)."
   clean_replay_2026_10_09: "Clean-Frigate replay 10-08 17:15Z -> 10-09 (31 door rows, 1,308 house snapshots): peak fill 31/31, 0 dup pairs, direction 31/31, person_id 39%. House mode = 3 (59.7%). The 31 zero rows are TRUE (all person.* not_home 23:38-00:16Z). GUEST fired 6x, ALL false positives from ONE producer bug: identified_persons holds both 'oji udezue' (space) and 'oji_udezue'. Root cause: camera_census._canonical_person_slug (:3462) splits on '_' only, so a space-separated name misses the first-token match and falls through verbatim. Verdict: estimator NO-GO until the dedup fix ships; re-run this window as the discriminator (CENSUS-NAME-SPACE-DEDUP-1)."
   refuted_regression_2026_10_09_overnight: "The live_replay_2026_10_08 \"REGRESSION: peak_person_count NULL from 10-06 12:33Z\" is REFUTED as a code regression. It is a dependency-health gap. URA DB person_entry_exit_events: rows through 10-06 01:06Z are populated (9/9). The NULL rows run 10-06 12:33Z -> 10-08 16:52Z (13 rows, all Protect doorbell_lite / g6 _person_detected legs). Rows from 10-08 18:24Z on are populated again (9/9, incl. Protect legs: 10-09 01:00Z doorbell_lite_person_detected = 1). That NULL window sits exactly inside the Frigate2 outage (sensor.frigate_status_2 unavailable 10-06 07:08Z -> running 10-08 17:14Z, PERIMETER-DETECTION-WENT-DARK-1). The value buffer is fed by the Frigate2 count sensors, so with Frigate2 down the head count is unknown (NULL), which is the safe failure. Discriminator: a code regression would have stayed NULL after Frigate2 recovered; it did not. Residual, not carded: peak_person_count has a single-NVR dependency. It is display/estimator input only; revisit if the estimator cycle makes it load-bearing."
   live_replay_2026_10_08: 'Post-v5.103.39 live replay (10-05 18:56Z -> 10-08, 29 door rows, 3,030 house snapshots): dedup clean (0 dup pairs within 30 s), direction resolved 29/29, person_id 48% (was 19%). REGRESSION: peak_person_count populated 17/17 rows until 10-06 01:06Z then NULL for all 12 rows from 10-06 12:33Z onward - producer check needed. House total still wrong: post-guest (truth ~3 when home) reads 2 46% / 1 38% / 0 15% / 3 0.3%; GUEST state 3 of 6 fired after the guest left (10-06 08:15-09:30 CDT). Caveat: daytime absences not logged, so true-away vs camera-miss not separated. Verdict: door inputs fixed but not sufficient -> hybrid estimator still GO.'
@@ -30962,7 +30964,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.39
   created: '2026-10-05 02:22'
-  updated: "2026-10-09 02:27"
+  updated: "2026-10-10 03:15"
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-10-03 ("Fix census INPUTS before building the hybrid estimator, then re-run D0-REPLAY")'
@@ -30981,7 +30983,7 @@ cards:
   - 'Read docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md before any change (canonical for this domain).'
   - 'Rev 2: D3 (interior over-count) DROPPED - probe showed live census read 3; INV-INPUTS (c) replaced by a peak_person_count column.'
   - 'R2.6/OP-1 timeline confirmation is PENDING with the operator (probe trackers suggest ~12:13 = Ezinne, operator+Jaya ~13:55).'
-  next: "Me: ura-planner is writing Rev 4 (re-verify HIGH-A/B/C + MED-D/E/F). Then ONE final short re-verify; build only on PLAN-READY. Stop rule: if the final re-verify still returns a HIGH, take it to the operator rather than looping a 4th plan round."
+  next: "Me, after your next daytime restart loads v5.103.47: re-run the 10-08 17:15Z -> 10-09 replay window (and the first post-restart day) as the discriminator - 0 GUEST flips from the 'oji udezue' / 'oji_udezue' pair and identified_persons holding one form per resident. Clean -> estimator GO, I write the estimator plan; still flipping -> back to investigating with the new evidence."
   refs: [docs/planning/PLANNING_census_inputs_first.md, docs/planning/PLANNING_census_occupancy_estimator.md, docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/AUDIT_census_subsystem_2026_10_04.md, docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md, memory project_session_pickup_2026_10_04]
   links:
     related: [CENSUS-ACCURACY-1, EGRESS-BLE-ENTRY-ATTACH-1, CENSUS-ATHOME-RESIDENT-CORROBORATOR-1, CENSUS-GROUND-TRUTH-CSV-FIX-1, CENSUS-PATIO-THROUGH-GLASS-1]

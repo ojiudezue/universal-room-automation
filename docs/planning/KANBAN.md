@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T02:05:01-05:00_ - _Data commit: `fe0532918c7d`_ - _last_reconciled: 2026-10-10_
+_Generated: 2026-10-10T02:07:15-05:00_ - _Data commit: `db1b0fae68cb`_ - _last_reconciled: 2026-10-10_
 
 
 ## Columns
@@ -1043,15 +1043,16 @@ _created 2026-09-15 · updated 2026-10-09 02:12 · refined_
 
 ### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#7 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **shipped_organic** - approval: **explicit**
-_created 2026-10-05 02:22 · updated 2026-10-09 02:27 · refined_
+_created 2026-10-05 02:22 · updated 2026-10-10 03:15 · refined_
 - **Problem / Solution:**
   - Problem: the house head-count estimator we designed failed its replay test on 10-03, not because its formula is wrong but because the data fed into it is wrong - residents walking in and out (porch cleaning, two people leaving in one car...
 - **Origin:** 2026-10-03 - Operator ruling on the D0-REPLAY NO-GO; plan rev 2 written 2026-10-04 (resume memo project_session_pickup_2026_10_04)
 - **Why:** CAPTURE MISS fixed by the 10-05 overnight pass: the whole inputs-first arc lived only in the 10-04 resume memo and two planning docs; no board card existed (grep of kanban.data.yaml for inputs_first / census_occupancy_estimator / ESTIMAT...
-- **Next:** Me: ura-planner is writing Rev 4 (re-verify HIGH-A/B/C + MED-D/E/F). Then ONE final short re-verify; build only on PLAN-READY. Stop rule: if the final re-verify still returns a HIGH, take it to the operator rather than looping a 4th plan...
+- **Next:** Me, after your next daytime restart loads v5.103.47: re-run the 10-08 17:15Z -> 10-09 replay window (and the first post-restart day) as the discriminator - 0 GUEST flips from the 'oji udezue' / 'oji_udezue' pair and identified_persons ho...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md; docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/AUDIT_census_subsystem_2026_10_04.md; docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md; memory project_session_pickup_2026_10_04
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `reconcile_2026_10_10_overnight`: CARD-WAS-WRONG on next: it said ura-planner is writing Rev 4. Rev 4 was committed 2026-10-05 (e08c69168, PLANNING_census_inputs_first.md:762+) and D1 shipped in v5.103.39. The live gate since then is the clean replay of 10-09, which put ...
   - `clean_replay_2026_10_09`: Clean-Frigate replay 10-08 17:15Z -> 10-09 (31 door rows, 1,308 house snapshots): peak fill 31/31, 0 dup pairs, direction 31/31, person_id 39%. House mode = 3 (59.7%). The 31 zero rows are TRUE (all person.* not_home 23:38-00:16Z). GUEST...
   - `refuted_regression_2026_10_09_overnight`: The live_replay_2026_10_08 "REGRESSION: peak_person_count NULL from 10-06 12:33Z" is REFUTED as a code regression. It is a dependency-health gap. URA DB person_entry_exit_events: rows through 10-06 01:06Z are populated (9/9). The NULL ro...
   - `live_replay_2026_10_08`: Post-v5.103.39 live replay (10-05 18:56Z -> 10-08, 29 door rows, 3,030 house snapshots): dedup clean (0 dup pairs within 30 s), direction resolved 29/29, person_id 48% (was 19%). REGRESSION: peak_person_count populated 17/17 rows until 1...
@@ -1078,10 +1079,11 @@ _created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 
 ### `CENSUS-NAME-SPACE-DEDUP-1` - Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue") — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **census** - status: **shipped_organic**
-_created 2026-10-09 12:40_
+_created 2026-10-09 12:40 · updated 2026-10-10 03:15_
 - **Why:** _canonical_person_slug (camera_census.py:3462) lowercases and splits on '_' only. 'oji udezue' misses direct and first-token match and is returned verbatim, so the union holds two names for one person -> identified_count +1 -> GUEST.
-- **Next:** ura-builder: normalise whitespace/hyphens to '_' before matching; test both fuse sites; 2 reviews; ship; re-run the 10-08 replay window as discriminator (GUEST false positives -> 0).
-- **Forensic keys (3):**
+- **Next:** Me, after your next daytime restart: check sensor attributes for identified_persons holding one name form per resident, and re-run the 10-08 replay window (shared with CENSUS-INPUTS-FIRST-1). 0 GUEST flips from the name pair -> done.
+- **Forensic keys (4):**
+  - `reconcile_2026_10_10_overnight`: Lane OK (shipped_organic, v5.103.47). The old next (builder instructions) was stale - the build shipped. v5.103.47 is installed on HA (manifest v5.103.47) but not loaded: no HA restart since 10-09 11:27.
   - `tier`: 1
   - `related`: CENSUS-INPUTS-FIRST-1
   - `sweep_2026_10_09`: NEW - board/BACKLOG grep for 'canonical'/'space' found no card; adjacent to EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (introduced the canonicaliser).
