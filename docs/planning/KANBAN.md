@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T02:08:06-05:00_ - _Data commit: `410fd8e2d7cc`_ - _last_reconciled: 2026-10-10_
+_Generated: 2026-10-10T02:08:56-05:00_ - _Data commit: `fb60aef919c5`_ - _last_reconciled: 2026-10-10_
 
 
 ## Columns
@@ -201,14 +201,15 @@ _created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#3 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **planned** - approval: **explicit**
-_created 2026-09-14 02:20 · updated 2026-10-10 03:40 · refined_
+_created 2026-09-14 02:20 · updated 2026-10-10 04:00 · refined_
 - **Problem / Solution:**
   - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
 - **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
-- **Next:** Me: ura-planner writes Rev 2 applying C1 (option a: drop D2 / mirror only), H1 (in-memory last-seen tracking, no recorder read), H2, M1, M2, M4; then one short re-verify. PLAN-READY -> build to review.
+- **Next:** Me: short plan re-verify of Rev 2 (running). PLAN-READY -> card waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship), then I build to review.
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `rev2_2026_10_10_overnight`: Rev 2 written (plan doc, Revision 2 section): stuck-ON evaluator DROPPED (room check stays the single detector; no OC mirror); never-fires kept for raw motion/occupancy only, tracked from live state changes (no recorder reads), gated on ...
   - `plan_review_2026_10_10_overnight`: FIX-PLAN-REQUIRED (docs/reviews/code-review/plan_review_oc_stuck_sensor_generalize.md). CRITICAL C1: the stuck-ON half duplicates what already exists - the room-level stuck check (coordinator.py:3065-3135) already tracks every room motio...
   - `verified_2026_10_10_overnight`: CARD-WAS-WRONG (next said 'write the plan'): the plan already exists and is committed - docs/planning/PLANNING_oc_stuck_sensor_generalize.md (463 lines, commit 1148d4f15). ura-planner re-read it tonight against live source: consistent wi...
   - `measured_2026_10_09_overnight`: STEP (2) DONE: per-device-class duration distributions measured over 7 days of recorder data, in docs/planning/AUDIT_stuck_sensor_duration_distributions.md (script scripts/probes/stuck_sensor_duration_probe.py). Key numbers: motion p90 l...
@@ -275,7 +276,7 @@ _(none)_
 ## 🔍 Review (4)
 _under review_
 
-### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _#1 · WSJF 8.0 · v3 tc3 u2 /e1_
+### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _#1 · WSJF 10.0 · v3 tc3 u4 /e1_
 thread: **presence** - status: **review** - approval: **implied**
 _created 2026-10-07 02:15 · updated 2026-10-10 03:20 · initial_
 - **Problem / Solution:**
