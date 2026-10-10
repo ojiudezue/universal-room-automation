@@ -23,3 +23,17 @@ On 10-08/09 all 6 GUEST triggers were false: the census held "oji udezue" (face-
 - No URA errors at boot.
 - Census: `identified_persons` never contains a space-form name; re-run the 10-08 replay window → GUEST false positives 0.
 - Fleet-dark page: proven in-suite (real notify path, default config); not forced live.
+
+## Validated 2026-10-10 (HA restarted 2026-10-10 15:52 UTC with v5.103.48 also loaded)
+
+Correction: the entity is `binary_sensor.ura_coordinator_manager_camera_input_dark`, not `binary_sensor.ura_camera_input_degraded` as written above — the prospective bullet named the wrong entity_id.
+
+| Acceptance criterion | Result | Evidence |
+|---|---|---|
+| Camera-dark latch off, Frigate healthy, fraction≈0 | PASS | `binary_sensor.ura_coordinator_manager_camera_input_dark` state=`off`, `fraction_unavailable=0`, `unavailable_count=0`, `denominator=18`, `frigate_status_2_state=running`, `affected_entities=[]` (read 2026-10-10 18:57 UTC) |
+| No URA errors since restart | PASS | `ha_get_logs(source=system_service, slug=core, search="universal_room_automation", hours_back=4)` → 0 lines; confirmed logs are flowing generally (unfiltered pull returned other integrations' ERROR/WARNING lines in the same window) |
+| `identified_persons` never contains a space-form name since restart | PASS | URA DB `census_snapshots` (zone='house'), 133 rows since `timestamp >= '2026-10-10T15:52:00'`: 0 rows match a quoted name token containing an internal space (pattern `%" %"%` ESCAPE check, which discriminates a true space-in-name from the JSON array's own `, ` separator) |
+| GUEST state entries since restart | PASS (0 entries, so nothing to cross-check) | `house_state_log` query for `state='GUEST'` since `2026-10-10T15:52:00` → 0 rows. (One `guest` row did fire at `2026-10-10T11:03:48` — before this restart — and was followed by `deferred_retry`→`home_day` within 8 min; not in scope for this restart's window.) |
+| 10-08 replay: duplicate-name rows before vs after the fix-bearing restart | PASS — clean discriminator | Window `2026-10-08T17:15:00` → now, 2221 total `census_snapshots` rows: rows where `identified_persons` contains BOTH `"oji udezue"` (space form) AND `"oji_udezue"` (slug form) = **1864 before** `2026-10-10T15:52:00`, **0 after**. Confirms the dedup fix, not a weaker count-based proxy. |
+
+Note on timestamp format: `census_snapshots.timestamp` is stored with a `T` separator (`2026-10-10T15:52:00`); a naive `'YYYY-MM-DD HH:MM:SS'` (space-separated) boundary string compares incorrectly in SQLite's lexical ordering (`T` > ` `) and silently includes the whole day. All queries above use the `T`-separated form.

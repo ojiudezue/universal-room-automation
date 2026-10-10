@@ -570,7 +570,8 @@ cards:
   approval: "explicit"
   title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   created: '2026-10-03 16:00'
   updated: "2026-10-10 03:20"
   next: "SHIP (operator-timed, daytime): merge feature/ec-ev-toggle-tripwire-rebased (2f84c1cd3, 3 commits on develop 7df38c09b) to develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deploy.sh --cards. Full-suite name-diff result is recorded on the card (rebased_2026_10_06_overnight)."
@@ -21027,7 +21028,8 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
   updated: "2026-10-10 03:20"
@@ -30953,6 +30955,26 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
+- id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
+  title: Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)
+  thread: tests
+  status: inbox
+  created: "2026-10-10 21:00"
+  updated: "2026-10-10 21:00"
+  origin: "v5.103.49 full-suite name-diff 2026-10-10: test_d2_late_local_night_then_next_local_morning_fires_nm, test_d_next_day_resets_latch, test_g_kill_switch_disables in quality/tests/test_ec_ev_toggle_tripwire.py fail in suite order, pass isolated on both sides."
+  why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
+  next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
+  related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
+- id: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
+  title: Master Toilet night light during sleep not confirmed live after v5.103.43/.44 - no URA night-light action logged for 5 sleep-window sessions
+  thread: lighting
+  status: investigating
+  created: "2026-10-10 19:40"
+  updated: "2026-10-10 19:40"
+  origin: "Live validation 2026-10-10 of README_v5.103.43/.44 (night 10-09 22:00 -> 10-10 08:00 CDT). Operator originally reported 'went into the master toilet and no night lights' (2026-10-08)."
+  why: "5 qualifying sleep-window occupancy sessions in Master Bath Toilet, zero matching ura_activity_log night-light entries; the physical night light's on/off history does not correlate with the sessions. Either a non-URA actuation path (device-local automation on the Sonoff/RGBW unit) or the sleep-protection night-light path still not firing in this room."
+  next: "MEASURE: per session, line up occupancy edges, house_state (sleep), the room's sleep-protection gate decision, configured night_lights entity, and the light's state history + context (URA vs device-local). Then confirm-or-refute; fix only if URA path is shown not firing."
+  related: [NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: WIGTON-URA-REENABLE-1
   title: Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on)
   thread: wigton
@@ -30965,6 +30987,7 @@ cards:
   next: "Follow docs/planning/RUNBOOK_wigton_ura_reenable.md: G1 stall vector (watcher + Profiler armed) -> G2 v5.103.48 installed -> G3 room configs clean -> G4/G5 sensors tuned + flicker down -> Stage 1 enable all-OFF -> Stage 2 zone by zone -> Stage 3 after Omonele enrolled."
   depends_on: [WIGTON-HA-UNRESPONSIVE-1, ROOM-SWITCH-LOOKUP-BY-NAME-1, ROOM-CREATE-AREA-PREFILL-DETRITUS-1]
 - id: ROOM-CREATE-AREA-PREFILL-DETRITUS-1
+  wigton_cleanup_2026_10_10: "G3 done at Wigton via each room options -> Lighting behaviour -> auto_manual_devices section (collapsed; NOT the Devices page - an agent read only Devices and falsely passed G3). Removed from auto_switches in 17 rooms: every mmWave *_anti_interference switch + URA own switches (switch.universal_room_automation_domain_coordinators, switch.ura_name_people_at_doors, switch.ura_presence_face_matching) from the House room. Kept Shelly relay outputs + plugs (real loads). Operator: Shelly 'detach' relay mode is exposed as its own switch (named *detach*) and must never be in any URA config. Code fix must also exclude URA's own entities from prefill. Backup: /homeassistant/.storage/core.config_entries.bak-pre-autoswitch-clear."
   title: Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists
   thread: rooms
   status: planned
@@ -30987,9 +31010,10 @@ cards:
   evidence: "Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF ignored) and Master Toilet (AI OFF ignored); override_occupied/vacant doubled in many rooms."
   next: "Code fix: resolve the room's switches through the entity registry by unique_id (entry_id + key), never by built name; fail CLOSED or log loudly when missing. Tests with double-prefixed ids. Tier 2 (changes gating for every room). Then remove the Wigton renames' dependency."
 - id: WIGTON-HA-UNRESPONSIVE-1
+  homelab_findings_2026_10_10: "RESOLVED for the Madrone->Wigton path: Wigton UDM Pro IPS (Notify and Block) logged 17 THREAT_BLOCKED_V3 events in 7 days, all with Madrone sources (13 from 192.168.13.149), matching every observed window to the minute (13:37, 14:08, 14:23, 14:34, 15:17, 15:32, 15:46, 16:01, 16:16 UTC). Operator added IPS detection exclusions for Madrone subnets + Site Magic address; post-change 60/60 HTTP OK, 0 IPS events. The suspected options-flow->stall link and URA involvement are RETRACTED (my traffic bursts tripped IPS). STILL OPEN: Omonele local stalls (no IPS events with a Wigton-local source) - capture exact times; on-box watcher /tmp/hawatch.log + Profiler asyncio debug are armed. Lesson: keep one persistent SSH session (add-on rate-limits rapid connects)."
   facts_2026_10_10: "Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~14:10 and the stall still happened (but a cleanup agent was reading room options flows ~14:1x-14:39). Logs pulled 14:46 do NOT cover the stall: core log ends 14:07 UTC (normally ~2 lines/30 s -> silence from 14:07 is a lead), supervisor log ends 14:14 UTC with no restart lines. Two premature conclusions retracted (core restart loop; network path)."
   next: "WAITING on logs spanning a stall: operator downloads Core/Supervisor/Host logs (incl. previous boot) from Wigton UI, or installs Terminal & SSH add-on for direct access. Zero traffic to Wigton until then. Then: line up timestamps, identify vector (hang/oom/crash/integration)."
-  title: Wigton HA goes unresponsive for minutes, twice right after a URA room 'devices' options step was opened
+  title: Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed)
   thread: wigton
   status: inbox
   created: "2026-10-10 13:55"
@@ -31217,7 +31241,8 @@ cards:
   title: "HA shutdown waits ~8 min on URA census DB writes"
   thread: platform
   rank: {value: 5, time_criticality: 3, effort: 5}
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   created: '2026-10-05'
   updated: "2026-10-10 03:20"
   tags: [tier-2db, mechanism-in-source]
@@ -31228,7 +31253,8 @@ cards:
   built_to_review_2026_10_09_overnight: "BUILT-TO-REVIEW. Branch fix/stuck-sensor-warn-once rebased onto develop (was 19 behind -> 0), force-pushed, HEAD 33b730db4. The anchor fix from 10-07 is present (d30d5df5f, AST wire-in test). ORCHESTRATOR call-neuter drill re-run tonight: replacing the call at coordinator.py:3165 with pass -> test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD FAILS (1 failed / 37 passed); restored, tree clean. Diff read: NM condition, latch key, exclusion set and kinds map are byte-identical (moved into the helper unchanged), which meets the card constraint. Full-suite name-diff vs develop (scripts/suite_namediff.py): CLEAN, 0 NEW / 0 GONE (branch 149 failed / 14264 passed, the same names as baseline). Review record: docs/reviews/code-review/STUCK-SENSOR-WARNING-PER-TICK-1_warn_once.md. Draft README: docs/planning/DRAFT_README_stuck_sensor_warn_once.md. NOT deployed (overnight contract)."
   build_2026_10_07_overnight: "Built on fix/stuck-sensor-warn-once (16648bd99): helper _emit_p22_stuck_sensor_for_tick logs WARNING only when the per-day latch key is first added (with the NM), DEBUG otherwise; 37 stuck tests green; builder helper-level drill red->green. ORCHESTRATOR CALL-NEUTER DRILL FAILED: replacing the call in _async_update_data with pass left all 37 green (hollow wire-in anchor) - sent back for an enclosing-method anchor test. Live corroboration: HA system_log shows the Exercise Room stuck warning counted 483 times since 10-06 23:21 CDT."
   title: The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.49
   thread: presence
   created: '2026-10-07 02:15'
   updated: "2026-10-10 03:20"

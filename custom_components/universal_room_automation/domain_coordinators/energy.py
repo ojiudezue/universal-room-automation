@@ -7811,6 +7811,38 @@ class EnergyCoordinator(BaseCoordinator):
             action = "charger_on" if service == "switch.turn_on" else "charger_off"
             pw_str = f"{power:.0f}W" if isinstance(power, (int, float)) else "unknown"
             owners_str = ",".join(owners) if owners else "none"
+            # EC-EV-TOGGLE-TRIPWIRE-1 — count strategy-caused EVSE
+            # toggles only. Operator/manual switch flips never reach
+            # this tap (they do not go through `_execute_service_action`
+            # — HA mutates the switch state directly). Force-charge is a
+            # legitimate strategy override and is EXCLUDED to avoid
+            # falsely alarming when the operator schedules a charge.
+            # Counted AFTER the per-target dedupe above so idempotent
+            # re-issues of the same action do not inflate the count.
+            try:
+                if kind == "ev":
+                    fc_active = False
+                    try:
+                        fc_active = bool(
+                            self._ev._is_force_charge_active()  # noqa: SLF001
+                        )
+                    except Exception:  # noqa: BLE001
+                        fc_active = False
+                    if (
+                        not fc_active
+                        and getattr(self, "_write_verifier", None) is not None
+                    ):
+                        self.hass.async_create_task(
+                            self._write_verifier.note_ev_toggle(
+                                charger_id=str(charger_id),
+                                action=action,
+                                pause_owners=list(owners),
+                            )
+                        )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "ev_toggle_tripwire dispatch failed", exc_info=True,
+                )
             desc = (
                 f"kind={kind} charger={charger_id} power={pw_str} "
                 f"pause_owners={owners_str}"

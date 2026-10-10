@@ -535,6 +535,22 @@ DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H: Final = 12
 # Rolling window for the churn count (s). Rung 1 (protocol window).
 BATTERY_WRITE_CHURN_WINDOW_S: Final = 3600
 
+# EC-EV-TOGGLE-TRIPWIRE-1 — strategy EV charger flip-flop detector.
+# When URA's battery/EV strategy toggles a single EVSE switch
+# (switch.turn_on + switch.turn_off count equally) MORE than this many
+# times inside the rolling window → one anomaly + one NM per EVSE per
+# LOCAL day. Alert only; never changes actuation. Rung 1 (protocol
+# threshold; change requires review). `<= 0` = trip-wire DISABLED
+# (kill-switch). Default 2 is intentionally tight: a legitimate strategy
+# flip for one charger in an hour is already unusual; the 10-01 night
+# event cycled an 11.6 kW charger ~12x/2h and we want the first ~3rd
+# transition inside the hour to alert.
+DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H: Final = 2
+# Rolling window for the EV-toggle trip-wire (s). Rung 1 (protocol
+# window). In-memory only — restart resets the deque; the per-day latch
+# also resets on restart. Not persisted by design (one hour of state).
+DEFAULT_EV_TOGGLE_TRIPWIRE_WINDOW_S: Final = 3600
+
 # B5 (resilience A3, probe P3 GO 2026-10-04) — a cloud charge-from-grid
 # `off` read counts as OFF for the phase-1 predicates (D2a provably-off,
 # D2c start block) only when the cloud settings readback

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.48
+# Universal Room Automation vv5.103.49
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -342,6 +342,20 @@ class UniversalRoomDatabase:
                         except Exception as exc:
                             if not future.done():
                                 future.set_exception(exc)
+                        except asyncio.CancelledError:
+                            # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (review B MED):
+                            # HA cancels this worker at shutdown. If the cancel
+                            # lands while a caller holds the connection, fail
+                            # that caller's future so its `await future` in
+                            # _db()'s finally returns instead of hanging until
+                            # HA kills the task. Then let the cancel propagate
+                            # to the flush handler below.
+                            if not future.done():
+                                future.set_exception(RuntimeError(
+                                    "DB write worker cancelled mid-write "
+                                    "(Home Assistant is stopping)"
+                                ))
+                            raise
                         finally:
                             self._write_queue.task_done()
                             self._db_stats["writes"] += 1
@@ -466,6 +480,26 @@ class UniversalRoomDatabase:
         is an unbounded asyncio.Queue, so this is lossless; producer-side
         throttles bound the volume. A DEBUG note is logged.
         """
+        # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1: at HA shutdown, HA cancels
+        # background tasks after the 20s stopping stage (core.py:1102) and
+        # never restarts them. Any write submitted after that would park on
+        # _write_queue for DB_WRITE_READY_HARD_CAP_S (300s), blocking HA's
+        # 100s stop + 60s final-write stages. Rows would be lost anyway.
+        # Fast-fail so the producer task completes promptly.
+        #
+        # Preserve v5.16.2 buffering for deliberate stop windows (VACUUM,
+        # SPAN re-migration): is_stopping is False there, so we fall through
+        # to the buffer path, byte-identical to prior behavior. `is True`
+        # guards against test doubles whose `is_stopping` is a MagicMock
+        # (truthy) rather than a real bool.
+        if (
+            (self._write_task is None or self._write_task.done())
+            and getattr(self.hass, "is_stopping", False) is True
+        ):
+            raise RuntimeError(
+                "DB write skipped: Home Assistant is stopping and the "
+                "write worker is closed"
+            )
         if self._write_task is None or self._write_task.done():
             _LOGGER.debug(
                 "DB write submitted before worker start — buffering on queue"
@@ -4029,6 +4063,14 @@ class UniversalRoomDatabase:
             zone: "house" or "property"
             result: CensusZoneResult dataclass instance
         """
+        # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1: skip at HA shutdown. The row
+        # would be rejected by _db() anyway (worker closed, is_stopping=True)
+        # and would log ERROR from the except arm below. While the worker is
+        # still alive (HA's first ~20s of stopping) the row is still written.
+        if getattr(self.hass, "is_stopping", False) is True and (
+            self._write_task is None or self._write_task.done()
+        ):
+            return
         try:
             import json
             identified_persons_json = (
