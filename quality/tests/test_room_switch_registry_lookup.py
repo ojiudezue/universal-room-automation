@@ -17,11 +17,37 @@ card fixes (Wigton + main-house 2026-10-10).
 
 from __future__ import annotations
 
+import sys
 import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+
+def _unpollute_coordinator_module() -> None:
+    """Another test in the suite (test_hvac_presence_timer_knobs.py:640-647)
+    replaces ``sys.modules['custom_components.universal_room_automation.coordinator']``
+    with a stub where ``UniversalRoomCoordinator = MagicMock`` and never
+    restores it. If that stub leaked in before us, drop it so our
+    import gets the REAL class."""
+    # test_hvac_presence_timer_knobs stubs these three — drop them if the
+    # stubs are still in sys.modules so our import loads the REAL modules.
+    coord_name = "custom_components.universal_room_automation.coordinator"
+    coord_mod = sys.modules.get(coord_name)
+    if coord_mod is not None:
+        cls = getattr(coord_mod, "UniversalRoomCoordinator", None)
+        if cls is None or not hasattr(cls, "_resolve_room_switch_entity_id"):
+            sys.modules.pop(coord_name, None)
+            # Downstream modules that imported the stub must also be dropped.
+            for dep in (
+                "custom_components.universal_room_automation.switch",
+                "custom_components.universal_room_automation.entity",
+            ):
+                sys.modules.pop(dep, None)
+
+
+_unpollute_coordinator_module()
 
 
 # -------------------- shared mocks --------------------
@@ -94,7 +120,8 @@ def _install_fake_er(monkeypatch, registry: _MockRegistry) -> None:
 def _make_coord(room_name: str = "Master Hallway", entry_id: str = "entry_abc123"):
     """Build a UniversalRoomCoordinator stand-in that routes resolver calls
     through the REAL coordinator.py method, not a stub."""
-    from custom_components.universal_room_automation.coordinator import (
+    _unpollute_coordinator_module()
+    from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
         UniversalRoomCoordinator,
     )
 
