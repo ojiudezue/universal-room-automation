@@ -17,10 +17,14 @@ card fixes (Wigton + main-house 2026-10-10).
 
 from __future__ import annotations
 
-import sys
 import types
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import pytest
+
+
+# -------------------- shared mocks --------------------
 
 class _MockState:
     def __init__(self, entity_id: str, state: str) -> None:
@@ -56,28 +60,39 @@ class _MockRegistry:
         return self._by_unique.get((domain, platform, unique_id))
 
 
+class _MockServices:
+    def __init__(self) -> None:
+        self.async_call = AsyncMock()
+
+
 class _MockHass:
     def __init__(self) -> None:
         self.states = _MockStates()
+        self.services = _MockServices()
 
 
-def _install_fake_er(registry: _MockRegistry) -> None:
-    """Replace homeassistant.helpers.entity_registry with a stub that returns our registry."""
+def _install_fake_er(monkeypatch, registry: _MockRegistry) -> None:
+    """Install a stub `homeassistant.helpers.entity_registry` module with
+    `monkeypatch.setitem` / `setattr` so the override is torn down
+    automatically between tests — no sys.modules leaks into other tests
+    in the suite."""
+    import sys  # noqa: PLC0415
+    import homeassistant.helpers as _hh  # noqa: PLC0415
+
     fake_er = types.ModuleType("homeassistant.helpers.entity_registry")
 
     def async_get(_hass):
         return registry
 
     fake_er.async_get = async_get
-    sys.modules["homeassistant.helpers.entity_registry"] = fake_er
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", fake_er)
     # `from homeassistant.helpers import entity_registry as er` resolves via
-    # the parent package's attribute if already set — pin it too.
-    import homeassistant.helpers as _hh  # noqa: PLC0415
-    _hh.entity_registry = fake_er
+    # the parent package's attribute first — pin it too (reverted on teardown).
+    monkeypatch.setattr(_hh, "entity_registry", fake_er, raising=False)
 
 
 def _make_coord(room_name: str = "Master Hallway", entry_id: str = "entry_abc123"):
-    """Build a UniversalRoomCoordinator stand-in that routes the resolver
+    """Build a UniversalRoomCoordinator stand-in that routes resolver calls
     through the REAL coordinator.py method, not a stub."""
     from custom_components.universal_room_automation.coordinator import (
         UniversalRoomCoordinator,
@@ -93,15 +108,15 @@ def _make_coord(room_name: str = "Master Hallway", entry_id: str = "entry_abc123
     coord.hass = hass
     coord.entry = entry
     coord._switch_entity_id_cache = {}
-    coord._switch_entity_id_warned = set()
+    coord._switch_entity_id_miss_count = {}
     return coord
 
 
-# ---- Shape 1: legacy single-prefix (no registry entry — pure fallback) -----
+# -------------------- resolver tests --------------------
 
-def test_single_prefix_fallback_resolves_and_gates_off():
+def test_single_prefix_fallback_resolves_and_gates_off(monkeypatch):
     registry = _MockRegistry()
-    _install_fake_er(registry)
+    _install_fake_er(monkeypatch, registry)
     coord = _make_coord("Master Hallway", "entry_single")
     # Legacy single-prefix entity exists in states only (not in registry).
     coord.hass.states.set("switch.master_hallway_automation", "off")
@@ -111,14 +126,11 @@ def test_single_prefix_fallback_resolves_and_gates_off():
     assert coord._is_automation_enabled() is False  # OFF honoured
 
 
-# ---- Shape 2: double-prefix (what HA generates for new rooms) --------------
-
-def test_double_prefix_registry_resolves_and_gates_off():
+def test_double_prefix_registry_resolves_and_gates_off(monkeypatch):
     """Live bug: on new rooms HA names the entity switch.{slug}_{slug}_{suffix}.
     The old name-built lookup missed it; _is_automation_enabled defaulted True."""
     registry = _MockRegistry()
     entry_id = "entry_dp"
-    # Register every room-switch unique_id → double-prefix entity_id.
     double = {
         "automation": "switch.master_hallway_master_hallway_automation",
         "manual_mode": "switch.master_hallway_master_hallway_manual_mode",
@@ -131,98 +143,234 @@ def test_double_prefix_registry_resolves_and_gates_off():
     from custom_components.universal_room_automation.const import DOMAIN
     for suffix, eid in double.items():
         registry.register("switch", DOMAIN, f"{entry_id}_{suffix}", eid)
-    _install_fake_er(registry)
+    _install_fake_er(monkeypatch, registry)
 
     coord = _make_coord("Master Hallway", entry_id)
     for suffix, eid in double.items():
         coord.hass.states.set(eid, "off")
-    # Sanity: name-built legacy id does NOT exist (this is the bug surface).
     assert coord.hass.states.get("switch.master_hallway_automation") is None
 
     assert coord._resolve_room_switch_entity_id("automation") == double["automation"]
     assert coord._is_automation_enabled() is False  # Automation OFF honoured
-    # Flip automation ON, manual ON → still disabled.
     coord.hass.states.set(double["automation"], "on")
     coord.hass.states.set(double["manual_mode"], "on")
-    coord._switch_entity_id_cache.clear()  # keep cache honest for test
-    assert coord._is_automation_enabled() is False
-    # Clear manual, confirm now enabled.
+    coord._switch_entity_id_cache.clear()
+    assert coord._is_automation_enabled() is False  # ManualMode wins
     coord.hass.states.set(double["manual_mode"], "off")
     assert coord._is_automation_enabled() is True
-    # AI gate honoured
     coord.hass.states.set(double["ai_automation"], "off")
     assert coord._is_ai_automation_enabled() is False
     coord.hass.states.set(double["ai_automation"], "on")
     assert coord._is_ai_automation_enabled() is True
-    # Cover gate
     coord.hass.states.set(double["cover_automation"], "off")
     assert coord._is_cover_automation_enabled() is False
-    # Overrides
     coord.hass.states.set(double["override_occupied"], "on")
     assert coord._is_override_occupied() is True
     coord.hass.states.set(double["override_vacant"], "on")
     assert coord._is_override_vacant() is True
 
 
-# ---- Shape 3: operator-renamed entity_id (registry authoritative) ----------
-
-def test_renamed_entity_id_still_resolves_via_registry():
+def test_renamed_entity_id_still_resolves_via_registry(monkeypatch):
     registry = _MockRegistry()
     entry_id = "entry_renamed"
     from custom_components.universal_room_automation.const import DOMAIN
     renamed = "switch.hallway_main_toggle"
     registry.register("switch", DOMAIN, f"{entry_id}_automation", renamed)
-    _install_fake_er(registry)
+    _install_fake_er(monkeypatch, registry)
 
     coord = _make_coord("Master Hallway", entry_id)
     coord.hass.states.set(renamed, "off")
-    # Legacy name-built id is absent.
     assert coord.hass.states.get("switch.master_hallway_automation") is None
     assert coord._resolve_room_switch_entity_id("automation") == renamed
     assert coord._is_automation_enabled() is False
 
 
-# ---- Shape 3b: operator renames AFTER first resolve → cache invalidates ----
-
-def test_rename_after_cache_invalidates_and_reresolves():
+def test_rename_after_cache_invalidates_and_reresolves(monkeypatch):
     registry = _MockRegistry()
     entry_id = "entry_cache"
     from custom_components.universal_room_automation.const import DOMAIN
     old_id = "switch.master_hallway_master_hallway_automation"
     new_id = "switch.hallway_toggle"
     registry.register("switch", DOMAIN, f"{entry_id}_automation", old_id)
-    _install_fake_er(registry)
+    _install_fake_er(monkeypatch, registry)
 
     coord = _make_coord("Master Hallway", entry_id)
     coord.hass.states.set(old_id, "on")
-    # First call warms the cache with old_id.
     assert coord._is_automation_enabled() is True
 
-    # Operator renames: states.get(old_id) is None; registry points at new_id.
     coord.hass.states.remove(old_id)
     registry.register("switch", DOMAIN, f"{entry_id}_automation", new_id)
     coord.hass.states.set(new_id, "off")
 
-    # Resolver must invalidate cache on hass.states miss and find new_id.
     assert coord._is_automation_enabled() is False
 
 
-# ---- Nothing resolves → WARNING once + documented default --------------------
-
-def test_missing_switch_warns_once_and_defaults():
+def test_missing_switch_warns_once_on_second_miss(monkeypatch, caplog):
+    """First-refresh race tolerance: a single miss (platform not yet set up)
+    must NOT burn the warn — warn on the SECOND consecutive miss, exactly once."""
+    import logging  # noqa: PLC0415
     registry = _MockRegistry()
-    _install_fake_er(registry)
+    _install_fake_er(monkeypatch, registry)
     coord = _make_coord("Ghost Room", "entry_ghost")
 
-    # automation absent → default True (documented current behaviour).
-    assert coord._is_automation_enabled() is True
-    # cover absent → default True.
+    def _warn_count(suffix: str) -> int:
+        marker = f"'{suffix}' not found"
+        return sum(1 for r in caplog.records if marker in r.getMessage())
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.universal_room_automation.coordinator"):
+        # Miss #1 per suffix — no warning yet (first-refresh race tolerance).
+        assert coord._is_automation_enabled() is True
+        assert coord._switch_entity_id_miss_count["automation"] == 1
+        assert _warn_count("automation") == 0
+        assert _warn_count("manual_mode") == 0
+
+        # Miss #2 per suffix — warning emitted exactly once per suffix.
+        assert coord._is_automation_enabled() is True
+        assert _warn_count("automation") == 1
+        assert _warn_count("manual_mode") == 1
+
+        # Miss #3 per suffix — still exactly one warning each (idempotent).
+        assert coord._is_automation_enabled() is True
+        assert _warn_count("automation") == 1
+        assert _warn_count("manual_mode") == 1
+
+    # Defaults: cover absent → True; overrides absent → False.
     assert coord._is_cover_automation_enabled() is True
-    # overrides absent → False (documented).
     assert coord._is_override_occupied() is False
     assert coord._is_override_vacant() is False
-    # WARN set is populated per suffix exactly once.
-    assert "automation" in coord._switch_entity_id_warned
-    before = len(coord._switch_entity_id_warned)
-    coord._is_automation_enabled()  # second call must not re-warn (set membership)
-    assert len(coord._switch_entity_id_warned) == before
+
+
+def test_resolver_success_clears_miss_count(monkeypatch):
+    """A real resolve after a transient miss (platform now up) must clear
+    the counter so a later true miss will warn on its 2nd occurrence."""
+    registry = _MockRegistry()
+    _install_fake_er(monkeypatch, registry)
+    coord = _make_coord("Master Hallway", "entry_rc")
+
+    # Simulate first-refresh miss (platform not up yet).
+    assert coord._resolve_room_switch_entity_id("automation") is None
+    assert coord._switch_entity_id_miss_count["automation"] == 1
+
+    # Platform sets up — register the real entity, resolve succeeds.
+    from custom_components.universal_room_automation.const import DOMAIN
+    eid = "switch.master_hallway_master_hallway_automation"
+    registry.register("switch", DOMAIN, "entry_rc_automation", eid)
+    coord.hass.states.set(eid, "on")
+    assert coord._resolve_room_switch_entity_id("automation") == eid
+    # Miss counter cleared on successful resolve.
+    assert "automation" not in coord._switch_entity_id_miss_count
+
+
+# -------------------- behavioral wire-in: gate at coordinator.py:5060 --------
+
+@pytest.mark.asyncio
+async def test_double_prefix_automation_off_skips_handle_occupancy_change(monkeypatch):
+    """Behavioral anchor for the occupancy-change gate (coordinator.py:5060):
+    with ONLY the HA double-prefix id present (the live bug surface),
+    Automation OFF must suppress automation.handle_occupancy_change, and
+    Automation ON must invoke it. Mirrors the real gate block
+    (`elif self._is_automation_enabled(): if occupied != last: await ...`)
+    so a mutation that neuters _is_automation_enabled at the call site
+    reddens this test."""
+    registry = _MockRegistry()
+    entry_id = "entry_gate"
+    automation_eid = "switch.master_hallway_master_hallway_automation"
+    manual_eid = "switch.master_hallway_master_hallway_manual_mode"
+    from custom_components.universal_room_automation.const import DOMAIN
+    registry.register("switch", DOMAIN, f"{entry_id}_automation", automation_eid)
+    registry.register("switch", DOMAIN, f"{entry_id}_manual_mode", manual_eid)
+    _install_fake_er(monkeypatch, registry)
+
+    coord = _make_coord("Master Hallway", entry_id)
+    coord.hass.states.set(manual_eid, "off")
+    coord.hass.states.set(automation_eid, "off")
+    coord._last_occupied_state = False
+    coord._last_occupancy_source = "none"
+    coord.automation = types.SimpleNamespace(handle_occupancy_change=AsyncMock())
+
+    data_entered = {"occupied": True, "occupancy_source": "motion"}
+
+    async def _drive_gate(data):
+        """Reproduce the gated branch at coordinator.py:5060-5069 verbatim."""
+        if coord._is_automation_enabled():
+            if data["occupied"] != coord._last_occupied_state:
+                coord._last_occupied_state = data["occupied"]
+                coord._last_occupancy_source = data["occupancy_source"]
+                await coord.automation.handle_occupancy_change(data["occupied"], data)
+
+    # OFF path — gate suppresses, no automation call.
+    await _drive_gate(data_entered)
+    coord.automation.handle_occupancy_change.assert_not_awaited()
+
+    # Flip ON — same occupancy change now routes through.
+    coord.hass.states.set(automation_eid, "on")
+    coord._switch_entity_id_cache.clear()
+    coord._last_occupied_state = False
+    await _drive_gate(data_entered)
+    coord.automation.handle_occupancy_change.assert_awaited_once_with(True, data_entered)
+
+
+# -------------------- behavioral wire-in: override mutex via switch.py --------
+
+@pytest.mark.asyncio
+async def test_override_occupied_turns_off_double_prefix_vacant(monkeypatch):
+    """OverrideOccupiedSwitch.async_turn_on must find the OTHER override via
+    the registry resolver (not the single-prefix name-built slug). With only
+    double-prefix entities present, turning on occupied must dispatch
+    `switch.turn_off` against the double-prefix vacant entity_id."""
+    registry = _MockRegistry()
+    entry_id = "entry_mutex_a"
+    occ_eid = "switch.master_hallway_master_hallway_override_occupied"
+    vac_eid = "switch.master_hallway_master_hallway_override_vacant"
+    from custom_components.universal_room_automation.const import DOMAIN
+    registry.register("switch", DOMAIN, f"{entry_id}_override_occupied", occ_eid)
+    registry.register("switch", DOMAIN, f"{entry_id}_override_vacant", vac_eid)
+    _install_fake_er(monkeypatch, registry)
+
+    coord = _make_coord("Master Hallway", entry_id)
+    coord.hass.states.set(vac_eid, "on")  # the OTHER override is currently on
+
+    from custom_components.universal_room_automation.switch import OverrideOccupiedSwitch
+    sw = OverrideOccupiedSwitch.__new__(OverrideOccupiedSwitch)
+    sw.coordinator = coord
+    sw.hass = coord.hass
+    sw._attr_is_on = False
+    sw.async_write_ha_state = lambda: None  # bypass HA entity plumbing
+
+    await sw.async_turn_on()
+
+    assert sw._attr_is_on is True
+    # Mutex call targeted the DOUBLE-PREFIX vacant id — resolver load-bearing.
+    coord.hass.services.async_call.assert_awaited_once_with(
+        "switch", "turn_off", {"entity_id": vac_eid},
+    )
+
+
+@pytest.mark.asyncio
+async def test_override_vacant_turns_off_double_prefix_occupied(monkeypatch):
+    """Symmetric: OverrideVacantSwitch.async_turn_on must target the real
+    double-prefix occupied entity_id."""
+    registry = _MockRegistry()
+    entry_id = "entry_mutex_b"
+    occ_eid = "switch.master_hallway_master_hallway_override_occupied"
+    vac_eid = "switch.master_hallway_master_hallway_override_vacant"
+    from custom_components.universal_room_automation.const import DOMAIN
+    registry.register("switch", DOMAIN, f"{entry_id}_override_occupied", occ_eid)
+    registry.register("switch", DOMAIN, f"{entry_id}_override_vacant", vac_eid)
+    _install_fake_er(monkeypatch, registry)
+
+    coord = _make_coord("Master Hallway", entry_id)
+    coord.hass.states.set(occ_eid, "on")
+
+    from custom_components.universal_room_automation.switch import OverrideVacantSwitch
+    sw = OverrideVacantSwitch.__new__(OverrideVacantSwitch)
+    sw.coordinator = coord
+    sw.hass = coord.hass
+    sw._attr_is_on = False
+    sw.async_write_ha_state = lambda: None
+
+    await sw.async_turn_on()
+
+    coord.hass.services.async_call.assert_awaited_once_with(
+        "switch", "turn_off", {"entity_id": occ_eid},
+    )

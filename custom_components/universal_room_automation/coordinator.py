@@ -346,7 +346,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Cache the resolved entity_id per suffix; a hass.states miss
         # invalidates it so a user rename re-resolves.
         self._switch_entity_id_cache: dict[str, str] = {}
-        self._switch_entity_id_warned: set[str] = set()
+        # Review-A fix-up (ROOM-SWITCH-LOOKUP-BY-NAME-1): the very first
+        # coordinator refresh can race the switch platform's add — resolve
+        # legitimately misses because the entities do not yet exist. A
+        # bare warn-once set would then burn the single allowed warning
+        # on a false positive and silence every real miss thereafter.
+        # Count misses per suffix instead; warn exactly once, on the
+        # SECOND consecutive miss, which clears the startup race while
+        # still surfacing a persistent misconfiguration.
+        self._switch_entity_id_miss_count: dict[str, int] = {}
 
         # Debounce: require sensors active for N seconds before confirming entry
         self._occupancy_first_detected: datetime | None = None
@@ -3002,18 +3010,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             resolved = None
         if resolved is not None:
             self._switch_entity_id_cache[suffix] = resolved
+            self._switch_entity_id_miss_count.pop(suffix, None)
             return resolved
         # Fallback: legacy single-prefix name-built id.
         room_slug = self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')
         fallback = f"switch.{room_slug}_{suffix}"
         if self.hass.states.get(fallback) is not None:
             self._switch_entity_id_cache[suffix] = fallback
+            self._switch_entity_id_miss_count.pop(suffix, None)
             return fallback
-        # Neither path resolved — warn once per (entry, suffix) and let
-        # the caller apply its documented default. Do NOT cache.
-        warn_key = suffix
-        if warn_key not in self._switch_entity_id_warned:
-            self._switch_entity_id_warned.add(warn_key)
+        # Neither path resolved. Warn exactly once per suffix, on the
+        # SECOND consecutive miss — tolerating the brand-new-room first-
+        # refresh race where the switch platform has not yet set up.
+        misses = self._switch_entity_id_miss_count.get(suffix, 0) + 1
+        self._switch_entity_id_miss_count[suffix] = misses
+        if misses == 2:
             _LOGGER.warning(
                 "Room %s: control switch '%s' not found (unique_id=%s, "
                 "fallback name=%s); using default gate semantics",
