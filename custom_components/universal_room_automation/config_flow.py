@@ -556,6 +556,7 @@ from .const import (
     ROOM_TYPE_FEATURE_DEFAULTS,
     ROOM_TYPE_AREA_KEYWORDS,
     AUTODETECT_NAME_DENYLIST,
+    AUTODETECT_NAME_DENYLIST_PREFILL,
     CONF_HUMIDITY_FAN_SPIKE_ENABLED,
     CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
     CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
@@ -1242,6 +1243,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                                "input_datetime", "input_button", "counter",
                                "timer", "schedule"}
 
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): pre-compile the
+        # name-token regex once per call. Whole-word match on the
+        # entity_id object_id (chars between first `.` and end).
+        _prefill_token_re = re.compile(
+            "|".join(
+                rf"(?:^|_){re.escape(tok)}(?:$|_)"
+                for tok in AUTODETECT_NAME_DENYLIST_PREFILL
+            )
+        ) if AUTODETECT_NAME_DENYLIST_PREFILL else None
+
         results = []
         for entry in ent_reg.entities.values():
             # Domain filter
@@ -1259,6 +1270,21 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             # D1 additive: skip helper / template / group platforms
             if entry.platform in _EXCLUDED_PLATFORMS:
                 continue
+            # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): skip URA's own
+            # entities — a room must never pre-fill with URA domain
+            # switches / sensors (Wigton House symptom 2026-10-10).
+            if entry.platform == DOMAIN:
+                continue
+            # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): name-token
+            # backstop regex. Whole-word match on object_id. See
+            # AUTODETECT_NAME_DENYLIST_PREFILL in const.py.
+            if _prefill_token_re is not None:
+                try:
+                    object_id = entry.entity_id.split(".", 1)[1]
+                except IndexError:
+                    object_id = entry.entity_id
+                if _prefill_token_re.search(object_id):
+                    continue
             # Device class filter
             if dc_set is not None:
                 if entry.original_device_class not in dc_set and entry.device_class not in dc_set:

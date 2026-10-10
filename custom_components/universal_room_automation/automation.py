@@ -205,6 +205,41 @@ from .const import (
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
+from .const import AUTODETECT_NAME_DENYLIST_PREFILL  # noqa: E402
+import re as _re_prefill  # noqa: E402
+
+# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): compile once at import.
+_PREFILL_DETRITUS_TOKEN_RE = _re_prefill.compile(
+    "|".join(
+        rf"(?:^|_){_re_prefill.escape(_t)}(?:$|_)"
+        for _t in AUTODETECT_NAME_DENYLIST_PREFILL
+    )
+) if AUTODETECT_NAME_DENYLIST_PREFILL else None
+
+
+def _classify_detritus_id(reg, entity_id, token_re, ura_domain):
+    """ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3) pure classifier.
+
+    Returns a rule_id string if the id is detritus, else None. Shared by
+    the runtime guard (`RoomAutomation._actuatable_ids`) and the boot
+    scan (`__init__._scan_prefill_detritus`) — single source of truth
+    for the three runtime rules (ura_domain / config_category /
+    name_backstop). Pure: no logging, no registry read (caller passes
+    the already-fetched registry entry).
+    """
+    if reg is not None:
+        if getattr(reg, "platform", None) == ura_domain:
+            return "ura_domain"
+        if getattr(reg, "entity_category", None) is not None:
+            return "config_category"
+    if token_re is not None:
+        try:
+            object_id = entity_id.split(".", 1)[1]
+        except IndexError:
+            object_id = entity_id
+        if token_re.search(object_id):
+            return "name_backstop"
+    return None
 from .const import (  # noqa: E402
     CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
     CONF_LIGHT_MANUAL_ON_HOLD_S,
@@ -425,6 +460,11 @@ class RoomAutomation:
         self.hass = hass
         self.config = config
         self._config_entry = coordinator.entry  # Live reference for fresh reads
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): per-instance dedup set
+        # for `URA-PREFILL-DETRITUS-GUARD` WARN emission. Keyed by
+        # (entry_id, entity_id, rule_id); lifetime = instance (restart WARN
+        # per id is operator-useful).
+        self._prefill_detritus_logged: set[tuple[str, str, str]] = set()
         self._sleep_motion_count = 0
         self.coordinator = coordinator
         self._humidity_fan_triggered_time: datetime | None = None
@@ -1916,22 +1956,94 @@ class RoomAutomation:
             )
             _LOGGER.debug("Turned off %d non-night switch(es)", len(switches_as_lights))
 
+    def _actuatable_ids(self, ids: list[str]) -> list[str]:
+        """ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3) runtime guard.
+
+        Return the subset of ``ids`` safe to actuate against the LIVE
+        entity registry. Rejects:
+
+        * rule_id ``ura_domain`` — ``entry.platform == DOMAIN`` (URA's
+          own entities; a room must never toggle URA switches).
+        * rule_id ``config_category`` — ``entry.entity_category`` is
+          CONFIG or DIAGNOSTIC (firmware auto-update, panel sound,
+          etc. — device-settings knobs masquerading as switches).
+        * rule_id ``name_backstop`` — object_id matches
+          ``AUTODETECT_NAME_DENYLIST_PREFILL`` as a whole `_`-token
+          (sonoff ``detach``, Z2M ``anti_interference``, etc.).
+
+        Deliberately does NOT apply the prefill-only rules 3
+        (hidden/disabled) and 4 (helper platforms): the operator may
+        legitimately automate `input_boolean` / template / group /
+        hidden plain relays via these configs (see docstring of
+        ``_control_auto_switches``). A `disabled_by` call is already
+        a HA no-op.
+
+        Dedup-logs rejections at WARNING with grep-anchor
+        ``URA-PREFILL-DETRITUS-GUARD`` per (entry_id, entity_id,
+        rule_id). Guards all external reads with try/except — a
+        registry hiccup must never block actuation.
+        """
+        if not ids:
+            return []
+        try:
+            from homeassistant.helpers import entity_registry as er
+            ent_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — never block actuation
+            _LOGGER.debug(
+                "URA-PREFILL-DETRITUS-GUARD registry read failed; "
+                "passing %d ids through unfiltered", len(ids),
+                exc_info=True,
+            )
+            return list(ids)
+
+        entry_id = getattr(self._config_entry, "entry_id", "<unknown>")
+        room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
+        out: list[str] = []
+        for eid in ids:
+            if not isinstance(eid, str) or "." not in eid:
+                out.append(eid)
+                continue
+            try:
+                reg = ent_reg.async_get(eid)
+            except Exception:  # noqa: BLE001
+                reg = None
+            rule_id = _classify_detritus_id(
+                reg, eid, _PREFILL_DETRITUS_TOKEN_RE, DOMAIN,
+            )
+            if rule_id is None:
+                out.append(eid)
+                continue
+            key = (entry_id, eid, rule_id)
+            if key not in self._prefill_detritus_logged:
+                self._prefill_detritus_logged.add(key)
+                _LOGGER.warning(
+                    "URA-PREFILL-DETRITUS-GUARD room=%s entity_id=%s "
+                    "rule_id=%s — rejected at runtime; remove from room "
+                    "config (bulk-create detritus or stale pick)",
+                    room_name, eid, rule_id,
+                )
+        return out
+
     async def _control_auto_switches(self, turn_on: bool) -> None:
         """Control auto devices (switches, lights, fans, input_booleans).
-        
+
         v3.2.8.2: Supports multiple domains via homeassistant.turn_on/off
         Backward compatible: CONF_AUTO_SWITCHES still works
         """
         # Get devices from both old and new config keys
         devices = self.config.get(CONF_AUTO_DEVICES, [])
         legacy_switches = self.config.get(CONF_AUTO_SWITCHES, [])
-        
+
         # Combine both lists (legacy + new)
         if legacy_switches:
             if isinstance(legacy_switches, str):
                 legacy_switches = [legacy_switches]
             devices = list(set(devices + legacy_switches))
-        
+
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3 site 1): runtime guard
+        # over the merged list before dispatch.
+        devices = self._actuatable_ids(devices)
+
         if not devices:
             return
 
@@ -1961,7 +2073,10 @@ class RoomAutomation:
             if isinstance(legacy_switches, str):
                 legacy_switches = [legacy_switches]
             devices = list(set(devices + legacy_switches))
-        
+
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3 site 2): runtime guard.
+        devices = self._actuatable_ids(devices)
+
         if not devices:
             return
 
@@ -4159,7 +4274,10 @@ class RoomAutomation:
             _LOGGER.debug("Shared space: turned off fans")
 
         # Turn off auto switches
-        auto_switches = self.config.get(CONF_AUTO_SWITCHES, [])
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3 site 3): shared-space.
+        auto_switches = self._actuatable_ids(
+            self.config.get(CONF_AUTO_SWITCHES, []) or []
+        )
         if auto_switches:
             await self._safe_service_call(
                 "switch",
@@ -4170,7 +4288,10 @@ class RoomAutomation:
             _LOGGER.debug("Shared space: turned off switches")
 
         # Turn off manual switches too
-        manual_switches = self.config.get(CONF_MANUAL_SWITCHES, [])
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3 site 4): shared-space.
+        manual_switches = self._actuatable_ids(
+            self.config.get(CONF_MANUAL_SWITCHES, []) or []
+        )
         if manual_switches:
             await self._safe_service_call(
                 "switch",

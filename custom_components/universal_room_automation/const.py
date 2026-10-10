@@ -1751,6 +1751,22 @@ AUTODETECT_NAME_DENYLIST: Final = (
     "identify",
 )
 
+# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): name-token backstop applied as a
+# GATE in `_get_area_entities` (prefill) and in `_actuatable_ids` (runtime
+# guard). Matched as a whole `_`-delimited token on the entity_id object_id
+# via `re.search(rf"(^|_){re.escape(tok)}($|_)", oid)` — NOT as a substring.
+# Rung 1 (module constant): adding a token is a reviewed code change by
+# design (D0 showed every token has blast radius; see planning doc §
+# knob ladder). Separate from AUTODETECT_NAME_DENYLIST which is a RANKING
+# tiebreak with different semantics.
+AUTODETECT_NAME_DENYLIST_PREFILL: Final = (
+    "detach",            # Sonoff minir4m relay-mode knob (D0: 17 main)
+    "anti_interference", # Z2M mmWave config switch (D0: 8 main / 17 Wigton)
+    "do_not_disturb",    # Alexa / Tuya / Roborock quiet-mode
+    "child_lock",        # Dreo / appliance child-locks
+    "indicator",         # Z2M status-LED enables with entity_category=None
+)
+
 # ============================================================================
 # STATE KEYS (for coordinator data)
 # ============================================================================
