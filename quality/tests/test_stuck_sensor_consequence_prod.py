@@ -501,3 +501,121 @@ def test_flap_3x_produces_one_stuck_nm_and_transition_notes():
     assert release_note_count == 3, (
         f"Expected 3 release notes, got {release_note_count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# STUCK-SENSOR-WARNING-PER-TICK-1 (2026-10-07) — warn-once-per-episode drill.
+# ---------------------------------------------------------------------------
+
+
+def test_p22_stuck_warning_fires_once_then_debug_PROD(caplog):
+    """STUCK-SENSOR-WARNING-PER-TICK-1: two consecutive stuck ticks for the
+    same (room, sensor) must emit exactly ONE WARNING "stuck on" record,
+    and the second tick must emit DEBUG at the same message. Load-bearing
+    for the live log-spam observation (216 WARN/43min pre-fix).
+
+    Mutation drill: reverting the fix (unconditional WARNING in the loop)
+    MUST red this test — the second tick would produce a 2nd WARNING.
+    """
+    import logging
+
+    coord = _make_stub_coord()
+    coord.hass.async_create_task = MagicMock()
+    coord._stuck_sensor_fired = set()
+    coord._stuck_sensor_kinds = {}
+
+    emit = _bind("_emit_p22_stuck_sensor_for_tick", coord)
+
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="custom_components.universal_room_automation.coordinator",
+    ):
+        emit("TestRoom", "binary_sensor.motion_test", 4.2)
+        emit("TestRoom", "binary_sensor.motion_test", 4.3)
+
+    stuck_records = [
+        r for r in caplog.records
+        if "stuck on" in r.getMessage()
+        and "binary_sensor.motion_test" in r.getMessage()
+    ]
+    warn_records = [r for r in stuck_records if r.levelno == logging.WARNING]
+    debug_records = [r for r in stuck_records if r.levelno == logging.DEBUG]
+
+    assert len(warn_records) == 1, (
+        f"Expected exactly 1 WARNING 'stuck on' record across 2 ticks, got "
+        f"{len(warn_records)} — pre-fix behaviour spammed WARNING per tick."
+    )
+    assert len(debug_records) == 1, (
+        f"Expected 1 DEBUG 'stuck on' record on the 2nd tick, got "
+        f"{len(debug_records)}."
+    )
+    # NM task scheduled exactly once (per-episode latch).
+    assert coord.hass.async_create_task.call_count == 1, (
+        f"Expected 1 NM task across 2 ticks, got "
+        f"{coord.hass.async_create_task.call_count}."
+    )
+    # Latch populated.
+    assert ("continuous", "TestRoom", "binary_sensor.motion_test") \
+        in coord._stuck_sensor_fired
+
+
+# ---------------------------------------------------------------------------
+# STUCK-SENSOR-WARNING-PER-TICK-1 wire-in anchor — AST assertion that
+# `_async_update_data` calls `_emit_p22_stuck_sensor_for_tick` inside the
+# `for s in stuck_sensors:` loop. The helper-level test above proves the
+# helper's semantics; this test proves the enclosing method actually calls
+# it. Orchestrator call-neuter drill (`...` -> `pass`) MUST red this test.
+# ---------------------------------------------------------------------------
+
+
+def test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD():
+    """Wire-in anchor: `_async_update_data` must call
+    `_emit_p22_stuck_sensor_for_tick` from inside the P22 loop body.
+
+    Mutation drill: replacing the call site with `pass` (orchestrator
+    call-neuter) reds this test — the AST walk no longer finds the call
+    inside a `for` whose iter is a Name "stuck_sensors".
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path(
+        __file__
+    ).resolve().parents[2].joinpath(
+        "custom_components/universal_room_automation/coordinator.py"
+    ).read_text()
+    tree = ast.parse(src)
+
+    target_fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_async_update_data":
+            target_fn = node
+            break
+    assert target_fn is not None, "_async_update_data not found in coordinator.py"
+
+    found_call_in_stuck_loop = False
+    for sub in ast.walk(target_fn):
+        if (
+            isinstance(sub, ast.For)
+            and isinstance(sub.iter, ast.Name)
+            and sub.iter.id == "stuck_sensors"
+        ):
+            for inner in ast.walk(sub):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "_emit_p22_stuck_sensor_for_tick"
+                ):
+                    # Pin the arguments too (review C LOW: a wrong value
+                    # would otherwise pass this anchor).
+                    args = [a.id for a in inner.args if isinstance(a, ast.Name)]
+                    assert args == ["room_name", "s", "on_hours"], (
+                        f"_emit_p22_stuck_sensor_for_tick called with {args}"
+                    )
+                    found_call_in_stuck_loop = True
+                    break
+    assert found_call_in_stuck_loop, (
+        "_async_update_data does not call self._emit_p22_stuck_sensor_for_tick "
+        "inside `for s in stuck_sensors:` — wire-in regression. The P22 WARNING "
+        "spam fix is not routed from the real update tick."
+    )
