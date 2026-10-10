@@ -37,9 +37,15 @@ def _unpollute_coordinator_module() -> None:
     coord_mod = sys.modules.get(coord_name)
     if coord_mod is not None:
         cls = getattr(coord_mod, "UniversalRoomCoordinator", None)
-        if cls is None or not hasattr(cls, "_resolve_room_switch_entity_id"):
+        # A MagicMock stand-in is still truthy for hasattr(anything), so
+        # the hasattr trick can't tell a stub from the real thing — check
+        # the module where cls is defined.
+        is_stub = (
+            cls is None
+            or getattr(cls, "__module__", "") != coord_name
+        )
+        if is_stub:
             sys.modules.pop(coord_name, None)
-            # Downstream modules that imported the stub must also be dropped.
             for dep in (
                 "custom_components.universal_room_automation.switch",
                 "custom_components.universal_room_automation.entity",
