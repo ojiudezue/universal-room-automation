@@ -5,159 +5,26 @@ Rev 2).
 Covers D1 and D3 acceptance criteria plus wire-in anchors and the
 discriminating observations enumerated in the plan §6.
 
-Reuses the mock bootstrap pattern from
-``test_optimization_coordinator.py`` so the real production modules
-import under pytest without a running Home Assistant.
+Review-C fix-up: previously inherited a module-level ``sys.modules``
+stub-injection block + an autouse eviction fixture from
+``test_optimization_coordinator.py``. Those tampered with
+``sys.modules`` and ``custom_components.__path__`` in a way that
+cascaded 101 order-dependent failures to downstream suites (notably the
+hvac_excursion/evidence_clock families). The real production modules
+load fine under pytest-homeassistant-custom-component — no stubs
+needed. This file keeps all mocking test-local.
 """
 from __future__ import annotations
 
 import inspect
 import os
 import sys
-import types
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
-
-def _mock_module(name, **attrs):
-    mod = types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(mod, k, v)
-    return mod
-
-
-_identity = lambda fn: fn  # noqa: E731
-_mock_cls = MagicMock
-
-
-def _start_of_local_day():
-    now = datetime.now()
-    return datetime(now.year, now.month, now.day)
-
-
-_mods = {
-    "homeassistant": {},
-    "homeassistant.core": {
-        "HomeAssistant": _mock_cls,
-        "callback": _identity,
-        "Event": _mock_cls,
-        "State": _mock_cls,
-        "CALLBACK_TYPE": type(None),
-    },
-    "homeassistant.config_entries": {"ConfigEntry": _mock_cls},
-    "homeassistant.const": MagicMock(),
-    "homeassistant.helpers": {},
-    "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
-    "homeassistant.helpers.entity": {
-        "DeviceInfo": dict,
-        "EntityCategory": _mock_cls(),
-    },
-    "homeassistant.helpers.entity_platform": {"AddEntitiesCallback": _mock_cls},
-    "homeassistant.helpers.event": {
-        "async_track_state_change_event": lambda *a, **k: (lambda: None),
-        "async_track_time_interval": lambda *a, **k: (lambda: None),
-        "async_call_later": lambda *a, **k: (lambda: None),
-        "async_track_time_change": lambda *a, **k: (lambda: None),
-    },
-    "homeassistant.helpers.dispatcher": {
-        "async_dispatcher_connect": lambda *a, **k: (lambda: None),
-        "async_dispatcher_send": lambda *a, **k: None,
-    },
-    "homeassistant.helpers.update_coordinator": {
-        "DataUpdateCoordinator": _mock_cls,
-        "UpdateFailed": Exception,
-        "CoordinatorEntity": type(
-            "CoordinatorEntity", (),
-            {"__class_getitem__": classmethod(lambda cls, item: cls)},
-        ),
-    },
-    "homeassistant.helpers.selector": _mock_cls(),
-    "homeassistant.helpers.entity_registry": {"async_get": _mock_cls()},
-    "homeassistant.helpers.restore_state": {
-        "RestoreEntity": type("RestoreEntity", (), {}),
-    },
-    "homeassistant.helpers.sun": {},
-    "homeassistant.util": {},
-    "homeassistant.util.dt": {
-        "utcnow": datetime.utcnow,
-        "now": datetime.now,
-        "as_local": lambda dt: dt,
-        "start_of_local_day": _start_of_local_day,
-    },
-    "homeassistant.components": {},
-    "homeassistant.components.binary_sensor": {
-        "BinarySensorEntity": type("BinarySensorEntity", (), {}),
-        "BinarySensorDeviceClass": _mock_cls(),
-    },
-    "homeassistant.components.sensor": {
-        "SensorEntity": type("SensorEntity", (), {}),
-        "SensorDeviceClass": _mock_cls(),
-        "SensorStateClass": _mock_cls(),
-    },
-    "homeassistant.components.button": {
-        "ButtonEntity": type("ButtonEntity", (), {}),
-    },
-    "homeassistant.components.switch": {
-        "SwitchEntity": type("SwitchEntity", (), {}),
-    },
-    "homeassistant.components.number": {
-        "NumberEntity": type("NumberEntity", (), {}),
-        "NumberMode": MagicMock(),
-    },
-    "homeassistant.components.select": {
-        "SelectEntity": type("SelectEntity", (), {}),
-    },
-    "homeassistant.components.person": {"DOMAIN": "person"},
-    "homeassistant.components.device_tracker": {"DOMAIN": "device_tracker"},
-    "homeassistant.components.zone": {"DOMAIN": "zone"},
-    "homeassistant.helpers.area_registry": {"async_get": _mock_cls()},
-    "aiosqlite": MagicMock(),
-}
-
-for name, attrs in _mods.items():
-    if isinstance(attrs, dict):
-        existing = sys.modules.get(name)
-        if existing is None:
-            sys.modules[name] = _mock_module(name, **attrs)
-        else:
-            for k, v in attrs.items():
-                if not hasattr(existing, k):
-                    setattr(existing, k, v)
-    else:
-        if name not in sys.modules:
-            sys.modules[name] = attrs
-
-
-@pytest.fixture(autouse=True)
-def _evict_ura_stubs():
-    """Match the pattern from test_optimization_coordinator.py."""
-    for _modname in list(sys.modules):
-        if (
-            _modname == "custom_components.universal_room_automation"
-            or _modname.startswith(
-                "custom_components.universal_room_automation."
-            )
-        ):
-            del sys.modules[_modname]
-    cc_dir = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..",
-                     "custom_components")
-    )
-    cc = sys.modules.get("custom_components")
-    if cc is None:
-        cc = types.ModuleType("custom_components")
-        cc.__path__ = [cc_dir]
-        sys.modules["custom_components"] = cc
-    else:
-        existing_path = list(getattr(cc, "__path__", []) or [])
-        if cc_dir not in existing_path:
-            existing_path.append(cc_dir)
-            cc.__path__ = existing_path
-    yield
 
 
 # ---------------------------------------------------------------------------
@@ -941,38 +808,74 @@ def test_census_producer_latch_rises_on_fleet_unavailable_and_clears():
     assert census._camera_input_dark_latched is False
 
 
-def test_census_producer_payload_reflects_latch():
-    """M2c BEHAVIORAL: _build_census_signal_payload emits
-    camera_input_dark that reflects _camera_input_dark_latched. Mutating
-    the payload value to a hardcoded False falsifies this test."""
+@pytest.mark.asyncio
+async def test_census_producer_payload_reflects_latch_via_dispatch():
+    """M2c BEHAVIORAL: driving _async_update_census_locked (patched to
+    stub the heavy sub-calculators) and spying on the dispatcher
+    captures the SIGNAL_CENSUS_UPDATED payload. When
+    _camera_input_dark_latched is True the payload's
+    camera_input_dark reads True; False → False. Mutating the inline
+    payload value falsifies this test."""
+    from custom_components.universal_room_automation.camera_census import (
+        PersonCensus, CensusZoneResult,
+    )
+    import homeassistant.helpers.dispatcher as _disp
+
     sensors = [f"sensor.cam{i}_person_count" for i in range(3)]
     census, hass, _ = _make_census(sensors)
-    # Dummy house/property result stubs with the attrs the method reads.
-    class _R:
-        total_persons = 0
-        identified_count = 0
-        unidentified_count = 0
-        confidence = "none"
-        source_agreement = "single_source"
-        degraded_mode = False
-        peak_held = False
-
-    house = _R()
-    prop = _R()
-
-    # Latch True → payload True.
-    census._camera_input_dark_latched = True
-    p = census._build_census_signal_payload(
-        house, prop, 0, 0, 0, "2026-10-09T00:00:00",
+    stub_house = CensusZoneResult(
+        zone="house", identified_count=0, identified_persons=[],
+        unidentified_count=0, total_persons=0,
+        confidence="none", source_agreement="single_source",
+        frigate_count=0, unifi_count=0, degraded_mode=False,
     )
-    assert p["camera_input_dark"] is True
-
-    # Latch False → payload False.
-    census._camera_input_dark_latched = False
-    p = census._build_census_signal_payload(
-        house, prop, 0, 0, 0, "2026-10-09T00:00:00",
+    stub_prop = CensusZoneResult(
+        zone="property", identified_count=0, identified_persons=[],
+        unidentified_count=0, total_persons=0,
+        confidence="none", source_agreement="single_source",
+        frigate_count=0, unifi_count=0, degraded_mode=False,
     )
-    assert p["camera_input_dark"] is False
+    census._calculate_house_census = AsyncMock(return_value=stub_house)
+    census._calculate_property_census = AsyncMock(return_value=stub_prop)
+    census._refresh_ble_crossing_listeners = lambda: None
+    census._watchdog_stuck_cameras = lambda now: None
+    census._is_enhanced_census_enabled = lambda: False
+    census._get_ble_persons = lambda: []
+
+    captured: list = []
+    orig = _disp.async_dispatcher_send
+
+    def spy(hass_, signal, payload):
+        captured.append((signal, payload))
+
+    _disp.async_dispatcher_send = spy
+    try:
+        # Fleet goes dark → real _refresh_camera_input_dark_latch
+        # (invoked by _async_update_census_locked) latches True → the
+        # inline payload dict's camera_input_dark key reads True.
+        _set_all(hass, sensors, "unavailable")
+        try:
+            await census._async_update_census_locked()
+        except Exception:
+            pass
+        payloads = [p for (_s, p) in captured if "camera_input_dark" in p]
+        assert payloads and payloads[-1]["camera_input_dark"] is True, (
+            f"expected True; got {payloads!r}"
+        )
+
+        # Full recovery → latch clears → payload False.
+        captured.clear()
+        _set_all(hass, sensors, "0")
+        try:
+            await census._async_update_census_locked()
+        except Exception:
+            pass
+        payloads = [p for (_s, p) in captured if "camera_input_dark" in p]
+        assert payloads and payloads[-1]["camera_input_dark"] is False, (
+            f"expected False; got {payloads!r}"
+        )
+    finally:
+        _disp.async_dispatcher_send = orig
 
 
 def test_zero_denominator_with_status2_unavailable_is_not_dark():
@@ -1090,13 +993,20 @@ def test_handle_census_update_dark_flip_schedules_inference():
     )
 
 
-def test_run_inference_passes_camera_input_dark_kwarg_to_infer():
+@pytest.mark.asyncio
+async def test_run_inference_passes_camera_input_dark_kwarg_to_infer():
     """M8 BEHAVIORAL: _run_inference threads
     camera_input_degraded=self._census_camera_input_dark into infer().
 
     Hardcoding `camera_input_degraded=False` at the kwarg assignment
-    falsifies this test (and the paired False case below)."""
-    import asyncio
+    falsifies this test (and the paired False case below).
+
+    Marked ``@pytest.mark.asyncio`` so pytest owns the event loop
+    lifecycle — prior sync-driver variants that called
+    ``asyncio.get_event_loop().run_until_complete`` leaked loop state
+    across tests, causing order-dependent failures elsewhere in the
+    suite.
+    """
     coord, hass, _ = _presence_coord()
     coord._census_camera_input_dark = True
 
@@ -1108,9 +1018,7 @@ def test_run_inference_passes_camera_input_dark_kwarg_to_infer():
 
     coord._inference_engine.infer = spy_infer
     try:
-        asyncio.get_event_loop().run_until_complete(
-            coord._run_inference("test")
-        )
+        await coord._run_inference("test")
     except Exception:
         pass
     assert captured.get("camera_input_degraded") is True, (
@@ -1118,17 +1026,19 @@ def test_run_inference_passes_camera_input_dark_kwarg_to_infer():
     )
 
 
-def test_run_inference_passes_camera_input_dark_false_when_healthy():
-    """M8 paired-False: healthy fleet → kwarg False."""
-    import asyncio
+@pytest.mark.asyncio
+async def test_run_inference_passes_camera_input_dark_false_when_healthy():
+    """M8 paired-False: healthy fleet → kwarg False.
+
+    Marked ``@pytest.mark.asyncio`` for loop-lifecycle hygiene (see
+    sibling test above).
+    """
     coord, hass, _ = _presence_coord()
     coord._census_camera_input_dark = False
     captured = {}
     coord._inference_engine.infer = lambda **k: captured.update(k) or None
     try:
-        asyncio.get_event_loop().run_until_complete(
-            coord._run_inference("test")
-        )
+        await coord._run_inference("test")
     except Exception:
         pass
     assert captured.get("camera_input_degraded") is False

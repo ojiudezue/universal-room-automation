@@ -4616,21 +4616,25 @@ class OptimizationCoordinator(BaseCoordinator):
         # defeats the entire tripwire. Keyed on dedup_key[0] rather
         # than on dimension (SENSOR_HEALTH) so the sensor_health
         # dimension's room-level findings keep deferring to digest by
-        # default (we are NOT allowlisting all of sensor_health).
+        # default (we are NOT allowlisting all of sensor_health). The
+        # bypass wraps the original `if should_defer_high_to_digest(...)`
+        # line verbatim so the test_nm_cycle_a2 mutation anchor stays
+        # intact (bypass is an outer guard, not a conjunction inside
+        # the existing predicate).
         _dkey = getattr(finding, "dedup_key", None)
-        _is_camera_input_dark = (
+        _is_camera_input_dark_finding = (
             isinstance(_dkey, tuple)
             and len(_dkey) >= 1
             and _dkey[0] == "camera_input_dark"
         )
-        if (not _is_camera_input_dark
-                and should_defer_high_to_digest(self.hass, finding)):
-            _LOGGER.info(
-                "Optimizer: HIGH finding (dimension=%s) deferred to "
-                "daily digest (not in NM allowlist)",
-                getattr(finding, "dimension", None),
-            )
-            return
+        if not _is_camera_input_dark_finding:
+            if should_defer_high_to_digest(self.hass, finding):
+                _LOGGER.info(
+                    "Optimizer: HIGH finding (dimension=%s) deferred to "
+                    "daily digest (not in NM allowlist)",
+                    getattr(finding, "dimension", None),
+                )
+                return
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return

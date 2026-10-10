@@ -1819,14 +1819,39 @@ class PersonCensus:
         async_dispatcher_send(
             self.hass,
             SIGNAL_CENSUS_UPDATED,
-            self._build_census_signal_payload(
-                house_result,
-                property_result,
-                total_on_property,
-                len(_face_recognized),
-                _peak_age_seconds,
-                _count_as_of_iso,
-            ),
+            {
+                "interior_count": house_result.total_persons,
+                "identified_count": house_result.identified_count,
+                "unidentified_count": house_result.unidentified_count,
+                "property_count": property_result.total_persons,
+                "total_on_property": total_on_property,
+                # v4.6.2.2: Census confidence fields for guest-mode hardening gate
+                "confidence": house_result.confidence,
+                "source_agreement": house_result.source_agreement,
+                # GAP-A D8: camera-only identity count for path-α veto.
+                "face_recognized_count": len(_face_recognized),
+                # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2):
+                # NARROW, hysteresis-latched "camera input is dark"
+                # signal. This is the key presence reads for the
+                # α-veto gate and the binary sensor mirrors. The
+                # legacy ``degraded_mode`` key is kept for grep /
+                # observability only (True on Protect-only houses —
+                # NOT suitable as a trust gate).
+                "camera_input_dark": bool(
+                    self._camera_input_dark_latched
+                ),
+                "degraded_mode": bool(
+                    getattr(house_result, "degraded_mode", False)
+                ),
+                # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
+                "peak_held": bool(getattr(house_result, "peak_held", False)),
+                "peak_age_seconds": _peak_age_seconds,
+                "count_as_of": _count_as_of_iso,
+                "peak_refresh_suppressed_count": (
+                    self._peak_refresh_suppressed_count
+                ),
+                "face_lookup_missing_count": self._face_lookup_missing_count,
+            },
         )
 
         # D5: Log census snapshots to database
@@ -1846,57 +1871,6 @@ class PersonCensus:
             )
 
         return result
-
-    def _build_census_signal_payload(
-        self,
-        house_result,
-        property_result,
-        total_on_property,
-        face_recognized_count,
-        peak_age_seconds,
-        count_as_of_iso,
-    ) -> dict:
-        """FRIGATE-FLEET-DARK Rev 2 fix-up Review-C.
-
-        Build the SIGNAL_CENSUS_UPDATED dict literal. Extracted so a
-        behavioral test can call this directly, set
-        ``_camera_input_dark_latched`` first, and assert the payload
-        key reflects the latch. Mutation M2c (hardcoding the
-        ``camera_input_dark`` value) falsifies the behavioral test.
-        """
-        return {
-            "interior_count": house_result.total_persons,
-            "identified_count": house_result.identified_count,
-            "unidentified_count": house_result.unidentified_count,
-            "property_count": property_result.total_persons,
-            "total_on_property": total_on_property,
-            # v4.6.2.2: Census confidence fields for guest-mode hardening gate
-            "confidence": house_result.confidence,
-            "source_agreement": house_result.source_agreement,
-            # GAP-A D8: camera-only identity count for path-α veto.
-            "face_recognized_count": face_recognized_count,
-            # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2):
-            # NARROW, hysteresis-latched "camera input is dark"
-            # signal. This is the key presence reads for the α-veto
-            # gate and the binary sensor mirrors. The legacy
-            # ``degraded_mode`` key is kept for grep / observability
-            # only (True on Protect-only houses — NOT suitable as a
-            # trust gate).
-            "camera_input_dark": bool(
-                self._camera_input_dark_latched
-            ),
-            "degraded_mode": bool(
-                getattr(house_result, "degraded_mode", False)
-            ),
-            # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
-            "peak_held": bool(getattr(house_result, "peak_held", False)),
-            "peak_age_seconds": peak_age_seconds,
-            "count_as_of": count_as_of_iso,
-            "peak_refresh_suppressed_count": (
-                self._peak_refresh_suppressed_count
-            ),
-            "face_lookup_missing_count": self._face_lookup_missing_count,
-        }
 
     def _refresh_camera_input_dark_latch(self) -> None:
         """FRIGATE-FLEET-DARK Rev 2 fix-up Review-C.
