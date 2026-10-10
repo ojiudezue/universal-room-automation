@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-09
+  last_reconciled: 2026-10-10
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,36 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-10T03:05:00"
+    at: "2026-10-10T03:05:00"
+    outcome: "measured"
+    headline: "The stuck-sensor plan was already written (the card did not say so). Reviewing the plan tonight; if it passes I build it to review on the simplest options."
+    acknowledged: false
+  - fid: "ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-10-10T02:55:00"
+    at: "2026-10-10T02:55:00"
+    outcome: "escalated"
+    headline: "The daily consumption forecast is still broken: v5.103.45 removed the impossible rows, but consumption is blank on 22 days since 09-10. Moved back to your queue: two picks in the plan (house-load source setting, and which fix option)."
+    acknowledged: false
+  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-10T02:30:00"
+    at: "2026-10-10T02:30:00"
+    outcome: "done"
+    headline: "On-by-default URA switches no longer come back OFF after a restart: 396 restores in the last 3 days, 0 came back wrong, and Vacancy Auto-Off stayed on through all of 10-09's restarts. Closed."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-10T02:25:00"
+    at: "2026-10-10T02:25:00"
+    outcome: "measured"
+    headline: "The two big log floods (Proxmox certificate warnings and Bond timeouts) are gone for a second night; cause unknown, so I dropped that question to you. The biggest one left is WattBox (~110 a hour). Pick: silence it in config, check the WattBox, or close the card."
+    acknowledged: false
+  - fid: "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-10T02:15:00"
+    at: "2026-10-10T02:15:00"
+    outcome: "done"
+    headline: "Night-light disagreement card moved to done. Last night's check already proved both light controllers agree in Sleep; the card had just been left in the wrong lane."
+    acknowledged: false
+  - fid: "ENERGY-BILL-ACCURACY-1@2026-10-10T02:15:00"
+    at: "2026-10-10T02:15:00"
+    outcome: "done"
+    headline: "Bill tracking now matches the Emporia meter: today's grid import reads 13.858 kWh in URA and 13.858 on the meter, and yesterday's after-switch import was 1.3% apart (bar was 2%). Closed. Only leftover: 10-09's row is ~21 kWh low because the morning came from the old method (about $2)."
+    acknowledged: false
   - fid: "TEST-STRATEGY-REARCH-1@2026-10-09T02:44:00"
     at: "2026-10-09T02:44:00"
     outcome: "built"
@@ -3595,14 +3625,15 @@ cards:
   - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
   - docs/planning/AUDIT_exterior_camera_detection_settings.md
 - id: OC-STUCK-SENSOR-GENERALIZE-1
+  verified_2026_10_10_overnight: "CARD-WAS-WRONG (next said 'write the plan'): the plan already exists and is committed - docs/planning/PLANNING_oc_stuck_sensor_generalize.md (463 lines, commit 1148d4f15). ura-planner re-read it tonight against live source: consistent with the AUDIT, only line-number drift (e.g. _evaluate_camera_stuck_dimension now optimization.py:1921, doc says 1881). Design: EXTEND the Optimization Coordinator SENSOR_HEALTH dimension with entity-keyed stuck-ON and never-fires evaluators for raw motion/occupancy sensors; reuse _filter_repeat_sensor_health (optimization.py:3922) for the 1/day cap; 4 module-constant knobs (12 h stuck-ON, 7 d never-fires, 0 = off); no DB change, no new config fields; subsumes parked D6 of PLANNING_mmwave_corroboration_tier3.md. Five A/B PICKs, plan recommends A on each (simplest). Moved pre_planning -> planned; next = the Tier-2 plan review."
   measured_2026_10_09_overnight: "STEP (2) DONE: per-device-class duration distributions measured over 7 days of recorder data, in docs/planning/AUDIT_stuck_sensor_duration_distributions.md (script scripts/probes/stuck_sensor_duration_probe.py). Key numbers: motion p90 longest-ON 9.7 h, raw outliers 21-26 h (pool_equipment_motion_3 26.1, madroneptultra_motion 21.9, reolink study-porch 21.2); occupancy raw top = mmwave_zigbee_gameroom_presence 26.6 h. Two design constraints the measurement forced: (a) unavailable/unknown MUST count as a break (a naive pass produced a false 60 h ON cluster on six camera sensors); (b) key the check on RAW device sensors, because URA aggregates (anyone_home, zone_*_anyone) legitimately hold ON for 20-50 h. \"Never changed in 7 d\" is common for legitimately static classes (problem 47, opening 44), so never-fires needs a per-class expectation, not a flat horizon. Steps (1) prior-art scan, (3) shape pick and (4) suppression story remain: that is the planning cycle."
   title: "Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores"
   thread: optimization
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: pre_planning
+  status: "planned"
   created: '2026-09-14 02:20'
-  updated: "2026-10-09 02:25"
+  updated: "2026-10-10 03:05"
   refinement_status: initial
   problem_solution:
   - 'Problem: sensors get stuck — reporting the same value for hours or days — and URA has no
@@ -3647,7 +3678,7 @@ cards:
     Prior-art scan REQUIRED before proposing new infra.
     (d) VOLUME: v5.101.1 B2 just suppressed repeat sensor_health rows to ~1/day/sensor. A new
     per-entity dimension MUST adopt the same suppression or it re-creates the flood B2 just fixed.
-  next: "PLAN (me, Tier 2): with step 2 measured (AUDIT_stuck_sensor_duration_distributions.md), write the plan: (1) prior-art scan of sensor_health + the unavailable-entity surfaces + the existing room-level P22 stuck check (coordinator.py _emit_p22_stuck_sensor_for_tick / _stuck_sensor_fired) to decide extend-vs-new; (3) v1 shapes = stuck-ON and never-fires, with horizons from the audit; (4) suppression/discharge story. Then one plan review before any build."
+  next: "Me: one adversarial plan review (Tier 2) - re-grep the evaluator/consumer sites, check the falsifiable invariant and the discharge table, adjudicate the five PICKs. Clean -> build to review on the A defaults (deploy waits for you); any PICK the review cannot settle -> page you."
   parsimony:
     problem: URA has no sensor-keyed liveness check; every stuck-sensor incident so far was found by hand.
     verdict: BUILD
@@ -30169,16 +30200,17 @@ cards:
   operator_rulings: 'Fix existing EC code; TOU by reference only; meters configurable for other installs (existing GRID_IMPORT/EXPORT fields); flat rate must work; Option B (separate tracker class) accepted after reviews; Meter outage days as sensor AND attribute; v8 cost card gets a meter line.'
   next: "none: closed 2026-10-10. Residual noted below (switch-over day row) is not carded - about $2 on the cycle total; say the word if you want it re-derived."
 - id: ENERGY-CONSUMPTION-FORECAST-POISONED-1
+  disposed_2026_10_10_overnight: "MET-WITH-RESIDUAL, re-laned shipped_organic -> waiting_operator. What v5.103.45 shipped (the impossible-row guard) is validated: URA DB energy_daily has 214 rows, max consumption 224.7 kWh, 0 rows over 240. What it did NOT fix is the card's main problem: consumption_kwh / solar_production_kwh are still NULL on 22 days since 09-10 (every row 10-05..10-09 is NULL), and 10-02..10-04 stored solar 0.0 with predicted consumption 743 / 1,204 / 1,144 kWh against a real ~85-98. The three operator calls in the plan (PLANNING_energy_lifetime_counter_poisoning.md rev 2) are still the gate, so the card belongs in your decision queue, not in the soak lane."
   INSTANCE_2026_10_04_overnight: "Folded in EC-CONSUMPTION-DROPOUT-DAYS-1 (closed as duplicate). NEW ROWS since the 10-01 measurement: energy_daily 10-02 85.8 kWh and 10-03 97.9 kWh consumption, both with solar_production_kwh 0.0. LTS shows lifetime_energy_production stuck at 0.045505 MWh at the 00:00 CDT hour on 10-01, 10-02, 10-03 and 10-04, so both snapshot endpoints carried the glitch value, the solar delta was 0 and consumption lost all solar self-use. This is the UNDER-count form of the same defect. The OVER-count form (one endpoint glitched, e.g. 18,850 kWh rows) has not recurred because the value has stayed stuck at both ends. Net effect: all 4 non-NULL energy_daily rows since 09-13 (09-24 48.2, 09-25 78.1, 10-02 85.8, 10-03 97.9) are under-counts of roughly 100-130 kWh against the 184-224 kWh September normal, and they are the only fresh inputs the day-of-week forecast has had for three weeks. The plausibility bound in Option F/S must therefore reject solar==0 on a sunny day (or any lifetime read below the last good value), not only the huge over-count. Open sub-question carried from the folded card: which Emporia entity is the whole-house total (a candidate gap-fill witness alongside the SPAN pair)."
   logread_2026_10_01_overnight: 'LOG READ (hassio proxy, 09-30 20:46 -> 10-01 02:11 CDT) corroborates INSTANCE_2026_10_01: the energy coordinator logs "Consumption cross-check divergence: Envoy today=30081.86 kWh, our lifetime delta=0.00 kWh" every hour (21:00, 22:04, 23:04, ...). Two things in that line: the Envoy "today" consumption figure is ~30,100 kWh, i.e. the LIFETIME counter (30.1 MWh) shown in kWh, so the today-sensor cannot be used as a cross-check; and our own delta is 0.00 because the midnight snapshot was re-seeded mid-day after a blank rollover. Envoy timeout logged at 23:07:00 CDT (the nightly drop).'
   INSTANCE_2026_10_01_nightly_null_rows: 'NEW MEASUREMENT, changes the option choice. URA DB energy_daily: consumption_kwh, solar_production_kwh and predicted_consumption_kwh are ALL NULL on 14 of the last 17 days (09-13, 09-16..09-23, 09-26..09-30 NULL; only 09-24 and 09-25 have values; 09-14/15 rows are missing entirely). Cause (HA recorder): the Envoy lifetime counters are unavailable across local midnight almost every night - they drop at ~04:05-04:07Z (23:05 CDT) and come back ~05:48-05:56Z (00:48-00:56 CDT) on 09-27, 09-28, 09-29, 09-30 and 10-01; on 09-25/26 they were available but lifetime_energy_production read the stuck 0.045505 value. The rollover in energy.py (~2759-2823) reads all counters at the first update after the date changes; with them unavailable both the derived and legacy paths yield None, the row is written with NULLs, the forecast learner gets no actual for that day, and the snapshots reset to None and are re-seeded mid-morning, so the NEXT day is a partial-day delta too. Consequence: since mid-September the consumption forecast has been learning from almost nothing, which is a bigger and more current harm than the 4 poisoned rows. Implication for the PICK: Option F as written (both endpoints must be accepted, else NULL) would keep ~85% of days NULL while the nightly Envoy outage persists; the parked HIGH-7-full piece (seed the rollover from the last-known-good reading when the live counter is unavailable - counters are flat or nearly flat at midnight) is what actually recovers these days, so it should move INTO the build. Log read not possible this run (home-assistant MCP failed to connect), so I did not confirm the rollover''s warning lines; the recorder + DB evidence above stands on its own.'
   title: The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh
   thread: energy
-  status: shipped_organic
+  status: "waiting_operator"
   shipped_version: v5.103.45
   groom_2026_09_29: 'ADJACENCY sweep: ENVOY-FLAKINESS-181243-1 (its title names "corrupt consumption_today") and COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 share this producer family. That makes them ADJACENT, not DUPLICATE: different fix surfaces (forecast history hygiene vs integration flaps vs coverage audit input). Linked with context; the dangling link id ENVOY-FLAKINESS was fixed. Rank unchanged.'
   created: '2026-09-28 22:50'
-  updated: "2026-10-04 03:05"
+  updated: "2026-10-10 02:55"
   approval: 'blocked'
   tags: [energy, forecast, data-integrity, found-during-audit]
   origin:
@@ -30188,7 +30220,7 @@ cards:
   constraints:
   - 'Measure first: how many energy_daily/energy_history rows are poisoned, and whether any drain/EV decision used forecast/24 over SPAN on those days.'
   - 'Fix both halves: reject implausible daily values at write (the producer), and clean or exclude poisoned history rows (the consumer).'
-  next: 'Three calls, all laid out in docs/planning/PLANNING_energy_lifetime_counter_poisoning.md (rev 2, plan-reviewed). NEW 10-01: the daily energy rows have been blank on 14 of the last 17 days because the Envoy is offline across midnight most nights (see INSTANCE_2026_10_01) - so whichever option you pick, I recommend folding in the parked last-known-good seeding (HIGH-7 full), otherwise most days stay blank. (1) APPROVE or decline, no code: set select.ura_energy_coordinator_dp_house_load_source to live_span (still max_span_r1 as of 10-01 02:30). (2) PICK Option F + last-known-good seeding (my recommendation now; Tier 2-DB) or Option S (Tier 2). (3) APPROVE the supervised D3 cleanup (backup, then NULL the 4 poisoned rows). -> On your picks I re-plan the build with the seeding piece and run it through plan review.'
+  next: "Two calls left (plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md rev 2). Call (3), the cleanup of the 4 poisoned rows, is DONE - v5.103.45 NULLed them (0 rows over 240 kWh). (1) APPROVE or decline, no code: set select.ura_energy_coordinator_dp_house_load_source to live_span (still max_span_r1 on 10-10). (2) PICK Option F + last-known-good seeding (my recommendation; Tier 2-DB) or Option S (Tier 2). Without the seeding, most days stay blank because the Envoy counters drop across midnight. -> On your picks I re-plan the build with the seeding piece, run it through plan review, and build to review (no deploy without you)."
   links: {related: [DASHBOARD-V8-FIX-BATCH-1, ENVOY-FLAKINESS-181243-1, COVERAGE-EVENING-ATTRIBUTION-DRIFT-1], context: 'ENVOY-FLAKINESS-181243-1 carries the same producer defect (Envoy today counters reporting lifetime values, its corrupt consumption_today cross-check); the old link id ENVOY-FLAKINESS did not exist. COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 reads the same Envoy consumption family for the coverage audit. DASHBOARD-V8-FIX-BATCH-1 surfaced the -74 kWh Net Energy tile.'}
   rank: {value: 7, time_criticality: 6, effort: 3}
   measured_2026_09_29_overnight: 'CONFIRMED, with a CORRECTED mechanism: the card''s Envoy ''production today reports lifetime'' is WRONG. Probe: scripts/probes/energy_consumption_forecast_poison_probe.py. Report: docs/planning/AUDIT_energy_consumption_forecast_poisoning_2026_09_29.md. The real source is sensor.envoy_482543015950_lifetime_energy_production intermittently reading a constant 0.045505 MWh instead of ~15-19 MWh: 346 hourly readings since 04-11, and 12 of 28 September midnights. A midnight snapshot that catches it makes the next day''s delta equal the whole lifetime counter, which is written as that day''s solar (energy.py:2771-2823) and flows into consumption. There is no plausibility bound (only >=10 kWh on accuracy restore, energy.py:1446). Orchestrator re-verified: energy_daily has exactly 4 poisoned rows (06-19 6,803.6 / 08-20 14,646.5 / 08-28 15,583.5 / 08-30 15,897.3 kWh consumption), and each equals (next-midnight lifetime - 0.045505)x1000 to 0.1 kWh. The lifetime sensor read 0.045505 at 00:18 today, so the 09-29 row will land around 18,850 kWh unless fixed first. The same glitch also explains 83/198 empty consumption days and undercounts (09-24 48, 09-25 78 kWh). Forecast: Thu/Fri/Sun weekday baselines 3,049/2,089/2,126 vs ~150-165 clean; the regression refit gives base 1,375, slope -64.4 (clean 135.6/+1.85); current prediction 327 kWh vs 146 from the shadow estimator. Decision impact: 30/31 Battery-Aware EV evaluations since 09-21 used forecast/24 as house load (13.6 kW vs SPAN 5.5-7.9), but all 30 exited early at the drain target, and a counterfactual on 18 older evaluations changed 0 outcomes. LATENT, not realised.'
