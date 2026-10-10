@@ -1882,7 +1882,8 @@ cards:
   origin: 'Operator 2026-09-27: "We need this to generalize URA. How and where is it configured? What remains?"'
   why: 'Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2) Carrier-tuned timings live in shared code (arrester echo TTL 15 s / preset 120 s, 5-min tick = cloud call-rate bound); (3) URA models holds as named home/away/sleep presets — many thermostats (Nest: eco/none) need a setpoint-based hold; (4) human-override detection keys on preset_mode == manual (Carriers anonymous hold) in the S1 gates and arrester.'
   revival_trigger: 'A second thermostat brand is available to test against, or the operator wants URA ready for other homes.'
-  next: "PARKED 2026-10-08. REVIVE when the HVAC coordinator is enabled at Wigton (W1-C P3). Then I validate per README_v5.103.41: comfort select writes (one climate_write row each), the 180 s settle window, wall/app changes read as manual, and range hold only where Custom Preset Ranges/DPM apply."
+  wigton_2026_10_10: "Wigton on v5.103.46 (18 rooms + 4 zones set up by operator; Downstairs ecobee = Entertainment Zone). HVAC NOT enabled: no tracked persons yet, so presence reads away while person.omonele is home; HVAC has no start-in-observation knob, so first tick would push away presets. Operator: presence-dependent work waits for enrollment (IRK capture tool going to Omonele). Room Automation + AI Automation switched OFF in all 19 rooms (before-state in scratchpad wigton_automation_before_2026-10-10.json). Dashboard ura-wigton built (7 views)."
+  next: "PARKED 2026-10-08. REVIVE when Wigton persons are enrolled (presence reads home correctly), then enable HVAC (W1-C P3). Then I validate per README_v5.103.41: comfort select writes (one climate_write row each), the 180 s settle window, wall/app changes read as manual, and range hold only where Custom Preset Ranges/DPM apply."
 - id: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1
   soak_exit_2026_10_01: 'SOAK EXIT -> DONE + RESIDUAL (overnight 10-01, read-only). Discriminator README_v5.103.27.md:40-56 (D2): a manual override dispatches SIGNAL_HOUSE_STATE_CHANGED so HVAC reacts. OBSERVED: ura_activity_log 2026-10-01T02:24:26.322Z presence ''home_night -> sleep (trigger=override_set)'', and within 20 ms HVAC set_preset_mode zone_1 (02:24:26.319) and zone_2 (02:24:26.338) with reason=house_state_transition, both home -> sleep - the propagation that was missing before. Store heartbeat saved_at fresh (07:19:48Z), override: sleep, is_overridden true. RESIDUAL (not yet evaluable, no event in window): (a) override CLEAR on the next inferred transition (morning wake ~11:00Z) - check one sleep -> waking row with a non-override trigger and override: null in .storage; (b) override survives restart - owned by HOUSE-STATE-SLEEP-LOST-ON-RESTART-1. README validation rows 3-5 still TBD.'
   title: 'A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched'
@@ -30201,6 +30202,7 @@ cards:
     time_criticality: 5
     effort: 3
 - id: ENERGY-BILL-ACCURACY-1
+  backfill_2026_10_09: "Backfill script fixed (reads recorder statistics; None-preserving, DST-aware, unit-scaled; 1 review + fix-ups). Applied 2026-10-09: 53 energy_daily rows (06-01..10-08) with no consumption value updated/inserted from Emporia counters; backup /config/ura_pre_backfill_2026-10-09.db. 69 rows with live consumption LEFT AS-IS (operator 2026-10-10: leave them) - their import is the old Envoy value; bill-period meter totals match PEC within ~1%. 8 days have no recorder data."
   validated_2026_10_10_overnight: "DONE (met, small residual). Live, v5.103.46 since the 10-09 11:27 restart; EC options set by operator (import=sensor.mains_vue_3_mainsfromgrid_energy_today, export=sensor.main_panels_mains_vue_3_mainstogrid_energy_today, billing_source=auto). (1) Today 10-10 at 02:05: URA import_today 13.858 kWh vs Emporia 13.8579 - exact. (2) 10-09 after the switch: URA 54.518 -> 59.19 (+4.67) vs Emporia 76.19 -> 80.80 (+4.61), 1.3% apart, inside the 2% bar. Export 10-09 URA 4.428 vs Emporia 4.289 (+3%, small absolute). (3) cost_today attribute billing_source_today=counters; energy_daily 10-09 row billing_source=counters. (4) No URA ERROR in system_log since boot (WARNINGs only). (5) v8 dashboard has the meter line (lovelace.ura_v8 reads billing_source_today/outage_days). RESIDUAL: the 10-09 row reads 59.19 vs Emporia 80.80 because the morning (before the counter switch) was carried over from the old power-integration total; 10-07/10-08 were already replaced by recorder_backfill. About 21.6 kWh / ~$2."
   title: 'URA bill/cost sensors read 24-34% low vs PEC bills; accrue from meter counters instead of Envoy power integration'
   thread: energy
@@ -30951,6 +30953,50 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
+- id: WIGTON-URA-REENABLE-1
+  title: Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on)
+  thread: wigton
+  status: planned
+  tier: 1
+  created: "2026-10-10 16:00"
+  updated: "2026-10-10 16:00"
+  origin: "Operator 2026-10-10: 'Let's write the conditions checks to bring URA back online.'"
+  why: "URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls)."
+  next: "Follow docs/planning/RUNBOOK_wigton_ura_reenable.md: G1 stall vector (watcher + Profiler armed) -> G2 v5.103.48 installed -> G3 room configs clean -> G4/G5 sensors tuned + flicker down -> Stage 1 enable all-OFF -> Stage 2 zone by zone -> Stage 3 after Omonele enrolled."
+  depends_on: [WIGTON-HA-UNRESPONSIVE-1, ROOM-SWITCH-LOOKUP-BY-NAME-1, ROOM-CREATE-AREA-PREFILL-DETRITUS-1]
+- id: ROOM-CREATE-AREA-PREFILL-DETRITUS-1
+  title: Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists
+  thread: rooms
+  status: planned
+  tier: 2
+  created: "2026-10-10 14:30"
+  updated: "2026-10-10 14:30"
+  origin: "Operator 2026-10-10 (Wigton bulk create): 'This is detritus from bulk create. It needs a card to stop it.' Seen first on main-house Master Closet onboarding (2026-10-09, auto_switches filled with detach switches + plugs); at Wigton URA then toggled mmWave anti_interference switches with occupancy."
+  why: "config_flow area prefill (config_flow.py ~258 CONF_AUTO_SWITCHES: prefill['switches']; ~2707 default=area_switches) takes every switch in the area. Device configuration/diagnostic switches (entity_category config/diagnostic: anti_interference, indicator, detach/relay mode, child lock, LED) must never be offered as room actuators."
+  next: "Code: filter area prefill to switches with no entity_category (exclude config + diagnostic), and exclude known config-type keys; same filter for lights/fans prefill. Test with a fake area holding a Shelly detached-mode switch + a Tuya anti_interference switch. Cleanup of existing rooms done by hand 2026-10-10 (Wigton)."
+- id: ROOM-SWITCH-LOOKUP-BY-NAME-1
+  title: Room control switches (Automation, AI, Manual, Cover, Override, Auto-recovery) are found by a built name and fail open when HA names the entity differently
+  thread: rooms
+  status: shipped_organic
+  shipped_version: v5.103.48
+  tier: 2
+  created: "2026-10-10 13:55"
+  updated: "2026-10-10 13:55"
+  origin: "Wigton 2026-10-10: room Automation switches OFF but lights still toggled on motion (Chinenye 13:37:42 'Room vacated -> turned off lights' then on 5 s later)."
+  why: "coordinator._get_room_switch_state (coordinator.py:2966) builds switch.{room_name slug}_{suffix}; HA created entities as switch.{slug}_{slug}_{suffix} (device name + entity name), so the lookup returns None and _is_automation_enabled defaults to True. Every OFF on those switches is ignored. Also 'auto_recovery' suffix vs entity key 'device_auto_recovery' looks mismatched; switch.py:82 builds names the same way."
+  evidence: "Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF ignored) and Master Toilet (AI OFF ignored); override_occupied/vacant doubled in many rooms."
+  next: "Code fix: resolve the room's switches through the entity registry by unique_id (entry_id + key), never by built name; fail CLOSED or log loudly when missing. Tests with double-prefixed ids. Tier 2 (changes gating for every room). Then remove the Wigton renames' dependency."
+- id: WIGTON-HA-UNRESPONSIVE-1
+  facts_2026_10_10: "Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~14:10 and the stall still happened (but a cleanup agent was reading room options flows ~14:1x-14:39). Logs pulled 14:46 do NOT cover the stall: core log ends 14:07 UTC (normally ~2 lines/30 s -> silence from 14:07 is a lead), supervisor log ends 14:14 UTC with no restart lines. Two premature conclusions retracted (core restart loop; network path)."
+  next: "WAITING on logs spanning a stall: operator downloads Core/Supervisor/Host logs (incl. previous boot) from Wigton UI, or installs Terminal & SSH add-on for direct access. Zero traffic to Wigton until then. Then: line up timestamps, identify vector (hang/oom/crash/integration)."
+  title: Wigton HA goes unresponsive for minutes, twice right after a URA room 'devices' options step was opened
+  thread: wigton
+  status: inbox
+  created: "2026-10-10 13:55"
+  updated: "2026-10-10 13:55"
+  origin: "2026-10-10 Wigton: API unreachable ~4 min (00:00) and ~2 min (13:40) during room options-flow 'devices' reads; operator also saw setup flakiness 2026-10-09."
+  why: "Possible event-loop stall in the devices step (area entity discovery) on a large area registry, or unrelated host load. Logs show CFLOW-TIMING lines for options init (fast); no devices-step timing captured."
+  next: "Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling."
 - id: CENSUS-NAME-SPACE-DEDUP-1
   reconcile_2026_10_10_overnight: "Lane OK (shipped_organic, v5.103.47). The old next (builder instructions) was stale - the build shipped. v5.103.47 is installed on HA (manifest v5.103.47) but not loaded: no HA restart since 10-09 11:27."
   title: Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue")
