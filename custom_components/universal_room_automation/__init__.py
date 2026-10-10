@@ -106,7 +106,33 @@ from .const import (
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
 )
 from .const import VERSION
+# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): hoisted top-level so the
+# boot scan has no runtime relative imports (tests + production share
+# one import path). No cycle: .automation / .const are already loaded
+# transitively via .coordinator above.
+from .const import (
+    AUTODETECT_NAME_DENYLIST_PREFILL,
+    CONF_AUTO_DEVICES as _CONF_AUTO_DEVICES_D4,
+    CONF_AUTO_SWITCHES as _CONF_AUTO_SWITCHES_D4,
+    CONF_MANUAL_DEVICES as _CONF_MANUAL_DEVICES_D4,
+    CONF_MANUAL_SWITCHES as _CONF_MANUAL_SWITCHES_D4,
+    CONF_LIGHTS as _CONF_LIGHTS_D4,
+    CONF_NIGHT_LIGHTS as _CONF_NIGHT_LIGHTS_D4,
+    CONF_FANS as _CONF_FANS_D4,
+    CONF_HUMIDITY_FANS as _CONF_HUMIDITY_FANS_D4,
+    CONF_COVERS as _CONF_COVERS_D4,
+    CONF_ROOM_NAME as _CONF_ROOM_NAME_D4,
+)
+# Pre-compile the D4 regex once.
+import re as _re_d4
+_PREFILL_DETRITUS_SCAN_TOKEN_RE = _re_d4.compile(
+    "|".join(
+        rf"(?:^|_){_re_d4.escape(_t)}(?:$|_)"
+        for _t in AUTODETECT_NAME_DENYLIST_PREFILL
+    )
+) if AUTODETECT_NAME_DENYLIST_PREFILL else None
 from .coordinator import UniversalRoomCoordinator
+from .automation import _classify_detritus_id  # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 D4
 from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
@@ -1811,44 +1837,23 @@ def _scan_prefill_detritus(hass: HomeAssistant, entry: ConfigEntry) -> None:
     (entry_id, entity_id, rule_id) with grep-anchor
     ``URA-PREFILL-DETRITUS-GUARD`` + fields room_name, entity_id,
     rule_id, config_key. No entity, no restore state."""
-    # Lazy imports to keep setup fast + avoid cycles.
-    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
-    import re as _re  # noqa: PLC0415
-    from .const import (  # noqa: PLC0415
-        AUTODETECT_NAME_DENYLIST_PREFILL,
-        CONF_AUTO_DEVICES,
-        CONF_AUTO_SWITCHES,
-        CONF_MANUAL_DEVICES,
-        CONF_MANUAL_SWITCHES,
-        CONF_LIGHTS,
-        CONF_NIGHT_LIGHTS,
-        CONF_FANS,
-        CONF_HUMIDITY_FANS,
-        CONF_COVERS,
-        CONF_ROOM_NAME,
-    )
-
-    scanned_keys = (
-        CONF_AUTO_DEVICES, CONF_AUTO_SWITCHES,
-        CONF_MANUAL_DEVICES, CONF_MANUAL_SWITCHES,
-        CONF_LIGHTS, CONF_NIGHT_LIGHTS,
-        CONF_FANS, CONF_HUMIDITY_FANS, CONF_COVERS,
-    )
-    token_re = _re.compile(
-        "|".join(
-            rf"(?:^|_){_re.escape(t)}(?:$|_)"
-            for t in AUTODETECT_NAME_DENYLIST_PREFILL
-        )
-    ) if AUTODETECT_NAME_DENYLIST_PREFILL else None
-
     try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
         ent_reg = er.async_get(hass)
     except Exception:  # noqa: BLE001
         return
 
+    scanned_keys = (
+        _CONF_AUTO_DEVICES_D4, _CONF_AUTO_SWITCHES_D4,
+        _CONF_MANUAL_DEVICES_D4, _CONF_MANUAL_SWITCHES_D4,
+        _CONF_LIGHTS_D4, _CONF_NIGHT_LIGHTS_D4,
+        _CONF_FANS_D4, _CONF_HUMIDITY_FANS_D4, _CONF_COVERS_D4,
+    )
+    token_re = _PREFILL_DETRITUS_SCAN_TOKEN_RE
+
     # Live-view merge of data + options, matching RoomAutomation.
     cfg = {**entry.data, **entry.options}
-    room_name = cfg.get(CONF_ROOM_NAME, entry.title or "Unknown")
+    room_name = cfg.get(_CONF_ROOM_NAME_D4, entry.title or "Unknown")
     seen: set[tuple[str, str, str]] = set()
     hits = 0
     for key in scanned_keys:
@@ -1862,7 +1867,6 @@ def _scan_prefill_detritus(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 reg = ent_reg.async_get(eid)
             except Exception:  # noqa: BLE001
                 reg = None
-            from .automation import _classify_detritus_id  # noqa: PLC0415
             rule_id = _classify_detritus_id(reg, eid, token_re, DOMAIN)
             if rule_id is None:
                 continue
