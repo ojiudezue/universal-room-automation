@@ -188,6 +188,12 @@ class WriteVerifier:
         # trip-wire + per-surface ISO-date latch (one alarm per day).
         self._dispatch_stamps: dict[str, list[datetime]] = {}
         self._churn_alarm_date: dict[str, str] = {}
+        # EC-EV-TOGGLE-TRIPWIRE-1 — rolling per-EVSE strategy-toggle
+        # stamps (switch.turn_on + switch.turn_off, excluding
+        # force-charge/operator paths) + per-local-day latch (one alert
+        # per EVSE per calendar day). In-memory only; restart resets.
+        self._ev_toggle_stamps: dict[str, list[datetime]] = {}
+        self._ev_toggle_alarm_date: dict[str, str] = {}
 
         # ─── v5.19.0 behavioral write-verify state ────────────────────
         # D1 CONDUCT — reserve-surface only. Consecutive-tick counter,
@@ -1297,10 +1303,86 @@ class WriteVerifier:
         except Exception:  # noqa: BLE001
             _LOGGER.debug("note_dispatch raised (swallowed)", exc_info=True)
 
+    async def note_ev_toggle(
+        self,
+        charger_id: str,
+        action: str,
+        pause_owners: Optional[list[str]] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """EC-EV-TOGGLE-TRIPWIRE-1 — count ONE strategy-driven switch
+        toggle on EVSE ``charger_id``. ``action`` is ``"charger_on"`` or
+        ``"charger_off"``. Above
+        ``DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H`` in the rolling window →
+        one anomaly + one NM per EVSE per LOCAL day. Alert only; never
+        touches actuation; mirrors ``note_dispatch`` (write-churn)."""
+        try:
+            from . import energy_const as _ec  # noqa: PLC0415
+            max_n = int(getattr(
+                _ec, "DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H", 0,
+            ))
+            if max_n <= 0:
+                return  # kill-switch
+            window_s = int(getattr(
+                _ec, "DEFAULT_EV_TOGGLE_TRIPWIRE_WINDOW_S", 3600,
+            ))
+            now_utc = now or dt_util.utcnow()
+            arr = self._ev_toggle_stamps.setdefault(charger_id, [])
+            arr.append(now_utc)
+            cutoff = now_utc - timedelta(seconds=window_s)
+            arr[:] = [t for t in arr if t > cutoff]
+            if len(arr) <= max_n:
+                return
+            # Per-local-day latch (operator-facing day boundary).
+            # Derive LOCAL day from the injected `now_utc` so a late-evening
+            # local trip and an early-morning local flip-flop next day are
+            # judged on the SAME clock the NM latch uses (A-MED-1 / B-LOW-1).
+            today = dt_util.as_local(now_utc).date().isoformat()
+            if self._ev_toggle_alarm_date.get(charger_id) == today:
+                return
+            self._ev_toggle_alarm_date[charger_id] = today
+            toggles = len(arr)
+            owners = pause_owners or []
+            owners_str = ",".join(owners) if owners else "none"
+            await self._emit_anomaly(
+                charger_id,
+                "ev_toggle_tripwire",
+                {
+                    "charger_id": charger_id,
+                    "last_action": action,
+                    "toggles_in_window": toggles,
+                    "window_s": window_s,
+                    "max_per_window": max_n,
+                    "pause_owners": owners_str,
+                    "severity_class": "ALERT",
+                },
+            )
+            await self._maybe_fire_nm(
+                charger_id,
+                title=f"EV charger flip-flop: {charger_id}",
+                message=(
+                    f"URA's battery/EV strategy switched {charger_id} "
+                    f"on and off {toggles} times in the last "
+                    f"{window_s // 60} min (limit {max_n}). It keeps "
+                    "running, but this looks like a flip-flop — check "
+                    f"the battery/EV settings. Paused by: {owners_str}."
+                ),
+                alert_type="ev_toggle_tripwire",
+                severity="high",
+                hazard_type="ev_toggle_tripwire",
+                location=str(charger_id),
+                date_key=today,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("note_ev_toggle raised (swallowed)", exc_info=True)
+
     async def _maybe_fire_nm(
         self, surface: str, title: str, message: str,
         alert_type: str = "mismatch",
         severity: str = "critical",
+        hazard_type: str = "envoy_write_verification",
+        location: str = "battery",
+        date_key: str | None = None,
     ) -> None:
         """Fire NM alert once per (surface, alert_type) per calendar day.
 
@@ -1317,7 +1399,12 @@ class WriteVerifier:
         (which is severity-derived in NM — line 1338 gate on
         Severity.CRITICAL).
         """
-        today = dt_util.utcnow().date().isoformat()
+        # A-MED-1: callers may pass a `date_key` tied to a specific clock
+        # (e.g. LOCAL day for operator-facing surfaces). Default preserves
+        # the historical UTC behaviour for all existing callers.
+        today = date_key if date_key is not None else (
+            dt_util.utcnow().date().isoformat()
+        )
         key = f"{surface}:{alert_type}"
         if self._nm_trip_date_by_surface.get(key) == today:
             _LOGGER.debug(
@@ -1333,8 +1420,8 @@ class WriteVerifier:
                     title=title,
                     message=message,
                     severity=severity,
-                    hazard_type="envoy_write_verification",
-                    location="battery",
+                    hazard_type=hazard_type,
+                    location=location,
                 )
             self._nm_trip_date_by_surface[key] = today
         except Exception:  # noqa: BLE001
