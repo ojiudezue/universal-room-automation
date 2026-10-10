@@ -111,7 +111,7 @@ from .const import VERSION
 # one import path). No cycle: .automation / .const are already loaded
 # transitively via .coordinator above.
 from .const import (
-    AUTODETECT_NAME_DENYLIST_PREFILL,
+    PREFILL_DETRITUS_TOKEN_RE as _PREFILL_DETRITUS_SCAN_TOKEN_RE,
     CONF_AUTO_DEVICES as _CONF_AUTO_DEVICES_D4,
     CONF_AUTO_SWITCHES as _CONF_AUTO_SWITCHES_D4,
     CONF_MANUAL_DEVICES as _CONF_MANUAL_DEVICES_D4,
@@ -123,14 +123,6 @@ from .const import (
     CONF_COVERS as _CONF_COVERS_D4,
     CONF_ROOM_NAME as _CONF_ROOM_NAME_D4,
 )
-# Pre-compile the D4 regex once.
-import re as _re_d4
-_PREFILL_DETRITUS_SCAN_TOKEN_RE = _re_d4.compile(
-    "|".join(
-        rf"(?:^|_){_re_d4.escape(_t)}(?:$|_)"
-        for _t in AUTODETECT_NAME_DENYLIST_PREFILL
-    )
-) if AUTODETECT_NAME_DENYLIST_PREFILL else None
 from .coordinator import UniversalRoomCoordinator
 from .automation import _classify_detritus_id  # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 D4
 from .database import UniversalRoomDatabase

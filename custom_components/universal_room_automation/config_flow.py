@@ -557,6 +557,7 @@ from .const import (
     ROOM_TYPE_AREA_KEYWORDS,
     AUTODETECT_NAME_DENYLIST,
     AUTODETECT_NAME_DENYLIST_PREFILL,
+    PREFILL_DETRITUS_TOKEN_RE,
     CONF_HUMIDITY_FAN_SPIKE_ENABLED,
     CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
     CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
@@ -1243,15 +1244,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                                "input_datetime", "input_button", "counter",
                                "timer", "schedule"}
 
-        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): pre-compile the
-        # name-token regex once per call. Whole-word match on the
-        # entity_id object_id (chars between first `.` and end).
-        _prefill_token_re = re.compile(
-            "|".join(
-                rf"(?:^|_){re.escape(tok)}(?:$|_)"
-                for tok in AUTODETECT_NAME_DENYLIST_PREFILL
-            )
-        ) if AUTODETECT_NAME_DENYLIST_PREFILL else None
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D1): shared production
+        # regex compiled once in const.py.
+        _prefill_token_re = PREFILL_DETRITUS_TOKEN_RE
 
         results = []
         for entry in ent_reg.entities.values():

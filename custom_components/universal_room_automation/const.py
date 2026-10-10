@@ -1767,6 +1767,17 @@ AUTODETECT_NAME_DENYLIST_PREFILL: Final = (
     "indicator",         # Z2M status-LED enables with entity_category=None
 )
 
+# Shared pre-compiled whole-token regex — ONE production object imported
+# by every call site (config_flow._get_area_entities, automation guard,
+# __init__ boot scan). Tests pin against this object, not a rebuilt copy.
+import re as _re_prefill_detritus
+PREFILL_DETRITUS_TOKEN_RE: Final = _re_prefill_detritus.compile(
+    "|".join(
+        rf"(?:^|_){_re_prefill_detritus.escape(_t)}(?:$|_)"
+        for _t in AUTODETECT_NAME_DENYLIST_PREFILL
+    )
+) if AUTODETECT_NAME_DENYLIST_PREFILL else None
+
 # ============================================================================
 # STATE KEYS (for coordinator data)
 # ============================================================================

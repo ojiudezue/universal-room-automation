@@ -205,16 +205,9 @@ from .const import (
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
-from .const import AUTODETECT_NAME_DENYLIST_PREFILL  # noqa: E402
-import re as _re_prefill  # noqa: E402
-
-# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): compile once at import.
-_PREFILL_DETRITUS_TOKEN_RE = _re_prefill.compile(
-    "|".join(
-        rf"(?:^|_){_re_prefill.escape(_t)}(?:$|_)"
-        for _t in AUTODETECT_NAME_DENYLIST_PREFILL
-    )
-) if AUTODETECT_NAME_DENYLIST_PREFILL else None
+from .const import PREFILL_DETRITUS_TOKEN_RE  # noqa: E402
+# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): shared production regex.
+_PREFILL_DETRITUS_TOKEN_RE = PREFILL_DETRITUS_TOKEN_RE
 
 
 def _classify_detritus_id(reg, entity_id, token_re, ura_domain):

@@ -72,13 +72,9 @@ _make_config_flow = _slice1._make_config_flow
 build_area_room_data = _cf.build_area_room_data
 
 
-# Shared regex (matches the one compiled in production).
-_TOKEN_RE = re.compile(
-    "|".join(
-        rf"(?:^|_){re.escape(t)}(?:$|_)"
-        for t in AUTODETECT_NAME_DENYLIST_PREFILL
-    )
-)
+# Production regex object — tests pin against this, NOT a local rebuild.
+_TOKEN_RE = C.PREFILL_DETRITUS_TOKEN_RE
+assert _TOKEN_RE is not None
 
 
 # ===========================================================================
@@ -352,10 +348,10 @@ def test_actuatable_ids_preserves_helper_platforms_and_hidden(monkeypatch):
     """F2 regression — rules 3 and 4 do NOT apply at runtime."""
     reg_map = {
         "switch.hidden_relay": SimpleNamespace(
-            platform="shelly", entity_category=None,
+            platform="shelly", entity_category=None, hidden_by="user",
         ),
         "input_boolean.user_toggle": SimpleNamespace(
-            platform="input_boolean", entity_category=None,
+            platform="input_boolean", entity_category=None, hidden_by=None,
         ),
     }
     _patch_registry(monkeypatch, reg_map)
@@ -389,6 +385,75 @@ def test_actuatable_ids_dedup_logs_once(monkeypatch, caplog):
     joined = "\n".join(r.getMessage() for r in warn1)
     assert "rule_id=ura_domain" in joined
     assert "rule_id=name_backstop" in joined
+
+
+# ===========================================================================
+# Substring-vs-whole-word DISAGREEMENT — behavioural through BOTH routes
+# ===========================================================================
+#
+# These object_ids CONTAIN a denylist token as a substring but NOT as a
+# whole `_`-delimited word. Under whole-word matching they must SURVIVE
+# both the prefill filter AND the runtime guard. A substring regex would
+# reject them. Drill: swap the shared regex to substring → these tests
+# go RED.
+
+_SUBSTRING_SURVIVORS = [
+    "switch.detachable_cover_cam",   # "detach" as prefix inside "detachable"
+    "switch.porch_indicators",       # "indicator" as prefix inside "indicators"
+]
+_WHOLE_WORD_CONTRABAND = [
+    "switch.x_detach",
+    "switch.y_anti_interference",
+]
+
+
+def test_prefill_whole_word_vs_substring_disagree_prefill_route():
+    entries = [
+        _reg_entry(eid, "switch", area_id="area1", platform="mqtt")
+        for eid in _SUBSTRING_SURVIVORS + _WHOLE_WORD_CONTRABAND
+    ]
+    _install_registries(entries)
+    flow = _make_config_flow()
+    got = flow._get_area_entities("area1", "switch")
+    assert sorted(got) == sorted(_SUBSTRING_SURVIVORS)
+
+
+def test_runtime_whole_word_vs_substring_disagree_runtime_guard(monkeypatch):
+    reg_map = {
+        eid: SimpleNamespace(platform="mqtt", entity_category=None)
+        for eid in _SUBSTRING_SURVIVORS + _WHOLE_WORD_CONTRABAND
+    }
+    _patch_registry(monkeypatch, reg_map)
+    config = {
+        "room_name": "Disagree",
+        CONF_AUTO_DEVICES: list(
+            _SUBSTRING_SURVIVORS + _WHOLE_WORD_CONTRABAND
+        ),
+    }
+    auto, log = _make_room(config)
+    _run(auto._control_auto_switches(True))
+    ids = _switch_turn_off_ids(log, domain="homeassistant", service="turn_on")
+    assert sorted(ids) == sorted(_SUBSTRING_SURVIVORS)
+
+
+def test_actuatable_ids_registry_failure_passes_through(monkeypatch):
+    """LOW — a registry read raise must NOT block actuation; the raw ids
+    are passed through so the house keeps actuating. Drill: return [] on
+    failure → this test fails."""
+    import homeassistant.helpers.entity_registry as er  # type: ignore
+
+    def _boom(_hass):
+        raise RuntimeError("registry boom")
+
+    monkeypatch.setattr(er, "async_get", _boom)
+    config = {
+        "room_name": "RegFail",
+        CONF_AUTO_DEVICES: ["switch.a", "switch.b", "switch.c"],
+    }
+    auto, log = _make_room(config)
+    _run(auto._control_auto_switches(True))
+    ids = _switch_turn_off_ids(log, domain="homeassistant", service="turn_on")
+    assert ids == ["switch.a", "switch.b", "switch.c"]
 
 
 # ===========================================================================
