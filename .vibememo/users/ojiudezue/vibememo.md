@@ -58,3 +58,5 @@ The upstream HA Envoy fix does **not** close our path: `EnvoyClientClosedError` 
 
 
 **2026-10-08 — Z-Wave control plane.** The main Z-Wave network moved to Z-Wave JS UI and its primary radio to the network-attached SMLIGHT MRW10 (NVM restored from the Zooz stick, which is now a cold spare) because the built-in setup could never pair the garage lock securely. Z-Wave has one primary controller, so redundancy is a nightly NVM backup restorable onto the spare — not a Thread-style second gateway. → [188](entries/188_zwave_control_plane_zwave_js_ui_mrw10.json)
+
+**2026-10-09 — Bills from meter counters.** URA's bill sensors were 24-34% low because they integrated Envoy power and lost every dropout; a separate counter tracker (held by the bill tracker only) now books configurable kWh meters, priced by the TOU engine by reference. The class earned its place in review: per-leg booking and a single delta owner are structural there. Switching it on live before measuring Emporia's 15-minute cadence caused a messy hour — measure the source's cadence first. → [191](entries/191_ec_billing_meter_counters_option_b.json)

@@ -1,0 +1,14 @@
+{
+  "title": "Envoy dropouts: half follow HA restarts, half spontaneous; the Envoy itself stops answering - Realtime paused, trial readout next",
+  "type": "observation",
+  "weight": "significant",
+  "date": "2026-10-09",
+  "summary": "7 days: 18 dropouts >15 min (up to 268 min). 8 began within 60 min after an HA start (all of today's deploys); 10 spontaneous, mostly nights. In 7 of 10 long dropouts since install, ha-enphase-realtime was also blind - the box stopped answering, so integration choice cannot fix it. Operator: 'no stream integration will be more reliable than the underlying hardware.' Realtime paused (disabled) 10-09; nothing consumed its _2 entities.",
+  "why": "Operator first asked to auto-reload on stuck state, then ruled 'Don't build. Measure.' Measurement showed reloads only wait out an unresponsive Envoy.",
+  "implications": "Batch deploys into fewer restarts. Parked O3 (replace core enphase_envoy with realtime) now hinges only on restart time-to-first-value - formal trial readout per PLANNING_ec_enphase_resilience_and_p1_adjust \u00a77.3 decides it.",
+  "alternatives_considered": [
+    "Periodic auto-reload watchdog - not built (would only wait out the box)"
+  ],
+  "confidence": "medium",
+  "revisit_trigger": "Pause shows dropout counts drop materially, or trial readout shows realtime recovers far faster after restarts."
+}
