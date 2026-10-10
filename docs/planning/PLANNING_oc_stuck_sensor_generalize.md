@@ -835,3 +835,307 @@ trigger:
   develop `49b20bdfb`. Rev 1 refs (`934-935`, `1881`, `1992-1994`,
   `3922`) have drifted and should be read as the same symbol a few
   hundred lines away.
+
+---
+
+# Revision 3 — SUPERSEDES Rev 2 where in conflict (2026-10-10)
+
+Applies the plan-reviewer "Re-verify (Rev 2)" FIX-PLAN (F1-F7). **PICK A
+(persisted HA Store) is CHOSEN.** All "(if Pick A)" / "only present if
+operator picks" hedges in Rev 2 are retracted — the Store blob, its
+debounce knob, and the persistence-shaped availability accrual are part of
+the plan unconditionally. Line references re-verified on develop
+`fb60aef91`:
+
+- `optimization.py:736` and `optimization.py:881` both append to
+  `self._unsub_listeners` (the Bug Class #50 listener list used by
+  BaseCoordinator teardown).
+- `optimization.py:876` creates `self._cycle_unsub = async_track_time_interval(...)`
+  inside `async_setup()`; the Store load MUST complete before this line.
+- Evaluator tuple remains at `optimization.py:966`.
+
+Rev 2's "Open Pick (NEW)" PICK A / PICK B block is CLOSED — PICK A wins.
+Where Rev 2 said "if Pick A", Rev 3 says "do this".
+
+## Rev 3 — F1 (HIGH closed): persist availability accrual in the same blob
+
+**Problem Rev 2 left open:** `_sensor_available_since` is in-memory only.
+At the measured 16 restarts in 7 days (mean uptime ~10.5h), the 0.8·7d =
+5.6d accrual gate can **never** pass, so D3 ships permanently dormant
+even under PICK A.
+
+**Fix.** The HA Store blob keyed
+`optimization.sensor_never_fires_last_on_seen` is extended to carry a
+per-entity record, not a bare timestamp. Shape:
+
+```
+{
+  "<entity_id>": {
+    "first_seen":        "<iso datetime>",   # F2
+    "last_on_seen":      "<iso datetime>",   # original PICK A field
+    "unavailable_s":     <int seconds>       # F1 accrual, HA-down neither
+  },
+  ...
+}
+```
+
+**Gate (replaces Rev 2 availability-fraction accounting):**
+
+Never-fires fires only when BOTH:
+
+1. The entity's current state is NOT in `{unavailable, unknown}`
+   (available-now check), AND
+2. `unavailable_s_since_window_start ≤ (1 - SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION) * SENSOR_NEVER_FIRES_HORIZON_S`
+   where the window start is `max(first_seen, last_on_seen)`.
+
+Interpretation: the gate asks "how many seconds has this entity been
+`unavailable`/`unknown` since the clock last reset?" and requires that to
+be at most 20% of the horizon. HA-down time (process-not-running) counts
+as **neither** available nor unavailable — it never advances
+`unavailable_s`, so a short restart does not consume the budget. Only
+state-transition listener events add to `unavailable_s` (on transition
+BACK to a usable state, add `now - last_unavailable_stamp`).
+
+Why this works under 16 restarts in 7 days: the Store blob persists
+`unavailable_s`; the gaps between restarts (HA process down) do not
+charge the accrual; so an entity that is live and firing stays within the
+gate across restarts.
+
+**Named test (replaces Rev 2's `test_never_fires_blocked_by_unavailability_mostly_offline`
+AND the Rev 2 missing-AC):**
+
+- `test_never_fires_fires_across_frequent_restarts` — fixture simulates
+  16 restarts over 7d with a Store round-trip (`async_save` →
+  `async_load`) each time, holding an eid available throughout; assert
+  **exactly one** finding emits across the full 7d window. The eid under
+  test MUST be in the restored blob with `unavailable_s ≈ 0` and
+  `first_seen` ≥ 7d ago.
+- `test_never_fires_blocked_by_unavailability_mostly_offline` — kept;
+  fixture leaves the eid `unavailable` for 8d, asserts ZERO never-fires
+  findings AND asserts `sensor_health` sees the unavailable.
+
+## Rev 3 — F2 (HIGH closed): persisted write-once `first_seen`
+
+**Problem Rev 2 left open:** Rev 2's horizon clock was
+`max(restored_last_on, oc_tracking_start_for_entity)`. If
+`oc_tracking_start` resets at every OC setup, the clock re-floors to
+*this boot*, re-introducing dormancy.
+
+**Fix.** `first_seen[eid]` is written **once** — the first time an eid
+appears in D1's resolution — and preserved thereafter in the Store blob.
+The horizon clock is `max(first_seen, last_on_seen)`. On the very first
+boot for a brand-new eid (no restored entry), `first_seen = now`, so the
+evaluator cannot fire immediately for a sensor it has never seen. The
+first eligibility date for a brand-new eid is `first_seen + horizon`.
+
+**Named test:** `test_never_fires_no_store_first_boot_does_not_fire` —
+fixture starts with an empty Store, resolves one eid in D1, ticks the
+evaluator; assert ZERO findings on the first tick, assert
+`first_seen` was persisted, assert ONE finding emerges after
+`now + SENSOR_NEVER_FIRES_HORIZON_S + 1s` of simulated time (and a
+Store round-trip in between to prove `first_seen` survives).
+
+## Rev 3 — F3 (MEDIUM closed): prune vanished eids at load and evaluation
+
+**Fix.** At the load site (Rev 3 F5) and at the top of
+`_evaluate_sensor_never_fires_dimension`, intersect the blob keys with
+the current D1 resolution. Any eid absent from D1 is popped from the
+in-memory dict (and will not be re-persisted at the next debounce). If
+the eid later reappears in D1, `first_seen` re-floors to that moment per
+F2 (no record to restore).
+
+**Named test:** `test_never_fires_prunes_vanished_entities_on_load` —
+seed the Store with 3 eids; D1 returns only 2 at load; assert the third
+is dropped from the in-memory dict AND is not re-written to the Store on
+the next debounced save.
+
+## Rev 3 — F4 (MEDIUM closed): whole-blob `async_delay_save`, 120 s
+
+**Problem Rev 2 left open:** Rev 2 specified "≤1 write per entity per
+hour" with a per-entity 3600 s debounce. HA Store does not debounce
+per-entity, only per-blob, and 3600 s is longer than typical uptime
+between restarts — a delay-save pending at a crash is lost.
+
+**Fix.** Use `self._never_fires_store.async_delay_save(provider,
+SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S)` on every write path (listener
+observes transition; evaluator updates `first_seen`/`unavailable_s`).
+`provider` returns the current whole in-memory dict. HA flushes pending
+delay-saves at final write on clean stop; no custom `async_stop`
+listener is needed.
+
+**Knob value:** `SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S = 120` (seconds).
+Rationale: 60-300 s matches the precedent at
+`coordinator.py:2310-2343` (`Store.async_delay_save(..., 60.0)`); 120 s
+gives listener bursts time to coalesce without extending beyond the
+observed inter-restart interval (mean ~10.5h easily absorbs 120 s but a
+crash within 2 min of an update loses at most one state-transition
+record, acceptable). **This knob is a module constant** (see knob table
+below) — not operator-tunable; moving it requires review because its
+value trades crash-loss risk against write-amplification.
+
+**Named test:** `test_never_fires_debounce_flush_shape` — fixture
+patches `async_delay_save` to record calls; triggers 5 state-change
+listener callbacks in 10 s; asserts exactly one scheduled delay-save at
+120 s (not five), and that `async_save` is NOT called synchronously.
+
+## Rev 3 — F5 (MEDIUM closed): load in OC setup before the cycle timer
+
+**Problem Rev 2 left open:** Rev 2 said "one restore in
+`async_added_to_hass`", but OC is a coordinator subclass of
+BaseCoordinator, not a HA Entity, and has no `async_added_to_hass` hook.
+
+**Fix.** In `async_setup()` (verified at optimization.py:730-882), insert
+the Store load **before** `self._cycle_unsub = async_track_time_interval(
+..., SCAN_INTERVAL_OPTIMIZATION)` at line 876. Shape:
+
+```python
+# ... existing broker start, shadow-restore, etc. (lines 732-872) ...
+
+# D3 Rev 3: restore the never-fires Store blob BEFORE the first cycle
+# tick, so the evaluator sees persisted first_seen / last_on_seen /
+# unavailable_s on tick #1 rather than cold state.
+await self._never_fires_async_load()  # populates self._never_fires_state
+                                      # and self._never_fires_loaded = True
+
+# 5-min cycle (matches plan D1) — unchanged, line 876:
+self._cycle_unsub = async_track_time_interval(
+    self.hass, self._on_cycle_tick, SCAN_INTERVAL_OPTIMIZATION,
+)
+self._unsub_listeners.append(self._cycle_unsub)
+```
+
+**Evaluator guard:** `_evaluate_sensor_never_fires_dimension` returns
+`[]` while `self._never_fires_loaded is False`. If the Store load raises,
+log at WARN, set `self._never_fires_state = {}` and
+`self._never_fires_loaded = True` (fail-open to "no history", so the
+evaluator does not stay dormant forever on a corrupt blob — matches the
+`_async_load_stuck_state` posture at coordinator.py:2239-2283).
+
+**Named test:** `test_never_fires_evaluator_returns_empty_until_loaded`
+— patch the Store load to be slow; call `_evaluate_sensor_never_fires_dimension`
+before load completes; assert `[]`.
+
+## Rev 3 — F6 (resolved): one log level for unregistered entities
+
+Rev 2 had two conflicting values ("debug" in D1, "WARN" in the M1
+section). **Pick: `_LOGGER.debug(...)` for both.** Rationale: an
+unregistered entity usually means a stray external sensor or a bogus
+config entry — WARN would spam the log on every eval tick for config
+noise outside URA's control, and the D1 resolver is called every 5-min
+cycle. Debug keeps the signal usable to a troubleshooting operator
+without polluting the default log. The emit must include the entity_id
+and the resolver's reason (`"no registry entry; including as external"`).
+
+Replaces the Rev 2 D3-M1 clause "No registry entry → include with a
+`WARN` log" and aligns with Rev 2 D1's original "logs collision at
+debug".
+
+**Named test (adjusted):** rename
+`test_watched_raw_sensors_includes_unregistered_with_warn` →
+`test_watched_raw_sensors_includes_unregistered_with_debug_log`; assert
+the record is emitted at DEBUG level, not WARN.
+
+## Rev 3 — F7 (closed): listener subscription MUST append to `_unsub_listeners`
+
+**Fix.** `_evaluate_sensor_never_fires_dimension` requires a
+`async_track_state_change_event(hass, [eid, ...], self._on_never_fires_state_change)`
+subscription to drive `last_on_seen`, `first_seen` and `unavailable_s`.
+This is set up inside `async_setup()` *after* the D1 resolver has been
+called at least once (so we have an eid list to subscribe to), and the
+unsub MUST be appended to `self._unsub_listeners` — the Bug Class #50
+listener list consulted by BaseCoordinator teardown. The pattern is
+verified at optimization.py:736 (broker veto unsub) and :881 (cycle
+unsub).
+
+**Re-subscribe policy on config change:** rebuilding the subscription on
+config-entry reload is acceptable (and automatic: a reload re-runs
+`async_setup`, which pops the old `_unsub_listeners` and rebuilds). An
+in-flight options-flow edit that changes CONF_OCCUPANCY_SENSORS without a
+reload is NOT supported in v1 — if an operator reports this gap, card
+it; the Rev 2 "D1 resolution changes after an options edit also need a
+re-subscribe policy" note is answered by "rebuild on reload".
+
+**Named test:** `test_never_fires_listener_unsub_on_unload` — set up OC,
+assert `len(self._unsub_listeners)` increased by 1 for the never-fires
+subscription (compared to a control run with D3 disabled); call
+`BaseCoordinator.async_unload()` (or equivalent teardown); assert the
+subscription callback is no longer registered on the HA state bus for
+any of the D1 eids (introspect `hass.bus._listeners` or the
+`async_track_state_change_event` return cleanup).
+
+## Rev 3 — Knob ladder (replaces Rev 2 table; PICK A folded in)
+
+| Number | Default | Rung | Why |
+|---|---|---|---|
+| `SENSOR_NEVER_FIRES_HORIZON_S` | 604800 (7d) | **Module constant** (const.py, near line 4103) | Matches the AUDIT measurement window. 0 disables (kill-switch). Only a reviewed change should alter it; a shorter window raises false-positives on legitimately dormant exterior detectors. |
+| `SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION` | 0.8 | **Module constant** (const.py) | F1 gate. 0.8 means "at most 20% of the horizon spent in unavailable/unknown since `max(first_seen, last_on_seen)`". Below this, the sensor's silence is sensor_health's problem, not never-fires'. HA-down time counts as neither (not charged). |
+| `SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S` | 120 (2 min) | **Module constant** (const.py) | F4 whole-blob `Store.async_delay_save` debounce. Chosen inside the 60-300 s range of the `_async_load_stuck_state` precedent (coordinator.py:2310-2343). Short enough that a crash within the window loses at most one state-transition record; long enough to coalesce listener bursts. Not operator-tunable: trades crash-loss vs write-amplification. 0 would effectively disable debounce (every change writes) — do not set. |
+
+Removed from Rev 2's table: the Rev 2 "`SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S` ... Only
+present if operator picks the persisted-last-ON option" hedge — PICK A is
+chosen, the knob is unconditional, and its value is 120 (not 3600).
+
+Rev 1's `SENSOR_STUCK_ON_THRESHOLD_S`, `SENSOR_STUCK_ON_OVERRIDES_S`, and
+`SENSOR_NEVER_FIRES_RECORDER_CACHE_TTL_S` remain removed.
+
+## Rev 3 — Acceptance criteria (additions / changes)
+
+Supersedes Rev 2 D3 acceptance list where conflicting:
+
+- **Verify (F1):** `test_never_fires_fires_across_frequent_restarts` —
+  16 restarts over 7d with Store round-trip each, exactly ONE finding
+  emerges.
+- **Verify (F2):** `test_never_fires_no_store_first_boot_does_not_fire`
+  — brand-new eid, empty Store, no fire on tick #1; fires at
+  `first_seen + horizon`.
+- **Verify (F3):** `test_never_fires_prunes_vanished_entities_on_load`
+  — eids absent from current D1 are pruned at load AND at evaluator
+  entry.
+- **Verify (F4):** `test_never_fires_debounce_flush_shape` — whole-blob
+  `async_delay_save(..., 120)`; 5 updates in 10 s coalesce to 1 scheduled
+  save.
+- **Verify (F5):** `test_never_fires_evaluator_returns_empty_until_loaded`
+  — evaluator returns `[]` until `_never_fires_loaded` is True; load
+  happens before the first `_cycle_unsub` tick (asserted via call-order
+  spy on `_never_fires_async_load` vs `async_track_time_interval`).
+- **Verify (F6):** `test_watched_raw_sensors_includes_unregistered_with_debug_log`
+  — unregistered eids are INCLUDED, logged at DEBUG (not WARN).
+- **Verify (F7):** `test_never_fires_listener_unsub_on_unload` — the
+  state-change listener unsub is appended to `self._unsub_listeners` at
+  setup and cleared on unload.
+- **Live:** post-restart, within 10 minutes, HA logs show
+  `never-fires: restored N entries from Store` AND the OC debug log shows
+  `watched_raw_sensors n=<N>` once. Within 24h after a 7d-silent eid,
+  one `anomaly_log` row with `dedup_key=("sensor_never_fires", <eid>)`
+  appears; the row's payload carries `first_seen`, `last_on_seen`,
+  `unavailable_s`.
+- **Live (F1 discriminator):** inspect the Store blob file under
+  `.storage/optimization.sensor_never_fires_last_on_seen` after one tick
+  — it contains per-eid records with `first_seen`, `last_on_seen`,
+  `unavailable_s` fields (not bare timestamps). This is the single
+  observation that distinguishes "F1 shipped" from "Rev 2 shape shipped
+  dormant".
+
+## Rev 3 — Suppression / discharge table (deltas vs Rev 2)
+
+| Suppression | Rev 2 statement | Rev 3 change |
+|---|---|---|
+| `_sensor_available_since[eid]` + accrued counter | "reset at restart; first horizon window after restart will not satisfy the 0.8-availability gate for its first few days — this is a conscious cost" | **RETRACTED.** F1 replaces the in-memory accrued counter with persisted `unavailable_s` in the Store blob; HA-down time is uncharged. The gate is satisfiable across restarts. |
+| `_sensor_last_on_seen[eid]` (horizon clock) | "restored from Store (if operator picks persisted-last-ON) OR reset to OC start" | **Unconditional.** PICK A chosen; always restored from Store; clock is `max(first_seen, last_on_seen)` per F2. |
+
+## Rev 3 — Tier (unchanged)
+
+Tier 2. The F1-F7 fixes keep the change local to D3's own machinery; no
+shared primitive is touched. Reviewer B picks up F4 (debounce shape) and
+F5 (load-before-cycle) and F7 (listener unsub) explicitly; Reviewer A
+picks up F1 (gate arithmetic + HA-down accounting), F2 (first-seen
+write-once), F3 (prune), F6 (log level).
+
+## Rev 3 — Plan Completion / parked (deltas)
+
+- Rev 2 "Open Pick (NEW)" — CLOSED on PICK A. Rev 2 Pick-B language
+  (72h horizon under pure in-memory) remains parked as a documented
+  fallback if the Store load path ever becomes unreliable in production
+  (revival trigger: three or more live-validation runs show the blob
+  fails to restore).
+

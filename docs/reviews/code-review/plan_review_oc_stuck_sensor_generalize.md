@@ -55,3 +55,36 @@ Tier 2 is correct. There is no schema/DAO change and the shared NM/persist paths
 
 ## Must-fix in plan before build
 C1, H1, H2, M1, M2, M4.
+
+---
+
+# Re-verify (Rev 2) — 2026-10-10, against develop fb60aef91, PICK A treated as chosen
+
+**Verdict: FIX-PLAN.** Rev 2 closes C1, H1, M1, M2 and M4. **H2 is closed in a way that never fires under PICK A.** The availability accrual is in-memory and resets on restart. At the measured 16 restarts in 7 days (mean uptime about 10.5h), the gate needs 0.8 × 7d = 5.6d of accrued availability since the last boot, so it can never pass. The table at Rev 2 "Suppression / discharge", row `_sensor_available_since`, admits the reset and calls it "a conscious cost". That reasoning only held for pure in-memory; under PICK A it makes D3 permanently dormant. The plan's own "D3 ships dormant" warning applies again.
+
+## 1. Prior findings
+| ID | Closed? | Rev 2 evidence |
+|---|---|---|
+| C1 | YES | "Drop D2 entirely" + parked list with a reproduced-miss revival trigger. The no-double-surface clause is in the invariant. |
+| H1 | YES | "No recorder reads in v1. No `hass.data[recorder]` dependency; no executor jobs." Non-goals repeat it, and the Reviewer B grep is assigned. |
+| H2 | **LEAK** | The gate text is correct (state not unavailable/unknown AND accrual ≥ 0.8·horizon), but the accrual store resets on restart. See F1. |
+| M1 | YES | The D1 / "Rev 2 M1" section adds the registry `platform == DOMAIN` check and two named tests. Minor inconsistency: D1 says "log at debug" and the M1 section says "WARN". Pick one (F6). |
+| M2 | YES | Evaluator-local pop of `("sensor_never_fires", eid)` keys, with test `..._resilence_within_24h_persists_a_row`. The shared helper is untouched. |
+| M4 | YES | "at most one ... per sensor per local day" + named DST fall-back test. |
+
+## 2. PICK A Store design
+Precedent `coordinator.py:2239-2283` (`_async_load_stuck_state`) and the 2310-2343 save use `Store.async_delay_save(..., 60.0)`. HA flushes pending delay-saves at final write, so the precedent needs no stop listener. **The precedent does not face the same issues.** It persists stuck-ON `_sensor_on_since`, and its MED-1 guard requires a live-ON re-observation before acting, so it has no first-boot-floor problem and no availability accrual. It also never prunes vanished eids (harmless there).
+- **F1 (HIGH): accrual must persist, or the gate must be redefined.** Fix: persist per-eid `{first_seen, last_on_seen, unavailable_s_in_window}` in the same blob, with downtime not counted against availability. The better option drops the accrual counter and instead requires (a) the current state is available and (b) the recorded *unavailable* seconds since `max(first_seen, last_on_seen)` are ≤ (1-0.8)·horizon. Unavailable spells are captured by the listener and persisted, and HA-down time counts as neither. Test: `test_never_fires_fires_across_frequent_restarts` (simulate 16 restarts over 7d with a Store round-trip each time, and assert one finding).
+- **F2 (HIGH): first-ever boot / new entity floor is ambiguous.** "horizon clock = max(restored_last_on, oc_tracking_start_for_entity)" re-floors to *this boot* when `oc_tracking_start` is per-boot, which brings back the dormancy. Fix: persist `first_seen[eid]` (written once, the first time the eid appears in D1) and use the clock `max(first_seen, last_on_seen)`. With no Store, first_seen = now, so there is no immediate fire on first boot. Test: `test_never_fires_no_store_first_boot_does_not_fire`.
+- **F3 (MEDIUM): vanished entities are not specified.** Fix: prune any eid not in the current D1 resolution at load/evaluate time, so the blob cannot grow without bound. If the eid reappears, first_seen re-floors.
+- **F4 (MEDIUM): the debounce/flush mechanics are wrong-shaped.** "≤1 write per entity per hour" plus "flushed on `homeassistant.async_stop`" is not how Store works, and the precedent does neither. Fix: use `store.async_delay_save(provider, SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S)` (whole-blob debounce), which HA flushes at final write. Keep the knob, reworded as a blob-level delay. Note that the delay must be short enough that the restart cadence cannot drop writes: a pending delay-save IS flushed on clean stop but lost on crash. Use 60-300s like the precedent, not 3600.
+- **F5 (MEDIUM): wrong lifecycle hook.** The plan says "one restore in `async_added_to_hass`", but OC is a coordinator, not an entity. Fix: load in OC setup, BEFORE the first `_cycle_unsub` tick is armed (optimization.py:876). The evaluator also returns `[]` until loaded.
+
+## 3. Recorder / lifecycle
+No recorder or executor use remains (H1). **Unsub is not stated.** `async_track_state_change_event` on the D1 list must append to `self._unsub_listeners` (Bug Class #50; the pattern is at optimization.py:736/881). D1 resolution changes after an options edit also need a re-subscribe policy (rebuild on reload is acceptable; say so). The plan only lists this as a Reviewer B question. F7: add it to D4 as a requirement plus a test (`test_never_fires_listener_unsub_on_unload`).
+
+## 4. AC / invariant
+The invariant is falsifiable and the ACs discriminate (count per evaluator, URA-platform drop, unavailable-8d → 0 findings). The "fires across restarts" AC is MISSING, and it is the one that discriminates PICK A working from PICK A dormant. F1's test supplies it. Also fix the stale "Only present if operator picks" wording in the knob table and the "(if Pick A)" hedges now that A is chosen.
+
+## Must-fix before build
+F1, F2, F4, F5, F7 (with F3 and F6 in the same edit).
