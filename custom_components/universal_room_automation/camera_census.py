@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.103.46
+# Universal Room Automation vv5.103.47
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -77,6 +77,8 @@ from .const import (
     # tombstoned for grep-history clarity; do not re-import unless a new
     # explicit consumer is added.
     CENSUS_PEAK_SUSTAIN_SECONDS,
+    CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+    CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     EGRESS_FACE_UNION_TTL_S,
     FACE_MATCH_MIN_CONFIDENCE,
@@ -147,6 +149,144 @@ _CAMERA_PLATFORM_DAHUA = "dahua"
 # ============================================================================
 # DATACLASSES
 # ============================================================================
+
+
+@dataclass
+class CameraInputDarkFrame:
+    """FRIGATE-FLEET-DARK (Rev 2 A-MED-1/B2): stateless per-tick frame.
+
+    This is the SINGLE source of truth for the "camera input is dark"
+    question — narrower than ``CensusResult.degraded_mode``, which is
+    True permanently on a Protect-only house and whenever Frigate is
+    down with Protect binary platforms up. ``dark_now`` requires
+    denominator > 0 (Frigate IS configured) AND either
+    ``fraction >= fire_threshold`` or ``frigate_status_2`` is bad.
+
+    Both the census (hysteresis-latched for the signal payload / binary
+    sensor) and the optimizer evaluator (dwell-gated for the NM
+    one-shot) call ``compute_camera_input_dark_frame`` so there is
+    exactly one definition of "dark".
+    """
+
+    denominator: int
+    unavailable_count: int
+    fraction: float
+    status2_state: str | None
+    status2_bad: bool
+    dark_now: bool
+    affected: list[str]
+
+
+def compute_camera_input_dark_frame(
+    hass,
+    camera_manager,
+    fire_threshold: float = CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+) -> CameraInputDarkFrame:
+    """Compute the raw per-tick camera-input dark frame.
+
+    PRODUCER arithmetic:
+      denominator       = count of Frigate CameraInfo entries with a
+                          non-empty ``person_count_sensor``.
+      unavailable_count = how many of those read ``unavailable`` /
+                          ``unknown`` / missing in ``hass.states``.
+      fraction          = unavailable_count / denominator (0.0 if
+                          denominator == 0).
+      status2_bad       = ``sensor.frigate_status_2`` state is
+                          ``unavailable`` / ``unknown`` / missing.
+      dark_now          = (denominator > 0)
+                           AND (fraction >= fire_threshold OR status2_bad)
+
+    Fail-safe: any exception returns a zero / safe frame
+    (``dark_now = False``). The caller decides what to do.
+    """
+    affected: list[str] = []
+    denominator = 0
+    unavailable_now = 0
+    status2_state: str | None = None
+    status2_bad = False
+    try:
+        frigate_cams = (
+            camera_manager.get_all_frigate_cameras()
+            if camera_manager is not None else []
+        )
+    except Exception:  # noqa: BLE001
+        frigate_cams = []
+    sensors = [
+        ci.person_count_sensor for ci in frigate_cams
+        if getattr(ci, "person_count_sensor", None)
+    ]
+    denominator = len(sensors)
+    for eid in sensors:
+        try:
+            st = hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None:
+            unavailable_now += 1
+            if len(affected) < 10:
+                affected.append(eid)
+            continue
+        try:
+            val = str(st.state).strip().lower()
+        except Exception:  # noqa: BLE001
+            val = ""
+        if val in ("unavailable", "unknown", "", "none"):
+            unavailable_now += 1
+            if len(affected) < 10:
+                affected.append(eid)
+    try:
+        s2 = hass.states.get("sensor.frigate_status_2")
+        if s2 is not None:
+            status2_state = str(s2.state)
+            status2_bad = (
+                str(status2_state).strip().lower()
+                in ("unavailable", "unknown", "", "none")
+            )
+    except Exception:  # noqa: BLE001
+        status2_state = None
+        status2_bad = False
+    fraction = (
+        (float(unavailable_now) / float(denominator))
+        if denominator > 0 else 0.0
+    )
+    # NARROWING INVARIANT (B2): dark_now requires denominator > 0.
+    # A Protect-only house (no Frigate configured) reads False here
+    # even though ``CensusResult.degraded_mode`` would be True.
+    dark_now = (
+        denominator > 0
+        and (fraction >= fire_threshold or status2_bad)
+    )
+    return CameraInputDarkFrame(
+        denominator=denominator,
+        unavailable_count=unavailable_now,
+        fraction=fraction,
+        status2_state=status2_state,
+        status2_bad=status2_bad,
+        dark_now=dark_now,
+        affected=affected,
+    )
+
+
+def apply_camera_input_dark_hysteresis(
+    latched: bool,
+    frame: CameraInputDarkFrame,
+    clear_threshold: float = CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
+) -> bool:
+    """Compute the next latched state given the previous latch + a frame.
+
+    Hysteresis contract:
+      * if NOT latched: flip to True when ``frame.dark_now``.
+      * if latched: flip to False only when
+          ``fraction < clear_threshold AND not status2_bad``
+        (asymmetric band — a flap between fire/clear thresholds does
+        NOT clear the latch).
+    """
+    if latched:
+        if (frame.fraction < clear_threshold
+                and not frame.status2_bad):
+            return False
+        return True
+    return bool(frame.dark_now)
 
 
 @dataclass
@@ -1163,6 +1303,15 @@ class PersonCensus:
         self.hass = hass
         self._camera_manager = camera_manager
         self._last_result: FullCensusResult | None = None
+        # FRIGATE-FLEET-DARK (Rev 2 A-MED-1/B2): hysteresis-latched
+        # "camera input is dark" flag. NARROWER than
+        # ``CensusResult.degraded_mode`` — False on a Protect-only
+        # house, and only True when Frigate IS configured AND
+        # (fraction >= FIRE OR frigate_status_2 bad), with clear below
+        # CLEAR + status_2 nominal. Updated on every census dispatch
+        # tick in ``update_person_census``.
+        self._camera_input_dark_latched: bool = False
+        self._camera_input_dark_last_frame: CameraInputDarkFrame | None = None
         self._update_lock = asyncio.Lock()
         # v4.2.6: Defer census DB writes during startup to reduce write queue contention
         self._created_at: datetime = dt_util.now()
@@ -1647,6 +1796,18 @@ class PersonCensus:
         #     used for `count_as_of`.
         _dispatch_utcnow = dt_util.utcnow()
         _count_as_of_iso = _dispatch_utcnow.isoformat()
+        # FRIGATE-FLEET-DARK (Rev 2 A-MED-1/B2): compute the narrow,
+        # hysteresis-latched ``camera_input_dark`` from the shared
+        # module-level helper so the census, the optimizer evaluator,
+        # the binary sensor and the presence α-veto gate all read ONE
+        # definition. Degraded_mode is NOT this signal (it is permanent
+        # True on Protect-only houses). dark_now requires Frigate
+        # configured AND (fraction>=fire OR frigate_status_2 bad).
+        # FRIGATE-FLEET-DARK (Rev 2 fix-up Review-C): the latch refresh
+        # lives in a dedicated method so behavioral tests can drive the
+        # exact lines (M2a hysteresis call, M2b helper-with-no-cm,
+        # M2c latch wire) without re-running the entire census body.
+        self._refresh_camera_input_dark_latch()
         _peak_age_seconds = self._compute_peak_age_seconds(
             self._peak_house_timestamp,
             bool(getattr(house_result, "peak_held", False)),
@@ -1669,6 +1830,19 @@ class PersonCensus:
                 "source_agreement": house_result.source_agreement,
                 # GAP-A D8: camera-only identity count for path-α veto.
                 "face_recognized_count": len(_face_recognized),
+                # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2):
+                # NARROW, hysteresis-latched "camera input is dark"
+                # signal. This is the key presence reads for the
+                # α-veto gate and the binary sensor mirrors. The
+                # legacy ``degraded_mode`` key is kept for grep /
+                # observability only (True on Protect-only houses —
+                # NOT suitable as a trust gate).
+                "camera_input_dark": bool(
+                    self._camera_input_dark_latched
+                ),
+                "degraded_mode": bool(
+                    getattr(house_result, "degraded_mode", False)
+                ),
                 # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
                 "peak_held": bool(getattr(house_result, "peak_held", False)),
                 "peak_age_seconds": _peak_age_seconds,
@@ -1697,6 +1871,37 @@ class PersonCensus:
             )
 
         return result
+
+    def _refresh_camera_input_dark_latch(self) -> None:
+        """FRIGATE-FLEET-DARK Rev 2 fix-up Review-C.
+
+        Compute the current camera-input dark frame via the shared
+        helper and apply hysteresis to update
+        ``self._camera_input_dark_latched``. Behavioral tests drive
+        this directly:
+          * M2a — mutate the hysteresis call → latch wrong on recovery.
+          * M2b — call the helper with None in place of the camera
+            manager → frame is empty → dark_now False regardless.
+          * M2c — mutate the payload bool wire-up at the signal site
+            (``_build_census_signal_payload``) → payload camera_input_dark
+            disagrees with the latch.
+        Fail-safe: on compute exception the latch is unchanged — a
+        bad tick cannot flip the operator-visible state.
+        """
+        try:
+            frame = compute_camera_input_dark_frame(
+                self.hass, self._camera_manager,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "camera_input_dark frame compute failed; keeping latch=%s",
+                self._camera_input_dark_latched, exc_info=True,
+            )
+            return
+        self._camera_input_dark_last_frame = frame
+        self._camera_input_dark_latched = apply_camera_input_dark_hysteresis(
+            self._camera_input_dark_latched, frame,
+        )
 
     @property
     def last_result(self) -> FullCensusResult | None:
@@ -3499,6 +3704,19 @@ class PersonCensus:
         s = str(name).strip().lower()
         if not s:
             return ""
+        # CENSUS-NAME-SPACE-DEDUP-1 (2026-10-09): normalise runs of
+        # whitespace and hyphens to a single "_" BEFORE direct- /
+        # first-token- / guest-matching, so display-name forms like
+        # "Oji Udezue" (UniFi Protect face names) and "Oji-Udezue"
+        # collapse to the URA slug namespace ("oji_udezue") rather than
+        # passing through as a divergent third name. Without this,
+        # `identified_persons` contained both "oji udezue" (space) and
+        # "oji_udezue" and double-counted one resident into GUEST mode.
+        # Preserves fail-closed ambiguity + guest:<head> fallthrough:
+        # the only change is the shape of `s` before matching.
+        s = "_".join(s.replace("-", " ").split())
+        if not s:
+            return ""
         tracked = self._get_tracked_person_slugs()
         # Direct-match (already URA-canonical, incl. any casing).
         if s in tracked:
@@ -3534,7 +3752,8 @@ class PersonCensus:
         except Exception:  # noqa: BLE001 — options read is best-effort
             guests = []
         for g in guests:
-            g_head = str(g).strip().lower().split("_", 1)[0]
+            # Same space/hyphen normalisation as the incoming name above.
+            g_head = "_".join(str(g).lower().replace("-", " ").split()).split("_", 1)[0]
             if g_head and g_head == head:
                 return f"guest:{head}"
         # Fallback: preserve the (lowercased) identifier verbatim.

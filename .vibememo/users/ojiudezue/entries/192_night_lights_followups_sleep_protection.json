@@ -1,0 +1,14 @@
+{
+  "title": "Night lights: off on vacancy regardless of exit action; on in Sleep even under sleep protection (main lights still gated)",
+  "type": "decision",
+  "weight": "significant",
+  "date": "2026-10-09",
+  "summary": "v5.103.42 rule shipped, then live found Living Room night light on all night (exit_light_action=leave_on governed OFF) -> 5.103.43 turns rule-lit night lights off on vacancy except leave-on-when-empty lights, and uses Sleep colour from house Sleep via a narrow helper (a first draft that dropped the sleep-protection gate would have switched main lights off in Sleep - both reviews blocked it). Operator ruling (a) -> 5.103.44: under the sleep-protection motion gate (bypass=3) occupied rooms still get night lights; gated exits turn them off.",
+  "why": "Operator: night lights should generally come on during sleep; sleep protection exists to suppress main lights, not night lights. Master Toilet got no light at 04:49 because the gate short-circuited all automation and the reconciler is state-change driven.",
+  "implications": "Several stale test oracles encoded the old entry_action contract and had to be updated (verified both controllers first). Operator HA night-light automations stay ON until each room's URA automation is turned on by the operator; then turned off, never deleted.",
+  "alternatives_considered": [
+    "(b) keep waiting for the 3rd motion under sleep protection - rejected by operator"
+  ],
+  "confidence": "high",
+  "revisit_trigger": "Night light left on after vacancy, or main lights changed by night-light paths."
+}

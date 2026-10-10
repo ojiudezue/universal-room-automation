@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.46
+# Universal Room Automation vv5.103.47
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -162,6 +162,10 @@ async def async_setup_entry(
             ECSubSwitchesSyncedSensor(hass, entry),
             # v4.7.x Cycle A: WeatherProviderManager divergence flag
             WeatherDivergenceBinarySensor(hass, entry),
+            # FRIGATE-FLEET-DARK (PLANNING_frigate_down_tripwire.md
+            # Rev 2 D3): sticky mirror of camera_census
+            # `CensusResult.house.degraded_mode`.
+            CameraInputDegradedBinarySensor(hass, entry),
         ]
         # v4.7.8 D5: per-canonical-HVAC-zone egress window open rollup sensor.
         try:
@@ -3185,6 +3189,162 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
             }
         except Exception:
             return {}
+
+
+# ============================================================================
+# FRIGATE-FLEET-DARK (Rev 2 D3): Camera Input Degraded
+# ============================================================================
+
+
+class CameraInputDegradedBinarySensor(BinarySensorEntity):
+    """On when the camera-input fleet is degraded.
+
+    Entity: ``binary_sensor.ura_camera_input_degraded``
+    Device: URA: Coordinator Manager
+
+    Pure mirror of the existing ``CensusResult.house.degraded_mode``
+    (``camera_census.py:176``, flipped at ``:1905`` + ``:1917``) — no
+    second latch, no second dwell. The twin NM one-shot (fleet-dark
+    tripwire) lives on the OptimizationCoordinator and governs
+    notification de-duplication only; this flag flips immediately on
+    dark so operators get an at-a-glance "something is wrong"
+    indicator. Both truths are surfaced here as attributes.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cctv-off"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_camera_input_degraded"
+        # Label style guide: entity name ≤3 words, plain words.
+        self._attr_name = "Camera Input Dark"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to census + optimizer evaluation ticks."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_CENSUS_UPDATED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_CENSUS_UPDATED, self._on_census_signal,
+            )
+        )
+
+    @callback
+    def _on_census_signal(self, _payload=None) -> None:
+        """Push state on census update tick."""
+        self.async_write_ha_state()
+
+    def _census(self):
+        """Latest FullCensusResult (or None)."""
+        try:
+            cens = self.hass.data.get(DOMAIN, {}).get("census")
+            if cens is None:
+                return None
+            return getattr(cens, "last_result", None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _optimizer(self):
+        """OptimizationCoordinator reference (or None)."""
+        try:
+            cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if cm is None:
+                return None
+            opts = getattr(cm, "coordinators", None) or {}
+            return opts.get("optimization")
+        except Exception:  # noqa: BLE001
+            return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return True iff the NARROW camera_input_dark latch is set.
+
+        Fix-up A-MED-1/B2: reads
+        ``PersonCensus._camera_input_dark_latched`` — the shared,
+        hysteresis-latched derivation that requires Frigate configured
+        AND (fraction>=FIRE OR frigate_status_2 bad). This is NOT
+        ``CensusResult.house.degraded_mode`` (which is permanently True
+        on a Protect-only house and reads True whenever Frigate is down
+        + Protect binary is up — not actionable as a dark signal).
+        """
+        try:
+            cens = self.hass.data.get(DOMAIN, {}).get("census")
+            if cens is None:
+                return False
+            return bool(
+                getattr(cens, "_camera_input_dark_latched", False)
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the diagnostic payload described in the plan (§3 D3-a)."""
+        opt = self._optimizer()
+        attrs: dict = {
+            "fraction_unavailable": 0.0,
+            "unavailable_count": 0,
+            "denominator": 0,
+            "frigate_status_2_state": None,
+            "affected_entities": [],
+            "nm_latch_fired": False,
+            "boot_settle_remaining_s": 0,
+        }
+        if opt is not None:
+            try:
+                attrs["fraction_unavailable"] = round(
+                    float(getattr(opt, "_camera_input_dark_last_fraction", 0.0)),
+                    4,
+                )
+                attrs["unavailable_count"] = int(
+                    getattr(opt, "_camera_input_dark_last_unavailable", 0)
+                )
+                attrs["denominator"] = int(
+                    getattr(opt, "_camera_input_dark_last_denominator", 0)
+                )
+                attrs["frigate_status_2_state"] = getattr(
+                    opt, "_camera_input_dark_last_status2_state", None,
+                )
+                attrs["affected_entities"] = list(
+                    getattr(opt, "_camera_input_dark_last_affected", []) or []
+                )
+                attrs["nm_latch_fired"] = bool(
+                    getattr(opt, "_camera_input_dark_fired", False)
+                )
+                from .const import BOOT_SETTLE_S as _BOOT_SETTLE_S
+                boot_ref = getattr(
+                    opt, "_camera_input_dark_boot_ref", None,
+                )
+                if boot_ref is not None:
+                    elapsed = (dt_util.utcnow() - boot_ref).total_seconds()
+                    attrs["boot_settle_remaining_s"] = max(
+                        0, int(_BOOT_SETTLE_S - elapsed),
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+        # Face-producer health reason from camera_census (:3854 et al).
+        try:
+            cens = self.hass.data.get(DOMAIN, {}).get("census")
+            attrs["face_producer_health_reason"] = str(
+                getattr(cens, "_face_producer_health_reason", "live")
+                or "live"
+            )
+        except Exception:  # noqa: BLE001
+            attrs["face_producer_health_reason"] = "live"
+        return attrs
 
 
 # ============================================================================

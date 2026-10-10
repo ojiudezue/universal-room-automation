@@ -1,0 +1,15 @@
+{
+  "title": "Bill tracker accrues from kWh meter counters (separate tracker class), not Envoy power integration",
+  "type": "decision",
+  "weight": "critical",
+  "date": "2026-10-09",
+  "summary": "URA bill/cost sensors read 24-34% low vs three PEC bills because CostTracker integrated Envoy live power and every dropout lost energy. v5.103.45/46: CounterAccrualTracker (held only by CostTracker, mutated only in accumulate) books import/export deltas from configurable kWh counters (EC GRID_IMPORT/EXPORT fields; live = Emporia daily counters), priced per slice by the TOURateEngine by reference (flat rate works), lossless across gaps/restarts; 'Bill from' Auto/Meter totals/Power readings; Meter outage days sensor + attributes; day-start guard fixes the 4 impossible energy_daily rows (baseline-zero, units correct: Envoy lifetime MWh). Live: counter mode confirmed 11:28 10-09.",
+  "why": "Emporia daily counters match the bill ~98%. Operator: fix existing EC code, TOU by reference (TOU must not become fragile), configurable for other installs, flat rate must work; a new class only if it earns it - it did after reviews: per-leg booking, single delta owner, no double count are structural there (option A would rely on convention).",
+  "implications": "Counters update every ~15 min: bill sensors step, they don't glide. Backfill script is broken (dry run: all SKIP novalue) - past periods stay low until fixed. Live incident: switching on before measuring Emporia's cadence, then a half-revert the options form could not undo, cost ~1.5h; lessons: measure source cadence before live enable; re-read code before reverting.",
+  "alternatives_considered": [
+    "Option A: extend CostTracker in place (rejected after review findings #2-#4)",
+    "Config-only repoint (impossible: power slots expect W)"
+  ],
+  "confidence": "medium",
+  "revisit_trigger": "End-of-day import not within 2% of Emporia daily counter on a full day."
+}

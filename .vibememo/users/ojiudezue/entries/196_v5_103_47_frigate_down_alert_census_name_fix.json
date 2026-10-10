@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "196",
+  "author": "ojiudezue",
+  "session_id": "claude_20261010_045409_ship_v5_103_47",
+  "timestamp": "2026-10-10T04:54:09Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.47 shipped: Frigate-down alert + census name fix",
+  "summary": "Frigate-down alert + census name fix",
+  "why": "Frigate 2 sat in setup_retry 58h unnoticed while census read the dark fleet as nobody home; a clean replay then showed all 6 GUEST triggers were one resident double-counted because the canonicaliser split names only on underscores. Alert reuses the census degraded producer behind one shared 'dark' definition (Protect-only houses never dark) and bypasses digest deferral so it actually pages; presence skips only path alpha so beta/GUEST-exit/SLEEP keep working.",
+  "implications": "Shipped PERIMETER-DETECTION-WENT-DARK-1, CENSUS-NAME-SPACE-DEDUP-1 at v5.103.47; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.47.md (Live criteria).",
+  "revisit_trigger": "If camera_input_dark pages without a real outage, or a Frigate outage passes without a page; if GUEST false positives persist after the name fix, build the hybrid census estimator.",
+  "refs": {
+    "cards": [
+      "PERIMETER-DETECTION-WENT-DARK-1",
+      "CENSUS-NAME-SPACE-DEDUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.47.md"
+    ],
+    "release_notes": "Pages when the Frigate camera fleet goes dark (new Camera Input Dark sensor; presence stops treating dark cameras as an empty house). Census counts a resident once across 'Oji Udezue'/'oji_udezue' name forms (stops false GUEST)."
+  }
+}
