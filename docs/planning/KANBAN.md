@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T02:00:23-05:00_ - _Data commit: `88883e6f10e5`_ - _last_reconciled: 2026-10-09_
+_Generated: 2026-10-10T02:04:02-05:00_ - _Data commit: `ea6171756ca2`_ - _last_reconciled: 2026-10-09_
 
 
 ## Columns
@@ -345,7 +345,7 @@ _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
 thread: **security** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-07 03:05 · updated 2026-10-09 02:12 · initial_
+_created 2026-10-07 03:05 · updated 2026-10-10 02:40 · initial_
 - **Problem / Solution:**
   - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
 - **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
@@ -354,7 +354,8 @@ _created 2026-10-07 03:05 · updated 2026-10-09 02:12 · initial_
 - **Tags:** config-only
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `reverified_2026_10_10_overnight`: Still open: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed = the 10-09 11:27 restart); URA security periodic lock check logged it unavailable at 01:30 CDT. Batteries not swapped yet.
   - `reverified_2026_10_09_overnight`: Still open: lock.doorlock_kwikset_zwave_frontentry unavailable through the whole 48 h recorder window (02:01 10-07 -> 02:01 10-09). Batteries not swapped yet.
   - `checked_2026_10_08_overnight`: Lock still unavailable at 02:05 CDT 10-08 (REST: state unavailable, restored, last_changed 10-06 19:41Z), so the batteries have not been swapped yet. ON THE SWEEP QUESTION (read security.py:1668-1760, _evaluate_lock_check): URA's periodi...
   - `operator_decision_2026_10_07`: Yes the locks are dead battery for front door. It ran down quick, not sure if that's repeated sweeps doing that. I'll change and you can measure. Also thinking of moving to the other z wave controller since that's Poe and can be moved (r...
@@ -362,13 +363,14 @@ _created 2026-10-07 03:05 · updated 2026-10-09 02:12 · initial_
 
 ### `HA-TRUSTED-PROXIES-UI-MIGRATION-1` - Remove the now-ignored YAML http/trusted_proxies block (HA already imported it into the UI on 2026-08-12) — _#2 · WSJF 10.0 · v4 tc4 u2 /e1_
 thread: **platform** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-09 02:12 · refined_
+_created 2026-10-05 · updated 2026-10-10 02:40 · refined_
 - **Problem / Solution:**
   - Problem: HA already moved the reverse-proxy trust settings from configuration.yaml into its own UI settings on 2026-08-12, but the old YAML block is still in the file, so HA shows two repair warnings and a future reader may think the YAM...
 - **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
 - **Next:** APPROVE: I back up configuration.yaml and delete its http: block (lines 87-93; the UI already holds all four proxies), then after your next normal restart I confirm the two http repairs are gone and the PWA / remote access still loads. (...
 - **Tags:** tier-1, multi-home
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `reverified_2026_10_10_overnight`: Still open: configuration.yaml lines 87-93 still hold the http: block; mtime 2026-09-28.
   - `reverified_2026_10_09_overnight`: Still open: /config/configuration.yaml lines 87-93 still carry the http: block (use_x_forwarded_for + 4 trusted_proxies); the file mtime is 2026-09-28.
   - `verified_2026_10_08_overnight`: CARD-WAS-WRONG (timing) + ALREADY-DONE (migration). HA 2026.10.0 is now offered (update.home_assistant_core_update latest 2026.10.0, installed 2026.9.4). The 2026.10 release notes say nothing about http. The http integration docs say the...
   - `verified_2026_10_05_overnight`: Not yet actionable: live update.home_assistant_core_update installed 2026.9.4 = latest 2026.9.4 (2026.10 not released yet). Moved investigating -> waiting_me: no measurement possible until release day; trigger = core update entity offers...
@@ -409,11 +411,12 @@ _created 2026-10-05 02:22 · initial_
 
 ### `BLE-PROXY-PLACEMENT-1` - Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes — _#5 · WSJF 6.0 · v7 tc3 u2 /e2_
 thread: **presence** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-09 02:12_
+_created 2026-10-05 · updated 2026-10-10 02:40_
 - **Why:** Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Gara...
 - **Next:** DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back.
 - **Tags:** tier-1, config-first
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `reverified_2026_10_10_overnight`: Still open: Screek BP1_B still unavailable (button.screek_bp1_b_factory_reset unavailable since the 10-09 11:23 restart).
   - `reverified_2026_10_09_overnight`: The "which room is Screek BP1_B in" ANSWER appears to be done: its entities (button.screek_bp1_b_factory_reset / _safe_mode_boot) now carry area = Study A. BUT the device is UNAVAILABLE (both buttons unavailable; sensor.jaya_bedroom_ipho...
   - `reverified_2026_10_05_overnight`: New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-...
   - `sweep_2026_10_05`: ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> ...
@@ -426,29 +429,7 @@ _created 2026-09-30 08:40 · updated 2026-10-08 03:20_
 - **Forensic keys (1):**
   - `verified_2026_10_08_overnight`: STILL-REAL: no CONF_LIGHTS_GUEST_MODE in custom_components (grep 03:20 CDT); README_v5.103.29 'Guest — deferred' confirms Guest = same as Home for lights today. Card had no updated field (hygiene fix).
 
-### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#7 · WSJF 5.0 · v4 tc4 u2 /e2_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-09 02:12 · initial_
-- **Problem / Solution:**
-  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
-- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
-- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
-- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
-- **Tags:** tier-1, found-during-probe, config-first
-- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (10):**
-  - `reverified_2026_10_09_overnight`: Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore).
-  - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
-  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
-  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
-  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
-  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
-  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
-  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
-  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
-  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
-
-### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-10-10 02:25 · initial_
 - **Problem / Solution:**
@@ -484,6 +465,29 @@ _created 2026-08-20 14:15 · updated 2026-10-10 02:25 · initial_
   - `verify_2026_09_30_overnight`: STILL-NEEDS-OPERATOR, PARTLY UNVERIFIED. REST read 02:45 CDT: automation.pantry_plug_in_adaptive_lighting is still ON and last ran 2026-09-30 01:35Z, so it was not disabled; number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstart...
   - `verify_2026_10_02_overnight`: LOG-READ GAP CLOSED. The home-assistant MCP could not connect this run either, so I read HA's own system_log (system_log/list over the HA websocket, run on the HA host via ssh; deduplicated WARNING+ with counts since first occurrence). (...
+
+### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#8 · WSJF 5.0 · v4 tc4 u2 /e2_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-29 04:20 · updated 2026-10-10 02:40 · initial_
+- **Problem / Solution:**
+  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
+- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
+- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
+- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
+- **Tags:** tier-1, found-during-probe, config-first
+- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
+- **Forensic keys (11):**
+  - `reverified_2026_10_10_overnight`: Still open: switch.exercise_room_automation off (last_changed 10-09 11:23 = restart restore).
+  - `reverified_2026_10_09_overnight`: Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore).
+  - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
+  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
+  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
+  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
+  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
+  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
+  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
+  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
+  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#9 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
@@ -922,7 +926,7 @@ _live, awaiting proof_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **shipped_organic** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-09 02:12 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-10 02:40 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -931,7 +935,8 @@ _created 2026-09-16 03:30 · updated 2026-10-09 02:12 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (25):**
+- **Forensic keys (26):**
+  - `remeasured_2026_10_10_overnight`: Frigate2 healthy now (sensor.frigate_status_2 running, detection_fps_2 = 60). Two short blips on 10-09, NOT hangs: unavailable 05:16:38-05:17:03 and 22:55:11-22:55:45 CDT (25-35 s each, neither at an HA restart - those were 07:54/08:17/0...
   - `tripwire_shipped_2026_10_09`: v5.103.47 ships the fleet-dark trip-wire (camera_input_dark NM pages, binary_sensor.ura_camera_input_degraded, presence alpha skip when dark). Plan PLANNING_frigate_down_tripwire.md Rev 2; D2 auto-reload parked. Restart pending (house as...
   - `measured_2026_10_09_overnight`: RECOVERED (fifth outage over). sensor.frigate_status_2 unavailable->running at 2026-10-08 12:14 CDT; Frigate2 host 192.168.13.18 answers ping, container up 14 h (healthy). Recorder: 381 person ONs across 13 *_person_occupancy_2 sensors s...
   - `REOPENED_2026_10_07_overnight_host_off_network`: FIFTH OUTAGE, ONGOING (overnight 10-07, HA REST states + recorder history via ssh-proxied /api; ping from the HA host). sensor.frigate_status_2 running -> unavailable at 2026-10-06 07:08Z (02:08 CDT); every Frigate2 person/motion entity ...

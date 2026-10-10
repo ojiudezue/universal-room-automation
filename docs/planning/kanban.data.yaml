@@ -27737,6 +27737,7 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
+  remeasured_2026_10_10_overnight: "Frigate2 healthy now (sensor.frigate_status_2 running, detection_fps_2 = 60). Two short blips on 10-09, NOT hangs: unavailable 05:16:38-05:17:03 and 22:55:11-22:55:45 CDT (25-35 s each, neither at an HA restart - those were 07:54/08:17/09:37/11:27). They look like Frigate process restarts; cause not checked from HA. v5.103.47 (the dark trip-wire) is installed but not loaded - HA has not restarted since (binary sensor camera_input_degraded does not exist yet). Its live check waits for your next daytime restart."
   tripwire_shipped_2026_10_09: "v5.103.47 ships the fleet-dark trip-wire (camera_input_dark NM pages, binary_sensor.ura_camera_input_degraded, presence alpha skip when dark). Plan PLANNING_frigate_down_tripwire.md Rev 2; D2 auto-reload parked. Restart pending (house asleep)."
   measured_2026_10_09_overnight: "RECOVERED (fifth outage over). sensor.frigate_status_2 unavailable->running at 2026-10-08 12:14 CDT; Frigate2 host 192.168.13.18 answers ping, container up 14 h (healthy). Recorder: 381 person ONs across 13 *_person_occupancy_2 sensors since 12:14 (pool_equipment 219, back_yard 52, armcrestash41b 30, madrone_g6_entry 27, playroom 21, garage_a 8, doorbell_lite 7, others 2-4). Detection is working again. The hang pattern (5 outages since 09-16) is unexplained, so the Coral/scheduled-restart PICK still stands."
   REOPENED_2026_10_07_overnight_host_off_network: "FIFTH OUTAGE, ONGOING (overnight 10-07, HA REST states + recorder history via ssh-proxied /api; ping from the HA host). sensor.frigate_status_2 running -> unavailable at 2026-10-06 07:08Z (02:08 CDT); every Frigate2 person/motion entity went unavailable (53 frigate/_2/_3 entities unavailable now); device_tracker.frigate2 not_home since 07:34Z; ping 192.168.13.18 from HA = 100% loss (2/2). Last Frigate2 person ON: back_yard 10-06 00:30Z. So ~24 h with no Frigate2 detection and nothing alerted. UniFi Protect is ALIVE (63 *_person_detected sensors available, latest change 02:41Z 10-07), so the house is degraded, not blind. CARD-WAS-WRONG: last night's pass (02:08 CDT 10-06) said 'Frigate2 has not hung again since 10-03' - it went dark that same minute. Co-occurrence noted, NOT a mechanism: the overnight pass only reads HA over ssh/REST and never contacts 192.168.13.18; the earlier outages (09-25 19:18, 10-01 16:22 CDT) were not at pass time."
@@ -27753,7 +27754,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.47
   created: '2026-09-16 03:30'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-10 02:40"
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
@@ -30560,6 +30561,7 @@ cards:
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
+  reverified_2026_10_10_overnight: "Still open: switch.exercise_room_automation off (last_changed 10-09 11:23 = restart restore)."
   reverified_2026_10_09_overnight: "Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore)."
   reverified_2026_10_08_overnight: "switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed."
   reverified_2026_10_05_overnight: "STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding."
@@ -30571,7 +30573,7 @@ cards:
   thread: presence
   status: 'waiting_operator'
   created: '2026-09-29 04:20'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-10 02:40"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
@@ -30873,6 +30875,7 @@ cards:
   wigton_log_2026_10_05: 'WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; removal 2027.8 (Wigton site __init__.py:4842). (2) device_registry.devices used as a mapping (.values()) -> iterate dev_reg.devices directly or use async_entries_for_config_entry; removal 2027.9 (Wigton sites __init__.py:4764, _devices.py:438, _devices.py:607). Wigton runs an older URA so line numbers differ. FULL develop sweep (grep): async_get_device at __init__.py:1055, 1061, 1092, 4864; entity.py:80; config_flow.py:10336, 11503 (7 sites). devices.values() at __init__.py:4786; button.py:302; _devices.py:267, 345, 438, 607 (6 sites). Plus show_advanced_options (2027.6) from the main house. Device-registry surgery -> read docs/architecture/DEVICE_TREE.md + DEFRAG postmortem first; same-identifier hazard is exactly why HA deprecated async_get_device. Tier 2 (shared device-tree primitive), not a hotfix.'
   sweep_2026_10_05: 'ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.'
 - id: HA-TRUSTED-PROXIES-UI-MIGRATION-1
+  reverified_2026_10_10_overnight: "Still open: configuration.yaml lines 87-93 still hold the http: block; mtime 2026-09-28."
   reverified_2026_10_09_overnight: "Still open: /config/configuration.yaml lines 87-93 still carry the http: block (use_x_forwarded_for + 4 trusted_proxies); the file mtime is 2026-09-28."
   problem_solution: "Problem: HA already moved the reverse-proxy trust settings from configuration.yaml into its own UI settings on 2026-08-12, but the old YAML block is still in the file, so HA shows two repair warnings and a future reader may think the YAML is what counts. Solution: back up configuration.yaml and delete the old http block (lines 87-93); nothing changes until the next restart, and the UI settings already hold all four proxies."
   refinement_status: "refined"
@@ -30883,12 +30886,13 @@ cards:
   rank: {value: 4, time_criticality: 4, effort: 1}
   status: "waiting_operator"
   created: '2026-10-05'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-10 02:40"
   tags: [tier-1, multi-home]
   why: 'Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.10 change (release ~Oct 7). Main house configuration.yaml:87-91 has use_x_forwarded_for + trusted_proxies [172.30.33.0/24, 192.168.13.73] (add-on subnet + reverse proxy). If the migration misbehaves the reverse-proxied access (PWA/remote) breaks with 400s.'
   next: "APPROVE: I back up configuration.yaml and delete its http: block (lines 87-93; the UI already holds all four proxies), then after your next normal restart I confirm the two http repairs are gone and the PWA / remote access still loads. (Or DO it yourself.) Same check on Wigton when you are next on that network."
   sweep_2026_10_05: 'NEW: no prior card on http/trusted_proxies.'
 - id: BLE-PROXY-PLACEMENT-1
+  reverified_2026_10_10_overnight: "Still open: Screek BP1_B still unavailable (button.screek_bp1_b_factory_reset unavailable since the 10-09 11:23 restart)."
   reverified_2026_10_09_overnight: "The \"which room is Screek BP1_B in\" ANSWER appears to be done: its entities (button.screek_bp1_b_factory_reset / _safe_mode_boot) now carry area = Study A. BUT the device is UNAVAILABLE (both buttons unavailable; sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable), so the scanner is not contributing right now. Proxy placement (Foyer first) cannot be verified from HA alone."
   reverified_2026_10_05_overnight: "New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-to-screek_bp1_b sensors unavailable since 00:26Z (REST /api/states). So it currently contributes nothing wherever it is; when you answer which room it is in, also DO power-cycle / re-join it. Proxy placement DO unchanged."
   title: "Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes"
@@ -30896,7 +30900,7 @@ cards:
   rank: {value: 7, time_criticality: 3, effort: 2}
   status: waiting_operator
   created: '2026-10-05'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-10 02:40"
   tags: [tier-1, config-first]
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
@@ -31157,6 +31161,7 @@ cards:
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
+  reverified_2026_10_10_overnight: "Still open: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed = the 10-09 11:27 restart); URA security periodic lock check logged it unavailable at 01:30 CDT. Batteries not swapped yet."
   reverified_2026_10_09_overnight: "Still open: lock.doorlock_kwikset_zwave_frontentry unavailable through the whole 48 h recorder window (02:01 10-07 -> 02:01 10-09). Batteries not swapped yet."
   checked_2026_10_08_overnight: "Lock still unavailable at 02:05 CDT 10-08 (REST: state unavailable, restored, last_changed 10-06 19:41Z), so the batteries have not been swapped yet. ON THE SWEEP QUESTION (read security.py:1668-1760, _evaluate_lock_check): URA's periodic lock check only READS the HA state. It sends no Z-Wave traffic unless it finds the lock unlocked, when it sends one lock.lock. So the sweep itself should not drain batteries; repeated lock.lock commands could. compliance_log has no front-lock rows after 2026-05-08, so past command counts cannot be measured from the URA DB. A drain measurement is only possible after the swap. Z-Wave controller move noted as your resilience idea (not carded; it is a physical/homelab change)."
   operator_decision_2026_10_07: "Yes the locks are dead battery for front door. It ran down quick, not sure if that's repeated sweeps doing that. I'll change and you can measure. Also thinking of moving to the other z wave controller since that's Poe and can be moved (resilience) (board instruction 2026-10-07 13:21)"
@@ -31164,7 +31169,7 @@ cards:
   status: waiting_operator
   thread: security
   created: '2026-10-07 03:05'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-10 02:40"
   refinement_status: initial
   problem_solution:
   - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'
