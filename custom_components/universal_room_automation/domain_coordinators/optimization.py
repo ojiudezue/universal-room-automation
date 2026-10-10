@@ -101,6 +101,10 @@ from ..const import (
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
     CAMERA_STUCK_ON_THRESHOLD_S,
     CAMERA_STUCK_ON_OVERRIDES_S,
+    CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+    CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
+    CAMERA_INPUT_DEGRADED_DWELL_S,
+    BOOT_SETTLE_S,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
@@ -600,6 +604,34 @@ class OptimizationCoordinator(BaseCoordinator):
         # from a cold start how long a sensor was already stuck.
         self._camera_on_since: dict[str, datetime] = {}
         self._camera_stuck_fired: set[str] = set()
+        # FRIGATE-FLEET-DARK (PLANNING_frigate_down_tripwire.md Rev 2 D1):
+        # fleet-scope (singleton) latch for the camera_input_dark one-shot
+        # NM. Discharges on hysteresis clear (fraction < CLEAR AND
+        # frigate_status_2 nominal for one tick). RAM-only by design — a
+        # restart re-arms once per episode after boot settle + dwell
+        # (accepted per plan §5; the fleet-dark N-restart cardinality is
+        # bounded at one bark per restart during an ongoing outage).
+        self._camera_input_dark_fired: bool = False
+        # First tick each eval has to see the fleet degraded continuously
+        # to count against the dwell; cleared on recovery below CLEAR.
+        self._camera_input_dark_since: datetime | None = None
+        # Diagnostics for the D3 binary_sensor attribute payload — set
+        # every eval tick so operators can read the latest fraction /
+        # count even when the latch hasn't fired yet.
+        self._camera_input_dark_last_fraction: float = 0.0
+        self._camera_input_dark_last_unavailable: int = 0
+        self._camera_input_dark_last_denominator: int = 0
+        self._camera_input_dark_last_affected: list[str] = []
+        self._camera_input_dark_last_status2_state: str | None = None
+        # One-time inert log (zero-denominator / Protect-only house) so
+        # we don't spam. Mirrors camera_census.py:3832's "inert_no_frigate"
+        # paragraph.
+        self._camera_input_dark_inert_logged: bool = False
+        # Boot-settle reference: `BOOT_SETTLE_S` is measured from
+        # coordinator construction (an acceptable proxy for ha_started
+        # per plan §5 — the optimizer is set up during the integration
+        # bring-up alongside the rest of URA, so the delta is sub-second).
+        self._camera_input_dark_boot_ref: datetime = dt_util.utcnow()
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
         # RAM-only by design: a restart re-persists once per stuck sensor,
@@ -933,6 +965,14 @@ class OptimizationCoordinator(BaseCoordinator):
             # Phase 1 dimensions.
             ("sensor_health", self._evaluate_sensor_health_dimension),
             ("camera_stuck", self._evaluate_camera_stuck_dimension),
+            # FRIGATE-FLEET-DARK (Rev 2 D1): fleet-scope camera-input
+            # tripwire. Sibling of camera_stuck (stuck-ON vs. gone-dark
+            # — disjoint failure modes). Emits via OptimizationFinding
+            # with dedup_key=("camera_input_dark", "fleet") so the
+            # existing finding → NM pipeline handles the one-shot
+            # delivery.
+            ("camera_input_dark",
+             self._evaluate_camera_input_dark_dimension),
             ("comfort", self._evaluate_comfort_dimension),
             # Phase 3 — room-level.
             ("occupancy_accuracy", self._evaluate_occupancy_accuracy_dimension),
@@ -1950,6 +1990,193 @@ class OptimizationCoordinator(BaseCoordinator):
                 },
                 dedup_key=("camera_stuck", cam_key),
             ))
+        return findings
+
+    def _evaluate_camera_input_dark_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Fleet-wide camera-input tripwire — FRIGATE-FLEET-DARK Rev 2 D1.
+
+        Fires exactly ONE finding per fleet-dark episode when either:
+          * fraction of configured ``sensor.*_person_count`` entities in
+            ``{unavailable, unknown}`` >= CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD
+          * OR ``sensor.frigate_status_2`` state is ``unavailable`` /
+            ``unknown``
+        AND dwell >= CAMERA_INPUT_DEGRADED_DWELL_S AND we are past the
+        BOOT_SETTLE_S grace window since coordinator construction.
+
+        Zero-denominator (Protect-only / 2nd-home rollout) is inert —
+        one-time setup log, zero findings. Mirrors ``inert_no_frigate``
+        at ``camera_census.py:3832``.
+
+        The finding carries ``dedup_key = ("camera_input_dark", "fleet")``;
+        the existing optimizer finding → NM pipeline
+        (``_notify_if_severe``) handles cross-cycle NM dedup. A fleet
+        latch ``_camera_input_dark_fired`` discharges once the fraction
+        drops below CLEAR AND ``frigate_status_2`` is nominal for one
+        tick (hysteresis — plan finding #5).
+
+        Separately, ``_camera_input_dark_last_*`` attributes are set
+        every tick so the D3 binary_sensor can surface the fraction /
+        count / status attributes even before the latch fires.
+
+        Kill switch: ``CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD > 1.0``
+        disables the fire path. ``BOOT_SETTLE_S = 0`` disables boot
+        suppression.
+        """
+        findings: list[OptimizationFinding] = []
+        kill_switch = CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD > 1.0
+        now = dt_util.utcnow()
+
+        # 1) Compute the frame via the SHARED helper that camera_census
+        #    also calls — fix-up A-MED-1/B2 one-definition-of-dark.
+        from ..camera_census import compute_camera_input_dark_frame
+        cm = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+        try:
+            frame = compute_camera_input_dark_frame(self.hass, cm)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "camera_input_dark frame compute failed", exc_info=True,
+            )
+            return findings
+        denominator = frame.denominator
+        unavailable_now = frame.unavailable_count
+        affected = list(frame.affected)
+        fraction = frame.fraction
+        status2_state = frame.status2_state
+        status2_bad = frame.status2_bad
+
+        # 2) Zero-denominator inert branch. Mirrors census's
+        #    `inert_no_frigate` reason — no Frigate cameras configured
+        #    (e.g. a Protect-only 2nd-home rollout).
+        if denominator == 0:
+            if not self._camera_input_dark_inert_logged:
+                _LOGGER.info(
+                    "camera_input_dark_inert_no_frigate — no Frigate "
+                    "person_count sensors enumerated; tripwire inert "
+                    "for this deployment"
+                )
+                self._camera_input_dark_inert_logged = True
+            # Keep diagnostic attributes zeroed so the binary_sensor
+            # payload reads cleanly.
+            self._camera_input_dark_last_fraction = 0.0
+            self._camera_input_dark_last_unavailable = 0
+            self._camera_input_dark_last_denominator = 0
+            self._camera_input_dark_last_affected = []
+            self._camera_input_dark_last_status2_state = None
+            return findings
+
+        status2_not_bad = not status2_bad
+
+        # Diagnostics — set every tick regardless of latch state.
+        self._camera_input_dark_last_fraction = fraction
+        self._camera_input_dark_last_unavailable = unavailable_now
+        self._camera_input_dark_last_denominator = denominator
+        self._camera_input_dark_last_affected = list(affected)
+        self._camera_input_dark_last_status2_state = status2_state
+
+        # 3) Hysteresis clear — the latch discharges when fraction
+        #    drops below CLEAR AND status_2 is nominal for this tick.
+        #    Also reset the dwell `_since` anchor so a subsequent
+        #    re-flap starts counting from scratch.
+        if (
+            fraction < CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD
+            and status2_not_bad
+        ):
+            if self._camera_input_dark_fired:
+                _LOGGER.info(
+                    "camera_input_dark cleared: fraction=%.3f (clear<%.3f) "
+                    "status2=%s",
+                    fraction,
+                    CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
+                    status2_state,
+                )
+            self._camera_input_dark_fired = False
+            self._camera_input_dark_since = None
+
+        if kill_switch:
+            return findings
+
+        # 4) Does the condition hold right now? NARROW: dark_now from
+        #    the shared helper requires denominator > 0 — already
+        #    guarded by the inert branch above.
+        degraded_now = bool(frame.dark_now)
+
+        if not degraded_now:
+            # fix-up LOW-1: reset `_since` whenever not degraded_now
+            # so an above-CLEAR flap doesn't accumulate false dwell.
+            self._camera_input_dark_since = None
+            return findings
+
+        # 7) Boot-settle gate — suppress during the first BOOT_SETTLE_S
+        #    after coordinator construction (plan §5). The dwell anchor
+        #    starts at discharge, not retroactively.
+        boot_elapsed = (
+            now - self._camera_input_dark_boot_ref
+        ).total_seconds()
+        if boot_elapsed < BOOT_SETTLE_S:
+            # Keep `_since` unset so dwell cannot complete during
+            # suppression. Resets to current tick once past settle.
+            self._camera_input_dark_since = None
+            _LOGGER.debug(
+                "camera_input_dark boot-settle suppressed "
+                "(elapsed=%.1fs < %ds)",
+                boot_elapsed, BOOT_SETTLE_S,
+            )
+            return findings
+
+        # 8) Dwell accumulation.
+        if self._camera_input_dark_since is None:
+            self._camera_input_dark_since = now
+            return findings
+        dwell = (now - self._camera_input_dark_since).total_seconds()
+        if dwell < CAMERA_INPUT_DEGRADED_DWELL_S:
+            return findings
+        if self._camera_input_dark_fired:
+            # Latched — do not re-emit.
+            return findings
+
+        # 9) Fire.
+        self._camera_input_dark_fired = True
+        trigger_reason = (
+            "frigate_status_2_down"
+            if status2_bad and fraction < CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD
+            else "fleet_unavailable"
+        )
+        description = (
+            f"Camera input dark: {unavailable_now}/{denominator} Frigate "
+            f"person_count sensors unavailable ({fraction * 100:.0f}%), "
+            f"sensor.frigate_status_2={status2_state!r}, dwell={int(dwell)}s. "
+            f"Reload the Frigate integration if the server is back online."
+        )
+        _LOGGER.warning(
+            "camera_input_dark FIRE: fraction=%.3f (threshold=%.3f) "
+            "unavailable=%d/%d status2=%s trigger=%s",
+            fraction, CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
+            unavailable_now, denominator, status2_state, trigger_reason,
+        )
+        findings.append(OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high",
+            confidence=0.95,
+            score=0.0,
+            description=description,
+            proposed_action=None,
+            payload={
+                "kind": "camera_input_dark",
+                "fraction": round(fraction, 4),
+                "unavailable_count": unavailable_now,
+                "denominator": denominator,
+                "frigate_status_2_state": status2_state,
+                "affected_entities": list(affected),
+                "dwell_s": int(dwell),
+                "trigger_reason": trigger_reason,
+            },
+            dedup_key=("camera_input_dark", "fleet"),
+        ))
         return findings
 
     def _exterior_person_sensors(self) -> dict[str, str]:
@@ -4234,17 +4461,35 @@ class OptimizationCoordinator(BaseCoordinator):
         if len(findings) <= OPTIMIZER_MAX_FINDINGS_PER_CYCLE:
             return findings
         sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        # Preserve META rows separately — they bypass the cap.
-        meta = [f for f in findings
-                if f.dimension == OptimizationDimension.META]
-        non_meta = [f for f in findings
-                    if f.dimension != OptimizationDimension.META]
-        non_meta.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
-        # Reserve space for the META rows so the total stays under the cap.
-        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(meta)
+
+        def _is_camera_input_dark(f) -> bool:
+            # A-MED-2 LOW-2: exempt the fleet-dark one-shot from the
+            # per-cycle cap, same posture as META. The latch is set
+            # when the finding is emitted; if the cap dropped it the
+            # NM would never deliver, defeating the whole tripwire.
+            dkey = getattr(f, "dedup_key", None)
+            return (
+                isinstance(dkey, tuple)
+                and len(dkey) >= 1
+                and dkey[0] == "camera_input_dark"
+            )
+
+        # Preserve META rows AND camera_input_dark separately — both
+        # bypass the cap.
+        exempt = [f for f in findings
+                  if f.dimension == OptimizationDimension.META
+                  or _is_camera_input_dark(f)]
+        non_exempt = [f for f in findings
+                      if f.dimension != OptimizationDimension.META
+                      and not _is_camera_input_dark(f)]
+        non_exempt.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
+        meta = exempt  # alias kept for the log line below
+        # Reserve space for the exempt rows so the total stays under the cap.
+        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(exempt)
         if keep < 0:
             keep = 0
-        capped = non_meta[:keep] + meta
+        non_meta = non_exempt  # alias for the log line
+        capped = non_exempt[:keep] + exempt
         _LOGGER.warning(
             "Optimizer cycle produced %d findings (cap=%d) — truncated "
             "to %d highest-severity rows + %d META; %d rows dropped to "
@@ -4364,13 +4609,32 @@ class OptimizationCoordinator(BaseCoordinator):
         # in the helper so a persisted lowercase allowlist matches an
         # Enum-valued finding.dimension. See CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS.
         from ._nm_cycle_a import should_defer_high_to_digest
-        if should_defer_high_to_digest(self.hass, finding):
-            _LOGGER.info(
-                "Optimizer: HIGH finding (dimension=%s) deferred to "
-                "daily digest (not in NM allowlist)",
-                getattr(finding, "dimension", None),
-            )
-            return
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-1 / B1: exempt the
+        # camera_input_dark fleet-dark one-shot from the HIGH→digest
+        # defer gate. The fleet-dark finding is a once-per-episode
+        # operator wake-up — if it gets rolled into the daily digest it
+        # defeats the entire tripwire. Keyed on dedup_key[0] rather
+        # than on dimension (SENSOR_HEALTH) so the sensor_health
+        # dimension's room-level findings keep deferring to digest by
+        # default (we are NOT allowlisting all of sensor_health). The
+        # bypass wraps the original `if should_defer_high_to_digest(...)`
+        # line verbatim so the test_nm_cycle_a2 mutation anchor stays
+        # intact (bypass is an outer guard, not a conjunction inside
+        # the existing predicate).
+        _dkey = getattr(finding, "dedup_key", None)
+        _is_camera_input_dark_finding = (
+            isinstance(_dkey, tuple)
+            and len(_dkey) >= 1
+            and _dkey[0] == "camera_input_dark"
+        )
+        if not _is_camera_input_dark_finding:
+            if should_defer_high_to_digest(self.hass, finding):
+                _LOGGER.info(
+                    "Optimizer: HIGH finding (dimension=%s) deferred to "
+                    "daily digest (not in NM allowlist)",
+                    getattr(finding, "dimension", None),
+                )
+                return
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return

@@ -1070,6 +1070,19 @@ class StateInferenceEngine:
         # the indoor-clear debounce. Default False → caller-omitted
         # means v5.7.0 grace-only behavior (invariant preservation).
         sustained_external_empty: bool = False,
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-2/B3: when True, the
+        # camera-input fleet is dark (narrow: Frigate IS configured
+        # AND (fraction>=FIRE OR frigate_status_2 bad)). SKIPS path α
+        # (ACTIVE-only AWAY veto) because the "0 unidentified / 0
+        # face" denominator is unreliable in that case — treating
+        # silence as "no one here" is the exact failure mode. Does
+        # NOT short-circuit the engine: control falls through to path
+        # β, GUEST exit, SLEEP, and the rest of the ladder. Default
+        # False preserves byte-identity for every existing caller /
+        # test (invariant I3). Does not affect the plain "nobody
+        # home" pathway above (census_count == 0 AND no zone
+        # occupied) or path β (which gates on indoor zones directly).
+        camera_input_degraded: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
@@ -1140,8 +1153,20 @@ class StateInferenceEngine:
         # unidentified_count == 0 clause remains — an unidentified camera
         # body legitimately means SOMEONE is here. Path β below deliberately
         # unchanged (asymmetric — see plan review efec78928).
+        # FRIGATE-FLEET-DARK fix-up A-HIGH-2/B3: when the camera-input
+        # fleet is dark, `unidentified_count` and `face_recognized_count`
+        # are both 0 because nothing can be SEEN — not because nobody
+        # is home. SKIP path α (so a dark fleet cannot false-escalate
+        # AWAY via the ACTIVE-only veto) but FALL THROUGH to path β
+        # and the rest of the ladder (GUEST exit, SLEEP) — do NOT
+        # `return None`, which would stall GUEST→HOME re-entry and
+        # SLEEP transitions. The NM one-shot from the optimizer
+        # camera_input_dark evaluator carries the operator signal;
+        # here we only refuse to use path α's silence-is-away short
+        # circuit.
         if (
-            all_tracked_persons_away
+            not camera_input_degraded
+            and all_tracked_persons_away
             and unidentified_count == 0
             and face_recognized_count == 0
         ):
@@ -1417,6 +1442,16 @@ class PresenceCoordinator(BaseCoordinator):
         # this instead of census_count to close the forgotten-phone
         # inflation. Signal payload: face_recognized_count.
         self._face_recognized_count: int = 0
+        # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2): the NARROW
+        # hysteresis-latched "camera input is dark" signal from
+        # camera_census (SIGNAL_CENSUS_UPDATED payload key
+        # ``camera_input_dark``). True only when Frigate IS configured
+        # (denominator > 0) AND (fraction >= FIRE OR frigate_status_2
+        # down), with hysteresis clear below CLEAR. Protect-only
+        # houses always read False here. Gates path α's AWAY-veto so a
+        # dark fleet does not masquerade as "0 unidentified" and
+        # false-escalate AWAY.
+        self._census_camera_input_dark: bool = False
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
         # pre-v4.7.14.1 semantic (raw configured-person count from
@@ -4606,6 +4641,22 @@ class PresenceCoordinator(BaseCoordinator):
         except (ValueError, TypeError):
             self._face_recognized_count = 0
 
+        # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2): read the
+        # NARROW ``camera_input_dark`` key from the census payload.
+        # Default False preserves byte-identity for legacy senders
+        # (invariant I3) and for test stubs that do not populate the
+        # key. B3/B4: flips of this flag ALSO trigger inference
+        # (change-detection block below) so a dark→healthy transition
+        # releases a held α-veto on the next tick, not after waiting
+        # for the next 60s periodic.
+        old_camera_input_dark = self._census_camera_input_dark
+        try:
+            self._census_camera_input_dark = bool(
+                census_data.get("camera_input_dark", False)
+            )
+        except (ValueError, TypeError):
+            self._census_camera_input_dark = False
+
         # v4.6.2.2: Read confidence fields for guest gate — default to "none"
         # if not present (backward compat with any caller not yet sending them).
         try:
@@ -4629,6 +4680,10 @@ class PresenceCoordinator(BaseCoordinator):
             old_count != self._census_count
             or old_unidentified != self._unidentified_count
             or old_confidence != self._census_confidence
+            # FRIGATE-FLEET-DARK fix-up B4: a dark→healthy flip must
+            # trigger inference immediately so a held α-veto releases
+            # on the next tick, not after the 60s periodic.
+            or old_camera_input_dark != self._census_camera_input_dark
         ):
             self.hass.async_create_task(self._run_inference("census_update"))
 
@@ -6326,6 +6381,11 @@ class PresenceCoordinator(BaseCoordinator):
             # Presence batch fix-up: independent multi-tick signal for
             # the D2 immediate-engage limb. See infer() kwarg docstring.
             sustained_external_empty=_sustained_external_empty,
+            # FRIGATE-FLEET-DARK (Rev 2 fix-up A-MED-1/B2): gate path
+            # α on the NARROW ``camera_input_dark`` key. Source:
+            # SIGNAL_CENSUS_UPDATED payload key ``camera_input_dark``
+            # captured in ``_handle_census_update``.
+            camera_input_degraded=self._census_camera_input_dark,
         )
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
