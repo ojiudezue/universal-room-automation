@@ -50,6 +50,42 @@ function-local import (Bug Class #34).
      entity's live `supported_color_modes` (via a new
      `_live_color_modes(entity_id)` helper that reads
      `hass.states.get(e).attributes["supported_color_modes"]`).
+4. **Review B B1-1 (HIGH, same card):** `automation.py` has THREE
+   night-light entry call sites, not one. The night-light-only
+   early-return (~1456) was already applying the house-Sleep
+   mode-switch. The two downstream sites (`has_on_entry` picker
+   ~1553, and the else branch ~1566) were NOT. With
+   `CONF_SLEEP_PROTECTION_ENABLED=False` (the default),
+   `is_sleep_lighting_active()` is False even when the house is in
+   Sleep, so those branches shipped evening/day kelvin to a colour
+   night light during house-Sleep. BOTH sites now apply the same
+   narrow helper:
+
+   ```python
+   _nl_mode = (
+       "sleep" if self._house_state_is_sleep()
+       else ("evening" if slot == LIGHT_SLOT_EVENING else "day")
+   )
+   ```
+
+5. **Review B B1-2 (MEDIUM):** the reconciler's
+   `entry_night_light` return (now line ~931) previously had no
+   `has_params_to_apply`, so the already-on gate (actuator_reconciler
+   :645) could skip a bulb that was already "on" — a power-cycled
+   colour bulb returning at factory warm white stayed warm white. Now
+   `has_params_to_apply=(_mode == "sleep")`: sleep forces re-apply so
+   the red-vs-kelvin decision is asserted onto the live state; day /
+   evening keep the R3-M3 manual-dim-override skip.
+
+6. **Review B B1-3 (LOW):** `switch.RoomLightsSwitch.async_turn_on`
+   also built night-light params by hand (brightness only, own sleep
+   test). It now routes through `night_light_turn_on_params` with
+   per-entity live `supported_color_modes` and honours
+   `_house_state_is_sleep()`, grouping entities by identical params
+   for batched service calls — same pattern as
+   `automation._turn_on_night_lights`. Unused brightness/colour
+   constants pruned from `switch.py`.
+
    - **Side-effect noted (Review A F2, LOW):** the reconciler's sleep +
      occupied branch previously built params by hand and only
      carried `brightness_pct` for FULL-capability bulbs. It now routes

@@ -367,6 +367,187 @@ def test_reconciler_house_sleep_entry_branch_colour_light_asserts_red():
     assert "color_temp_kelvin" not in out.params
 
 
+def test_canonical_entry_main_qualifies_plus_house_sleep_night_light_red():
+    """Review B B1-1: when the room's MAIN lights also qualify, the
+    night-light-only early-return branch (~1456) is NOT taken, and the
+    picker/else branches below (~1553/~1566) must apply the same
+    house-Sleep mode-switch — otherwise colour night lights get
+    evening/day kelvin while the house is sleeping.
+
+    Repro: sleep_protection off, house=sleep, dark, main entry action
+    turn-on, colour bulb in night lights. Expect rgb_color red.
+    """
+    from types import SimpleNamespace
+
+    from test_lighting_slice_c_manual_hold import (  # noqa: F401
+        M, _light_calls, _real_modules, _run, make_room,
+    )
+
+    const = M["const"]
+    base = {
+        const.CONF_LIGHTS: ["light.main"],
+        const.CONF_NIGHT_LIGHTS: ["light.rgb_bulb"],
+        const.CONF_LIGHT_CAPABILITIES: const.LIGHT_CAPABILITY_FULL,
+        const.CONF_NIGHT_LIGHT_SLEEP_HUE: NIGHT_LIGHT_SLEEP_HUE_RED,
+        const.CONF_ENTRY_LIGHT_ACTION: const.LIGHT_ACTION_TURN_ON,
+        const.CONF_SLEEP_PROTECTION_ENABLED: False,
+    }
+    room = make_room(config=base, occupied=True, sleep=False)
+    # House is in Sleep but per-room sleep gate is off.
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto.is_sleep_lighting_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    # Dark so main lights qualify.
+    room.auto.is_dark = lambda _lux=None: True
+    room.hass._states["light.rgb_bulb"] = SimpleNamespace(
+        entity_id="light.rgb_bulb", state="off",
+        attributes={"supported_color_modes": ["hs"]},
+    )
+    _run(room.auto._control_lights_entry({}))
+
+    on_calls = _light_calls(room.hass, "turn_on")
+    rgb_calls = [c for c in on_calls
+                 if "light.rgb_bulb" in (
+                     [c.data.get("entity_id")] if isinstance(c.data.get("entity_id"), str)
+                     else (c.data.get("entity_id") or [])
+                 )]
+    assert rgb_calls, f"night light must be dispatched: {on_calls}"
+    assert any(
+        c.data.get("rgb_color") == list(NIGHT_LIGHT_SLEEP_RED_RGB)
+        for c in rgb_calls
+    ), f"colour bulb at house-Sleep must get rgb_color red: {rgb_calls}"
+    assert not any(
+        "color_temp_kelvin" in c.data for c in rgb_calls
+    ), f"must NOT ship kelvin for rgb bulb: {rgb_calls}"
+
+
+def test_reconciler_entry_night_light_sleep_has_params_to_apply():
+    """Review B B1-2: ``entry_night_light`` under ``_mode == "sleep"``
+    must set has_params_to_apply=True so the already-on gate (:645)
+    cannot skip a factory-warm-white colour bulb returning on. Day /
+    evening keep the R3-M3 manual-dim-override skip (False).
+    """
+    from custom_components.universal_room_automation import actuator_reconciler
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_LIGHT_ACTION,
+        LIGHT_ACTION_TURN_ON,
+        STATE_ILLUMINANCE,
+        STATE_OCCUPIED,
+    )
+
+    class _StubState:
+        def __init__(self, modes):
+            self.attributes = {"supported_color_modes": modes}
+
+    class _StubStates:
+        def __init__(self, modes):
+            self._modes = modes
+
+        def get(self, _eid):
+            return _StubState(self._modes)
+
+    class _StubHass:
+        def __init__(self, modes):
+            self.states = _StubStates(modes)
+
+    def _mk_automation(house_sleep: bool):
+        a = type("A", (), {})()
+        a.is_sleep_lighting_active = lambda: False
+        a.is_sleep_mode_active = lambda: False
+        a.is_dark = lambda _: True
+        a._house_state_is_sleep = lambda: house_sleep
+        return a
+
+    def _mk(house_sleep: bool, modes):
+        coord = type("C", (), {})()
+        coord.hass = _StubHass(modes)
+        coord.data = {STATE_OCCUPIED: True, STATE_ILLUMINANCE: 0}
+        coord.automation = _mk_automation(house_sleep)
+        cfg = {
+            CONF_NIGHT_LIGHTS: ["light.red_bulb"],
+            CONF_LIGHT_CAPABILITIES: LIGHT_CAPABILITY_FULL,
+            CONF_NIGHT_LIGHT_SLEEP_HUE: NIGHT_LIGHT_SLEEP_HUE_RED,
+            CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_TURN_ON,
+        }
+        rec = actuator_reconciler.ActuatorReconciler.__new__(
+            actuator_reconciler.ActuatorReconciler,
+        )
+        rec.coordinator = coord
+        rec.hass = coord.hass
+        rec._tracked_entities = lambda: {"light.red_bulb"}
+        rec._is_fan = lambda _e: False
+        rec._config = lambda: cfg
+        return rec
+
+    # Sleep (house=sleep): has_params_to_apply must be True.
+    out_sleep = _mk(True, ["hs"]).resolve_desired_state("light.red_bulb")
+    assert out_sleep is not None
+    assert out_sleep.reason == "entry_night_light"
+    assert out_sleep.has_params_to_apply is True, (
+        "sleep mode must force re-apply so factory-warm-white bulbs flip to red"
+    )
+
+    # Day (house NOT sleep): keep R3-M3 — do NOT force-apply.
+    out_day = _mk(False, ["hs"]).resolve_desired_state("light.red_bulb")
+    assert out_day is not None
+    assert out_day.reason == "entry_night_light"
+    assert out_day.has_params_to_apply is False, (
+        "day/evening must preserve manual-dim override (R3-M3)"
+    )
+
+
+def test_switch_room_lights_turn_on_colour_bulb_house_sleep_red():
+    """Review B B1-3: RoomLightsSwitch.async_turn_on routes night-light
+    params through the shared resolver with live colour modes.
+    Repro: house=sleep, per-room sleep off, colour bulb → rgb_color red.
+    """
+    from types import SimpleNamespace
+
+    from test_lighting_slice_c_manual_hold import (  # noqa: F401
+        M, _light_calls, _real_modules, _run, make_room,
+    )
+
+    const = M["const"]
+    from custom_components.universal_room_automation import switch as _switch
+
+    base = {
+        const.CONF_LIGHTS: ["light.main"],
+        const.CONF_NIGHT_LIGHTS: ["light.rgb_bulb"],
+        const.CONF_LIGHT_CAPABILITIES: const.LIGHT_CAPABILITY_FULL,
+        const.CONF_NIGHT_LIGHT_SLEEP_HUE: NIGHT_LIGHT_SLEEP_HUE_RED,
+    }
+    room = make_room(config=base, occupied=True, sleep=False)
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto.is_sleep_lighting_active = lambda: False
+    room.auto._house_state_is_sleep = lambda: True
+    room.auto.is_dark = lambda _lux=None: True
+    room.hass._states["light.rgb_bulb"] = SimpleNamespace(
+        entity_id="light.rgb_bulb", state="off",
+        attributes={"supported_color_modes": ["hs"]},
+    )
+
+    # Build a RoomLightsSwitch without triggering HA entity-platform wiring.
+    sw = _switch.RoomLightsSwitch.__new__(_switch.RoomLightsSwitch)
+    sw.hass = room.hass
+    sw.coordinator = room.coord
+    sw._cfg = lambda: room.auto.config
+    sw._room_occupied = lambda: True
+    sw.async_write_ha_state = lambda: None
+
+    _run(sw.async_turn_on())
+    on_calls = _light_calls(room.hass, "turn_on")
+    rgb = [c for c in on_calls
+           if "light.rgb_bulb" in (
+               [c.data.get("entity_id")] if isinstance(c.data.get("entity_id"), str)
+               else (c.data.get("entity_id") or [])
+           )]
+    assert rgb, f"RoomLightsSwitch must dispatch night light: {on_calls}"
+    assert any(
+        c.data.get("rgb_color") == list(NIGHT_LIGHT_SLEEP_RED_RGB)
+        for c in rgb
+    ), f"switch writer must emit rgb_color red at house-Sleep: {rgb}"
+
+
 def test_canonical_turn_on_night_lights_day_mode_never_emits_red():
     """Outside sleep (day mode), colour bulbs never get rgb_color red."""
     from types import SimpleNamespace

@@ -916,9 +916,18 @@ class ActuatorReconciler:
                     # Dropping has_params_to_apply lets the already-on
                     # no-op gate (:645) skip the clobber. The light is
                     # (re-)parameterised only on the OFF→ON edge.
+                    # NIGHTLIGHT-RED-RECONCILE-PARITY-1 Review B B1-2:
+                    # under house-Sleep (``_mode == "sleep"``), the
+                    # params MUST be force-applied even when the bulb is
+                    # already "on" — a power-cycled colour bulb returning
+                    # at factory warm white otherwise stays warm white
+                    # because the already-on gate at :645 would skip. The
+                    # R3-M3 skip-on-already-on rule remains for day /
+                    # evening (manual-dim-override preservation).
                     return DesiredState(
                         state="on", domain=domain, service="turn_on",
                         params=params, reason="entry_night_light",
+                        has_params_to_apply=(_mode == "sleep"),
                     )
                 # dark=False and nl_by_day=False → NO-OPINION
                 return None

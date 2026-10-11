@@ -1550,9 +1550,18 @@ class RoomAutomation:
             # driven by the night rule, not the picker. Fire them only
             # when nl_should_on.
             if nl_should_on:
-                await self._turn_on_night_lights(
-                    mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
+                # NIGHTLIGHT-RED-RECONCILE-PARITY-1 Review B B1-1:
+                # house_state=sleep must mode-switch night lights to
+                # "sleep" here too (mirrors the night-light-only branch
+                # above). is_sleep_lighting_active is False when the
+                # per-room sleep gate is off (the default), so without
+                # this call the picker branch drops night lights into
+                # evening/day kelvin while the house is sleeping.
+                _nl_mode = (
+                    "sleep" if self._house_state_is_sleep()
+                    else ("evening" if slot == LIGHT_SLOT_EVENING else "day")
                 )
+                await self._turn_on_night_lights(mode=_nl_mode)
         else:
             # Turn on regular lights. Slot picks brightness/colour.
             # Day/Evening only here (sleep handled above).
@@ -1563,9 +1572,13 @@ class RoomAutomation:
             # ``if night_lights:`` call turned night lights on by day
             # when the main path fired — the leak this cycle closes.
             if nl_should_on:
-                await self._turn_on_night_lights(
-                    mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
+                # Review B B1-1: same house-Sleep mode-switch as the
+                # picker branch above.
+                _nl_mode = (
+                    "sleep" if self._house_state_is_sleep()
+                    else ("evening" if slot == LIGHT_SLOT_EVENING else "day")
                 )
+                await self._turn_on_night_lights(mode=_nl_mode)
         _LOGGER.info(
             "Room entry automation: Turned on %d light(s) and %d switch(es)",
             len(actual_lights), len(switches_as_lights)

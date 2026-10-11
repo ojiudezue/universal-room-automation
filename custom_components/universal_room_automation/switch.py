@@ -53,10 +53,6 @@ from .const import (
     CONF_NIGHT_LIGHTS,
     CONF_LIGHT_CAPABILITIES,
     CONF_LIGHT_BRIGHTNESS_PCT,
-    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
-    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     LIGHT_CAPABILITY_BASIC,
     LIGHT_CAPABILITY_BRIGHTNESS,
     LIGHT_CAPABILITY_FULL,
@@ -5409,13 +5405,23 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
             )
 
     async def async_turn_on(self, **kwargs) -> None:
-        from .lighting.resolver import effective_entry_set  # noqa: PLC0415
+        from .lighting.resolver import (  # noqa: PLC0415
+            effective_entry_set,
+            night_light_turn_on_params,
+        )
 
         automation = getattr(self.coordinator, "automation", None)
         if automation is None:
             return
         cfg = self._cfg()
         sleep = bool(getattr(automation, "is_sleep_lighting_active", automation.is_sleep_mode_active)())
+        # NIGHTLIGHT-RED-RECONCILE-PARITY-1 Review B B1-3: honour the
+        # same house-Sleep mode-switch the entry path uses so this
+        # writer agrees with canonical + reconciler on red-vs-kelvin.
+        house_sleep = bool(
+            getattr(automation, "_house_state_is_sleep", lambda: False)()
+        )
+        nl_mode = "sleep" if (sleep or house_sleep) else "day"
         try:
             is_dark = bool(automation.is_dark(
                 (self.coordinator.data or {}).get(STATE_ILLUMINANCE)
@@ -5435,14 +5441,41 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
                 data["brightness_pct"] = cfg.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
             await automation._safe_service_call("light", "turn_on", data, blocking=False)
         if night_lights:
-            data = {"entity_id": night_lights}
-            if dimmable:
-                data["brightness_pct"] = (
-                    cfg.get(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
-                    if sleep else
-                    cfg.get(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS)
+            # Route through the shared resolver — per-entity live modes
+            # so colour bulbs at (house) sleep get rgb_color red, kelvin
+            # bulbs get color_temp_kelvin. Group entities by identical
+            # params to batch service calls. Mirrors
+            # automation._turn_on_night_lights.
+            params_by_entity: list[tuple[str, dict]] = []
+            for eid in night_lights:
+                try:
+                    st = self.hass.states.get(eid)
+                    modes = set(
+                        (st.attributes.get("supported_color_modes") or [])
+                        if st
+                        else []
+                    )
+                except Exception:  # noqa: BLE001
+                    modes = set()
+                p = night_light_turn_on_params(
+                    cfg, nl_mode, supported_color_modes=modes,
                 )
-            await automation._safe_service_call("light", "turn_on", data, blocking=False)
+                params_by_entity.append((eid, p))
+            groups: dict[str, tuple[dict, list[str]]] = {}
+            for eid, p in params_by_entity:
+                sig = repr(sorted(
+                    (k, tuple(v) if isinstance(v, list) else v)
+                    for k, v in p.items()
+                ))
+                if sig not in groups:
+                    groups[sig] = (p, [])
+                groups[sig][1].append(eid)
+            for _sig, (p, eids) in groups.items():
+                await automation._safe_service_call(
+                    "light", "turn_on",
+                    {"entity_id": eids, **p},
+                    blocking=False,
+                )
         if switches:
             await automation._safe_service_call(
                 "switch", "turn_on", {"entity_id": switches}, blocking=False,
