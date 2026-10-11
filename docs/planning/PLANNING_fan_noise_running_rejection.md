@@ -364,3 +364,36 @@ Applied against Rev 1 of this plan after a one-pass adversarial plan review (fin
 11. **C2 regex enumeration corrected (Finding 11 LOW).** `MMWAVE_NAME_PATTERN` module constant retained (not deleted) with `# retired` comment so `quality/tests/test_mmwave_fan_demotion.py` still compiles. `presence.py:413 _classify_entity_kind` substring fallback listed in §A as checked (out of scope — only fires for entities absent from every CONF list).
 12. **C5 / C3 contradiction resolved (Finding 12 LOW).** C3's "gate fire count ≤2/week" AC removed; belief-stability metric replaces it. All `FAN_TRANSITION_SUSPECT_WINDOW_S` / `_fan_transition_suppressed_count` readers tolerate a frozen counter — verified.
 13. **Gold-patterns index updated.** Added ActuatorReconciler flap counter row. Added "HVAC leave-off discharge" row. Clarified fan-listener row to say "last-known-good carryover, not zeroing". Marked `derive_capability` as NOT reading `model_id`.
+
+---
+
+## Pre-ship audit results (2026-10-11, builder) — C2 acceptance fixture
+
+Script `scripts/fan_noise/audit_motion_sensors_models.py`, table `docs/planning/AUDIT_motion_sensors_live_models.md`
+(main house 43 rooms / 63 sensor entries; Wigton 3 rooms / 3 entries).
+
+| Finding | Effect on the build |
+|---|---|
+| ESPHome / Meross devices have `model_id = None` | Family lookup keys on `model_id`, falling back to `model` (deviation from §C4 text). |
+| Jaya / Kitchen / Study B / Ziri radars are custom ESP32 builds (`esp32-c3-devkitm-1`) | Family `unknown` → factor 1.0. **The LD24xx factor 3.0 does not reach Jaya** until the device reports an LD24xx model. Operator item. |
+| 3 Meross MS600 radars in `motion_sensors` (Guest Bedroom 1, Guest Bedroom 2, Media) | Excluded by the model safety net (`ms600 9.0.0` → `generic_radar`). The prescribed remedy "declare `kind: mmwave`" is **rejected by `validate_capabilities_payload`** (D-MEDIUM-1) — the operator fix is to move them to `presence_sensors`. |
+| `binary_sensor.ziri_3_moving_target` (LD2410 moving output, ESP32) in Ziri `motion_sensors` | Not caught by regex before nor by the model map now — unchanged. Operator decision. |
+| IVO1 `…_masterbath_motion` | Was regex-excluded; now a witness. UNVERIFIED whether it is the outlet's PIR or mmWave output. Operator check. |
+| 22 ZG-204ZV in `motion_sensors` | Now fan-immune witnesses (intended). |
+| Wigton: 3 ecobee occupancy entities, no radars, no fans | C2/C4 inert there. |
+
+Gate: no radar-filed-as-motion changes behaviour versus today (MS600 held by the safety net; Ziri unchanged).
+
+## Builder notes (2026-10-11, branch `fix/fan-noise-running-rejection`)
+
+- **Family table vs C4 text.** The invariant table lists "Generic / unknown 1.5" while C4 and its AC say unknown → 1.0.
+  Built as: `generic_radar` (recognised radar, unmeasured family: Screek, Seeed, Meross, Inovelli) = 1.5; `unknown`
+  (registry miss / unrecognised model) = 1.0. Both statements hold.
+- **"Treat as forced restore" (C1a step 4)** is implemented in the FanController: a live hold flips leave-off to a real
+  restore ON. On the presence side the outcome stays VACATED (the room is still released and the outcome row says
+  `forced: false`); the new `manual_on_hold_live` eligibility veto then keeps the recheck from re-arming against the hold.
+- **C3 Part A sibling read:** the multi-fan "any other fan on" check also uses the last known-good belief for a sibling
+  that is currently unavailable (otherwise one flapping sibling could still drop the room's belief).
+- **Known-good seed:** `_discover_room_fans` seeds the per-entity known-good from the live state at discovery.
+- **C5:** gate-logic tests keep running at a test-local 5 s window; a new test pins the production window at 0.0.
+- `CONF_PRESENCE_SENSORS` in this plan = `CONF_MMWAVE_SENSORS` (value `"presence_sensors"`); no separate constant exists.

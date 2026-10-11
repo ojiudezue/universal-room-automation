@@ -1,6 +1,7 @@
 # PRESENCE — Architecture State of Play (READ FIRST)
 
-**Status:** forensic snapshot of `develop` as of 2026-10-11; the live house is on v5.103.50
+**Status:** forensic snapshot of `develop` as of 2026-10-11; the live house is on v5.103.50.
+**Fan-noise running rejection Rev 2 (built 2026-10-11, `fix/fan-noise-running-rejection`, NOT deployed — Tier 2-DB):** C1a recheck VACATED leaves the fan off; C2 fan-immune witness by capability + model safety net (name regex retired); C3 fan belief held through unavailable flaps + reconciler quarantine veto; C4 cooldown 900 + per-family window + rehydrate fixes; C5 transition gate retired (0.0). See §5, §6, §10 item 8, gold patterns. Code at the cited lines wins once merged
 (`person_coordinator.py:3` header). Builders / planners / reviewers of ANY presence-adjacent
 work (BLE, mmWave, PIR, fan interference, occupancy debounce, house-state inference, census,
 room switches) read this FIRST, completely, before editing or diagnosing anything. For
@@ -177,11 +178,10 @@ see `IDENTITY_FUSION_CAMERAS_MANUAL.md`.
 - `CONF_MOTION_SENSORS` — motion-class (PIR + Hobeian ZV mmWave-motion, see §5).
 - `CONF_PRESENCE_SENSORS` — true presence radar that holds a still person (ZK / ZX).
 - `CONF_OCCUPANCY_SENSORS` — HA `device_class="occupancy"` fleet.
-- `CONF_MMWAVE_SENSORS` — **a legacy key, unused in current flow** (grep shows no live reader
-  classifies off it except the provenance-split classifier `TIER1_KINDS` vocabulary;
-  presence imports it `presence.py:46` but routes capability through
-  `sensor_capability.py` + the three live lists). UNVERIFIED that it is zero-read everywhere;
-  do not route new logic through it.
+- `CONF_MMWAVE_SENSORS` — **its VALUE is `"presence_sensors"`** (`const.py:480`): it IS the
+  presence-radar list above, under its code name. There is no separate `CONF_PRESENCE_SENSORS`
+  constant. `sensor_capability.derive_capability` maps it to kind `mmwave`. (Corrected
+  2026-10-11 — see §10 item 8.)
 
 **Capability layer** — `domain_coordinators/sensor_capability.py` lifts the CONF-list wiring
 to a `SensorCapability` ("what IS this hardware"), with `CAPABILITY_KIND_*`
@@ -258,13 +258,15 @@ The three Hobeian families (`docs/architecture/SENSOR_FLEET_CLASSES.md`):
 - Four ZV devices carry a dead bare `_presence` entity (Z2M rename leftover); URA uses the
   live `_presence_2`.
 - Capability keyed by TRUE class (`sensor_capability.py`), not by entity name.
-- `fan_veto.MMWAVE_NAME_PATTERN` (`fan_veto.py:61`) regex
-  `(mmwave|radar|presence|ld2410|ld2412)` DISAGREES with the above rule for ZV: it excludes
-  motion entities whose name contains those tokens — so the fan_veto helper IGNORES the ZVs
-  in `CONF_MOTION_SENSORS`, while D2 sustain demotion counts them as motion
-  (`coordinator._d2_motion_sensors_present`, `coordinator.py:2159-2188` uses the same regex
-  to filter OUT ZV-named entries, meaning D2 ALSO loses its PIR witness in a ZV-only room —
-  see §7).
+- **Retired by fan-noise Rev 2 C2 (branch, not deployed):** `fan_veto.MMWAVE_NAME_PATTERN`
+  (`fan_veto.py`) is kept but has no live reader. `coordinator._d2_motion_sensors_present`
+  and `fan_veto._has_recent_motion` now keep a motion sensor iff
+  `fan_veto.is_fan_immune_motion_witness` = `sensor_capability.is_fan_immune_witness`
+  (capability kind ∈ motion/pir/pir_split/bed/camera_presence/ble_presence, override-aware)
+  AND its device family (`fan_veto.resolve_sensor_family`: entity → device `model_id`, fallback
+  `model` → `sensor_capability.FAMILY_BY_MODEL_ID`, cached per boot on `hass.data`) is not a
+  radar family. ZV rooms now reach D2. HISTORICAL (before Rev 2): the regex excluded every
+  ZV (`…_presence`) so D2 was unreachable in ZV-only rooms.
 
 ---
 
@@ -273,7 +275,8 @@ The three Hobeian families (`docs/architecture/SENSOR_FLEET_CLASSES.md`):
 Three complementary mechanisms exist; **each covers a different direction**:
 
 1. **Fan-transition CREATION gate** — `coordinator.py:3601-3745`, const
-   `FAN_TRANSITION_SUSPECT_WINDOW_S = 5.0 s` (`const.py:875`). Suppresses NEW occupancy
+   `FAN_TRANSITION_SUSPECT_WINDOW_S` — **RETIRED to 0.0 by Rev 2 C5** (was 5.0 s; code kept,
+   `_fan_transition_suppressed_count` frozen). Suppresses NEW occupancy
    creation when a mmwave-sole rising edge coincides with a fan transition inside the
    window. Does not extend existing holds; sustain never interrupted (predicate (c)); kill
    switch = 0.0.
@@ -284,6 +287,12 @@ Three complementary mechanisms exist; **each covers a different direction**:
 3. **Fan pause-recheck** — `domain_coordinators/presence_fan_recheck.py:1-60+`. Pauses the
    fan, re-reads mmwave with airflow stopped, drops occupancy if empty. Routes ALL writes
    through `hvac_fans.FanController._set_fan_state`. Config: `CONF_FAN_RECHECK_*` family.
+   **Rev 2:** a VACATED verdict calls `restore_after_recheck(..., leave_off=True)` — every
+   restore discharge runs but no ON is written (a live manual-ON hold still restores ON);
+   eligibility vetoes `manual_on_hold_live` and `fan_quarantined` (ActuatorReconciler flap
+   quarantine); window = CM window × room-type factor × dominant presence-sensor family factor
+   (`SENSOR_FAMILY_RECHECK_FACTOR`, kill switch `fan_recheck_family_scaling_enabled`);
+   cooldown default 900 s; PAUSED/COOLDOWN rehydrate read the live effective window / knob.
 4. **Comfort-fan house-AWAY veto** — `fan_veto.py:1-80+`. ONE predicate consumed by all
    three comfort-fan actuation sites (room-tier `automation.py::handle_temperature_based_fan_control`,
    HVAC `hvac_fans.HvacFanController.update`, reconciler `actuator_reconciler._resolve_fan`).
@@ -421,6 +430,16 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    `coordinator.py:3608-3626`). It covers CREATION only; sustain is covered by D2;
    actuation by `fan_veto`. Three mechanisms, three directions.
 
+8. **"`CONF_MMWAVE_SENSORS` is a legacy key, unused in current flow"** (§4 of this doc,
+   2026-10-11 morning). **WRONG (2026-10-11, fan-noise Rev 2 build):** `CONF_MMWAVE_SENSORS =
+   "presence_sensors"` (`const.py:480`) — it is the live presence-radar list. There is no
+   `CONF_PRESENCE_SENSORS` constant; plans that say "`CONF_PRESENCE_SENSORS`" mean this key.
+
+9. **"Fan family can be resolved from `device.model_id`"** (fan-noise plan Rev 2 §C4).
+   **INCOMPLETE (2026-10-11 audit):** ESPHome / Meross devices carry `model_id = None`; the
+   resolver falls back to `model`. Custom ESPHome builds (Jaya, Kitchen, Study B, Ziri) report
+   the board (`esp32-c3-devkitm-1`) and resolve `unknown`. `docs/planning/AUDIT_motion_sensors_live_models.md`.
+
 ---
 
 ## 11. Read before you touch — agent checklist
@@ -469,7 +488,10 @@ Reuse these before building anything new (order: reuse > extend > build only if 
 | **Recheck state machine (idle→armed→paused→restoring→cooldown)** | `presence_fan_recheck.py` | Any "stop → re-measure → decide" flow with a HVAC-handshake and restart matrix. |
 | **Inert-sink eligibility probe** | `presence_fan_recheck._INERT_SINK` + `is_recheck_eligible` | Cross-mechanism "would this gate fire?" checks that must not perturb observability counters. |
 | **CM-entry timing knobs via sweep** | `presence_fan_recheck._timing_config` | A family of knobs operator-tunable live, loaded from CM-entry options with DEFAULT_* fallback. |
-| **Fan listener (stamp transitions)** | `presence.py:3719 _handle_fan_change` + `_fan_last_transition` + `get_fan_last_transition` | Any "did a fan just do something?" window query. Guard unavailable/unknown at the stamp site (C3). |
+| **Fan listener (stamp transitions) — last-known-good belief** | `presence.py _handle_fan_change` + `_fan_known_good` (seeded in `_discover_room_fans`) + `_fan_last_transition` / `_fan_on_rooms` / `_fan_on_since` / `_fan_off_at` + `get_fan_last_transition` | Any "did a fan just do something?" window query. Unavailable/unknown edges HOLD the last known-good belief; a return from unavailable in a different state is a real transition (wall-switch power-on). |
+| **ActuatorReconciler availability-flap counter** | `actuator_reconciler.py` `_FAN_KEYS`, `_flap_*`, `check_quarantine_release`, `flapping_entities()` / `flapping_detail()`; surfaced on `sensor.<room>_unavailable_entities` | "Is this actuator flapping unavailable↔available?" Recheck reads it via `_fan_in_actuator_quarantine`. |
+| **Fan-immune witness (capability + model safety net)** | `sensor_capability.is_fan_immune_witness`, `FAMILY_BY_MODEL_ID`; `fan_veto.resolve_sensor_family` / `is_fan_immune_motion_witness` | Any "can a running fan fake this sensor?" question. Never regex entity names. |
+| **HVAC "leave off" discharge** | `hvac_fans.restore_after_recheck(leave_off=True)` → the AWAY-veto skip branch | End a recheck pause without re-arming the fan while keeping every discharge duty. |
 | **Kill-switch constant + knob ladder** | `FAN_TRANSITION_SUSPECT_WINDOW_S` module constant; `CONF_FAN_RECHECK_*` CM-entry Numbers; `CONF_ROOM_FAN_RECHECK_ENABLED` per-room switch | Rung 1 for review-only (safety / fitted); rung 2 for per-deployment structure; rung 3 for live operator tuning. |
 | **Memory-episode adjudication write** | `coordinator.py:3701-3729` log_memory_episode `fan_transition_suppressed` → adjudication `phantom` | Durable per-event observability for a gated suppression. |
 | **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |

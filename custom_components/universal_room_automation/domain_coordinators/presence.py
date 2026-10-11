@@ -1600,6 +1600,11 @@ class PresenceCoordinator(BaseCoordinator):
         # belt-and-braces unsub logic is defense-in-depth against a
         # future re-discovery caller (e.g. a config-flow-driven reload).
         self._fan_listener_unsub: Optional[Any] = None
+        # Fan-noise Rev 2 C3 Part A: per-fan-entity last-known-good on/off
+        # (never written from an unavailable/unknown state). Read by
+        # `_handle_fan_change` to tell a real wall-switch power-on
+        # (off -> unavailable -> on) from an availability flap.
+        self._fan_known_good: Dict[str, bool] = {}
         self._camera_listener_unsub: Optional[Any] = None
         self._occupancy_listener_unsub: Optional[Any] = None
         # Deferred retry for hysteresis-blocked transitions
@@ -3670,6 +3675,11 @@ class PresenceCoordinator(BaseCoordinator):
                         and state.state not in _UNAVAILABLE_STATES
                         and state.state == "on"
                     )
+                    if (
+                        state is not None
+                        and state.state not in _UNAVAILABLE_STATES
+                    ):
+                        self._fan_known_good[fan_id] = is_on
                     # H1 fix-up: `_fan_entity_to_room` is now a declared
                     # tracker attribute (`ZonePresenceTracker.__init__`),
                     # NOT a setattr-monkey-patched dict. Assign into it
@@ -3722,8 +3732,10 @@ class PresenceCoordinator(BaseCoordinator):
 
         Writes ``room_name`` into / out of
         ``ZonePresenceTracker._fan_on_rooms`` based on whether the fan
-        is reporting ``"on"``. Treats unavailable/unknown as off (same
-        convention as occupancy and camera handlers above).
+        is reporting ``"on"``. Unavailable/unknown edges HOLD the last
+        known-good belief (fan-noise Rev 2 C3 Part A); a return from
+        unavailable in a different state than the last known-good one is
+        a real transition.
 
         Observation-only: does NOT trigger ``_run_inference``. The
         existing occupancy/inference cadence picks up the new flag on
@@ -3735,10 +3747,39 @@ class PresenceCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if not entity_id or new_state is None:
             return
+        # Fan-noise Rev 2 C3 Part A — last-known-good belief carryover.
+        # A fan going unavailable/unknown is UNRELIABLE, not newly off:
+        # hold `_fan_last_transition` / `_fan_on_rooms` / `_fan_on_since` /
+        # `_fan_off_at` at the last known-good belief. (ActuatorReconciler's
+        # flap quarantine is the reliability oracle — C3 Part B.)
+        known_good = getattr(self, "_fan_known_good", None)
+        if known_good is None:
+            known_good = {}
+            try:
+                self._fan_known_good = known_good
+            except Exception:  # noqa: BLE001 — defensive (test fakes)
+                pass
         if new_state.state in _UNAVAILABLE_STATES:
-            is_on = False
-        else:
-            is_on = new_state.state == "on"
+            _LOGGER.debug(
+                "Provenance-split D3: fan %s -> %s — belief held "
+                "(last known-good on=%s)",
+                entity_id, new_state.state, known_good.get(entity_id),
+            )
+            return
+        is_on = new_state.state == "on"
+        prior_good = known_good.get(entity_id)
+        known_good[entity_id] = is_on
+        if (
+            old_state is not None
+            and old_state.state in _UNAVAILABLE_STATES
+            and prior_good is not None
+            and prior_good == is_on
+        ):
+            # Came back from unavailable in the same state it left:
+            # not a transition. A DIFFERENT state (e.g. off -> unavailable
+            # -> on, a real wall-switch power-on) falls through and is
+            # stamped as a real transition below.
+            return
         # Fan-transition coincidence gate (AUDIT probe 2026-08-01):
         # detect ANY transition — the on/off state edge OR a
         # percentage attribute change (speed step, e.g. 33% -> 55%).
@@ -3811,6 +3852,15 @@ class PresenceCoordinator(BaseCoordinator):
                             st is not None
                             and st.state not in _UNAVAILABLE_STATES
                             and st.state == "on"
+                        ):
+                            any_other_on = True
+                            break
+                        # C3 Part A: an unavailable sibling keeps its
+                        # last known-good belief.
+                        if (
+                            st is not None
+                            and st.state in _UNAVAILABLE_STATES
+                            and known_good.get(other_id) is True
                         ):
                             any_other_on = True
                             break

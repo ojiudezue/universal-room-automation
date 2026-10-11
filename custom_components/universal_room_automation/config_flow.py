@@ -5413,6 +5413,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
             CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+            CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+            DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
             DOMAIN,
         )
 
@@ -5653,6 +5655,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+                            DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+                        ),
+                    ): selector.BooleanSelector(),
                 }),
                 {"collapsed": True},
             ),
