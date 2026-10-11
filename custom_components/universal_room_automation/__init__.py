@@ -106,7 +106,25 @@ from .const import (
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
 )
 from .const import VERSION
+# ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): hoisted top-level so the
+# boot scan has no runtime relative imports (tests + production share
+# one import path). No cycle: .automation / .const are already loaded
+# transitively via .coordinator above.
+from .const import (
+    PREFILL_DETRITUS_TOKEN_RE as _PREFILL_DETRITUS_SCAN_TOKEN_RE,
+    CONF_AUTO_DEVICES as _CONF_AUTO_DEVICES_D4,
+    CONF_AUTO_SWITCHES as _CONF_AUTO_SWITCHES_D4,
+    CONF_MANUAL_DEVICES as _CONF_MANUAL_DEVICES_D4,
+    CONF_MANUAL_SWITCHES as _CONF_MANUAL_SWITCHES_D4,
+    CONF_LIGHTS as _CONF_LIGHTS_D4,
+    CONF_NIGHT_LIGHTS as _CONF_NIGHT_LIGHTS_D4,
+    CONF_FANS as _CONF_FANS_D4,
+    CONF_HUMIDITY_FANS as _CONF_HUMIDITY_FANS_D4,
+    CONF_COVERS as _CONF_COVERS_D4,
+    CONF_ROOM_NAME as _CONF_ROOM_NAME_D4,
+)
 from .coordinator import UniversalRoomCoordinator
+from .automation import _classify_detritus_id  # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 D4
 from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
@@ -1805,6 +1823,64 @@ def _migrate_room_fan_mode(hass: HomeAssistant, entry: ConfigEntry) -> str | Non
         return None
 
 
+def _scan_prefill_detritus(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): boot scan of stored
+    actuator config lists for prefill detritus. One WARNING per
+    (entry_id, entity_id, rule_id) with grep-anchor
+    ``URA-PREFILL-DETRITUS-GUARD`` + fields room_name, entity_id,
+    rule_id, config_key. No entity, no restore state."""
+    try:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        ent_reg = er.async_get(hass)
+    except Exception:  # noqa: BLE001
+        return
+
+    scanned_keys = (
+        _CONF_AUTO_DEVICES_D4, _CONF_AUTO_SWITCHES_D4,
+        _CONF_MANUAL_DEVICES_D4, _CONF_MANUAL_SWITCHES_D4,
+        _CONF_LIGHTS_D4, _CONF_NIGHT_LIGHTS_D4,
+        _CONF_FANS_D4, _CONF_HUMIDITY_FANS_D4, _CONF_COVERS_D4,
+    )
+    token_re = _PREFILL_DETRITUS_SCAN_TOKEN_RE
+
+    # Live-view merge of data + options, matching RoomAutomation.
+    cfg = {**entry.data, **entry.options}
+    room_name = cfg.get(_CONF_ROOM_NAME_D4, entry.title or "Unknown")
+    seen: set[tuple[str, str, str]] = set()
+    hits = 0
+    for key in scanned_keys:
+        ids = cfg.get(key) or []
+        if isinstance(ids, str):
+            ids = [ids]
+        for eid in ids:
+            if not isinstance(eid, str) or "." not in eid:
+                continue
+            try:
+                reg = ent_reg.async_get(eid)
+            except Exception:  # noqa: BLE001
+                reg = None
+            rule_id = _classify_detritus_id(reg, eid, token_re, DOMAIN)
+            if rule_id is None:
+                continue
+            k = (entry.entry_id, eid, rule_id)
+            if k in seen:
+                continue
+            seen.add(k)
+            hits += 1
+            _LOGGER.warning(
+                "URA-PREFILL-DETRITUS-GUARD boot_scan room=%s "
+                "entity_id=%s rule_id=%s config_key=%s — stored in "
+                "room config; remove via options flow",
+                room_name, eid, rule_id, key,
+            )
+    if hits:
+        _LOGGER.info(
+            "URA-PREFILL-DETRITUS-GUARD boot_scan room=%s found %d "
+            "poisoned entity reference(s) across %d config keys",
+            room_name, hits, len(scanned_keys),
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     # ROOM-NAME-DESYNC-1 D2 — reconcile pre-cycle options/data desync on
@@ -1836,6 +1912,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # above (zone membership decides "Follow thermostat"), BEFORE any
         # update listener.
         _migrate_room_fan_mode(hass, entry)
+
+        # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D4): one-shot boot scan of
+        # stored actuator config lists against the live entity registry.
+        # Emits one WARNING per (entry_id, entity_id, rule_id) with
+        # grep-anchor `URA-PREFILL-DETRITUS-GUARD`. No new entity, no
+        # restore state — the log IS the surface. Operator-driven
+        # cleanup (no silent config migration).
+        try:
+            _scan_prefill_detritus(hass, entry)
+        except Exception:  # noqa: BLE001 — diagnostic, never break setup
+            _LOGGER.debug(
+                "URA-PREFILL-DETRITUS-GUARD boot scan raised (non-fatal) "
+                "for entry_id=%s",
+                entry.entry_id,
+                exc_info=True,
+            )
 
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
