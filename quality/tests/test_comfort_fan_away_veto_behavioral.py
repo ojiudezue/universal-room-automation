@@ -674,22 +674,45 @@ class TestSiteRestoreAfterRecheck:
 # ---------------------------------------------------------------------------
 
 class TestMmwaveNameExclusion:
-    def test_mmwave_named_sensor_does_not_defeat_veto(self):
-        """A binary_sensor named `...presence...` misfiled in motion
-        sensors must be treated as mmWave (excluded) — veto still fires.
-        """
+    # Fan-noise Rev 2 C2: classification is by capability + device model,
+    # never by entity name. The device family is seeded into the per-boot
+    # cache here (this file stubs HA wholesale); the registry read itself
+    # is anchored in test_fan_noise_running_rejection.py with real
+    # registries.
+    def test_radar_model_misfiled_as_motion_does_not_defeat_veto(self):
+        """A radar (ZG-204ZK) misfiled under motion sensors is excluded by
+        its device model — veto still fires."""
         hass = _make_hass(HouseState.AWAY)
+        eid = "binary_sensor.study_radar_occupancy"
+        hass.data[DOMAIN]["_sensor_family_cache"] = {eid: "zigbee_zk_zx"}
         mm_state = MagicMock()
         mm_state.state = "on"
         hass.states.get = MagicMock(return_value=mm_state)
         cfg = {
-            CONF_MOTION_SENSORS: ["binary_sensor.occupancy_bedroom_presence_2"],
+            CONF_MOTION_SENSORS: [eid],
             CONF_OCCUPANCY_TIMEOUT: 300,
         }
         assert _fan_veto_mod.should_veto_comfort_fan(hass, ROOM_NAME, cfg), (
-            "mmWave-name-pattern sensor must be excluded from motion "
-            "recency check — veto should still fire"
+            "radar-model sensor must be excluded from motion recency "
+            "check — veto should still fire"
         )
+
+    def test_zv_named_presence_counts_as_motion_witness(self):
+        """A ZG-204ZV named `..._presence_2` (Z2M's name) filed under motion
+        sensors IS a motion witness — its ON defeats the veto."""
+        hass = _make_hass(HouseState.AWAY)
+        eid = "binary_sensor.occupancy_bedroom_presence_2"
+        hass.data[DOMAIN]["_sensor_family_cache"] = {eid: "zigbee_zv"}
+        st = MagicMock()
+        st.state = "on"
+        hass.states.get = MagicMock(return_value=st)
+        cfg = {
+            CONF_MOTION_SENSORS: [eid],
+            CONF_OCCUPANCY_TIMEOUT: 300,
+        }
+        assert not _fan_veto_mod.should_veto_comfort_fan(
+            hass, ROOM_NAME, cfg,
+        ), "ZV motion-class sensor ON must defeat the veto"
 
     def test_plain_pir_sensor_defeats_veto(self):
         hass = _make_hass(HouseState.AWAY)

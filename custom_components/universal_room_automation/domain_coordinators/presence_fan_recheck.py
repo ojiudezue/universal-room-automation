@@ -35,6 +35,7 @@ from ..const import (
     CONF_FAN_RECHECK_ARM_DELAY_S,
     CONF_FAN_RECHECK_COOLDOWN_S,
     CONF_FAN_RECHECK_ENABLED,
+    CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
     CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
     CONF_FAN_RECHECK_L2_ALLOWED,
     CONF_FAN_RECHECK_MAX_PER_HOUR,
@@ -43,12 +44,14 @@ from ..const import (
     CONF_FAN_RECHECK_TRUST_SENSORS_OK,
     CONF_FAN_RECHECK_WINDOW_S,
     CONF_FANS,
+    CONF_MMWAVE_SENSORS,
     CONF_ROOM_FAN_RECHECK_ENABLED,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
     DEFAULT_FAN_RECHECK_ARM_DELAY_S,
     DEFAULT_FAN_RECHECK_COOLDOWN_S,
     DEFAULT_FAN_RECHECK_ENABLED,
+    DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
     DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
     DEFAULT_FAN_RECHECK_L2_ALLOWED,
     DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
@@ -59,6 +62,7 @@ from ..const import (
     DEFAULT_RECHECK_FACTOR,
     DEFAULT_ROOM_FAN_RECHECK_ENABLED,
     DOMAIN,
+    FAN_RECHECK_SUPPRESS_MARGIN_S,
     ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_ROOM,
     ROOM_TYPE_BEDROOM,
@@ -69,6 +73,10 @@ from ..const import fan_owner
 from ._ble_corroboration import trustworthy_persons_in_room
 from .house_state import HouseState
 from .hvac_const import FAN_TRUST_STATES
+from .sensor_capability import (
+    SENSOR_FAMILY_UNKNOWN,
+    family_recheck_factor,
+)
 from .signals import (
     SIGNAL_FAN_RECHECK_FINISHED,
     SIGNAL_FAN_RECHECK_STARTED,
@@ -175,6 +183,9 @@ class FanRecheckManager:
         self._veto_counts: dict[str, dict[str, int]] = defaultdict(
             lambda: defaultdict(int)
         )
+        # C4 Rev 2: rooms already WARNed for an unresolved sensor family
+        # (once per room per boot).
+        self._family_warned: set[str] = set()
 
     # ---- observability helpers --------------------------------------------
 
@@ -528,6 +539,16 @@ class FanRecheckManager:
         # so we don't even try to schedule a pause for a recently-killed fan.
         if self._fan_in_manual_cooldown(room_name):
             return sink.veto(room_name, "manual_off_cooldown")
+        # Fan-noise Rev 2 C1a (Finding 2): never ARM a pause against a live
+        # manual-ON hold — operator intent beats recheck inference. The
+        # restore-time check in `hvac_fans.restore_after_recheck` is the
+        # backstop for a hold that lands DURING the pause.
+        if self._fan_in_manual_on_hold(room_name):
+            return sink.veto(room_name, "manual_on_hold_live")
+        # Fan-noise Rev 2 C3 Part B: never ARM against a fan the room's
+        # ActuatorReconciler has quarantined as flapping (unreliable).
+        if self._fan_in_actuator_quarantine(room_coord, fans):
+            return sink.veto(room_name, "fan_quarantined")
 
         # Condition 5: rate limit.
         max_per_hour = int(
@@ -695,16 +716,10 @@ class FanRecheckManager:
                 DEFAULT_FAN_RECHECK_SPINDOWN_S,
             )
         )
-        window = int(
-            timing.get(
-                CONF_FAN_RECHECK_WINDOW_S,
-                DEFAULT_FAN_RECHECK_WINDOW_S,
-            )
-        )
         # _recheck_factor still reads CONF_ROOM_TYPE from the room entry
-        # (per-room property — not coordinator-tier).
-        factor = self._recheck_factor(merged)
-        window = int(window * factor)
+        # (per-room property — not coordinator-tier). C4 Rev 2: times the
+        # room's dominant presence-sensor family factor.
+        window = self._effective_window_s(merged, timing, ctx.room_name)
         hvac_suppress = int(
             timing.get(
                 CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
@@ -712,6 +727,12 @@ class FanRecheckManager:
             )
         )
 
+        # Review B-1: the suppress window (HVAC tier AND the room-tier
+        # note_recheck_pause backstop, both fed this ISO) must cover the
+        # whole pause, which C4 family scaling can stretch past the knob.
+        hvac_suppress = max(
+            hvac_suppress, spindown + window + FAN_RECHECK_SUPPRESS_MARGIN_S,
+        )
         suppress_until = (
             dt_util.now() + timedelta(seconds=hvac_suppress)
         ).isoformat()
@@ -790,7 +811,14 @@ class FanRecheckManager:
         ctx.last_outcome = outcome
         await self._persist(ctx)
 
-        await self._fan_restore(ctx.room_name, ctx.snapshot)
+        # Fan-noise Rev 2 C1a: a VACATED verdict leaves the fan OFF (the
+        # person it ran for has left) but still runs every restore
+        # discharge duty in the HVAC FanController. All other exits
+        # (occupied_confirmed, forced, cancel-driven) restore ON.
+        leave_off = outcome == OUTCOME_VACATED and not forced
+        await self._fan_restore(
+            ctx.room_name, ctx.snapshot, leave_off=leave_off,
+        )
 
         if outcome == OUTCOME_VACATED and not forced:
             room_coord = self._room_coord_for(ctx.room_name)
@@ -1025,6 +1053,9 @@ class FanRecheckManager:
             CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: (
                 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS
             ),
+            CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED: (
+                DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED
+            ),
         }
         try:
             for ce in self.hass.config_entries.async_entries(DOMAIN):
@@ -1106,6 +1137,130 @@ class FanRecheckManager:
             ROOM_TYPE_RECHECK_FACTOR.get(room_type, DEFAULT_RECHECK_FACTOR)
         )
 
+    def _room_families(self, merged: dict) -> list[str]:
+        """C4 Rev 2 (review A-M3): the RECOGNISED sensor families of the
+        room's presence sensors (CONF_MMWAVE_SENSORS = "presence_sensors"),
+        resolved from the device registry model. "unknown" is dropped."""
+        try:
+            from ..fan_veto import resolve_sensor_family  # noqa: PLC0415
+        except ImportError:  # isolated-module test loaders: no fan_veto
+            return []
+        sensors = merged.get(CONF_MMWAVE_SENSORS) or []
+        if isinstance(sensors, str):
+            sensors = [sensors]
+        out: list[str] = []
+        for eid in sensors:
+            if not isinstance(eid, str) or not eid:
+                continue
+            fam = resolve_sensor_family(self.hass, eid)
+            if fam != SENSOR_FAMILY_UNKNOWN and fam not in out:
+                out.append(fam)
+        return out
+
+    def _family_warned_set(self) -> set:
+        warned = getattr(self, "_family_warned", None)
+        if warned is None:
+            warned = set()
+            self._family_warned = warned
+        return warned
+
+    def _family_factor(
+        self, merged: dict, timing: dict, room_name: str = "",
+    ) -> float:
+        """C4 Rev 2: window multiplier = the MAX factor over the room's
+        recognised presence-sensor families (review A-M3). 1.0 when family
+        scaling is off or no family is recognised (byte-identical pre-C4);
+        the latter WARNs once per room per boot when the room has presence
+        sensors."""
+        if not timing.get(
+            CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+            DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
+        ):
+            return 1.0
+        families = self._room_families(merged)
+        if (
+            not families
+            and merged.get(CONF_MMWAVE_SENSORS)
+            and room_name
+            and room_name not in self._family_warned_set()
+        ):
+            self._family_warned_set().add(room_name)
+            _LOGGER.warning(
+                "FanRecheck %s: presence-sensor family not recognised from "
+                "the device model — recheck window not scaled (factor 1.0)",
+                room_name,
+            )
+        # Review A-M3: the slowest recognised family sets the window (a
+        # room is only as quick to clear as its slowest radar).
+        return max(
+            (family_recheck_factor(f) for f in families), default=1.0,
+        )
+
+    def _effective_window_s(
+        self, merged: dict, timing: dict, room_name: str = "",
+    ) -> int:
+        """Live recheck observe window: CM window knob x room-type factor x
+        family factor (C4 Rev 2). Shared by the live pause path and the
+        PAUSED rehydrate stale check."""
+        window = int(
+            timing.get(CONF_FAN_RECHECK_WINDOW_S, DEFAULT_FAN_RECHECK_WINDOW_S)
+        )
+        factor = self._recheck_factor(merged) * self._family_factor(
+            merged, timing, room_name,
+        )
+        return int(window * factor)
+
+    def _fan_in_manual_on_hold(self, room_name: str) -> bool:
+        """Fan-noise Rev 2 C1a (Finding 2): True while the room's manual-ON
+        hold is live. Mirrors `_fan_in_manual_cooldown` (oracle first, the
+        FanController RAM state as fallback)."""
+        try:
+            oracle = self.hass.data.get(DOMAIN, {}).get("fan_oracle")
+            if oracle is not None:
+                try:
+                    from .hvac_fans import _room_key
+                    until = oracle.get_state(
+                        _room_key(room_name),
+                    ).manual_on_hold_until
+                    if until is None:
+                        return False
+                    return dt_util.now() < until
+                except Exception:  # noqa: BLE001 — fall through
+                    pass
+            fan_controller = self._fan_controller()
+            if fan_controller is None:
+                return False
+            room_fan = fan_controller._room_fans.get(room_name)
+            if room_fan is None or not room_fan.manual_on_hold_until:
+                return False
+            until = dt_util.parse_datetime(room_fan.manual_on_hold_until)
+            if until is None:
+                return False
+            if until.tzinfo is None:
+                until = dt_util.as_local(until)
+            return dt_util.now() < until
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _fan_in_actuator_quarantine(
+        self, room_coord: Any, fans: list,
+    ) -> bool:
+        """Fan-noise Rev 2 C3 Part B: True iff a configured fan that is ON
+        right now is in its ActuatorReconciler flap quarantine (the
+        reconciler owns fan availability-flap detection)."""
+        try:
+            reconciler = getattr(room_coord, "_actuator_reconciler", None)
+            if reconciler is None:
+                return False
+            flapping = {
+                row.get("entity_id") for row in reconciler.flapping_entities()
+            }
+            # Review B-4: only a quarantined fan that is RUNNING (the one
+            # the pause would act on) vetoes; a flapping idle sibling does not.
+            return any(f in flapping and self._is_entity_on(f) for f in fans)
+        except Exception:  # noqa: BLE001
+            return False
+
     def _fan_in_manual_cooldown(self, room_name: str) -> bool:
         """FAN-LAYER-2 D1 (PLAN §2.1 task item 2 + §5.2 dual-tier agreement).
 
@@ -1169,12 +1324,17 @@ class FanRecheckManager:
             )
             return None
 
-    async def _fan_restore(self, room_name: str, snapshot: Optional[dict]) -> None:
+    async def _fan_restore(
+        self, room_name: str, snapshot: Optional[dict],
+        leave_off: bool = False,
+    ) -> None:
         fan_controller = self._fan_controller()
         if fan_controller is None:
             return
         try:
-            await fan_controller.restore_after_recheck(room_name, snapshot)
+            await fan_controller.restore_after_recheck(
+                room_name, snapshot, leave_off=leave_off,
+            )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "FanRecheck %s: restore_after_recheck failed: %s",
@@ -1246,11 +1406,13 @@ class FanRecheckManager:
             return
         # Resolve room_name from entry_id.
         room_name = ""
+        merged: dict = {}
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.entry_id == entry_id:
                 room_name = entry.data.get(CONF_ROOM_NAME) or entry.data.get(
                     "room_name", "",
                 )
+                merged = {**(entry.data or {}), **(entry.options or {})}
                 break
         if not room_name:
             return
@@ -1295,7 +1457,18 @@ class FanRecheckManager:
         # D6 restart-resilience matrix.
         now = dt_util.now()
         if state == STATE_PAUSED and entered is not None:
-            window = DEFAULT_FAN_RECHECK_WINDOW_S * 2
+            # C4 Rev 2 (Finding 9b): stale threshold scales with the room's
+            # live effective window (room-type x family), not the default.
+            # Review A-L1: never shorter than the pause itself
+            # (spindown + effective window) plus the suppress margin.
+            _timing = self._timing_config()
+            _eff = self._effective_window_s(merged, _timing, room_name)
+            _spin = int(_timing.get(
+                CONF_FAN_RECHECK_SPINDOWN_S, DEFAULT_FAN_RECHECK_SPINDOWN_S,
+            ))
+            window = max(
+                _eff * 2, _spin + _eff + FAN_RECHECK_SUPPRESS_MARGIN_S,
+            )
             if (now - entered).total_seconds() < window:
                 self.hass.async_create_task(
                     self._restore(ctx, outcome=OUTCOME_OCCUPIED_CONFIRMED),
@@ -1346,7 +1519,15 @@ class FanRecheckManager:
             return
         if state == STATE_COOLDOWN and entered is not None:
             elapsed = (now - entered).total_seconds()
-            remaining = max(0, DEFAULT_FAN_RECHECK_COOLDOWN_S - int(elapsed))
+            # C4 Rev 2 (Finding 9c, Bug Class #53): the LIVE CM cooldown
+            # knob, not the default.
+            cooldown_s = int(
+                self._timing_config().get(
+                    CONF_FAN_RECHECK_COOLDOWN_S,
+                    DEFAULT_FAN_RECHECK_COOLDOWN_S,
+                )
+            )
+            remaining = max(0, cooldown_s - int(elapsed))
             ctx.state = STATE_COOLDOWN
             if remaining > 0:
                 async def _on_cd_done(_n, _ctx=ctx):

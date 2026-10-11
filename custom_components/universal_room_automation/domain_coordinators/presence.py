@@ -30,12 +30,14 @@ from typing import Any, Dict, List, Optional, Set
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    FAN_BELIEF_UNAVAILABLE_TTL_S,
     BLE_TIER_2_WEIGHT,  # v4.7.16 D3
     BOOT_SETTLE_MIN_INPUTS,  # boot-settle gate
     BOOT_SETTLE_TIMEOUT_SECONDS,  # boot-settle gate
@@ -1600,6 +1602,11 @@ class PresenceCoordinator(BaseCoordinator):
         # belt-and-braces unsub logic is defense-in-depth against a
         # future re-discovery caller (e.g. a config-flow-driven reload).
         self._fan_listener_unsub: Optional[Any] = None
+        # Fan-noise Rev 2 C3 Part A: per-fan-entity last-known-good on/off
+        # (never written from an unavailable/unknown state). Read by
+        # `_handle_fan_change` to tell a real wall-switch power-on
+        # (off -> unavailable -> on) from an availability flap.
+        self._fan_known_good: Dict[str, bool] = {}
         self._camera_listener_unsub: Optional[Any] = None
         self._occupancy_listener_unsub: Optional[Any] = None
         # Deferred retry for hysteresis-blocked transitions
@@ -3629,6 +3636,7 @@ class PresenceCoordinator(BaseCoordinator):
             # re-discovery so a re-seeded fan does not carry a stale
             # transition timestamp into the new listener wiring.
             tracker._fan_last_transition.clear()
+        _cancel_fan_belief_decay(self)
         if self._fan_listener_unsub is not None:
             try:
                 self._fan_listener_unsub()
@@ -3670,6 +3678,16 @@ class PresenceCoordinator(BaseCoordinator):
                         and state.state not in _UNAVAILABLE_STATES
                         and state.state == "on"
                     )
+                    if (
+                        state is not None
+                        and state.state not in _UNAVAILABLE_STATES
+                    ):
+                        self._fan_known_good[fan_id] = is_on
+                    else:
+                        # Review A-L2: re-discovery cleared this room's
+                        # belief maps — a stale known-good for a fan that
+                        # is unavailable now must not survive them.
+                        self._fan_known_good.pop(fan_id, None)
                     # H1 fix-up: `_fan_entity_to_room` is now a declared
                     # tracker attribute (`ZonePresenceTracker.__init__`),
                     # NOT a setattr-monkey-patched dict. Assign into it
@@ -3722,8 +3740,10 @@ class PresenceCoordinator(BaseCoordinator):
 
         Writes ``room_name`` into / out of
         ``ZonePresenceTracker._fan_on_rooms`` based on whether the fan
-        is reporting ``"on"``. Treats unavailable/unknown as off (same
-        convention as occupancy and camera handlers above).
+        is reporting ``"on"``. Unavailable/unknown edges HOLD the last
+        known-good belief (fan-noise Rev 2 C3 Part A); a return from
+        unavailable in a different state than the last known-good one is
+        a real transition.
 
         Observation-only: does NOT trigger ``_run_inference``. The
         existing occupancy/inference cadence picks up the new flag on
@@ -3735,10 +3755,48 @@ class PresenceCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if not entity_id or new_state is None:
             return
+        # Fan-noise Rev 2 C3 Part A — last-known-good belief carryover.
+        # A fan going unavailable/unknown is UNRELIABLE, not newly off:
+        # hold `_fan_last_transition` / `_fan_on_rooms` / `_fan_on_since` /
+        # `_fan_off_at` at the last known-good belief. (ActuatorReconciler's
+        # flap quarantine is the reliability oracle — C3 Part B.)
+        known_good = getattr(self, "_fan_known_good", None)
+        if known_good is None:
+            known_good = {}
+            try:
+                self._fan_known_good = known_good
+            except Exception:  # noqa: BLE001 — defensive (test fakes)
+                pass
         if new_state.state in _UNAVAILABLE_STATES:
-            is_on = False
-        else:
-            is_on = new_state.state == "on"
+            _LOGGER.debug(
+                "Provenance-split D3: fan %s -> %s — belief held "
+                "(last known-good on=%s)",
+                entity_id, new_state.state, known_good.get(entity_id),
+            )
+            # Review A-M2/B-2: the held ON belief is bounded — decays to
+            # OFF after FAN_BELIEF_UNAVAILABLE_TTL_S continuously
+            # unavailable (timer below; any readable edge cancels it).
+            if known_good.get(entity_id) is True and (
+                old_state is None
+                or old_state.state not in _UNAVAILABLE_STATES
+            ):
+                _arm_fan_belief_decay(self, entity_id)
+            return
+        _cancel_fan_belief_decay(self, entity_id)
+        is_on = new_state.state == "on"
+        prior_good = known_good.get(entity_id)
+        known_good[entity_id] = is_on
+        if (
+            old_state is not None
+            and old_state.state in _UNAVAILABLE_STATES
+            and prior_good is not None
+            and prior_good == is_on
+        ):
+            # Came back from unavailable in the same state it left:
+            # not a transition. A DIFFERENT state (e.g. off -> unavailable
+            # -> on, a real wall-switch power-on) falls through and is
+            # stamped as a real transition below.
+            return
         # Fan-transition coincidence gate (AUDIT probe 2026-08-01):
         # detect ANY transition — the on/off state edge OR a
         # percentage attribute change (speed step, e.g. 33% -> 55%).
@@ -3811,6 +3869,15 @@ class PresenceCoordinator(BaseCoordinator):
                             st is not None
                             and st.state not in _UNAVAILABLE_STATES
                             and st.state == "on"
+                        ):
+                            any_other_on = True
+                            break
+                        # C3 Part A: an unavailable sibling keeps its
+                        # last known-good belief.
+                        if (
+                            st is not None
+                            and st.state in _UNAVAILABLE_STATES
+                            and known_good.get(other_id) is True
                         ):
                             any_other_on = True
                             break
@@ -7496,6 +7563,8 @@ class PresenceCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Presence Coordinator."""
+        # Fan-noise review A-M2/B-2: pending held-belief decay timers.
+        _cancel_fan_belief_decay(self)
         # Cancel deferred retry timer
         if self._retry_unsub is not None:
             self._retry_unsub()
@@ -8001,3 +8070,70 @@ class PresenceCoordinator(BaseCoordinator):
             for name, tracker in self._zone_trackers.items()
         }
         return summary
+
+
+# ---------------------------------------------------------------------------
+# Fan-noise Rev 2 review A-M2/B-2 — held fan-belief decay (module-level so
+# test fakes that drive the unbound `_handle_fan_change` need no methods).
+# ---------------------------------------------------------------------------
+
+def _fan_decay_unsubs_map(owner: Any) -> Dict[str, Any]:
+    m = getattr(owner, "_fan_decay_unsubs", None)
+    if m is None:
+        m = {}
+        owner._fan_decay_unsubs = m
+    return m
+
+def _cancel_fan_belief_decay(owner: Any, entity_id: Optional[str] = None) -> None:
+    """Cancel one (or every) pending held-belief decay timer."""
+    m = _fan_decay_unsubs_map(owner)
+    for eid in ([entity_id] if entity_id is not None else list(m)):
+        unsub = m.pop(eid, None)
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+
+def _arm_fan_belief_decay(owner: Any, entity_id: str) -> None:
+    """Review A-M2/B-2: after FAN_BELIEF_UNAVAILABLE_TTL_S of continuous
+    unavailability, replay a synthetic on->off edge through
+    `_handle_fan_change` so every belief map (incl. `_fan_off_at` and
+    `_fan_on_since`, which the D2 'fan_off' latch-clear reads) moves to
+    OFF exactly as a real off edge would. Discharge: a readable edge
+    cancels; re-discovery / teardown cancel all."""
+    _cancel_fan_belief_decay(owner, entity_id)
+
+    @callback
+    def _decay(_now: Any) -> None:
+        _fan_decay_unsubs_map(owner).pop(entity_id, None)
+        try:
+            live = owner.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001
+            live = None
+        if live is not None and live.state not in _UNAVAILABLE_STATES:
+            return
+        if getattr(owner, "_fan_known_good", {}).get(entity_id) is not True:
+            return
+        _LOGGER.info(
+            "Provenance-split D3: fan %s unavailable > %ss — held ON "
+            "belief decays to off", entity_id, FAN_BELIEF_UNAVAILABLE_TTL_S,
+        )
+
+        class _S:
+            def __init__(self, st: str) -> None:
+                self.state = st
+                self.attributes: Dict[str, Any] = {}
+
+        class _E:
+            data = {
+                "entity_id": entity_id,
+                "old_state": _S("on"),
+                "new_state": _S("off"),
+            }
+        PresenceCoordinator._handle_fan_change(owner, _E())
+
+    _fan_decay_unsubs_map(owner)[entity_id] = async_call_later(
+        owner.hass, FAN_BELIEF_UNAVAILABLE_TTL_S, _decay,
+    )
+

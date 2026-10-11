@@ -334,3 +334,124 @@ def validate_capabilities_payload(
                 f"'{failure}' (allowed: {sorted(FAILURE_MODES)})"
             )
     return errors
+
+
+# ----------------------------------------------------------------------
+# Fan-noise running rejection (PLANNING_fan_noise_running_rejection.md
+# Rev 2, C2 + C4). Pure — the HA device-registry read lives with its
+# callers (``fan_veto.resolve_sensor_family``).
+# ----------------------------------------------------------------------
+
+# C2: capability kinds that a running fan cannot fake. ZV (filed under
+# CONF_MOTION_SENSORS -> kind "motion") is fan-immune in steady state
+# (SENSOR_FLEET_CLASSES.md Rule 3); the ~5-min post-fan-on transient is
+# NOT gated here (deferred: FAN-ZV-POWERON-TRANSIENT-GATE-1).
+_FAN_IMMUNE_WITNESS_KINDS: frozenset = frozenset({
+    CAPABILITY_KIND_MOTION,
+    CAPABILITY_KIND_PIR,
+    CAPABILITY_KIND_PIR_SPLIT,
+    CAPABILITY_KIND_BED,
+    CAPABILITY_KIND_CAMERA_PRESENCE,
+    CAPABILITY_KIND_BLE_PRESENCE,
+})
+
+
+def is_fan_immune_witness(
+    room_config: Mapping[str, object], entity_id: str,
+) -> bool:
+    """True iff ``entity_id``'s capability in this room is fan-immune.
+
+    Classifies by capability (CONF-list membership + operator override via
+    ``CONF_SENSOR_CAPABILITIES``), never by entity name. Callers that also
+    need the model-id radar safety net consult
+    ``fan_veto.resolve_sensor_family`` separately.
+    """
+    cap = derive_capability(room_config, entity_id)
+    return cap is not None and cap.kind in _FAN_IMMUNE_WITNESS_KINDS
+
+
+# C4: sensor family by device-registry model id (rung 1 — empirical,
+# review-only). Key = ``device.model_id``, or ``device.model`` when the
+# integration leaves model_id unset (ESPHome devices: LD2410 / Screek /
+# Seeed carry model_id None — measured 2026-10-11 pre-ship audit,
+# docs/planning/AUDIT_motion_sensors_live_models.md).
+SENSOR_FAMILY_ZIGBEE_ZK_ZX: str = "zigbee_zk_zx"
+SENSOR_FAMILY_LD24XX: str = "ld24xx"
+SENSOR_FAMILY_GENERIC_RADAR: str = "generic_radar"
+SENSOR_FAMILY_ZIGBEE_ZV: str = "zigbee_zv"
+SENSOR_FAMILY_PIR: str = "pir"
+SENSOR_FAMILY_UNKNOWN: str = "unknown"
+
+FAMILY_BY_MODEL_ID: Dict[str, str] = {
+    "ZG-204ZK": SENSOR_FAMILY_ZIGBEE_ZK_ZX,
+    "ZG-204ZX": SENSOR_FAMILY_ZIGBEE_ZK_ZX,
+    "HLK-LD2410": SENSOR_FAMILY_LD24XX,
+    "HLK-LD2412": SENSOR_FAMILY_LD24XX,
+    "LD2410": SENSOR_FAMILY_LD24XX,
+    "LD2412": SENSOR_FAMILY_LD24XX,
+    "Human_Presence_Sensor": SENSOR_FAMILY_GENERIC_RADAR,  # Screek
+    "mmwave_kit": SENSOR_FAMILY_GENERIC_RADAR,  # Seeed
+    "mr60bha2_kit": SENSOR_FAMILY_GENERIC_RADAR,  # Seeed
+    "mr60fda2_kit": SENSOR_FAMILY_GENERIC_RADAR,  # Seeed
+    "VZM32-SN": SENSOR_FAMILY_GENERIC_RADAR,  # Inovelli mmWave dimmer
+    # Meross MS600 mmWave (Meross-cloud entity: model_id None, model
+    # carries the firmware). Exact string — a firmware bump changes the
+    # key; re-run scripts/fan_noise/audit_motion_sensors_models.py.
+    "ms600 9.0.0": SENSOR_FAMILY_GENERIC_RADAR,
+    "16897": SENSOR_FAMILY_GENERIC_RADAR,  # Meross Smart Presence (Matter)
+    "ZG-204ZV": SENSOR_FAMILY_ZIGBEE_ZV,
+    "ZG-204Z": SENSOR_FAMILY_PIR,
+    "SNZB-03P": SENSOR_FAMILY_PIR,
+}
+
+# Families that are radars a fan can drive (C2 model-id safety net).
+RADAR_SENSOR_FAMILIES: frozenset = frozenset({
+    SENSOR_FAMILY_ZIGBEE_ZK_ZX,
+    SENSOR_FAMILY_LD24XX,
+    SENSOR_FAMILY_GENERIC_RADAR,
+})
+
+# C4 recheck-window multiplier per family (rung 1). ZK/ZX measured p90
+# clear 345 s; LD24xx NOT measured in the 7-day window — 3.0 is an
+# explicit assumption checked in week 1; generic radar measured p90 600 s.
+# A family absent here (unknown / non-radar) -> 1.0 (byte-identical v1).
+SENSOR_FAMILY_RECHECK_FACTOR: Dict[str, float] = {
+    SENSOR_FAMILY_ZIGBEE_ZK_ZX: 2.0,
+    SENSOR_FAMILY_LD24XX: 3.0,
+    SENSOR_FAMILY_GENERIC_RADAR: 1.5,
+}
+DEFAULT_SENSOR_FAMILY_RECHECK_FACTOR: float = 1.0
+
+
+# Review A-M1: firmware-suffixed model strings ("ms600 9.0.0") — match on
+# the first whitespace token, case-insensitive, so a firmware bump does
+# not re-admit the radar.
+FAMILY_BY_MODEL_TOKEN: Dict[str, str] = {
+    "ms600": SENSOR_FAMILY_GENERIC_RADAR,  # Meross MS600 mmWave
+}
+
+
+def family_for_model(
+    model_id: Optional[str], model: Optional[str] = None,
+) -> str:
+    """Map a device's model_id (fallback: model) to a sensor family.
+    Exact key first, then the first token of either string (lower-case)
+    against ``FAMILY_BY_MODEL_TOKEN``."""
+    for key in (model_id, model):
+        if key and key in FAMILY_BY_MODEL_ID:
+            return FAMILY_BY_MODEL_ID[key]
+    for key in (model_id, model):
+        if key and isinstance(key, str) and key.split():
+            fam = FAMILY_BY_MODEL_TOKEN.get(key.split()[0].lower())
+            if fam is not None:
+                return fam
+    return SENSOR_FAMILY_UNKNOWN
+
+
+def family_recheck_factor(family: str) -> float:
+    """C4 window multiplier for a resolved family (unknown -> 1.0)."""
+    return float(
+        SENSOR_FAMILY_RECHECK_FACTOR.get(
+            family, DEFAULT_SENSOR_FAMILY_RECHECK_FACTOR,
+        )
+    )

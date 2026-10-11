@@ -703,9 +703,17 @@ DEFAULT_FAN_RECHECK_SPINDOWN_S: Final = 30
 CONF_FAN_RECHECK_WINDOW_S: Final = "fan_recheck_window_s"
 DEFAULT_FAN_RECHECK_WINDOW_S: Final = 60
 
-# Per-room rate limit.
+# Per-room rate limit. Fan-noise Rev 2 C4: 1800 -> 900 (a false negative
+# no longer eats 30 min; operator may raise it on the CM options form).
 CONF_FAN_RECHECK_COOLDOWN_S: Final = "fan_recheck_cooldown_s"
-DEFAULT_FAN_RECHECK_COOLDOWN_S: Final = 1800
+DEFAULT_FAN_RECHECK_COOLDOWN_S: Final = 900
+
+# Fan-noise Rev 2 C4: scale the recheck window by the room's dominant
+# presence-sensor family (sensor_capability.SENSOR_FAMILY_RECHECK_FACTOR).
+# Rung 2 (CM options, Advanced). Kill switch: False -> family factor 1.0
+# everywhere (byte-identical pre-C4 window).
+CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED: Final = "fan_recheck_family_scaling_enabled"
+DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED: Final = True
 
 # Hard ceiling per room per hour. 0 disables.
 CONF_FAN_RECHECK_MAX_PER_HOUR: Final = "fan_recheck_max_per_hour"
@@ -714,6 +722,15 @@ DEFAULT_FAN_RECHECK_MAX_PER_HOUR: Final = 2
 # HVAC handshake duration. Sized as SPINDOWN + WINDOW + 2*margin.
 CONF_FAN_RECHECK_HVAC_SUPPRESS_S: Final = "fan_recheck_hvac_suppress_s"
 DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
+# Fan-noise Rev 2 review B-1 (rung 1): the HVAC / room-tier suppress window
+# must outlast the pause itself (spindown + effective window) by this
+# margin, else the HVAC tier books URA's own pause as a manual OFF.
+FAN_RECHECK_SUPPRESS_MARGIN_S: Final = 60
+# Fan-noise Rev 2 review A-M2/B-2 (rung 1): a fan entity held at its last
+# known-good ON belief while unavailable decays to OFF after this long
+# continuously unavailable (measured flaps are ~20-40 s; a dead / wall-
+# powered-off fan must not hold "fan on" forever).
+FAN_BELIEF_UNAVAILABLE_TTL_S: Final = 120
 
 # FIX C (room-tier fan manual-off cooldown).
 # Duration (seconds) that a manually-off fan is held OFF against re-arm
@@ -872,7 +889,12 @@ OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED: Final = "mmwave_fan_demoted"
 #
 # Kill switch: 0.0 disables the gate (matches other rung-1 kill-switch
 # semantics in this file).
-FAN_TRANSITION_SUSPECT_WINDOW_S: Final = 5.0
+#
+# RETIRED 2026-10-11 (PLANNING_fan_noise_running_rejection.md Rev 2, C5):
+# 0.0. The gate only delayed creation by <=5 s while radars latch 55-240 s
+# after a fan starts, and 23/27 of its fires were availability flaps (C3).
+# Code kept; `_fan_transition_suppressed_count` stays readable (frozen).
+FAN_TRANSITION_SUSPECT_WINDOW_S: Final = 0.0
 
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"

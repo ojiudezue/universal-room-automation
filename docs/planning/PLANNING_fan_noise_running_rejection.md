@@ -272,7 +272,7 @@ OC-STUCK-SENSOR-GENERALIZE-1 remains at its original scope (presence/motion sens
 - **Verify (code — Finding 9b):** `presence_fan_recheck.py:1297-1300` computes stale window from `_timing_config()`-derived effective window, not `DEFAULT_FAN_RECHECK_WINDOW_S * 2`. Mutation: reverting to constant `DEFAULT_FAN_RECHECK_WINDOW_S * 2` causes `test_rehydrate_paused_respects_effective_window` to fail at a 300-s-stale fixture with ZK bedroom (should rehydrate, not go idle).
 - **Verify (code — Finding 9c):** `:1347-1349` reads live CM-entry cooldown via `_timing_config()`. Mutation anchor: `test_cooldown_rehydrate_reads_live_knob`.
 - **Verify (code — Finding 9a):** `FAMILY_BY_MODEL_ID` lookup source is the HA device registry; miss → family `"unknown"` → factor 1.0 + one-time WARN.
-- **Test:** `test_family_factor_zk_scales_window`, `test_family_factor_unknown_defaults_1_0`, `test_dominant_family_breaks_ties_by_iteration_order`, `test_rehydrate_paused_respects_effective_window`, `test_cooldown_rehydrate_reads_live_knob`.
+- **Test:** `test_family_factor_zk_scales_window`, `test_family_factor_unknown_defaults_1_0`, `test_family_factor_is_max_over_recognised_families` (review A-M3: max over recognised families, not majority), `test_rehydrate_paused_respects_effective_window`, `test_cooldown_rehydrate_reads_live_knob`.
 - **Live:** per-room `fan_recheck_outcome=occupied_confirmed-but-should-be-vacated` false-negative count drops in Jaya + Living Room; VACATED rate rises; cooldown-blocked miss count drops ≥50%. LD24xx (Jaya) measurement in week 1 either confirms `family_factor=3.0` is sufficient or triggers a C4 follow-up card.
 
 **Non-goal.** No per-room override UI in v1.
@@ -364,3 +364,54 @@ Applied against Rev 1 of this plan after a one-pass adversarial plan review (fin
 11. **C2 regex enumeration corrected (Finding 11 LOW).** `MMWAVE_NAME_PATTERN` module constant retained (not deleted) with `# retired` comment so `quality/tests/test_mmwave_fan_demotion.py` still compiles. `presence.py:413 _classify_entity_kind` substring fallback listed in §A as checked (out of scope — only fires for entities absent from every CONF list).
 12. **C5 / C3 contradiction resolved (Finding 12 LOW).** C3's "gate fire count ≤2/week" AC removed; belief-stability metric replaces it. All `FAN_TRANSITION_SUSPECT_WINDOW_S` / `_fan_transition_suppressed_count` readers tolerate a frozen counter — verified.
 13. **Gold-patterns index updated.** Added ActuatorReconciler flap counter row. Added "HVAC leave-off discharge" row. Clarified fan-listener row to say "last-known-good carryover, not zeroing". Marked `derive_capability` as NOT reading `model_id`.
+
+---
+
+## Pre-ship audit results (2026-10-11, builder) — C2 acceptance fixture
+
+Script `scripts/fan_noise/audit_motion_sensors_models.py`, table `docs/planning/AUDIT_motion_sensors_live_models.md`
+(main house 43 rooms / 63 sensor entries; Wigton 3 rooms / 3 entries).
+
+| Finding | Effect on the build |
+|---|---|
+| ESPHome / Meross devices have `model_id = None` | Family lookup keys on `model_id`, falling back to `model` (deviation from §C4 text). |
+| Jaya / Kitchen / Study B / Ziri radars are custom ESP32 builds (`esp32-c3-devkitm-1`) | Family `unknown` → factor 1.0. **The LD24xx factor 3.0 does not reach Jaya** until the device reports an LD24xx model. Operator item. |
+| 3 Meross MS600 radars in `motion_sensors` (Guest Bedroom 1, Guest Bedroom 2, Media) | Excluded by the model safety net (`ms600 9.0.0` → `generic_radar`). The prescribed remedy "declare `kind: mmwave`" is **rejected by `validate_capabilities_payload`** (D-MEDIUM-1) — the operator fix is to move them to `presence_sensors`. |
+| `binary_sensor.ziri_3_moving_target` (LD2410 moving output, ESP32) in Ziri `motion_sensors` | Not caught by regex before nor by the model map now — unchanged. Operator decision. |
+| IVO1 `…_masterbath_motion` | Was regex-excluded; now a witness. UNVERIFIED whether it is the outlet's PIR or mmWave output. Operator check. |
+| 22 ZG-204ZV in `motion_sensors` | Now fan-immune witnesses (intended). |
+| Wigton: 3 ecobee occupancy entities, no radars, no fans | C2/C4 inert there. |
+
+Gate: no radar-filed-as-motion changes behaviour versus today (MS600 held by the safety net; Ziri unchanged).
+
+## Builder notes (2026-10-11, branch `fix/fan-noise-running-rejection`)
+
+- **Family table vs C4 text.** The invariant table lists "Generic / unknown 1.5" while C4 and its AC say unknown → 1.0.
+  Built as: `generic_radar` (recognised radar, unmeasured family: Screek, Seeed, Meross, Inovelli) = 1.5; `unknown`
+  (registry miss / unrecognised model) = 1.0. Both statements hold.
+- **"Treat as forced restore" (C1a step 4)** is implemented in the FanController: a live hold flips leave-off to a real
+  restore ON. On the presence side the outcome stays VACATED (the room is still released and the outcome row says
+  `forced: false`); the new `manual_on_hold_live` eligibility veto then keeps the recheck from re-arming against the hold.
+- **C3 Part A sibling read:** the multi-fan "any other fan on" check also uses the last known-good belief for a sibling
+  that is currently unavailable (otherwise one flapping sibling could still drop the room's belief).
+- **Known-good seed:** `_discover_room_fans` seeds the per-entity known-good from the live state at discovery.
+- **C5:** gate-logic tests keep running at a test-local 5 s window; a new test pins the production window at 0.0.
+- `CONF_PRESENCE_SENSORS` in this plan = `CONF_MMWAVE_SENSORS` (value `"presence_sensors"`); no separate constant exists.
+
+## Review fix-up 1 (2026-10-11) — reviews A / B / C
+
+| Finding | Fix |
+|---|---|
+| B-1 pause can outlast the HVAC suppress (180 s × bedroom 2 × ZK 2 + spindown > 600 s) | suppress_until = now + max(hvac_suppress, spindown + effective window + `FAN_RECHECK_SUPPRESS_MARGIN_S` 60). The same ISO feeds the HVAC tier and the room-tier `note_recheck_pause` backstop |
+| A-M2 / B-2 held ON belief never discharges for a fan that stays unavailable | Chosen: **TTL** `FAN_BELIEF_UNAVAILABLE_TTL_S` = 120 s (rung 1). Why TTL over "decay unless quarantined": quarantine needs N flaps inside its window, so a fan that dies once never enters it and would hold forever; measured flaps are 20–40 s, inside 120 s. On expiry a synthetic on→off edge replays through `_handle_fan_change`, so `_fan_on_rooms`, `_fan_on_since` (read by the D2 `fan_off` latch-clear) and `_fan_off_at` move as on a real off edge. A readable edge cancels the timer; re-discovery and teardown cancel all |
+| A-M1 exact `ms600 9.0.0` key | First-token, case-insensitive model match (`FAMILY_BY_MODEL_TOKEN`); a sensor whose family is `unknown` falls back to the `MMWAVE_NAME_PATTERN` exclusion (develop behaviour). Side effect: the IVO1 `…masterbath_motion` entity is excluded again, as on develop |
+| A-M3 majority incl. `unknown` | Factor = MAX over the room's recognised families; `unknown` ignored (Jaya [esp32, ZK] → 2.0; Master Bedroom [generic, generic, ZX] → 2.0). Supersedes "dominant family" in §C4 |
+| A-L1 stale-PAUSED threshold | max(2 × effective window, spindown + effective window + 60) |
+| A-L2 stale known-good after re-discovery | discovery drops the entry for a fan that is unavailable now |
+| C oracle branch of `_fan_in_manual_on_hold` untested | `test_manual_on_hold_oracle_branch` |
+| B-4 quarantine veto on any configured fan | veto only when the quarantined fan is the one RUNNING |
+
+**B-3 (documented, not changed): hold-pause time loss.** When a manual-ON hold was already live at pause time (rare
+after the eligibility veto), a VACATED restore turns the fan back on and clears `manual_on_hold_paused_at` WITHOUT
+extending the hold, so the person loses the paused minutes (≤ spindown + effective window + margin) from their hold.
+Accepted per C1a step 4 ("do not touch the hold timers"). Revisit if an operator reports a hold ending early.

@@ -2137,8 +2137,18 @@ class FanController:
 
     async def restore_after_recheck(
         self, room_name: str, snapshot: dict[str, Any] | None,
+        leave_off: bool = False,
     ) -> None:
-        """Restore pre-pause fan state from snapshot. Clears suppression."""
+        """Restore pre-pause fan state from snapshot. Clears suppression.
+
+        ``leave_off=True`` (fan-noise Rev 2 C1a — a VACATED recheck verdict):
+        run every discharge duty of the restore but do NOT re-issue the ON;
+        the AWAY-veto "leave off" branch clears ``is_on`` / speed / trigger /
+        ``last_on_time`` so the next ``update()`` does not read the paused
+        fan as "turned off externally". A live manual-ON hold wins: the fan
+        is restored ON (operator intent beats recheck inference) and the
+        hold end-time is not extended.
+        """
         room_fan = self._room_fans.get(room_name)
         if room_fan is None:
             return
@@ -2151,6 +2161,7 @@ class FanController:
         try:
             await self._restore_after_recheck_body(
                 room_name, room_fan, snapshot, _restored,
+                leave_off=leave_off,
             )
         finally:
             if _auto is not None and hasattr(_auto, "note_recheck_restore"):
@@ -2165,6 +2176,7 @@ class FanController:
     async def _restore_after_recheck_body(
         self, room_name: str, room_fan: RoomFanState,
         snapshot: dict[str, Any] | None, restored: list,
+        leave_off: bool = False,
     ) -> None:
         """Body of `restore_after_recheck` (split for the B-M1 discharge).
         Sets ``restored[0] = True`` when it re-issues the ON."""
@@ -2188,6 +2200,19 @@ class FanController:
         # manual_on_hold_until and our WRITE of the extended deadline.
         # asyncio.Lock is NON-REENTRANT — inside the block we use the SYNC
         # oracle setter (never the _locked variant).
+        # Fan-noise Rev 2 C1a (Finding 2): under leave_off a live manual-ON
+        # hold forces a real restore ON, and the hold timers are NOT
+        # touched (the pause instant is dropped without extending the
+        # hold end — the hold must not be silently extended against an
+        # off fan, nor while the fan is restored for the operator).
+        if leave_off:
+            if self._is_manual_on_hold_live(room_fan):
+                leave_off = False
+                _LOGGER.info(
+                    "HVAC Fans: %s recheck leave-off overridden — manual-ON "
+                    "hold live, restoring ON", room_name,
+                )
+            room_fan.manual_on_hold_paused_at = ""
         if room_fan.manual_on_hold_paused_at and room_fan.manual_on_hold_until:
             oracle_rmw = _get_fan_oracle(self.hass)
             if oracle_rmw is not None:
@@ -2256,7 +2281,7 @@ class FanController:
             # house (Bug-Class-#53, 4th actuation site). Load the room's
             # merged config the same way the update()-path veto does.
             merged: dict[str, Any] = {}
-            if is_veto_relevant(self.hass):
+            if not leave_off and is_veto_relevant(self.hass):
                 try:
                     for entry in self.hass.config_entries.async_entries(DOMAIN):
                         if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
@@ -2270,21 +2295,23 @@ class FanController:
                         "HVAC Fans: %s restore-veto merged-config read failed (%s)",
                         room_name, exc,
                     )
-            if merged and should_veto_comfort_fan(
+            if leave_off or (merged and should_veto_comfort_fan(
                 self.hass, room_name, merged,
-            ):
+            )):
                 # Skip the restoration. Clear the local is_on snapshot so
                 # RoomFanState stays consistent with the LIVE (off) entity
                 # state — the fan-recheck pause already turned entities
                 # OFF at pause_for_recheck, and we're choosing not to
-                # re-arm them into an empty house.
+                # re-arm them into an empty house / an empty room
+                # (fan-noise Rev 2 C1a: VACATED verdict -> leave_off).
                 room_fan.is_on = False
                 room_fan.speed_pct = 0
                 room_fan.trigger = ""
                 room_fan.last_on_time = ""
                 _LOGGER.info(
-                    "HVAC Fans: %s restore-after-recheck vetoed "
-                    "(house went AWAY during recheck)", room_name,
+                    "HVAC Fans: %s restore-after-recheck %s", room_name,
+                    "left off (recheck vacated the room)" if leave_off
+                    else "vetoed (house went AWAY during recheck)",
                 )
                 return
             # FAN-LAYER-2 D2 W10-restore: thread room_name +
