@@ -40,3 +40,6 @@ Three MS600 mmWave presence radars (Guest Bedroom 1, Guest Bedroom 2, Media) are
 - `meross_lan` `binary_sensor.…_sensor_presence_motion` (the radar's motion bit) → `motion_sensors` — fine for lights, but radar-derived: **not a fan-immune witness**; v5.103.51's model safety net (`ms600`, first-token match) excludes it.
 - Native `…_presence_distance` exists → candidate for the deferred fan-distance-band option.
 - Do NOT "move the MS600s to presence" (retracted 2026-10-11 — the Matter half already is). No more MS600 purchases planned (native protocol's non-binary interface).
+
+## ESPHome ESP32 radars = HLK-LD2410 (operator 2026-10-11)
+Jaya (`jaya_3`), Ziri (`ziri_3`), Kitchen, Study B. ESPHome reports the ESP32 board as the device model, so v5.103.51's `FAMILY_BY_MODEL_ID` resolves them `unknown` → witness role excluded via the name fallback (correct — radar), recheck window factor 1.0 unless the room has a recognised slower family (Jaya/Ziri/Kitchen also carry ZK/ZX → ×2). Measured LD2410 clear-after-fan-off 28/132 s (p50/p90, Jaya) — faster than Zigbee, so 1.0 is adequate; the plan's LD24xx ×3 was unsupported. **No code needed.** Revisit only if the 2026-10-18 re-measure shows Study B's recheck false-negatives. They expose moving/still distance + energy (ESPHome) — the best candidates for the deferred fan-distance-band option.
