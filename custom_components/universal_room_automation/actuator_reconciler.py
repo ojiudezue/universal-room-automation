@@ -820,15 +820,28 @@ class ActuatorReconciler:
         if sleep and night_lights:
             if entity_id in night_lights:
                 if occupied:
-                    params: Dict[str, Any] = {}
-                    capability = cfg.get(CONF_LIGHT_CAPABILITIES)
-                    if domain == "light" and capability in (
-                        LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL,
-                    ):
-                        params["brightness_pct"] = cfg.get(
-                            CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                            DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: route through the
+                    # shared resolver with the bulb's live
+                    # ``supported_color_modes`` so a colour-capable night
+                    # light reconnecting at sleep is restored RED
+                    # (identical to canonical) — not warm white, and not
+                    # brightness-only. switch.* night lights have no
+                    # brightness/colour, so they get ``{}`` + plain
+                    # turn_on (mirrors the :883 nl-by-day branch).
+                    if domain == "light":
+                        try:
+                            st = self.hass.states.get(entity_id)
+                            modes = (
+                                (st.attributes.get("supported_color_modes") or [])
+                                if st else []
+                            )
+                        except Exception:  # noqa: BLE001
+                            modes = []
+                        params: Dict[str, Any] = _nl_params(
+                            cfg, "sleep", supported_color_modes=modes,
                         )
+                    else:
+                        params = {}
                     return DesiredState(
                         state="on", domain=domain, service="turn_on",
                         params=params, reason="sleep_night_light",
@@ -880,7 +893,27 @@ class ActuatorReconciler:
                     # switch.* night lights have no brightness/colour, so
                     # they must receive {} and plain turn_on. _nl_params
                     # is only consulted for domain == "light".
-                    params = _nl_params(cfg, _mode) if domain == "light" else {}
+                    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: pass the bulb's
+                    # live ``supported_color_modes`` so the resolver can
+                    # emit red for colour-capable bulbs at sleep —
+                    # identical params to the canonical writer
+                    # (automation.py ``_turn_on_night_lights``). Without
+                    # this, a colour bulb reconnecting while occupied at
+                    # sleep was restored warm white (color_temp 2000 K).
+                    if domain == "light":
+                        try:
+                            st = self.hass.states.get(entity_id)
+                            modes = (
+                                (st.attributes.get("supported_color_modes") or [])
+                                if st else []
+                            )
+                        except Exception:  # noqa: BLE001
+                            modes = []
+                        params = _nl_params(
+                            cfg, _mode, supported_color_modes=modes,
+                        )
+                    else:
+                        params = {}
                     # Review fix (R3-M3): day/evening — manual dim override.
                     # Dropping has_params_to_apply lets the already-on
                     # no-op gate (:645) skip the clobber. The light is
