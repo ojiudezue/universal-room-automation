@@ -1147,3 +1147,35 @@ def test_rediscovery_drops_known_good_of_unavailable_fan(monkeypatch):
     assert fan not in p._fan_known_good
     _fire(p, _ev(fan, "unavailable", "on", 33))
     assert room in t._fan_on_rooms
+
+
+# ===========================================================================
+# Review fix C — oracle branch of _fan_in_manual_on_hold
+# ===========================================================================
+
+class _Ledger:
+    def __init__(self, until):
+        self.manual_on_hold_until = until
+        self.manual_off_cooldown_until = None
+
+
+class _Oracle:
+    def __init__(self, until):
+        self._until = until
+        self.keys: list = []
+
+    def get_state(self, key):
+        self.keys.append(key)
+        return _Ledger(self._until)
+
+
+@pytest.mark.parametrize("delta_s,vetoed", [(1800, True), (-1, False)])
+def test_manual_on_hold_oracle_branch(monkeypatch, delta_s, vetoed):
+    mgr, fc, hass, states, log, rf, rc, _t, _k = _recheck_world(monkeypatch)
+    oracle = _Oracle(FR.dt_util.now() + timedelta(seconds=delta_s))
+    hass.data[DOMAIN]["fan_oracle"] = oracle
+    assert _eligible(mgr, rc) is (not vetoed)
+    assert mgr._veto_counts["Study A"].get("manual_on_hold_live", 0) == (
+        1 if vetoed else 0
+    )
+    assert oracle.keys and oracle.keys[0] == HF._room_key("Study A")
