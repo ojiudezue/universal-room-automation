@@ -1457,9 +1457,16 @@ class FanRecheckManager:
         if state == STATE_PAUSED and entered is not None:
             # C4 Rev 2 (Finding 9b): stale threshold scales with the room's
             # live effective window (room-type x family), not the default.
-            window = self._effective_window_s(
-                merged, self._timing_config(), room_name,
-            ) * 2
+            # Review A-L1: never shorter than the pause itself
+            # (spindown + effective window) plus the suppress margin.
+            _timing = self._timing_config()
+            _eff = self._effective_window_s(merged, _timing, room_name)
+            _spin = int(_timing.get(
+                CONF_FAN_RECHECK_SPINDOWN_S, DEFAULT_FAN_RECHECK_SPINDOWN_S,
+            ))
+            window = max(
+                _eff * 2, _spin + _eff + FAN_RECHECK_SUPPRESS_MARGIN_S,
+            )
             if (now - entered).total_seconds() < window:
                 self.hass.async_create_task(
                     self._restore(ctx, outcome=OUTCOME_OCCUPIED_CONFIRMED),

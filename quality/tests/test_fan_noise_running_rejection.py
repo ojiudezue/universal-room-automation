@@ -1108,3 +1108,17 @@ def test_unrecognised_family_warns_once_per_room(monkeypatch, caplog):
         assert mgr._family_factor(merged, timing, "Study A") == 1.0
     warns = [r for r in caplog.records if "family not recognised" in r.getMessage()]
     assert len(warns) == 1
+
+
+def test_rehydrate_paused_threshold_covers_long_spindown(monkeypatch):
+    """Review A-L1: spindown 90 / window 30 -> pause is 120 s; the old
+    2 x window = 60 s threshold dropped a live pause at 70 s."""
+    ctx, _timers, tasks = _rehydrate(
+        monkeypatch, FR.STATE_PAUSED, 70,
+        cm_options={CONST.CONF_FAN_RECHECK_SPINDOWN_S: 90,
+                    CONST.CONF_FAN_RECHECK_WINDOW_S: 30},
+    )
+    names = [getattr(getattr(t, "cr_code", None), "co_name", "") for t in tasks]
+    for t in tasks:
+        t.close()
+    assert names == ["_restore"]
