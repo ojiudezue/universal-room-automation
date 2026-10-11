@@ -30885,6 +30885,27 @@ cards:
   why: "Underlying Wi-Fi/Matter switches dropping off network (same family as Master Toilet Sonoff 92 dropouts overnight). Multiple brands at once points to Wi-Fi coverage/AP rather than device faults."
   next: "DO (homelab): per-device RSSI + AP association history for these switches; check AP coverage in the bathroom wing."
   related: [MASTER-TOILET-SONOFF-DROPOUTS-1, BOND-BRIDGE-UNRESPONSIVE-1]
+- id: OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
+  title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
+  thread: presence
+  status: planned
+  tier: 2
+  created: "2026-10-11 23:50"
+  updated: "2026-10-11 23:50"
+  origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
+  why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
+  next: "Prior-art scan (coordinator occupancy_source producer ~3148, D2 sole-source check, recheck mmwave-only eligibility); plan the smallest change: source/radar-ness from derive_capability (kind mmwave / model family radar) rather than list."
+  related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
+- id: SENSOR-FORM-PLAIN-TEXT-1
+  title: Room sensors form — brief, user-focused wording (motion / presence / combined; 'What can it see?' dropdown; hide advanced JSON)
+  thread: onboarding
+  status: planned
+  tier: 1
+  created: "2026-10-11 23:50"
+  updated: "2026-10-11 23:50"
+  origin: "Operator 2026-10-11: plain question when a sensor is added; 'improve the text in the form, not bloat — user-focused, appropriately brief'; 'combined = sensors that have radar and motion reporting one combined signal'."
+  why: "Current labels: 'Motion Sensors (PIR)', 'Pre-Combined Motion + Presence Sensors', per-sensor kind dropdown with codes (mmwave, pir_split…), advanced JSON shown to everyone. Existing caps_kind__<entity> dropdown (config_flow.py ~12540) already asks the question — relabel, don't rebuild."
+  next: "Text: Motion sensors — 'See movement only.' · Presence sensors — 'See people sitting still.' · Combined sensors — 'Radar and motion reported as one signal.' · Dropdown 'What can it see?' → Movement only / People sitting still / Bed or seat / Not sure (safe default = no override) · JSON box Advanced-only. Label style guide; strings + option labels only."
 - id: URA-SENSOR-TUNING-1
   title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
   thread: presence
