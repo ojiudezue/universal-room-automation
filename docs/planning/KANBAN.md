@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:09:46-05:00_ - _Data commit: `45989bd70b4f`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:10:22-05:00_ - _Data commit: `aac28d78f110`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -53,7 +53,7 @@ _idea being decomposed_
 
 ### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **presence** - status: **pre_planning**
-_created 2026-10-05 02:22 · updated 2026-10-06 01:55 · refined_
+_created 2026-10-05 02:22 · updated 2026-10-11 03:30 · refined_
 - **Problem / Solution:**
   - Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which branch set AWAY, th...
 - **Origin:** 2026-10-04 - AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo
@@ -61,7 +61,8 @@ _created 2026-10-05 02:22 · updated 2026-10-06 01:55 · refined_
 - **Next:** PLAN (me, after CENSUS-INPUTS-FIRST-1 ships; Tier 2-DB minimum - house-state precedence feeds HVAC/security): pin which branch returns AWAY on the first boot tick (lead: presence.py:1110-1115 'census_count == 0 and not any_zone_occupied'...
 - **Tags:** tier-1, measure-before-build
 - **Refs:** docs/planning/AUDIT_census_subsystem_2026_10_04.md
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `planned_2026_10_11_overnight`: Plan written: docs/planning/PLANNING_boot_away_fence.md (c9dbde7dc). Pinned (to be confirmed by plan review): three AWAY sites in presence infer() - the Nobody-home short-circuit (:1124-1128, before every veto), path alpha (:1167-1178), ...
   - `measured_2026_10_11_overnight`: RE-MEASURED (recorder homeassistant_start/stop events + sensor.ura_presence_coordinator_presence_house_state; retention now starts 10-03 21:01Z, 16 boots). The false AWAY lands INSIDE the boot-setup window - after the stop event and BEFO...
   - `unblocked_2026_10_11_overnight`: UNBLOCKED - CENSUS-INPUTS-FIRST-1 closed done tonight. Planning dispatched tonight (plan + one adversarial plan review; build waits for review of the plan). CORRECTION same night: I first logged 10-10 16:18:30Z away (census_update) as a ...
   - `measured_2026_10_06_overnight`: MECHANISM WIDENED - it is SYSTEMIC, not a 10-03 one-off. One-shot recorder probe (homeassistant_start events, last 30 days = 21 boots, vs sensor.ura_presence_coordinator_presence_house_state and person.*): a false AWAY with residents hom...
