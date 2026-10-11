@@ -6595,14 +6595,20 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
         self._attr_device_info = _safety_device_info()
 
     @property
-    def native_value(self) -> str:
-        """Return the current safety status."""
+    def native_value(self) -> str | None:
+        """Return the current safety status.
+
+        HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1 (F5): return ``None``
+        (⇒ ``unknown``) pre-boot. The old ``"normal"`` fallback wrote
+        a false "all clear" into recorder history at every restart,
+        same bug class as the three house-state sensors.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "normal"
+            return None
         safety = manager.coordinators.get("safety")
         if safety is None:
-            return "normal"
+            return None
         return safety.get_safety_status()
 
     @property
@@ -6991,14 +6997,19 @@ class SecurityArmedStateSensor(AggregationEntity, SensorEntity):
         self._attr_device_info = _security_device_info()
 
     @property
-    def native_value(self) -> str:
-        """Return the current armed state."""
+    def native_value(self) -> str | None:
+        """Return the current armed state.
+
+        HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1 (F5): return ``None``
+        (⇒ ``unknown``) pre-boot. The old ``"disarmed"`` fallback
+        wrote a false Disarmed into recorder history at every restart.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "disarmed"
+            return None
         security = manager.coordinators.get("security")
         if security is None:
-            return "disarmed"
+            return None
         return security.armed_state.value
 
     @property

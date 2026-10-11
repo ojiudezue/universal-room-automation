@@ -64,6 +64,46 @@ def test_with_manager_returns_machine_value():
         assert inst.native_value == "home", f"{cls.__name__} returned {inst.native_value!r}"
 
 
+def test_safety_status_pre_boot_returns_none():
+    """F5: SafetyStatusSensor returned "normal" when the manager (or
+    the safety coordinator slot) was missing, writing a false
+    all-clear into history at every restart. Now returns None.
+    """
+    cls = _sensor.SafetyStatusSensor
+    # Case A: no manager at all.
+    inst = _mk(cls, _FakeHass(manager=None))
+    assert inst.native_value is None
+
+    # Case B: manager present but safety coordinator slot empty.
+    manager = SimpleNamespace(coordinators={})
+    inst2 = _mk(cls, _FakeHass(manager=manager))
+    assert inst2.native_value is None
+
+    # Case C: safety coordinator present ⇒ its real value.
+    safety = SimpleNamespace(get_safety_status=lambda: "normal")
+    manager2 = SimpleNamespace(coordinators={"safety": safety})
+    inst3 = _mk(cls, _FakeHass(manager=manager2))
+    assert inst3.native_value == "normal"
+
+
+def test_security_armed_state_pre_boot_returns_none():
+    """F5: SecurityArmedStateSensor returned "disarmed" when the
+    manager (or the security coordinator slot) was missing. Now None.
+    """
+    cls = _sensor.SecurityArmedStateSensor
+    inst = _mk(cls, _FakeHass(manager=None))
+    assert inst.native_value is None
+
+    manager = SimpleNamespace(coordinators={})
+    inst2 = _mk(cls, _FakeHass(manager=manager))
+    assert inst2.native_value is None
+
+    security = SimpleNamespace(armed_state=SimpleNamespace(value="armed_home"))
+    manager2 = SimpleNamespace(coordinators={"security": security})
+    inst3 = _mk(cls, _FakeHass(manager=manager2))
+    assert inst3.native_value == "armed_home"
+
+
 def test_anchor_no_literal_away_fallback_in_native_value():
     """Behavioural anchor: no house-state ``native_value`` branch returns
     ``"away"`` as the manager-None fallback. If any site is reverted to

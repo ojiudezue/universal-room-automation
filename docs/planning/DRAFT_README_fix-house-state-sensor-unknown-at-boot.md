@@ -31,6 +31,73 @@ returns ``{}`` in the manager-None branch — unchanged.
 The state machine itself is NOT touched; this is strictly a display
 boundary.
 
+## F5 (Review A, LOW, same bug class) — extended to two more sensors
+
+Same bug class in two state-space neighbours:
+
+- `SafetyStatusSensor` (`sensor.py:~6598`) — returned `"normal"` when
+  the manager (or safety coordinator slot) was missing.
+- `SecurityArmedStateSensor` (`sensor.py:~6993`) — returned
+  `"disarmed"` when the manager (or security coordinator slot) was
+  missing.
+
+Both now return `None` (⇒ HA `unknown`). Return type hints tightened
+to `str | None`. Three guards per method: `manager is None`,
+`<coordinator-slot> is None`, and `return <live-value>`.
+
+### Reader-safety grep (did not change HA config)
+
+Searched for programmatic readers that key on the OLD boot
+sentinels:
+
+- `/Users/okosisi/ha-config/automations.yaml` — no references to
+  `sensor.ura_safety_status` or `sensor.ura_security_armed_state`.
+- `/Users/okosisi/ha-config/scripts.yaml` — no references.
+- `custom_components/` — only the producer sites in `sensor.py` and
+  one comment in `domain_coordinators/security.py:627` naming the
+  entity. No code reads `sensor.ura_security_armed_state.state ==
+  "disarmed"` or `sensor.ura_safety_status.state == "normal"`.
+
+Conclusion: changing the pre-boot fallback from a mode name to
+`unknown` has no reader on-wire today. Dashboards that render these
+states will show `Unknown` during the pre-manager window instead of
+a fake `Normal` / `Disarmed`.
+
+## F4 (Review A, LOW) — residual pre-restore gap
+
+A deeper restart boundary remains OPEN after this cycle:
+
+- `__init__.py:~4310` publishes the manager into
+  `hass.data[DOMAIN]["coordinator_manager"]`.
+- `manager.py:478` then awaits `_async_restore_house_state()` —
+  which is where the persisted state is applied to the machine.
+
+Between those two statements the `manager is None` guard already
+returns False, but the machine is still at its construction default
+(`HouseState.AWAY`, `house_state.py:153`). A sensor refresh that
+lands in that window records a `"away"` sample even with this fix.
+
+I looked for an existing "restore attempt complete" flag the
+sensors could gate on:
+
+- `manager._house_state_restored` (manager.py:230, 677, 691, 701) —
+  private; True only in the SUCCESSFUL-restore branch, False in the
+  cold-boot / stale-record branch AND in the "not yet attempted"
+  initial state. It is NOT distinguishable between "pre-restore" and
+  "cold-boot, no persisted record".
+- `house_state_machine.boot_restore_active` (house_state.py:434) —
+  True only on a successful in-window restore. Same shortcoming.
+
+No existing public signal cleanly means "restore attempt has
+finished, machine value is authoritative". Per operator F4
+directive, I did NOT add a new flag to the manager. **The gap
+remains open**: for the sub-second window between manager publish
+and restore completion, the three house-state sensors can still
+publish a transient Away sample. Fix path (future card): add an
+explicit `house_state_restore_complete` boolean the manager sets
+AFTER `_async_restore_house_state` returns in both branches, gate
+`native_value` on it. Pinging operator for direction.
+
 ## Grep sweep — other house-state-like sensors / CM mirrors
 
 Enumerated every ``manager is None:`` guard in ``sensor.py`` (124
