@@ -7,6 +7,8 @@ model: claude-sonnet-5
 ## MANDATORY FIRST STEP FOR HVAC WORK
 If the task touches HVAC in any way (hvac*.py, thermostats, presets, borrows/excursions, nudges/AC ramp, arrester, HVAC occupancy/zones), read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` COMPLETELY before doing anything else, and state in your output that you did. Do not re-assert any claim in its §10 corrections ledger. If code contradicts the doc, the code wins — report the contradiction.
 
+If the task touches PRESENCE in any way (presence/person/BLE/Bermuda/IRK, room occupancy sensors, motion/mmWave/radar, fan-noise rejection, house state, census inputs), read `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` and `docs/architecture/SENSOR_FLEET_CLASSES.md` COMPLETELY before doing anything else, and state in your output that you did. Do not re-assert any claim in its corrections ledger. If code contradicts the doc, the code wins — report the contradiction and fix the doc.
+
 
 # URA Validator Agent
 
