@@ -45,14 +45,18 @@ from ..const import (
     CONF_NIGHT_LIGHT_EVENING_COLOR,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHT_SLEEP_COLOR,
+    CONF_NIGHT_LIGHT_SLEEP_HUE,
     CONF_NIGHT_LIGHTS,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
     LIGHT_CAPABILITY_BASIC,
     LIGHT_CAPABILITY_BRIGHTNESS,
     LIGHT_CAPABILITY_FULL,
+    NIGHT_LIGHT_SLEEP_HUE_RED,
+    NIGHT_LIGHT_SLEEP_RED_RGB,
     LIGHT_SLOT_DAY,
     LIGHT_SLOT_EVENING,
     LIGHT_SLOT_SLEEP,
@@ -145,11 +149,15 @@ def effective_entry_set(
     return _dedup_preserving_order(base)
 
 
+_RGB_CAPABLE_MODES = frozenset({"rgb", "rgbw", "rgbww", "hs", "xy"})
+
+
 def night_light_turn_on_params(
     cfg: dict,
     mode: str,
     *,
     include_transition: bool = False,
+    supported_color_modes: Iterable[str] | None = None,
 ) -> dict:
     """Build the turn-on service params for a night light in ``mode``.
 
@@ -161,6 +169,18 @@ def night_light_turn_on_params(
     overrides fall back to day defaults when the operator did not set
     them. Only brightness is included when capability is
     BRIGHTNESS-only; color_temp_kelvin is added for FULL.
+
+    NIGHTLIGHT-RED-RECONCILE-PARITY-1 (2026-10-11): the sleep red-hue
+    override is OWNED here. When ``mode == "sleep"``, capability is FULL,
+    the room's ``CONF_NIGHT_LIGHT_SLEEP_HUE`` is RED, AND the caller
+    passes a ``supported_color_modes`` set that intersects
+    {rgb, rgbw, rgbww, hs, xy} (the "colour-capable" test, matching
+    automation.py's live check), the output carries ``rgb_color`` red
+    INSTEAD OF ``color_temp_kelvin`` — so canonical entry AND the
+    reconciler on-return path agree, and a colour night light reconnecting
+    at sleep comes back red, not warm white. ``supported_color_modes=None``
+    (callers that cannot read live modes) preserves the pre-cycle
+    ``color_temp_kelvin`` behaviour.
     """
     if mode == "sleep":
         brightness = cfg.get(
@@ -204,7 +224,19 @@ def night_light_turn_on_params(
     if capability in (LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL):
         out["brightness_pct"] = brightness
     if capability == LIGHT_CAPABILITY_FULL:
-        out["color_temp_kelvin"] = color_temp
+        # Sleep red-hue override — see docstring.
+        hue_is_red = (
+            cfg.get(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE)
+            == NIGHT_LIGHT_SLEEP_HUE_RED
+        )
+        rgb_capable = (
+            supported_color_modes is not None
+            and bool(set(supported_color_modes) & _RGB_CAPABLE_MODES)
+        )
+        if mode == "sleep" and hue_is_red and rgb_capable:
+            out["rgb_color"] = list(NIGHT_LIGHT_SLEEP_RED_RGB)
+        else:
+            out["color_temp_kelvin"] = color_temp
     if include_transition:
         from ..const import CONF_LIGHT_TRANSITION_ON
         out["transition"] = cfg.get(CONF_LIGHT_TRANSITION_ON, 1)

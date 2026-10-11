@@ -64,7 +64,6 @@ from .const import (
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_CAPABILITIES,
     CONF_LIGHTS,
-    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHTS,
     CONF_NIGHT_LIGHTS_BY_DAY,
     CONF_ROOM_NAME,
@@ -72,7 +71,6 @@ from .const import (
     LIGHT_SLOT_EVENING,
     DEFAULT_FAN_SLEEP_POLICY,
     DEFAULT_FAN_VACANCY_HOLD,
-    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DOMAIN,
     FAN_SLEEP_OFF,
     LIGHT_ACTION_NONE,
@@ -798,6 +796,21 @@ class ActuatorReconciler:
     def _automation(self):
         return getattr(self.coordinator, "automation", None)
 
+    def _live_color_modes(self, entity_id: str) -> set[str]:
+        """Return the entity's live ``supported_color_modes`` attribute.
+
+        NIGHTLIGHT-RED-RECONCILE-PARITY-1: used by ``_resolve_light`` so
+        the shared resolver can decide red-vs-warm-white per entity.
+        Returns an empty set on any failure — the resolver treats that as
+        "not colour-capable" and preserves the pre-cycle color_temp path.
+        """
+        try:
+            st = self.hass.states.get(entity_id)
+            modes = (st.attributes.get("supported_color_modes") or []) if st else []
+            return set(modes)
+        except Exception:  # noqa: BLE001
+            return set()
+
     def _resolve_light(
         self, entity_id: str, data: Dict[str, Any]
     ) -> Optional[DesiredState]:
@@ -820,14 +833,20 @@ class ActuatorReconciler:
         if sleep and night_lights:
             if entity_id in night_lights:
                 if occupied:
+                    # NIGHTLIGHT-RED-RECONCILE-PARITY-1 (2026-10-11):
+                    # route the sleep night-light params through the
+                    # shared resolver so a colour-capable bulb coming
+                    # back ``unavailable → available`` under sleep gets
+                    # rgb_color red (not warm-white kelvin), matching
+                    # canonical ``_turn_on_night_lights``. switch.*
+                    # night lights still receive {} (no brightness /
+                    # colour support).
                     params: Dict[str, Any] = {}
-                    capability = cfg.get(CONF_LIGHT_CAPABILITIES)
-                    if domain == "light" and capability in (
-                        LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL,
-                    ):
-                        params["brightness_pct"] = cfg.get(
-                            CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                            DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                    if domain == "light":
+                        params = _nl_params(
+                            cfg,
+                            "sleep",
+                            supported_color_modes=self._live_color_modes(entity_id),
                         )
                     return DesiredState(
                         state="on", domain=domain, service="turn_on",
@@ -880,7 +899,19 @@ class ActuatorReconciler:
                     # switch.* night lights have no brightness/colour, so
                     # they must receive {} and plain turn_on. _nl_params
                     # is only consulted for domain == "light".
-                    params = _nl_params(cfg, _mode) if domain == "light" else {}
+                    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: pass live modes
+                    # so the resolver can emit rgb_color red when the
+                    # effective mode is "sleep" (house_state=sleep ⇒
+                    # _mode="sleep" above) and the bulb is colour-capable.
+                    params = (
+                        _nl_params(
+                            cfg,
+                            _mode,
+                            supported_color_modes=self._live_color_modes(entity_id),
+                        )
+                        if domain == "light"
+                        else {}
+                    )
                     # Review fix (R3-M3): day/evening — manual dim override.
                     # Dropping has_params_to_apply lets the already-on
                     # no-op gate (:645) skip the clobber. The light is

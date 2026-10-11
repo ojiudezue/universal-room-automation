@@ -171,10 +171,6 @@ from .const import (
     CONF_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
-    CONF_NIGHT_LIGHT_SLEEP_HUE,
-    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
-    NIGHT_LIGHT_SLEEP_HUE_RED,
-    NIGHT_LIGHT_SLEEP_RED_RGB,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     # State
@@ -206,6 +202,10 @@ from .const import (
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 from .const import PREFILL_DETRITUS_TOKEN_RE  # noqa: E402
+# NIGHTLIGHT-RED-RECONCILE-PARITY-1 (2026-10-11, Bug Class #34): hoisted
+# from the function-local import at _turn_on_night_lights (resolver only
+# depends on .const — no import cycle).
+from .lighting.resolver import night_light_turn_on_params as _nl_params  # noqa: E402
 # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 (D3): shared production regex.
 _PREFILL_DETRITUS_TOKEN_RE = PREFILL_DETRITUS_TOKEN_RE
 
@@ -1847,61 +1847,58 @@ class RoomAutomation:
         if not night_lights:
             return
 
-        # Review fix (R3-M2): the shared helper owns brightness / colour
-        # / transition / capability default so both this canonical path
-        # AND the reconciler assert identical params. Red-hue override
-        # (sleep + FULL + colour-capable bulb) still happens below per
-        # entity, since it needs a live hass lookup.
-        from .lighting.resolver import night_light_turn_on_params as _nl_params
-        base_params = _nl_params(self.config, mode, include_transition=True)
-        brightness = base_params.get("brightness_pct")
-        color_temp = base_params.get("color_temp_kelvin")
-
         # Separate light.* from switch.*
         actual_lights = [e for e in night_lights if e.startswith("light.")]
         switches_as_lights = [e for e in night_lights if e.startswith("switch.")]
 
-        # Turn on light.* entities with brightness/color based on capability
+        # NIGHTLIGHT-RED-RECONCILE-PARITY-1 (2026-10-11): per-entity params
+        # via the shared resolver, which OWNS the red-hue decision. We
+        # pass each light's live supported_color_modes so the resolver can
+        # emit rgb_color red for colour-capable bulbs at sleep OR
+        # color_temp_kelvin for white-only bulbs — identical choice to the
+        # reconcile-on-return path. Entities with identical resulting
+        # params are batched into one service call.
         if actual_lights:
-            service_data = {"entity_id": actual_lights, **base_params}
-
-            capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
-
-            # Operator 2026-10-02: at sleep, colour-capable night lights go
-            # red (default) — kelvin cannot make red. White-only lights keep
-            # the kelvin value above.
-            red_lights: list[str] = []
-            if (
-                mode == "sleep"
-                and capability == LIGHT_CAPABILITY_FULL
-                and self.config.get(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE)
-                == NIGHT_LIGHT_SLEEP_HUE_RED
-            ):
-                for eid in actual_lights:
-                    try:
-                        st = self.hass.states.get(eid)
-                        modes = set((st.attributes.get("supported_color_modes") or []) if st else [])
-                    except Exception:  # noqa: BLE001
-                        modes = set()
-                    if modes & {"rgb", "rgbw", "rgbww", "hs", "xy"}:
-                        red_lights.append(eid)
-            if red_lights:
-                red_data = dict(service_data)
-                red_data.pop("color_temp_kelvin", None)
-                red_data["entity_id"] = red_lights
-                red_data["rgb_color"] = list(NIGHT_LIGHT_SLEEP_RED_RGB)
-                await self._safe_service_call(
-                    "light", SERVICE_TURN_ON, red_data, blocking=False
+            params_by_entity: list[tuple[str, dict]] = []
+            for eid in actual_lights:
+                try:
+                    st = self.hass.states.get(eid)
+                    modes = set(
+                        (st.attributes.get("supported_color_modes") or [])
+                        if st
+                        else []
+                    )
+                except Exception:  # noqa: BLE001
+                    modes = set()
+                p = _nl_params(
+                    self.config,
+                    mode,
+                    include_transition=True,
+                    supported_color_modes=modes,
                 )
-                service_data["entity_id"] = [e for e in actual_lights if e not in red_lights]
+                params_by_entity.append((eid, p))
 
-            if service_data["entity_id"]:
+            # Group entities by identical params (dict → sortable repr).
+            groups: dict[str, tuple[dict, list[str]]] = {}
+            for eid, p in params_by_entity:
+                sig = repr(sorted(
+                    (k, tuple(v) if isinstance(v, list) else v)
+                    for k, v in p.items()
+                ))
+                if sig not in groups:
+                    groups[sig] = (p, [])
+                groups[sig][1].append(eid)
+
+            for _sig, (p, eids) in groups.items():
                 await self._safe_service_call(
-                    "light", SERVICE_TURN_ON, service_data, blocking=False
+                    "light",
+                    SERVICE_TURN_ON,
+                    {"entity_id": eids, **p},
+                    blocking=False,
                 )
             _LOGGER.info(
-                "Turned on %d night light(s) in %s mode (brightness=%s%%, color=%sK)",
-                len(actual_lights), mode, brightness, color_temp
+                "Turned on %d night light(s) in %s mode (%d param group(s))",
+                len(actual_lights), mode, len(groups),
             )
 
         # Turn on switch.* entities (no brightness/color support)
