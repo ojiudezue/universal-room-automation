@@ -63,6 +63,14 @@ Conclusion: changing the pre-boot fallback from a mode name to
 states will show `Unknown` during the pre-manager window instead of
 a fake `Normal` / `Disarmed`.
 
+**Review B B2-4 note:** when the Safety or Security coordinator is
+switched off entirely (so the coordinator-slot `is None` branch
+fires at steady state too, not just at boot), the corresponding
+sensor now reads `unknown` **permanently** instead of a false
+`"normal"` / `"disarmed"`. This is intentionally more accurate: an
+off coordinator has no opinion to publish, so a dashboard shows
+`Unknown` rather than impersonating a live all-clear.
+
 ## F4 (Review A, LOW) — residual pre-restore gap
 
 A deeper restart boundary remains OPEN after this cycle:
