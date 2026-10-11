@@ -5410,11 +5410,17 @@ class HouseStateSensor(AggregationEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> str:
-        """Return the current house state."""
+    def native_value(self) -> str | None:
+        """Return the current house state.
+
+        HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1: ``None`` (⇒ ``unknown``)
+        pre-boot. The old ``"away"`` fallback wrote a false Away into
+        history at every restart — a Bug Class #53 flavour where the
+        display writer disagreed with the state machine.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "away"
+            return None
         return manager.house_state.value
 
     @property
@@ -5504,11 +5510,15 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> str:
-        """Return the current house state."""
+    def native_value(self) -> str | None:
+        """Return the current house state.
+
+        HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1: ``None`` (⇒ ``unknown``)
+        pre-boot — never a false ``"away"``.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "away"
+            return None
         return manager.house_state.value
 
     @property
@@ -6519,11 +6529,15 @@ class IntegrationHouseStateSensor(AggregationEntity, SensorEntity):
         # device_info inherited from AggregationEntity — integration device
 
     @property
-    def native_value(self) -> str:
-        """Return the current house state."""
+    def native_value(self) -> str | None:
+        """Return the current house state.
+
+        HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1: ``None`` (⇒ ``unknown``)
+        pre-boot — never a false ``"away"``.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "away"
+            return None
         return manager.house_state.value
 
     @property
