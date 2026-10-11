@@ -423,13 +423,28 @@ SENSOR_FAMILY_RECHECK_FACTOR: Dict[str, float] = {
 DEFAULT_SENSOR_FAMILY_RECHECK_FACTOR: float = 1.0
 
 
+# Review A-M1: firmware-suffixed model strings ("ms600 9.0.0") — match on
+# the first whitespace token, case-insensitive, so a firmware bump does
+# not re-admit the radar.
+FAMILY_BY_MODEL_TOKEN: Dict[str, str] = {
+    "ms600": SENSOR_FAMILY_GENERIC_RADAR,  # Meross MS600 mmWave
+}
+
+
 def family_for_model(
     model_id: Optional[str], model: Optional[str] = None,
 ) -> str:
-    """Map a device's model_id (fallback: model) to a sensor family."""
+    """Map a device's model_id (fallback: model) to a sensor family.
+    Exact key first, then the first token of either string (lower-case)
+    against ``FAMILY_BY_MODEL_TOKEN``."""
     for key in (model_id, model):
         if key and key in FAMILY_BY_MODEL_ID:
             return FAMILY_BY_MODEL_ID[key]
+    for key in (model_id, model):
+        if key and isinstance(key, str) and key.split():
+            fam = FAMILY_BY_MODEL_TOKEN.get(key.split()[0].lower())
+            if fam is not None:
+                return fam
     return SENSOR_FAMILY_UNKNOWN
 
 

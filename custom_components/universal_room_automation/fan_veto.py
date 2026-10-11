@@ -65,9 +65,10 @@ _AWAY_STATES = frozenset({HouseState.AWAY, HouseState.VACATION})
 # `motion` or `occupancy`) so we exclude by name. Motion sensors named for
 # a specific technology (pir, ir) or bare `motion` still count.
 #
-# retired — use is_fan_immune_witness() + resolve_sensor_family()
-# (PLANNING_fan_noise_running_rejection.md Rev 2, C2). Kept so existing
-# importers still compile; no live code path reads it.
+# Demoted (PLANNING_fan_noise_running_rejection.md Rev 2, C2 + review
+# A-M1): classification is by capability + device model. The name pattern
+# is now ONLY the fallback for a sensor whose device family is "unknown"
+# (unrecognised model), so an unmapped radar keeps the develop exclusion.
 MMWAVE_NAME_PATTERN = re.compile(
     r"(mmwave|radar|presence|ld2410|ld2412)", re.IGNORECASE
 )
@@ -117,7 +118,13 @@ def is_fan_immune_motion_witness(
         return False
     if not is_fan_immune_witness(config, entity_id):
         return False
-    return resolve_sensor_family(hass, entity_id) not in RADAR_SENSOR_FAMILIES
+    family = resolve_sensor_family(hass, entity_id)
+    if family in RADAR_SENSOR_FAMILIES:
+        return False
+    # Review A-M1: unrecognised model -> keep the pre-C2 name exclusion.
+    if family == SENSOR_FAMILY_UNKNOWN and MMWAVE_NAME_PATTERN.search(entity_id):
+        return False
+    return True
 
 
 def is_veto_relevant(hass: HomeAssistant) -> bool:

@@ -1043,3 +1043,37 @@ def test_rediscovery_cancels_pending_decay(monkeypatch):
     )
     PR.PresenceCoordinator._discover_room_fans(p)
     assert _decay_timers[0]["cancelled"] is True
+
+
+# ===========================================================================
+# Review fix A-M1 — firmware bump / unmapped radar never re-admitted
+# ===========================================================================
+
+def test_ms600_firmware_bump_still_radar():
+    assert SC.family_for_model(None, "ms600 9.0.1") == "generic_radar"
+    assert SC.family_for_model(None, "MS600 10.2") == "generic_radar"
+
+
+def test_ms600_firmware_bump_excluded_from_d2(monkeypatch):
+    hass = MagicMock()
+    hass.data = {}
+    eid = "binary_sensor.mmwave_motion_lux_meross_wifi_mediaroom_sensor_presence_motion"
+    _install_registry(monkeypatch, {eid: (None, "ms600 9.0.1")})
+    assert _d2_present(
+        hass, {"room_name": "Media", CONST.CONF_MOTION_SENSORS: [eid]},
+    ) is False
+
+
+def test_unknown_esp32_named_presence_falls_back_to_name_exclusion(monkeypatch):
+    hass = MagicMock()
+    hass.data = {}
+    eid = "binary_sensor.office_radar_presence"
+    _install_registry(monkeypatch, {eid: (None, "esp32-c3-devkitm-1")})
+    cfg = {CONST.CONF_MOTION_SENSORS: [eid]}
+    assert FV.is_fan_immune_motion_witness(hass, cfg, eid) is False
+    # Control: an unknown-model sensor with a plain name stays a witness.
+    plain = "binary_sensor.office_pir_occupancy"
+    _install_registry(monkeypatch, {plain: (None, "esp32-c3-devkitm-1")})
+    assert FV.is_fan_immune_motion_witness(
+        hass, {CONST.CONF_MOTION_SENSORS: [plain]}, plain,
+    ) is True
