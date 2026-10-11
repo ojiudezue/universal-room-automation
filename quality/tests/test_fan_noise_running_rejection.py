@@ -516,20 +516,37 @@ def test_family_scaling_kill_switch_off(monkeypatch):
     ) == 90
 
 
-def test_dominant_family_breaks_ties_by_iteration_order(monkeypatch):
-    # 1 LD24xx (x3) then 1 ZK (x2): tie -> first in list -> LD24xx.
+_GENERIC = (None, "Human_Presence_Sensor")   # Screek -> generic_radar 1.5
+_ESP = (None, "esp32-c3-devkitm-1")         # unknown
+
+
+def test_family_factor_is_max_over_recognised_families(monkeypatch):
+    # LD24xx (x3) + ZK (x2), either order -> x3: 30 + 60 x 3 = 210.
+    for order in (["binary_sensor.ld", "binary_sensor.zk"],
+                  ["binary_sensor.zk", "binary_sensor.ld"]):
+        assert _pause_seconds(
+            monkeypatch, presence_sensors=order,
+            models={"binary_sensor.ld": _LD, "binary_sensor.zk": _ZK},
+        ) == 210
+
+
+def test_family_factor_jaya_shape_unknown_ignored(monkeypatch):
+    # [esp32 (unknown), ZK] -> ZK x2 (majority-with-unknown gave 1.0).
     assert _pause_seconds(
-        monkeypatch, presence_sensors=["binary_sensor.ld", "binary_sensor.zk"],
-        models={"binary_sensor.ld": _LD, "binary_sensor.zk": _ZK},
-    ) == 210
-    # Majority wins over list order: ZK, LD, LD -> LD24xx.
+        monkeypatch, presence_sensors=["binary_sensor.esp", "binary_sensor.zk"],
+        models={"binary_sensor.esp": _ESP, "binary_sensor.zk": _ZK},
+    ) == 150
+
+
+def test_family_factor_master_bedroom_shape_zx_beats_generic(monkeypatch):
+    # [generic x1.5, generic x1.5, ZX x2] -> x2 (majority gave 1.5 = 120).
     assert _pause_seconds(
         monkeypatch,
-        presence_sensors=["binary_sensor.zk", "binary_sensor.ld",
-                          "binary_sensor.ld2"],
-        models={"binary_sensor.ld": _LD, "binary_sensor.zk": _ZK,
-                "binary_sensor.ld2": _LD},
-    ) == 210
+        presence_sensors=["binary_sensor.g1", "binary_sensor.g2",
+                          "binary_sensor.zx"],
+        models={"binary_sensor.g1": _GENERIC, "binary_sensor.g2": _GENERIC,
+                "binary_sensor.zx": _ZX},
+    ) == 150
 
 
 def test_cooldown_default_is_900(monkeypatch):
@@ -1077,3 +1094,17 @@ def test_unknown_esp32_named_presence_falls_back_to_name_exclusion(monkeypatch):
     assert FV.is_fan_immune_motion_witness(
         hass, {CONST.CONF_MOTION_SENSORS: [plain]}, plain,
     ) is True
+
+
+def test_unrecognised_family_warns_once_per_room(monkeypatch, caplog):
+    mgr, fc, hass, states, log, rf, rc, timers, _k = _recheck_world(
+        monkeypatch, presence_sensors=["binary_sensor.esp"],
+        models={"binary_sensor.esp": _ESP},
+    )
+    merged = {**rc.entry.data, **rc.entry.options}
+    timing = mgr._timing_config()
+    with caplog.at_level("WARNING"):
+        assert mgr._family_factor(merged, timing, "Study A") == 1.0
+        assert mgr._family_factor(merged, timing, "Study A") == 1.0
+    warns = [r for r in caplog.records if "family not recognised" in r.getMessage()]
+    assert len(warns) == 1

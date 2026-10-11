@@ -272,7 +272,7 @@ OC-STUCK-SENSOR-GENERALIZE-1 remains at its original scope (presence/motion sens
 - **Verify (code — Finding 9b):** `presence_fan_recheck.py:1297-1300` computes stale window from `_timing_config()`-derived effective window, not `DEFAULT_FAN_RECHECK_WINDOW_S * 2`. Mutation: reverting to constant `DEFAULT_FAN_RECHECK_WINDOW_S * 2` causes `test_rehydrate_paused_respects_effective_window` to fail at a 300-s-stale fixture with ZK bedroom (should rehydrate, not go idle).
 - **Verify (code — Finding 9c):** `:1347-1349` reads live CM-entry cooldown via `_timing_config()`. Mutation anchor: `test_cooldown_rehydrate_reads_live_knob`.
 - **Verify (code — Finding 9a):** `FAMILY_BY_MODEL_ID` lookup source is the HA device registry; miss → family `"unknown"` → factor 1.0 + one-time WARN.
-- **Test:** `test_family_factor_zk_scales_window`, `test_family_factor_unknown_defaults_1_0`, `test_dominant_family_breaks_ties_by_iteration_order`, `test_rehydrate_paused_respects_effective_window`, `test_cooldown_rehydrate_reads_live_knob`.
+- **Test:** `test_family_factor_zk_scales_window`, `test_family_factor_unknown_defaults_1_0`, `test_family_factor_is_max_over_recognised_families` (review A-M3: max over recognised families, not majority), `test_rehydrate_paused_respects_effective_window`, `test_cooldown_rehydrate_reads_live_knob`.
 - **Live:** per-room `fan_recheck_outcome=occupied_confirmed-but-should-be-vacated` false-negative count drops in Jaya + Living Room; VACATED rate rises; cooldown-blocked miss count drops ≥50%. LD24xx (Jaya) measurement in week 1 either confirms `family_factor=3.0` is sufficient or triggers a C4 follow-up card.
 
 **Non-goal.** No per-room override UI in v1.

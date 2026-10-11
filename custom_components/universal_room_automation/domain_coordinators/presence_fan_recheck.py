@@ -1137,35 +1137,25 @@ class FanRecheckManager:
             ROOM_TYPE_RECHECK_FACTOR.get(room_type, DEFAULT_RECHECK_FACTOR)
         )
 
-    def _dominant_family(self, merged: dict) -> str:
-        """C4 Rev 2: the most frequent sensor family among the room's
-        presence sensors (CONF_MMWAVE_SENSORS = "presence_sensors"),
-        resolved from the device registry model id. Ties go to the first
-        family met in list order. No sensors -> "unknown"."""
+    def _room_families(self, merged: dict) -> list[str]:
+        """C4 Rev 2 (review A-M3): the RECOGNISED sensor families of the
+        room's presence sensors (CONF_MMWAVE_SENSORS = "presence_sensors"),
+        resolved from the device registry model. "unknown" is dropped."""
         try:
             from ..fan_veto import resolve_sensor_family  # noqa: PLC0415
         except ImportError:  # isolated-module test loaders: no fan_veto
-            return SENSOR_FAMILY_UNKNOWN
+            return []
         sensors = merged.get(CONF_MMWAVE_SENSORS) or []
         if isinstance(sensors, str):
             sensors = [sensors]
-        counts: dict[str, int] = {}
-        order: list[str] = []
+        out: list[str] = []
         for eid in sensors:
             if not isinstance(eid, str) or not eid:
                 continue
             fam = resolve_sensor_family(self.hass, eid)
-            if fam not in counts:
-                counts[fam] = 0
-                order.append(fam)
-            counts[fam] += 1
-        if not order:
-            return SENSOR_FAMILY_UNKNOWN
-        best = order[0]
-        for fam in order[1:]:
-            if counts[fam] > counts[best]:
-                best = fam
-        return best
+            if fam != SENSOR_FAMILY_UNKNOWN and fam not in out:
+                out.append(fam)
+        return out
 
     def _family_warned_set(self) -> set:
         warned = getattr(self, "_family_warned", None)
@@ -1177,18 +1167,19 @@ class FanRecheckManager:
     def _family_factor(
         self, merged: dict, timing: dict, room_name: str = "",
     ) -> float:
-        """C4 Rev 2: window multiplier for the room's dominant sensor
-        family. 1.0 when family scaling is off or the family is unknown
-        (byte-identical pre-C4); an unknown family WARNs once per room per
-        boot when the room has presence sensors."""
+        """C4 Rev 2: window multiplier = the MAX factor over the room's
+        recognised presence-sensor families (review A-M3). 1.0 when family
+        scaling is off or no family is recognised (byte-identical pre-C4);
+        the latter WARNs once per room per boot when the room has presence
+        sensors."""
         if not timing.get(
             CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED,
             DEFAULT_FAN_RECHECK_FAMILY_SCALING_ENABLED,
         ):
             return 1.0
-        family = self._dominant_family(merged)
+        families = self._room_families(merged)
         if (
-            family == SENSOR_FAMILY_UNKNOWN
+            not families
             and merged.get(CONF_MMWAVE_SENSORS)
             and room_name
             and room_name not in self._family_warned_set()
@@ -1199,7 +1190,11 @@ class FanRecheckManager:
                 "the device model — recheck window not scaled (factor 1.0)",
                 room_name,
             )
-        return family_recheck_factor(family)
+        # Review A-M3: the slowest recognised family sets the window (a
+        # room is only as quick to clear as its slowest radar).
+        return max(
+            (family_recheck_factor(f) for f in families), default=1.0,
+        )
 
     def _effective_window_s(
         self, merged: dict, timing: dict, room_name: str = "",
