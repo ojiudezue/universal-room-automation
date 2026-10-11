@@ -30864,6 +30864,7 @@ cards:
     context: 'Same red-at-sleep rule as NIGHTLIGHT-RED-RECONCILE-PARITY-1, different trigger (sleep onset, not entry or reconnect); deliberately left out of that branch.'
   sweep_2026_10_11: 'Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.'
 - id: BOND-BRIDGE-UNRESPONSIVE-1
+  fan_entity_canonicalisation_2026_10_11: "Interim: URA rooms (Game Room, Media, Guest Bedroom 1, Master Bedroom fans + manual_switches), ura-v8 (9 refs) and scripts ura_qa_common_areas_off / ura_qa_house_off now use the stable HomeKit _2 fans (backups in session scratchpad). Bond diagnosis: bridge dual-homed on the same subnet — Wi-Fi 192.168.9.69 (what HA uses; 0.13-3 s API, timeouts) vs Ethernet 192.168.9.72 (45 ms API, 1.8 ms ping). Operator switching to Ethernet-only. AFTER: verify bond+homekit_controller entries follow to .72, pick ONE canonical entity per fan, align ~20 automations.yaml refs (game room / media / guest room fans) + URA + dashboard + scripts; then decide the Master Bedroom duplicate (Bond device id ZPGH77358 = the bridge id - do not delete blindly)."
   title: Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s
   thread: devices
   status: waiting_operator

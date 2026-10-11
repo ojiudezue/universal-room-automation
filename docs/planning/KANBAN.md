@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T12:05:51-05:00_ - _Data commit: `aaeeb79c4f10`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T13:34:29-05:00_ - _Data commit: `607a76906476`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -849,7 +849,8 @@ thread: **devices** - status: **waiting_operator**
 _created 2026-10-11 20:40_
 - **Why:** HA log: 'Updating <bond entity> took longer than the scheduled update interval 10' for all bond entities. Probe from HA host: /v2/sys/version timed out (8 s) on 3/5 tries, 2.9 s / 0.7 s otherwise; ping 0% loss but 20-660 ms RTT (LAN shou...
 - **Next:** DO (operator/homelab): check Bond bridge Wi-Fi signal/AP + reboot bridge; consider wired/closer AP. Then decide URA fan config: use the stable HomeKit _2 entities (game room, master) or the bond entities once healthy. Re-run the fan flap...
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `fan_entity_canonicalisation_2026_10_11`: Interim: URA rooms (Game Room, Media, Guest Bedroom 1, Master Bedroom fans + manual_switches), ura-v8 (9 refs) and scripts ura_qa_common_areas_off / ura_qa_house_off now use the stable HomeKit _2 fans (backups in session scratchpad). Bon...
   - `related`: FAN-NOISE C3
 
 ### `WIFI-SWITCH-DROPOUTS-BATHROOMS-1` - Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath) — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
