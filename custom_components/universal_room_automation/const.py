@@ -726,6 +726,11 @@ DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
 # must outlast the pause itself (spindown + effective window) by this
 # margin, else the HVAC tier books URA's own pause as a manual OFF.
 FAN_RECHECK_SUPPRESS_MARGIN_S: Final = 60
+# Fan-noise Rev 2 review A-M2/B-2 (rung 1): a fan entity held at its last
+# known-good ON belief while unavailable decays to OFF after this long
+# continuously unavailable (measured flaps are ~20-40 s; a dead / wall-
+# powered-off fan must not hold "fan on" forever).
+FAN_BELIEF_UNAVAILABLE_TTL_S: Final = 120
 
 # FIX C (room-tier fan manual-off cooldown).
 # Duration (seconds) that a manually-off fan is held OFF against re-arm

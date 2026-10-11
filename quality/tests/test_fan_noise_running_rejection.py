@@ -56,11 +56,25 @@ CONST, FV, SC, HF, FR, PR, CO = _load()
 DOMAIN = CONST.DOMAIN
 
 
+_decay_timers: list = []
+
+
 @pytest.fixture(autouse=True)
 def _aware_clock(monkeypatch):
     """Sibling test files leave `dt_util.now` patched (naive / frozen).
     Production's clock is tz-aware wall time — pin that for each test,
     scoped by monkeypatch (restored afterwards)."""
+    _decay_timers.clear()
+
+    def _later(hass, secs, cb):
+        rec = {"secs": secs, "cb": cb, "cancelled": False}
+        _decay_timers.append(rec)
+
+        def _unsub():
+            rec["cancelled"] = True
+        return _unsub
+
+    monkeypatch.setattr(PR, "async_call_later", _later)
     for mod in {id(FR.dt_util): FR.dt_util, id(HF.dt_util): HF.dt_util}.values():
         monkeypatch.setattr(mod, "now", lambda: datetime.now(timezone.utc))
         monkeypatch.setattr(mod, "utcnow", lambda: datetime.now(timezone.utc))
@@ -973,3 +987,59 @@ def test_long_pause_not_booked_as_manual_off(monkeypatch):
     monkeypatch.setattr(HF.dt_util, "now", lambda: later)
     _run(fc.update(None, "home_day"))
     assert rf.manual_off_cooldown_until == ""
+
+
+# ===========================================================================
+# Review fix A-M2 / B-2 — held belief decays after the unavailable TTL
+# ===========================================================================
+
+def test_held_belief_decays_after_unavailable_ttl():
+    """A fan that dies while ON (stays unavailable) loses the held ON belief
+    after FAN_BELIEF_UNAVAILABLE_TTL_S: room leaves _fan_on_rooms, its
+    _fan_on_since is popped (D2 'fan_off' latch-clear reads that) and a
+    _fan_off_at retro-phantom stamp is written."""
+    room, fan = "Media", "fan.media"
+    t = _Tracker(room, [fan])
+    states = {fan: _State("on")}
+    p = _Presence(t, states)
+    _fire(p, _ev(fan, "off", "on", 33))
+    states[fan] = _State("unavailable")
+    _fire(p, _ev(fan, "on", "unavailable"))
+    assert room in t._fan_on_rooms              # held inside the TTL
+    assert len(_decay_timers) == 1 and _decay_timers[0]["secs"] == 120
+    _decay_timers[0]["cb"](None)
+    assert room not in t._fan_on_rooms
+    assert room not in t._fan_on_since
+    assert room in t._fan_off_at
+    assert p._fan_known_good[fan] is False
+
+
+def test_flap_shorter_than_ttl_keeps_belief():
+    room, fan = "Media", "fan.media"
+    t = _Tracker(room, [fan])
+    states = {fan: _State("on")}
+    p = _Presence(t, states)
+    _fire(p, _ev(fan, "off", "on", 33))
+    _fire(p, _ev(fan, "on", "unavailable"))
+    _fire(p, _ev(fan, "unavailable", "on", 33))  # back inside the TTL
+    assert _decay_timers[0]["cancelled"] is True
+    _decay_timers[0]["cb"](None)                 # a late fire is a no-op
+    assert room in t._fan_on_rooms
+    assert room in t._fan_on_since
+
+
+def test_rediscovery_cancels_pending_decay(monkeypatch):
+    room, fan = "Study A", "fan.study_a"
+    t = _Tracker(room, [fan])
+    states = {fan: _State("on")}
+    p = _Presence(t, states)
+    p._fan_listener_unsub = None
+    p._unsub_listeners = []
+    _fire(p, _ev(fan, "off", "on", 33))
+    _fire(p, _ev(fan, "on", "unavailable"))
+    p.hass.config_entries.async_entries = lambda domain=None: []
+    monkeypatch.setattr(
+        PR, "async_track_state_change_event", lambda *a, **k: (lambda: None),
+    )
+    PR.PresenceCoordinator._discover_room_fans(p)
+    assert _decay_timers[0]["cancelled"] is True

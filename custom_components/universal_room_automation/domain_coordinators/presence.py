@@ -30,12 +30,14 @@ from typing import Any, Dict, List, Optional, Set
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    FAN_BELIEF_UNAVAILABLE_TTL_S,
     BLE_TIER_2_WEIGHT,  # v4.7.16 D3
     BOOT_SETTLE_MIN_INPUTS,  # boot-settle gate
     BOOT_SETTLE_TIMEOUT_SECONDS,  # boot-settle gate
@@ -3634,6 +3636,7 @@ class PresenceCoordinator(BaseCoordinator):
             # re-discovery so a re-seeded fan does not carry a stale
             # transition timestamp into the new listener wiring.
             tracker._fan_last_transition.clear()
+        _cancel_fan_belief_decay(self)
         if self._fan_listener_unsub is not None:
             try:
                 self._fan_listener_unsub()
@@ -3765,7 +3768,16 @@ class PresenceCoordinator(BaseCoordinator):
                 "(last known-good on=%s)",
                 entity_id, new_state.state, known_good.get(entity_id),
             )
+            # Review A-M2/B-2: the held ON belief is bounded — decays to
+            # OFF after FAN_BELIEF_UNAVAILABLE_TTL_S continuously
+            # unavailable (timer below; any readable edge cancels it).
+            if known_good.get(entity_id) is True and (
+                old_state is None
+                or old_state.state not in _UNAVAILABLE_STATES
+            ):
+                _arm_fan_belief_decay(self, entity_id)
             return
+        _cancel_fan_belief_decay(self, entity_id)
         is_on = new_state.state == "on"
         prior_good = known_good.get(entity_id)
         known_good[entity_id] = is_on
@@ -7546,6 +7558,8 @@ class PresenceCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Presence Coordinator."""
+        # Fan-noise review A-M2/B-2: pending held-belief decay timers.
+        _cancel_fan_belief_decay(self)
         # Cancel deferred retry timer
         if self._retry_unsub is not None:
             self._retry_unsub()
@@ -8051,3 +8065,70 @@ class PresenceCoordinator(BaseCoordinator):
             for name, tracker in self._zone_trackers.items()
         }
         return summary
+
+
+# ---------------------------------------------------------------------------
+# Fan-noise Rev 2 review A-M2/B-2 — held fan-belief decay (module-level so
+# test fakes that drive the unbound `_handle_fan_change` need no methods).
+# ---------------------------------------------------------------------------
+
+def _fan_decay_unsubs_map(owner: Any) -> Dict[str, Any]:
+    m = getattr(owner, "_fan_decay_unsubs", None)
+    if m is None:
+        m = {}
+        owner._fan_decay_unsubs = m
+    return m
+
+def _cancel_fan_belief_decay(owner: Any, entity_id: Optional[str] = None) -> None:
+    """Cancel one (or every) pending held-belief decay timer."""
+    m = _fan_decay_unsubs_map(owner)
+    for eid in ([entity_id] if entity_id is not None else list(m)):
+        unsub = m.pop(eid, None)
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+
+def _arm_fan_belief_decay(owner: Any, entity_id: str) -> None:
+    """Review A-M2/B-2: after FAN_BELIEF_UNAVAILABLE_TTL_S of continuous
+    unavailability, replay a synthetic on->off edge through
+    `_handle_fan_change` so every belief map (incl. `_fan_off_at` and
+    `_fan_on_since`, which the D2 'fan_off' latch-clear reads) moves to
+    OFF exactly as a real off edge would. Discharge: a readable edge
+    cancels; re-discovery / teardown cancel all."""
+    _cancel_fan_belief_decay(owner, entity_id)
+
+    @callback
+    def _decay(_now: Any) -> None:
+        _fan_decay_unsubs_map(owner).pop(entity_id, None)
+        try:
+            live = owner.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001
+            live = None
+        if live is not None and live.state not in _UNAVAILABLE_STATES:
+            return
+        if getattr(owner, "_fan_known_good", {}).get(entity_id) is not True:
+            return
+        _LOGGER.info(
+            "Provenance-split D3: fan %s unavailable > %ss — held ON "
+            "belief decays to off", entity_id, FAN_BELIEF_UNAVAILABLE_TTL_S,
+        )
+
+        class _S:
+            def __init__(self, st: str) -> None:
+                self.state = st
+                self.attributes: Dict[str, Any] = {}
+
+        class _E:
+            data = {
+                "entity_id": entity_id,
+                "old_state": _S("on"),
+                "new_state": _S("off"),
+            }
+        PresenceCoordinator._handle_fan_change(owner, _E())
+
+    _fan_decay_unsubs_map(owner)[entity_id] = async_call_later(
+        owner.hass, FAN_BELIEF_UNAVAILABLE_TTL_S, _decay,
+    )
+
