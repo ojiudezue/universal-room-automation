@@ -107,6 +107,7 @@ from ..const import (
     SENSOR_NEVER_FIRES_HORIZON_S,
     SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION,
     SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S,
+    SENSOR_NEVER_FIRES_OVERRIDES_S,
     CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
     CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
     CAMERA_INPUT_DEGRADED_DWELL_S,
@@ -644,18 +645,24 @@ class OptimizationCoordinator(BaseCoordinator):
         # which is the correct post-restart behaviour (the fact is re-stated
         # for the new boot) and bounded at one row per sensor.
         self._sensor_health_last_persisted: dict[tuple, datetime] = {}
-        # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 — sensor_never_fires:
+        # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) — sensor_never_fires:
         #   persistent dict (via HA Store) `_never_fires_state[eid]` =
         #     {first_seen, last_on_seen, unavailable_s}
-        #   RAM-only daily latch + ephemeral unavailable-stamp dict.
         # The Store load MUST complete before the OC cycle timer starts
         # (see async_setup); the evaluator returns [] while unloaded.
+        #
+        # Review A HIGH #1: NO per-day latch and NO `last_fired_at`. The
+        # evaluator emits every cycle while the condition holds (same
+        # shape as `_evaluate_sensor_health_dimension`); the shared
+        # `_filter_repeat_sensor_health` 24h cover caps DB persistence
+        # to ≤1 row/entity/24h. Without this the daily digest
+        # (`_last_findings`, 5-min cycle) almost never contains the
+        # finding and the operator never sees it (Bug Class #53).
         self._never_fires_store = None
         self._never_fires_state: dict[str, dict] = {}
         self._never_fires_loaded: bool = False
         self._never_fires_listener_unsub = None
-        self._never_fires_fired: set[str] = set()
-        self._never_fires_fired_date: str | None = None
+        self._never_fires_subscribed: set[str] = set()
         # In-memory only: timestamp of the most recent transition INTO
         # unavailable/unknown, so a transition BACK OUT can accrue the
         # delta into `unavailable_s`. Not persisted — a crash during an
@@ -901,28 +908,13 @@ class OptimizationCoordinator(BaseCoordinator):
         # `_never_fires_loaded` so a slow load returns [] rather than
         # firing against a half-restored dict.
         await self._never_fires_async_load()
-        # Rev 3 F7 — subscribe to state changes for the D1 entities and
-        # append the unsub to `_unsub_listeners` (Bug Class #50). The
-        # D1 resolver is called once here; a config-entry reload rebuilds
-        # the subscription (async_setup re-runs after BaseCoordinator
-        # teardown).
-        try:
-            watched_eids = list(self._watched_raw_sensors().keys())
-            if watched_eids:
-                self._never_fires_listener_unsub = (
-                    async_track_state_change_event(
-                        self.hass,
-                        watched_eids,
-                        self._on_never_fires_state_change,
-                    )
-                )
-                self._unsub_listeners.append(
-                    self._never_fires_listener_unsub,
-                )
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "never-fires: listener setup failed", exc_info=True,
-            )
+        # Rev 3 F7 + review A HIGH #3 — subscribe to state changes for
+        # the current D1 universe. The evaluator will call
+        # `_never_fires_resubscribe()` again on every tick so sensors
+        # that materialise AFTER setup (options-flow edit, camera whose
+        # state wasn't present yet at `_exterior_person_sensors` time)
+        # get subscribed before they can be falsely reported as silent.
+        self._never_fires_resubscribe()
 
         # 5-min cycle (matches plan D1). Scheduled via HA's tracker so the
         # unsub goes on the BaseCoordinator listener list.
@@ -2095,7 +2087,6 @@ class OptimizationCoordinator(BaseCoordinator):
                     "first_seen": rec.get("first_seen"),
                     "last_on_seen": rec.get("last_on_seen"),
                     "unavailable_s": int(rec.get("unavailable_s") or 0),
-                    "last_fired_at": rec.get("last_fired_at"),
                 }
         # Rev 3 F3: prune at load — eids no longer in D1 are dropped so
         # a config-removed sensor cannot linger in the blob forever.
@@ -2122,7 +2113,6 @@ class OptimizationCoordinator(BaseCoordinator):
                 "first_seen": rec.get("first_seen"),
                 "last_on_seen": rec.get("last_on_seen"),
                 "unavailable_s": int(rec.get("unavailable_s") or 0),
-                "last_fired_at": rec.get("last_fired_at"),
             }
             for eid, rec in self._never_fires_state.items()
         }
@@ -2150,13 +2140,21 @@ class OptimizationCoordinator(BaseCoordinator):
 
     @callback
     def _on_never_fires_state_change(self, event) -> None:
-        """Rev 3 F7 listener — maintain `last_on_seen` and `unavailable_s`.
+        """Rev 3 F7 listener (review A HIGH #2 + SHOULD #8) — maintain
+        `last_on_seen` and `unavailable_s`.
 
-        Also handles the Rev 2 M2 discharge: on a transition to ON we
-        pop the per-day latch AND pop any matching
-        `_sensor_health_last_persisted` key so a re-silence within 24h
-        of recovery persists a row rather than being suppressed by the
-        shared 24h repeat filter.
+        Semantics:
+          - A GENUINE off->on transition (old_state == "off") resets the
+            horizon clock: ``last_on_seen = now`` AND ``unavailable_s = 0``
+            (review A HIGH #2 — the fraction gate is "unavailable time
+            SINCE the clock last reset", not cumulative lifetime).
+            A rejoin (unavailable->on) does NOT count (review A SHOULD
+            #8); the eid just came back online, it hasn't fired yet.
+          - unavailable->available transitions accrue the delta into
+            `unavailable_s`.
+          - Also pops any matching `_sensor_health_last_persisted` key
+            on a genuine ON so a re-silence within 24h of recovery
+            persists a row (Rev 2 M2).
         """
         try:
             data = getattr(event, "data", None) or {}
@@ -2198,7 +2196,8 @@ class OptimizationCoordinator(BaseCoordinator):
                 old_state is None or old_state not in unavail
             ):
                 self._never_fires_last_unavail_at[eid] = now
-            # OUT OF unavailable: accrue delta.
+            # OUT OF unavailable (rejoin): accrue delta. This does NOT
+            # count as the sensor firing (SHOULD #8).
             if new_state not in unavail and old_state in unavail:
                 stamp = self._never_fires_last_unavail_at.pop(eid, None)
                 if stamp is not None:
@@ -2206,14 +2205,18 @@ class OptimizationCoordinator(BaseCoordinator):
                     rec["unavailable_s"] = int(
                         rec.get("unavailable_s") or 0
                     ) + delta
-            # ON transition: record + discharge.
-            if new_state == "on" and old_state != "on":
+            # Genuine off->on firing event: reset clock and discharge.
+            # Review A SHOULD #8 — only off->on; a rejoin
+            # (unavailable->on) is NOT a firing.
+            if new_state == "on" and old_state == "off":
                 rec["last_on_seen"] = now.isoformat()
-                # Rev 2 M2 — a real recovery clears both the RAM latch and
-                # the persisted `last_fired_at` dedup clock so a
-                # re-silence within one horizon fires again.
-                rec.pop("last_fired_at", None)
-                self._never_fires_fired.discard(eid)
+                # Review A HIGH #2 — reset the availability counter so
+                # the fraction gate measures time SINCE this clock reset.
+                rec["unavailable_s"] = 0
+                self._never_fires_last_unavail_at.pop(eid, None)
+                # Rev 2 M2 — clear the shared 24h-repeat key so a
+                # re-silence within 24h of recovery persists a row
+                # rather than being suppressed as a repeat.
                 prefix = str(("sensor_never_fires", eid))
                 for pk in [
                     k for k in self._sensor_health_last_persisted
@@ -2224,6 +2227,63 @@ class OptimizationCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "never-fires: state-change listener failed", exc_info=True,
+            )
+
+    def _never_fires_resubscribe(self) -> None:
+        """Review A HIGH #3 — reconcile the state-change subscription
+        with the current D1 universe. Called from `async_setup` AND
+        from the evaluator every tick so a sensor added after setup
+        (options-flow edit, camera whose binary_sensor materialised
+        later) is subscribed before it is evaluated. Without this a
+        late-arriving sensor would be evaluated against a horizon it
+        never gets a chance to meet — false-positive silence.
+
+        Keeps `_unsub_listeners` correct across the swap (Bug Class
+        #50) so unload still clears the subscription.
+        """
+        try:
+            watched = set(self._watched_raw_sensors().keys())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: resubscribe watched-set failed", exc_info=True,
+            )
+            return
+        if watched == self._never_fires_subscribed:
+            return
+        # Tear down the stale subscription (if any) and drop it from
+        # `_unsub_listeners`.
+        old = self._never_fires_listener_unsub
+        if old is not None:
+            try:
+                old()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "never-fires: previous unsub raised", exc_info=True,
+                )
+            try:
+                self._unsub_listeners.remove(old)
+            except ValueError:
+                pass
+            self._never_fires_listener_unsub = None
+        if not watched:
+            self._never_fires_subscribed = set()
+            return
+        try:
+            unsub = async_track_state_change_event(
+                self.hass,
+                sorted(watched),  # deterministic for test introspection
+                self._on_never_fires_state_change,
+            )
+            self._never_fires_listener_unsub = unsub
+            self._unsub_listeners.append(unsub)
+            self._never_fires_subscribed = watched
+            _LOGGER.debug(
+                "never-fires: subscribed to %d watched eid(s)",
+                len(watched),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: resubscribe setup failed", exc_info=True,
             )
 
     def _watched_raw_sensors(self) -> dict[str, dict]:
@@ -2323,51 +2383,56 @@ class OptimizationCoordinator(BaseCoordinator):
     def _evaluate_sensor_never_fires_dimension(
         self,
     ) -> list[OptimizationFinding]:
-        """Rev 3 D3 evaluator — raw motion/occupancy sensors that have
-        produced ZERO ON transitions over the horizon.
+        """Rev 3 D3 evaluator (review A fix-up pass) — raw motion /
+        occupancy sensors that have produced ZERO ON transitions over
+        their horizon.
+
+        Review A HIGH #1: emit EVERY cycle while the condition holds
+        (same shape as `_evaluate_sensor_health_dimension`). The shared
+        `_filter_repeat_sensor_health` 24h repeat suppressor caps DB
+        persistence to ≤1 row/eid/24h; without emitting every cycle
+        the finding almost never reaches the daily digest built from
+        `_last_findings` (built from the latest 5-min cycle only).
+
+        Review A HIGH #3: `_never_fires_resubscribe()` runs at the top
+        so sensors added after setup are listened to before they are
+        evaluated.
+
+        Review A SHOULD #5: per-entity horizon via
+        `SENSOR_NEVER_FIRES_OVERRIDES_S` (0 = never alert for that
+        sensor; mirrors `CAMERA_STUCK_ON_OVERRIDES_S`).
 
         Guards:
           - Kill switch: SENSOR_NEVER_FIRES_HORIZON_S <= 0 -> [].
-          - Rev 3 F5: returns [] while `_never_fires_loaded is False`.
-          - Rev 3 F3: prunes eids no longer in D1 at entry.
-          - Rev 3 F1: HA-down time (unavailable_s only accrues from
-            observed state transitions) does not consume the window.
-          - Rev 3 F2: `first_seen` is write-once per eid; the fire
-            clock is max(first_seen, last_on_seen).
-          - Available-now gate: the eid must not currently be in
-            {unavailable, unknown}; the H2 availability-fraction gate
-            is 1 - 0.2 = 20% max-unavailable of the horizon.
-          - Daily latch: at most ONE finding per eid per local day.
+          - Returns [] while `_never_fires_loaded is False`.
+          - Prunes eids no longer in D1 at entry.
+          - HA-down time does NOT consume the fraction window
+            (`unavailable_s` only accrues from listener-observed
+            transitions).
+          - Available-now gate: the eid must not currently be
+            unavailable/unknown.
+          - Fraction gate: `unavailable_s` since the clock last reset
+            must be ≤ (1 - min_fraction) × horizon.
 
         Emits HIGH `SENSOR_HEALTH` findings with
         ``dedup_key=("sensor_never_fires", eid)`` and
-        ``payload["stuck_state"] = "never_fires"`` so the shared
-        ``_filter_repeat_sensor_health`` 24h repeat suppressor and the
-        existing optimizer NM allowlist cover the new row with no new
-        wiring.
+        ``payload["stuck_state"] = "never_fires"``.
         """
         findings: list[OptimizationFinding] = []
-        horizon = int(SENSOR_NEVER_FIRES_HORIZON_S)
-        if horizon <= 0:
+        default_horizon = int(SENSOR_NEVER_FIRES_HORIZON_S)
+        if default_horizon <= 0:
             return findings  # kill switch
         if not self._never_fires_loaded:
             return findings  # Rev 3 F5 guard
+        # Review A HIGH #3 — reconcile the listener subscription before
+        # we evaluate, so a late-added sensor is subscribed first.
+        self._never_fires_resubscribe()
         now = dt_util.utcnow()
         try:
             frac = float(SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION)
         except Exception:  # noqa: BLE001
             frac = 0.8
         frac = max(0.0, min(1.0, frac))
-        max_unavail_s = int((1.0 - frac) * horizon)
-
-        # Daily latch rollover at local midnight.
-        try:
-            today = dt_util.now().date().isoformat()
-        except Exception:  # noqa: BLE001
-            today = datetime.utcnow().date().isoformat()
-        if self._never_fires_fired_date != today:
-            self._never_fires_fired.clear()
-            self._never_fires_fired_date = today
 
         try:
             watched = self._watched_raw_sensors()
@@ -2377,16 +2442,28 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             return findings
 
-        # Rev 3 F3: prune at evaluator entry.
+        # Prune eids no longer in D1 at evaluator entry.
         for eid in list(self._never_fires_state):
             if eid not in watched:
                 self._never_fires_state.pop(eid, None)
                 self._never_fires_last_unavail_at.pop(eid, None)
 
         for eid, meta in watched.items():
+            # Review A SHOULD #5 — per-entity horizon override.
+            try:
+                horizon = int(
+                    SENSOR_NEVER_FIRES_OVERRIDES_S.get(eid, default_horizon)
+                )
+            except Exception:  # noqa: BLE001
+                horizon = default_horizon
+            if horizon <= 0:
+                # 0 for this sensor = never alert.
+                continue
+            max_unavail_s = int((1.0 - frac) * horizon)
+
             rec = self._never_fires_state.get(eid)
             if rec is None:
-                # Rev 3 F2 — first_seen write-once at first appearance.
+                # first_seen write-once at first appearance.
                 self._never_fires_state[eid] = {
                     "first_seen": now.isoformat(),
                     "last_on_seen": None,
@@ -2394,15 +2471,11 @@ class OptimizationCoordinator(BaseCoordinator):
                 }
                 self._never_fires_schedule_save()
                 continue
-            if eid in self._never_fires_fired:
-                continue
 
             first_seen_iso = rec.get("first_seen")
             last_on_iso = rec.get("last_on_seen")
-            last_fired_iso = rec.get("last_fired_at")
             candidates = [
-                x for x in (first_seen_iso, last_on_iso, last_fired_iso)
-                if x
+                x for x in (first_seen_iso, last_on_iso) if x
             ]
             if not candidates:
                 # Should not happen (first_seen is write-once), but
@@ -2435,20 +2508,17 @@ class OptimizationCoordinator(BaseCoordinator):
             if st is None or state_str in ("unavailable", "unknown"):
                 continue
 
-            # Availability-fraction gate (F1).
+            # Fraction gate (review A HIGH #2) — unavailable time SINCE
+            # the clock last reset, not cumulative lifetime. The ON
+            # listener resets `unavailable_s` to 0 when the clock
+            # resets, so this measures only the window ending now.
             unavail_s = int(rec.get("unavailable_s") or 0)
             if unavail_s > max_unavail_s:
                 continue
 
-            self._never_fires_fired.add(eid)
-            # Rev 3 F1 — re-anchor via a persisted `last_fired_at` so the
-            # next finding for this eid is deferred by another full
-            # horizon even if the RAM `_never_fires_fired` latch is empty
-            # post-restart (16-restarts-in-7d test). We DON'T overwrite
-            # `last_on_seen` because the operator-facing payload would
-            # become misleading — the sensor hasn't actually fired.
-            rec["last_fired_at"] = now.isoformat()
-            self._never_fires_schedule_save()
+            # Review A HIGH #1 — emit every cycle; `_filter_repeat_sensor_health`
+            # bounds DB persistence to ≤1 row/24h. No in-evaluator
+            # latch, no `last_fired_at`.
             dedup_key = ("sensor_never_fires", eid)
             findings.append(OptimizationFinding(
                 timestamp=now.isoformat(),

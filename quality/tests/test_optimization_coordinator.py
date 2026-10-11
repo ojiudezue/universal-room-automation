@@ -4420,12 +4420,13 @@ async def test_optimizer_light_dispatch_is_ura_stamped():
 
 
 # ======================================================================
-# OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 — sensor_never_fires evaluator
+# OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) —
+# sensor_never_fires evaluator
 #
-# D1 resolver + Store-backed D3 evaluator for raw motion/occupancy
-# sensors that have produced ZERO ON transitions over the horizon.
-# Reuses SENSOR_HEALTH plumbing (`_filter_repeat_sensor_health` + NM
-# allowlist) unchanged.
+# Reuses the SENSOR_HEALTH dimension + its 24h repeat filter + the
+# optimizer NM allowlist. Emits every cycle while the condition holds
+# so the daily digest built from `_last_findings` actually contains
+# the finding; DB rows capped by `_filter_repeat_sensor_health`.
 # ======================================================================
 
 import logging as _nf_logging
@@ -4446,9 +4447,11 @@ class _NFReg:
     def async_get(self, eid):
         return self._m.get(eid)
 
+    def set(self, eid, entry):
+        self._m[eid] = entry
+
 
 def _nf_hass(rooms_cfg=None):
-    """Build a MockHassForOpt with the given rooms_cfg list of options dicts."""
     rooms = []
     for i, opts in enumerate(rooms_cfg or []):
         rooms.append({
@@ -4461,15 +4464,19 @@ def _nf_hass(rooms_cfg=None):
     return hass
 
 
-def _nf_coord(hass, registry_map=None):
-    """Construct an OptimizationCoordinator with a patched entity_registry."""
+def _nf_coord(hass, monkeypatch, registry_map=None):
+    """Build an OptimizationCoordinator with a monkeypatched entity
+    registry. Review A MEDIUM #6 — all module overrides go through
+    monkeypatch.setattr so they are automatically restored between
+    tests (no cross-test leakage)."""
     from custom_components.universal_room_automation.domain_coordinators.optimization import (
         OptimizationCoordinator,
     )
     coord = OptimizationCoordinator(hass)
     import homeassistant.helpers.entity_registry as _er
     reg = _NFReg(registry_map or {})
-    _er.async_get = lambda _h: reg
+    monkeypatch.setattr(_er, "async_get", lambda _h: reg)
+    coord._nf_test_registry = reg  # expose for tests that mutate it
     return coord
 
 
@@ -4493,7 +4500,7 @@ def _nf_watched(coord, mapping):
 # ---------------- D1 resolver -----------------------------------------
 
 
-def test_watched_raw_sensors_filters_ura_platform_entity():
+def test_watched_raw_sensors_filters_ura_platform_entity(monkeypatch):
     """Rev 2 M1 — URA-aggregate sensors (platform == DOMAIN) are dropped."""
     from custom_components.universal_room_automation.const import (
         CONF_OCCUPANCY_SENSORS, CONF_MOTION_SENSORS, DOMAIN,
@@ -4505,7 +4512,7 @@ def test_watched_raw_sensors_filters_ura_platform_entity():
         ],
         CONF_MOTION_SENSORS: ["binary_sensor.real_motion"],
     }])
-    coord = _nf_coord(hass, registry_map={
+    coord = _nf_coord(hass, monkeypatch, registry_map={
         "binary_sensor.room_a_zone_anyone": _NFRegEntry(platform=DOMAIN),
         "binary_sensor.real_occupancy": _NFRegEntry(platform="zigbee2mqtt"),
         "binary_sensor.real_motion": _NFRegEntry(platform="zigbee2mqtt"),
@@ -4517,8 +4524,7 @@ def test_watched_raw_sensors_filters_ura_platform_entity():
     assert out["binary_sensor.real_occupancy"]["source"] == "room_input"
 
 
-def test_watched_raw_sensors_resolves_perimeter_cameras():
-    """Perimeter-camera person-detectors resolve with source=perimeter_camera."""
+def test_watched_raw_sensors_resolves_perimeter_cameras(monkeypatch):
     from custom_components.universal_room_automation.const import (
         CONF_PERIMETER_CAMERAS, ENTRY_TYPE_ROOM,
     )
@@ -4530,7 +4536,7 @@ def test_watched_raw_sensors_resolves_perimeter_cameras():
     )
     hass.config_entries._entries.append(pe)
     hass.states.set("binary_sensor.pool_equipment_person_occupancy_2", "off")
-    coord = _nf_coord(hass, registry_map={})
+    coord = _nf_coord(hass, monkeypatch, registry_map={})
     out = coord._watched_raw_sensors()
     assert "binary_sensor.pool_equipment_person_occupancy_2" in out
     assert out["binary_sensor.pool_equipment_person_occupancy_2"]["source"] == (
@@ -4538,7 +4544,7 @@ def test_watched_raw_sensors_resolves_perimeter_cameras():
     )
 
 
-def test_watched_raw_sensors_dedups_cross_room_entity(caplog):
+def test_watched_raw_sensors_dedups_cross_room_entity(monkeypatch, caplog):
     from custom_components.universal_room_automation.const import (
         CONF_MOTION_SENSORS,
     )
@@ -4546,7 +4552,7 @@ def test_watched_raw_sensors_dedups_cross_room_entity(caplog):
         {"room_name": "RoomA", CONF_MOTION_SENSORS: ["binary_sensor.shared"]},
         {"room_name": "RoomB", CONF_MOTION_SENSORS: ["binary_sensor.shared"]},
     ])
-    coord = _nf_coord(hass, registry_map={
+    coord = _nf_coord(hass, monkeypatch, registry_map={
         "binary_sensor.shared": _NFRegEntry(platform="zha"),
     })
     with caplog.at_level(_nf_logging.DEBUG, logger=(
@@ -4558,13 +4564,15 @@ def test_watched_raw_sensors_dedups_cross_room_entity(caplog):
     assert any("duplicate" in r.getMessage() for r in caplog.records)
 
 
-def test_watched_raw_sensors_includes_unregistered_with_debug_log(caplog):
-    """Rev 3 F6 — unregistered eids INCLUDE + DEBUG log (never WARN)."""
+def test_watched_raw_sensors_includes_unregistered_with_debug_log(
+    monkeypatch, caplog,
+):
+    """Rev 3 F6 — unregistered eids INCLUDE + DEBUG log."""
     from custom_components.universal_room_automation.const import (
         CONF_MOTION_SENSORS,
     )
     hass = _nf_hass([{CONF_MOTION_SENSORS: ["binary_sensor.external_motion"]}])
-    coord = _nf_coord(hass, registry_map={})
+    coord = _nf_coord(hass, monkeypatch, registry_map={})
     with caplog.at_level(_nf_logging.DEBUG, logger=(
         "custom_components.universal_room_automation."
         "domain_coordinators.optimization"
@@ -4575,19 +4583,17 @@ def test_watched_raw_sensors_includes_unregistered_with_debug_log(caplog):
         r for r in caplog.records
         if "no registry entry" in r.getMessage()
     ]
-    assert msgs, "expected a no-registry-entry log record"
-    assert all(r.levelno == _nf_logging.DEBUG for r in msgs), (
-        f"log level must be DEBUG, got {[r.levelname for r in msgs]}"
-    )
+    assert msgs
+    assert all(r.levelno == _nf_logging.DEBUG for r in msgs)
 
 
-# ---------------- Evaluator / Store / listener ------------------------
+# ---------------- Evaluator semantics ---------------------------------
 
 
-def test_never_fires_evaluator_returns_empty_until_loaded():
+def test_never_fires_evaluator_returns_empty_until_loaded(monkeypatch):
     """Rev 3 F5 — evaluator returns [] while `_never_fires_loaded is False`."""
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     assert coord._never_fires_loaded is False
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4603,14 +4609,14 @@ def test_never_fires_evaluator_returns_empty_until_loaded():
     assert len(out) == 1
 
 
-def test_never_fires_no_store_first_boot_does_not_fire():
+def test_never_fires_no_store_first_boot_does_not_fire(monkeypatch):
     """Rev 3 F2 — brand-new eid, empty Store, no fire on tick #1;
-    first_seen is persisted; after first_seen + horizon one finding fires."""
+    first_seen is persisted; after `first_seen + horizon` one fires."""
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4628,15 +4634,56 @@ def test_never_fires_no_store_first_boot_does_not_fire():
     assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
 
 
-def test_never_fires_fires_across_frequent_restarts():
-    """Rev 3 F1 — 16 restarts over 7d with a Store round-trip each
-    (via async_save/async_load round-trip through the payload provider),
-    eid available throughout, exactly ONE finding across the window."""
+def test_never_fires_emits_every_cycle_while_condition_holds(monkeypatch):
+    """Review A HIGH #1 — emit the finding EVERY cycle while silent so
+    `_last_findings` (built from the latest 5-min cycle) carries it into
+    the daily digest. The daily latch is DELETED; `_filter_repeat_sensor_health`
+    caps DB persistence to ≤1 row/24h.
+    """
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    _nf_watched(coord, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+    hass.states.set("binary_sensor.m1", "off")
+    horizon = opt_mod.SENSOR_NEVER_FIRES_HORIZON_S
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record(
+            (datetime.utcnow() - timedelta(seconds=horizon + 3600)).isoformat()
+        ),
+    }
+    # Tick 1, 2, 3 all emit while condition holds.
+    for _ in range(3):
+        assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
+    # `_filter_repeat_sensor_health` suppresses repeat persistence.
+    findings = coord._evaluate_sensor_never_fires_dimension()
+    assert len(coord._filter_repeat_sensor_health(findings)) == 1, (
+        "first finding persists"
+    )
+    # A second finding immediately after should be filtered.
+    findings2 = coord._evaluate_sensor_never_fires_dimension()
+    assert len(coord._filter_repeat_sensor_health(findings2)) == 0, (
+        "repeat within 24h suppressed by _filter_repeat_sensor_health"
+    )
+
+
+def test_never_fires_fires_across_frequent_restarts(monkeypatch):
+    """Rev 3 F1 restated per review A HIGH #1 — across 16 restarts over
+    7 days with the condition continuously holding, every cycle after
+    horizon reports the finding (not lost). `_filter_repeat_sensor_health`
+    bounds DB rows separately; this test asserts the evaluator contract.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4646,28 +4693,28 @@ def test_never_fires_fires_across_frequent_restarts():
     hass.states.set("binary_sensor.m1", "off")
     horizon = opt_mod.SENSOR_NEVER_FIRES_HORIZON_S
     first_seen = datetime.utcnow() - timedelta(seconds=horizon + 3600)
-    blob = {"binary_sensor.m1": _nf_record(first_seen.isoformat(), None, 0)}
-    fire_count = 0
+    blob = {"binary_sensor.m1": _nf_record(first_seen.isoformat())}
+    fires_per_restart = []
     for _ in range(16):
+        # Simulate load from Store blob (round-trip through the provider).
         coord._never_fires_state = {k: dict(v) for k, v in blob.items()}
         coord._never_fires_loaded = True
-        coord._never_fires_fired.clear()
-        coord._never_fires_fired_date = None
         out = coord._evaluate_sensor_never_fires_dimension()
-        fire_count += len(out)
+        fires_per_restart.append(len(out))
         blob = coord._never_fires_payload_provider()
-    assert fire_count == 1, (
-        f"expected exactly ONE finding across 16 restarts, got {fire_count}"
+    assert fires_per_restart == [1] * 16, (
+        f"finding must emit on every post-horizon cycle (even across "
+        f"restarts) so the daily digest can see it, got {fires_per_restart}"
     )
 
 
-def test_never_fires_blocked_by_unavailability_mostly_offline():
-    """H2 gate — entity unavailable for >20% of horizon must NOT fire."""
+def test_never_fires_blocked_by_unavailability_mostly_offline(monkeypatch):
+    """H2 fraction gate — eid unavailable for >20% of horizon must NOT fire."""
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4686,15 +4733,72 @@ def test_never_fires_blocked_by_unavailability_mostly_offline():
     coord._never_fires_state["binary_sensor.m1"]["unavailable_s"] = int(
         0.1 * horizon
     )
-    coord._never_fires_fired.clear()
     assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
 
 
-def test_never_fires_prunes_vanished_entities_on_load():
-    """Rev 3 F3 — eids absent from current D1 are pruned at load AND at
-    evaluator entry."""
+def test_never_fires_unavailable_s_resets_on_clock_reset(monkeypatch):
+    """Review A HIGH #2 — the fraction gate is unavailable time SINCE
+    the clock last reset, NOT cumulative lifetime. A 36h outage in week
+    1, followed by a recovery (off->on resets the clock) + fire, must
+    then let the next horizon's silence fire again — i.e. the counter
+    did not stay at 36h and bar firing forever.
+
+    Discriminator vs the pre-fix shape (cumulative unavailable_s): with
+    the old shape the 36h outage never clears, and after another 7d
+    silence the fraction gate still sees 36h >> 20%·7d = 33.6h and
+    blocks the fire. With the fix, the ON reset drops it to 0, the
+    fresh 7d window fires.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    _nf_watched(coord, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+    hass.states.set("binary_sensor.m1", "off")
+    horizon = opt_mod.SENSOR_NEVER_FIRES_HORIZON_S
+    # Week 1: eid came online 10 days ago, suffered a 36h outage,
+    # produced no ON transition — unavailable_s = 36h > 20%·7d, so
+    # the first fire is BLOCKED (sensor_health's problem).
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record(
+            (datetime.utcnow() - timedelta(days=10)).isoformat(),
+            None, 36 * 3600,
+        ),
+    }
+    assert coord._evaluate_sensor_never_fires_dimension() == []
+    # Now the sensor finally fires (off->on). The listener resets the
+    # clock: last_on_seen=now AND unavailable_s=0.
+    coord._never_fires_store = types.SimpleNamespace(
+        async_delay_save=lambda *a, **k: None,
+    )
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="on"),
+        "old_state": types.SimpleNamespace(state="off"),
+    }))
+    rec = coord._never_fires_state["binary_sensor.m1"]
+    assert rec["unavailable_s"] == 0, (
+        f"ON reset must zero unavailable_s, got {rec['unavailable_s']}"
+    )
+    assert rec["last_on_seen"] is not None
+    # Fast-forward: 7 days of silence after the reset, no outages this
+    # window. The horizon fires again.
+    rec["last_on_seen"] = (
+        datetime.utcnow() - timedelta(seconds=horizon + 60)
+    ).isoformat()
+    assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
+
+
+def test_never_fires_prunes_vanished_entities_on_load(monkeypatch):
+    """Rev 3 F3 — eids absent from D1 pruned at load AND at eval entry."""
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
     _nf_watched(coord, {
         "binary_sensor.kept": {
             "device_class": "motion", "source": "room_input", "room": "A",
@@ -4713,7 +4817,7 @@ def test_never_fires_prunes_vanished_entities_on_load():
             self.last = (provider(), debounce)
 
     import homeassistant.helpers.storage as _storage
-    _storage.Store = lambda *a, **k: _FakeStore()
+    monkeypatch.setattr(_storage, "Store", lambda *a, **k: _FakeStore())
 
     import asyncio as _aio
     loop = _aio.new_event_loop()
@@ -4721,10 +4825,7 @@ def test_never_fires_prunes_vanished_entities_on_load():
         loop.run_until_complete(coord._never_fires_async_load())
     finally:
         loop.close()
-    assert set(coord._never_fires_state.keys()) == {"binary_sensor.kept"}, (
-        f"vanished eids must be pruned at load, got "
-        f"{list(coord._never_fires_state)}"
-    )
+    assert set(coord._never_fires_state.keys()) == {"binary_sensor.kept"}
     coord._never_fires_state["binary_sensor.late_gone"] = _nf_record(
         "2026-10-01T00:00:00",
     )
@@ -4733,13 +4834,13 @@ def test_never_fires_prunes_vanished_entities_on_load():
     assert "binary_sensor.late_gone" not in coord._never_fires_state
 
 
-def test_never_fires_debounce_flush_shape():
+def test_never_fires_debounce_flush_shape(monkeypatch):
     """Rev 3 F4 — whole-blob async_delay_save at 120s; no sync async_save."""
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4776,19 +4877,19 @@ def test_never_fires_debounce_flush_shape():
         assert debounce == 120
 
 
-def test_never_fires_listener_unsub_on_unload():
+def test_never_fires_listener_unsub_on_unload(monkeypatch):
     """Rev 3 F7 — the state-change listener unsub lands on
     `_unsub_listeners` so BaseCoordinator teardown clears it."""
     from custom_components.universal_room_automation.const import (
         CONF_MOTION_SENSORS,
     )
-    hass = _nf_hass([{CONF_MOTION_SENSORS: ["binary_sensor.m1"]}])
-    coord = _nf_coord(hass, registry_map={
-        "binary_sensor.m1": _NFRegEntry(platform="zha"),
-    })
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
+    hass = _nf_hass([{CONF_MOTION_SENSORS: ["binary_sensor.m1"]}])
+    coord = _nf_coord(hass, monkeypatch, registry_map={
+        "binary_sensor.m1": _NFRegEntry(platform="zha"),
+    })
     created = []
 
     def _fake_track(_h, _e, _cb):
@@ -4796,11 +4897,13 @@ def test_never_fires_listener_unsub_on_unload():
         created.append(unsub)
         return unsub
 
-    def _fake_interval(_h, _cb, _iv):
-        return MagicMock()
-
-    opt_mod.async_track_state_change_event = _fake_track
-    opt_mod.async_track_time_interval = _fake_interval
+    monkeypatch.setattr(
+        opt_mod, "async_track_state_change_event", _fake_track,
+    )
+    monkeypatch.setattr(
+        opt_mod, "async_track_time_interval",
+        lambda _h, _cb, _iv: MagicMock(),
+    )
 
     import asyncio as _aio
     loop = _aio.new_event_loop()
@@ -4809,16 +4912,93 @@ def test_never_fires_listener_unsub_on_unload():
     finally:
         loop.close()
     assert created, "async_track_state_change_event should have been called"
-    assert created[-1] in coord._unsub_listeners, (
-        "never-fires listener unsub must land on _unsub_listeners"
+    assert created[-1] in coord._unsub_listeners
+
+
+def test_never_fires_resubscribes_when_watched_set_changes(monkeypatch):
+    """Review A HIGH #3 — on each evaluator tick, the subscription set
+    is reconciled with the current D1 universe. A sensor added AFTER
+    `async_setup` must be subscribed before it is evaluated; otherwise
+    the listener never records `last_on_seen` and the evaluator falsely
+    reports it as silent.
+
+    Discriminator: fire a REAL hass.bus event for the newly-added eid
+    (via hass.states.set + the resubscribe path) and confirm the
+    listener captured the ON transition into `_never_fires_state`.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+
+    # Spy on async_track_state_change_event to capture the callback +
+    # subscribed eids, and to let the test synthesize a real event.
+    subscriptions = []  # [(set_of_eids, callback, unsub_mock)]
+
+    def _fake_track(_h, eids, cb):
+        unsub = MagicMock(name=f"unsub_{len(subscriptions)}")
+        subscriptions.append((set(eids), cb, unsub))
+        return unsub
+
+    monkeypatch.setattr(
+        opt_mod, "async_track_state_change_event", _fake_track,
+    )
+
+    # Initial watched set is just m1.
+    watched_box = {
+        "set": {
+            "binary_sensor.m1": {
+                "device_class": "motion", "source": "room_input", "room": "A",
+            },
+        },
+    }
+    coord._watched_raw_sensors = lambda: watched_box["set"]
+    hass.states.set("binary_sensor.m1", "off")
+    hass.states.set("binary_sensor.m2", "off")
+
+    # First evaluator tick -> subscribes to {m1} only.
+    coord._evaluate_sensor_never_fires_dimension()
+    assert len(subscriptions) == 1
+    assert subscriptions[0][0] == {"binary_sensor.m1"}
+    first_unsub = subscriptions[0][2]
+    assert first_unsub in coord._unsub_listeners
+
+    # Options-flow adds m2 to the watched set (or a camera's
+    # binary_sensor state materialises after setup).
+    watched_box["set"]["binary_sensor.m2"] = {
+        "device_class": "motion", "source": "room_input", "room": "A",
+    }
+    # Second evaluator tick -> old sub torn down, new one covers both.
+    coord._evaluate_sensor_never_fires_dimension()
+    assert len(subscriptions) == 2
+    assert subscriptions[1][0] == {"binary_sensor.m1", "binary_sensor.m2"}
+    first_unsub.assert_called_once()  # old unsub was called
+    assert first_unsub not in coord._unsub_listeners, (
+        "stale unsub must be removed from _unsub_listeners (Bug Class #50)"
+    )
+    assert subscriptions[1][2] in coord._unsub_listeners
+
+    # Synthesize a REAL ON event for the newly-subscribed m2 by invoking
+    # the live callback that resubscribe just registered.
+    live_cb = subscriptions[1][1]
+    live_cb(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m2",
+        "new_state": types.SimpleNamespace(state="on"),
+        "old_state": types.SimpleNamespace(state="off"),
+    }))
+    rec = coord._never_fires_state.get("binary_sensor.m2")
+    assert rec is not None and rec["last_on_seen"] is not None, (
+        "late-added sensor's ON transition must land in the state blob"
     )
 
 
-def test_never_fires_resilence_within_24h_persists_a_row():
-    """Rev 2 M2 — ON discharge pops the latch AND the matching
-    _sensor_health_last_persisted key."""
+def test_never_fires_resilence_within_24h_persists_a_row(monkeypatch):
+    """Rev 2 M2 — ON (off->on) discharge pops the matching
+    _sensor_health_last_persisted key so a re-silence persists a row."""
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4828,7 +5008,6 @@ def test_never_fires_resilence_within_24h_persists_a_row():
     coord._never_fires_state = {
         "binary_sensor.m1": _nf_record("2026-01-01T00:00:00", None, 0),
     }
-    coord._never_fires_fired.add("binary_sensor.m1")
     key = (
         str(("sensor_never_fires", "binary_sensor.m1")),
         "never_fires",
@@ -4837,33 +5016,56 @@ def test_never_fires_resilence_within_24h_persists_a_row():
     coord._never_fires_store = types.SimpleNamespace(
         async_delay_save=lambda *a, **k: None,
     )
-    evt = types.SimpleNamespace(data={
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
         "entity_id": "binary_sensor.m1",
         "new_state": types.SimpleNamespace(state="on"),
         "old_state": types.SimpleNamespace(state="off"),
-    })
-    coord._on_never_fires_state_change(evt)
-    assert "binary_sensor.m1" not in coord._never_fires_fired
+    }))
     assert key not in coord._sensor_health_last_persisted
 
 
-def test_never_fires_daily_latch_dst_fall_back_does_not_double_fire():
-    """Rev 2 M4 — ONE finding per local day; repeated ticks across the
-    01:00-01:59 fall-back overlap do not re-fire (same local date iso)."""
+def test_never_fires_rejoin_from_unavailable_is_not_a_firing(monkeypatch):
+    """Review A SHOULD #8 — unavailable->on is a REJOIN, not a firing.
+    It must NOT reset the horizon clock or discharge the per-eid state.
+
+    Discriminator: with the correct implementation, after a rejoin,
+    `last_on_seen` is UNCHANGED (not set to now). The old-shape bug
+    (treating any transition to ON as firing) would set `last_on_seen`
+    to now and silently delay the never-fires alert by a full horizon.
+    """
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
             "device_class": "motion", "source": "room_input", "room": "A",
         },
     })
-    hass.states.set("binary_sensor.m1", "off")
-    old = (datetime.utcnow() - timedelta(days=14)).isoformat()
-    coord._never_fires_state = {"binary_sensor.m1": _nf_record(old)}
-    assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
-    for _ in range(11):
-        assert coord._evaluate_sensor_never_fires_dimension() == []
+    stable_last_on = "2026-01-01T00:00:00"
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record(
+            "2026-01-01T00:00:00", stable_last_on, 0,
+        ),
+    }
+    coord._never_fires_store = types.SimpleNamespace(
+        async_delay_save=lambda *a, **k: None,
+    )
+    # Simulate going unavailable then coming back (rejoin).
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="unavailable"),
+        "old_state": types.SimpleNamespace(state="off"),
+    }))
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="on"),
+        "old_state": types.SimpleNamespace(state="unavailable"),
+    }))
+    rec = coord._never_fires_state["binary_sensor.m1"]
+    assert rec["last_on_seen"] == stable_last_on, (
+        f"unavailable->on rejoin must NOT reset last_on_seen; "
+        f"got {rec['last_on_seen']}"
+    )
 
 
 def test_never_fires_zero_horizon_is_kill_switch(monkeypatch):
@@ -4872,7 +5074,7 @@ def test_never_fires_zero_horizon_is_kill_switch(monkeypatch):
         optimization as opt_mod,
     )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4886,9 +5088,77 @@ def test_never_fires_zero_horizon_is_kill_switch(monkeypatch):
     assert coord._evaluate_sensor_never_fires_dimension() == []
 
 
-def test_never_fires_unavailable_now_blocks_fire():
+def test_never_fires_per_entity_override_zero_disables_one_sensor(
+    monkeypatch,
+):
+    """Review A SHOULD #5 — SENSOR_NEVER_FIRES_OVERRIDES_S[eid] = 0 opts
+    one sensor out while leaving the default horizon in effect for the
+    rest. The guest-room-silent-for-weeks case."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    _nf_watched(coord, {
+        "binary_sensor.guest_room": {
+            "device_class": "motion", "source": "room_input", "room": "Guest",
+        },
+        "binary_sensor.hallway": {
+            "device_class": "motion", "source": "room_input", "room": "Hall",
+        },
+    })
+    hass.states.set("binary_sensor.guest_room", "off")
+    hass.states.set("binary_sensor.hallway", "off")
+    old = (datetime.utcnow() - timedelta(days=14)).isoformat()
+    coord._never_fires_state = {
+        "binary_sensor.guest_room": _nf_record(old),
+        "binary_sensor.hallway": _nf_record(old),
+    }
+    monkeypatch.setattr(opt_mod, "SENSOR_NEVER_FIRES_OVERRIDES_S", {
+        "binary_sensor.guest_room": 0,  # opt out
+    })
+    out = coord._evaluate_sensor_never_fires_dimension()
+    out_eids = {f.payload["entity_id"] for f in out}
+    assert out_eids == {"binary_sensor.hallway"}, (
+        f"guest-room override=0 must silence that eid only; got {out_eids}"
+    )
+
+
+def test_never_fires_per_entity_override_shorter_horizon_fires_sooner(
+    monkeypatch,
+):
+    """Review A SHOULD #5 — an operator can tighten horizon for a
+    specific sensor via `SENSOR_NEVER_FIRES_OVERRIDES_S[eid] = 3600`."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    _nf_watched(coord, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+    hass.states.set("binary_sensor.m1", "off")
+    # First_seen 2h ago — under default 7d, no fire; under 1h override,
+    # fires.
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record(
+            (datetime.utcnow() - timedelta(seconds=7200)).isoformat()
+        ),
+    }
+    assert coord._evaluate_sensor_never_fires_dimension() == []
+    monkeypatch.setattr(opt_mod, "SENSOR_NEVER_FIRES_OVERRIDES_S", {
+        "binary_sensor.m1": 3600,
+    })
+    assert len(coord._evaluate_sensor_never_fires_dimension()) == 1
+
+
+def test_never_fires_unavailable_now_blocks_fire(monkeypatch):
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4901,9 +5171,10 @@ def test_never_fires_unavailable_now_blocks_fire():
     assert coord._evaluate_sensor_never_fires_dimension() == []
 
 
-def test_never_fires_on_transition_updates_last_on_seen():
+def test_never_fires_on_transition_updates_last_on_seen(monkeypatch):
+    """A GENUINE off->on firing event resets the clock."""
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4916,20 +5187,20 @@ def test_never_fires_on_transition_updates_last_on_seen():
     coord._never_fires_store = types.SimpleNamespace(
         async_delay_save=lambda *a, **k: None,
     )
-    evt = types.SimpleNamespace(data={
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
         "entity_id": "binary_sensor.m1",
         "new_state": types.SimpleNamespace(state="on"),
         "old_state": types.SimpleNamespace(state="off"),
-    })
-    coord._on_never_fires_state_change(evt)
+    }))
     assert coord._never_fires_state["binary_sensor.m1"]["last_on_seen"] is not None
 
 
-def test_never_fires_unavailable_spell_accrues_into_unavailable_s():
-    """Listener-observed transition into/out of unavailable accrues
-    seconds into unavailable_s. HA-down time is uncharged (no stamp)."""
+def test_never_fires_unavailable_spell_accrues_into_unavailable_s(
+    monkeypatch,
+):
+    """Listener-observed into/out of unavailable accrues seconds."""
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
     _nf_prime(coord)
     _nf_watched(coord, {
         "binary_sensor.m1": {
@@ -4942,70 +5213,89 @@ def test_never_fires_unavailable_spell_accrues_into_unavailable_s():
     coord._never_fires_store = types.SimpleNamespace(
         async_delay_save=lambda *a, **k: None,
     )
-    evt_in = types.SimpleNamespace(data={
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
         "entity_id": "binary_sensor.m1",
         "new_state": types.SimpleNamespace(state="unavailable"),
         "old_state": types.SimpleNamespace(state="off"),
-    })
-    coord._on_never_fires_state_change(evt_in)
+    }))
     assert "binary_sensor.m1" in coord._never_fires_last_unavail_at
     assert coord._never_fires_state["binary_sensor.m1"]["unavailable_s"] == 0
-    # Use dt_util.utcnow so tz-awareness matches the production reader.
     from homeassistant.util import dt as _dt
     coord._never_fires_last_unavail_at["binary_sensor.m1"] = (
         _dt.utcnow() - timedelta(seconds=60)
     )
-    evt_out = types.SimpleNamespace(data={
+    coord._on_never_fires_state_change(types.SimpleNamespace(data={
         "entity_id": "binary_sensor.m1",
         "new_state": types.SimpleNamespace(state="off"),
         "old_state": types.SimpleNamespace(state="unavailable"),
-    })
-    coord._on_never_fires_state_change(evt_out)
+    }))
     assert "binary_sensor.m1" not in coord._never_fires_last_unavail_at
     accrued = coord._never_fires_state["binary_sensor.m1"]["unavailable_s"]
-    assert 55 <= accrued <= 65, f"expected ~60s accrued, got {accrued}"
+    assert 55 <= accrued <= 65
 
 
-def test_dimension_registration_includes_sensor_never_fires():
-    """Rev 3 D4 wire-in anchor: the evaluator must be in the cycle's
-    evaluator TUPLE at optimization.py (not merely defined on the class).
-    If this fails the dimension never runs.
+def test_dimension_registration_runs_evaluator_from_cycle(monkeypatch):
+    """Review A SHOULD #7 — behavioral anchor replacing the source-text
+    grep. Drive one cycle via `_run_cycle_body` and assert a
+    `sensor_never_fires` finding is in the output + lands in
+    `_last_findings`.
 
-    Mutation-anchored: we parse `_run_cycle_body` and assert the
-    ``("sensor_never_fires", ...)`` tuple is present in the evaluator
-    list literal. A commented-out registration (even with the method
-    still defined) fails this test.
+    If the evaluator were commented out of the cycle tuple, the output
+    would be empty and this test would fail.
     """
-    import inspect
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    _nf_watched(coord, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+    hass.states.set("binary_sensor.m1", "off")
+    old = (datetime.utcnow() - timedelta(days=14)).isoformat()
+    coord._never_fires_state = {"binary_sensor.m1": _nf_record(old)}
+    # Short-circuit heavy post-eval machinery that is not under test.
+    coord._update_scoreboard = lambda *_a, **_k: None
+    coord._run_llm_meta_pass = AsyncMock(return_value=[])
+    coord._persist_findings_batch = AsyncMock(return_value=None)
+    coord._dispatch_actions = AsyncMock(return_value=None)
+    coord._notify_if_severe = AsyncMock(return_value=None)
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        findings = loop.run_until_complete(coord._run_cycle_body())
+    finally:
+        loop.close()
+    nf = [
+        f for f in findings
+        if f.dimension == OptimizationDimension.SENSOR_HEALTH
+        and getattr(f, "dedup_key", (None,))[0] == "sensor_never_fires"
+    ]
+    assert nf, (
+        f"never-fires finding missing from cycle output — evaluator "
+        f"may not be registered in `_run_cycle_body` evaluator tuple. "
+        f"findings seen: {[(f.dimension, f.dedup_key) for f in findings]}"
+    )
+    # The cycle populates `_last_findings` from the output; verify the
+    # finding would reach the daily digest.
+    assert any(
+        getattr(f, "dedup_key", (None,))[0] == "sensor_never_fires"
+        for f in coord._last_findings
+    ), "never-fires finding did not land in `_last_findings` (digest input)"
+
+
+def test_async_setup_loads_store_before_cycle_timer(monkeypatch):
+    """Rev 3 F5 wire-in anchor — `_never_fires_async_load` MUST run
+    BEFORE `async_track_time_interval` so the evaluator sees persisted
+    state on tick #1."""
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
-    src = inspect.getsource(opt_mod._run_cycle_body if False else
-                             opt_mod.OptimizationCoordinator._run_cycle_body)
-    # The tuple must appear in a live tuple literal (no leading '#').
-    live_lines = [
-        ln for ln in src.splitlines()
-        if "sensor_never_fires" in ln and not ln.strip().startswith("#")
-    ]
-    assert live_lines, (
-        "sensor_never_fires evaluator is not registered in the cycle's "
-        "evaluator tuple (no live reference inside _run_cycle_body)"
-    )
-    assert any(
-        "self._evaluate_sensor_never_fires_dimension" in ln
-        for ln in live_lines
-    ), (
-        f"sensor_never_fires string present but no live binding to "
-        f"self._evaluate_sensor_never_fires_dimension: {live_lines}"
-    )
-
-
-def test_async_setup_loads_store_before_cycle_timer():
-    """Rev 3 F5 wire-in anchor: `_never_fires_async_load` MUST be awaited
-    BEFORE `async_track_time_interval(...)` so the evaluator sees
-    persisted state on tick #1. Call-order anchored on per-site spies."""
     hass = _nf_hass([])
-    coord = _nf_coord(hass)
+    coord = _nf_coord(hass, monkeypatch)
 
     order = []
     orig_load = coord._never_fires_async_load
@@ -5016,19 +5306,14 @@ def test_async_setup_loads_store_before_cycle_timer():
 
     coord._never_fires_async_load = _spy_load
 
-    from custom_components.universal_room_automation.domain_coordinators import (
-        optimization as opt_mod,
+    monkeypatch.setattr(
+        opt_mod, "async_track_time_interval",
+        lambda _h, _cb, _iv: (order.append("timer") or MagicMock()),
     )
-
-    def _fake_interval(_h, _cb, _iv):
-        order.append("timer")
-        return MagicMock()
-
-    def _fake_track(_h, _e, _cb):
-        return MagicMock()
-
-    opt_mod.async_track_time_interval = _fake_interval
-    opt_mod.async_track_state_change_event = _fake_track
+    monkeypatch.setattr(
+        opt_mod, "async_track_state_change_event",
+        lambda _h, _e, _cb: MagicMock(),
+    )
 
     import asyncio as _aio
     loop = _aio.new_event_loop()
@@ -5037,6 +5322,4 @@ def test_async_setup_loads_store_before_cycle_timer():
     finally:
         loop.close()
     assert "load" in order and "timer" in order, order
-    assert order.index("load") < order.index("timer"), (
-        f"Store load must precede cycle timer start, got {order}"
-    )
+    assert order.index("load") < order.index("timer"), order

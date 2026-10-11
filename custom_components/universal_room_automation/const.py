@@ -4181,6 +4181,18 @@ SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION: Final = 0.8
 # A crash within the window loses at most one state-transition record.
 SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S: Final = 120
 
+# Per-entity never-fires horizon overrides. Mirrors
+# `CAMERA_STUCK_ON_OVERRIDES_S` (above). An override is a reviewed,
+# named exemption for a sensor whose rhythm is legitimately slower than
+# the fleet default (e.g. a guest-room motion detector that may sit
+# idle for weeks between stays). The map keys are entity_ids; values
+# are horizon seconds. **0 means NEVER alert for that sensor** (opt
+# out). The default `SENSOR_NEVER_FIRES_HORIZON_S` applies to any eid
+# not listed here. Not operator-tunable: use `SENSOR_NEVER_FIRES_HORIZON_S = 0`
+# to kill the whole evaluator; use this map to silence specific
+# sensors.
+SENSOR_NEVER_FIRES_OVERRIDES_S: Final[dict[str, int]] = {}
+
 # ================================================================
 # FRIGATE-FLEET-DARK TRIPWIRE (PLANNING_frigate_down_tripwire.md Rev 2).
 #
