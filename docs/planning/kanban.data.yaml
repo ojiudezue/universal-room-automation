@@ -3483,6 +3483,7 @@ cards:
   - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
   - docs/planning/AUDIT_exterior_camera_detection_settings.md
 - id: OC-STUCK-SENSOR-GENERALIZE-1
+  unblocked_2026_10_11_overnight: "Gate re-run: (1) validity - blocker STUCK-SENSOR-WARNING-PER-TICK-1 merged (43559effa) and shipped v5.103.49; grep NEVER_FIRES in custom_components = 0 hits, so the never-fires detector is still unbuilt. (1b) config-first - no existing knob detects a sensor that never fires (plan Rev 2/3 measured this). (2) prior-art - plan REUSEs the OC SENSOR_HEALTH dimension + _filter_repeat_sensor_health. (3) parsimony SIMPLIFY (Rev 2 dropped stuck-ON). (4) cost/benefit - Tier 2, additive OC finding, own Store, no actuation. BUILD to review, no deploy (overnight). Builder dispatched in a worktree."
   rev3_2026_10_10_overnight: "Re-verify of Rev 2 returned FIX-PLAN: with the Store chosen, the 'available >= 80% of 7 days' counter still lived in memory and reset at each of ~16 restarts/week, so the alert could never fire (F1); the clock floor also reset per boot (F2); plus prune (F3), whole-blob save debounce 120 s instead of per-entity hourly (F4), load before the OC cycle timer (F5), log level (F6), listener teardown (F7). Rev 3 applies all seven: Store holds first_seen / last_on_seen / unavailable_s per sensor; named tests include 16 restarts over 7 days -> exactly one finding, and first boot -> no finding. Plan rounds: 1 review + 1 re-verify; one final short re-verify happens at build time."
   rev2_2026_10_10_overnight: "Rev 2 written (plan doc, Revision 2 section): stuck-ON evaluator DROPPED (room check stays the single detector; no OC mirror); never-fires kept for raw motion/occupancy only, tracked from live state changes (no recorder reads), gated on the sensor being available >= 0.8 of the window, URA aggregates excluded via the entity registry, own discharge on the next ON. Knobs (module constants): SENSOR_NEVER_FIRES_HORIZON_S 7 d (0 = off), SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION 0.8, SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S 1 h. DECIDED (not an operator call - measured): persist last-ON in a small Store, because HA restarted 16 times in the last ~7 days (recorder homeassistant_start events), so a memory-only 7-day clock would never elapse. Follows the room check's own persistence precedent (coordinator.py ~2235-2279). Build waits for fix/stuck-sensor-warn-once to merge (same code area)."
   plan_review_2026_10_10_overnight: "FIX-PLAN-REQUIRED (docs/reviews/code-review/plan_review_oc_stuck_sensor_generalize.md). CRITICAL C1: the stuck-ON half duplicates what already exists - the room-level stuck check (coordinator.py:3065-3135) already tracks every room motion/mmwave/occupancy sensor, flags continuous-ON at 4 h, notifies once a day, persists across restarts and treats unavailable as a break; cameras are covered twice more (OC camera_stuck optimization.py:1921, census stuck list camera_census.py:2945). Building it would report one stuck sensor 2-3 times. HIGH H1: the never-fires recorder read is blocking and unbounded on the first tick after restart (OC never touches the recorder today); H2: never-fires must exclude sensors that are simply unavailable. MEDIUM M1 aggregate filter checks the wrong thing (use the entity registry platform), M2 re-stick within 24 h writes no DB row, M4 invariant wording. All 5 PICKs: A is safe, none needs you. Tier 2 confirmed."
@@ -3492,9 +3493,9 @@ cards:
   thread: optimization
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: "planned"
+  status: "in_progress"
   created: '2026-09-14 02:20'
-  updated: "2026-10-10 04:35"
+  updated: "2026-10-11 02:20"
   refinement_status: "refined"
   problem_solution:
   - 'Problem: sensors get stuck — reporting the same value for hours or days — and URA has no

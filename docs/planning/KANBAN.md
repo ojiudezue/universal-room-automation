@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-10T22:14:28-05:00_ - _Data commit: `ec23e3fcf306`_ - _last_reconciled: 2026-10-10_
+_Generated: 2026-10-11T02:03:59-05:00_ - _Data commit: `2edf346e1490`_ - _last_reconciled: 2026-10-10_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-10-10T22:14:28-05:00_ - _Data commit: `ec23e3fcf306`_ - _last_r
 | 📥 Inbox | 3 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 7 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 34 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -191,7 +191,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#1 · WSJF 3.4 · v8 tc5 u4 /e5_
@@ -248,26 +248,7 @@ _created 2026-10-10 22:00_
   - `tier`: 1
   - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
 
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#5 · WSJF 1.8 · v8 tc4 u2 /e8_
-thread: **optimization** - status: **planned** - approval: **explicit**
-_created 2026-09-14 02:20 · updated 2026-10-10 04:35 · refined_
-- **Problem / Solution:**
-  - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
-- **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
-- **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
-- **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (8):**
-  - `rev3_2026_10_10_overnight`: Re-verify of Rev 2 returned FIX-PLAN: with the Store chosen, the 'available >= 80% of 7 days' counter still lived in memory and reset at each of ~16 restarts/week, so the alert could never fire (F1); the clock floor also reset per boot (...
-  - `rev2_2026_10_10_overnight`: Rev 2 written (plan doc, Revision 2 section): stuck-ON evaluator DROPPED (room check stays the single detector; no OC mirror); never-fires kept for raw motion/occupancy only, tracked from live state changes (no recorder reads), gated on ...
-  - `plan_review_2026_10_10_overnight`: FIX-PLAN-REQUIRED (docs/reviews/code-review/plan_review_oc_stuck_sensor_generalize.md). CRITICAL C1: the stuck-ON half duplicates what already exists - the room-level stuck check (coordinator.py:3065-3135) already tracks every room motio...
-  - `verified_2026_10_10_overnight`: CARD-WAS-WRONG (next said 'write the plan'): the plan already exists and is committed - docs/planning/PLANNING_oc_stuck_sensor_generalize.md (463 lines, commit 1148d4f15). ura-planner re-read it tonight against live source: consistent wi...
-  - `measured_2026_10_09_overnight`: STEP (2) DONE: per-device-class duration distributions measured over 7 days of recorder data, in docs/planning/AUDIT_stuck_sensor_duration_distributions.md (script scripts/probes/stuck_sensor_duration_probe.py). Key numbers: motion p90 l...
-  - `THE_STRUCTURAL_GAP`: MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS...
-  - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
-  - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
-
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#5 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -286,7 +267,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -303,7 +284,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -318,10 +299,28 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#1 · WSJF 1.8 · v8 tc4 u2 /e8_
+thread: **optimization** - status: **in_progress** - approval: **explicit**
+_created 2026-09-14 02:20 · updated 2026-10-11 02:20 · refined_
+- **Problem / Solution:**
+  - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
+- **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
+- **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
+- **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
+- **Forensic keys (9):**
+  - `unblocked_2026_10_11_overnight`: Gate re-run: (1) validity - blocker STUCK-SENSOR-WARNING-PER-TICK-1 merged (43559effa) and shipped v5.103.49; grep NEVER_FIRES in custom_components = 0 hits, so the never-fires detector is still unbuilt. (1b) config-first - no existing k...
+  - `rev3_2026_10_10_overnight`: Re-verify of Rev 2 returned FIX-PLAN: with the Store chosen, the 'available >= 80% of 7 days' counter still lived in memory and reset at each of ~16 restarts/week, so the alert could never fire (F1); the clock floor also reset per boot (...
+  - `rev2_2026_10_10_overnight`: Rev 2 written (plan doc, Revision 2 section): stuck-ON evaluator DROPPED (room check stays the single detector; no OC mirror); never-fires kept for raw motion/occupancy only, tracked from live state changes (no recorder reads), gated on ...
+  - `plan_review_2026_10_10_overnight`: FIX-PLAN-REQUIRED (docs/reviews/code-review/plan_review_oc_stuck_sensor_generalize.md). CRITICAL C1: the stuck-ON half duplicates what already exists - the room-level stuck check (coordinator.py:3065-3135) already tracks every room motio...
+  - `verified_2026_10_10_overnight`: CARD-WAS-WRONG (next said 'write the plan'): the plan already exists and is committed - docs/planning/PLANNING_oc_stuck_sensor_generalize.md (463 lines, commit 1148d4f15). ura-planner re-read it tonight against live source: consistent wi...
+  - `measured_2026_10_09_overnight`: STEP (2) DONE: per-device-class duration distributions measured over 7 days of recorder data, in docs/planning/AUDIT_stuck_sensor_duration_distributions.md (script scripts/probes/stuck_sensor_duration_probe.py). Key numbers: motion p90 l...
+  - `THE_STRUCTURAL_GAP`: MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS...
+  - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
+  - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
 ## 🔍 Review (0)
 _under review_
