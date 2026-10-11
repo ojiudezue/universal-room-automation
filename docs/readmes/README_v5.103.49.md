@@ -29,3 +29,10 @@ Four branches built and reviewed earlier, merged together and shipped as one rel
 - The shutdown of this restart ran the **old** v5.103.48 code, so its one `coordinator_diagnostics … Error saving baselines: DB write failed: shutdown timeout` (19:47:00 UTC) says nothing about the fix. **The shutdown criteria are judged at the NEXT restart.**
 - No `timed out waiting` lines in the shutdown window.
 - Remaining checks (stuck-sensor once/day, no ev_toggle_tripwire rows on a normal day) are one-shot reads tomorrow.
+
+## Validated 2026-10-11 (restart 23:09:57 → 23:11:33 UTC, shutdown ran v5.103.49+ code)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Shutdown without census/nudge "timed out waiting" or "DB write failed: shutdown timeout" | PASS | core log, 1 h window: 0 `shutdown timeout`; 0 log_census / _evaluate_nudge_outcome timeouts. One generic HA `Timed out waiting for close event to be processed` (18:10:59 CDT) — not attributed to URA. |
+| HA back faster than the ~12 min 10-05 restart | PASS | 96 s end to end |
+| Stuck-sensor once/day, EV tripwire quiet | pending one-shot read 2026-10-12 | – |
