@@ -20303,7 +20303,8 @@ cards:
     never arms = never worked. Operator instinct CONFIRMED. Card closed -> fix is FAN-RECHECK-D2-DEADLOCK-1.'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
-  status: done
+  status: shipped_organic
+  shipped_version: v5.103.51
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: D2 sustain demotion coordinator.py:470-492 + 3411; commits 76a2ae50e/eac707767 (Tier-3). Card premise (''cannot cover SUSTAIN'') predates D2.'
   thread: presence
   created: 2026-08-19 04:10

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "200",
+  "author": "ojiudezue",
+  "session_id": "claude_20261011_230927_ship_v5_103_51",
+  "timestamp": "2026-10-11T23:09:27Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.51 shipped: Running-fan false presence fixes",
+  "summary": "Running-fan false presence fixes",
+  "why": "Measured Study A ~26 h/week false occupancy with fan on; the four existing mechanisms failed for structural reasons (recheck undid 27/28 of its own correct releases by restoring the fan; D2 discarded every ZV by entity name; the start gate fired on dead fan flaps and is shorter than radar latch). Fixes reuse the existing capability layer, restore path, reconciler flap counter and knob ladder instead of new mechanisms.",
+  "implications": "Shipped FAN-SUSTAINED-SHAKE-DEMOTE-1 at v5.103.51; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.51.md (Live criteria).",
+  "revisit_trigger": "If Study A empty+fan-on minutes do not fall in the 2026-10-18 re-measure, or VACATED-while-BLE-present verdicts rise, or a still person is vacated in a fan room.",
+  "refs": {
+    "cards": [
+      "FAN-SUSTAINED-SHAKE-DEMOTE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.51.md"
+    ],
+    "release_notes": "Recheck leaves the fan off after an empty verdict (HVAC bookkeeping cleared); sensors classified by capability not name so D2 runs with ZV motion sensors; dead/flapping fan entities no longer fake fan state; recheck timing per sensor family + 15 min cooldown; 5 s fan-start gate retired."
+  }
+}
