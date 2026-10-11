@@ -33,3 +33,10 @@ Hold time while present: ZV drops to off in 30–70 s (p50) — **confirms motio
 
 ## Do-not-use list (operator rulings)
 - `binary_sensor.invisoutlet_b7d0_motion` and the Study A InvisOutlet occupancy entity — unreliable; never configure as a URA witness (2026-10-11).
+
+## Meross MS600 (dual-homed) — settled 2026-10-11 (operator)
+Three MS600 mmWave presence radars (Guest Bedroom 1, Guest Bedroom 2, Media) are paired twice on purpose: the native `meross_lan` integration reports presence as a non-standard numeric value (`…_presence`, ≥1 = person) — so the operator also paired them over **Matter** to get a standard binary occupancy. Filing (correct, leave as is):
+- Matter `binary_sensor.mmwave_motion_lux_matter_wifi_<room>_occupancy` → `presence_sensors` (Guest Bedroom 2: `occupancy_sensors`) — the still-person holder.
+- `meross_lan` `binary_sensor.…_sensor_presence_motion` (the radar's motion bit) → `motion_sensors` — fine for lights, but radar-derived: **not a fan-immune witness**; v5.103.51's model safety net (`ms600`, first-token match) excludes it.
+- Native `…_presence_distance` exists → candidate for the deferred fan-distance-band option.
+- Do NOT "move the MS600s to presence" (retracted 2026-10-11 — the Matter half already is). No more MS600 purchases planned (native protocol's non-binary interface).
