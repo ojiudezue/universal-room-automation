@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:15:25-05:00_ - _Data commit: `047829a831c4`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:22:25-05:00_ - _Data commit: `a22b281784a2`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -298,7 +298,8 @@ _created 2026-10-11 04:00 · updated 2026-10-11 04:10 · initial_
 - **Next:** Build to review (Tier 1, one review, no deploy overnight): return None when the manager is missing in every house-state sensor with the fallback; test that the sensor reads unknown with no manager and the machine value with one.
 - **Tags:** tier-1, no-fabrication-verify
 - **Parsimony:** [BUILD] House-state sensors write a false away into history at restart.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `review_2026_10_11_overnight`: Built fix/house-state-sensor-unknown-at-boot 8d0030aaf (pushed): 3 sensors (HouseState, PresenceHouseState, IntegrationHouseState) return None pre-boot; swept 124 manager-None guards in sensor.py, no other state-name fallback. 3 tests; d...
   - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy.
   - `tier`: 1
   - `sweep_2026_10_11`: Board grep for house_state display / returns away / boot away display: only CENSUS-SHUTDOWN-AWAY-FENCE-1 (adjacent, different problem: real machine AWAY). NEW.
@@ -308,7 +309,8 @@ thread: **lighting** - status: **in_progress**
 _created 2026-10-10 22:00 · updated 2026-10-11 04:10_
 - **Why:** automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns ...
 - **Next:** Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `review_2026_10_11_overnight`: Built fix/nightlight-red-reconcile-parity ce0a96d27 (pushed): resolver owns the red decision via supported_color_modes; automation.py import hoisted, duplicate branch removed, per-entity resolver calls batched; reconciler passes live mod...
   - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob cov...
   - `tier`: 1
   - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
@@ -322,7 +324,8 @@ _created 2026-09-14 02:20 · updated 2026-10-11 02:20 · refined_
 - **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `review_2026_10_11_overnight`: Review A (correctness+tests) FIX-REQUIRED: HIGH-1 the finding is emitted once then latched 7 d, but HIGH findings only reach the operator via the daily digest built from the latest 5-min cycle (optimization.py ~5418, notification_manager...
   - `built_2026_10_11_overnight`: Built on feature/oc-never-fires b5cf84465 (pushed; base = develop minus 8 docs-only commits, 0 code drift). const.py +3 knobs, optimization.py +491 (never-fires evaluator + Store + listener, loaded before the cycle timer), 19 new tests (...
   - `unblocked_2026_10_11_overnight`: Gate re-run: (1) validity - blocker STUCK-SENSOR-WARNING-PER-TICK-1 merged (43559effa) and shipped v5.103.49; grep NEVER_FIRES in custom_components = 0 hits, so the never-fires detector is still unbuilt. (1b) config-first - no existing k...
   - `rev3_2026_10_10_overnight`: Re-verify of Rev 2 returned FIX-PLAN: with the Store chosen, the 'available >= 80% of 7 days' counter still lived in memory and reset at each of ~16 restarts/week, so the alert could never fire (F1); the clock floor also reset per boot (...
