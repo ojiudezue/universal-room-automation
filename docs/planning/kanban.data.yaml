@@ -7526,9 +7526,9 @@ cards:
     — not a geometry ceiling, a live fault. This card now inherits both the geometry re-key + asymmetric-signed-lag
     window PLUS the pre-existing face-rec-recovery watch.'
   links:
-    blocks: [SECURITY-ENTRY-VERDICT-NAME-1]
     mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — SECURITY-ENTRY-VERDICT-NAME-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side and ranking could pick the blocked card up.'
     blocks:
+    - SECURITY-ENTRY-VERDICT-NAME-1
     - PERIMETER-ALERT-NAME-PERSON-1
     - GUEST-GATE-DOOR-IDENTITY-1
     - ARRIVAL-DEPARTURE-NOTIFY-1
@@ -30900,17 +30900,21 @@ cards:
   evidence: "Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF ignored) and Master Toilet (AI OFF ignored); override_occupied/vacant doubled in many rooms."
   next: "Code fix: resolve the room's switches through the entity registry by unique_id (entry_id + key), never by built name; fail CLOSED or log loudly when missing. Tests with double-prefixed ids. Tier 2 (changes gating for every room). Then remove the Wigton renames' dependency."
 - id: WIGTON-HA-UNRESPONSIVE-1
+  groomed_2026_10_11_overnight: "Lane fix inbox -> waiting_operator: the card already says it waits on operator-supplied logs, with a zero-traffic-to-Wigton rule (I sent none tonight). Also fixed a duplicate next: key (YAML kept only the older, superseded one, so the board showed the wrong next); the old text is kept as superseded_next_2026_10_10."
   homelab_findings_2026_10_10: "RESOLVED for the Madrone->Wigton path: Wigton UDM Pro IPS (Notify and Block) logged 17 THREAT_BLOCKED_V3 events in 7 days, all with Madrone sources (13 from 192.168.13.149), matching every observed window to the minute (13:37, 14:08, 14:23, 14:34, 15:17, 15:32, 15:46, 16:01, 16:16 UTC). Operator added IPS detection exclusions for Madrone subnets + Site Magic address; post-change 60/60 HTTP OK, 0 IPS events. The suspected options-flow->stall link and URA involvement are RETRACTED (my traffic bursts tripped IPS). STILL OPEN: Omonele local stalls (no IPS events with a Wigton-local source) - capture exact times; on-box watcher /tmp/hawatch.log + Profiler asyncio debug are armed. Lesson: keep one persistent SSH session (add-on rate-limits rapid connects)."
   facts_2026_10_10: "Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~14:10 and the stall still happened (but a cleanup agent was reading room options flows ~14:1x-14:39). Logs pulled 14:46 do NOT cover the stall: core log ends 14:07 UTC (normally ~2 lines/30 s -> silence from 14:07 is a lead), supervisor log ends 14:14 UTC with no restart lines. Two premature conclusions retracted (core restart loop; network path)."
-  next: "WAITING on logs spanning a stall: operator downloads Core/Supervisor/Host logs (incl. previous boot) from Wigton UI, or installs Terminal & SSH add-on for direct access. Zero traffic to Wigton until then. Then: line up timestamps, identify vector (hang/oom/crash/integration)."
+  next: "DO: download Wigton Core + Supervisor + Host logs (including the previous boot) from the Wigton HA UI for a window that spans a stall, or install the Terminal & SSH add-on there. -> I line up timestamps and name the stall vector (hang / OOM / crash / integration), and only then touch the URA re-enable runbook. Zero traffic to Wigton from me until then."
   title: Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed)
   thread: wigton
-  status: inbox
+  status: waiting_operator
   created: "2026-10-10 13:55"
-  updated: "2026-10-10 13:55"
+  updated: "2026-10-11 02:50"
   origin: "2026-10-10 Wigton: API unreachable ~4 min (00:00) and ~2 min (13:40) during room options-flow 'devices' reads; operator also saw setup flakiness 2026-10-09."
   why: "Possible event-loop stall in the devices step (area entity discovery) on a large area registry, or unrelated host load. Logs show CFLOW-TIMING lines for options init (fast); no devices-step timing captured."
-  next: "Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling."
+  superseded_next_2026_10_10: "Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling."
+  links:
+    blocks: [WIGTON-URA-REENABLE-1]
+    context: "The re-enable runbook gate G1 (stall vector) needs this card's logs."
 - id: CENSUS-NAME-SPACE-DEDUP-1
   reconcile_2026_10_10_overnight: "Lane OK (shipped_organic, v5.103.47). The old next (builder instructions) was stale - the build shipped. v5.103.47 is installed on HA (manifest v5.103.47) but not loaded: no HA restart since 10-09 11:27."
   title: Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue")
