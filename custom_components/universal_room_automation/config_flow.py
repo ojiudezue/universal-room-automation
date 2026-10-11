@@ -12503,7 +12503,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         _caps_default = self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {}
 
         # senscap UX v2 (2026-08-10 operator Q2): one SelectSelector per
-        # currently-configured sensor entity, options = TIER1_CAPABILITIES
+        # currently-configured sensor entity, options = plain-language primary kinds + any kind already in use by an override
         # with friendly labels, default = the entity's current effective
         # kind (via `derive_capability`). Selections write into
         # CONF_SENSOR_CAPABILITIES; the JSON textarea remains the escape
