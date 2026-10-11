@@ -30843,7 +30843,27 @@ cards:
   why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
   next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
   related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
+- id: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1
+  title: Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room
+  thread: lighting
+  status: waiting_operator
+  created: "2026-10-11 05:10"
+  updated: "2026-10-11 05:10"
+  refinement_status: initial
+  approval: blocked
+  tags: [tier-1, institutional-context]
+  rank: {value: 3, time_criticality: 2, effort: 2}
+  problem_solution:
+  - 'Problem: when the house switches to Sleep, night lights that are already lit keep their evening warm-white colour; they only turn red the next time someone enters the room. Solution (if wanted): at the moment the house enters Sleep, re-send the sleep settings (red, sleep brightness) to night lights that are on in occupied rooms.'
+  origin: {date: '2026-10-11', gist: 'Review B of fix/nightlight-red-reconcile-parity (overnight): onset gap noted - coordinator.py:879 reacts to house-state changes only for Away.'}
+  why: 'Behaviour change the operator has not asked for: a visible colour change on lights that are already on at the sleep moment. Small to build, but it is a preference call.'
+  next: 'PICK: (A) yes, re-colour lit night lights to the sleep red at house Sleep onset; (B) no, leave lit lights alone until the next room entry (today''s behaviour). -> On A I build it to review (Tier 1, one writer through the shared resolver); on B I close this card.'
+  links:
+    related: [NIGHTLIGHT-RED-RECONCILE-PARITY-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
+    context: 'Same red-at-sleep rule as NIGHTLIGHT-RED-RECONCILE-PARITY-1, different trigger (sleep onset, not entry or reconnect); deliberately left out of that branch.'
+  sweep_2026_10_11: 'Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.'
 - id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
+  review_b_2026_10_11_overnight: "Review B FIX-REQUIRED: B1-1 HIGH (pre-existing, same problem) automation.py ~1553/~1566 night lights turned on with evening/day mode when main lights also qualify - the house-Sleep switch exists only in the night-light-only branch, and room sleep protection is off by default -> evening kelvin at house Sleep; B1-2 MEDIUM reconciler house-Sleep result lacks has_params_to_apply so a bulb returning on at factory warm white is skipped; B1-3 LOW switch.py RoomLightsSwitch builds night-light params by hand. All three sent to the builder (in scope - same red-at-sleep rule). Onset gap (already-lit lights at house Sleep onset) carded separately for the operator: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1."
   review_2026_10_11_overnight: "Built fix/nightlight-red-reconcile-parity ce0a96d27 (pushed): resolver owns the red decision via supported_color_modes; automation.py import hoisted, duplicate branch removed, per-entity resolver calls batched; reconciler passes live modes. 9 new tests, 202 pass across 12 lighting files; call-neuter drill on both writers red. Review A dispatched (scrutinising the automation.py batching restructure for byte-identical non-red behaviour)."
   gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob covers the reconciler path. (2) REUSE the shared resolver. (3) BUILD. (4) Tier 1, lighting only. Built to review overnight, no deploy."
   title: A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue)
@@ -31109,6 +31129,7 @@ cards:
     context: 'CENSUS-INPUTS-FIRST-1 (done) fixed the inputs; the CSV card fixes the answer key the replay is scored against. EGRESS-INTERIOR-COUNT-REINFORCE-1 is folded into the estimator plan per its header. CENSUS-ACCURACY-1 is the older interior decay card (adjacent).'
   sweep_2026_10_11: 'Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.'
 - id: HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1
+  review_b_2026_10_11_overnight: "Review B SHIP (A also SHIP). Fix-up a15f1a1f1 extended the fix to SafetyStatusSensor (was normal) + SecurityArmedStateSensor (was disarmed); no HA automation/script reads those two. Residual: the gap between manager publish (__init__.py:4310) and restore (manager.py:478) is one Store.async_load (ms) - accepted, documented. HA automations wallpanel_fleet_wake / force_off_secure traced: outcomes same or better with unknown."
   review_2026_10_11_overnight: "Built fix/house-state-sensor-unknown-at-boot 8d0030aaf (pushed): 3 sensors (HouseState, PresenceHouseState, IntegrationHouseState) return None pre-boot; swept 124 manager-None guards in sensor.py, no other state-name fallback. 3 tests; drill red. Orchestrator consumer check: no URA code reads these entity states (grep states.get); readers are dashboards + PWA tabs (House/Home/Security/Presence, useCoordinatorSummary) - review A checks they render unknown sanely."
   gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy."
   title: The house-state sensors show "away" for a moment at every HA restart, even with everyone home

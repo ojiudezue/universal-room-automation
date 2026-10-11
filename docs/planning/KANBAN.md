@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:22:25-05:00_ - _Data commit: `a22b281784a2`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:27:02-05:00_ - _Data commit: `b585836e427d`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -15,7 +15,7 @@ _Generated: 2026-10-11T02:22:25-05:00_ - _Data commit: `a22b281784a2`_ - _last_r
 | 📝 Planned | 6 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 36 |
+| ⏸️ Waiting on operator | 37 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 14 |
 | 🅿️ Parked | 83 |
@@ -298,7 +298,8 @@ _created 2026-10-11 04:00 · updated 2026-10-11 04:10 · initial_
 - **Next:** Build to review (Tier 1, one review, no deploy overnight): return None when the manager is missing in every house-state sensor with the fallback; test that the sensor reads unknown with no manager and the machine value with one.
 - **Tags:** tier-1, no-fabrication-verify
 - **Parsimony:** [BUILD] House-state sensors write a false away into history at restart.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `review_b_2026_10_11_overnight`: Review B SHIP (A also SHIP). Fix-up a15f1a1f1 extended the fix to SafetyStatusSensor (was normal) + SecurityArmedStateSensor (was disarmed); no HA automation/script reads those two. Residual: the gap between manager publish (__init__.py:...
   - `review_2026_10_11_overnight`: Built fix/house-state-sensor-unknown-at-boot 8d0030aaf (pushed): 3 sensors (HouseState, PresenceHouseState, IntegrationHouseState) return None pre-boot; swept 124 manager-None guards in sensor.py, no other state-name fallback. 3 tests; d...
   - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy.
   - `tier`: 1
@@ -309,7 +310,8 @@ thread: **lighting** - status: **in_progress**
 _created 2026-10-10 22:00 · updated 2026-10-11 04:10_
 - **Why:** automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns ...
 - **Next:** Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `review_b_2026_10_11_overnight`: Review B FIX-REQUIRED: B1-1 HIGH (pre-existing, same problem) automation.py ~1553/~1566 night lights turned on with evening/day mode when main lights also qualify - the house-Sleep switch exists only in the night-light-only branch, and r...
   - `review_2026_10_11_overnight`: Built fix/nightlight-red-reconcile-parity ce0a96d27 (pushed): resolver owns the red decision via supported_color_modes; automation.py import hoisted, duplicate branch removed, per-entity resolver calls batched; reconciler passes live mod...
   - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob cov...
   - `tier`: 1
@@ -342,7 +344,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (36)
+## ⏸️ Waiting on operator (37)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -753,7 +755,19 @@ _updated 2026-10-01 04:45 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#25 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1` - Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room — _#25 · WSJF 3.5 · v3 tc2 u2 /e2_
+thread: **lighting** - status: **waiting_operator** - approval: **blocked**
+_created 2026-10-11 05:10 · initial_
+- **Problem / Solution:**
+  - Problem: when the house switches to Sleep, night lights that are already lit keep their evening warm-white colour; they only turn red the next time someone enters the room. Solution (if wanted): at the moment the house enters Sleep, re-s...
+- **Origin:** 2026-10-11 - Review B of fix/nightlight-red-reconcile-parity (overnight): onset gap noted - coordinator.py:879 reacts to house-state changes only for Away.
+- **Why:** Behaviour change the operator has not asked for: a visible colour change on lights that are already on at the sleep moment. Small to build, but it is a preference call.
+- **Next:** PICK: (A) yes, re-colour lit night lights to the sleep red at house Sleep onset; (B) no, leave lit lights alone until the next room entry (today's behaviour). -> On A I build it to review (Tier 1, one writer through the shared resolver);...
+- **Tags:** tier-1, institutional-context
+- **Forensic keys (1):**
+  - `sweep_2026_10_11`: Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.
+
+### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#26 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-26 11:00 · updated 2026-10-09 02:27 · refined ×1_
 - **Problem / Solution:**
@@ -771,7 +785,7 @@ _created 2026-08-26 11:00 · updated 2026-10-09 02:27 · refined ×1_
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
   - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#26 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#27 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Problem / Solution:**
@@ -786,7 +800,7 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `WIGTON-HA-UNRESPONSIVE-1` - Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed) — _#27 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `WIGTON-HA-UNRESPONSIVE-1` - Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed) — _#28 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **wigton** - status: **waiting_operator**
 _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
 - **Why:** Possible event-loop stall in the devices step (area entity discovery) on a large area registry, or unrelated host load. Logs show CFLOW-TIMING lines for options init (fast); no devices-step timing captured.
@@ -797,7 +811,7 @@ _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
   - `facts_2026_10_10`: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...
   - `superseded_next_2026_10_10`: Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling.
 
-### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#28 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#29 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
 - **Problem / Solution:**
@@ -813,7 +827,7 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
   - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 
-### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **waiting_operator**
 _created 2026-10-10 21:30_
 - **Why:** URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic.
@@ -821,7 +835,7 @@ _created 2026-10-10 21:30_
 - **Forensic keys (1):**
   - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#30 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#31 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -837,7 +851,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#31 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#32 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
@@ -852,7 +866,7 @@ _created 2026-09-27 02:40 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#32 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#33 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -872,7 +886,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#33 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#34 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
 - **Problem / Solution:**
@@ -891,7 +905,7 @@ _created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
   - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#34 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#35 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -901,7 +915,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#35 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#36 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -916,7 +930,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#36 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#37 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
