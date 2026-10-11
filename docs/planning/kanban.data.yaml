@@ -30863,6 +30863,26 @@ cards:
     related: [NIGHTLIGHT-RED-RECONCILE-PARITY-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
     context: 'Same red-at-sleep rule as NIGHTLIGHT-RED-RECONCILE-PARITY-1, different trigger (sleep onset, not entry or reconnect); deliberately left out of that branch.'
   sweep_2026_10_11: 'Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.'
+- id: BOND-BRIDGE-UNRESPONSIVE-1
+  title: Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s
+  thread: devices
+  status: waiting_operator
+  created: "2026-10-11 20:40"
+  updated: "2026-10-11 20:40"
+  origin: "Fan-noise measurement 2026-10-11: six bond-platform fan entities ~2,050 state changes/day, ~50% unavailable; operator: 'All Bond fans'."
+  why: "HA log: 'Updating <bond entity> took longer than the scheduled update interval 10' for all bond entities. Probe from HA host: /v2/sys/version timed out (8 s) on 3/5 tries, 2.9 s / 0.7 s otherwise; ping 0% loss but 20-660 ms RTT (LAN should be ~1-5 ms). The same bridge's HomeKit-controller entities (fan.game_room_ceiling_fan_2, fan.master_ceiling_fan_2) are stable. Patio 6-button automation targets cover.patio_1-5 (bond) - commands may fail while the bridge is unresponsive."
+  next: "DO (operator/homelab): check Bond bridge Wi-Fi signal/AP + reboot bridge; consider wired/closer AP. Then decide URA fan config: use the stable HomeKit _2 entities (game room, master) or the bond entities once healthy. Re-run the fan flap census after."
+  related: [FAN-NOISE C3, MASTER-TOILET-SONOFF-DROPOUTS-1]
+- id: WIFI-SWITCH-DROPOUTS-BATHROOMS-1
+  title: Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath)
+  thread: devices
+  status: waiting_operator
+  created: "2026-10-11 20:40"
+  updated: "2026-10-11 20:40"
+  origin: "Fan flap census 2026-10-11 (switch_as_x fan wrappers over Shelly/Sonoff switches: 38-594 changes/day, ~50% unavailable)."
+  why: "Underlying Wi-Fi/Matter switches dropping off network (same family as Master Toilet Sonoff 92 dropouts overnight). Multiple brands at once points to Wi-Fi coverage/AP rather than device faults."
+  next: "DO (homelab): per-device RSSI + AP association history for these switches; check AP coverage in the bathroom wing."
+  related: [MASTER-TOILET-SONOFF-DROPOUTS-1, BOND-BRIDGE-UNRESPONSIVE-1]
 - id: URA-SENSOR-TUNING-1
   title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
   thread: presence
