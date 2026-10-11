@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:15:13-05:00_ - _Data commit: `423eae6c136f`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:15:25-05:00_ - _Data commit: `047829a831c4`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -322,7 +322,8 @@ _created 2026-09-14 02:20 · updated 2026-10-11 02:20 · refined_
 - **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `built_2026_10_11_overnight`: Built on feature/oc-never-fires b5cf84465 (pushed; base = develop minus 8 docs-only commits, 0 code drift). const.py +3 knobs, optimization.py +491 (never-fires evaluator + Store + listener, loaded before the cycle timer), 19 new tests (...
   - `unblocked_2026_10_11_overnight`: Gate re-run: (1) validity - blocker STUCK-SENSOR-WARNING-PER-TICK-1 merged (43559effa) and shipped v5.103.49; grep NEVER_FIRES in custom_components = 0 hits, so the never-fires detector is still unbuilt. (1b) config-first - no existing k...
   - `rev3_2026_10_10_overnight`: Re-verify of Rev 2 returned FIX-PLAN: with the Store chosen, the 'available >= 80% of 7 days' counter still lived in memory and reset at each of ~16 restarts/week, so the alert could never fire (F1); the clock floor also reset per boot (...
   - `rev2_2026_10_10_overnight`: Rev 2 written (plan doc, Revision 2 section): stuck-ON evaluator DROPPED (room check stays the single detector; no OC mirror); never-fires kept for raw motion/occupancy only, tracked from live state changes (no recorder reads), gated on ...
