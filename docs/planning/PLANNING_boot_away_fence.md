@@ -1,5 +1,7 @@
 # PLANNING: Boot AWAY Fence (CENSUS-SHUTDOWN-AWAY-FENCE-1)
 
+> **SUPERSEDED 2026-10-11 (overnight) pending a next-boot measurement.** Plan review returned PLAN-FIX-REQUIRED (docs/reviews/code-review/plan_review_boot_away_fence.md). The orchestrator confirmed CRITICAL-2: the URA DB house_state_log has no away row in 7 of the 8 "dirty" boots; those recorder rows came from the sensor fallback (sensor.py:5509-5510), not the state machine. Only the 10-03 stick is a real AWAY. Do not build from this doc. See card CENSUS-SHUTDOWN-AWAY-FENCE-1.
+
 **Thread:** presence
 **Card:** `CENSUS-SHUTDOWN-AWAY-FENCE-1`
 **Tier (proposed):** Tier 2-DB elevated — see §Tier Classification.
