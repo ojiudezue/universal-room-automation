@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:27:02-05:00_ - _Data commit: `b585836e427d`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:38:31-05:00_ - _Data commit: `3b095f86f5ee`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -326,7 +326,8 @@ _created 2026-09-14 02:20 · updated 2026-10-11 02:20 · refined_
 - **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `review_b_2026_10_11_overnight`: Fix-up 508d3c5bc applied all Review A items (orchestrator re-drill: neutering the unavailable_s reset turns test_never_fires_unavailable_s_resets_on_clock_reset red, restored). Review B (lifecycle/restart/Store) FIX-REQUIRED: B1 HIGH cam...
   - `review_2026_10_11_overnight`: Review A (correctness+tests) FIX-REQUIRED: HIGH-1 the finding is emitted once then latched 7 d, but HIGH findings only reach the operator via the daily digest built from the latest 5-min cycle (optimization.py ~5418, notification_manager...
   - `built_2026_10_11_overnight`: Built on feature/oc-never-fires b5cf84465 (pushed; base = develop minus 8 docs-only commits, 0 code drift). const.py +3 knobs, optimization.py +491 (never-fires evaluator + Store + listener, loaded before the cycle timer), 19 new tests (...
   - `unblocked_2026_10_11_overnight`: Gate re-run: (1) validity - blocker STUCK-SENSOR-WARNING-PER-TICK-1 merged (43559effa) and shipped v5.103.49; grep NEVER_FIRES in custom_components = 0 hits, so the never-fires detector is still unbuilt. (1b) config-first - no existing k...
