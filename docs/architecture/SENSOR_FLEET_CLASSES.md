@@ -28,3 +28,6 @@ Also in the fleet: 5 Hobeian "Motion sensor" (PIR) and 3 water-leak sensors.
 
 Hold time while present: ZV drops to off in 30–70 s (p50) — **confirms motion-class (cannot hold a still person)**.
 **Working rule until a fan-cycling trial (Living Room, Guest Bedroom 1) or longer retention says otherwise:** a ZV may serve as a fan-immune witness *during steady fan running*, but not within ~5 min after a fan switches on.
+
+## Do-not-use list (operator rulings)
+- `binary_sensor.invisoutlet_b7d0_motion` and the Study A InvisOutlet occupancy entity — unreliable; never configure as a URA witness (2026-10-11).
