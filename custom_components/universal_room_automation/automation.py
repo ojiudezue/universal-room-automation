@@ -171,10 +171,11 @@ from .const import (
     CONF_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
-    CONF_NIGHT_LIGHT_SLEEP_HUE,
+    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: the red-hue decision lives in
+    # ``lighting.resolver.night_light_turn_on_params`` now; this module
+    # only consumes the composed params dict and no longer references
+    # ``NIGHT_LIGHT_SLEEP_HUE`` / ``NIGHT_LIGHT_SLEEP_RED_RGB`` directly.
     DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
-    NIGHT_LIGHT_SLEEP_HUE_RED,
-    NIGHT_LIGHT_SLEEP_RED_RGB,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     # State
