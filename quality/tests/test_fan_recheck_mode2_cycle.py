@@ -145,6 +145,15 @@ def _load_fan_recheck_module():
     sys.modules[f"{pkg_name}.domain_coordinators.hvac_const"] = hc_mod
     hc_spec.loader.exec_module(hc_mod)
 
+    # Load REAL sensor_capability.py (pure; fan-noise Rev 2 C4 family map).
+    sc_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "sensor_capability.py"
+    sc_spec = importlib.util.spec_from_file_location(
+        f"{pkg_name}.domain_coordinators.sensor_capability", str(sc_src),
+    )
+    sc_mod = importlib.util.module_from_spec(sc_spec)
+    sys.modules[f"{pkg_name}.domain_coordinators.sensor_capability"] = sc_mod
+    sc_spec.loader.exec_module(sc_mod)
+
     # Load REAL presence_fan_recheck.py.
     src_path = ROOT_DIR / ROOT_REL / "domain_coordinators" / "presence_fan_recheck.py"
     spec = importlib.util.spec_from_file_location(

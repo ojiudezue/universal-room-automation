@@ -36,6 +36,11 @@ from custom_components.universal_room_automation.const import (
 )
 
 
+# Fan-noise Rev 2 C5 (2026-10-11): the production window is RETIRED to 0.0
+# (kill switch; code kept). The gate-logic tests below keep exercising the
+# gate block at its historical 5 s window via this test-local literal.
+_GATE_TEST_WINDOW_S = 5.0
+
 _HERE = Path(__file__).resolve()
 _REPO_ROOT = _HERE.parent.parent.parent
 _COORD_SRC = (
@@ -118,7 +123,7 @@ def _run_gate(
         "DOMAIN": DOMAIN,
         "FAN_TRANSITION_SUSPECT_WINDOW_S": (
             window_override if window_override is not None
-            else FAN_TRANSITION_SUSPECT_WINDOW_S
+            else _GATE_TEST_WINDOW_S
         ),
         "_LOGGER": logging.getLogger("fan_transition_gate_test"),
     }
@@ -132,10 +137,28 @@ def _run_gate(
 
 
 def test_fan_transition_window_constant_present():
-    # Default > 0 — feature live at boot.
-    assert float(FAN_TRANSITION_SUSPECT_WINDOW_S) > 0
-    # Sanity: default is the ~5s AUDIT §d window.
-    assert 1.0 <= float(FAN_TRANSITION_SUSPECT_WINDOW_S) <= 30.0
+    # Fan-noise Rev 2 C5: retired via its kill switch.
+    assert float(FAN_TRANSITION_SUSPECT_WINDOW_S) == 0.0
+
+
+def test_transition_gate_disabled_when_window_zero():
+    """C5 AC: with the PRODUCTION window, a mmwave-sole rising edge 2 s
+    after a fan transition is NOT suppressed and the counter stays frozen.
+    Drives the gate block with the real module constant."""
+    hass = make_hass()
+    fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
+    coord = _FakeSelf(hass, last_occupied_state=False)
+    _seed_presence(hass, last_transition=fan_t)
+    ns = _run_gate(
+        coord, fan_t + timedelta(seconds=2), "Study A",
+        any_sensor_active=True,
+        motion_detected=False,
+        presence_detected=True,
+        occupancy_detected=False,
+        window_override=FAN_TRANSITION_SUSPECT_WINDOW_S,
+    )
+    assert ns["any_sensor_active"] is True
+    assert coord._fan_transition_suppressed_count == 0
 
 
 # --------------------------------------------------------------------------
@@ -520,7 +543,7 @@ def test_boundary_inclusive_at_window_edge():
     room = "Study A"
     fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
     # Exactly at the window boundary.
-    now = fan_t + timedelta(seconds=float(FAN_TRANSITION_SUSPECT_WINDOW_S))
+    now = fan_t + timedelta(seconds=_GATE_TEST_WINDOW_S)
     coord = _FakeSelf(hass, last_occupied_state=False)
     _seed_presence(hass, last_transition=fan_t)
 
@@ -663,7 +686,7 @@ def test_c4_boundary_just_past_window_admits():
     room = "Study A"
     fan_t = datetime(2026, 7, 31, 20, 41, 16, tzinfo=timezone.utc)
     now = fan_t + timedelta(
-        seconds=float(FAN_TRANSITION_SUSPECT_WINDOW_S) + 0.1,
+        seconds=_GATE_TEST_WINDOW_S + 0.1,
     )
     coord = _FakeSelf(hass, last_occupied_state=False)
     _seed_presence(hass, last_transition=fan_t)

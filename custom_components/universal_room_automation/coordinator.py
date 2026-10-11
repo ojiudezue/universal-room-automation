@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.50
+# Universal Room Automation vv5.103.51
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -2157,10 +2157,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return True
 
     def _d2_motion_sensors_present(self) -> bool:
-        """D-HIGH-1: True if the room has ≥1 real PIR motion sensor
-        configured (after filtering out entries that match
-        ``MMWAVE_NAME_PATTERN`` — operator-misfiled mmWave hybrids
-        under CONF_MOTION_SENSORS).
+        """D-HIGH-1: True if the room has ≥1 fan-immune motion witness
+        configured (capability-classified via ``is_fan_immune_witness``;
+        a radar mis-filed under CONF_MOTION_SENSORS is dropped by its
+        device model — C2 Rev 2).
 
         Fail-closed: an empty filtered list means the staleness leg is
         UNSATISFIABLE (mmwave itself would have to prove its own
@@ -2168,11 +2168,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         boot at DEBUG.
         """
         try:
-            from .fan_veto import MMWAVE_NAME_PATTERN  # noqa: PLC0415
+            from .fan_veto import is_fan_immune_motion_witness  # noqa: PLC0415
             motion = self._get_config(CONF_MOTION_SENSORS, []) or []
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            # C2 Rev 2: capability + device-model radar safety net, never
+            # the entity name (ZG-204ZV units are named `..._presence`).
             filtered = [
                 s for s in motion
-                if isinstance(s, str) and not MMWAVE_NAME_PATTERN.search(s)
+                if is_fan_immune_motion_witness(self.hass, room_config, s)
             ]
             if not filtered:
                 if not self._d2_no_pir_logged:

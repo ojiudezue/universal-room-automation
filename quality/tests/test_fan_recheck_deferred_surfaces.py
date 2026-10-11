@@ -131,6 +131,15 @@ def _load_fan_recheck_manager_module():
         mod = importlib.util.module_from_spec(spec)
         sys.modules[f"{coord_pkg_name}.house_state"] = mod
         spec.loader.exec_module(mod)
+    for _extra in ("hvac_const", "sensor_capability"):
+        if f"{coord_pkg_name}.{_extra}" not in sys.modules:
+            src = ROOT_DIR / ROOT_REL / "domain_coordinators" / f"{_extra}.py"
+            spec = importlib.util.spec_from_file_location(
+                f"{coord_pkg_name}.{_extra}", str(src),
+            )
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[f"{coord_pkg_name}.{_extra}"] = mod
+            spec.loader.exec_module(mod)
     if f"{coord_pkg_name}.presence_fan_recheck" not in sys.modules:
         src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "presence_fan_recheck.py"
         spec = importlib.util.spec_from_file_location(
@@ -166,7 +175,7 @@ def test_const_round_trip_for_mode2_keys():
     assert c.DEFAULT_FAN_RECHECK_ARM_DELAY_S == 60
     assert c.DEFAULT_FAN_RECHECK_SPINDOWN_S == 30
     assert c.DEFAULT_FAN_RECHECK_WINDOW_S == 60
-    assert c.DEFAULT_FAN_RECHECK_COOLDOWN_S == 1800
+    assert c.DEFAULT_FAN_RECHECK_COOLDOWN_S == 900  # fan-noise Rev 2 C4
     assert c.DEFAULT_FAN_RECHECK_MAX_PER_HOUR == 2
     assert c.DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S == 600
     assert c.DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS == 3
