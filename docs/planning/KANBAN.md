@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:12:26-05:00_ - _Data commit: `b1a5f4bfdc41`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:15:13-05:00_ - _Data commit: `423eae6c136f`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-10-11T02:12:26-05:00_ - _Data commit: `b1a5f4bfdc41`_ - _last_r
 | 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 8 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 6 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 36 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -186,24 +186,10 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (8)
+## 📝 Planned (6)
 _has plan / acceptance_
 
-### `HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1` - The house-state sensors show "away" for a moment at every HA restart, even with everyone home — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **presence** - status: **planned** - approval: **implied**
-_created 2026-10-11 04:00 · initial_
-- **Problem / Solution:**
-  - Problem: while HA is starting, URA's house-state sensors report "away" before URA has loaded, because their code falls back to "away" when the coordinator is not ready yet. Dashboards and history then show a false "away" at nearly every ...
-- **Origin:** 2026-10-11 - Plan review CRITICAL-2 on PLANNING_boot_away_fence.md; orchestrator confirmed house_state_log has no away row in 7 recorder boot-window away episodes.
-- **Why:** sensor.py:5509-5510 (PresenceHouseStateSensor) and sensor.py:5416-5417 (HouseStateSensor) return "away" when hass.data[DOMAIN]["coordinator_manager"] is None. Consumers: dashboards only (lovelace ura_* views) - no HA automation reads it;...
-- **Next:** Build to review (Tier 1, one review, no deploy overnight): return None when the manager is missing in every house-state sensor with the fallback; test that the sensor reads unknown with no manager and the machine value with one.
-- **Tags:** tier-1, no-fabrication-verify
-- **Parsimony:** [BUILD] House-state sensors write a false away into history at restart.
-- **Forensic keys (2):**
-  - `tier`: 1
-  - `sweep_2026_10_11`: Board grep for house_state display / returns away / boot away display: only CENSUS-SHUTDOWN-AWAY-FENCE-1 (adjacent, different problem: real machine AWAY). NEW.
-
-### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#2 · WSJF 3.4 · v8 tc5 u4 /e5_
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#1 · WSJF 3.4 · v8 tc5 u4 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
 _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
 - **Problem / Solution:**
@@ -222,7 +208,7 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `REFUTED_2026_09_21`: THE CARD'S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python 3.13 such that 10,560 of 10,588 tests ERROR out, and tha...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#3 · WSJF 2.2 · v8 tc4 u6 /e8_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#2 · WSJF 2.2 · v8 tc4 u6 /e8_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
 - **Problem / Solution:**
@@ -239,7 +225,7 @@ _created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
   - `verify_2026_09_19`: VERIFY-BEFORE-WORK datapoint (read-only, no work started): default-order collection re-run tonight at 02:06 CDT on develop = 10,745 tests collected, ZERO errors. That is consistent with every prior read — the DEFAULT order has been clean...
 
-### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **wigton** - status: **planned**
 _created 2026-10-10 16:00_
 - **Why:** URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls).
@@ -248,16 +234,7 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `NIGHTLIGHT-RED-RECONCILE-PARITY-1` - A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **lighting** - status: **planned**
-_created 2026-10-10 22:00_
-- **Why:** automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns ...
-- **Next:** Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at...
-- **Forensic keys (2):**
-  - `tier`: 1
-  - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
-
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#4 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -276,7 +253,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#5 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -293,7 +270,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#6 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -308,10 +285,35 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (3)
 _being built_
 
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#1 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1` - The house-state sensors show "away" for a moment at every HA restart, even with everyone home — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **presence** - status: **in_progress** - approval: **implied**
+_created 2026-10-11 04:00 · updated 2026-10-11 04:10 · initial_
+- **Problem / Solution:**
+  - Problem: while HA is starting, URA's house-state sensors report "away" before URA has loaded, because their code falls back to "away" when the coordinator is not ready yet. Dashboards and history then show a false "away" at nearly every ...
+- **Origin:** 2026-10-11 - Plan review CRITICAL-2 on PLANNING_boot_away_fence.md; orchestrator confirmed house_state_log has no away row in 7 recorder boot-window away episodes.
+- **Why:** sensor.py:5509-5510 (PresenceHouseStateSensor) and sensor.py:5416-5417 (HouseStateSensor) return "away" when hass.data[DOMAIN]["coordinator_manager"] is None. Consumers: dashboards only (lovelace ura_* views) - no HA automation reads it;...
+- **Next:** Build to review (Tier 1, one review, no deploy overnight): return None when the manager is missing in every house-state sensor with the fallback; test that the sensor reads unknown with no manager and the machine value with one.
+- **Tags:** tier-1, no-fabrication-verify
+- **Parsimony:** [BUILD] House-state sensors write a false away into history at restart.
+- **Forensic keys (3):**
+  - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy.
+  - `tier`: 1
+  - `sweep_2026_10_11`: Board grep for house_state display / returns away / boot away display: only CENSUS-SHUTDOWN-AWAY-FENCE-1 (adjacent, different problem: real machine AWAY). NEW.
+
+### `NIGHTLIGHT-RED-RECONCILE-PARITY-1` - A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **lighting** - status: **in_progress**
+_created 2026-10-10 22:00 · updated 2026-10-11 04:10_
+- **Why:** automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns ...
+- **Next:** Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at...
+- **Forensic keys (3):**
+  - `gate_2026_10_11_overnight`: Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob cov...
+  - `tier`: 1
+  - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
+
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#3 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **in_progress** - approval: **explicit**
 _created 2026-09-14 02:20 · updated 2026-10-11 02:20 · refined_
 - **Problem / Solution:**

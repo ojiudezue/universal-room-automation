@@ -30842,12 +30842,13 @@ cards:
   next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
   related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
 - id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
+  gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob covers the reconciler path. (2) REUSE the shared resolver. (3) BUILD. (4) Tier 1, lighting only. Built to review overnight, no deploy."
   title: A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue)
   thread: lighting
-  status: planned
+  status: in_progress
   tier: 1
   created: "2026-10-10 22:00"
-  updated: "2026-10-10 22:00"
+  updated: "2026-10-11 04:10"
   origin: "Master Toilet night-light check 2026-10-10; operator: 'Sleep is red'."
   why: "automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns color_temp_kelvin (2000 K) -> a colour light reconnecting while occupied at sleep is restored warm white. Two writers, one value (Bug Class #53). The Master Toilet RGBW dropped once at 03:44 UTC 10-10 but the room was vacant, so not hit live yet."
   next: "Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at sleep for an hs/xy light. Also hoist the function-local import at automation.py:1822 (Bug Class #34)."
@@ -31105,12 +31106,13 @@ cards:
     context: 'CENSUS-INPUTS-FIRST-1 (done) fixed the inputs; the CSV card fixes the answer key the replay is scored against. EGRESS-INTERIOR-COUNT-REINFORCE-1 is folded into the estimator plan per its header. CENSUS-ACCURACY-1 is the older interior decay card (adjacent).'
   sweep_2026_10_11: 'Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.'
 - id: HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1
+  gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy."
   title: The house-state sensors show "away" for a moment at every HA restart, even with everyone home
   thread: presence
-  status: planned
+  status: in_progress
   tier: 1
   created: "2026-10-11 04:00"
-  updated: "2026-10-11 04:00"
+  updated: "2026-10-11 04:10"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify]
