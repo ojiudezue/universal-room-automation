@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:08:02-05:00_ - _Data commit: `90f56b6fa58c`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:08:48-05:00_ - _Data commit: `78d96e10dbe5`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -17,9 +17,9 @@ _Generated: 2026-10-11T02:08:02-05:00_ - _Data commit: `90f56b6fa58c`_ - _last_r
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 36 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 15 |
+| 🚀 Shipped (organic open) | 14 |
 | 🅿️ Parked | 83 |
-| ✅ Done | 297 |
+| ✅ Done | 298 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -949,7 +949,7 @@ _created 2026-08-17 23:58 · updated 2026-10-09 02:12 · refined_
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
   - `verify_2026_09_29_overnight`: PREMISE PARTLY CHANGED. Recorder person_occupancy_2 ON rows/day: back_yard 88 (09-27) -> 7 (09-28); pool_equipment 13 -> 8 -> 3 (09-29 so far, to 02:00). The cause is unknown: your DO, or just a quiet day. Not closing on one day.
 
-## 🚀 Shipped (organic open) (15)
+## 🚀 Shipped (organic open) (14)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _#1 · WSJF 10.0 · v3 tc3 u4 /e1_
@@ -1069,16 +1069,7 @@ _created 2026-09-15 · updated 2026-10-09 02:12 · refined_
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.
   - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
 
-### `ROOM-SWITCH-LOOKUP-BY-NAME-1` - Room control switches (Automation, AI, Manual, Cover, Override, Auto-recovery) are found by a built name and fail open when HA names the entity differently — _#8 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **rooms** - status: **shipped_organic**
-_created 2026-10-10 13:55_
-- **Why:** coordinator._get_room_switch_state (coordinator.py:2966) builds switch.{room_name slug}_{suffix}; HA created entities as switch.{slug}_{slug}_{suffix} (device name + entity name), so the lookup returns None and _is_automation_enabled def...
-- **Next:** Code fix: resolve the room's switches through the entity registry by unique_id (entry_id + key), never by built name; fail CLOSED or log loudly when missing. Tests with double-prefixed ids. Tier 2 (changes gating for every room). Then re...
-- **Forensic keys (2):**
-  - `tier`: 2
-  - `evidence`: Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF...
-
-### `ROOM-CREATE-AREA-PREFILL-DETRITUS-1` - Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists — _#9 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `ROOM-CREATE-AREA-PREFILL-DETRITUS-1` - Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists — _#8 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **rooms** - status: **shipped_organic**
 _created 2026-10-10 14:30_
 - **Why:** config_flow area prefill (config_flow.py ~258 CONF_AUTO_SWITCHES: prefill['switches']; ~2707 default=area_switches) takes every switch in the area. Device configuration/diagnostic switches (entity_category config/diagnostic: anti_interfe...
@@ -1087,7 +1078,7 @@ _created 2026-10-10 14:30_
   - `wigton_cleanup_2026_10_10`: G3 done at Wigton via each room options -> Lighting behaviour -> auto_manual_devices section (collapsed; NOT the Devices page - an agent read only Devices and falsely passed G3). Removed from auto_switches in 17 rooms: every mmWave *_ant...
   - `tier`: 2
 
-### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#10 · WSJF 2.4 · v5 tc3 u4 /e5_
+### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#9 · WSJF 2.4 · v5 tc3 u4 /e5_
 thread: **platform** - status: **shipped_organic**
 _created 2026-10-05 · updated 2026-10-11 02:45 · refined_
 - **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
@@ -1100,7 +1091,7 @@ _created 2026-10-05 · updated 2026-10-11 02:45 · refined_
   - `tags_note_2026_10_06`: Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews).
   - `gate_2026_10_06_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in ...
 
-### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#11 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#10 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Why:** Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...
@@ -1108,7 +1099,7 @@ _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog ...
 
-### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#12 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#11 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
@@ -1116,7 +1107,7 @@ _created 2026-09-29 22:30 · updated 2026-10-09 02:12_
 - **Forensic keys (1):**
   - `reverified_2026_10_09_overnight`: House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: "Zone/House Simple/Advanced: pending operator UI"). The "Me: plan house then coordinators" next is half stale: the house pass is shipped, and the per-coor...
 
-### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-03 16:00 · updated 2026-10-11 02:45_
 - **Why:** SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the sa...
@@ -1129,7 +1120,7 @@ _created 2026-10-03 16:00 · updated 2026-10-11 02:45_
   - `built_2026_10_05_overnight`: BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirror...
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#14 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#13 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-10 03:20 · refined_
 - **Next:** MERGE (test-only, no deploy needed): merge fix/test-bathroom-exhaust-collection (7bb1b5715) to develop. It removes 23 baseline failures with 0 new. Then the next slice: find what poisons test_v47x_weather_manager.py in suite order (17 na...
@@ -1158,7 +1149,7 @@ _created 2026-08-19 07:45 · updated 2026-10-10 03:20 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#15 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#14 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-10-08 03:00 · refined_
 - **Problem / Solution:**
@@ -2343,8 +2334,18 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (297)
+## ✅ Done (298)
 _closed, evidence in refs_
+
+### `ROOM-SWITCH-LOOKUP-BY-NAME-1` - Room control switches (Automation, AI, Manual, Cover, Override, Auto-recovery) are found by a built name and fail open when HA names the entity differently — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+thread: **rooms** - status: **done**
+_created 2026-10-10 13:55 · updated 2026-10-11 03:00_
+- **Why:** coordinator._get_room_switch_state (coordinator.py:2966) builds switch.{room_name slug}_{suffix}; HA created entities as switch.{slug}_{slug}_{suffix} (device name + entity name), so the lookup returns None and _is_automation_enabled def...
+- **Next:** Code fix: resolve the room's switches through the entity registry by unique_id (entry_id + key), never by built name; fail CLOSED or log loudly when missing. Tests with double-prefixed ids. Tier 2 (changes gating for every room). Then re...
+- **Forensic keys (3):**
+  - `disposed_2026_10_11_overnight`: DONE (soak exit, discriminator met). ura_activity_log for the Automation-OFF rooms (Guest Bedroom 2, Jaya Bedroom, Master Closet, Master Hallway, Media, Foyer): 12 rows 10-10 12:00-13:56Z under v5.103.47 (incl. light_turn_off, light_reco...
+  - `tier`: 2
+  - `evidence`: Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF...
 
 ### `CENSUS-NAME-SPACE-DEDUP-1` - Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue") — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **census** - status: **done**

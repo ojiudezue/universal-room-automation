@@ -30888,13 +30888,14 @@ cards:
   why: "config_flow area prefill (config_flow.py ~258 CONF_AUTO_SWITCHES: prefill['switches']; ~2707 default=area_switches) takes every switch in the area. Device configuration/diagnostic switches (entity_category config/diagnostic: anti_interference, indicator, detach/relay mode, child lock, LED) must never be offered as room actuators."
   next: "Code: filter area prefill to switches with no entity_category (exclude config + diagnostic), and exclude known config-type keys; same filter for lights/fans prefill. Test with a fake area holding a Shelly detached-mode switch + a Tuya anti_interference switch. Cleanup of existing rooms done by hand 2026-10-10 (Wigton)."
 - id: ROOM-SWITCH-LOOKUP-BY-NAME-1
+  disposed_2026_10_11_overnight: "DONE (soak exit, discriminator met). ura_activity_log for the Automation-OFF rooms (Guest Bedroom 2, Jaya Bedroom, Master Closet, Master Hallway, Media, Foyer): 12 rows 10-10 12:00-13:56Z under v5.103.47 (incl. light_turn_off, light_reconcile), 0 rows from the 15:57:16Z v5.103.48 boot to 10-11 07:05Z (~15 h). CORRECTED the README_v5.103.48 validation table: its two log rows relied on a bounded journald window (0 matches != 0 since restart) and are now marked unverified, with the longer DB window added. The Wigton half (removing reliance on the 10-10 renames) belongs to WIGTON-URA-REENABLE-1."
   title: Room control switches (Automation, AI, Manual, Cover, Override, Auto-recovery) are found by a built name and fail open when HA names the entity differently
   thread: rooms
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.48
   tier: 2
   created: "2026-10-10 13:55"
-  updated: "2026-10-10 13:55"
+  updated: "2026-10-11 03:00"
   origin: "Wigton 2026-10-10: room Automation switches OFF but lights still toggled on motion (Chinenye 13:37:42 'Room vacated -> turned off lights' then on 5 s later)."
   why: "coordinator._get_room_switch_state (coordinator.py:2966) builds switch.{room_name slug}_{suffix}; HA created entities as switch.{slug}_{slug}_{suffix} (device name + entity name), so the lookup returns None and _is_automation_enabled defaults to True. Every OFF on those switches is ignored. Also 'auto_recovery' suffix vs entity key 'device_auto_recovery' looks mismatched; switch.py:82 builds names the same way."
   evidence: "Wigton: all 19 rooms doubled (228 switches) -> renamed to single-prefix 2026-10-10 13:50, gates verified off. Main house: 229 doubled switches across 39 rooms; gate-relevant doubled in Master Hallway, Foyer, Master Closet (Automation OFF ignored) and Master Toilet (AI OFF ignored); override_occupied/vacant doubled in many rooms."
