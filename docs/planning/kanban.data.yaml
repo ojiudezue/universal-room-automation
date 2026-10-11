@@ -30863,6 +30863,17 @@ cards:
     related: [NIGHTLIGHT-RED-RECONCILE-PARITY-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
     context: 'Same red-at-sleep rule as NIGHTLIGHT-RED-RECONCILE-PARITY-1, different trigger (sleep onset, not entry or reconnect); deliberately left out of that branch.'
   sweep_2026_10_11: 'Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.'
+- id: URA-SENSOR-TUNING-1
+  title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
+  thread: presence
+  status: pre_planning
+  created: "2026-10-11 18:30"
+  updated: "2026-10-11 18:30"
+  origin: "Operator 2026-10-11: 'We may need to add sensor tuning directly to URA' — after Study A ZG-204ZK tuning (motion 8->5, static 8->6, distance 4.34->3.0 m) and the Wigton fleet retune (17 units by hand)."
+  why: "Radar settings are exposed as HA number/switch entities but set by hand in Z2M and forgotten; they decide fan rejection (operator: anti-interference + distance tuning is the biggest Study A lever). Phase A (static): per-room target settings in URA config, applied + drift re-asserted + mismatch surfaced, per-model defaults from SENSOR_FLEET_CLASSES.md. Phase B (dynamic): while a room's fan is believed ON, lower motion sensitivity / range, restore on fan OFF — device-level running-fan rejection."
+  constraints: "Battery Zigbee radars apply writes on wake (lag) and each write costs battery; URA becomes a second writer vs manual Z2M edits; B needs a restore backstop (restart, missed fan-off) so a radar is never left desensitised. Marginal-benefit gate: B only if A + FAN-NOISE fixes (recheck no-restore, D2 capability classification, live fan entities) leave a measured gap."
+  next: "Prior-art scan (sensor_capability.py, fan cycle cards, Wigton tuning script remote_tune.py) -> plan Phase A (Tier 2)."
+  related: [ROOM-CREATE-AREA-PREFILL-DETRITUS-1, OC-STUCK-SENSOR-GENERALIZE-1]
 - id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
   review_b_2026_10_11_overnight: "Review B FIX-REQUIRED: B1-1 HIGH (pre-existing, same problem) automation.py ~1553/~1566 night lights turned on with evening/day mode when main lights also qualify - the house-Sleep switch exists only in the night-light-only branch, and room sleep protection is off by default -> evening kelvin at house Sleep; B1-2 MEDIUM reconciler house-Sleep result lacks has_params_to_apply so a bulb returning on at factory warm white is skipped; B1-3 LOW switch.py RoomLightsSwitch builds night-light params by hand. All three sent to the builder (in scope - same red-at-sleep rule). Onset gap (already-lit lights at house Sleep onset) carded separately for the operator: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1."
   review_2026_10_11_overnight: "Built fix/nightlight-red-reconcile-parity ce0a96d27 (pushed): resolver owns the red decision via supported_color_modes; automation.py import hoisted, duplicate branch removed, per-entity resolver calls batched; reconciler passes live modes. 9 new tests, 202 pass across 12 lighting files; call-neuter drill on both writers red. Review A dispatched (scrutinising the automation.py batching restructure for byte-identical non-red behaviour)."
