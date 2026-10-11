@@ -62,6 +62,7 @@ from ..const import (
     DEFAULT_RECHECK_FACTOR,
     DEFAULT_ROOM_FAN_RECHECK_ENABLED,
     DOMAIN,
+    FAN_RECHECK_SUPPRESS_MARGIN_S,
     ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_ROOM,
     ROOM_TYPE_BEDROOM,
@@ -726,6 +727,12 @@ class FanRecheckManager:
             )
         )
 
+        # Review B-1: the suppress window (HVAC tier AND the room-tier
+        # note_recheck_pause backstop, both fed this ISO) must cover the
+        # whole pause, which C4 family scaling can stretch past the knob.
+        hvac_suppress = max(
+            hvac_suppress, spindown + window + FAN_RECHECK_SUPPRESS_MARGIN_S,
+        )
         suppress_until = (
             dt_util.now() + timedelta(seconds=hvac_suppress)
         ).isoformat()

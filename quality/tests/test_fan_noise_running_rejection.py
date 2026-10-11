@@ -943,3 +943,33 @@ def test_options_submit_flattens_family_scaling_to_top_level():
     }))
     assert captured[CONST.CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED] is False
     assert captured[CONST.CONF_FAN_RECHECK_COOLDOWN_S] == 1200
+
+
+# ===========================================================================
+# Review fix B-1 — suppress window covers the whole (family-scaled) pause
+# ===========================================================================
+
+def test_long_pause_not_booked_as_manual_off(monkeypatch):
+    """Config boundary: window 180 x bedroom 2.0 x ZK 2.0 = 720 s + spindown
+    30 > hvac_suppress 600. At pause + 760 s the HVAC tier must still be
+    suppressed (no fake manual-OFF cooldown)."""
+    mgr, fc, hass, states, log, rf, rc, timers, _k = _recheck_world(
+        monkeypatch, room_type="bedroom",
+        presence_sensors=["binary_sensor.zk"],
+        models={"binary_sensor.zk": _ZK},
+        cm_options={CONST.CONF_FAN_RECHECK_WINDOW_S: 180},
+    )
+    ctx = FR._RoomCtx(room_name="Study A", entry_id=rc.entry.entry_id)
+    mgr._rooms["Study A"] = ctx
+    t0 = datetime.now(timezone.utc)
+    monkeypatch.setattr(HF.dt_util, "now", lambda: t0)
+    monkeypatch.setattr(FR.dt_util, "now", lambda: t0)
+    _run(mgr._enter_paused(ctx, rc))
+    assert timers[-1][0] == 750
+    until = datetime.fromisoformat(rf.fan_recheck_suppress_until)
+    assert (until - t0).total_seconds() == 810      # 30 + 720 + 60
+    states["fan.study_a"] = _State("off", {"percentage": 0})
+    later = t0 + timedelta(seconds=760)
+    monkeypatch.setattr(HF.dt_util, "now", lambda: later)
+    _run(fc.update(None, "home_day"))
+    assert rf.manual_off_cooldown_until == ""

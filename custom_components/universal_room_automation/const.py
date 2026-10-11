@@ -722,6 +722,10 @@ DEFAULT_FAN_RECHECK_MAX_PER_HOUR: Final = 2
 # HVAC handshake duration. Sized as SPINDOWN + WINDOW + 2*margin.
 CONF_FAN_RECHECK_HVAC_SUPPRESS_S: Final = "fan_recheck_hvac_suppress_s"
 DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
+# Fan-noise Rev 2 review B-1 (rung 1): the HVAC / room-tier suppress window
+# must outlast the pause itself (spindown + effective window) by this
+# margin, else the HVAC tier books URA's own pause as a manual OFF.
+FAN_RECHECK_SUPPRESS_MARGIN_S: Final = 60
 
 # FIX C (room-tier fan manual-off cooldown).
 # Duration (seconds) that a manually-off fan is held OFF against re-arm
