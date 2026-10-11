@@ -171,10 +171,11 @@ from .const import (
     CONF_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
-    CONF_NIGHT_LIGHT_SLEEP_HUE,
+    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: the red-hue decision lives in
+    # ``lighting.resolver.night_light_turn_on_params`` now; this module
+    # only consumes the composed params dict and no longer references
+    # ``NIGHT_LIGHT_SLEEP_HUE`` / ``NIGHT_LIGHT_SLEEP_RED_RGB`` directly.
     DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
-    NIGHT_LIGHT_SLEEP_HUE_RED,
-    NIGHT_LIGHT_SLEEP_RED_RGB,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     # State
@@ -242,6 +243,14 @@ from .const import (  # noqa: E402
     LIGHT_SLOT_EVENING,
     LIGHT_SLOT_SLEEP,
 )
+# NIGHTLIGHT-RED-RECONCILE-PARITY-1: hoist the night-light param helper
+# out of ``_turn_on_night_lights`` (was a function-local import, Bug
+# Class #34). The resolver is HA-free and safe to import at module
+# load; the function-local pattern was belt-and-braces for the
+# unit-test harness that stubs this package, which the sibling helpers
+# already handle at module top (see ``fan_veto`` / ``cover_ownership``
+# imports above).
+from .lighting.resolver import night_light_turn_on_params as _nl_params  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1847,55 +1856,63 @@ class RoomAutomation:
         if not night_lights:
             return
 
-        # Review fix (R3-M2): the shared helper owns brightness / colour
-        # / transition / capability default so both this canonical path
-        # AND the reconciler assert identical params. Red-hue override
-        # (sleep + FULL + colour-capable bulb) still happens below per
-        # entity, since it needs a live hass lookup.
-        from .lighting.resolver import night_light_turn_on_params as _nl_params
-        base_params = _nl_params(self.config, mode, include_transition=True)
-        brightness = base_params.get("brightness_pct")
-        color_temp = base_params.get("color_temp_kelvin")
+        # NIGHTLIGHT-RED-RECONCILE-PARITY-1: the shared resolver owns the
+        # ENTIRE night-light param decision — brightness / colour /
+        # transition / capability default AND the red-hue override at
+        # sleep (fed the bulb's live ``supported_color_modes``). The
+        # reconciler calls the same helper with the same modes so both
+        # controllers assert identical params on an occupied-at-sleep
+        # bulb reconnect. White-only lights (no colour-capable mode)
+        # still receive ``color_temp_kelvin`` — kelvin cannot make red.
 
         # Separate light.* from switch.*
         actual_lights = [e for e in night_lights if e.startswith("light.")]
         switches_as_lights = [e for e in night_lights if e.startswith("switch.")]
 
-        # Turn on light.* entities with brightness/color based on capability
+        # Turn on light.* entities with brightness/color based on capability.
+        # Per-entity call so each bulb's own supported_color_modes picks
+        # between red (colour-capable) and kelvin (white-only). Batching
+        # by identical param payload is a size optimisation only — a
+        # single turn_on per bulb would be byte-equivalent.
         if actual_lights:
-            service_data = {"entity_id": actual_lights, **base_params}
-
-            capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
-
-            # Operator 2026-10-02: at sleep, colour-capable night lights go
-            # red (default) — kelvin cannot make red. White-only lights keep
-            # the kelvin value above.
-            red_lights: list[str] = []
-            if (
-                mode == "sleep"
-                and capability == LIGHT_CAPABILITY_FULL
-                and self.config.get(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE)
-                == NIGHT_LIGHT_SLEEP_HUE_RED
-            ):
-                for eid in actual_lights:
-                    try:
-                        st = self.hass.states.get(eid)
-                        modes = set((st.attributes.get("supported_color_modes") or []) if st else [])
-                    except Exception:  # noqa: BLE001
-                        modes = set()
-                    if modes & {"rgb", "rgbw", "rgbww", "hs", "xy"}:
-                        red_lights.append(eid)
-            if red_lights:
-                red_data = dict(service_data)
-                red_data.pop("color_temp_kelvin", None)
-                red_data["entity_id"] = red_lights
-                red_data["rgb_color"] = list(NIGHT_LIGHT_SLEEP_RED_RGB)
-                await self._safe_service_call(
-                    "light", SERVICE_TURN_ON, red_data, blocking=False
+            # Resolve params for each light. ``_group_key`` lets us
+            # collapse bulbs with identical params into one service call
+            # (preserves today's one-call-for-the-batch log cadence).
+            per_entity: dict[tuple, list[str]] = {}
+            for eid in actual_lights:
+                try:
+                    st = self.hass.states.get(eid)
+                    modes = (st.attributes.get("supported_color_modes") or []) if st else []
+                except Exception:  # noqa: BLE001
+                    modes = []
+                params = _nl_params(
+                    self.config, mode,
+                    include_transition=True,
+                    supported_color_modes=modes,
                 )
-                service_data["entity_id"] = [e for e in actual_lights if e not in red_lights]
+                # Dict order is stable in CPython 3.7+; sorted tuple key
+                # keeps grouping deterministic across insertions.
+                key = tuple(sorted(
+                    (k, tuple(v) if isinstance(v, list) else v)
+                    for k, v in params.items()
+                ))
+                per_entity.setdefault(key, []).append(eid)
 
-            if service_data["entity_id"]:
+            # Preserve today's summary line: brightness / kelvin from the
+            # cfg-default (what a BRIGHTNESS-only or white-only bulb would
+            # get). Red-hue batches are logged by the service call itself.
+            default_params = _nl_params(
+                self.config, mode, include_transition=True,
+            )
+            brightness = default_params.get("brightness_pct")
+            color_temp = default_params.get("color_temp_kelvin")
+
+            for key, eids in per_entity.items():
+                service_data = {"entity_id": eids, **dict(key)}
+                # Re-expand any tuple'd list values (e.g. rgb_color).
+                for k, v in list(service_data.items()):
+                    if isinstance(v, tuple):
+                        service_data[k] = list(v)
                 await self._safe_service_call(
                     "light", SERVICE_TURN_ON, service_data, blocking=False
                 )
