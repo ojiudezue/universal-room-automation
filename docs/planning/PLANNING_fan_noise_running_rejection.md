@@ -397,3 +397,21 @@ Gate: no radar-filed-as-motion changes behaviour versus today (MS600 held by the
 - **Known-good seed:** `_discover_room_fans` seeds the per-entity known-good from the live state at discovery.
 - **C5:** gate-logic tests keep running at a test-local 5 s window; a new test pins the production window at 0.0.
 - `CONF_PRESENCE_SENSORS` in this plan = `CONF_MMWAVE_SENSORS` (value `"presence_sensors"`); no separate constant exists.
+
+## Review fix-up 1 (2026-10-11) — reviews A / B / C
+
+| Finding | Fix |
+|---|---|
+| B-1 pause can outlast the HVAC suppress (180 s × bedroom 2 × ZK 2 + spindown > 600 s) | suppress_until = now + max(hvac_suppress, spindown + effective window + `FAN_RECHECK_SUPPRESS_MARGIN_S` 60). The same ISO feeds the HVAC tier and the room-tier `note_recheck_pause` backstop |
+| A-M2 / B-2 held ON belief never discharges for a fan that stays unavailable | Chosen: **TTL** `FAN_BELIEF_UNAVAILABLE_TTL_S` = 120 s (rung 1). Why TTL over "decay unless quarantined": quarantine needs N flaps inside its window, so a fan that dies once never enters it and would hold forever; measured flaps are 20–40 s, inside 120 s. On expiry a synthetic on→off edge replays through `_handle_fan_change`, so `_fan_on_rooms`, `_fan_on_since` (read by the D2 `fan_off` latch-clear) and `_fan_off_at` move as on a real off edge. A readable edge cancels the timer; re-discovery and teardown cancel all |
+| A-M1 exact `ms600 9.0.0` key | First-token, case-insensitive model match (`FAMILY_BY_MODEL_TOKEN`); a sensor whose family is `unknown` falls back to the `MMWAVE_NAME_PATTERN` exclusion (develop behaviour). Side effect: the IVO1 `…masterbath_motion` entity is excluded again, as on develop |
+| A-M3 majority incl. `unknown` | Factor = MAX over the room's recognised families; `unknown` ignored (Jaya [esp32, ZK] → 2.0; Master Bedroom [generic, generic, ZX] → 2.0). Supersedes "dominant family" in §C4 |
+| A-L1 stale-PAUSED threshold | max(2 × effective window, spindown + effective window + 60) |
+| A-L2 stale known-good after re-discovery | discovery drops the entry for a fan that is unavailable now |
+| C oracle branch of `_fan_in_manual_on_hold` untested | `test_manual_on_hold_oracle_branch` |
+| B-4 quarantine veto on any configured fan | veto only when the quarantined fan is the one RUNNING |
+
+**B-3 (documented, not changed): hold-pause time loss.** When a manual-ON hold was already live at pause time (rare
+after the eligibility veto), a VACATED restore turns the fan back on and clears `manual_on_hold_paused_at` WITHOUT
+extending the hold, so the person loses the paused minutes (≤ spindown + effective window + margin) from their hold.
+Accepted per C1a step 4 ("do not touch the hold timers"). Revisit if an operator reports a hold ending early.

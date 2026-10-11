@@ -1179,3 +1179,14 @@ def test_manual_on_hold_oracle_branch(monkeypatch, delta_s, vetoed):
         1 if vetoed else 0
     )
     assert oracle.keys and oracle.keys[0] == HF._room_key("Study A")
+
+
+def test_quarantined_idle_sibling_does_not_veto(monkeypatch):
+    """Review B-4: two fans; the RUNNING one is healthy, the quarantined one
+    is off -> the recheck may still arm."""
+    mgr, fc, hass, states, log, rf, rc, _t, _k = _recheck_world(
+        monkeypatch, reconciler=_Reconciler(["fan.study_a_2"]),
+    )
+    rc.entry.data[CONST.CONF_FANS] = ["fan.study_a", "fan.study_a_2"]
+    states["fan.study_a_2"] = _State("off")
+    assert _eligible(mgr, rc) is True

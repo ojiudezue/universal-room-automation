@@ -1245,8 +1245,8 @@ class FanRecheckManager:
     def _fan_in_actuator_quarantine(
         self, room_coord: Any, fans: list,
     ) -> bool:
-        """Fan-noise Rev 2 C3 Part B: True iff any of the room's configured
-        fan entities is in its ActuatorReconciler flap quarantine (the
+        """Fan-noise Rev 2 C3 Part B: True iff a configured fan that is ON
+        right now is in its ActuatorReconciler flap quarantine (the
         reconciler owns fan availability-flap detection)."""
         try:
             reconciler = getattr(room_coord, "_actuator_reconciler", None)
@@ -1255,7 +1255,9 @@ class FanRecheckManager:
             flapping = {
                 row.get("entity_id") for row in reconciler.flapping_entities()
             }
-            return any(f in flapping for f in fans)
+            # Review B-4: only a quarantined fan that is RUNNING (the one
+            # the pause would act on) vetoes; a flapping idle sibling does not.
+            return any(f in flapping and self._is_entity_on(f) for f in fans)
         except Exception:  # noqa: BLE001
             return False
 
