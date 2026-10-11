@@ -23,3 +23,9 @@ Four branches built and reviewed earlier, merged together and shipped as one rel
 - Restart: shutdown completes without "timed out waiting for … log_census" / "_evaluate_nudge_outcome" and without "DB write failed: shutdown timeout"; HA back faster than the ~12 min 10-05 restart.
 - EV: 0 `ev_toggle_tripwire` anomaly rows on a normal charging day.
 - No URA errors at boot.
+
+## Deploy restart 2026-10-10 (partial — shutdown fix cannot be judged on its own deploy)
+- HA restart 19:46:45 → back 19:48:02 UTC (~77 s; the 10-05 restart was ~12 min).
+- The shutdown of this restart ran the **old** v5.103.48 code, so its one `coordinator_diagnostics … Error saving baselines: DB write failed: shutdown timeout` (19:47:00 UTC) says nothing about the fix. **The shutdown criteria are judged at the NEXT restart.**
+- No `timed out waiting` lines in the shutdown window.
+- Remaining checks (stuck-sensor once/day, no ev_toggle_tripwire rows on a normal day) are one-shot reads tomorrow.

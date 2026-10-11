@@ -30965,10 +30965,32 @@ cards:
   why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
   next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
   related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
+- id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
+  title: A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue)
+  thread: lighting
+  status: planned
+  tier: 1
+  created: "2026-10-10 22:00"
+  updated: "2026-10-10 22:00"
+  origin: "Master Toilet night-light check 2026-10-10; operator: 'Sleep is red'."
+  why: "automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns color_temp_kelvin (2000 K) -> a colour light reconnecting while occupied at sleep is restored warm white. Two writers, one value (Bug Class #53). The Master Toilet RGBW dropped once at 03:44 UTC 10-10 but the room was vacant, so not hit live yet."
+  next: "Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at sleep for an hs/xy light. Also hoist the function-local import at automation.py:1822 (Bug Class #34)."
+  related: [MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
+- id: MASTER-TOILET-SONOFF-DROPOUTS-1
+  title: Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight
+  thread: devices
+  status: waiting_operator
+  created: "2026-10-10 21:30"
+  updated: "2026-10-10 21:30"
+  origin: "Master Toilet night-light investigation 2026-10-10: switch.switch_sonoffmini4rm_matter_mastertoilet went unavailable 92 times between 22:00 and 08:00 CDT."
+  why: "URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic."
+  next: "DO: check the Sonoff's Wi-Fi/Thread signal + power (it reconnects in ~10-60 s each time); move AP/Thread border router or re-pair. I can pull its RSSI/reboot history if exposed."
+  related: [MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1]
 - id: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
   title: Master Toilet night light during sleep not confirmed live after v5.103.43/.44 - no URA night-light action logged for 5 sleep-window sessions
   thread: lighting
-  status: investigating
+  status: done
+  refuted_2026_10_10: "REFUTED - the night light WORKED. Night 10-09/10 sleep window: URA logged occupancy_entry at 03:35:06, 03:56:00, 04:08:36, 04:58:16 UTC and the RGBW night light turned on within 0-2 s each time via a light service call (context light); off after each occupancy_exit (e.g. vacated 04:02:49 -> off 04:03:26; vacated 05:03:49 -> off 05:03:49). Both legacy HA automations (master_bath_toilet_closet_adaptive_lighting, master_toilet_closet_integrated) were already OFF (last ran 2025-05 / 2026-07). The validator's 'no URA entries' came from searching only light_* action rows; URA logs these as occupancy_entry/exit. Real fault found instead: MASTER-TOILET-SONOFF-DROPOUTS-1."
   created: "2026-10-10 19:40"
   updated: "2026-10-10 19:40"
   origin: "Live validation 2026-10-10 of README_v5.103.43/.44 (night 10-09 22:00 -> 10-10 08:00 CDT). Operator originally reported 'went into the master toilet and no night lights' (2026-10-08)."
@@ -30990,7 +31012,8 @@ cards:
   wigton_cleanup_2026_10_10: "G3 done at Wigton via each room options -> Lighting behaviour -> auto_manual_devices section (collapsed; NOT the Devices page - an agent read only Devices and falsely passed G3). Removed from auto_switches in 17 rooms: every mmWave *_anti_interference switch + URA own switches (switch.universal_room_automation_domain_coordinators, switch.ura_name_people_at_doors, switch.ura_presence_face_matching) from the House room. Kept Shelly relay outputs + plugs (real loads). Operator: Shelly 'detach' relay mode is exposed as its own switch (named *detach*) and must never be in any URA config. Code fix must also exclude URA's own entities from prefill. Backup: /homeassistant/.storage/core.config_entries.bak-pre-autoswitch-clear."
   title: Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists
   thread: rooms
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.50
   tier: 2
   created: "2026-10-10 14:30"
   updated: "2026-10-10 14:30"

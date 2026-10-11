@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "199",
+  "author": "ojiudezue",
+  "session_id": "claude_20261011_031428_ship_v5_103_50",
+  "timestamp": "2026-10-11T03:14:28Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.50 shipped: Rooms never pick up device-settings switches",
+  "summary": "Rooms never pick up device-settings switches",
+  "why": "Bulk room create at Wigton put every mmWave anti_interference switch and URA's own coordinator switches into room switch lists, and URA toggled them with occupancy; measured that Sonoff detach / Z2M anti_interference carry no entity_category, so the filter needs a whole-word name backstop on top of the category rule, applied at the one prefill choke point and at all four actuation sites.",
+  "implications": "Shipped ROOM-CREATE-AREA-PREFILL-DETRITUS-1 at v5.103.50; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.50.md (Live criteria).",
+  "revisit_trigger": "If a real load is ever refused (a relay named with one of the tokens), or a new settings-switch family appears in a room config.",
+  "refs": {
+    "cards": [
+      "ROOM-CREATE-AREA-PREFILL-DETRITUS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.50.md"
+    ],
+    "release_notes": "Room creation no longer prefills URA's own or device-settings switches (detach, anti-interference, indicator, do-not-disturb, child-lock, config/diagnostic); a runtime guard never actuates them even if already stored; a boot scan warns about leftovers."
+  }
+}
