@@ -50,6 +50,17 @@ function-local import (Bug Class #34).
      entity's live `supported_color_modes` (via a new
      `_live_color_modes(entity_id)` helper that reads
      `hass.states.get(e).attributes["supported_color_modes"]`).
+   - **Side-effect noted (Review A F2, LOW):** the reconciler's sleep +
+     occupied branch previously built params by hand and only
+     carried `brightness_pct` for FULL-capability bulbs. It now routes
+     through `night_light_turn_on_params`, so a FULL **white-only**
+     bulb (e.g. supported modes `{"color_temp"}`) will receive
+     `color_temp_kelvin` in addition to `brightness_pct`. This brings
+     the reconciler into parity with the canonical writer
+     (`_turn_on_night_lights`), which has always emitted
+     `color_temp_kelvin` for FULL bulbs. The branch fires only on
+     return-from-unavailable, so the on-wire change is bounded to
+     reconnect events (not steady-state).
 
 ## Tests
 

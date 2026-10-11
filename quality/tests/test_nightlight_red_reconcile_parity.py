@@ -287,6 +287,86 @@ def test_canonical_turn_on_night_lights_colour_and_kelvin_sleep():
     assert "color_temp_kelvin" in seen["light.kelvin_bulb"]
 
 
+def test_reconciler_house_sleep_entry_branch_colour_light_asserts_red():
+    """F1 (Review A): the ``entry_night_light`` branch (house_state=sleep
+    while per-room ``is_sleep_lighting_active()`` is False) must also
+    carry rgb_color red for a colour-capable bulb. This is the
+    actuator_reconciler.py:~907-913 path, downstream of
+    ``_mode = "sleep"`` set by the house_state override.
+
+    Neutering the ``supported_color_modes=self._live_color_modes(eid)``
+    kwarg on THAT call site previously left this cell untested; this
+    test fills the gap.
+    """
+    from custom_components.universal_room_automation import actuator_reconciler
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_LIGHT_ACTION,
+        LIGHT_ACTION_TURN_ON,
+        STATE_ILLUMINANCE,
+        STATE_OCCUPIED,
+    )
+
+    class _StubState:
+        def __init__(self, modes):
+            self.attributes = {"supported_color_modes": modes}
+
+    class _StubStates:
+        def __init__(self, modes):
+            self._modes = modes
+
+        def get(self, _eid):
+            return _StubState(self._modes)
+
+    class _StubHass:
+        def __init__(self, modes):
+            self.states = _StubStates(modes)
+
+    class _StubAutomation:
+        # Per-room sleep gate OFF, but house_state=sleep override ON.
+        def is_sleep_lighting_active(self):
+            return False
+
+        def is_sleep_mode_active(self):
+            return False
+
+        def is_dark(self, _):
+            return True
+
+        def _house_state_is_sleep(self):
+            return True
+
+    class _StubCoordinator:
+        def __init__(self, cfg, modes):
+            self.hass = _StubHass(modes)
+            self.data = {STATE_OCCUPIED: True, STATE_ILLUMINANCE: 0}
+            self.automation = _StubAutomation()
+
+    cfg = {
+        CONF_NIGHT_LIGHTS: ["light.red_bulb"],
+        CONF_LIGHT_CAPABILITIES: LIGHT_CAPABILITY_FULL,
+        CONF_NIGHT_LIGHT_SLEEP_HUE: NIGHT_LIGHT_SLEEP_HUE_RED,
+        CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_TURN_ON,
+    }
+    coord = _StubCoordinator(cfg, modes=["xy"])
+    rec = actuator_reconciler.ActuatorReconciler.__new__(
+        actuator_reconciler.ActuatorReconciler,
+    )
+    rec.coordinator = coord
+    rec.hass = coord.hass
+    rec._tracked_entities = lambda: {"light.red_bulb"}
+    rec._is_fan = lambda _e: False
+    rec._config = lambda: cfg
+
+    out = rec.resolve_desired_state("light.red_bulb")
+    assert out is not None, "entry_night_light branch should assert ON"
+    assert out.state == "on"
+    assert out.reason == "entry_night_light", (
+        f"must reach the house-sleep entry branch, got {out.reason!r}"
+    )
+    assert out.params.get("rgb_color") == list(NIGHT_LIGHT_SLEEP_RED_RGB)
+    assert "color_temp_kelvin" not in out.params
+
+
 def test_canonical_turn_on_night_lights_day_mode_never_emits_red():
     """Outside sleep (day mode), colour bulbs never get rgb_color red."""
     from types import SimpleNamespace
