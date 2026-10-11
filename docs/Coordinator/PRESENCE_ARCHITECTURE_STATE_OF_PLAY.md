@@ -455,3 +455,24 @@ Before planning, building, reviewing or diagnosing anything presence-adjacent:
 - **ZV fan susceptibility (measured):** Game Room fan-immune in steady state with a small power-on transient (3/11 within 5 min); Living Room confounded; Guest Bedroom 1 / Exercise no data. Working rule: ZV usable as a fan-immune witness during steady fan running, not within ~5 min of a fan switching on. Details in SENSOR_FLEET_CLASSES.md.
 - **Operator ruling 2026-10-11 — Study A InvisOutlet:** do NOT use the InvisOutlet (`binary_sensor.invisoutlet_b7d0_motion` / its occupancy entity) as a URA motion/occupancy witness in Study A — "problematic for a while". (A 2026-10-11 analysis proposed it as the D2 witness; rejected.) Study A therefore has **no fan-immune witness today**: its only sensor is the ZG-204ZK presence radar. Options: add a ZG-204ZV or real PIR in Study A, or rely on BLE for corroboration.
 - **CORRECTION (operator, 2026-10-11):** "with a fan in the sensor's field of view, no amount of tuning recovers it — re-aim first" (from RESEARCH_fan_resistant_mmwave.md, repeated in session) is **WRONG for the Study A ZG-204ZK**. Operator observation over months: with `anti_interference` ON it eventually vacates Study A — better than the away-facing InvisOutlet did. Treat on-device tuning (anti-interference, **detection distance**, sensitivities) as a first-class lever even when the fan is in view; re-aiming is an option, not a prerequisite. Study A tuned 2026-10-11: motion 8→5, static 8→6, distance 4.34→3.0 m (before-values in session scratchpad studya_zk_before_2026-10-11.json); judge by the before/after false-hold measurement.
+
+
+## Gold patterns index (from PLANNING_fan_noise_running_rejection.md prior-art audit, 2026-10-11)
+Reuse these before building anything new (order: reuse > extend > build only if nothing fits).
+
+
+| Pattern | Where | When to reuse |
+|---|---|---|
+| **Capability layer + CONF overrides** | `sensor_capability.py:172 derive_capability()` + `CONF_SENSOR_CAPABILITIES` (`const.py:559`) | ANY classification question about a sensor ("is this a PIR?", "fan-immune?", "corroborator?"). NEVER regex entity names. |
+| **Role query matrix (pure, HA-free)** | `sensor_role.py:17-18 role_for(entity, room_config, query)` | When the SAME sensor answers different questions under different queries (D2 stuck candidate vs corroborator). |
+| **SensorExclusionSet multi-writer quarantine** | `sensor_exclusion.py` | Any new "untrust this sensor's vote this tick" rule; promote with a NEW client name; release per-client. |
+| **Recheck state machine (idle→armed→paused→restoring→cooldown)** | `presence_fan_recheck.py` | Any "stop → re-measure → decide" flow with a HVAC-handshake and restart matrix. |
+| **Inert-sink eligibility probe** | `presence_fan_recheck._INERT_SINK` + `is_recheck_eligible` | Cross-mechanism "would this gate fire?" checks that must not perturb observability counters. |
+| **CM-entry timing knobs via sweep** | `presence_fan_recheck._timing_config` | A family of knobs operator-tunable live, loaded from CM-entry options with DEFAULT_* fallback. |
+| **Fan listener (stamp transitions)** | `presence.py:3719 _handle_fan_change` + `_fan_last_transition` + `get_fan_last_transition` | Any "did a fan just do something?" window query. Guard unavailable/unknown at the stamp site (C3). |
+| **Kill-switch constant + knob ladder** | `FAN_TRANSITION_SUSPECT_WINDOW_S` module constant; `CONF_FAN_RECHECK_*` CM-entry Numbers; `CONF_ROOM_FAN_RECHECK_ENABLED` per-room switch | Rung 1 for review-only (safety / fitted); rung 2 for per-deployment structure; rung 3 for live operator tuning. |
+| **Memory-episode adjudication write** | `coordinator.py:3701-3729` log_memory_episode `fan_transition_suppressed` → adjudication `phantom` | Durable per-event observability for a gated suppression. |
+| **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |
+
+---
+
