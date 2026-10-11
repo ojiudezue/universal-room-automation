@@ -3683,6 +3683,11 @@ class PresenceCoordinator(BaseCoordinator):
                         and state.state not in _UNAVAILABLE_STATES
                     ):
                         self._fan_known_good[fan_id] = is_on
+                    else:
+                        # Review A-L2: re-discovery cleared this room's
+                        # belief maps — a stale known-good for a fan that
+                        # is unavailable now must not survive them.
+                        self._fan_known_good.pop(fan_id, None)
                     # H1 fix-up: `_fan_entity_to_room` is now a declared
                     # tracker attribute (`ZonePresenceTracker.__init__`),
                     # NOT a setattr-monkey-patched dict. Assign into it

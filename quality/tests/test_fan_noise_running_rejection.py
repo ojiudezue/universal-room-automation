@@ -1122,3 +1122,28 @@ def test_rehydrate_paused_threshold_covers_long_spindown(monkeypatch):
     for t in tasks:
         t.close()
     assert names == ["_restore"]
+
+
+def test_rediscovery_drops_known_good_of_unavailable_fan(monkeypatch):
+    """Review A-L2: known-good ON, then re-discovery while the fan is
+    unavailable -> entry dropped, so its later return 'on' is a real
+    transition (re-discovery already cleared the room's belief maps)."""
+    room, fan = "Study A", "fan.study_a"
+    t = _Tracker(room, [fan])
+    states = {fan: _State("unavailable")}
+    p = _Presence(t, states)
+    p._fan_known_good = {fan: True}
+    p._fan_listener_unsub = None
+    p._unsub_listeners = []
+    entry = _Entry("e1", {
+        CONST.CONF_ENTRY_TYPE: CONST.ENTRY_TYPE_ROOM,
+        CONST.CONF_ROOM_NAME: room, CONST.CONF_FANS: [fan],
+    })
+    p.hass.config_entries.async_entries = lambda domain=None: [entry]
+    monkeypatch.setattr(
+        PR, "async_track_state_change_event", lambda *a, **k: (lambda: None),
+    )
+    PR.PresenceCoordinator._discover_room_fans(p)
+    assert fan not in p._fan_known_good
+    _fire(p, _ev(fan, "unavailable", "on", 33))
+    assert room in t._fan_on_rooms
