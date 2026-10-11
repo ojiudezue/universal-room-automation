@@ -86,6 +86,20 @@ function-local import (Bug Class #34).
    `automation._turn_on_night_lights`. Unused brightness/colour
    constants pruned from `switch.py`.
 
+   - **On-wire consequence of B1-3 outside sleep:** when
+     `RoomLightsSwitch` is manually turned on **outside** sleep (and
+     outside house-Sleep), the switch now routes night-light params
+     through the resolver in `"day"` mode. The resolver returns
+     `{brightness_pct, color_temp_kelvin}` for a FULL-capability
+     bulb (verified: `test_nl_params_full_capability_day` at
+     `quality/tests/test_night_light_rule_resolver.py:146`;
+     `color_temp_kelvin = CONF_NIGHT_LIGHT_DAY_COLOR` or its default
+     — resolver.py:195-198). FULL night lights now receive the day
+     colour temperature in addition to brightness, where previously
+     only brightness was shipped. This matches the entry-path
+     writer and the reconciler and is the parity the cycle is
+     closing.
+
    - **Side-effect noted (Review A F2, LOW):** the reconciler's sleep +
      occupied branch previously built params by hand and only
      carried `brightness_pct` for FULL-capability bulbs. It now routes

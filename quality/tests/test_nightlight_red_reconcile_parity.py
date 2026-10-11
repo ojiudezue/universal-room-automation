@@ -421,6 +421,66 @@ def test_canonical_entry_main_qualifies_plus_house_sleep_night_light_red():
     ), f"must NOT ship kelvin for rgb bulb: {rgb_calls}"
 
 
+def test_canonical_entry_picker_branch_house_sleep_night_light_red():
+    """Review B B1-1 (picker site specifically): with
+    ``CONF_LIGHTS_ON_ENTRY`` set, the ``has_on_entry`` branch
+    (automation.py:~1553) must apply the same house-Sleep mode-switch
+    as the else branch (~1566) and the night-light-only early return
+    (~1456). This test drives the PICKER branch specifically so
+    reverting only that site to evening/day is now caught (previous
+    drill reverted both at once and masked this).
+
+    Repro: sleep_protection off, house=sleep, dark, CONF_LIGHTS_ON_ENTRY
+    picking the main light, night-lights-by-day on so the picker admits
+    the colour night light. Expect rgb_color red.
+    """
+    from types import SimpleNamespace
+
+    from test_lighting_slice_c_manual_hold import (  # noqa: F401
+        M, _light_calls, _real_modules, _run, make_room,
+    )
+
+    const = M["const"]
+    base = {
+        const.CONF_LIGHTS: ["light.main"],
+        const.CONF_NIGHT_LIGHTS: ["light.rgb_bulb"],
+        # Picker branch trigger — this is what makes has_on_entry True.
+        const.CONF_LIGHTS_ON_ENTRY: ["light.main"],
+        const.CONF_LIGHT_CAPABILITIES: const.LIGHT_CAPABILITY_FULL,
+        const.CONF_NIGHT_LIGHT_SLEEP_HUE: NIGHT_LIGHT_SLEEP_HUE_RED,
+        const.CONF_ENTRY_LIGHT_ACTION: const.LIGHT_ACTION_TURN_ON,
+        const.CONF_SLEEP_PROTECTION_ENABLED: False,
+    }
+    room = make_room(config=base, occupied=True, sleep=False)
+    # House is in Sleep but per-room sleep gate is off (default).
+    room.auto.is_sleep_mode_active = lambda: False
+    room.auto.is_sleep_lighting_active = lambda: False
+    room.auto._read_current_house_state = lambda: "sleep"
+    room.auto.is_dark = lambda _lux=None: True
+    room.hass._states["light.rgb_bulb"] = SimpleNamespace(
+        entity_id="light.rgb_bulb", state="off",
+        attributes={"supported_color_modes": ["hs"]},
+    )
+    _run(room.auto._control_lights_entry({}))
+
+    on_calls = _light_calls(room.hass, "turn_on")
+    rgb_calls = [c for c in on_calls
+                 if "light.rgb_bulb" in (
+                     [c.data.get("entity_id")] if isinstance(c.data.get("entity_id"), str)
+                     else (c.data.get("entity_id") or [])
+                 )]
+    assert rgb_calls, (
+        f"picker branch must still dispatch the night light: {on_calls}"
+    )
+    assert any(
+        c.data.get("rgb_color") == list(NIGHT_LIGHT_SLEEP_RED_RGB)
+        for c in rgb_calls
+    ), f"picker branch at house-Sleep must emit rgb_color red: {rgb_calls}"
+    assert not any(
+        "color_temp_kelvin" in c.data for c in rgb_calls
+    ), f"picker branch must NOT ship kelvin for rgb bulb: {rgb_calls}"
+
+
 def test_reconciler_entry_night_light_sleep_has_params_to_apply():
     """Review B B1-2: ``entry_night_light`` under ``_mode == "sleep"``
     must set has_params_to_apply=True so the already-on gate (:645)
