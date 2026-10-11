@@ -36,10 +36,12 @@ Hold time while present: ZV drops to off in 30–70 s (p50) — **confirms motio
 
 ## Meross MS600 (dual-homed) — settled 2026-10-11 (operator)
 Three MS600 mmWave presence radars (Guest Bedroom 1, Guest Bedroom 2, Media) are paired twice on purpose: the native `meross_lan` integration reports presence as a non-standard numeric value (`…_presence`, ≥1 = person) — so the operator also paired them over **Matter** to get a standard binary occupancy. Filing (correct, leave as is):
-- Matter `binary_sensor.mmwave_motion_lux_matter_wifi_<room>_occupancy` → `presence_sensors` (Guest Bedroom 2: `occupancy_sensors`) — the still-person holder.
+- Matter `binary_sensor.mmwave_motion_lux_matter_wifi_<room>_occupancy` → `presence_sensors` — the still-person holder. (Guest Bedroom 2's was in `occupancy_sensors` until 2026-10-11; moved because the fan mechanisms key on occupancy source `mmwave`, which only the `presence_sensors` list produces — in `occupancy_sensors` it was invisible to fan-noise rejection.)
 - `meross_lan` `binary_sensor.…_sensor_presence_motion` (the radar's motion bit) → `motion_sensors` — fine for lights, but radar-derived: **not a fan-immune witness**; v5.103.51's model safety net (`ms600`, first-token match) excludes it.
 - Native `…_presence_distance` exists → candidate for the deferred fan-distance-band option.
 - Do NOT "move the MS600s to presence" (retracted 2026-10-11 — the Matter half already is). No more MS600 purchases planned (native protocol's non-binary interface).
 
 ## ESPHome ESP32 radars = HLK-LD2410 (operator 2026-10-11)
 Jaya (`jaya_3`), Ziri (`ziri_3`), Kitchen, Study B. ESPHome reports the ESP32 board as the device model, so v5.103.51's `FAMILY_BY_MODEL_ID` resolves them `unknown` → witness role excluded via the name fallback (correct — radar), recheck window factor 1.0 unless the room has a recognised slower family (Jaya/Ziri/Kitchen also carry ZK/ZX → ×2). Measured LD2410 clear-after-fan-off 28/132 s (p50/p90, Jaya) — faster than Zigbee, so 1.0 is adequate; the plan's LD24xx ×3 was unsupported. **No code needed.** Revisit only if the 2026-10-18 re-measure shows Study B's recheck false-negatives. They expose moving/still distance + energy (ESPHome) — the best candidates for the deferred fan-distance-band option.
+
+- **Rule:** any radar (mmWave) goes in `presence_sensors`, never `occupancy_sensors` — the occupancy source tag decides whether fan-noise rejection applies. URA room sensor lists accept binary sensors only (`config_flow` EntitySelector domain=binary_sensor), so the native Meross numeric `…_presence` can't be used directly.
