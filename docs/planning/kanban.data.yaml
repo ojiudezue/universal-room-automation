@@ -334,161 +334,6 @@ meta:
     outcome: "done"
     headline: "Closed: your phone-only tracker change worked. On Sunday's away day your phone tracker dropped out twice and you never blipped home, so no phantom pre-arrivals."
     acknowledged: false
-  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-04T04:50:00"
-    at: "2026-10-04T04:50:00"
-    outcome: "done"
-    headline: "Closed: music following is moving music again. Transfers have completed during the day since 10-02. One leftover is logged on the anomaly-baseline card: the detector learned from 5 broken months, so it now logs every successful transfer as an anomaly. Log only, no alerts."
-    acknowledged: false
-  - fid: "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-04T04:50:01"
-    at: "2026-10-04T04:50:01"
-    outcome: "measured"
-    headline: "The excursion-ID fix is live (since v5.103.36), but no HVAC auto-return has happened since the deploy, so it can't be confirmed yet. New deadline 10-11."
-    acknowledged: false
-  - fid: "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-04T04:30:00"
-    at: "2026-10-04T04:30:00"
-    outcome: "measured"
-    headline: "The 'tomorrow ~230 kWh' over-prediction is already fixed on develop (not yet released). I added the missing review, which said SHIP. One choice before deploy: the fix assumes this house's 15-minute history rhythm. A second home with a slower energy setting would under-report, so I recommend a small follow-up."
-    acknowledged: false
-  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-04T04:15:00"
-    at: "2026-10-04T04:15:00"
-    outcome: "built-to-review"
-    headline: "Ready to ship with the next daytime deploy. URA switches that are on by default (Vacancy Auto-Off, every room's automation and cover automation, AI automation, security light delegation) no longer turn themselves off after a restart that follows a URA outage. Two reviews said SHIP, and the new tests fail if the fix is removed. Not deployed."
-    acknowledged: false
-  - fid: "EC-CONSUMPTION-DROPOUT-DAYS-1@2026-10-04T03:05:00"
-    at: "2026-10-04T03:05:00"
-    outcome: "done"
-    headline: "Closed as a duplicate after measuring. The daily usage history really is under-counted: all 4 days recorded since 09-13 read 48-98 kWh with zero solar, against ~200 kWh normal. The cause is the already-carded frozen Envoy solar counter, not the Envoy daily totals. The evidence was moved onto that card."
-    acknowledged: false
-  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-04T03:20:00"
-    at: "2026-10-04T03:20:00"
-    outcome: "measured"
-    headline: "The garage-porch Sonoff error flood has stopped, but only because the whole device has been offline since yesterday's 4:58 pm restart. The new biggest log flood is ~5,000 lines/hour of 'unverified HTTPS request to 192.168.13.12' warnings. Question for you on the card."
-    acknowledged: false
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-04T03:30:00"
-    at: "2026-10-04T03:30:00"
-    outcome: "measured"
-    headline: "Outdoor person detection is working again. It was dark from 10-01 ~4 pm to 10-03 ~7 am and has run since. It has now hung 3 times in ~5 days, so the Coral-or-scheduled-restart choice is still open."
-    acknowledged: false
-  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-10-04T03:40:00"
-    at: "2026-10-04T03:40:00"
-    outcome: "measured"
-    headline: "The pool-equipment phantom is back. The earlier drop was only Frigate being down. It sent 18 CRITICAL pages (phone, iMessage, Pushover, WhatsApp) between 9:02 pm and 12:53 am. The cheapest fix is still on your side: clear the cloth pile or mask that spot in Frigate."
-    acknowledged: false
-  - fid: "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-04T03:55:00"
-    at: "2026-10-04T03:55:00"
-    outcome: "measured"
-    headline: "Logged 2 battery-reserve write failures from yesterday on the Enphase card (asked for 80% at 3 pm and 30% at 10 pm, the battery stayed at 10%, and URA stood down both times). This is evidence for the Enphase plan you are working on. No action taken overnight."
-    acknowledged: false
-  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-04T02:40:01"
-    at: "2026-10-04T02:40:01"
-    outcome: "built-to-review"
-    headline: "Ready to ship with the next daytime deploy: the fix that stops URA logging an ERROR every time HA shuts down. Two reviews said SHIP, and I confirmed the new test catches the bug if the fix is removed. Not deployed."
-    acknowledged: false
-  - fid: "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1@2026-10-04T02:40:02"
-    at: "2026-10-04T02:40:02"
-    outcome: "measured"
-    headline: "Answered from the history, so no reply needed: you turned Custom Preset Ranges off yesterday at 1:13 pm. The 4:59 pm restart turned it back on, and you turned it off again at 5:05 pm. It is off now. The throttle fix now waits inside Batch C."
-    acknowledged: false
-  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-04T02:40:03"
-    at: "2026-10-04T02:40:03"
-    outcome: "escalated"
-    headline: "HVAC 'Vacancy Auto-Off' has been OFF since yesterday's 4:59 pm restart, with no one touching it (it had been on for 10 days). Cause: URA was down when HA saved its settings, and this switch reads 'unavailable' as off. Please turn it back on if you want it. A code fix for this and 3 similar switches is being built (to review only)."
-    acknowledged: false
-  - fid: "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1@2026-10-03T02:20:47"
-    at: "2026-10-03T02:20:47"
-    outcome: "escalated"
-    headline: "VERIFY needed: the HVAC 'guest mode actuation' switch (Custom Preset Ranges) turned ON at 16:28 yesterday without a user action and is still on. It has written thermostat presets 2-9 times an hour since. The board says this needs your explicit go first. I did not change it. Was it you?"
-    acknowledged: false
-  - fid: "HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1@2026-10-03T02:20:46"
-    at: "2026-10-03T02:20:46"
-    outcome: "parked"
-    headline: "Parked on measurement. HVAC restore writes never left an empty zone on comfort settings at night in 6.4 days (0 of 140), because later fixes made them preset-only and the normal check corrects them the next tick. It only matters again if the compose-away throttle is changed."
-    acknowledged: false
-  - fid: "ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1@2026-10-03T02:17:10"
-    at: "2026-10-03T02:17:10"
-    outcome: "parked"
-    headline: "Parked on measurement. The battery-planning edge case (solar forecast for today missing at midnight) happened once in 11 days, on a single boot tick that issued no commands. Not worth a Tier 2-DB change unless it starts happening on real decision ticks."
-    acknowledged: false
-  - fid: "DB-WAIT-WARNING-REWORK-1@2026-10-03T02:16:06"
-    at: "2026-10-03T02:16:06"
-    outcome: "done"
-    headline: "Closed (soak exit): the reworked database-wait warning appeared once overnight, during the shutdown before the restart, in the new one-line-per-episode format. None at boot."
-    acknowledged: false
-  - fid: "HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1@2026-10-03T02:15:32"
-    at: "2026-10-03T02:15:32"
-    outcome: "done"
-    headline: "Closed 2 HVAC fixes (soak exit). (1) When the thermostats went offline on 10-02, URA held its writes once per zone per outage, with zero writes to a dead thermostat. (2) HVAC never touched Guest Bedroom 2's fan while its Fan Mode is Off, but still runs the other rooms' fans."
-    acknowledged: false
-  - fid: "BOOT-EVENT-LOOP-FREEZE-1@2026-10-03T02:14:25"
-    at: "2026-10-03T02:14:25"
-    outcome: "done"
-    headline: "Closed (soak exit): the long URA boot freeze is gone. Tonight's restart had one 12-second stall, and the watchdog traced it to the Leviton integration building QR-code images, not URA. A small leftover was carded: the watchdog logs an ERROR at shutdown."
-    acknowledged: false
-  - fid: "HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1@2026-10-03T02:13:01"
-    at: "2026-10-03T02:13:01"
-    outcome: "done"
-    headline: "Closed (soak exit): all 3 pre-arrival pre-cools since the fix ended when the person arrived (after 5-29 minutes, never the 2-hour cap), each with a single thermostat write."
-    acknowledged: false
-  - fid: "HOUSE-STATE-SLEEP-LOST-ON-RESTART-1@2026-10-03T02:13:00"
-    at: "2026-10-03T02:13:00"
-    outcome: "done"
-    headline: "Closed (soak exit): tonight's 00:37 restart was a natural test. The house stayed in Sleep through the restart: no Away flash, and the HVAC kept the sleep settings."
-    acknowledged: false
-  - fid: "ONBOARDING-SIMPLIFY-1@2026-10-03T02:11:42"
-    at: "2026-10-03T02:11:42"
-    outcome: "measured"
-    headline: "Two more board cards were behind the code. The onboarding simplification shipped in v5.103.36; it now waits only on your second-home setup this weekend. The battery threshold ladder fix shipped in v5.103.35 and passed its live checks; its last piece is parked until a ladder-violation anomaly ever fires (none so far)."
-    acknowledged: false
-  - fid: "ZONE-DIALOGS-CLEANUP-1@2026-10-03T02:10:48"
-    at: "2026-10-03T02:10:48"
-    outcome: "measured"
-    headline: "Two cards were behind the code: the zone dialog cleanup (shipped in v5.103.35 and .36) and the room menu trimmed by room type (shipped in v5.103.35) were still listed as unbuilt. They are now 'shipped, checking'. Each needs one look in the settings UI from you."
-    acknowledged: false
-  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-03T02:10:10"
-    at: "2026-10-03T02:10:10"
-    outcome: "measured"
-    headline: "Reconciled 3 cards the board still showed as 'review': music following, attribute churn and the humidity junk floor all shipped in v5.103.34. They are now 'shipped, checking' with a dispose-by date of 10-10. Each still needs one waking-hours observation (a completed music transfer, an occupied Living Room window, a humidity blip)."
-    acknowledged: false
-  - fid: "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-03T02:09:45"
-    at: "2026-10-03T02:09:45"
-    outcome: "built-to-review"
-    headline: "The boot fan-warning noise fix is already on develop (a841fbc8c). The board had it in inbox, so I moved it to review. It ships with your next deploy."
-    acknowledged: false
-  - fid: "PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-10-03T02:09:43"
-    at: "2026-10-03T02:09:43"
-    outcome: "done"
-    headline: "Closed: the board still said in progress, but it shipped in v5.103.35 and its live check passed."
-    acknowledged: false
-  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-03T02:09:42"
-    at: "2026-10-03T02:09:42"
-    outcome: "done"
-    headline: "Closed after your ack. It shipped in v5.103.34, and the hourly save fired at 06:37Z, exactly 1 h after boot. The README check was wrong as written: the saved timestamp is the last-sample time, not the save time."
-    acknowledged: false
-  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-03T02:09:41"
-    at: "2026-10-03T02:09:41"
-    outcome: "measured"
-    headline: "The Sonoff garage-porch log flood is still running (~96 errors/hour since the restart). It now comes from the _l2 channel too, so set delayed_power_on_time on BOTH channels in Zigbee2MQTT."
-    acknowledged: false
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-03T02:09:40"
-    at: "2026-10-03T02:09:40"
-    outcome: "measured"
-    headline: "Frigate2 person detection has been dark for ~34 hours (nothing since 10-01 16:00). Its motion detection and UniFi Protect person detection are still working, so the house is not fully blind. Restarting Frigate2/Coral is still needed (your action)."
-    acknowledged: false
-  - fid: "EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1@2026-10-03T02:09:38"
-    at: "2026-10-03T02:09:38"
-    outcome: "done"
-    headline: "Closed as disproven: the charger flapping was not caused by the battery reading dropping out (13 of 14 turn-ons happened while the Envoy was reporting). The real cause has a new card."
-    acknowledged: false
-  - fid: "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1@2026-10-03T02:09:37"
-    at: "2026-10-03T02:09:37"
-    outcome: "escalated"
-    headline: "New card: the 10-01 EV charger flapping (31 switch events) was a feedback loop in the battery strategy, not the Envoy dropping out. Pausing the car flipped the decision back. It fired on 1 night in 10. Tier 3, so it waits for your APPROVE to plan. Also checked: no breaker risk that night (grid charging was not actually on)."
-    acknowledged: false
-  - fid: "EC-DEGRADED-DATA-POLICY-1@2026-10-03T02:09:36"
-    at: "2026-10-03T02:09:36"
-    outcome: "escalated"
-    headline: "Energy dropout policy: the investigation is finished (the attended session ran the one-week measurement tonight). Most proposed fixes failed the evidence test, mainly because the cloud battery reading can freeze while looking fresh. Your call on 3 short questions in the design doc; the likely answer is that no build is needed now."
-    acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
   organic_evidence_2026_10_07: "SOAK EXIT -> DONE. Live acceptance met: URA DB energy_state rows battery_soc_lkg / solar_production_w_lkg / wv_commanded_ledger / wv_verified_records / arbitrage_chunk_latch ALL updated_at 2026-10-07T06:55:40Z (were frozen at 2026-07-23 22:09Z). Query: ssh ha sqlite3 -readonly ... select key, updated_at from energy_state."
@@ -31048,11 +30893,12 @@ cards:
   reconcile_2026_10_10_overnight: "Lane OK (shipped_organic, v5.103.47). The old next (builder instructions) was stale - the build shipped. v5.103.47 is installed on HA (manifest v5.103.47) but not loaded: no HA restart since 10-09 11:27."
   title: Count a resident once when their name arrives with a space ("oji udezue") and an underscore ("oji_udezue")
   thread: census
-  status: shipped_organic
+  disposed_2026_10_11_overnight: "DONE (soak exit, discriminator met). URA DB census_snapshots zone=house, hourly (UTC): the name pair ['oji udezue','oji_udezue'] appears through the 10-10 14Z hour, then from 15Z on every snapshot holds exactly one form per resident ('oji_udezue'; ~700 snapshots to 10-11 07Z). house_state_log: last GUEST row 10-10 14:10Z; 0 GUEST rows since (~17 h, including the 22-23Z evening window that flipped twice on 10-08, and a 22Z hour with unidentified_count up to 3 that did NOT flip). Caveat recorded, not blocking: the 11-15Z daytime band (where 10-09/10-10 flipped) has not yet recurred post-fix; the mechanism itself (two forms in the union) is gone, which is the discriminating observation."
+  status: done
   shipped_version: v5.103.47
   tier: 1
   created: "2026-10-09 12:40"
-  updated: "2026-10-10 03:15"
+  updated: "2026-10-11 02:10"
   origin: "Census clean replay 2026-10-09 (CENSUS-INPUTS-FIRST-1 clean_replay_2026_10_09): 6/6 GUEST triggers false, all from this double-count."
   why: "_canonical_person_slug (camera_census.py:3462) lowercases and splits on '_' only. 'oji udezue' misses direct and first-token match and is returned verbatim, so the union holds two names for one person -> identified_count +1 -> GUEST."
   next: "Me, after your next daytime restart: check sensor attributes for identified_persons holding one name form per resident, and re-run the 10-08 replay window (shared with CENSUS-INPUTS-FIRST-1). 0 GUEST flips from the name pair -> done."
@@ -31067,11 +30913,12 @@ cards:
   plan_rev3_2026_10_05_overnight: "Plan Rev 3 committed 71ebf52e5 (ura-planner applied every review finding: R3.1 unset-neighbour fallback byte-identical for both callers transit_validator.py:1253/:1745; R3.3 REUSE camera_resolver _strip_disambiguation_suffix :291 / _strip_suffix :305, five _extract_camera_stem callers camera_census.py:797, transit_validator.py:1242/:1258/:1733/:1975; R3.4 entry attach ships, 7-day DB measurement; R3.5 INV-INPUTS-R2; R3.6 peak_person_count with replay reader or defer). R3.15 records two reviewer citation slips (backfill UPDATE has no direction clause - direction enforced by the exit-only SELECT database.py:4099; line offsets 1-10). Orchestrator spot-checked R3.1."
   plan_review_2026_10_05_overnight: "PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger write (transit_validator.py:1873-1886), census register/evict (:1835), arrival notifications (:1807) and identity (:1235) - on Wigton or before the field is filled, door logging would silently stop; fix = unset map falls back to today's all-interior list. HIGH-1 consumer table wrong (AMBIGUOUS rows never exist; BLE entry admission is an in-memory leg cache camera_census.py:4497; persons sensors read the DB only at restore sensor.py:4559). HIGH-2 stem fix must REUSE _strip_suffix/_strip_disambiguation_suffix (camera_census.py:712-720) / camera_resolver._has_any_suffix_stripped (:317), _active_count_2 does not exist, _person_count_2 missing, 5 callers of _extract_camera_stem not 1 (camera_census.py:797, transit_validator.py:1242, :1258, :1975). HIGH-3 entry BLE attach already ships (verified by me; EGRESS-BLE-ENTRY-ATTACH-1 closed REFUTED with DB evidence: 0/45 named entries from _2 cameras vs 75/153 unnamed). HIGH-4 INV-INPUTS never restated after Rev 2 -> not falsifiable. MED: peak_person_count migration/sampling/no reader (Bug Class #53); CONF_MAIN_ENTRY_DOOR has no consumer this cycle; options-flow shape unspecified; 30 s door dedup round-trip loss. LOW: OP-1 blocks only D2/D4; fixture naming; REUSE table not updated."
   title: Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay
+  disposed_2026_10_11_overnight: "DONE (soak exit, discriminator met - see CENSUS-NAME-SPACE-DEDUP-1 disposed_2026_10_11_overnight for the query). Post-fix: one name form per resident since 10-10 15Z and 0 GUEST flips since 10-10 14:10Z (~17 h). Per this card's own branch rule ('Clean -> estimator GO'), the estimator is GO. The estimator is a DIFFERENT problem statement (build the head-count estimator, not fix its inputs), so per retire-and-relink it gets its own card: CENSUS-OCCUPANCY-ESTIMATOR-1 (pre_planning, blocked_by CENSUS-GROUND-TRUTH-CSV-FIX-1 because the replay that scores it needs the corrected truth file). Side finding for CENSUS-SHUTDOWN-AWAY-FENCE-1 (now unblocked): house_state_log shows 'away' via census_update at 10-10 16:18:30Z, followed 1 min later by arriving/home_day - consistent with the boot-tick AWAY that card describes, at the ~11:18 CDT restart."
   thread: census
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.39
   created: '2026-10-05 02:22'
-  updated: "2026-10-10 03:15"
+  updated: "2026-10-11 02:10"
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-10-03 ("Fix census INPUTS before building the hybrid estimator, then re-run D0-REPLAY")'
@@ -31094,7 +30941,7 @@ cards:
   refs: [docs/planning/PLANNING_census_inputs_first.md, docs/planning/PLANNING_census_occupancy_estimator.md, docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/AUDIT_census_subsystem_2026_10_04.md, docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md, memory project_session_pickup_2026_10_04]
   links:
     related: [CENSUS-ACCURACY-1, EGRESS-BLE-ENTRY-ATTACH-1, CENSUS-ATHOME-RESIDENT-CORROBORATOR-1, CENSUS-GROUND-TRUTH-CSV-FIX-1, CENSUS-PATIO-THROUGH-GLASS-1]
-    blocks: [CENSUS-SHUTDOWN-AWAY-FENCE-1]
+    blocks: [CENSUS-SHUTDOWN-AWAY-FENCE-1, CENSUS-OCCUPANCY-ESTIMATOR-1]
     context: 'Parent of the inputs-first follow-ups minted 10-05 from the 10-04 memo; CENSUS-ACCURACY-1 is the older interior-accuracy card (adjacent, not merged: different surface - decay vs guest hysteresis). The AWAY fence is sequenced after this cycle per the memo.'
   sweep_2026_10_05: 'Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.'
 - id: EGRESS-BLE-ENTRY-ATTACH-1
@@ -31173,10 +31020,36 @@ cards:
   refs: [docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/PLANNING_census_inputs_first.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
-    blocks: [CENSUS-INPUTS-FIRST-1]
-    context: 'The parent re-runs the replay against this fixture.'
+    blocks: [CENSUS-OCCUPANCY-ESTIMATOR-1]
+    context: 'The 10-03 replay re-run against this fixture is the estimator gate. Re-pointed 2026-10-11 from CENSUS-INPUTS-FIRST-1 (closed done on its own discriminator - the 10-08/09 window) to CENSUS-OCCUPANCY-ESTIMATOR-1, which is where the 10-03 replay now lives.'
   sweep_2026_10_05: 'No fixture/CSV card on the board. NEW.'
+- id: CENSUS-OCCUPANCY-ESTIMATOR-1
+  title: Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed
+  thread: census
+  status: pre_planning
+  created: "2026-10-11 02:15"
+  updated: "2026-10-11 02:15"
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-2db, measure-before-build, institutional-context, no-fabrication-verify]
+  rank: {value: 7, time_criticality: 3, effort: 8, foundational: 6}
+  problem_solution:
+  - 'Problem: the house head-count still mixes up residents and guests, which is what pushes the house into guest mode by mistake; the better estimator was designed (held camera count plus a de-duplicated door tally, with a separate "guests present" flag) but was put on hold until its inputs were fixed. Those inputs are now fixed and confirmed. Solution: re-run the 10-03 replay against a corrected answer key, and if it passes, build the estimator from the existing plan.'
+  origin: {date: '2026-10-11', gist: 'Overnight disposition of CENSUS-INPUTS-FIRST-1: its own rule said "Clean -> estimator GO"; the discriminator came back clean, so the estimator gets its own card (retire-and-relink).'}
+  why: 'The estimator plan (PLANNING_census_occupancy_estimator.md, round 6, 2026-10-04) has been sitting with no card since the inputs-first arc took over; without a card it is invisible to ranking.'
+  constraints:
+  - 'Read docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md and HVAC_ARCHITECTURE_STATE_OF_PLAY.md (guest flag flows to HVAC) before any plan edit.'
+  - 'The plan predates the inputs-first fixes (v5.103.39 / v5.103.47): re-verify it against current code before any build - its REUSE citations may have moved.'
+  - 'Replay gate is scored against quality/tests/fixtures/census_ground_truth_2026_10_03.csv, which still needs the operator answer on CENSUS-GROUND-TRUTH-CSV-FIX-1.'
+  next: 'Waits on CENSUS-GROUND-TRUTH-CSV-FIX-1 (operator ANSWER on the 10-03 departure timeline). Then me: fix the fixture, re-run the 10-03 replay with the hybrid formula, and re-verify the plan against current code; replay passes -> plan review then build (Tier 2-DB, three reviews).'
+  refs: [docs/planning/PLANNING_census_occupancy_estimator.md, docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/PLANNING_census_inputs_first.md]
+  links:
+    blocked_by: [CENSUS-GROUND-TRUTH-CSV-FIX-1, CENSUS-INPUTS-FIRST-1]
+    related: [CENSUS-ACCURACY-1, CENSUS-SHUTDOWN-AWAY-FENCE-1, EGRESS-INTERIOR-COUNT-REINFORCE-1]
+    context: 'CENSUS-INPUTS-FIRST-1 (done) fixed the inputs; the CSV card fixes the answer key the replay is scored against. EGRESS-INTERIOR-COUNT-REINFORCE-1 is folded into the estimator plan per its header. CENSUS-ACCURACY-1 is the older interior decay card (adjacent).'
+  sweep_2026_10_11: 'Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.'
 - id: CENSUS-SHUTDOWN-AWAY-FENCE-1
+  unblocked_2026_10_11_overnight: "UNBLOCKED - CENSUS-INPUTS-FIRST-1 closed done tonight. Fresh instance (URA DB house_state_log, UTC): 10-10 16:18:30Z away (trigger census_update) -> 16:22:50Z arriving -> 16:23:52Z home_day (deferred_retry), at the ~11:18 CDT restart that loaded v5.103.47/48; residents were home (census_snapshots 16Z shows identified 'ezinne'/'oji_udezue'). Still systemic. Planning dispatched tonight (plan + one adversarial plan review; build waits for review of the plan)."
   measured_2026_10_06_overnight: "MECHANISM WIDENED - it is SYSTEMIC, not a 10-03 one-off. One-shot recorder probe (homeassistant_start events, last 30 days = 21 boots, vs sensor.ura_presence_coordinator_presence_house_state and person.*): a false AWAY with residents home (person.* = home) follows almost EVERY boot - 23 episodes across 18 of 21 boots, typically 0.3-8 min, recovering via away -> arriving -> home_*; the 10-03 16:00 boot is the outlier that stuck 62.1 min. It also fires from sleep (09-29 03:03 sleep->away 3.5 min, 09-28 23:39 sleep->away 0.8 min, 10-01 09:34 sleep->away 0.4 min) and from guest (09-30 07:50). Last night's v5.103.40 boot: home_evening->away 19:12:02 for 0.3 min with 3 residents home. So the harm window opens on every deploy/restart; the 62-min stick is the rare tail. Code lead (not yet proven): the first inference tick sees census_count==0 and no zone occupied (inputs not yet populated) and takes the 'Nobody home' branch presence.py:1110-1115; the boot-restore defer exists (presence.py:2296-2382) but evidently does not hold this transition. Exit: CONFIRMED (systemic boot AWAY) -> pre_planning. Probe script: ssh ha python3 over /config/home-assistant_v2.db read-only (events homeassistant_start + states by metadata_id)."
   rank: {"value": 6, "time_criticality": 5, "effort": 3}
   measured_2026_10_05_overnight: "MECHANISM NARROWED - it is BOOT, not shutdown. HA recorder: sensor.ura_presence_coordinator_presence_house_state (and the CM mirror) went home_day -> away at 20:57:56Z (15:57:56 CDT), the FIRST recorder write after a 4-min HA gap (sensor.frigate_uptime_2 rows stop 20:53:44, resume 20:57:56; Frigate kept counting, so HA restarted, not the cameras). AWAY then held for 62 min with the party in the house, and cleared only after the NEXT restart (gap 21:55:02-21:59:09Z): away -> arriving 21:59:55 and arriving -> home_day 22:00:56, both trigger=deferred_retry (ura_activity_log). No presence house_state_change row was written for the boot-time home_day -> away at all (ura_activity_log 18:00-22:05Z has only the two recovery rows) - the boot path sets state without the transition log. Harm in that hour was limited: no hvac preset_change / climate_write and no security rows 20:57-21:56Z; rooms kept running lights normally (occupancy entry/exit 40 rows). Open: why boot inferred away, why no exit for 62 min while rooms reported occupancy, and whether this repeats at other boots. Core logs for that boot are gone (journald holds ~4 h, see RECORDER-BLOAT-LOGFLOOD-1)."
