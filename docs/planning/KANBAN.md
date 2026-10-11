@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T02:08:48-05:00_ - _Data commit: `78d96e10dbe5`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-11T02:09:46-05:00_ - _Data commit: `45989bd70b4f`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
@@ -333,7 +333,8 @@ _created 2026-10-07 03:05 · updated 2026-10-10 02:40 · initial_
 - **Tags:** config-only
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `verified_2026_10_11_overnight`: Re-verified 02:05 CDT: lock.doorlock_kwikset_zwave_frontentry still unavailable; URA security still logs 'Periodic lock check: 1 device(s) unavailable' (system_log 10-11 01:48 CDT). Operator action still needed.
   - `reverified_2026_10_10_overnight`: Still open: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed = the 10-09 11:27 restart); URA security periodic lock check logged it unavailable at 01:30 CDT. Batteries not swapped yet.
   - `reverified_2026_10_09_overnight`: Still open: lock.doorlock_kwikset_zwave_frontentry unavailable through the whole 48 h recorder window (02:01 10-07 -> 02:01 10-09). Batteries not swapped yet.
   - `checked_2026_10_08_overnight`: Lock still unavailable at 02:05 CDT 10-08 (REST: state unavailable, restored, last_changed 10-06 19:41Z), so the batteries have not been swapped yet. ON THE SWEEP QUESTION (read security.py:1668-1760, _evaluate_lock_check): URA's periodi...
@@ -348,7 +349,8 @@ _created 2026-10-05 · updated 2026-10-10 02:40 · refined_
 - **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
 - **Next:** APPROVE: I back up configuration.yaml and delete its http: block (lines 87-93; the UI already holds all four proxies), then after your next normal restart I confirm the two http repairs are gone and the PWA / remote access still loads. (...
 - **Tags:** tier-1, multi-home
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `verified_2026_10_11_overnight`: Re-verified 02:05 CDT: configuration.yaml lines 87-93 still hold the http: block (use_x_forwarded_for + 4 trusted_proxies). Approval still needed; no edit made overnight (config change in a sleeping house).
   - `reverified_2026_10_10_overnight`: Still open: configuration.yaml lines 87-93 still hold the http: block; mtime 2026-09-28.
   - `reverified_2026_10_09_overnight`: Still open: /config/configuration.yaml lines 87-93 still carry the http: block (use_x_forwarded_for + 4 trusted_proxies); the file mtime is 2026-09-28.
   - `verified_2026_10_08_overnight`: CARD-WAS-WRONG (timing) + ALREADY-DONE (migration). HA 2026.10.0 is now offered (update.home_assistant_core_update latest 2026.10.0, installed 2026.9.4). The 2026.10 release notes say nothing about http. The http integration docs say the...
@@ -407,7 +409,8 @@ _created 2026-10-05 · updated 2026-10-10 02:40_
 - **Why:** Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Gara...
 - **Next:** DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back.
 - **Tags:** tier-1, config-first
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `verified_2026_10_11_overnight`: Re-verified 02:05 CDT: all screek_bp1_b entities (distance sensors, buttons) still unavailable. Operator action still needed.
   - `reverified_2026_10_10_overnight`: Still open: Screek BP1_B still unavailable (button.screek_bp1_b_factory_reset unavailable since the 10-09 11:23 restart).
   - `reverified_2026_10_09_overnight`: The "which room is Screek BP1_B in" ANSWER appears to be done: its entities (button.screek_bp1_b_factory_reset / _safe_mode_boot) now carry area = Study A. BUT the device is UNAVAILABLE (both buttons unavailable; sensor.jaya_bedroom_ipho...
   - `reverified_2026_10_05_overnight`: New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-...
@@ -430,7 +433,8 @@ _created 2026-08-20 14:15 · updated 2026-10-10 02:25 · initial_
 - **Next:** PICK for the biggest remaining flood (WattBox, ~110 events/h x4 lines): (A) I back up configuration.yaml and add a logger: block setting pywattbox and custom_components.wattbox to error (config only, takes effect at your next normal rest...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (26):**
+- **Forensic keys (27):**
+  - `verified_2026_10_11_overnight`: Re-verified 02:00 CDT: WattBox flood still live - ha_get_logs error_log structured, 2-min window 01:59:50-02:01:54: pywattbox.http x3 lines + custom_components.wattbox 'No outlets available in client', 4 each (~120/h per line). Pick stil...
   - `remeasured_2026_10_10_overnight`: PROXMOX + BOND FLOODS RESOLVED (unexplained), second night running. ha_get_logs error_log (journald now reaches back ~3.5 h, 10-09 22:35 -> 10-10 02:03): 0 InsecureRequestWarning lines and 0 homeassistant.components.bond lines; neither a...
   - `remeasured_2026_10_09_overnight`: The PROXMOX FLOOD IS ABSENT in every window I sampled, but the reason is unknown, so this is not yet a close. ha_get_logs error_log searches for InsecureRequestWarning / "Unverified HTTPS" / proxmox found 0 lines at offsets 0, 10000 and ...
   - `reverified_2026_10_08_overnight`: Not actioned yet: /config/configuration.yaml has no logger: block (grep 02:30 CDT), so no InsecureRequestWarning filter exists. PICK still needed. LOG-READ GAP: the home-assistant MCP could not connect tonight (CONNECTION_FAILED to 192.1...
@@ -468,7 +472,8 @@ _created 2026-09-29 04:20 · updated 2026-10-10 02:40 · initial_
 - **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
 - **Tags:** tier-1, found-during-probe, config-first
 - **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `verified_2026_10_11_overnight`: Re-verified 02:05 CDT: switch.exercise_room_automation still off (last_changed 10-10 14:48 CDT, a restart restore). Operator answer still needed.
   - `reverified_2026_10_10_overnight`: Still open: switch.exercise_room_automation off (last_changed 10-09 11:23 = restart restore).
   - `reverified_2026_10_09_overnight`: Still open: switch.exercise_room_automation = off at 02:05 CDT 10-09 (no change in 48 h of recorder history; last_changed is the 10-08 17:21 restart restore).
   - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
