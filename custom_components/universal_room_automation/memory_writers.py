@@ -82,9 +82,10 @@ def _db(hass: Any):
 
 
 # Per-writer-name rate-limit for swallowed-schedule WARNINGs. Reset only
-# on process restart. Keyed by the `name=` passed to _schedule so each
-# writer (phantom_retro / away_block / tracker_trust / house_state /
-# fan_recheck_outcome) warns exactly once per boot about a failing path.
+# on process restart. Keyed by the WRITER PREFIX (the part of the name
+# before ``:``) so each writer family (phantom_retro / away_block /
+# tracker_trust / house_state / fan_recheck_outcome) warns exactly once
+# per boot about a failing path — not once per room/person/transition.
 _SCHEDULE_WARNED: set[str] = set()
 
 
@@ -106,8 +107,13 @@ def _schedule(hass: Any, coro, *, name: str = "ura_memory_writer") -> None:
         else:
             hass.async_create_task(coro)
     except Exception:  # noqa: BLE001 — defensive
-        if name not in _SCHEDULE_WARNED:
-            _SCHEDULE_WARNED.add(name)
+        # Key the warn-once set by writer PREFIX (before the first ``:``),
+        # so one failing writer family doesn't log N warnings on the first
+        # boot (one per room / person / transition). The suffix is retained
+        # in the message for diagnostics.
+        prefix = name.split(":", 1)[0] if name else "ura_memory_writer"
+        if prefix not in _SCHEDULE_WARNED:
+            _SCHEDULE_WARNED.add(prefix)
             _LOGGER.warning(
                 "memory_writers: schedule(%s) failed; episode dropped "
                 "(further failures for this writer logged at debug this boot)",
@@ -700,6 +706,7 @@ def write_fan_recheck_outcome(
     manual_fan_on_followup: Optional[bool] = None,
     house_state: Optional[str] = None,
     at: Optional[datetime] = None,
+    source_ref_suffix: str = "",
 ) -> None:
     """Emit a ``fan_recheck_outcome`` episode (room node, observational).
 
@@ -745,7 +752,10 @@ def write_fan_recheck_outcome(
             )
         if house_state:
             attrs["house_state"] = str(house_state)
-        source_ref = f"fan_recheck_outcome:{room_slug}:{_at.isoformat()}"
+        source_ref = (
+            f"fan_recheck_outcome:{room_slug}:{_at.isoformat()}"
+            f"{source_ref_suffix}"
+        )
         _LOGGER.info(
             "fan_recheck_outcome: room=%s verdict=%s restored=%s "
             "manual_fan_on_followup=%s house_state=%s",

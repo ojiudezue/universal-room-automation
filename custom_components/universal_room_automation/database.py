@@ -10401,6 +10401,23 @@ class UniversalRoomDatabase:
         )
         try:
             now = datetime.now(timezone.utc)
+            # Fix-up #7: cadence timestamp persists across restarts via the
+            # existing energy_state key/value table — so a nightly restart
+            # cannot re-fire the trip-wire every day. The RAM cache is a
+            # best-effort fast-path; on first call per boot we rehydrate
+            # from the DB.
+            if self._last_memory_writer_health_check_ts is None:
+                try:
+                    stored = await self.restore_energy_state(
+                        "memory_writer_health_last_run_ts",
+                    )
+                    if stored is not None:
+                        self._last_memory_writer_health_check_ts = float(stored)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "memory_writer_health: rehydrate last-run ts failed",
+                        exc_info=True,
+                    )
             if (
                 triggered_by == "nightly"
                 and self._last_memory_writer_health_check_ts is not None
@@ -10447,6 +10464,17 @@ class UniversalRoomDatabase:
                 return None
 
             self._last_memory_writer_health_check_ts = now.timestamp()
+            # Fix-up #7: persist across restart.
+            try:
+                await self.save_energy_state(
+                    "memory_writer_health_last_run_ts",
+                    str(self._last_memory_writer_health_check_ts),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "memory_writer_health: persist last-run ts failed",
+                    exc_info=True,
+                )
             zero_types = sorted(
                 t for t, n in counts.items() if n == 0
             )

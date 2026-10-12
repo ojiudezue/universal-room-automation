@@ -1156,36 +1156,15 @@ def test_fan_recheck_outcome_registered_in_vocabulary():
     assert "fan_recheck_outcome" in MEMORY_EPISODE_TYPES
 
 
-def test_fan_recheck_outcome_wire_in_at_restore_site():
-    """Wire-in drill — the writer MUST be called from the enclosing
-    ``_restore`` method of ``FanRecheckManager``. We parse the source
-    and assert a call to ``_write_fan_recheck_outcome`` (or
-    ``write_fan_recheck_outcome``) occurs inside the ``_restore``
-    function body. Pure AST — no runtime HA needed.
-    """
-    import ast as _ast
-    src_path = _URA_DIR / "domain_coordinators" / "presence_fan_recheck.py"
-    tree = _ast.parse(src_path.read_text(encoding="utf-8"))
-    found = False
-    for node in _ast.walk(tree):
-        if (
-            isinstance(node, (_ast.AsyncFunctionDef, _ast.FunctionDef))
-            and node.name == "_restore"
-        ):
-            # Any Call node inside _restore mentioning the writer name.
-            for sub in _ast.walk(node):
-                if isinstance(sub, _ast.Call):
-                    func = sub.func
-                    name = (
-                        getattr(func, "attr", None)
-                        or getattr(func, "id", None)
-                        or ""
-                    )
-                    if "write_fan_recheck_outcome" in name:
-                        found = True
-                        break
-    assert found, (
-        "D2 wire-in regressed — _restore in presence_fan_recheck.py must "
-        "call write_fan_recheck_outcome (via async_call_later follow-up "
-        "probe or directly)."
-    )
+# NOTE (MEMORY-WRITERS-SILENT-DROP-1 fix-up #1): the former
+# ``test_fan_recheck_outcome_wire_in_at_restore_site`` was a pure AST
+# scan — it proved only that the writer NAME appeared somewhere inside
+# the ``_restore`` function body, not that the writer actually fires
+# with the right payload when ``_restore`` is driven. It is replaced by
+# behavioural + mutation drills in
+# ``test_fan_recheck_memory_outcome.py``, which load the real
+# ``FanRecheckManager``, drive ``_restore`` through all four verdict
+# shapes (vacated / occupied / forced / cancel-driven), and assert the
+# emitted mem row's verdict / reason / fan_restored / timestamp. A call
+# whose production source stops reaching the writer turns one of those
+# tests red; the AST scan would have remained green.

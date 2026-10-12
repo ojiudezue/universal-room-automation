@@ -93,6 +93,11 @@ STATE_COOLDOWN = "cooldown"
 
 OUTCOME_VACATED = "vacated"
 OUTCOME_OCCUPIED_CONFIRMED = "occupied_confirmed"
+# MEMORY-WRITERS-SILENT-DROP-1 fix-up #4: a terminal cycle that aborted
+# after real ARMING (no verdict reached). Emitted ONLY from ARMED-path
+# cancel sites; PAUSED-path cancels still produce an occupied_confirmed
+# verdict via `_restore` (so no double row).
+OUTCOME_ABORTED = "aborted"
 
 LAYER_L1 = "L1"
 LAYER_L2 = "L2"
@@ -187,6 +192,11 @@ class FanRecheckManager:
         # C4 Rev 2: rooms already WARNed for an unresolved sensor family
         # (once per room per boot).
         self._family_warned: set[str] = set()
+        # MEMORY-WRITERS-SILENT-DROP-1 fix-up #2: follow-up probe
+        # async_call_later unsubs. Captured so `shutdown()` can cancel
+        # them (the state-machine timer lives on ``ctx.timer_unsub``;
+        # these are separate one-shot probes scheduled after a verdict).
+        self._followup_timer_unsubs: list[Any] = []
 
     # ---- observability helpers --------------------------------------------
 
@@ -220,6 +230,42 @@ class FanRecheckManager:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("fan_recheck activity_log failed", exc_info=True)
+
+    def _emit_aborted_mem(
+        self, ctx: _RoomCtx, reason: str,
+    ) -> None:
+        """Fix-up #4: write one `fan_recheck_outcome` row with
+        verdict=aborted at ARMED-path cancel sites (where no verdict is
+        reached). Rate-bound BY CONSTRUCTION — only fires after a real
+        arming, so it inherits the same max-per-hour + cooldown envelope
+        as any live recheck. Never raises.
+        """
+        try:
+            from ..memory_writers import (
+                write_fan_recheck_outcome as _write_fan_recheck_outcome,
+            )
+            try:
+                from ..const import FAN_RECHECK_OUTCOME_WRITER_ENABLED
+            except Exception:  # noqa: BLE001
+                FAN_RECHECK_OUTCOME_WRITER_ENABLED = True  # type: ignore
+            if not FAN_RECHECK_OUTCOME_WRITER_ENABLED:
+                return
+            house_state_now = getattr(self._presence, "house_state", None)
+            _write_fan_recheck_outcome(
+                self.hass,
+                room_name=ctx.room_name,
+                verdict=OUTCOME_ABORTED,
+                reason=reason,
+                fan_restored=None,
+                manual_fan_on_followup=None,
+                house_state=house_state_now,
+                at=dt_util.now(),
+            )
+        except Exception:  # noqa: BLE001 — observational
+            _LOGGER.debug(
+                "FanRecheck %s: aborted mem write skipped",
+                ctx.room_name, exc_info=True,
+            )
 
     def _schedule_activity(
         self,
@@ -290,7 +336,21 @@ class FanRecheckManager:
                         "ble_ladder_layer": ctx.ble_ladder_layer,
                     },
                 )
+                # Fix-up #4: durable aborted mem row for a cycle that
+                # arrested at shutdown without a verdict.
+                self._emit_aborted_mem(
+                    ctx, reason=f"shutdown_in_{ctx.state}",
+                )
             await self._persist(ctx)
+        # Fix-up #2: cancel every outstanding follow-up probe. Untracked
+        # probes would survive teardown and fire ~5 min later against a
+        # stale hass -> orphan write / warn-once churn.
+        for unsub in list(self._followup_timer_unsubs):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._followup_timer_unsubs.clear()
         _LOGGER.info("FanRecheck: shutdown — %d rooms persisted", len(self._rooms))
 
     def on_room_tick(self, room_coord: Any) -> None:
@@ -688,6 +748,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="arm_expired_no_room_coord")
             await self._enter_cooldown(ctx)
             return
         # Cancellation re-evaluation: if conditions no longer hold, abandon.
@@ -704,6 +765,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="arm_expired_ineligible")
             await self._enter_cooldown(ctx)
             return
         await self._enter_paused(ctx, room_coord)
@@ -763,6 +825,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="no_managed_fan")
             await self._enter_cooldown(ctx)
             return
 
@@ -906,7 +969,19 @@ class FanRecheckManager:
                 write_fan_recheck_outcome as _write_fan_recheck_outcome,
             )
 
-            def _emit(manual_followup: Optional[bool]) -> None:
+            # Fix-up #2 + #3: write the verdict row IMMEDIATELY at verdict
+            # time (NOT 5 min later from the probe path) with
+            # ``manual_fan_on_followup=None`` and ``at=verdict_at`` — the
+            # row carries the verdict's own timestamp regardless of probe
+            # scheduling or restart. The follow-up probe writes a SEPARATE
+            # second row (distinct source_ref via ``:followup`` suffix)
+            # with the sampled manual_fan_on_followup bool.
+            verdict_at = dt_util.now()
+
+            def _emit(
+                manual_followup: Optional[bool],
+                *, suffix: str = "",
+            ) -> None:
                 _write_fan_recheck_outcome(
                     self.hass,
                     room_name=ctx.room_name,
@@ -917,7 +992,12 @@ class FanRecheckManager:
                     fan_restored=_fan_restored,
                     manual_fan_on_followup=manual_followup,
                     house_state=house_state_now,
+                    at=verdict_at,
+                    source_ref_suffix=suffix,
                 )
+
+            # Verdict row — immediate.
+            _emit(None)
 
             # If the writer is disabled upstream nothing lands; also skip
             # scheduling the follow-up probe in that case for parsimony.
@@ -933,13 +1013,18 @@ class FanRecheckManager:
                         )
                     except Exception:  # noqa: BLE001
                         manual_hold = None
-                    _emit(manual_hold)
+                    _emit(manual_hold, suffix=":followup")
 
-                async_call_later(
+                unsub = async_call_later(
                     self.hass,
                     FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN * 60,
                     _followup_probe,
                 )
+                # Fix-up #2: track so shutdown() can cancel. Untracked
+                # async_call_later survives shutdown and can fire after
+                # the manager is torn down (orphan write).
+                if unsub is not None:
+                    self._followup_timer_unsubs.append(unsub)
         except Exception:  # noqa: BLE001 — observational, never raises
             _LOGGER.debug(
                 "FanRecheck %s: fan_recheck_outcome memory write skipped",
@@ -1002,7 +1087,9 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
-            self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
+            self._cancel_and_restore_async(
+                ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="motion",
+            )
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
@@ -1026,9 +1113,13 @@ class FanRecheckManager:
                         "ble_ladder_layer": ctx.ble_ladder_layer,
                     },
                 )
-                self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
+                self._cancel_and_restore_async(
+                    ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="ble_l1",
+                )
 
-    def _cancel_and_restore_async(self, ctx: _RoomCtx, outcome: str) -> None:
+    def _cancel_and_restore_async(
+        self, ctx: _RoomCtx, outcome: str, *, reason: str = "cancel",
+    ) -> None:
         # NOTE (review L1 2026-07-18): PAUSED-path cancellations produce TWO
         # ura_activity_log rows — a `fan_recheck_cancel` (fired at the cancel
         # site) followed by a `fan_recheck_outcome` from `_restore`. This is
@@ -1043,6 +1134,10 @@ class FanRecheckManager:
             # / L1); bump last_attempt_at here so the state row's timestamp
             # reflects the terminal attempt (no PAUSED tail will bump it).
             ctx.last_attempt_at = dt_util.now()
+            # Fix-up #4: durable aborted mem row — ARMED path never
+            # reaches `_restore` so this is the only chance to persist a
+            # terminal mem episode for the cycle.
+            self._emit_aborted_mem(ctx, reason=reason)
             self.hass.async_create_task(self._enter_cooldown(ctx))
         else:
             ctx._cancel_driven = True  # consumed by _restore's outcome row

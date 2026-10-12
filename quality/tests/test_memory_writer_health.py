@@ -66,7 +66,22 @@ def _load_by_path(fq_name, path):
 
 
 # Load const so the method under test can import constants from it.
-_const = _load_by_path(f"{_pkg_name}.const", _URA_DIR / "const.py")
+# Fix-up #5: a sibling test (test_memory_writers.py) also runs this
+# same ``_load_by_path`` against ``const.py`` during ITS module import,
+# which overwrites ``sys.modules[_pkg_name + ".const"]`` with a FRESH
+# module object. If pytest's collection import order puts the sibling
+# AFTER this file, the local ``_const`` captured here points to a stale
+# module while production (``from .const import ...``) resolves to the
+# newer one. Monkeypatching ``_const`` then silently misses.
+#
+# Fix: always resolve ``_const`` from ``sys.modules`` at CALL time, so
+# the test and production share the exact same module object regardless
+# of collection order.
+_load_by_path(f"{_pkg_name}.const", _URA_DIR / "const.py")
+
+
+def _const():  # noqa: N802 — read as attribute, not function in call sites
+    return _sys.modules[f"{_pkg_name}.const"]
 
 
 class _Cursor:
@@ -101,6 +116,9 @@ class _FakeURADatabase:
         self._counts_by_type = counts_by_type
         self.anomaly_events: list = []
         self._last_memory_writer_health_check_ts = None
+        # Fix-up #7: minimal energy_state key/value surface so the
+        # production code's persist/restore round-trip can execute.
+        self._energy_state: dict[str, str] = {}
 
     @asynccontextmanager
     async def _db(self):
@@ -108,6 +126,12 @@ class _FakeURADatabase:
 
     async def save_anomaly_event(self, event):
         self.anomaly_events.append(event)
+
+    async def save_energy_state(self, key: str, value: str) -> None:
+        self._energy_state[key] = value
+
+    async def restore_energy_state(self, key: str):
+        return self._energy_state.get(key)
 
 
 # Bind the real method off the production URADatabase class and invoke
@@ -134,14 +158,14 @@ def _bind_method():
 async def test_zero_row_writer_backed_type_fires_anomaly(caplog):
     run = _bind_method()
     # All writer-backed types return 0 rows.
-    counts = {t: 0 for t in _const.MEMORY_WRITER_BACKED_EPISODE_TYPES}
+    counts = {t: 0 for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES}
     db = _FakeURADatabase(counts)
     with caplog.at_level(logging.WARNING):
         stats = await run(db, cadence_days=7, triggered_by="nightly")
     assert stats is not None
     expected = sorted(
-        t for t in _const.MEMORY_WRITER_BACKED_EPISODE_TYPES
-        if t not in _const.MEMORY_WRITER_HEALTH_EXEMPT_TYPES
+        t for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES
+        if t not in _const().MEMORY_WRITER_HEALTH_EXEMPT_TYPES
     )
     assert stats["zero_row_types"] == expected
     # One anomaly event per silent writer.
@@ -161,7 +185,7 @@ async def test_zero_row_writer_backed_type_fires_anomaly(caplog):
 @pytest.mark.asyncio
 async def test_nonzero_writer_backed_type_does_not_fire(caplog):
     run = _bind_method()
-    counts = {t: 3 for t in _const.MEMORY_WRITER_BACKED_EPISODE_TYPES}
+    counts = {t: 3 for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES}
     db = _FakeURADatabase(counts)
     with caplog.at_level(logging.WARNING):
         stats = await run(db, cadence_days=7, triggered_by="nightly")
@@ -175,11 +199,11 @@ async def test_exempt_type_with_zero_rows_does_not_fire(monkeypatch):
     run = _bind_method()
     # Pick one real writer-backed type and exempt it; set its count to 0
     # and give the others nonzero rows. Expectation: no anomaly fires.
-    writer_types = list(_const.MEMORY_WRITER_BACKED_EPISODE_TYPES)
+    writer_types = list(_const().MEMORY_WRITER_BACKED_EPISODE_TYPES)
     assert writer_types, "test precondition"
     exempt_type = writer_types[0]
     monkeypatch.setattr(
-        _const, "MEMORY_WRITER_HEALTH_EXEMPT_TYPES",
+        _const(), "MEMORY_WRITER_HEALTH_EXEMPT_TYPES",
         frozenset({exempt_type}),
     )
     counts = {t: 5 for t in writer_types}
@@ -194,7 +218,7 @@ async def test_exempt_type_with_zero_rows_does_not_fire(monkeypatch):
 @pytest.mark.asyncio
 async def test_cadence_guard_skips_repeat_within_window():
     run = _bind_method()
-    db = _FakeURADatabase({t: 1 for t in _const.MEMORY_WRITER_BACKED_EPISODE_TYPES})
+    db = _FakeURADatabase({t: 1 for t in _const().MEMORY_WRITER_BACKED_EPISODE_TYPES})
     first = await run(db, cadence_days=7, triggered_by="nightly")
     assert first is not None
     second = await run(db, cadence_days=7, triggered_by="nightly")
