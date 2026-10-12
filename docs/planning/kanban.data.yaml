@@ -19069,6 +19069,25 @@ cards:
   refs:
   - README_v5.59.0.md
   updated: 2026-08-17 23:30
+- id: MEMORY-WRITERS-SILENT-DROP-1
+  title: 3 of 4 v5.78 memory writers have never written a row — _schedule drops the coroutine
+  rank: {value: 7, time_criticality: 3, effort: 1}
+  status: planned
+  updated: '2026-10-11 21:00'
+  thread: memory
+  created: 2026-10-11 21:00
+  problem: phantom_retro, tracker_trust_excluded and house_state_transition have 0 rows in
+    memory_episodes since v5.78.0 (away_transition_blocked, which doesn't use _schedule, has 362).
+    memory_writers._schedule calls hass.async_create_background_task(coro) without the required
+    `name` arg (HA signature (target, name, eager_start=True)) -> TypeError swallowed by the bare
+    except -> coro.close(). Silent by construction. Tests presumably use a fake hass whose
+    background-task stub takes one arg (hollow fake, Bug Class #62-adjacent).
+  origin: 2026-10-11 operator "investigate our room memory infrastructure ... how useful". Found
+    by orchestrator via live DB count + HA signature check.
+  next: Tier 1 — pass a name to async_create_background_task (or use hass.async_create_task),
+    log the swallowed exception at warning, and make the test fake enforce the real signature;
+    drill. Live check = >=1 house_state_transition row within an hour of restart.
+  refs: custom_components/universal_room_automation/memory_writers.py:82-93
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
