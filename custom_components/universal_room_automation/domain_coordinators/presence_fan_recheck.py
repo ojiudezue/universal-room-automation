@@ -45,6 +45,8 @@ from ..const import (
     CONF_FAN_RECHECK_WINDOW_S,
     CONF_FANS,
     CONF_MMWAVE_SENSORS,
+    CONF_MOTION_SENSORS,
+    CONF_OCCUPANCY_SENSORS,
     CONF_ROOM_FAN_RECHECK_ENABLED,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
@@ -68,6 +70,7 @@ from ..const import (
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_MEDIA_ROOM,
     ROOM_TYPE_RECHECK_FACTOR,
+    STATE_RADAR_SOLE_TICK,
 )
 from ..const import fan_owner
 from ._ble_corroboration import trustworthy_persons_in_room
@@ -75,6 +78,7 @@ from .house_state import HouseState
 from .hvac_const import FAN_TRUST_STATES
 from .sensor_capability import (
     SENSOR_FAMILY_UNKNOWN,
+    capability_routing_enabled,
     family_recheck_factor,
 )
 from .signals import (
@@ -512,13 +516,27 @@ class FanRecheckManager:
                 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             )
         )
-        recent = []
-        if hasattr(room_coord, "recent_occupancy_sources"):
-            recent = list(room_coord.recent_occupancy_sources())
-        if len(recent) < ticks_required:
-            return sink.veto(room_name, "mmwave_history_short")
-        if any(s != "mmwave" for s in recent[-ticks_required:]):
-            return sink.veto(room_name, "not_mmwave_sole")
+        if capability_routing_enabled():
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: N-tick history of
+            # the capability radar-sole bool. Fail-closed: a coordinator
+            # without the ring, or a ring shorter than N, vetoes
+            # "capability_bootstrap" (no fallback to the LIST label).
+            try:
+                sole_ring = list(room_coord.recent_radar_sole_ring())
+            except Exception:  # noqa: BLE001 — fail-closed
+                sole_ring = []
+            if len(sole_ring) < ticks_required:
+                return sink.veto(room_name, "capability_bootstrap")
+            if not all(sole_ring[-ticks_required:]):
+                return sink.veto(room_name, "not_radar_sole")
+        else:
+            recent = []
+            if hasattr(room_coord, "recent_occupancy_sources"):
+                recent = list(room_coord.recent_occupancy_sources())
+            if len(recent) < ticks_required:
+                return sink.veto(room_name, "mmwave_history_short")
+            if any(s != "mmwave" for s in recent[-ticks_required:]):
+                return sink.veto(room_name, "not_mmwave_sole")
 
         # Condition 3: at least one fan entity AND one is ON.
         fans = merged.get(CONF_FANS) or []
@@ -797,10 +815,21 @@ class FanRecheckManager:
             data = getattr(room_coord, "data", None) or {}
             # If mmwave (the lone driver pre-pause) no longer drives occupancy
             # after airflow stopped, the fan was the culprit -> vacated.
-            current_source = str(data.get("occupancy_source", "none"))
-            presence_now = bool(data.get("presence_detected", False))
-            if not presence_now and current_source != "mmwave":
-                outcome = OUTCOME_VACATED
+            if capability_routing_enabled():
+                # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: vacated iff
+                # no radar-bearing entity (any CONF list) is on NOW —
+                # live on-set, not the label, not presence_detected.
+                try:
+                    radar_on = bool(room_coord.any_radar_bearing_on_now())
+                except Exception:  # noqa: BLE001 — fail-safe: not vacated
+                    radar_on = True
+                if not radar_on:
+                    outcome = OUTCOME_VACATED
+            else:
+                current_source = str(data.get("occupancy_source", "none"))
+                presence_now = bool(data.get("presence_detected", False))
+                if not presence_now and current_source != "mmwave":
+                    outcome = OUTCOME_VACATED
         await self._restore(ctx, outcome=outcome)
 
     async def _restore(
@@ -1002,7 +1031,12 @@ class FanRecheckManager:
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
             return False
-        if str(data.get("occupancy_source", "none")) != "mmwave":
+        if capability_routing_enabled():
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: live tick must be
+            # capability radar-sole.
+            if not data.get(STATE_RADAR_SOLE_TICK, False):
+                return False
+        elif str(data.get("occupancy_source", "none")) != "mmwave":
             return False
         fans = merged.get(CONF_FANS) or []
         if isinstance(fans, str):
@@ -1145,12 +1179,34 @@ class FanRecheckManager:
             from ..fan_veto import resolve_sensor_family  # noqa: PLC0415
         except ImportError:  # isolated-module test loaders: no fan_veto
             return []
-        sensors = merged.get(CONF_MMWAVE_SENSORS) or []
-        if isinstance(sensors, str):
-            sensors = [sensors]
+        routed = capability_routing_enabled()
+        if routed:
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: every radar-bearing
+            # sensor across all three CONF lists (a radar filed under
+            # occupancy/motion sets the window too).
+            try:
+                from ..fan_veto import is_radar_entity  # noqa: PLC0415
+            except ImportError:
+                return []
+            keys = (
+                CONF_MMWAVE_SENSORS, CONF_MOTION_SENSORS,
+                CONF_OCCUPANCY_SENSORS,
+            )
+        else:
+            keys = (CONF_MMWAVE_SENSORS,)
+        sensors: list = []
+        for key in keys:
+            vals = merged.get(key) or []
+            if isinstance(vals, str):
+                vals = [vals]
+            for v in vals:
+                if v not in sensors:
+                    sensors.append(v)
         out: list[str] = []
         for eid in sensors:
             if not isinstance(eid, str) or not eid:
+                continue
+            if routed and not is_radar_entity(self.hass, merged, eid):
                 continue
             fam = resolve_sensor_family(self.hass, eid)
             if fam != SENSOR_FAMILY_UNKNOWN and fam not in out:

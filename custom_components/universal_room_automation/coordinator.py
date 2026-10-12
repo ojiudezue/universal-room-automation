@@ -73,6 +73,7 @@ from .const import (
     STATE_TIMEOUT_REMAINING,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
+    STATE_RADAR_SOLE_TICK,
     OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
     OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
     MMWAVE_FAN_CORROBORATION_ENABLED,
@@ -153,6 +154,7 @@ from .automation import RoomAutomation
 from .actuator_reconciler import ActuatorReconciler
 from .domain_coordinators.chatter_detector import ChatterDetector
 from .domain_coordinators.sensor_exclusion import SensorExclusionSet
+from .domain_coordinators.sensor_capability import capability_routing_enabled
 from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
@@ -543,6 +545,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # ticks (D1 #2). Appended at end of _async_update_data.
         import collections
         self._recent_occupancy_sources: collections.deque[str] = (
+            collections.deque(maxlen=10)
+        )
+        # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1c: parallel ring of the
+        # per-tick capability radar-sole bool (STATE_RADAR_SOLE_TICK).
+        # Co-created with the label ring; appended at the SAME single tail
+        # site so the two always have equal length.
+        self._recent_radar_sole_ring: collections.deque[bool] = (
             collections.deque(maxlen=10)
         )
 
@@ -2863,7 +2872,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     def _evaluate_mmwave_demoted_latch(
         self, room_name: str, motion_detected: bool,
-        presence_detected: bool,
+        presence_detected: bool, radar_sole: bool | None = None,
     ) -> None:
         """Clear the D2 flap-protection latch on any recovery signal.
 
@@ -2876,11 +2885,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if not getattr(self, "_mmwave_demoted_latch", False):
             return
         reason: str | None = None
-        if not presence_detected:
+        if capability_routing_enabled():
+            # D2 (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1): clear when the
+            # tick is not capability radar-sole (a radar filed outside
+            # presence_sensors keeps the latch instead of clearing on
+            # presence_detected=False every tick).
+            if not radar_sole:
+                reason = "radar_absent"
+        elif not presence_detected:
             reason = "mmwave_off"
-        elif motion_detected:
+        if reason is None and motion_detected:
             reason = "pir_motion"
-        else:
+        elif reason is None:
             # BLE person in room?
             try:
                 person_coord = self.hass.data.get(DOMAIN, {}).get(
@@ -3523,6 +3539,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         any_sensor_active = motion_detected or presence_detected or occupancy_detected
 
+        # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1b: per-tick capability
+        # radar-sole bool over the fusion-filtered on-set of ALL three CONF
+        # lists (empty under grace_hold, matching the zeroed detections).
+        # Written on EVERY tick; trust gates read this, not the
+        # occupancy_source LIST label.
+        radar_sole = (
+            False if grace_hold
+            else self._radar_sole_on_set(
+                motion_sensors, mmwave_sensors, occupancy_sensors,
+            )
+        )
+        data[STATE_RADAR_SOLE_TICK] = radar_sole
+
         # Tier-3 D2 flap-protection: evaluate + apply the mmwave-demoted
         # latch. When latched, mmwave-sole activity cannot recreate
         # occupancy (post-demote the still-firing mmwave would flip us
@@ -3531,6 +3560,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # PIR fire, BLE person, fan off) via the helper.
         self._evaluate_mmwave_demoted_latch(
             room_name, motion_detected, presence_detected,
+            radar_sole=radar_sole,
         )
 
         # PATH-ALPHA D4 (phantom_retro): detector-INDEPENDENT retro-
@@ -3588,11 +3618,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 exc_info=True,
             )
         if getattr(self, "_mmwave_demoted_latch", False):
-            mmwave_sole_here = (
-                presence_detected
-                and not motion_detected
-                and not occupancy_detected
-            )
+            if capability_routing_enabled():
+                # D2 (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1): capability
+                # radar-sole, so a radar filed outside presence_sensors
+                # is suppressed too.
+                mmwave_sole_here = radar_sole
+            else:
+                mmwave_sole_here = (
+                    presence_detected
+                    and not motion_detected
+                    and not occupancy_detected
+                )
             if mmwave_sole_here:
                 any_sensor_active = False
 
@@ -4176,7 +4212,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 and self._d2_debounce_elapsed(now)
                 and self._d2_motion_sensors_present()
                 and self._d2_house_state_allows()
-                and str(data.get(STATE_OCCUPANCY_SOURCE, "")) == "mmwave"
+                and (
+                    # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D2: capability
+                    # radar-sole tick, not the occupancy_source LIST label.
+                    bool(data.get(STATE_RADAR_SOLE_TICK, False))
+                    if capability_routing_enabled()
+                    else str(data.get(STATE_OCCUPANCY_SOURCE, "")) == "mmwave"
+                )
             ):
                 # PIR-only motion staleness (Invariant M leg (e)).
                 stale_threshold_s = (
@@ -5470,6 +5512,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._recent_occupancy_sources.append(
             str(data.get(STATE_OCCUPANCY_SOURCE, "none"))
         )
+        self._recent_radar_sole_ring.append(
+            bool(data.get(STATE_RADAR_SOLE_TICK, False))
+        )
 
         # Reconcile-on-Return (v5.8.0, D2.7 grace + D2.11 quarantine): once the
         # presence boot-settle gate has released, arm the reconciler's post-boot
@@ -5496,6 +5541,49 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def recent_occupancy_sources(self) -> list[str]:
         """Return the recent-tick occupancy_source ring as a list (newest last)."""
         return list(self._recent_occupancy_sources)
+
+    def recent_radar_sole_ring(self) -> list[bool]:
+        """D1d: recent-tick capability radar-sole ring (newest last)."""
+        return list(self._recent_radar_sole_ring)
+
+    def is_radar(self, entity_id: str) -> bool:
+        """D1a: positive-evidence radar classification for this room
+        (override > CONF kind mmwave > device family). Fail-closed."""
+        try:
+            from .fan_veto import is_radar_entity  # noqa: PLC0415
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            return bool(is_radar_entity(self.hass, room_config, entity_id))
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+
+    def _live_on_set(self, *sensor_lists) -> list[str]:
+        """Fusion-filtered, currently-on entities across ``sensor_lists``
+        (deduped, order-preserving)."""
+        out: list[str] = []
+        for sensors in sensor_lists:
+            for s in self._fusion_filter_active(sensors or []):
+                if s not in out and self._is_sensor_on(s):
+                    out.append(s)
+        return out
+
+    def _radar_sole_on_set(
+        self, motion_sensors, mmwave_sensors, occupancy_sensors,
+    ) -> bool:
+        """D1b: on-set non-empty AND every on entity is radar-bearing."""
+        on_set = self._live_on_set(
+            motion_sensors, mmwave_sensors, occupancy_sensors,
+        )
+        return bool(on_set) and all(self.is_radar(e) for e in on_set)
+
+    def any_radar_bearing_on_now(self) -> bool:
+        """D1d: True iff any radar-bearing entity (any CONF list) is on
+        right now — the recheck VACATED gate's live read."""
+        on_set = self._live_on_set(
+            self._get_config(CONF_MOTION_SENSORS, []),
+            self._get_config(CONF_MMWAVE_SENSORS, []),
+            self._get_config(CONF_OCCUPANCY_SENSORS, []),
+        )
+        return any(self.is_radar(e) for e in on_set)
 
     def apply_fan_recheck_release(self) -> None:
         """Force vacancy from the room-tier fan-recheck mechanism.

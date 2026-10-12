@@ -253,11 +253,21 @@ class _FakeRoomCoord:
             "occupancy_source": "mmwave",
             "motion_detected": False,
             "presence_detected": True,
+            "radar_sole_tick": True,
         }
         self.updated_with = None
 
     def recent_occupancy_sources(self):
         return list(self._recent)
+
+    # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1: this fake models a room whose
+    # radar is filed in presence_sensors with nothing else on, so the
+    # capability views equal the legacy label views.
+    def recent_radar_sole_ring(self):
+        return [s == "mmwave" for s in self._recent]
+
+    def any_radar_bearing_on_now(self):
+        return bool(self.data.get("presence_detected", False))
 
     def apply_fan_recheck_release(self):
         self.data["occupied"] = False

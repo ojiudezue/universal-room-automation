@@ -74,6 +74,7 @@ from .coordinator_diagnostics import (
     DecisionLog,
 )
 from .house_state import HouseState, HouseStateMachine
+from .sensor_capability import capability_routing_enabled
 from .signals import (
     SIGNAL_CENSUS_UPDATED,
     SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
@@ -3903,6 +3904,43 @@ class PresenceCoordinator(BaseCoordinator):
                 entity_id, room_name, is_on, sorted(tracker._fan_on_rooms),
             )
 
+    def _room_radar_sole_capable(self, room_name: str) -> bool:
+        """OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1e/D3: True iff the room's
+        live Tier-1 on-set (all three CONF lists, unavailable = off) is
+        non-empty AND every on entity is radar-bearing by capability
+        (``fan_veto.radar_sole_on_set`` — override > CONF kind > family).
+
+        Sibling of the provenance kind labels, NOT a slot inside
+        ``_room_provenance`` (that dict's kinds are a closed TIER1_KINDS
+        allowlist and its ``any(values())`` IS room occupancy — I1/I2).
+        ``_classify_entity_kind`` is unchanged (B-HIGH-1). Fail-closed:
+        any error -> False (room not fan-suspect).
+        """
+        try:
+            from ..fan_veto import radar_sole_on_set  # noqa: PLC0415
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                if merged.get(CONF_ROOM_NAME) != room_name:
+                    continue
+                on_set: list = []
+                for key in (
+                    CONF_MOTION_SENSORS,
+                    CONF_MMWAVE_SENSORS,
+                    CONF_OCCUPANCY_SENSORS,
+                ):
+                    for eid in (merged.get(key, []) or []):
+                        if not eid or eid in on_set:
+                            continue
+                        st = self.hass.states.get(eid)
+                        if st is not None and st.state == "on":
+                            on_set.append(eid)
+                return bool(radar_sole_on_set(self.hass, merged, on_set))
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+        return False
+
     def _compute_fan_interference_rooms(self) -> List[str]:
         """Per-tick D3 fan-interference observation.
 
@@ -3993,13 +4031,21 @@ class PresenceCoordinator(BaseCoordinator):
                 for room_name in fan_rooms:
                     if room_name not in tracker.room_names:
                         continue
-                    prov = tracker._room_provenance.get(room_name, {})
-                    # Condition 2: mmwave-sole.
-                    mmwave_on = bool(prov.get("mmwave", False))
-                    motion_on = bool(prov.get("motion", False))
-                    occ_on = bool(prov.get("occupancy", False))
-                    if not (mmwave_on and not motion_on and not occ_on):
-                        continue
+                    # Condition 2: radar-sole.
+                    if capability_routing_enabled():
+                        # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D3: by
+                        # capability of the live on-set, not by the
+                        # CONF-list kind label (a radar filed under
+                        # occupancy_sensors is radar-sole too).
+                        if not self._room_radar_sole_capable(room_name):
+                            continue
+                    else:
+                        prov = tracker._room_provenance.get(room_name, {})
+                        mmwave_on = bool(prov.get("mmwave", False))
+                        motion_on = bool(prov.get("motion", False))
+                        occ_on = bool(prov.get("occupancy", False))
+                        if not (mmwave_on and not motion_on and not occ_on):
+                            continue
                     # Condition 3a: BLE Layer-1 absence.
                     ble_persons: list = []
                     if person_coord is not None:

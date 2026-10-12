@@ -25,6 +25,27 @@ from custom_components.universal_room_automation.domain_coordinators.presence im
 )
 
 
+def _stage_room(hass, room="a", on=(), **conf):
+    """OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1: the D3 gate reads the room's
+    live Tier-1 on-set by capability, so stage the room entry + states."""
+    from _provenance_harness import fake_room_entry
+    from custom_components.universal_room_automation.const import (
+        CONF_MMWAVE_SENSORS, CONF_MOTION_SENSORS,
+    )
+    conf.setdefault(CONF_MMWAVE_SENSORS, ["binary_sensor.zk_a"])
+    conf.setdefault(CONF_MOTION_SENSORS, ["binary_sensor.pir_a"])
+    hass.config_entries.async_entries.return_value = [
+        fake_room_entry(room, **conf),
+    ]
+    on = set(on)
+
+    def _get(eid):
+        st = MagicMock()
+        st.state = "on" if eid in on else "off"
+        return st
+    hass.states.get = MagicMock(side_effect=_get)
+
+
 def _build_coord_with_tracker(rooms=("a",), zone="z1"):
     hass = make_hass()
     coord = PresenceCoordinator(hass)
@@ -44,6 +65,7 @@ def test_fan_on_mmwave_sole_no_ble_no_camera_flags_room() -> None:
     hass, coord, tracker = _build_coord_with_tracker()
     tracker._fan_on_rooms.add("a")
     tracker.update_room_occupancy("a", True, kind="mmwave")
+    _stage_room(hass, on={"binary_sensor.zk_a"})
     # No person_coord in hass.data => BLE absence.
     out = coord._compute_fan_interference_rooms()
     assert out == ["a"]
@@ -54,6 +76,7 @@ def test_fan_on_mmwave_plus_pir_does_not_flag() -> None:
     tracker._fan_on_rooms.add("a")
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", True, kind="motion")
+    _stage_room(hass, on={"binary_sensor.zk_a", "binary_sensor.pir_a"})
     assert coord._compute_fan_interference_rooms() == []
 
 
@@ -63,6 +86,7 @@ def test_fan_on_mmwave_plus_ble_does_not_flag() -> None:
     tracker._fan_on_rooms.add("a")
     tracker.update_room_occupancy("a", True, kind="mmwave")
     # Inject person_coord with a person in the room.
+    _stage_room(hass, on={"binary_sensor.zk_a"})
     pc = MagicMock()
     pc.get_persons_in_room = MagicMock(return_value=["Alice"])
     hass.data[DOMAIN] = {"person_coordinator": pc}
@@ -73,6 +97,7 @@ def test_fan_on_mmwave_plus_camera_does_not_flag() -> None:
     hass, coord, tracker = _build_coord_with_tracker()
     tracker._fan_on_rooms.add("a")
     tracker.update_room_occupancy("a", True, kind="mmwave")
+    _stage_room(hass, on={"binary_sensor.zk_a"})
     tracker._camera_occupied["binary_sensor.cam_zone1_person"] = True
     assert coord._compute_fan_interference_rooms() == []
 

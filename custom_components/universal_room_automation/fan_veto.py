@@ -49,6 +49,7 @@ from .domain_coordinators.sensor_capability import (
     SENSOR_FAMILY_UNKNOWN,
     family_for_model,
     is_fan_immune_witness,
+    is_radar_capability,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,6 +126,33 @@ def is_fan_immune_motion_witness(
     if family == SENSOR_FAMILY_UNKNOWN and MMWAVE_NAME_PATTERN.search(entity_id):
         return False
     return True
+
+
+def is_radar_entity(
+    hass: HomeAssistant, config: dict[str, Any], entity_id: str,
+) -> bool:
+    """OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1a: ``entity_id`` is
+    radar-bearing in this room — override wins both ways, then CONF-list
+    kind mmwave, then device family (``resolve_sensor_family``). Positive
+    evidence only; any error -> False (fail-closed)."""
+    if not isinstance(entity_id, str) or not entity_id:
+        return False
+    try:
+        return bool(is_radar_capability(
+            config, entity_id,
+            lambda: resolve_sensor_family(hass, entity_id),
+        ))
+    except Exception:  # noqa: BLE001 — fail-closed
+        return False
+
+
+def radar_sole_on_set(
+    hass: HomeAssistant, config: dict[str, Any], on_set,
+) -> bool:
+    """D1b: True iff the on-set is non-empty AND every entity in it is
+    radar-bearing (sole-source: one non-radar entity on -> False)."""
+    on = [e for e in (on_set or ()) if e]
+    return bool(on) and all(is_radar_entity(hass, config, e) for e in on)
 
 
 def is_veto_relevant(hass: HomeAssistant) -> bool:
