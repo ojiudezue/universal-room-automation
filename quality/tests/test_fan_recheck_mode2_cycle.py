@@ -164,6 +164,22 @@ def _load_fan_recheck_module():
     sys.modules[f"{pkg_name}.domain_coordinators.presence_fan_recheck"] = mod
     spec.loader.exec_module(mod)
 
+    # pytest-homeassistant-custom-component's conftest imports the real
+    # `homeassistant.helpers.dispatcher` and `.event` modules at
+    # collection time, BEFORE the sys.modules stubs above can install.
+    # Production imports both symbols by name, so the real HA
+    # implementations become the module-level bindings in the loaded
+    # production module. Pin the test intent — "dispatcher is a no-op;
+    # async_call_later is a no-op" — on the loaded module directly so
+    # neither real impl can fire against our _FakeHass (dispatcher's
+    # verify_event_loop_thread guard; event.async_call_later leaking a
+    # real asyncio timer onto the running loop → lingering-timer
+    # pytest-ha fail-safe). Per-test overrides later in this file re-bind
+    # `mod.async_call_later = _capture` for the tests that want to
+    # observe the scheduled callback.
+    mod.async_dispatcher_send = lambda *_a, **_kw: None
+    mod.async_call_later = lambda _hass, _delay, _cb: (lambda: None)
+
     sys.modules["ura_fan_recheck_under_test"] = mod
     return mod
 
@@ -376,6 +392,25 @@ class _FakeHass:
         self.data = {"universal_room_automation": {}}
         self.config_entries = _FakeConfigEntries([])
         self._tasks = []
+        # Real HA helpers (dispatcher.async_dispatcher_send,
+        # event.async_call_later) land from pytest-homeassistant-custom-
+        # component's conftest BEFORE our sys.modules stubs install, so
+        # calls through them hit the production implementations.
+        # They require:
+        #   - hass.verify_event_loop_thread(name) — dispatcher.py:214
+        #   - hass.loop                           — event.py:1616
+        # The test module separately stubs async_call_later to a no-op
+        # (line ~72) so hass.loop is not actually dereferenced in these
+        # tests, but we attach a real running loop lazily on first access
+        # so any helper that does reach for it finds something sane.
+        self.verify_event_loop_thread = lambda *_a, **_kw: None
+
+    @property
+    def loop(self):
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.new_event_loop()
 
     def async_create_task(self, coro):
         self._tasks.append(coro)
