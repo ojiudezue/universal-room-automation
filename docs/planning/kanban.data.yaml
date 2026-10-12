@@ -19167,7 +19167,8 @@ cards:
 - id: ZONE-AWAY-DURING-SLEEP-1
   title: House Sleep forces every zone to Sleep even when the zone is empty — let a truly empty zone go Away
   rank: {value: 6, time_criticality: 3, effort: 3}
-  status: waiting_operator
+  status: done
+  refuted_2026_10_12: 'REFUTED. Zones DO go away in sleep: the HVAC path (hvac.py:3016 vacancy-past-grace -> away, preset sleep->away) did so at 00:00 and 00:42. The zone presence select pinned to sleep (presence.py:929, since v3.6.0) is display only. Back Hallway was held by Guest Bedroom 1 (bedroom 30-min night HVAC hold, v5.103.20 evidence/shadow machine); GB1 ZV + Meross MS600 fired together; operator confirmed a guest was sleeping there. Correct behaviour, no code.'
   updated: '2026-10-12 02:15'
   thread: presence
   created: 2026-10-12 02:15

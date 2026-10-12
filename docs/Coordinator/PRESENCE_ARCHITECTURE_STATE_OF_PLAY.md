@@ -453,6 +453,17 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
 
 ---
 
+11. **"House Sleep stops a zone from going Away."** WRONG (orchestrator, 2026-10-12). The zone
+   presence select / `sensor.zone_<z>_presence_status` is pinned to `sleep` by
+   `ZonePresenceTracker.set_sleep` (`presence.py:929`, since v3.6.0) — display only; its
+   `derived_mode` attribute still says `away`. The thermostat follows the HVAC path:
+   `hvac.py:3016` turns a `sleep` target into `away` once the zone is HVAC-vacant past grace
+   (zone 3 did so at 00:00 and 00:42 on 2026-10-12). HVAC vacancy uses the per-room HVAC hold
+   (v5.103.20 evidence/shadow machine; night tail `ROOM_TYPE_HVAC_HOLD_NIGHT`, bedroom 30 min),
+   so the zone dashboard can read "empty" while `zone_N_status.any_room_hvac_occupied` is still
+   true — read `hvac_release_at` / `away_due_at` there. Back Hallway stayed in Sleep because a
+   guest was sleeping in Guest Bedroom 1 (ZV + MS600 fired together; operator-confirmed).
+
 ## 11. Read before you touch — agent checklist
 
 Before planning, building, reviewing or diagnosing anything presence-adjacent:
