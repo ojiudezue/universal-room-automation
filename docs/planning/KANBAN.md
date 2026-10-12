@@ -2,40 +2,29 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-11T21:01:33-05:00_ - _Data commit: `9667cece19a8`_ - _last_reconciled: 2026-10-11_
+_Generated: 2026-10-12T02:06:14-05:00_ - _Data commit: `8ecc754e2c02`_ - _last_reconciled: 2026-10-11_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 6 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 39 |
+| ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 17 |
 | 🅿️ Parked | 84 |
 | ✅ Done | 302 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
-### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#1 · WSJF 3.0 · v5 tc2 u2 /e3_
-thread: **dashboarding** - status: **inbox**
-_updated 2026-10-08 08:10_
-- **Why:** One-tap house-wide actions; today these need several taps across rooms.
-- **Next:** PICK: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -> build scripts + first tab driven by URA config.
-- **Forensic keys (4):**
-  - `adjacency`: ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.
-  - `findings_2026_10_08`: Each Bond patio cover is ALSO exposed via HomeKit (cover.patio_N and cover.patio_N_2) - pick one control path, hide the other. 97 shade covers, 2 garage covers (konnected esphome + one other).
-  - `operator_2026_10_08`: No entity-name guessing - source every target from URA config. Patio = Bond. Garage = ratgdo + GDO blaQ. Quick actions restricted to common areas, plus an "all" option. Add lock. Leaving/Good night are scenes - devil is in the details.
-  - `sources_2026_10_08`: Targets resolved from URA config: Patio room covers = cover.patio_1..5 (Bond); garages = CM security_garage_entities [cover.ratgdov25i_dbfe2a_door (Garage B), cover.konnected_f0f5bd523b00_garage_door (Garage A, GDO blaQ)]; locks = CM sec...
-
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tests** - status: **inbox**
 _created 2026-10-10 21:00_
 - **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
@@ -322,7 +311,7 @@ _created 2026-10-11 04:00 · updated 2026-10-12 02:45 · initial_
   - `tier`: 1
   - `sweep_2026_10_11`: Board grep for house_state display / returns away / boot away display: only CENSUS-SHUTDOWN-AWAY-FENCE-1 (adjacent, different problem: real machine AWAY). NEW.
 
-## ⏸️ Waiting on operator (39)
+## ⏸️ Waiting on operator (40)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -756,7 +745,19 @@ _created 2026-08-26 11:00 · updated 2026-10-09 02:27 · refined ×1_
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
   - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#26 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#26 · WSJF 3.0 · v5 tc2 u2 /e3_
+thread: **dashboarding** - status: **waiting_operator**
+_updated 2026-10-12 03:05_
+- **Why:** One-tap house-wide actions; today these need several taps across rooms.
+- **Next:** PICK: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -> build scripts + first tab driven by URA config.
+- **Forensic keys (5):**
+  - `lane_fix_2026_10_12_overnight`: Lane corrected inbox -> waiting_operator: its next is an operator PICK (which rooms count as common areas, and what the Leaving / Good night scenes contain). Nothing for me to build until you pick.
+  - `adjacency`: ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.
+  - `findings_2026_10_08`: Each Bond patio cover is ALSO exposed via HomeKit (cover.patio_N and cover.patio_N_2) - pick one control path, hide the other. 97 shade covers, 2 garage covers (konnected esphome + one other).
+  - `operator_2026_10_08`: No entity-name guessing - source every target from URA config. Patio = Bond. Garage = ratgdo + GDO blaQ. Quick actions restricted to common areas, plus an "all" option. Add lock. Leaving/Good night are scenes - devil is in the details.
+  - `sources_2026_10_08`: Targets resolved from URA config: Patio room covers = cover.patio_1..5 (Bond); garages = CM security_garage_entities [cover.ratgdov25i_dbfe2a_door (Garage B), cover.konnected_f0f5bd523b00_garage_door (Garage A, GDO blaQ)]; locks = CM sec...
+
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#27 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Problem / Solution:**
@@ -771,7 +772,7 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `WIGTON-HA-UNRESPONSIVE-1` - Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed) — _#27 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `WIGTON-HA-UNRESPONSIVE-1` - Wigton HA reported stalling locally (Omonele, operator); Madrone->Wigton dropouts were Wigton UDM IPS blocks (fixed) — _#28 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **wigton** - status: **waiting_operator**
 _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
 - **Why:** Possible event-loop stall in the devices step (area entity discovery) on a large area registry, or unrelated host load. Logs show CFLOW-TIMING lines for options init (fast); no devices-step timing captured.
@@ -782,7 +783,7 @@ _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
   - `facts_2026_10_10`: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...
   - `superseded_next_2026_10_10`: Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling.
 
-### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#28 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#29 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
 - **Problem / Solution:**
@@ -798,7 +799,7 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
   - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 
-### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **waiting_operator**
 _created 2026-10-10 21:30_
 - **Why:** URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic.
@@ -806,7 +807,7 @@ _created 2026-10-10 21:30_
 - **Forensic keys (1):**
   - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
 
-### `BOND-BRIDGE-UNRESPONSIVE-1` - Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `BOND-BRIDGE-UNRESPONSIVE-1` - Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **waiting_operator**
 _created 2026-10-11 20:40_
 - **Why:** HA log: 'Updating <bond entity> took longer than the scheduled update interval 10' for all bond entities. Probe from HA host: /v2/sys/version timed out (8 s) on 3/5 tries, 2.9 s / 0.7 s otherwise; ping 0% loss but 20-660 ms RTT (LAN shou...
@@ -815,7 +816,7 @@ _created 2026-10-11 20:40_
   - `fan_entity_canonicalisation_2026_10_11`: Interim: URA rooms (Game Room, Media, Guest Bedroom 1, Master Bedroom fans + manual_switches), ura-v8 (9 refs) and scripts ura_qa_common_areas_off / ura_qa_house_off now use the stable HomeKit _2 fans (backups in session scratchpad). Bon...
   - `related`: FAN-NOISE C3
 
-### `WIFI-SWITCH-DROPOUTS-BATHROOMS-1` - Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath) — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIFI-SWITCH-DROPOUTS-BATHROOMS-1` - Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath) — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **waiting_operator**
 _created 2026-10-11 20:40_
 - **Why:** Underlying Wi-Fi/Matter switches dropping off network (same family as Master Toilet Sonoff 92 dropouts overnight). Multiple brands at once points to Wi-Fi coverage/AP rather than device faults.
@@ -823,7 +824,7 @@ _created 2026-10-11 20:40_
 - **Forensic keys (1):**
   - `related`: MASTER-TOILET-SONOFF-DROPOUTS-1
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#32 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#33 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -839,7 +840,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#33 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#34 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-12 02:45 · initial_
 - **Problem / Solution:**
@@ -853,7 +854,7 @@ _created 2026-10-12 02:45 · initial_
 - **Forensic keys (1):**
   - `adjacency_2026_10_12`: NEW. Swept: board (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 = different owner, arbitrage rung-1/WAIT at night; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 done = arbitrage release vs fill-priority; EVSE-SOLAR-STOP-CONDITIONS-1 parked menti...
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#34 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
@@ -868,7 +869,7 @@ _created 2026-09-27 02:40 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#36 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -888,7 +889,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#36 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#37 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
 - **Problem / Solution:**
@@ -907,7 +908,7 @@ _created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
   - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#37 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#38 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -917,7 +918,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#39 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -932,7 +933,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#39 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#40 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-10-12 02:45 · initial_
 - **Problem / Solution:**
@@ -1018,7 +1019,7 @@ _created 2026-10-07 02:15 · updated 2026-10-12 02:45 · initial_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#2 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **shipped_organic** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-10 02:40 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-12 03:05 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -1027,7 +1028,8 @@ _created 2026-09-16 03:30 · updated 2026-10-10 02:40 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (26):**
+- **Forensic keys (27):**
+  - `remeasured_2026_10_12_overnight`: No sixth hang. sensor.frigate_status_2 since 10-10 00:00Z: only short blips, 10-10 08:23 (28 s), 12:54 and 12:55 (22 s and 51 s), 20:01 (19 s), 10-11 10:23 (23 s) CDT. Each recovered on its own. detection_fps_2 = 95 now. CARD-WAS-WRONG o...
   - `remeasured_2026_10_10_overnight`: Frigate2 healthy now (sensor.frigate_status_2 running, detection_fps_2 = 60). Two short blips on 10-09, NOT hangs: unavailable 05:16:38-05:17:03 and 22:55:11-22:55:45 CDT (25-35 s each, neither at an HA restart - those were 07:54/08:17/0...
   - `tripwire_shipped_2026_10_09`: v5.103.47 ships the fleet-dark trip-wire (camera_input_dark NM pages, binary_sensor.ura_camera_input_degraded, presence alpha skip when dark). Plan PLANNING_frigate_down_tripwire.md Rev 2; D2 auto-reload parked. Restart pending (house as...
   - `measured_2026_10_09_overnight`: RECOVERED (fifth outage over). sensor.frigate_status_2 unavailable->running at 2026-10-08 12:14 CDT; Frigate2 host 192.168.13.18 answers ping, container up 14 h (healthy). Recorder: 381 person ONs across 13 *_person_occupancy_2 sensors s...

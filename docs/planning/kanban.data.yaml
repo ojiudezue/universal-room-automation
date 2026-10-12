@@ -36,7 +36,7 @@ meta:
     acknowledged: false
   - fid: "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-12T02:41:00"
     at: "2026-10-12T02:41:00"
-    outcome: "built-to-review"
+    outcome: "built"
     headline: "Moved to Review (both reviews passed 10-11, still merges cleanly). Ready for your next attended deploy: the house-state sensors will show unknown at restart instead of a false away."
     acknowledged: false
   - fid: "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-11T04:00:00"
@@ -18104,11 +18104,12 @@ cards:
   resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as
     done." Proof was a process/latent-event judgment not observable in live state; operator closed.'
 - id: DASH-QUICK-ACTIONS-1
+  lane_fix_2026_10_12_overnight: 'Lane corrected inbox -> waiting_operator: its next is an operator PICK (which rooms count as common areas, and what the Leaving / Good night scenes contain). Nothing for me to build until you pick.'
   title: 'Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched)'
   thread: dashboarding
-  status: inbox
+  status: waiting_operator
   rank: {value: 5, time_criticality: 2, effort: 3}
-  updated: '2026-10-08 08:10'
+  updated: '2026-10-12 03:05'
   origin: 'Operator 2026-10-08: quick action section or separate first tab on URA v8 Lovelace.'
   why: 'One-tap house-wide actions; today these need several taps across rooms.'
   adjacency: 'ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.'
@@ -27747,6 +27748,7 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
+  remeasured_2026_10_12_overnight: 'No sixth hang. sensor.frigate_status_2 since 10-10 00:00Z: only short blips, 10-10 08:23 (28 s), 12:54 and 12:55 (22 s and 51 s), 20:01 (19 s), 10-11 10:23 (23 s) CDT. Each recovered on its own. detection_fps_2 = 95 now. CARD-WAS-WRONG on the 10-10 note ''v5.103.47 installed but not loaded'': it was loaded and live-validated 10-10 18:57Z (README_v5.103.47, entity binary_sensor.ura_coordinator_manager_camera_input_dark = off). So a real hang now pages you. Your Coral / scheduled-restart PICK still stands. The trip-wire lowers the urgency, because a hang can no longer go unnoticed for a day.'
   remeasured_2026_10_10_overnight: "Frigate2 healthy now (sensor.frigate_status_2 running, detection_fps_2 = 60). Two short blips on 10-09, NOT hangs: unavailable 05:16:38-05:17:03 and 22:55:11-22:55:45 CDT (25-35 s each, neither at an HA restart - those were 07:54/08:17/09:37/11:27). They look like Frigate process restarts; cause not checked from HA. v5.103.47 (the dark trip-wire) is installed but not loaded - HA has not restarted since (binary sensor camera_input_degraded does not exist yet). Its live check waits for your next daytime restart."
   tripwire_shipped_2026_10_09: "v5.103.47 ships the fleet-dark trip-wire (camera_input_dark NM pages, binary_sensor.ura_camera_input_degraded, presence alpha skip when dark). Plan PLANNING_frigate_down_tripwire.md Rev 2; D2 auto-reload parked. Restart pending (house asleep)."
   measured_2026_10_09_overnight: "RECOVERED (fifth outage over). sensor.frigate_status_2 unavailable->running at 2026-10-08 12:14 CDT; Frigate2 host 192.168.13.18 answers ping, container up 14 h (healthy). Recorder: 381 person ONs across 13 *_person_occupancy_2 sensors since 12:14 (pool_equipment 219, back_yard 52, armcrestash41b 30, madrone_g6_entry 27, playroom 21, garage_a 8, doorbell_lite 7, others 2-4). Detection is working again. The hang pattern (5 outages since 09-16) is unexplained, so the Coral/scheduled-restart PICK still stands."
@@ -27764,7 +27766,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.47
   created: '2026-09-16 03:30'
-  updated: "2026-10-10 02:40"
+  updated: '2026-10-12 03:05'
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
