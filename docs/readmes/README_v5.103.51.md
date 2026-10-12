@@ -22,3 +22,7 @@ ZV 5-minute post-fan-on gate (FAN-ZV-POWERON-TRANSIENT-GATE-1); fan-distance-ban
 - Boot: no URA errors; no recheck/HVAC fan errors.
 - Next Study A recheck "empty" verdict: fan stays off, room stays vacant (no re-latch within 15 min), and no `manual_off_cooldown` opens.
 - One week (≈2026-10-18): Study A and other fan rooms' empty-room fan-on occupied minutes vs the 2026-10-04→10-11 baseline (re-run scripts/fan_noise); guard: VACATED verdicts while BLE places someone in the room must not rise.
+
+## Deploy restart 2026-10-11 (partial)
+- Installed + restarted 23:09:57 → 23:11:33 UTC; 0 URA errors at boot.
+- Behavioural checks (Study A VACATED verdict leaves fan off with no manual-off cooldown; one-week re-measure) are one-shot reads after the first organic recheck and on ≈2026-10-18.

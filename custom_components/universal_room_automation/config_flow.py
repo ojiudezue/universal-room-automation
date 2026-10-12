@@ -3794,6 +3794,13 @@ _STEP_EXTRA_OWNED_KEYS: dict = {
     "automation_chaining": (CONF_AUTOMATION_CHAINS,),
     "ai_rules": (CONF_AI_RULES,),
     "energy": (CONF_ENERGY_SENSOR,),
+    # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape hatch
+    # ``sensor_capabilities_json`` is Advanced-only on the sensors step
+    # (per-entity dropdowns cover the common case). It renders as a
+    # top-level form field in Advanced mode only, so Simple-mode
+    # reachability (I2) is not required — list it here so the global
+    # reach-back check doesn't flag it as missing.
+    "sensors": ("sensor_capabilities_json",),
 }
 _MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"automation_chaining", "ai_rules"})
 
@@ -12230,11 +12237,40 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 raw_caps = raw_caps.strip()
                 # Collect dropdown selections (pop so they aren't
                 # stored raw in options).
+                #
+                # SENSOR-FORM-PLAIN-TEXT-1: the "Not sure (safe default)"
+                # option carries the sentinel value ``__default__`` — it
+                # means "no override; use the role/model default". We
+                # substitute it with the entity's derived default kind so
+                # the existing "selection equals default" no-op path runs
+                # unchanged (preserves co-stored trust_class, drops a
+                # kind-only override).
                 _dropdown_selections: dict[str, str] = {}
+                _CAPS_KIND_DEFAULT = "__default__"
                 for _uk in list(user_input.keys()):
                     if isinstance(_uk, str) and _uk.startswith("caps_kind__"):
                         _entity = _uk[len("caps_kind__"):]
                         _val = user_input.pop(_uk)
+                        if _val == _CAPS_KIND_DEFAULT:
+                            # Resolve to the CONF-list-derived default so
+                            # the dropdown-merge loop below hits the
+                            # existing no-op branch.
+                            try:
+                                from .domain_coordinators.sensor_capability \
+                                    import (  # noqa: PLC0415
+                                        derive_capability as _dc_resolve,
+                                    )
+                                _resolved = _dc_resolve(
+                                    {
+                                        CONF_MOTION_SENSORS: motion,
+                                        CONF_MMWAVE_SENSORS: mmwave,
+                                        CONF_OCCUPANCY_SENSORS: occupancy,
+                                    },
+                                    _entity,
+                                )
+                                _val = _resolved.kind if _resolved else None
+                            except Exception:  # noqa: BLE001
+                                _val = None
                         if _val:  # ignore empty/None
                             _dropdown_selections[_entity] = _val
                 # SENSCAP-ORPHAN-1 (2026-08-20): the entity set as of THIS
@@ -12474,7 +12510,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         _caps_default = self._get_current(CONF_SENSOR_CAPABILITIES, {}) or {}
 
         # senscap UX v2 (2026-08-10 operator Q2): one SelectSelector per
-        # currently-configured sensor entity, options = TIER1_CAPABILITIES
+        # currently-configured sensor entity, options = plain-language primary kinds + any kind already in use by an override
         # with friendly labels, default = the entity's current effective
         # kind (via `derive_capability`). Selections write into
         # CONF_SENSOR_CAPABILITIES; the JSON textarea remains the escape
@@ -12491,7 +12527,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     _seen.add(_eid)
                     _entities_for_dropdowns.append(_eid)
 
-        from .const import TIER1_CAPABILITIES  # noqa: PLC0415
         from .domain_coordinators.sensor_capability import (  # noqa: PLC0415
             derive_capability as _derive_cap_ui,
         )
@@ -12501,20 +12536,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OCCUPANCY_SENSORS: _occ_now,
             CONF_SENSOR_CAPABILITIES: _caps_default,
         }
-        _kind_labels = {
-            "motion": "Motion (PIR)",
-            "mmwave": "mmWave presence",
-            "occupancy": "Occupancy sensor",
-            "pir": "PIR",
-            "bed": "Bed presence",
-            "camera_presence": "Camera person-presence",
-            "ble_presence": "BLE presence",
-            "pir_split": "Split PIR",
-        }
-        _kind_options = [
-            {"value": _k, "label": _kind_labels.get(_k, _k)}
-            for _k in TIER1_CAPABILITIES
+        # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): plain-English option
+        # labels for the "What can it see?" per-entity dropdown. The
+        # sentinel ``CAPS_KIND_DEFAULT`` means "Not sure (safe default)" —
+        # writes no override; the submit handler treats it as a no-op (same
+        # path as "selection equals derived default"). Kinds beyond the
+        # four primary options stay reachable ONLY if an existing override
+        # is still using them (so we don't silently drop an operator's
+        # stored value) — enumerated from ``_caps_default`` live.
+        CAPS_KIND_DEFAULT = "__default__"
+        _primary_kind_options = [
+            {"value": CAPS_KIND_DEFAULT, "label": "Not sure (safe default)"},
+            {"value": "motion", "label": "Movement only"},
+            {"value": "mmwave", "label": "People sitting still"},
+            {"value": "bed", "label": "Bed or seat"},
         ]
+        _extra_kind_labels = {
+            "pir": "Movement only (PIR)",
+            "pir_split": "Movement only (split PIR)",
+            "occupancy": "Combined sensor",
+            "camera_presence": "Camera person detection",
+            "ble_presence": "Phone presence (BLE)",
+        }
 
         schema_dict: dict = {}
         schema_dict[vol.Optional(
@@ -12540,17 +12583,51 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # `caps_kind__<entity_id>`; parsed by the submit handler above.
         # Default = the entity's current effective kind (override-honouring
         # via `derive_capability`); selecting the same value writes NOTHING.
+        # Enumerate "extra" kinds reachable because an existing override
+        # already uses them (preserve on save; see rule above).
+        _override_kinds_in_use: set[str] = set()
+        for _entry in (_caps_default or {}).values():
+            if isinstance(_entry, dict):
+                _k = _entry.get("kind")
+                if isinstance(_k, str):
+                    _override_kinds_in_use.add(_k)
+        _primary_values = {_o["value"] for _o in _primary_kind_options}
+        _extra_options = [
+            {"value": _k, "label": _extra_kind_labels.get(_k, _k)}
+            for _k in sorted(_override_kinds_in_use)
+            if _k not in _primary_values
+        ]
+
         for _eid in _entities_for_dropdowns:
-            try:
-                _cap = _derive_cap_ui(_room_cfg_view_ui, _eid)
-                _default_kind = _cap.kind if _cap else "motion"
-            except Exception:  # noqa: BLE001 — never break form render
-                _default_kind = "motion"
+            # Default to the sentinel (Not sure) when the operator has
+            # authored NO override for this entity; show the stored kind
+            # otherwise so an existing override round-trips visibly.
+            _stored = (_caps_default or {}).get(_eid)
+            _stored_kind = (
+                _stored.get("kind") if isinstance(_stored, dict) else None
+            )
+            if _stored_kind:
+                _default_sel = _stored_kind
+            else:
+                _default_sel = CAPS_KIND_DEFAULT
+            # Dropdown options = primary + any extras this entity needs
+            # (so the stored kind is always selectable).
+            _opts = list(_primary_kind_options)
+            if (
+                _stored_kind
+                and _stored_kind not in _primary_values
+                and _stored_kind not in {_o["value"] for _o in _extra_options}
+            ):
+                _opts.append({
+                    "value": _stored_kind,
+                    "label": _extra_kind_labels.get(_stored_kind, _stored_kind),
+                })
+            _opts.extend(_extra_options)
             schema_dict[vol.Optional(
-                f"caps_kind__{_eid}", default=_default_kind,
+                f"caps_kind__{_eid}", default=_default_sel,
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=_kind_options,
+                    options=_opts,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     custom_value=False,
                 ),
@@ -12576,6 +12653,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     json.dumps(_caps_default, indent=2, sort_keys=True)
                     if _caps_default
                     else ""
+                ),
+                # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): hide the raw-JSON
+                # escape hatch unless Advanced mode is on. The per-entity
+                # dropdowns cover the common case; trust_class / failure_mode
+                # editing is advanced-only. A room with a non-default stored
+                # value stays visible in Simple mode (I2 reach-back).
+                description=(
+                    None if _caps_default else {"advanced": True}
                 ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True),
@@ -12676,9 +12761,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="sensors",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
             errors=errors,
-            description_placeholders={"name": "Reconfigure sensors - at least one occupancy sensor required"},
+            description_placeholders={
+                "name": "Reconfigure sensors - at least one occupancy sensor required",
+                # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): sensors step now
+                # carries an Advanced-only field (sensor_capabilities_json),
+                # so emit the same hint the other Advanced-gated steps use.
+                "advanced_hint": advanced_hint_for(
+                    data_schema,
+                    bool(getattr(self, "show_advanced_options", False)),
+                ),
+            },
         )
 
     async def async_step_devices(self, user_input=None):

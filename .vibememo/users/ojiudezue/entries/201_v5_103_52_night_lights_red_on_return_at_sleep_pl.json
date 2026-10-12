@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "201",
+  "author": "ojiudezue",
+  "session_id": "claude_20261012_003403_ship_v5_103_52",
+  "timestamp": "2026-10-12T00:34:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.52 shipped: Night lights red on return at sleep; plain-English room sensors form",
+  "summary": "Night lights red on return at sleep; plain-English room sensors form",
+  "why": "The red-at-sleep night-light decision lived only in the canonical turn-on path, so a light returning from offline or corrected by the reconciler during sleep came back in the normal colour; moving the decision into the shared resolver makes every path agree. The room sensors form used internal wording and showed a raw JSON field to every operator, which confuses less technical users onboarding new houses; plain labels plus Advanced-only JSON fixes that.",
+  "implications": "Shipped NIGHTLIGHT-RED-RECONCILE-PARITY-1, SENSOR-FORM-PLAIN-TEXT-1 at v5.103.52; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.52.md (Live criteria).",
+  "revisit_trigger": "If a sleep-time night light returns non-red, or operators still misfile sensors after reading the new form.",
+  "refs": {
+    "cards": [
+      "NIGHTLIGHT-RED-RECONCILE-PARITY-1",
+      "SENSOR-FORM-PLAIN-TEXT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.52.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.52.md"
+  }
+}

@@ -101,9 +101,9 @@
         "title": "📡 Presence & Environmental Sensors",
         "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
         "data": {
-          "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors",
-          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
+          "motion_sensors": "Motion sensors",
+          "presence_sensors": "Presence sensors",
+          "occupancy_sensors": "Combined sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
@@ -116,9 +116,9 @@
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
-          "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
-          "presence_sensors": "mmWave/radar sensors that see you even when you're still — good for reading nooks and desks",
-          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal — usually vendor-supplied",
+          "motion_sensors": "See movement only.",
+          "presence_sensors": "See people sitting still.",
+          "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
@@ -1724,11 +1724,11 @@
       },
       "sensors": {
         "title": "📡 Sensors",
-        "description": "Update presence and environmental sensors.",
+        "description": "Update presence and environmental sensors. {advanced_hint}",
         "data": {
-          "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors",
-          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
+          "motion_sensors": "Motion sensors",
+          "presence_sensors": "Presence sensors",
+          "occupancy_sensors": "Combined sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
@@ -1743,9 +1743,9 @@
           "clear_sensor_fields": "Clear Optional Sensors"
         },
         "data_description": {
-          "motion_sensors": "PIR sensors that detect movement",
-          "presence_sensors": "mmWave/radar sensors that see you even when you're still",
-          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal",
+          "motion_sensors": "See movement only.",
+          "presence_sensors": "See people sitting still.",
+          "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
           "temperature_sensor": "Room temperature sensor",

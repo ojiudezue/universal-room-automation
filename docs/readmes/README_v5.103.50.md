@@ -17,3 +17,10 @@ Main house: exactly one stored leftover is now blocked — Kitchen Hallway Garag
 ## Live validation (prospective)
 - After restart: exactly one `URA-PREFILL-DETRITUS-GUARD` warning (Kitchen Hallway Garage tapo auto_update_enabled); no other URA errors.
 - Kitchen Hallway Garage occupancy change ⇒ no service call to the tapo auto_update switch.
+
+## Validated 2026-10-11 (restart 23:11 UTC)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Exactly one boot-scan warning (Kitchen Hallway Garage tapo auto_update_enabled) | PASS | core log 18:11:41 CDT: `URA-PREFILL-DETRITUS-GUARD boot_scan room=Kitchen Hallway Garage entity_id=switch.dimmer_wifi_matter_tapo550d_garagekitehenhallway_auto_update_enabled rule_id=config_category`; no other guard lines |
+| No other URA errors at boot | PASS | 0 `ERROR … universal_room_automation` lines |
+| Follow-up | done | Entity removed from the room's auto_switches via options flow (config) the same evening |
