@@ -567,6 +567,7 @@ def test_MUTATION_reset_tier1_primary_branch_clears_anchor():
     now = dt_util.now()
     self_ = _FakeCoord()
     self_._last_motion_time = None
+    self_._last_motion_bit_time = None
     self_._failsafe_fired = True
     self_._ble_only_hold_since = now - timedelta(seconds=7000)
     self_._last_pir_motion_time = None
@@ -578,6 +579,8 @@ def test_MUTATION_reset_tier1_primary_branch_clears_anchor():
         "STATE_TIMEOUT_REMAINING": "timeout_remaining",
         "STATE_OCCUPANCY_SOURCE": "occupancy_source",
         "motion_detected": True,          # exercise the motion arm
+        # D2-PIR-STAMP: local computed just above the extracted region.
+        "motion_witness_detected": True,
         "presence_detected": True,        # AND mmwave arm reachable
     }
     exec(code, ns)
@@ -617,6 +620,7 @@ def test_MUTATION_reset_camera_branch_clears_anchor():
     self_ = _FakeCoord()
     self_._occupancy_timeout = 300
     self_._last_motion_time = None
+    self_._last_motion_bit_time = None
     self_._became_occupied_time = None
     self_._ble_only_hold_since = now - timedelta(seconds=8100)
     self_._last_occupied_state = False

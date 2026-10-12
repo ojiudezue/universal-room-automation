@@ -144,6 +144,10 @@ class _FakeSelf:
         self._became_occupied_time = became_occupied_time
         self._last_pir_motion_time = last_pir_motion_time
         self._last_motion_time = last_motion_time
+        # D2-PIR-STAMP: the failsafe freshness reads the legacy motion-bit
+        # clock. In production every PIR stamp also stamps the motion-bit
+        # clock (coordinator.py ~3963), so a fresh PIR implies a fresh bit.
+        self._last_motion_bit_time = last_pir_motion_time
         self._failsafe_fired = False
         self._room_type = room_type
         self._failsafe_duration_seconds = failsafe_duration_seconds
