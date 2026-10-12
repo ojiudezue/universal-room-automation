@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "202",
+  "author": "ojiudezue",
+  "session_id": "claude_20261012_015641_ship_v5_103_53",
+  "timestamp": "2026-10-12T01:56:41Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.53 shipped: Fan trust follows sensor capability; per-room radar settings; memory writers live again",
+  "summary": "Fan trust follows sensor capability; per-room radar settings; memory writers live again",
+  "why": "Fan-noise rejection keyed on a list label, so radars filed outside presence_sensors got no rejection; routing by capability fixes the class with a kill switch. Radar tuning was manual per device in Z2M; a small settings block that sends only on save lets operators tune ZK/ZX radars from URA safely. Three memory writers had silently written nothing since v5.78 because the scheduler omitted HA's required task name, which blinded memory in the Study A fan investigation; fixing it plus a weekly zero-row check prevents a repeat.",
+  "implications": "Shipped OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1, URA-SENSOR-TUNING-1, MEMORY-WRITERS-SILENT-DROP-1 at v5.103.53; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.53.md (Live criteria).",
+  "revisit_trigger": "If fan-room false vacancy rises after the capability routing, if a radar setting is reported not applied, or if the weekly memory check fires.",
+  "refs": {
+    "cards": [
+      "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1",
+      "URA-SENSOR-TUNING-1",
+      "MEMORY-WRITERS-SILENT-DROP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.53.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.53.md"
+  }
+}

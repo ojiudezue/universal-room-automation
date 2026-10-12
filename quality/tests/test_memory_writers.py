@@ -170,7 +170,14 @@ class _FakeHass:
     def async_create_task(self, coro):
         return asyncio.ensure_future(coro)
 
-    def async_create_background_task(self, coro, name=None):
+    # MEMORY-WRITERS-SILENT-DROP-1 D1 fix: mirror the REAL HA signature
+    # ``async_create_background_task(target, name, eager_start=True)``
+    # — ``name`` is positional-required, NOT keyword-optional. Prior
+    # fake had ``name=None`` default which masked the TypeError that
+    # swallowed every writer's episode in production (v5.78.0 onward).
+    # Verified against homeassistant.core.HomeAssistant on 2026-10-11:
+    #   (self, target, name, eager_start=True)
+    def async_create_background_task(self, coro, name, eager_start=True):
         return asyncio.ensure_future(coro)
 
 
@@ -994,3 +1001,170 @@ def test_no_production_module_reads_scope_b_episode_types():
         f"reference Scope-B episode types: {offenders}. Move any "
         "consumer behind memory_facade or explain in-code."
     )
+
+
+# ---------------------------------------------------------------------------
+# MEMORY-WRITERS-SILENT-DROP-1 D1 — _schedule name + fake-signature parity
+# ---------------------------------------------------------------------------
+
+
+def test_fake_hass_async_create_background_task_matches_real_ha_signature():
+    """The fake MUST mirror ``homeassistant.core.HomeAssistant`` so a
+    writer that forgets ``name=`` fails the same way in-test and live.
+    Verified by `inspect.signature` parity (via a stub comparing the
+    parameter names + kinds). Pins the gap that let v5.78.0 ship a
+    silent-drop regression.
+    """
+    import inspect as _inspect
+    sig = _inspect.signature(_FakeHass.async_create_background_task)
+    params = list(sig.parameters.values())
+    # self + target + name (required) + eager_start (optional)
+    assert [p.name for p in params] == ["self", "coro", "name", "eager_start"]
+    # ``name`` must be REQUIRED (no default). This is the entire point
+    # of the fix — a ``name=None`` default is what hid the bug.
+    name_param = sig.parameters["name"]
+    assert name_param.default is _inspect.Parameter.empty, (
+        "Fake async_create_background_task.name must NOT have a default; "
+        "that is what masked the production TypeError. Mirror real HA: "
+        "(self, target, name, eager_start=True)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_phantom_retro_fails_loudly_when_schedule_name_omitted(hass):
+    """DRILL — revert the fix (strip the ``name=`` kwarg) and confirm the
+    scheduled call RAISES against the signature-aligned fake. This
+    anchors D1 to the real failure mode: a writer that goes back to
+    calling ``sched(coro)`` instantly 100% drops its episodes.
+
+    We re-exercise ``_schedule`` with the real coroutine but WITHOUT a
+    name arg and verify the fake raises TypeError. The writer's own
+    try/except would swallow it in production, so the loud failure is
+    the point: the fake catches regressions the production catch would
+    hide.
+    """
+    db = _db(hass)
+
+    async def _noop_coro():
+        return None
+
+    coro = _noop_coro()
+    with pytest.raises(TypeError):
+        # Direct call to the fake with the OLD shape (name-less) — this
+        # is what memory_writers._schedule used to produce before the fix.
+        hass.async_create_background_task(coro)
+    coro.close()
+    # Sanity: the new _schedule passes ``name=`` and does NOT raise.
+    fan_on = datetime(2026, 8, 13, 18, 0, 0, tzinfo=timezone.utc)
+    fan_off = fan_on + timedelta(seconds=PHANTOM_RETRO_MIN_HOLD_S + 60)
+    mmwave_off = fan_off + timedelta(seconds=30)
+    mw.write_phantom_retro(
+        hass,
+        room_name="Living Room",
+        fan_off_ts=fan_off,
+        mmwave_off_ts=mmwave_off,
+        fan_on_since=fan_on,
+    )
+    await asyncio.sleep(0)
+    assert len(db.rows) == 1, (
+        "Fixed _schedule must route the coro through the fake and the "
+        "episode must land. If this fails, D1 regressed."
+    )
+
+
+# ---------------------------------------------------------------------------
+# D2 — fan_recheck_outcome writer unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_outcome_vacated_restored_off(hass):
+    mw.write_fan_recheck_outcome(
+        hass,
+        room_name="Study A",
+        verdict="vacated",
+        reason="pause_window_complete",
+        pause_window_s=240.0,
+        radar_family_factor=1.5,
+        fan_restored=False,
+        manual_fan_on_followup=False,
+        house_state="home_day",
+    )
+    await asyncio.sleep(0)
+    rows = _db(hass).rows
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["episode_type"] == "fan_recheck_outcome"
+    assert r["node_id"] == "room:study_a"
+    assert r["adjudication"] == "observed"
+    assert r["attrs"]["verdict"] == "vacated"
+    assert r["attrs"]["fan_restored"] is False
+    assert r["attrs"]["manual_fan_on_followup"] is False
+    assert r["attrs"]["pause_window_s"] == 240.0
+    assert r["attrs"]["radar_family_factor"] == 1.5
+    assert r["attrs"]["house_state"] == "home_day"
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_outcome_occupied_confirmed_restored_on(hass):
+    mw.write_fan_recheck_outcome(
+        hass,
+        room_name="Living Room",
+        verdict="occupied_confirmed",
+        reason="pause_window_complete",
+        fan_restored=True,
+        manual_fan_on_followup=None,  # unknown
+        house_state="home_day",
+    )
+    await asyncio.sleep(0)
+    r = _db(hass).rows[0]
+    assert r["attrs"]["verdict"] == "occupied_confirmed"
+    assert r["attrs"]["fan_restored"] is True
+    assert "manual_fan_on_followup" not in r["attrs"]
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_outcome_cancel_driven_with_manual_followup(hass):
+    mw.write_fan_recheck_outcome(
+        hass,
+        room_name="Jaya Bedroom",
+        verdict="occupied_confirmed",
+        reason="cancel_driven",
+        fan_restored=True,
+        manual_fan_on_followup=True,
+        house_state="sleep",
+    )
+    await asyncio.sleep(0)
+    r = _db(hass).rows[0]
+    assert r["attrs"]["reason"] == "cancel_driven"
+    assert r["attrs"]["manual_fan_on_followup"] is True
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_outcome_kill_switch(hass, monkeypatch):
+    monkeypatch.setattr(mw, "FAN_RECHECK_OUTCOME_WRITER_ENABLED", False)
+    mw.write_fan_recheck_outcome(
+        hass,
+        room_name="Study A",
+        verdict="vacated",
+    )
+    await asyncio.sleep(0)
+    assert _db(hass).rows == []
+
+
+def test_fan_recheck_outcome_registered_in_vocabulary():
+    assert "fan_recheck_outcome" in MEMORY_EPISODE_TYPES
+
+
+# NOTE (MEMORY-WRITERS-SILENT-DROP-1 fix-up #1): the former
+# ``test_fan_recheck_outcome_wire_in_at_restore_site`` was a pure AST
+# scan — it proved only that the writer NAME appeared somewhere inside
+# the ``_restore`` function body, not that the writer actually fires
+# with the right payload when ``_restore`` is driven. It is replaced by
+# behavioural + mutation drills in
+# ``test_fan_recheck_memory_outcome.py``, which load the real
+# ``FanRecheckManager``, drive ``_restore`` through all four verdict
+# shapes (vacated / occupied / forced / cancel-driven), and assert the
+# emitted mem row's verdict / reason / fan_restored / timestamp. A call
+# whose production source stops reaching the writer turns one of those
+# tests red; the AST scan would have remained green.

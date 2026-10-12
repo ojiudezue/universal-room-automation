@@ -19069,6 +19069,26 @@ cards:
   refs:
   - README_v5.59.0.md
   updated: 2026-08-17 23:30
+- id: MEMORY-WRITERS-SILENT-DROP-1
+  title: 3 of 4 v5.78 memory writers have never written a row — _schedule drops the coroutine
+  rank: {value: 7, time_criticality: 3, effort: 1}
+  status: shipped_organic
+  shipped_version: v5.103.53
+  updated: '2026-10-11 21:00'
+  thread: memory
+  created: 2026-10-11 21:00
+  problem: phantom_retro, tracker_trust_excluded and house_state_transition have 0 rows in
+    memory_episodes since v5.78.0 (away_transition_blocked, which doesn't use _schedule, has 362).
+    memory_writers._schedule calls hass.async_create_background_task(coro) without the required
+    `name` arg (HA signature (target, name, eager_start=True)) -> TypeError swallowed by the bare
+    except -> coro.close(). Silent by construction. Tests presumably use a fake hass whose
+    background-task stub takes one arg (hollow fake, Bug Class #62-adjacent).
+  origin: 2026-10-11 operator "investigate our room memory infrastructure ... how useful". Found
+    by orchestrator via live DB count + HA signature check.
+  next: Tier 1 — pass a name to async_create_background_task (or use hass.async_create_task),
+    log the swallowed exception at warning, and make the test fake enforce the real signature;
+    drill. Live check = >=1 house_state_transition row within an hour of restart.
+  refs: custom_components/universal_room_automation/memory_writers.py:82-93
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
@@ -30888,14 +30908,38 @@ cards:
 - id: OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.53
   tier: 2
   created: "2026-10-11 23:50"
-  updated: "2026-10-11 23:50"
+  updated: "2026-10-12 12:00"
+  build_2026_10_12: "Built on fix/occupancy-source-follows-capability (plan Rev 2, D1-D7): per-tick STATE_RADAR_SOLE_TICK + _recent_radar_sole_ring, positive-evidence is_radar (override wins both ways), six consumers + recheck family factor routed, kill switch sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED. 34 new tests; 27 per-site mutation drills all RED. Awaiting 2 framing-disjoint code reviews."
   origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
   why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
   next: "Prior-art scan (coordinator occupancy_source producer ~3148, D2 sole-source check, recheck mmwave-only eligibility); plan the smallest change: source/radar-ness from derive_capability (kind mmwave / model family radar) rather than list."
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
+- id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
+  title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
+  thread: presence
+  status: planned
+  tier: 1
+  created: "2026-10-12 12:00"
+  updated: "2026-10-12 12:00"
+  origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
+  why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
+  next: "Stamp _last_pir_motion_time and clear the latch on 'pir_motion' only when an on motion entity passes fan_veto.is_fan_immune_motion_witness. Tier 1; mutation-anchor both sites."
+  related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
+- id: FAN-TRANSITION-GATE-FOLLOWS-CAPABILITY-1
+  title: Fan-transition CREATION gate still keys on presence_detected list predicate (dormant - window 0.0)
+  thread: presence
+  status: parked
+  tier: 1
+  created: "2026-10-12 12:00"
+  updated: "2026-10-12 12:00"
+  origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 (dormant site, out of scope)."
+  why: "coordinator.py fan-transition gate predicate (d) uses presence_detected and not motion and not occupancy; dormant since FAN_TRANSITION_SUSPECT_WINDOW_S = 0.0."
+  next: "Revival trigger: any cycle that un-retires FAN_TRANSITION_SUSPECT_WINDOW_S must route predicate (d) through data[STATE_RADAR_SOLE_TICK]."
+  related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
 - id: SENSOR-FORM-PLAIN-TEXT-1
   title: Room sensors form — brief, user-focused wording (motion / presence / combined; 'What can it see?' dropdown; hide advanced JSON)
   thread: onboarding
@@ -30910,7 +30954,8 @@ cards:
 - id: URA-SENSOR-TUNING-1
   title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.103.53
   created: "2026-10-11 18:30"
   updated: "2026-10-11 18:30"
   origin: "Operator 2026-10-11: 'We may need to add sensor tuning directly to URA' — after Study A ZG-204ZK tuning (motion 8->5, static 8->6, distance 4.34->3.0 m) and the Wigton fleet retune (17 units by hand)."

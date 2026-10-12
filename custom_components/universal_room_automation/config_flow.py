@@ -47,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 # does NOT have Advanced mode on. Wording verified against the current HA
 # frontend: the user profile is reached by clicking the user name at the
 # bottom-left of the sidebar and toggling "Advanced mode".
-from typing import Final  # noqa: E402
+from typing import Any, Final  # noqa: E402
 # ROOM-TYPE-TRIMMED-MENU-1: generalised from the Lighting-only hint (renamed
 # from LIGHTING_ADVANCED_HINT_* / lighting_advanced_hint, text unchanged).
 # Used by every room options step with Advanced-only fields and by the room
@@ -391,6 +391,7 @@ from .const import (
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4: per-room camera-presence opt-out
     CONF_ROOM_CAMERAS,  # 2026-08-01 room-camera fusion cycle (D1)
     CONF_SENSOR_CAPABILITIES,  # SENSOR-CAPABILITY-1 (D4)
+    CONF_RADAR_SETTINGS,  # URA-SENSOR-TUNING-1 Phase A (Rev 2)
     DEFAULT_DISABLE_CAMERA_PRESENCE,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
@@ -12463,6 +12464,93 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                             "sensor_capabilities (post-dropdown-merge) "
                             "validation rejected: %s", v_errors2,
                         )
+            # URA-SENSOR-TUNING-1 Phase A (Rev 2): fold per-field radar
+            # dropdown selections (keys `radar_<field>__<entity_id>`) into
+            # a per-entity dict. A field whose value is the LEAVE_AS_IS
+            # sentinel is OMITTED entirely — absent key = URA never writes.
+            # Non-ZK/ZX binary_sensors never render these fields, but the
+            # family guard in `async_send_radar_settings` is the backstop.
+            _radar_new: dict[str, dict] = {}
+            try:
+                from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                    LEAVE_AS_IS_SENTINEL as _RT_LEAVE,
+                    MANAGED_FIELDS as _RT_FIELDS,
+                )
+            except Exception:  # noqa: BLE001
+                _RT_LEAVE = "__leave_as_is__"
+                _RT_FIELDS = (
+                    "motion_sensitivity", "static_sensitivity",
+                    "detection_distance", "fading_time",
+                )
+            for _uk in list(user_input.keys()):
+                if not isinstance(_uk, str) or not _uk.startswith("radar_"):
+                    continue
+                # Shape: radar_<field>__<entity_id>
+                _rest = _uk[len("radar_"):]
+                if "__" not in _rest:
+                    continue
+                _field, _eid = _rest.split("__", 1)
+                _val = user_input.pop(_uk)
+                if _field not in _RT_FIELDS:
+                    continue
+                if _val is None or _val == _RT_LEAVE or _val == "":
+                    continue
+                # Dropdown values are stored as strings by SelectSelector.
+                # Coerce to int (sensitivity, fading seconds) or float
+                # (distance metres); keep raw on parse failure.
+                _coerced: Any = _val
+                if isinstance(_val, str):
+                    try:
+                        if _field == "detection_distance":
+                            _coerced = float(_val)
+                        else:
+                            _coerced = int(_val)
+                    except ValueError:
+                        _coerced = _val
+                _radar_new.setdefault(_eid, {})[_field] = _coerced
+
+            # Review fix (4): carry forward saved radar settings for
+            # entities still in CONF_MMWAVE_SENSORS whose fields didn't
+            # render this time (resolution transiently failed — e.g. the
+            # entity registry lookup returned None, or the number.*
+            # sibling wasn't found). Without this, a save would silently
+            # DROP the operator's prior picks for an unaffected radar.
+            try:
+                from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                    resolve_zk_zx_tuning_entities as _rt_resolve_cf,
+                )
+                _radar_saved_cf = (
+                    self._config_entry.options.get(CONF_RADAR_SETTINGS)
+                    or self._config_entry.data.get(CONF_RADAR_SETTINGS)
+                    or {}
+                )
+                _mmwave_submitted = set(mmwave or [])
+                for _s_eid, _s_fields in (_radar_saved_cf or {}).items():
+                    if (
+                        not isinstance(_s_eid, str)
+                        or not isinstance(_s_fields, dict)
+                    ):
+                        continue
+                    if _s_eid not in _mmwave_submitted:
+                        continue  # entity removed — intentionally drop
+                    try:
+                        _resolved_cf = _rt_resolve_cf(self.hass, _s_eid) or {}
+                    except Exception:  # noqa: BLE001
+                        _resolved_cf = {}
+                    for _f, _v in _s_fields.items():
+                        if _f not in _RT_FIELDS:
+                            continue
+                        if _f in _radar_new.get(_s_eid, {}):
+                            continue  # operator just set it — new wins
+                        if _f in _resolved_cf:
+                            continue  # field rendered → user_input is truth
+                        _radar_new.setdefault(_s_eid, {})[_f] = _v
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "radar_settings: carry-forward skipped (non-fatal)",
+                    exc_info=True,
+                )
+
             if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
@@ -12471,6 +12559,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         merged[CONF_SENSOR_CAPABILITIES] = caps_payload
                     else:
                         merged.pop(CONF_SENSOR_CAPABILITIES, None)
+                    # Radar settings: previous dict for diff is the prior
+                    # saved value; new dict is the folded form above.
+                    _radar_prev = (
+                        self._config_entry.options.get(CONF_RADAR_SETTINGS)
+                        or self._config_entry.data.get(CONF_RADAR_SETTINGS)
+                        or {}
+                    )
+                    if _radar_new:
+                        merged[CONF_RADAR_SETTINGS] = _radar_new
+                    else:
+                        merged.pop(CONF_RADAR_SETTINGS, None)
+                    # Send one number.set_value per CHANGED managed field.
+                    # Scheduled as a background task so the options-flow
+                    # save returns promptly; the send path is fire-and-
+                    # forget (blocking=False in the service call).
+                    # Only schedule when the saved radar dict actually
+                    # changed. Review fix (3): all-sentinel on a fresh
+                    # install (prev=={} AND new=={}) must not fire the
+                    # send path; the diff helper short-circuits anyway,
+                    # but gating here keeps the "sends nothing" invariant
+                    # observable at the schedule site.
+                    if _radar_new != _radar_prev:
+                        try:
+                            from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                                async_send_radar_settings as _rt_send,
+                            )
+                            self.hass.async_create_task(
+                                _rt_send(
+                                    self.hass,
+                                    previous_settings=_radar_prev,
+                                    new_settings=_radar_new,
+                                ),
+                            )
+                        except Exception:  # noqa: BLE001 — never break save on send
+                            _LOGGER.warning(
+                                "radar_settings: failed to schedule send",
+                                exc_info=True,
+                            )
                     # v5.37.0/v5.37.1: explicit-clear control for the otherwise
                     # unclearable optional single-entity selectors (temperature,
                     # humidity, illuminance, water_leak). An optional
@@ -12631,6 +12757,166 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     custom_value=False,
                 ),
+            )
+
+        # URA-SENSOR-TUNING-1 Phase A (Rev 2): per-ZK/ZX "Radar settings"
+        # block. For every entity in CONF_MMWAVE_SENSORS whose device
+        # family resolves to zigbee_zk_zx, render four named-bucket
+        # dropdowns (plain labels per feedback_label_style_guide;
+        # feedback_configurability_clarity named buckets). Each field
+        # defaults "Leave as is" — absent from the saved dict means URA
+        # never writes it. Range buckets clip to the live number.*
+        # entity's `max` so Long reflects the firmware's real limit.
+        try:
+            from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                FIELD_MOTION_SENSITIVITY as _RT_F_MOTION,
+                FIELD_STATIC_SENSITIVITY as _RT_F_STATIC,
+                FIELD_DETECTION_DISTANCE as _RT_F_DIST,
+                FIELD_FADING_TIME as _RT_F_FADE,
+                LEAVE_AS_IS_SENTINEL as _RT_LEAVE,
+                MOTION_SENSITIVITY_BUCKETS as _RT_B_MOTION,
+                STATIC_SENSITIVITY_BUCKETS as _RT_B_STATIC,
+                FADING_TIME_BUCKETS as _RT_B_FADE,
+                clipped_distance_buckets as _rt_distance_buckets,
+                resolve_zk_zx_tuning_entities as _rt_resolve,
+            )
+            _radar_saved: dict = self._get_current(CONF_RADAR_SETTINGS, {}) or {}
+
+            # Plain-English field labels (feedback_label_style_guide:
+            # no nerd words, short). Each option label carries its
+            # field so the four dropdowns on a single radar are
+            # distinguishable at a glance ("Moving people: High" etc).
+            # Dynamic field keys like `radar_motion_sensitivity__<eid>`
+            # have no translation entry; without this prefix every
+            # dropdown would just show "High / Medium / Low" with no
+            # indication of which setting it controls.
+            _FIELD_LABEL = {
+                _RT_F_MOTION: "Moving people",
+                _RT_F_STATIC: "Still people",
+                _RT_F_DIST: "Watch distance",
+                _RT_F_FADE: "Hold time",
+            }
+
+            def _mk_option(field_label, bucket_map, unit=""):
+                opts = [{
+                    "value": _RT_LEAVE,
+                    "label": f"{field_label}: Leave as is",
+                }]
+                for label, value in bucket_map.items():
+                    _b = label.replace("_", " ").title()
+                    opts.append({
+                        "value": str(value),
+                        "label": f"{field_label}: {_b} ({value}{unit})",
+                    })
+                return opts
+
+            # Review fix (5): if the step is being re-rendered after an
+            # error, the operator's un-saved radar picks come back on
+            # ``user_input``. Prefer those over the saved dict so the
+            # dropdowns don't silently revert to "Leave as is".
+            _ui = user_input if isinstance(user_input, dict) else {}
+
+            for _zk_eid in _mmwave_now or []:
+                _resolved = _rt_resolve(self.hass, _zk_eid)
+                if not _resolved:
+                    continue
+                _entity_saved = _radar_saved.get(_zk_eid) or {}
+                if not isinstance(_entity_saved, dict):
+                    _entity_saved = {}
+
+                def _default_for(field, _eid=_zk_eid, _saved=_entity_saved):
+                    _k = f"radar_{field}__{_eid}"
+                    if _k in _ui:
+                        _uv = _ui.get(_k)
+                        if _uv is not None:
+                            return str(_uv)
+                    v = _saved.get(field)
+                    if v is None:
+                        return _RT_LEAVE
+                    return str(v)
+
+                def _opts_with_saved(bucket_map, field, unit="",
+                                     _eid=_zk_eid, _saved=_entity_saved):
+                    """Build options, adding the saved value as an
+                    extra option if it's not already in bucket_map
+                    (review fix 6: don't let an out-of-bucket saved
+                    distance get rejected by the SelectSelector)."""
+                    opts = _mk_option(_FIELD_LABEL[field], bucket_map, unit=unit)
+                    v = _saved.get(field)
+                    if v is None:
+                        return opts
+                    _vs = str(v)
+                    if any(o["value"] == _vs for o in opts):
+                        return opts
+                    opts.append({
+                        "value": _vs,
+                        "label": f"{_FIELD_LABEL[field]}: Saved ({v}{unit})",
+                    })
+                    return opts
+
+                # Motion sensitivity
+                if _RT_F_MOTION in _resolved:
+                    schema_dict[vol.Optional(
+                        f"radar_{_RT_F_MOTION}__{_zk_eid}",
+                        default=_default_for(_RT_F_MOTION),
+                    )] = selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_opts_with_saved(
+                                _RT_B_MOTION, _RT_F_MOTION,
+                            ),
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            custom_value=False,
+                        ),
+                    )
+                # Still-person sensitivity
+                if _RT_F_STATIC in _resolved:
+                    schema_dict[vol.Optional(
+                        f"radar_{_RT_F_STATIC}__{_zk_eid}",
+                        default=_default_for(_RT_F_STATIC),
+                    )] = selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_opts_with_saved(
+                                _RT_B_STATIC, _RT_F_STATIC,
+                            ),
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            custom_value=False,
+                        ),
+                    )
+                # How far it watches — buckets clipped to live max.
+                if _RT_F_DIST in _resolved:
+                    _dist_bk = _rt_distance_buckets(
+                        self.hass, _resolved.get(_RT_F_DIST),
+                    )
+                    schema_dict[vol.Optional(
+                        f"radar_{_RT_F_DIST}__{_zk_eid}",
+                        default=_default_for(_RT_F_DIST),
+                    )] = selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_opts_with_saved(
+                                _dist_bk, _RT_F_DIST, unit=" m",
+                            ),
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            custom_value=False,
+                        ),
+                    )
+                # Hold time after last movement
+                if _RT_F_FADE in _resolved:
+                    schema_dict[vol.Optional(
+                        f"radar_{_RT_F_FADE}__{_zk_eid}",
+                        default=_default_for(_RT_F_FADE),
+                    )] = selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=_opts_with_saved(
+                                _RT_B_FADE, _RT_F_FADE, unit=" s",
+                            ),
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            custom_value=False,
+                        ),
+                    )
+        except Exception:  # noqa: BLE001 — never break the sensors step on radar UI
+            _LOGGER.debug(
+                "radar_settings: schema build skipped (non-fatal)",
+                exc_info=True,
             )
 
         data_schema = vol.Schema({**schema_dict,

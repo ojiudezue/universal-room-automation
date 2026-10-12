@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_RECHECK_ARM_DELAY_S,
     CONF_FAN_RECHECK_COOLDOWN_S,
@@ -45,6 +46,8 @@ from ..const import (
     CONF_FAN_RECHECK_WINDOW_S,
     CONF_FANS,
     CONF_MMWAVE_SENSORS,
+    CONF_MOTION_SENSORS,
+    CONF_OCCUPANCY_SENSORS,
     CONF_ROOM_FAN_RECHECK_ENABLED,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
@@ -68,6 +71,7 @@ from ..const import (
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_MEDIA_ROOM,
     ROOM_TYPE_RECHECK_FACTOR,
+    STATE_RADAR_SOLE_TICK,
 )
 from ..const import fan_owner
 from ._ble_corroboration import trustworthy_persons_in_room
@@ -75,6 +79,7 @@ from .house_state import HouseState
 from .hvac_const import FAN_TRUST_STATES
 from .sensor_capability import (
     SENSOR_FAMILY_UNKNOWN,
+    capability_routing_enabled,
     family_recheck_factor,
 )
 from .signals import (
@@ -92,6 +97,11 @@ STATE_COOLDOWN = "cooldown"
 
 OUTCOME_VACATED = "vacated"
 OUTCOME_OCCUPIED_CONFIRMED = "occupied_confirmed"
+# MEMORY-WRITERS-SILENT-DROP-1 fix-up #4: a terminal cycle that aborted
+# after real ARMING (no verdict reached). Emitted ONLY from ARMED-path
+# cancel sites; PAUSED-path cancels still produce an occupied_confirmed
+# verdict via `_restore` (so no double row).
+OUTCOME_ABORTED = "aborted"
 
 LAYER_L1 = "L1"
 LAYER_L2 = "L2"
@@ -186,6 +196,11 @@ class FanRecheckManager:
         # C4 Rev 2: rooms already WARNed for an unresolved sensor family
         # (once per room per boot).
         self._family_warned: set[str] = set()
+        # MEMORY-WRITERS-SILENT-DROP-1 fix-up #2: follow-up probe
+        # async_call_later unsubs. Captured so `shutdown()` can cancel
+        # them (the state-machine timer lives on ``ctx.timer_unsub``;
+        # these are separate one-shot probes scheduled after a verdict).
+        self._followup_timer_unsubs: list[Any] = []
 
     # ---- observability helpers --------------------------------------------
 
@@ -219,6 +234,42 @@ class FanRecheckManager:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("fan_recheck activity_log failed", exc_info=True)
+
+    def _emit_aborted_mem(
+        self, ctx: _RoomCtx, reason: str,
+    ) -> None:
+        """Fix-up #4: write one `fan_recheck_outcome` row with
+        verdict=aborted at ARMED-path cancel sites (where no verdict is
+        reached). Rate-bound BY CONSTRUCTION — only fires after a real
+        arming, so it inherits the same max-per-hour + cooldown envelope
+        as any live recheck. Never raises.
+        """
+        try:
+            from ..memory_writers import (
+                write_fan_recheck_outcome as _write_fan_recheck_outcome,
+            )
+            try:
+                from ..const import FAN_RECHECK_OUTCOME_WRITER_ENABLED
+            except Exception:  # noqa: BLE001
+                FAN_RECHECK_OUTCOME_WRITER_ENABLED = True  # type: ignore
+            if not FAN_RECHECK_OUTCOME_WRITER_ENABLED:
+                return
+            house_state_now = getattr(self._presence, "house_state", None)
+            _write_fan_recheck_outcome(
+                self.hass,
+                room_name=ctx.room_name,
+                verdict=OUTCOME_ABORTED,
+                reason=reason,
+                fan_restored=None,
+                manual_fan_on_followup=None,
+                house_state=house_state_now,
+                at=dt_util.now(),
+            )
+        except Exception:  # noqa: BLE001 — observational
+            _LOGGER.debug(
+                "FanRecheck %s: aborted mem write skipped",
+                ctx.room_name, exc_info=True,
+            )
 
     def _schedule_activity(
         self,
@@ -289,7 +340,21 @@ class FanRecheckManager:
                         "ble_ladder_layer": ctx.ble_ladder_layer,
                     },
                 )
+                # Fix-up #4: durable aborted mem row for a cycle that
+                # arrested at shutdown without a verdict.
+                self._emit_aborted_mem(
+                    ctx, reason=f"shutdown_in_{ctx.state}",
+                )
             await self._persist(ctx)
+        # Fix-up #2: cancel every outstanding follow-up probe. Untracked
+        # probes would survive teardown and fire ~5 min later against a
+        # stale hass -> orphan write / warn-once churn.
+        for unsub in list(self._followup_timer_unsubs):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._followup_timer_unsubs.clear()
         _LOGGER.info("FanRecheck: shutdown — %d rooms persisted", len(self._rooms))
 
     def on_room_tick(self, room_coord: Any) -> None:
@@ -512,13 +577,41 @@ class FanRecheckManager:
                 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             )
         )
-        recent = []
-        if hasattr(room_coord, "recent_occupancy_sources"):
-            recent = list(room_coord.recent_occupancy_sources())
-        if len(recent) < ticks_required:
-            return sink.veto(room_name, "mmwave_history_short")
-        if any(s != "mmwave" for s in recent[-ticks_required:]):
-            return sink.veto(room_name, "not_mmwave_sole")
+        # Override Occupied veto (B-M1): the operator's Occupied-override is
+        # intent, not a sensor fact — the capability radar-sole ring can't
+        # see it (label-only state). Applies on BOTH routing branches, and
+        # whether the master kill switch is on or off (operator intent wins).
+        # The old label-ring N-tick gate rejected the "override" label as
+        # `s != "mmwave"`; the capability ring doesn't, so re-add the veto
+        # explicitly here against the label ring.
+        try:
+            label_ring = list(room_coord.recent_occupancy_sources()) \
+                if hasattr(room_coord, "recent_occupancy_sources") else []
+        except Exception:  # noqa: BLE001
+            label_ring = []
+        if any(s == "override" for s in label_ring[-ticks_required:]):
+            return sink.veto(room_name, "override_occupied")
+        if capability_routing_enabled():
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: N-tick history of
+            # the capability radar-sole bool. Fail-closed: a coordinator
+            # without the ring, or a ring shorter than N, vetoes
+            # "capability_bootstrap" (no fallback to the LIST label).
+            try:
+                sole_ring = list(room_coord.recent_radar_sole_ring())
+            except Exception:  # noqa: BLE001 — fail-closed
+                sole_ring = []
+            if len(sole_ring) < ticks_required:
+                return sink.veto(room_name, "capability_bootstrap")
+            if not all(sole_ring[-ticks_required:]):
+                return sink.veto(room_name, "not_radar_sole")
+        else:
+            recent = []
+            if hasattr(room_coord, "recent_occupancy_sources"):
+                recent = list(room_coord.recent_occupancy_sources())
+            if len(recent) < ticks_required:
+                return sink.veto(room_name, "mmwave_history_short")
+            if any(s != "mmwave" for s in recent[-ticks_required:]):
+                return sink.veto(room_name, "not_mmwave_sole")
 
         # Condition 3: at least one fan entity AND one is ON.
         fans = merged.get(CONF_FANS) or []
@@ -687,6 +780,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="arm_expired_no_room_coord")
             await self._enter_cooldown(ctx)
             return
         # Cancellation re-evaluation: if conditions no longer hold, abandon.
@@ -703,6 +797,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="arm_expired_ineligible")
             await self._enter_cooldown(ctx)
             return
         await self._enter_paused(ctx, room_coord)
@@ -762,6 +857,7 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
+            self._emit_aborted_mem(ctx, reason="no_managed_fan")
             await self._enter_cooldown(ctx)
             return
 
@@ -791,16 +887,24 @@ class FanRecheckManager:
         room_coord = self._room_coord_for(ctx.room_name)
         outcome = OUTCOME_OCCUPIED_CONFIRMED
         if room_coord is not None:
-            recent = []
-            if hasattr(room_coord, "recent_occupancy_sources"):
-                recent = list(room_coord.recent_occupancy_sources())
             data = getattr(room_coord, "data", None) or {}
             # If mmwave (the lone driver pre-pause) no longer drives occupancy
             # after airflow stopped, the fan was the culprit -> vacated.
-            current_source = str(data.get("occupancy_source", "none"))
-            presence_now = bool(data.get("presence_detected", False))
-            if not presence_now and current_source != "mmwave":
-                outcome = OUTCOME_VACATED
+            if capability_routing_enabled():
+                # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: vacated iff
+                # no radar-bearing entity (any CONF list) is on NOW —
+                # live on-set, not the label, not presence_detected.
+                try:
+                    radar_on = bool(room_coord.any_radar_bearing_on_now())
+                except Exception:  # noqa: BLE001 — fail-safe: not vacated
+                    radar_on = True
+                if not radar_on:
+                    outcome = OUTCOME_VACATED
+            else:
+                current_source = str(data.get("occupancy_source", "none"))
+                presence_now = bool(data.get("presence_detected", False))
+                if not presence_now and current_source != "mmwave":
+                    outcome = OUTCOME_VACATED
         await self._restore(ctx, outcome=outcome)
 
     async def _restore(
@@ -870,6 +974,103 @@ class FanRecheckManager:
                 "cancel_driven": cancel_driven,
             },
         )
+        # MEMORY-WRITERS-SILENT-DROP-1 D2 — observational episode mirror of
+        # the activity_log row. One row per completed recheck. Rate-bound
+        # BY CONSTRUCTION via the recheck state machine's own cooldown +
+        # max-per-hour cap. Memory-ineligible: never read on an actuation
+        # path (arch §8). Follow-up manual_fan_on sampling is scheduled
+        # FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN minutes after the verdict.
+        try:
+            merged_cfg = {}
+            room_coord = self._room_coord_for(ctx.room_name)
+            if room_coord is not None:
+                merged_cfg = self._merged_config(room_coord)
+            radar_factor = self._family_factor(
+                merged_cfg, self._timing_config(), ctx.room_name,
+            ) if merged_cfg else None
+            house_state_now = getattr(self._presence, "house_state", None)
+            # Verdict reason: cancel-driven vs max-out vs observed vacancy.
+            if cancel_driven:
+                _reason = "cancel_driven"
+            elif forced:
+                _reason = "forced"
+            else:
+                _reason = "pause_window_complete"
+            _fan_restored = not leave_off
+            _window = self._effective_window_s(
+                merged_cfg, self._timing_config(), ctx.room_name,
+            ) if merged_cfg else None
+
+            # Lazy import — some test harnesses load this module under a
+            # non-package alias ("ura_fanrecheck_pkg"), which breaks a
+            # top-level relative import. Inline import is cheap, HA has
+            # already paid the import cost for memory_writers elsewhere.
+            from ..memory_writers import (
+                write_fan_recheck_outcome as _write_fan_recheck_outcome,
+            )
+
+            # Fix-up #2 + #3: write the verdict row IMMEDIATELY at verdict
+            # time (NOT 5 min later from the probe path) with
+            # ``manual_fan_on_followup=None`` and ``at=verdict_at`` — the
+            # row carries the verdict's own timestamp regardless of probe
+            # scheduling or restart. The follow-up probe writes a SEPARATE
+            # second row (distinct source_ref via ``:followup`` suffix)
+            # with the sampled manual_fan_on_followup bool.
+            verdict_at = dt_util.now()
+
+            def _emit(
+                manual_followup: Optional[bool],
+                *, suffix: str = "",
+            ) -> None:
+                _write_fan_recheck_outcome(
+                    self.hass,
+                    room_name=ctx.room_name,
+                    verdict=outcome,
+                    reason=_reason,
+                    pause_window_s=_window,
+                    radar_family_factor=radar_factor,
+                    fan_restored=_fan_restored,
+                    manual_fan_on_followup=manual_followup,
+                    house_state=house_state_now,
+                    at=verdict_at,
+                    source_ref_suffix=suffix,
+                )
+
+            # Verdict row — immediate.
+            _emit(None)
+
+            # If the writer is disabled upstream nothing lands; also skip
+            # scheduling the follow-up probe in that case for parsimony.
+            try:
+                from ..const import FAN_RECHECK_OUTCOME_WRITER_ENABLED
+            except Exception:  # noqa: BLE001
+                FAN_RECHECK_OUTCOME_WRITER_ENABLED = True  # type: ignore
+            if FAN_RECHECK_OUTCOME_WRITER_ENABLED:
+                async def _followup_probe(_now):
+                    try:
+                        manual_hold = self._fan_in_manual_on_hold(
+                            ctx.room_name,
+                        )
+                    except Exception:  # noqa: BLE001
+                        manual_hold = None
+                    _emit(manual_hold, suffix=":followup")
+
+                unsub = async_call_later(
+                    self.hass,
+                    FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN * 60,
+                    _followup_probe,
+                )
+                # Fix-up #2: track so shutdown() can cancel. Untracked
+                # async_call_later survives shutdown and can fire after
+                # the manager is torn down (orphan write).
+                if unsub is not None:
+                    self._followup_timer_unsubs.append(unsub)
+        except Exception:  # noqa: BLE001 — observational, never raises
+            _LOGGER.debug(
+                "FanRecheck %s: fan_recheck_outcome memory write skipped",
+                ctx.room_name, exc_info=True,
+            )
+
         # Reset the marker so the next arm/outcome cycle doesn't inherit it.
         if cancel_driven:
             ctx._cancel_driven = False
@@ -926,7 +1127,9 @@ class FanRecheckManager:
                     "ble_ladder_layer": ctx.ble_ladder_layer,
                 },
             )
-            self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
+            self._cancel_and_restore_async(
+                ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="motion",
+            )
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
@@ -950,9 +1153,13 @@ class FanRecheckManager:
                         "ble_ladder_layer": ctx.ble_ladder_layer,
                     },
                 )
-                self._cancel_and_restore_async(ctx, OUTCOME_OCCUPIED_CONFIRMED)
+                self._cancel_and_restore_async(
+                    ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="ble_l1",
+                )
 
-    def _cancel_and_restore_async(self, ctx: _RoomCtx, outcome: str) -> None:
+    def _cancel_and_restore_async(
+        self, ctx: _RoomCtx, outcome: str, *, reason: str = "cancel",
+    ) -> None:
         # NOTE (review L1 2026-07-18): PAUSED-path cancellations produce TWO
         # ura_activity_log rows — a `fan_recheck_cancel` (fired at the cancel
         # site) followed by a `fan_recheck_outcome` from `_restore`. This is
@@ -967,6 +1174,10 @@ class FanRecheckManager:
             # / L1); bump last_attempt_at here so the state row's timestamp
             # reflects the terminal attempt (no PAUSED tail will bump it).
             ctx.last_attempt_at = dt_util.now()
+            # Fix-up #4: durable aborted mem row — ARMED path never
+            # reaches `_restore` so this is the only chance to persist a
+            # terminal mem episode for the cycle.
+            self._emit_aborted_mem(ctx, reason=reason)
             self.hass.async_create_task(self._enter_cooldown(ctx))
         else:
             ctx._cancel_driven = True  # consumed by _restore's outcome row
@@ -1002,7 +1213,18 @@ class FanRecheckManager:
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
             return False
-        if str(data.get("occupancy_source", "none")) != "mmwave":
+        # Override Occupied veto (B-M1): operator intent, not a sensor
+        # fact; applies on both routing branches and under either kill
+        # switch state. Read the live label — override is a sustained
+        # label state, so the current tick is authoritative.
+        if str(data.get("occupancy_source", "none")) == "override":
+            return False
+        if capability_routing_enabled():
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: live tick must be
+            # capability radar-sole.
+            if not data.get(STATE_RADAR_SOLE_TICK, False):
+                return False
+        elif str(data.get("occupancy_source", "none")) != "mmwave":
             return False
         fans = merged.get(CONF_FANS) or []
         if isinstance(fans, str):
@@ -1145,12 +1367,34 @@ class FanRecheckManager:
             from ..fan_veto import resolve_sensor_family  # noqa: PLC0415
         except ImportError:  # isolated-module test loaders: no fan_veto
             return []
-        sensors = merged.get(CONF_MMWAVE_SENSORS) or []
-        if isinstance(sensors, str):
-            sensors = [sensors]
+        routed = capability_routing_enabled()
+        if routed:
+            # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: every radar-bearing
+            # sensor across all three CONF lists (a radar filed under
+            # occupancy/motion sets the window too).
+            try:
+                from ..fan_veto import is_radar_entity  # noqa: PLC0415
+            except ImportError:
+                return []
+            keys = (
+                CONF_MMWAVE_SENSORS, CONF_MOTION_SENSORS,
+                CONF_OCCUPANCY_SENSORS,
+            )
+        else:
+            keys = (CONF_MMWAVE_SENSORS,)
+        sensors: list = []
+        for key in keys:
+            vals = merged.get(key) or []
+            if isinstance(vals, str):
+                vals = [vals]
+            for v in vals:
+                if v not in sensors:
+                    sensors.append(v)
         out: list[str] = []
         for eid in sensors:
             if not isinstance(eid, str) or not eid:
+                continue
+            if routed and not is_radar_entity(self.hass, merged, eid):
                 continue
             fam = resolve_sensor_family(self.hass, eid)
             if fam != SENSOR_FAMILY_UNKNOWN and fam not in out:

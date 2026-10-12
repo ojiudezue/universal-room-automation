@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.52
+# Universal Room Automation vv5.103.53
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.52"
+VERSION: Final = "v5.103.53"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -479,6 +479,13 @@ ROOM_MENU_STEPS_BY_TYPE: Final = {
 CONF_MOTION_SENSORS: Final = "motion_sensors"
 CONF_MMWAVE_SENSORS: Final = "presence_sensors"  # Note: blueprint calls them presence_sensors
 CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence sensors
+
+# URA-SENSOR-TUNING-1 Phase A (Rev 2): per-room "Radar settings" block for
+# Hobeian ZK/ZX presence radars. Shape:
+#   {binary_sensor_entity_id: {field_name: raw_value}}
+# A field whose UI value was "Leave as is" is OMITTED from the per-entity
+# dict (absence = never written). See domain_coordinators/radar_tuning.py.
+CONF_RADAR_SETTINGS: Final = "radar_settings"
 
 # Presence provenance-split cycle: Tier-1 occupancy provenance vocabulary.
 # Used by ZonePresenceTracker._room_provenance keys and the entity classifier.
@@ -1815,6 +1822,11 @@ STATE_DARK: Final = "dark"
 STATE_TIMEOUT_REMAINING: Final = "timeout_remaining"
 STATE_BLE_PERSONS: Final = "ble_persons"
 STATE_OCCUPANCY_SOURCE: Final = "occupancy_source"
+# OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1b: per-tick bool — the room's
+# Tier-1 on-set is non-empty AND every on entity is radar-bearing by
+# capability (override > CONF kind mmwave > device family). Trust gates read
+# this, never the occupancy_source LIST label.
+STATE_RADAR_SOLE_TICK: Final = "radar_sole_tick"
 
 # Phase 2: Energy
 STATE_POWER_CURRENT: Final = "power_current"
@@ -5002,6 +5014,17 @@ TRACKER_TRUST_WRITER_ENABLED: Final = True
 # transition frequency itself (a handful per day in steady state).
 HOUSE_STATE_TRANSITION_WRITER_ENABLED: Final = True
 
+# fan_recheck_outcome memory writer. Fires one episode per completed
+# fan-recheck (VACATED / occupied-confirmed / cancel-driven) and — after a
+# follow-up window — stamps whether a manual fan-on followed. Rate-bound by
+# construction: one row per completed recheck + fan_recheck already carries
+# its own per-room cooldown and max-per-hour cap in presence_fan_recheck.
+FAN_RECHECK_OUTCOME_WRITER_ENABLED: Final = True
+# Window after a recheck completes within which a manual fan-on counts as
+# a follow-up signal (operator / dashboard override shortly after the
+# verdict). Observational signal; not consumed on any actuation path.
+FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN: Final = 5
+
 # --- Registered vocabularies (arch §4 + audit §1). Adding a type is a
 #     reviewed change — this is the write-quality gate. ---
 MEMORY_EPISODE_TYPES: Final = frozenset({
@@ -5034,6 +5057,45 @@ MEMORY_EPISODE_TYPES: Final = frozenset({
     "away_transition_blocked",
     "tracker_trust_excluded",
     "house_state_transition",
+    # MEMORY-WRITERS-SILENT-DROP-1 D2 (2026-10-11): one row per completed
+    # fan-recheck carrying verdict + pause window + family factor + fan
+    # restore + follow-up manual-ON within N minutes + house_state.
+    # Observational — never read on an actuation path.
+    "fan_recheck_outcome",
+})
+
+# Set of episode types that have a LIVE writer. The weekly writer-health
+# trip-wire (D3) alerts when any member here produced zero rows in the
+# trailing 7 days. Writers that are gated by an opt-in config knob OR
+# whose fire condition is legitimately rare should NOT appear here —
+# add them to ``MEMORY_WRITER_HEALTH_EXEMPT_TYPES`` with a reason.
+MEMORY_WRITER_BACKED_EPISODE_TYPES: Final = frozenset({
+    # Writers in memory_writers.py (PATH-ALPHA Scope B — all four fire
+    # multiple times per day under normal house operation).
+    "phantom_retro",
+    "away_transition_blocked",
+    "tracker_trust_excluded",
+    "house_state_transition",
+    # fan_recheck_outcome: one row per completed fan-recheck (D2).
+    "fan_recheck_outcome",
+    # sensor_dropout: writer exists and is correctly scheduled, but has
+    # produced 0 rows in >2 months (per AUDIT_memory_writer_coverage.md,
+    # 2026-10-11). KEEP in the checked set so the trip-wire surfaces this
+    # ongoing silence — cause unknown, needs investigation.
+    "sensor_dropout",
+})
+# Types registered in MEMORY_EPISODE_TYPES WITHOUT a live writer today
+# (per AUDIT_memory_writer_coverage.md 2026-10-11): comfort_fan_on,
+# config_changed, systemic_dropout, hazard_recurrent. They are
+# INTENTIONALLY omitted above so the trip-wire does not alert on them.
+# When a writer is added for any of these, move it from this doc-note
+# into MEMORY_WRITER_BACKED_EPISODE_TYPES in the same commit.
+
+# Writer-backed types that are legitimately rare — the trip-wire does
+# NOT alert on 0 rows for these. Each entry MUST carry a documented
+# reason so future audits can revisit the exemption.
+MEMORY_WRITER_HEALTH_EXEMPT_TYPES: Final = frozenset({
+    # (No current exemptions. Add here as ``"type_name",  # <reason>``.)
 })
 
 MEMORY_FACT_TOPICS: Final = frozenset({

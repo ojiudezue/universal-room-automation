@@ -283,6 +283,7 @@ class _RoomCoord:
         self.data = data or {
             "occupied": True, "occupancy_source": "mmwave",
             "presence_detected": True, "motion_detected": False,
+            "radar_sole_tick": True,
         }
         self._sources = sources or ["mmwave", "mmwave", "mmwave"]
         self._actuator_reconciler = reconciler
@@ -290,6 +291,14 @@ class _RoomCoord:
 
     def recent_occupancy_sources(self):
         return list(self._sources)
+
+    # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1: radar filed in presence_sensors,
+    # nothing else on -> capability views equal the legacy label views.
+    def recent_radar_sole_ring(self):
+        return [s == "mmwave" for s in self._sources]
+
+    def any_radar_bearing_on_now(self):
+        return bool(self.data.get("presence_detected", False))
 
     def apply_fan_recheck_release(self):
         self.released += 1

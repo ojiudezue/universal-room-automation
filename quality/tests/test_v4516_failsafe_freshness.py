@@ -521,6 +521,7 @@ def test_bayesian_eval_warning_includes_exception_type(init_src: str):
 
 _MERGE_START = "# senscap UX v2: fold dropdowns AFTER JSON parse but"
 _MERGE_END = "            if not errors:"
+_RADAR_FOLD_START = "            # URA-SENSOR-TUNING-1 Phase A (Rev 2): fold per-field radar"
 
 
 def _extract_merge_block() -> str:
@@ -529,6 +530,12 @@ def _extract_merge_block() -> str:
     assert _MERGE_END in src, f"missing delimiter: {_MERGE_END!r}"
     i = src.index(_MERGE_START)
     j = src.index(_MERGE_END, i)
+    # The radar-settings fold (URA-SENSOR-TUNING-1) sits between the
+    # senscap merge and `if not errors:` at a shallower indent; it is
+    # not part of the senscap merge under test, so end before it.
+    k = src.find(_RADAR_FOLD_START, i)
+    if 0 <= k < j:
+        j = k
     block = src[i:j]
     lines = block.splitlines()
     dedented = []
