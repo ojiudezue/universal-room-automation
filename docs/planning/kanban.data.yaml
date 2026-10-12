@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-11
+  last_reconciled: 2026-10-12
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -31026,7 +31026,8 @@ cards:
   gate_2026_10_12_overnight: 'FOUR-STEP GATE. (1) VALIDITY STILL-REAL: coordinator.py:3873 stamps _last_pir_motion_time on any motion_detected; :2897-2898 clears the latch with reason pir_motion on any motion_detected. Neither is filtered. (1b) config-first: no knob decides which motion counts as a PIR witness, so this is code. (2) REUSE fan_veto.is_fan_immune_motion_witness (fan_veto.py:113), already used to filter the D2 witness list at coordinator.py:2180-2187. (3) parsimony BUILD: same filter at two more sites. (4) cost/benefit: small, presence-local, fail-closed. Build to review dispatched overnight in .claude/worktrees/overnight-1012-d2pir, branch fix/d2-pir-stamp-fan-immune-witness. No deploy.'
   title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
   thread: presence
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.54
   tier: 1
   created: "2026-10-12 12:00"
   updated: '2026-10-12 02:15'
@@ -31342,7 +31343,8 @@ cards:
   gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: validity read at sensor.py:5416-5417 + 5509-5510; config-first n/a; REUSE existing sensors; BUILD Tier 1. Built to review overnight, no deploy."
   title: The house-state sensors show "away" for a moment at every HA restart, even with everyone home
   thread: presence
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.54
   tier: 1
   created: "2026-10-11 04:00"
   updated: '2026-10-12 02:06'

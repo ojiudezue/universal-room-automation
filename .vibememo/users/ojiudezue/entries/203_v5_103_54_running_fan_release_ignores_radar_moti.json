@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "203",
+  "author": "ojiudezue",
+  "session_id": "claude_20261012_140130_ship_v5_103_54",
+  "timestamp": "2026-10-12T14:01:30Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.54 shipped: Running-fan release ignores radar motion bits; house state unknown (not away) at boot",
+  "summary": "Running-fan release ignores radar motion bits; house state unknown (not away) at boot",
+  "why": "The running-fan release waited for motion to go stale, but a Meross radar's motion bit in the motion list kept refreshing that clock while the fan ran, so the release never fired in Guest Bedroom 1, Guest Bedroom 2 and Media; only fan-immune witnesses now stamp it, while the stale-occupancy failsafe keeps the old freshness so sleeping-body protection is unchanged. House-state sensors showed away for a moment at every restart, which read as a real Away transition in history; they now report unknown until the manager is up.",
+  "implications": "Shipped D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1, HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1 at v5.103.54; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.54.md (Live criteria).",
+  "revisit_trigger": "If a GB1/GB2/Media room releases while someone is present, or house state shows away across a restart.",
+  "refs": {
+    "cards": [
+      "D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1",
+      "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.54.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.54.md"
+  }
+}
