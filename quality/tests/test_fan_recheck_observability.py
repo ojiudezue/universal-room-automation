@@ -81,12 +81,25 @@ async def test_veto_master_off_counts():
 
 @pytest.mark.asyncio
 async def test_veto_sleep_state_counts():
-    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="sleep")
+    """Sleep veto is bedroom-scoped (FAN-RECHECK-SLEEP-VETO-SCOPE-1)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="sleep", room_type="bedroom",
+    )
     await mgr.async_setup()
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
     attrs = mgr.get_room_attrs("exercise")
     assert attrs["fan_recheck_veto_counts"].get("sleep_state") == 1
+
+
+@pytest.mark.asyncio
+async def test_sleep_state_does_not_veto_non_bedroom():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="sleep")
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    attrs = mgr.get_room_attrs("exercise")
+    assert not attrs["fan_recheck_veto_counts"].get("sleep_state")
 
 
 @pytest.mark.asyncio
