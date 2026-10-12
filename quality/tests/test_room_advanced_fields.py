@@ -198,6 +198,9 @@ def test_meta_every_step_with_advanced_fields_passes_hint():
         # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the 5 night-light
         # colour/brightness fields moved to Advanced in the devices step.
         "devices",
+        # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape
+        # hatch (sensor_capabilities_json) is Advanced-only on sensors.
+        "sensors",
     }
 
 
