@@ -480,6 +480,13 @@ CONF_MOTION_SENSORS: Final = "motion_sensors"
 CONF_MMWAVE_SENSORS: Final = "presence_sensors"  # Note: blueprint calls them presence_sensors
 CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence sensors
 
+# URA-SENSOR-TUNING-1 Phase A (Rev 2): per-room "Radar settings" block for
+# Hobeian ZK/ZX presence radars. Shape:
+#   {binary_sensor_entity_id: {field_name: raw_value}}
+# A field whose UI value was "Leave as is" is OMITTED from the per-entity
+# dict (absence = never written). See domain_coordinators/radar_tuning.py.
+CONF_RADAR_SETTINGS: Final = "radar_settings"
+
 # Presence provenance-split cycle: Tier-1 occupancy provenance vocabulary.
 # Used by ZonePresenceTracker._room_provenance keys and the entity classifier.
 # Order is intentional — mmwave preferred over motion when an entity matches

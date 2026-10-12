@@ -5918,6 +5918,33 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
         )
         _LOGGER.info("Registered fan_recheck_force_restore service")
 
+    # URA-SENSOR-TUNING-1 Phase A (Rev 2): operator-triggered recovery
+    # path after factory reset / out-of-band Z2M edit on a ZK/ZX radar.
+    async def handle_reapply_radar_settings(call):
+        """Handle reapply_radar_settings service call."""
+        room_entry_id = call.data.get("room_entry_id", "")
+        try:
+            from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                async_reapply_radar_settings,
+            )
+            await async_reapply_radar_settings(hass, room_entry_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "reapply_radar_settings: handler failed for entry=%s",
+                room_entry_id, exc_info=True,
+            )
+
+    if not hass.services.has_service(DOMAIN, "reapply_radar_settings"):
+        hass.services.async_register(
+            DOMAIN,
+            "reapply_radar_settings",
+            handle_reapply_radar_settings,
+            schema=vol.Schema({
+                vol.Required("room_entry_id"): str,
+            }),
+        )
+        _LOGGER.info("Registered reapply_radar_settings service")
+
 
 async def _async_wire_memory(
     hass: HomeAssistant, entry: ConfigEntry | None = None,
