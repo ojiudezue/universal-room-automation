@@ -36,8 +36,12 @@ from custom_components.universal_room_automation.const import (
     OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
+    STATE_RADAR_SOLE_TICK,
     STATE_OCCUPIED,
     STATE_TIMEOUT_REMAINING,
+)
+from custom_components.universal_room_automation.domain_coordinators.sensor_capability import (  # noqa: E501
+    capability_routing_enabled,
 )
 # NOTE: `signals` module is monkeypatched to a bare MagicMock by other
 # test modules that run first in a full-suite invocation (see
@@ -211,7 +215,16 @@ def _run_d2_block(
             _dispatched.append((sig, payload))
         ),
         "_LOGGER": logging.getLogger("d2_block_test"),
+        "STATE_RADAR_SOLE_TICK": STATE_RADAR_SOLE_TICK,
+        "capability_routing_enabled": capability_routing_enabled,
     }
+    # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1: legacy fixtures carry only the
+    # LIST label; their radar is filed in presence_sensors with nothing else
+    # on, so the producer's per-tick radar-sole value equals label=="mmwave".
+    # Fixtures that set STATE_RADAR_SOLE_TICK explicitly are left untouched.
+    data.setdefault(
+        STATE_RADAR_SOLE_TICK, data.get(STATE_OCCUPANCY_SOURCE) == "mmwave",
+    )
     exec(_D2_BLOCK_CODE, ns)
 
 
@@ -942,6 +955,7 @@ def test_flap_latch_clears_on_recovery_signals():
     m = _mk(hass)
     UniversalRoomCoordinator._evaluate_mmwave_demoted_latch(
         m, "TestRoom", motion_detected=False, presence_detected=False,
+        radar_sole=False,
     )
     assert m._mmwave_demoted_latch is False
 
@@ -949,6 +963,7 @@ def test_flap_latch_clears_on_recovery_signals():
     m = _mk(hass)
     UniversalRoomCoordinator._evaluate_mmwave_demoted_latch(
         m, "TestRoom", motion_detected=True, presence_detected=True,
+        radar_sole=False,
     )
     assert m._mmwave_demoted_latch is False
 
@@ -959,6 +974,7 @@ def test_flap_latch_clears_on_recovery_signals():
     m = _mk(hass)
     UniversalRoomCoordinator._evaluate_mmwave_demoted_latch(
         m, "TestRoom", motion_detected=False, presence_detected=True,
+        radar_sole=True,
     )
     assert m._mmwave_demoted_latch is False
 
@@ -978,6 +994,7 @@ def test_flap_latch_clears_on_recovery_signals():
     m = _mk(hass)
     UniversalRoomCoordinator._evaluate_mmwave_demoted_latch(
         m, "TestRoom", motion_detected=False, presence_detected=True,
+        radar_sole=True,
     )
     assert m._mmwave_demoted_latch is False
 
@@ -997,6 +1014,7 @@ def test_flap_latch_clears_on_recovery_signals():
     m = _mk(hass)
     UniversalRoomCoordinator._evaluate_mmwave_demoted_latch(
         m, "TestRoom", motion_detected=False, presence_detected=True,
+        radar_sole=True,
     )
     assert m._mmwave_demoted_latch is True, (
         "No recovery signal but latch cleared — flap protection broken"

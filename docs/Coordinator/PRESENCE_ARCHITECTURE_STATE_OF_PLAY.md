@@ -440,6 +440,17 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    resolver falls back to `model`. Custom ESPHome builds (Jaya, Kitchen, Study B, Ziri) report
    the board (`esp32-c3-devkitm-1`) and resolve `unknown`. `docs/planning/AUDIT_motion_sensors_live_models.md`.
 
+10. **"`occupancy_source == "mmwave"` is sufficient to detect a radar-sourced tick."**
+   **FALSE (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1, branch `fix/occupancy-source-follows-capability`,
+   not yet deployed).** The string names the CONF LIST that produced the tick (`presence_sensors`
+   only), not the device capability; a radar filed in `occupancy_sensors` / `motion_sensors`
+   never produced it, and a ZK + ZV co-fire produced it although the tick was not radar-sole.
+   Trust decisions read `data[STATE_RADAR_SOLE_TICK]` (coordinator producer, ringed in
+   `_recent_radar_sole_ring`) and `PresenceCoordinator._room_radar_sole_capable(room)` (presence
+   fan-interference gate). The label itself is unchanged (dashboard attribute, DB
+   `log_occupancy_event.trigger`, activity log). Kill switch:
+   `sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED`.
+
 ---
 
 ## 11. Read before you touch — agent checklist
@@ -494,6 +505,7 @@ Reuse these before building anything new (order: reuse > extend > build only if 
 | **HVAC "leave off" discharge** | `hvac_fans.restore_after_recheck(leave_off=True)` → the AWAY-veto skip branch | End a recheck pause without re-arming the fan while keeping every discharge duty. |
 | **Kill-switch constant + knob ladder** | `FAN_TRANSITION_SUSPECT_WINDOW_S` module constant; `CONF_FAN_RECHECK_*` CM-entry Numbers; `CONF_ROOM_FAN_RECHECK_ENABLED` per-room switch | Rung 1 for review-only (safety / fitted); rung 2 for per-deployment structure; rung 3 for live operator tuning. |
 | **Memory-episode adjudication write** | `coordinator.py:3701-3729` log_memory_episode `fan_transition_suppressed` → adjudication `phantom` | Durable per-event observability for a gated suppression. |
+| **Capability-radar-sole boolean** | `coordinator.py` producer (`_radar_sole_on_set` → `data[STATE_RADAR_SOLE_TICK]`) + `_recent_radar_sole_ring` + `any_radar_bearing_on_now`; `presence.PresenceCoordinator._room_radar_sole_capable`; classifier `fan_veto.is_radar_entity` / `sensor_capability.is_radar_capability` | Any trust decision that must distinguish "a radar is the sole tick driver" from "a radar-list entity fired" — never use the `occupancy_source` string for this. |
 | **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |
 
 ---

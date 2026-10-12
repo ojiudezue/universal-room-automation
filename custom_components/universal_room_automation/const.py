@@ -1822,6 +1822,11 @@ STATE_DARK: Final = "dark"
 STATE_TIMEOUT_REMAINING: Final = "timeout_remaining"
 STATE_BLE_PERSONS: Final = "ble_persons"
 STATE_OCCUPANCY_SOURCE: Final = "occupancy_source"
+# OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1b: per-tick bool — the room's
+# Tier-1 on-set is non-empty AND every on entity is radar-bearing by
+# capability (override > CONF kind mmwave > device family). Trust gates read
+# this, never the occupancy_source LIST label.
+STATE_RADAR_SOLE_TICK: Final = "radar_sole_tick"
 
 # Phase 2: Energy
 STATE_POWER_CURRENT: Final = "power_current"

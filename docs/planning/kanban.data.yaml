@@ -30907,14 +30907,37 @@ cards:
 - id: OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
-  status: planned
+  status: in_progress
   tier: 2
   created: "2026-10-11 23:50"
-  updated: "2026-10-11 23:50"
+  updated: "2026-10-12 12:00"
+  build_2026_10_12: "Built on fix/occupancy-source-follows-capability (plan Rev 2, D1-D7): per-tick STATE_RADAR_SOLE_TICK + _recent_radar_sole_ring, positive-evidence is_radar (override wins both ways), six consumers + recheck family factor routed, kill switch sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED. 34 new tests; 27 per-site mutation drills all RED. Awaiting 2 framing-disjoint code reviews."
   origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
   why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
   next: "Prior-art scan (coordinator occupancy_source producer ~3148, D2 sole-source check, recheck mmwave-only eligibility); plan the smallest change: source/radar-ness from derive_capability (kind mmwave / model family radar) rather than list."
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
+- id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
+  title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
+  thread: presence
+  status: planned
+  tier: 1
+  created: "2026-10-12 12:00"
+  updated: "2026-10-12 12:00"
+  origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
+  why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
+  next: "Stamp _last_pir_motion_time and clear the latch on 'pir_motion' only when an on motion entity passes fan_veto.is_fan_immune_motion_witness. Tier 1; mutation-anchor both sites."
+  related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
+- id: FAN-TRANSITION-GATE-FOLLOWS-CAPABILITY-1
+  title: Fan-transition CREATION gate still keys on presence_detected list predicate (dormant - window 0.0)
+  thread: presence
+  status: parked
+  tier: 1
+  created: "2026-10-12 12:00"
+  updated: "2026-10-12 12:00"
+  origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 (dormant site, out of scope)."
+  why: "coordinator.py fan-transition gate predicate (d) uses presence_detected and not motion and not occupancy; dormant since FAN_TRANSITION_SUSPECT_WINDOW_S = 0.0."
+  next: "Revival trigger: any cycle that un-retires FAN_TRANSITION_SUSPECT_WINDOW_S must route predicate (d) through data[STATE_RADAR_SOLE_TICK]."
+  related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
 - id: SENSOR-FORM-PLAIN-TEXT-1
   title: Room sensors form — brief, user-focused wording (motion / presence / combined; 'What can it see?' dropdown; hide advanced JSON)
   thread: onboarding

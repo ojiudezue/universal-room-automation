@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
+from typing import Callable, Dict, Mapping, Optional
 
 from ..const import (
     CAPABILITY_KIND_BED,
@@ -446,6 +446,50 @@ def family_for_model(
             if fam is not None:
                 return fam
     return SENSOR_FAMILY_UNKNOWN
+
+
+# ----------------------------------------------------------------------
+# OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
+# (docs/planning/PLANNING_occupancy_source_follows_capability.md Rev 2)
+# ----------------------------------------------------------------------
+
+# D6 kill switch (rung 1 — module constant, review-only to flip). True:
+# the six fan-noise trust sites (D2 gate, D2 latch clear + suppression,
+# presence fan-interference gate, recheck eligibility history,
+# _still_armed_eligible live tick, recheck VACATED gate) and the recheck
+# family factor read the per-tick CAPABILITY radar-sole value. False:
+# every site falls back to its pre-cycle CONF-list predicate
+# (``occupancy_source == "mmwave"`` / ``presence_detected`` / provenance
+# kind labels / CONF_MMWAVE_SENSORS-only families) — byte-identical old
+# behaviour.
+OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED: bool = True
+
+
+def capability_routing_enabled() -> bool:
+    """Read the D6 kill switch at call time (so a flip needs no reload of
+    the consumer modules)."""
+    return bool(OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED)
+
+
+def is_radar_capability(
+    room_config: Mapping[str, object],
+    entity_id: str,
+    family_of: Callable[[], str],
+) -> bool:
+    """D1a: positive-evidence radar classification (pure).
+
+    Order: operator override wins both ways (``kind: mmwave`` -> True; any
+    other valid override kind -> False, even when the device family is a
+    radar); else CONF-list kind ``mmwave`` -> True; else the device family
+    (``family_of()``, called lazily) in :data:`RADAR_SENSOR_FAMILIES`.
+    Anything else (bed, PIR, occupancy-kind, unknown family) -> False.
+    """
+    cap = derive_capability(room_config, entity_id)
+    if cap is not None and cap.source == "override":
+        return cap.kind == CAPABILITY_KIND_MMWAVE
+    if cap is not None and cap.kind == CAPABILITY_KIND_MMWAVE:
+        return True
+    return family_of() in RADAR_SENSOR_FAMILIES
 
 
 def family_recheck_factor(family: str) -> float:
