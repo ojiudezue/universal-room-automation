@@ -164,6 +164,10 @@ _BOUND = (
     "_live_on_set", "_radar_sole_on_set", "any_radar_bearing_on_now",
     "recent_radar_sole_ring", "recent_occupancy_sources",
     "_evaluate_mmwave_demoted_latch",
+    # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1: new helper called from
+    # the production _PRODUCER slice (coordinator.py motion_witness
+    # bool); the stub must carry it to drive the slice.
+    "_fan_immune_motion_witness_on",
 )
 
 
