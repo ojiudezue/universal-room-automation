@@ -76,6 +76,8 @@ _EXPECTED_SERVICE_NAMES = (
     # escape hatch. Registered in the presence-services block so its
     # teardown rides the same async_on_unload lambda list.
     "fan_recheck_force_restore",
+    # URA-SENSOR-TUNING-1 Phase A: re-send stored radar settings.
+    "reapply_radar_settings",
     # _async_register_safety_services
     "test_safety_hazard",
     # _async_register_security_services
