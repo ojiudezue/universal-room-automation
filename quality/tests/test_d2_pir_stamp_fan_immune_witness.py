@@ -24,6 +24,13 @@ Tests drive the real production code:
     hand-copy (mutation anchor: edit the real site, test flips).
 
 Mutation drill results — recorded here, re-run by orchestrator:
+  * (fix-up) helper iterating raw ``motion_sensors`` instead of
+    ``_fusion_filter_active(...)``:
+    ``test_helper_false_when_witness_pir_is_excluded`` goes RED.
+  * (fix-up) failsafe freshness reading ``_last_pir_motion_time``:
+    ``test_failsafe_freshness_reads_legacy_motion_bit_field`` goes RED.
+  * (fix-up) dropping the ``_last_motion_bit_time = now`` stamp:
+    ``test_stamp_slice_failsafe_field_follows_raw_motion_bit`` goes RED.
   * Revert the ``if motion_witness_detected:`` guard at the stamp site
     (make the stamp unconditional under ``motion_detected``):
     ``test_stamp_slice_no_refresh_on_radar_motion_bit`` goes RED.
@@ -291,6 +298,7 @@ def _run_stamp(*, motion_witness_detected: bool):
 
     self_ = _S()
     self_._last_pir_motion_time = SENTINEL
+    self_._last_motion_bit_time = SENTINEL
     data: dict = {}
     ns = dict(vars(CO))
     ns.update(
@@ -299,6 +307,7 @@ def _run_stamp(*, motion_witness_detected: bool):
         motion_witness_detected=motion_witness_detected,
     )
     exec(_STAMP_CODE, ns)
+    _run_stamp.last_motion_bit_time = self_._last_motion_bit_time
     return self_._last_pir_motion_time, data, now, SENTINEL
 
 
@@ -319,3 +328,58 @@ def test_stamp_slice_refresh_on_real_pir_witness():
     stamp, data, now, sentinel = _run_stamp(motion_witness_detected=True)
     assert stamp == now
     assert data[CONST.STATE_OCCUPANCY_SOURCE] == "motion"
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 2026-10-12 (overnight): Review A HIGH + Review B MEDIUM.
+# ---------------------------------------------------------------------------
+
+def test_helper_false_when_witness_pir_is_excluded(monkeypatch):
+    """Review A HIGH: a PIR that reads on but is EXCLUDED (stuck/chatter)
+    must not count as a witness - the helper must use the same filtered
+    list motion_detected uses, else the latch clears every tick while the
+    stamp never refreshes (demote/clear oscillation)."""
+    _install_registry(monkeypatch)
+    r = _coord(_hass(on={PIR}), motion=[PIR])
+    r._exclusion_set = types.SimpleNamespace(is_excluded=lambda s: s == PIR)
+    assert r._fan_immune_motion_witness_on([PIR]) is False
+
+
+def test_stamp_slice_failsafe_field_follows_raw_motion_bit():
+    """Review B MEDIUM: the P24 failsafe freshness field keeps the legacy
+    semantics - refreshed on ANY motion_detected tick, including a radar
+    motion bit - so GB1/GB2 sleeping guests are not newly force-vacated."""
+    stamp, _data, now, sentinel = _run_stamp(motion_witness_detected=False)
+    assert stamp == sentinel
+    assert _run_stamp.last_motion_bit_time == now
+
+
+def _failsafe_freshness_code():
+    src = (_URA_ROOT / "coordinator.py").read_text(encoding="utf-8")
+    start = "                signal_stale = True\n                signal_age = None\n"
+    end = "                if signal_stale:\n"
+    assert src.count(start) == 1, "failsafe freshness start marker moved"
+    i = src.index(start)
+    j = src.index(end, i)
+    lines = [ln[16:] if ln.startswith(" " * 16) else ln.strip()
+             for ln in src[i:j].splitlines()]
+    return compile("\n".join(lines), str(_URA_ROOT / "coordinator.py"), "exec")
+
+
+def test_failsafe_freshness_reads_legacy_motion_bit_field():
+    """The real failsafe freshness block: a fresh radar motion bit
+    (legacy field) with a stale witness stamp must keep the room NOT
+    stale - i.e. the failsafe reads _last_motion_bit_time."""
+    from datetime import timedelta
+    now = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
+
+    class _S:
+        pass
+
+    self_ = _S()
+    self_._occupancy_timeout = 300
+    self_._last_motion_bit_time = now - timedelta(seconds=30)
+    self_._last_pir_motion_time = now - timedelta(hours=6)
+    ns = {"self": self_, "now": now}
+    exec(_failsafe_freshness_code(), ns)
+    assert ns["signal_stale"] is False

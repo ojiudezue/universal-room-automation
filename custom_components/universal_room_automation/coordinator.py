@@ -505,6 +505,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # guard in _d2_motion_sensors_present() is the primary
         # defense for rooms with no PIR at all.
         self._last_pir_motion_time: datetime | None = _now
+        # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1 fix-up (Review B
+        # MED): the P24 max-occupancy failsafe freshness gate keeps the
+        # PRE-change semantics — refreshed on ANY motion_detected tick
+        # (incl. a radar-derived motion bit). Narrowing the failsafe is
+        # a separate policy call (it would force-vacate a sleeping
+        # guest in GB1/GB2 held only by the MS600), so it reads this
+        # field, not the witness-only ``_last_pir_motion_time``.
+        self._last_motion_bit_time: datetime | None = _now
 
         # mmWave fan-corroboration Tier-3 D2 — observability. Set True
         # on the tick the demotion fires; carried until next tick.
@@ -2210,18 +2218,25 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         ``pir_motion`` clear reason so neither can be refreshed/cleared
         by a radar-derived motion bit (e.g. meross_lan MS600) that a
         fan can fake. Legacy semantics preserved: this is a stricter
-        superset of the raw ``motion_detected`` bit, so under
+        subset of the filtered ``motion_detected`` bit, so under
         capability_routing-off we still filter radars (model-based,
         independent of capability routing — strictly better than the
         pre-existing bug).
 
-        Fail-closed on ANY exception (matches D2 doctrine):
-        exception -> False -> do NOT stamp / do NOT clear.
+        On ANY exception -> False: the latch is NOT cleared (stays
+        demoted) and the stamp is NOT refreshed (ages toward D2
+        demotion). The stamp direction is bounded by
+        ``_d2_motion_sensors_present``, which refuses to demote when
+        the same classifier throws; only a per-entity read failure
+        lands here.
         """
         try:
             from .fan_veto import is_fan_immune_motion_witness  # noqa: PLC0415
             room_config = {**self.entry.data, **(self.entry.options or {})}
-            for s in (motion_sensors or ()):
+            # Review A HIGH: iterate the SAME stuck/chatter-filtered list
+            # motion_detected uses — an excluded-but-on PIR must not
+            # count as a witness (it would clear the latch every tick).
+            for s in self._fusion_filter_active(list(motion_sensors or [])):
                 if not s:
                     continue
                 try:
@@ -3945,6 +3960,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # Fail-closed: exception -> helper returns False ->
                 # NOT stamped. STATE_OCCUPANCY_SOURCE="motion" is
                 # intentionally unchanged (card constraint).
+                self._last_motion_bit_time = now  # failsafe (legacy)
                 if motion_witness_detected:
                     self._last_pir_motion_time = now
             elif presence_detected:
@@ -4686,10 +4702,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if duration > failsafe_seconds:
                 signal_stale = True
                 signal_age = None
-                if self._last_pir_motion_time:
+                if self._last_motion_bit_time:
                     try:
                         signal_age = (
-                            now - self._last_pir_motion_time
+                            now - self._last_motion_bit_time
                         ).total_seconds()
                     except (TypeError, ValueError):
                         signal_age = None

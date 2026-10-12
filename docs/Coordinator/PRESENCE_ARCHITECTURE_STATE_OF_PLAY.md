@@ -282,16 +282,26 @@ Three complementary mechanisms exist; **each covers a different direction**:
    switch = 0.0.
 2. **D2 sustain demotion** — mmwave-fan demotion gate on sustain path, requires a REAL PIR
    motion sensor by `_d2_motion_sensors_present` (`coordinator.py:2159-2188`). Fail-closed
-   when no PIR present (which is 7/10 fan rooms today — the ZV-only reality means D2 is
-   UNREACHABLE there). Sleep/Waking/Home-Night exempt (`coordinator.py:2190-2210`).
+   when no fan-immune witness is present. (CORRECTED 2026-10-12: an earlier line here said
+   "7/10 fan rooms, ZV-only means D2 is UNREACHABLE". That is WRONG on current code. A ZV
+   resolves to family `zigbee_zv`, which is not in `RADAR_SENSOR_FAMILIES`
+   (`sensor_capability.py:408`), so `is_fan_immune_motion_witness` keeps it, and ZV rooms
+   reach D2. See the Rev 2 note above. Only rooms whose motion sensors are all radar
+   (e.g. Media, MS600 only) fail closed.) Sleep/Waking/Home-Night exempt (`coordinator.py:2190-2210`).
    **D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1 (2026-10-12):** the PIR staleness leg (e)
    stamp `self._last_pir_motion_time` and the flap-latch `pir_motion` clear reason are
    both now gated by `_fan_immune_motion_witness_on(motion_sensors)` (reuses
    `fan_veto.is_fan_immune_motion_witness`) — a radar-derived motion bit filed under
    `CONF_MOTION_SENSORS` (e.g. meross_lan MS600 `..._presence_motion` on GB1/GB2/Media)
    can be faked by a fan, so stamping on it kept `pir_stale` False forever and the latch
-   oscillated. Classifier is capability + device-model; fail-closed on exception
-   (NOT stamped / NOT cleared). Sites: `coordinator.py` PIR stamp branch (~3948) +
+   oscillated. Classifier is capability + device-model; on exception -> no stamp / no clear.
+   The helper iterates `_fusion_filter_active(motion_sensors)`, the same stuck/chatter-filtered
+   list `motion_detected` uses (Review A HIGH fix-up), so an excluded-but-on PIR is not a witness.
+   **Scope fence:** the P24 max-occupancy FAILSAFE freshness gate (~4705) does NOT read the
+   witness-only stamp. It reads `_last_motion_bit_time`, which keeps the pre-change semantics
+   (refreshed on any `motion_detected` tick). Moving the failsafe onto the witness stamp would
+   force-vacate a sleeping guest in GB1/GB2 after the failsafe duration, held only by the MS600.
+   That is a separate policy decision, not part of this card (Review B MEDIUM). Sites: `coordinator.py` PIR stamp branch (~3948) +
    `_evaluate_mmwave_demoted_latch` `pir_motion` reason (~2951). The pre-fix behaviour was
    the sole-reason the ZV-only fail-closed from `_d2_motion_sensors_present` was not the
    only D2 blocker in rooms with both a ZV AND a radar-derived motion bit.
@@ -321,6 +331,9 @@ with the caveat that these come from the ~7-day recorder window 2026-10-04→10-
   on noise.
 - D2 sustain demotion: **unreachable in 7 of 10 fan rooms** because those rooms have no
   real PIR (ZV-only). `_d2_motion_sensors_present` fail-closes and refuses to demote.
+  (SUPERSEDED, corrected 2026-10-12: since the Rev 2 capability/family classifier, a ZV counts
+  as a fan-immune witness and ZV rooms reach D2. Only rooms whose motion sensors are all radar
+  still fail closed.)
 - Study A fan room: approximately **26 hours/week of false holds** attributable to fan
   interference while the room was empty.
 - Jaya room (ESPHome LD2410): **68 % of the time, "presence" fires with the room empty and
