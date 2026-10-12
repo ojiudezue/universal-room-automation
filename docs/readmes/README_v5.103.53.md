@@ -23,8 +23,12 @@ Reviews: A FIX-REQUIRED (hollow wire-in test, untracked timer/lost row, timestam
 - Memory: device-health episodes (operator decision: recorder covers it); writer-less vocabulary types not built.
 - Fan-recheck test fake lacks `verify_event_loop_thread` (33 pre-existing failures) — card needed.
 
-## Live validation (prospective)
-- Boot: 0 URA errors.
-- ≥1 `house_state_transition` row in `memory_episodes` within an hour of restart.
-- `reapply_radar_settings` service registered.
-- Next fan recheck → one `fan_recheck_outcome` row.
+## Validated 2026-10-11 (restart 20:58 CDT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | manifest on disk v5.103.53; release PR #624 carries 22 code files |
+| Boot: 0 URA errors | PASS | HA system_log (search universal_room_automation): WARNING-level boot transients only, no ERROR. (`ha core logs` over SSH returns unauthorized — not a valid oracle.) |
+| Memory writers live | PASS | `memory_episodes` row `house_state_transition` 2026-10-12T02:00:54Z home_evening→home_night, trigger periodic — first ever row of this type |
+| `reapply_radar_settings` registered | PASS | websocket `get_services` lists it (14 URA services) |
+| `fan_recheck_outcome` row on next recheck | PENDING (organic) | one-shot DB check after the next fan recheck; proven in-suite (6 behavioural tests, orchestrator drill 4 red) |
+| Capability-routed fan trust | PENDING (organic) | folds into the 2026-10-18 fan re-measure |

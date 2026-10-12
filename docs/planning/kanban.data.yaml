@@ -19092,7 +19092,8 @@ cards:
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
-  status: waiting_operator
+  status: done
+  disposition_2026_10_11: 'Operator approved the next steps 2026-10-11 ("Agree with these. Get started."): writers fixed + recheck outcome + weekly zero-row check shipped v5.103.53 (house_state_transition first row 02:00Z); coverage audit AUDIT_memory_writer_coverage.md; device-health memory held off (recorder covers it). Epic was already closed 2026-08-22; nothing further on this roadmap card.'
   updated: '2026-09-19 03:50'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/PLANNING_memory_roadmap_and_critique.md, 2026-08-18). Pure operator-read.'
   thread: memory
