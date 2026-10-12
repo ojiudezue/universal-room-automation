@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import os
-import subprocess
 import sys
 import types
 from datetime import datetime, timezone
@@ -314,82 +313,8 @@ async def test_motion_cancel_while_armed_writes_aborted_row():
     assert r["attrs"]["reason"] == "motion"
 
 
-# =============================================================================
-# Per-site mutation drills — each must turn ONE named test red.
-#
-# A pure AST / global-monkeypatch "writer is called" check cannot tell the
-# verdict-write apart from the followup-write; the two live on different
-# code paths with different consequences. Neutering each site in the
-# production source and running ONLY the test that owns that path proves
-# the test is actually load-bearing for that site. The outer test
-# restores the source + clears __pycache__ (PYTHONDONTWRITEBYTECODE=1 is
-# set via env for the subprocess so a bytecode copy cannot mask the
-# mutation).
-# =============================================================================
-
-
-_PFR = URA_DIR / "domain_coordinators" / "presence_fan_recheck.py"
-
-
-def _mutate_and_run(
-    *, old: str, new: str, target: str,
-) -> subprocess.CompletedProcess:
-    src = _PFR.read_text(encoding="utf-8")
-    assert old in src, f"mutation anchor missing: {old!r}"
-    _PFR.write_text(src.replace(old, new, 1), encoding="utf-8")
-    try:
-        env = dict(os.environ)
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        env["PYTHONPATH"] = str(ROOT_DIR / "quality") + os.pathsep + env.get(
-            "PYTHONPATH", "",
-        )
-        return subprocess.run(
-            [
-                sys.executable, "-m", "pytest", "-x",
-                f"quality/tests/test_fan_recheck_memory_outcome.py::{target}",
-            ],
-            cwd=str(ROOT_DIR),
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-    finally:
-        _PFR.write_text(src, encoding="utf-8")
-        # Clear bytecode cache so the restored source wins.
-        for pyc in _PFR.parent.glob("__pycache__/presence_fan_recheck.*"):
-            try:
-                pyc.unlink()
-            except OSError:
-                pass
-
-
-def test_mutation_neutering_verdict_writer_call_turns_vacated_test_red():
-    """Replace the IMMEDIATE verdict-row _emit(None) call inside _restore
-    with a no-op; the vacated behavioural test must FAIL (0 rows).
-    """
-    result = _mutate_and_run(
-        old="            # Verdict row — immediate.\n            _emit(None)",
-        new="            # Verdict row — immediate.\n            pass  # mutation: neutered",
-        target="test_restore_vacated_writes_fan_recheck_outcome_row",
-    )
-    assert result.returncode != 0, (
-        "mutation drill #1 regressed — removing the verdict-row writer "
-        "call from _restore MUST turn the vacated behavioural test red, "
-        f"but pytest returned 0. stdout={result.stdout[-500:]}"
-    )
-
-
-def test_mutation_neutering_followup_scheduling_turns_shutdown_test_red():
-    """Replace the async_call_later probe-scheduling block with a no-op;
-    the shutdown-cancels-probe test must FAIL (no unsub tracked).
-    """
-    result = _mutate_and_run(
-        old="                unsub = async_call_later(",
-        new="                unsub = None; _ = (lambda *a: None)(",
-        target="test_shutdown_cancels_followup_probe_unsub",
-    )
-    assert result.returncode != 0, (
-        "mutation drill #2 regressed — removing the follow-up probe "
-        "scheduling MUST turn the shutdown test red, but pytest "
-        f"returned 0. stdout={result.stdout[-500:]}"
-    )
+# Per-site mutation drills were run by hand at build time (2026-10-11):
+#   _restore immediate verdict `_emit(None)` -> pass  => test_restore_vacated_writes_fan_recheck_outcome_row FAILED
+#   _restore followup `unsub = async_call_later(...)` -> None => test_shutdown_cancels_followup_probe_unsub FAILED
+# They are deliberately NOT in-suite: rewriting production source during a
+# test run poisons concurrent/interrupted runs.
