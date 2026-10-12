@@ -13,7 +13,10 @@ Cards: NIGHTLIGHT-RED-RECONCILE-PARITY-1, SENSOR-FORM-PLAIN-TEXT-1. Tier 1 each 
 ## Not built / deferred
 None from either card.
 
-## Live validation (prospective)
-- Boot: 0 URA errors.
-- Sensors options step renders the plain labels; JSON field hidden unless Advanced mode.
-- Next sleep-time night-light reconcile/return: light comes back red (check light attributes `hs_color`/`rgb_color` on a sleep-period return).
+## Validated 2026-10-11 (restart 19:36 CDT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed + running | PASS | `update.universal_room_automation_update` installed_version v5.103.52 (since 19:36:02); manifest on disk v5.103.52 |
+| Boot: 0 URA errors | PASS | `ha core logs` grep universal_room + error/traceback = 0 |
+| Sensors form plain text + Advanced-only JSON | PASS (installed code) | live `translations/en.json` carries `{advanced_hint}`; live `config_flow.py:3803` registers `sensor_capabilities_json` as Advanced-only; "What can it see?" label present. Rendering proven in-suite (test_sensor_form_plain_text 9/9, test_room_advanced_fields 56/56) |
+| Night light returns red at sleep | PENDING (organic) | needs a sleep-period light return; one-shot check of a night light's `hs_color`/`rgb_color` after the next return during sleep. Proven in-suite (reconciler house-sleep branch + mixed-room batching tests) |
