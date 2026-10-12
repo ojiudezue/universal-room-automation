@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-12T03:40:00"
+    at: "2026-10-12T03:40:00"
+    outcome: "escalated"
+    headline: "Plan written for vouching unnamed garage crossings as residents (when a resident's room move touches the garage within 60 s). I found and noted one defect: the room names don't match the stored transitions. ANSWER two questions on the card (default off on the second house? mis-vouch sensor now?)."
+    acknowledged: false
   - fid: "EV-FILL-PRIORITY-SOC-CHATTER-1@2026-10-12T02:46:00"
     at: "2026-10-12T02:46:00"
     outcome: "escalated"
@@ -31202,6 +31207,8 @@ cards:
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   sweep_2026_10_05: 'Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.'
 - id: CENSUS-ATHOME-RESIDENT-CORROBORATOR-1
+  next: 'ANSWER two plan questions (docs/planning/PLANNING_census_garage_resident_corroborator.md section 7): (Q2) should the garage vouch default OFF on new installs such as the second house, so each house opts in? (Q3) do you want a visible mis-vouch-rate sensor now, or later? -> I fix the room-name defect (section 8), run the Tier-2 plan review, then build to review.'
+  planned_2026_10_12_overnight: 'PLAN WRITTEN (ura-planner, overnight): docs/planning/PLANNING_census_garage_resident_corroborator.md. Garage-only vouch at the transit_validator egress-resolve seam after face returns None. REUSE TransitionDetector listener + PersonCoordinator freshness. No schema change. Confidence stays 0.6, tagged by agreement_class. Guest-mode gate unaffected (it keys on _guest_room_gate_armed, not person_id). Falsifiable invariant I1 is in the doc. Q1 answered by orchestrator from the live config. PLAN DEFECT found by orchestrator (section 8): room_transitions stores display names (''Garage A'', ''Kitchen Hallway Garage''), while the plan defaults are slugs, so as written it would never match. To fix before the plan review. Card citation corrected: _ble_home_by_area is at camera_census.py:3014, not 2809. Not yet plan-reviewed.'
   parsimony: {problem: "unnamed garage crossings by residents whose phone never leaves home are counted as possible visitors", verdict: SIMPLIFY}
   measured_2026_10_08_overnight: "CONFIRMED (garage) / REFUTED-AS-USEFUL (front door). PRIOR ART per your pointer: URA's room-to-room layer already exists. TransitionDetector (transitions.py:38; listener API async_add_listener :150, DB read get_recent_transitions :675) writes per-person room moves to the room_transitions table (362,664 rows since 2026-01-04, live through 10-08 01:59). The hierarchical-memory facade is meant to expose the same data as each room's physical neighbours (memory_facade.py:_compose_locality :874-907, self_neighbors), but that cache is still unpopulated in Stage 1. So no new door-to-room config map is needed: the adjacency can be read from room_transitions. MEASUREMENT (URA DB, 09-30 -> 10-08; person_entry_exit_events timestamps are UTC, calibrated by hit rate): for each unnamed crossing, did any resident (Oji / Ezinne / Jaya) have a room move into or out of the door-side rooms within +/-60 s? GARAGE (rooms Garage A + Kitchen Hallway Garage): 66/110 = 60% vs 10% at random times and 10% at the same clock time on other days = 6x lift (72% at +/-120 s). FRONT (Foyer + Receiving Room, cameras doorbell_lite / madrone_g6_entry / front_door_aerial): 44% vs 21-30% base, under 2x lift, because those rooms are busy, so it is not a usable voucher. Caveats: crossing rows double-log across camera legs (garage_a_person_count + garage_a_person_occupancy_2), so 110 is rows, not episodes; a visitor walking through the garage while a resident is in it would be mis-vouched (rare on this house, not measured)."
   operator_decision_2026_10_07: "See if there is infrastructure in room memory that allows us to do this more efficiently. The idea is that memory allows room to room communication and optimization (board instruction 2026-10-07 13:19)"
@@ -31209,9 +31216,9 @@ cards:
   groomed_2026_10_05_overnight: "Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRESS-BLE-ENTRY-ATTACH-1 refutation), so the true at-home-resident residual can only be sized after D1 ships."
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
   thread: census
-  status: "pre_planning"
+  status: waiting_operator
   created: '2026-10-05 02:22'
-  updated: "2026-10-08 02:20"
+  updated: '2026-10-12 03:40'
   refinement_status: "refined"
   tags: [tier-2, measure-before-build, institutional-context]
   rank: {value: 4, time_criticality: 2, effort: 5}
@@ -31223,7 +31230,6 @@ cards:
      estimator clears at the next empty-house window.'
   origin: {date: '2026-10-04', gist: 'PLANNING_census_inputs_first.md R2.3 item 4 / Path alpha-beta; listed as to-mint in the 10-04 resume memo'}
   why: 'Budget of ~3-4 unattributable episodes/day (front porch bursts + the 12:38-12:42 garage_a cluster on 10-03).'
-  next: "PLAN (me, Tier 2 elevated to 3 framing-disjoint reviews because census feeds guest mode): GARAGE ONLY. At an unnamed garage_a crossing, vouch it as resident when room_transitions (via TransitionDetector, REUSE) shows a resident moving into or out of Garage A / Kitchen Hallway Garage within a knob window (default 60 s, Number rung). Learn the door-side rooms from room_transitions rather than adding a config map. Leave the front door as the accepted gap. Plan review before build; the plan must state what a mis-vouched visitor would look like in census_snapshots."
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
@@ -31467,6 +31473,7 @@ cards:
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
+  reverified_2026_10_12_overnight: 'Still real: lock.doorlock_kwikset_zwave_frontentry and its battery_level sensor are both unavailable (since the 10-11 21:01 CDT boot, and offline before that per the 10-07 log). The batteries still need swapping.'
   verified_2026_10_11_overnight: "Re-verified 02:05 CDT: lock.doorlock_kwikset_zwave_frontentry still unavailable; URA security still logs 'Periodic lock check: 1 device(s) unavailable' (system_log 10-11 01:48 CDT). Operator action still needed."
   reverified_2026_10_10_overnight: "Still open: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed = the 10-09 11:27 restart); URA security periodic lock check logged it unavailable at 01:30 CDT. Batteries not swapped yet."
   reverified_2026_10_09_overnight: "Still open: lock.doorlock_kwikset_zwave_frontentry unavailable through the whole 48 h recorder window (02:01 10-07 -> 02:01 10-09). Batteries not swapped yet."
@@ -31476,7 +31483,7 @@ cards:
   status: waiting_operator
   thread: security
   created: '2026-10-07 03:05'
-  updated: "2026-10-10 02:40"
+  updated: '2026-10-12 03:15'
   refinement_status: initial
   problem_solution:
   - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'
