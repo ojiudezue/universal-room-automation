@@ -2445,6 +2445,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # adapter is cadence-guarded and no-ops when
                             # MEMORY_COMPACTOR_ENABLED is False.
                             ("memory_compactor", "run_memory_compactor", {}),
+                            # MEMORY-WRITERS-SILENT-DROP-1 D3: weekly
+                            # writer-health trip-wire. Internally cadence-
+                            # guarded (RAM ts); nightly tick is a no-op
+                            # 6/7 days. A zero-row writer-backed type
+                            # fires one WARNING + one anomaly row.
+                            ("memory_writer_health", "run_memory_writer_health_check", {}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -2581,6 +2587,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # nightly path (button still works). Same short-circuit / cadence
                 # guard semantics as primary.
                 ("memory_compactor", "run_memory_compactor", {}),
+                # MEMORY-WRITERS-SILENT-DROP-1 D3 mirror: deferred-startup
+                # path also schedules the weekly writer-health trip-wire.
+                ("memory_writer_health", "run_memory_writer_health_check", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):
