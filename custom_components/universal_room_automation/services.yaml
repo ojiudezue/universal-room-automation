@@ -289,3 +289,15 @@ memory_query:
       required: false
       selector:
         text:
+
+reapply_radar_settings:
+  name: Re-apply radar settings
+  description: Resend the managed radar settings for one room's Hobeian ZK/ZX presence radars. Use after a factory reset or an out-of-band Z2M edit. Rooms with every field at "Leave as is" are a no-op.
+  fields:
+    room_entry_id:
+      name: Room entry
+      description: The config-entry ID of the URA room whose radar settings should be resent.
+      required: true
+      example: "01HQ8X3K7Y9ABC..."
+      selector:
+        text:
