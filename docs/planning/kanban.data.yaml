@@ -9,38 +9,43 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - fid: "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-12T03:40:00"
-    at: "2026-10-12T03:40:00"
+  - fid: "D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1@2026-10-12T02:15:00"
+    at: "2026-10-12T02:15:00"
+    outcome: "built"
+    headline: "Built to review (not deployed): Guest Bedrooms 1/2 no longer let the MS600 radar's motion bit, which a fan can fake, keep a fan-held room occupied. Reviews caught two issues and both are fixed: stuck PIRs no longer count, and a sleeping guest won't be force-vacated. APPROVE to ship with your next deploy."
+    acknowledged: false
+  - fid: "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-12T02:12:00"
+    at: "2026-10-12T02:12:00"
     outcome: "escalated"
     headline: "Plan written for vouching unnamed garage crossings as residents (when a resident's room move touches the garage within 60 s). I found and noted one defect: the room names don't match the stored transitions. ANSWER two questions on the card (default off on the second house? mis-vouch sensor now?)."
     acknowledged: false
-  - fid: "EV-FILL-PRIORITY-SOC-CHATTER-1@2026-10-12T02:46:00"
-    at: "2026-10-12T02:46:00"
+  - fid: "EV-FILL-PRIORITY-SOC-CHATTER-1@2026-10-12T02:06:00"
+    at: "2026-10-12T02:06:00"
     outcome: "escalated"
     headline: "Your EV toggle alarm fired correctly on Sunday at 14:26. Cause: the car's 11.7 kW draw pulled the battery from 80% to 79%, so URA's fill-the-battery-first rule paused it and resumed it 5 min later. Same thing on 10-09. PICK: add a 3-point buffer (I build it to review) or accept it."
     acknowledged: false
-  - fid: "EC-EV-TOGGLE-TRIPWIRE-1@2026-10-12T02:45:00"
-    at: "2026-10-12T02:45:00"
+  - fid: "EC-EV-TOGGLE-TRIPWIRE-1@2026-10-12T02:06:00"
+    at: "2026-10-12T02:06:00"
     outcome: "done"
     headline: "Closed: the EV toggle alarm works. In 36 h it fired once, on a real on/off/on of garage A, and stayed quiet otherwise. The defect it caught has its own card."
     acknowledged: false
-  - fid: "MEMORY-WRITERS-SILENT-DROP-1@2026-10-12T02:44:00"
-    at: "2026-10-12T02:44:00"
+  - fid: "MEMORY-WRITERS-SILENT-DROP-1@2026-10-12T02:05:00"
+    at: "2026-10-12T02:05:00"
     outcome: "done"
     headline: "Closed: the memory writers are writing again after the 20:58 restart (2 house-state transitions, 1 phantom retro, 11 fan recheck outcomes, all zero before v5.103.53)."
     acknowledged: false
-  - fid: "SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1@2026-10-12T02:43:00"
-    at: "2026-10-12T02:43:00"
+  - fid: "SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1@2026-10-12T02:05:00"
+    at: "2026-10-12T02:05:00"
     outcome: "done"
     headline: "Closed: the last three HA shutdowns took 22-25 s each, down from 3.5-20 min before the fix (recorder timing). The shutdown log text has already rotated out, so I did not read it and am not claiming a log all-clear."
     acknowledged: false
-  - fid: "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-12T02:42:00"
-    at: "2026-10-12T02:42:00"
+  - fid: "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-12T02:05:00"
+    at: "2026-10-12T02:05:00"
     outcome: "done"
     headline: "Closed: across three restarts last night the house never went to away and came back up in home_evening. Evidence is the database; the restore log lines had already rotated out."
     acknowledged: false
-  - fid: "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-12T02:41:00"
-    at: "2026-10-12T02:41:00"
+  - fid: "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-12T02:05:00"
+    at: "2026-10-12T02:05:00"
     outcome: "built"
     headline: "Moved to Review (both reviews passed 10-11, still merges cleanly). Ready for your next attended deploy: the house-state sensors will show unknown at restart instead of a false away."
     acknowledged: false
@@ -399,8 +404,8 @@ cards:
   title: The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line
   thread: energy
   status: waiting_operator
-  created: '2026-10-12 02:45'
-  updated: '2026-10-12 02:45'
+  created: '2026-10-12 02:06'
+  updated: '2026-10-12 02:06'
   refinement_status: initial
   approval: blocked
   tags: [tier-2db, measure-before-build, numbers-get-knobs, no-fabrication-verify]
@@ -512,7 +517,7 @@ cards:
   status: done
   shipped_version: v5.103.49
   created: '2026-10-03 16:00'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   next: "Me: after the first real EV charging day on v5.103.49+, query anomaly_log for metric_name ev_toggle_tripwire (expect 0 on a normal day) and ura_activity_log for EV on/off commands per charger per hour (any hour > 2 that did NOT alarm = broken). Dispose by 2026-10-15."
   why: 'SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the safety net. Operator approved Q8 (alarm) 2026-10-03.'
 - id: ENVOY-STREAM-AB-48H-1
@@ -18114,7 +18119,7 @@ cards:
   thread: dashboarding
   status: waiting_operator
   rank: {value: 5, time_criticality: 2, effort: 3}
-  updated: '2026-10-12 03:05'
+  updated: '2026-10-12 02:07'
   origin: 'Operator 2026-10-08: quick action section or separate first tab on URA v8 Lovelace.'
   why: 'One-tap house-wide actions; today these need several taps across rooms.'
   adjacency: 'ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.'
@@ -19144,7 +19149,7 @@ cards:
   rank: {value: 7, time_criticality: 3, effort: 1}
   status: done
   shipped_version: v5.103.53
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   thread: memory
   created: 2026-10-11 21:00
   problem: phantom_retro, tracker_trust_excluded and house_state_transition have 0 rows in
@@ -19159,6 +19164,27 @@ cards:
     log the swallowed exception at warning, and make the test fake enforce the real signature;
     drill. Live check = >=1 house_state_transition row within an hour of restart.
   refs: custom_components/universal_room_automation/memory_writers.py:82-93
+- id: ZONE-AWAY-DURING-SLEEP-1
+  title: House Sleep forces every zone to Sleep even when the zone is empty — let a truly empty zone go Away
+  rank: {value: 6, time_criticality: 3, effort: 3}
+  status: waiting_operator
+  updated: '2026-10-12 02:15'
+  thread: presence
+  created: 2026-10-12 02:15
+  problem: ZonePresenceTracker.set_sleep (domain_coordinators/presence.py:929, unchanged since v3.6.0
+    b761cbe0e 2026-02-28) sets override=SLEEP on every zone when the house sleeps, regardless of
+    occupancy. Live 2026-10-12 02:12 Back Hallway (zone 3, 16 rooms, no resident bedroom besides GB1) -
+    mode=sleep, override=sleep, derived_mode=away, ble_occupied=false, anyone=off since 02:10;
+    climate.back_hallway_zone_3 preset sleep. The zone's own derivation says away; the override hides it.
+  origin: 2026-10-11 operator "Why hasn't back hallway gone away this evening?" / "A zone should be able
+    to go away even in sleep if truly unoccupied" / "The zone dash says the zone is empty".
+  constraints: Still sleepers are invisible to PIR/ZV (v4.7.13 sleep trust uses zone_persons BLE,
+    presence.py:2025 Pattern B). Away-in-sleep must require no zone persons by BLE AND room sensors
+    quiet >= a named knob; any activity returns to Sleep (not Home). Presence -> HVAC preset ripple
+    (zone 3 sleep -> away preset overnight) => Tier 2-DB, plan + plan review; read HVAC + PRESENCE
+    state-of-play docs first.
+  next: 'APPROVE: plan ZONE-AWAY-DURING-SLEEP-1 -> ura-planner writes the plan (prior-art scan incl.
+    Pattern B/C vetoes, HVAC sleep/away preset consumers), plan review, then build.'
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
@@ -27771,7 +27797,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.47
   created: '2026-09-16 03:30'
-  updated: '2026-10-12 03:05'
+  updated: '2026-10-12 02:07'
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
@@ -30594,7 +30620,7 @@ cards:
   thread: presence
   status: 'waiting_operator'
   created: '2026-09-29 04:20'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
@@ -30780,7 +30806,7 @@ cards:
   thread: energy
   status: waiting_operator
   created: '2026-10-03 02:40'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   refinement_status: initial
   approval: blocked
   tags: [tier-3, measure-before-build, no-fabrication-verify]
@@ -30993,16 +31019,18 @@ cards:
   next: "Prior-art scan (coordinator occupancy_source producer ~3148, D2 sole-source check, recheck mmwave-only eligibility); plan the smallest change: source/radar-ness from derive_capability (kind mmwave / model family radar) rather than list."
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
 - id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
+  built_2026_10_12_overnight: 'BUILT TO REVIEW, not deployed. Branch fix/d2-pir-stamp-fan-immune-witness: build 487d8c69b, then fix-up 8e678d826. Review A FIX-REQUIRED: one HIGH (the helper read the raw motion list instead of the stuck-filtered one) and fixed. Review B SHIP with one MEDIUM: the same timestamp fed the room failsafe, so GB1/GB2 sleeping guests would have been newly force-vacated. Fixed by keeping the failsafe on a separate field with the old meaning (_last_motion_bit_time). Doc corrected: ''ZV-only means D2 unreachable'' was WRONG. Orchestrator drills M1-M4 all RED, restored. Targeted tests: 52 passed. Review record: docs/reviews/code-review/overnight_2026-10-12_d2_pir_stamp_fan_immune_witness.md. Behaviour change is limited to GB1 and GB2 (ZV + MS600): an MS600 motion bit no longer keeps D2 from demoting a fan-held room or clears its latch.'
+  open_question_2026_10_12: 'Separate from this card: should the room failsafe also ignore radar motion bits (MS600)? Today a fan-faked MS600 bit can defer the failsafe indefinitely in GB1/GB2; ignoring it would force-vacate a guest asleep for longer than the failsafe duration. I kept today''s behaviour. Card it only if you want it changed.'
+  next: 'APPROVE ship with your next attended deploy (I merge to develop, write README, deploy). Full-suite name-diff result is recorded here when the validator finishes.'
   gate_2026_10_12_overnight: 'FOUR-STEP GATE. (1) VALIDITY STILL-REAL: coordinator.py:3873 stamps _last_pir_motion_time on any motion_detected; :2897-2898 clears the latch with reason pir_motion on any motion_detected. Neither is filtered. (1b) config-first: no knob decides which motion counts as a PIR witness, so this is code. (2) REUSE fan_veto.is_fan_immune_motion_witness (fan_veto.py:113), already used to filter the D2 witness list at coordinator.py:2180-2187. (3) parsimony BUILD: same filter at two more sites. (4) cost/benefit: small, presence-local, fail-closed. Build to review dispatched overnight in .claude/worktrees/overnight-1012-d2pir, branch fix/d2-pir-stamp-fan-immune-witness. No deploy.'
   title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
   thread: presence
-  status: in_progress
+  status: review
   tier: 1
   created: "2026-10-12 12:00"
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:15'
   origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
   why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
-  next: "Stamp _last_pir_motion_time and clear the latch on 'pir_motion' only when an on motion entity passes fan_veto.is_fan_immune_motion_witness. Tier 1; mutation-anchor both sites."
   related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
 - id: FAN-TRANSITION-GATE-FOLLOWS-CAPABILITY-1
   title: Fan-transition CREATION gate still keys on presence_detected list predicate (dormant - window 0.0)
@@ -31218,7 +31246,7 @@ cards:
   thread: census
   status: waiting_operator
   created: '2026-10-05 02:22'
-  updated: '2026-10-12 03:40'
+  updated: '2026-10-12 02:12'
   refinement_status: "refined"
   tags: [tier-2, measure-before-build, institutional-context]
   rank: {value: 4, time_criticality: 2, effort: 5}
@@ -31316,7 +31344,7 @@ cards:
   status: review
   tier: 1
   created: "2026-10-11 04:00"
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify]
@@ -31346,7 +31374,7 @@ cards:
   thread: presence
   status: done
   created: '2026-10-05 02:22'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   refinement_status: "refined"
   tags: [tier-1, measure-before-build]
   problem_solution:
@@ -31431,7 +31459,7 @@ cards:
   status: done
   shipped_version: v5.103.49
   created: '2026-10-05'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   tags: [tier-2db, mechanism-in-source]
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
   next: "Me, at the next restart (v5.103.50 install): recorder homeassistant_stop -> homeassistant_start gap (old code ran 3.5-20 min) plus ha_get_logs error_log read within ~2 min of the start for 'timed out waiting' / 'DB write failed: shutdown timeout'. Clean -> done."
@@ -31446,7 +31474,7 @@ cards:
   shipped_version: v5.103.49
   thread: presence
   created: '2026-10-07 02:15'
-  updated: '2026-10-12 02:45'
+  updated: '2026-10-12 02:06'
   refinement_status: initial
   problem_solution:
   - 'Problem: when a room''s motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA''s log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA''s log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
@@ -31483,7 +31511,7 @@ cards:
   status: waiting_operator
   thread: security
   created: '2026-10-07 03:05'
-  updated: '2026-10-12 03:15'
+  updated: '2026-10-12 02:09'
   refinement_status: initial
   problem_solution:
   - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'
