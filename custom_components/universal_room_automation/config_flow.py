@@ -3794,6 +3794,13 @@ _STEP_EXTRA_OWNED_KEYS: dict = {
     "automation_chaining": (CONF_AUTOMATION_CHAINS,),
     "ai_rules": (CONF_AI_RULES,),
     "energy": (CONF_ENERGY_SENSOR,),
+    # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): the raw-JSON escape hatch
+    # ``sensor_capabilities_json`` is Advanced-only on the sensors step
+    # (per-entity dropdowns cover the common case). It renders as a
+    # top-level form field in Advanced mode only, so Simple-mode
+    # reachability (I2) is not required — list it here so the global
+    # reach-back check doesn't flag it as missing.
+    "sensors": ("sensor_capabilities_json",),
 }
 _MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"automation_chaining", "ai_rules"})
 
@@ -12756,7 +12763,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="sensors",
             data_schema=self._filter_advanced(data_schema),
             errors=errors,
-            description_placeholders={"name": "Reconfigure sensors - at least one occupancy sensor required"},
+            description_placeholders={
+                "name": "Reconfigure sensors - at least one occupancy sensor required",
+                # SENSOR-FORM-PLAIN-TEXT-1 (2026-10-11): sensors step now
+                # carries an Advanced-only field (sensor_capabilities_json),
+                # so emit the same hint the other Advanced-gated steps use.
+                "advanced_hint": advanced_hint_for(
+                    data_schema,
+                    bool(getattr(self, "show_advanced_options", False)),
+                ),
+            },
         )
 
     async def async_step_devices(self, user_input=None):

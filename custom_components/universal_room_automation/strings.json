@@ -1724,7 +1724,7 @@
       },
       "sensors": {
         "title": "📡 Sensors",
-        "description": "Update presence and environmental sensors.",
+        "description": "Update presence and environmental sensors. {advanced_hint}",
         "data": {
           "motion_sensors": "Motion sensors",
           "presence_sensors": "Presence sensors",
