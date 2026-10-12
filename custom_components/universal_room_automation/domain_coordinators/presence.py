@@ -4272,13 +4272,27 @@ class PresenceCoordinator(BaseCoordinator):
                                     room_name, None,
                                 )
                                 continue
-                            prov = tracker._room_provenance.get(room_name, {})
-                            non_mmwave_true = any(
-                                bool(prov.get(k, False))
-                                for k in prov.keys()
-                                if k != "mmwave"
-                            )
-                            if non_mmwave_true:
+                            # A-LOW (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
+                            # fix-up): route Reset #2 through capability so
+                            # a radar filed under occupancy_sensors (e.g.
+                            # the MS600 Matter leg) still counts as
+                            # radar-sole and does NOT clear the hold. Kill
+                            # switch (routing disabled) restores the old
+                            # provenance-kind check.
+                            if capability_routing_enabled():
+                                non_radar_true = not self._room_radar_sole_capable(
+                                    room_name,
+                                )
+                            else:
+                                prov = tracker._room_provenance.get(
+                                    room_name, {},
+                                )
+                                non_radar_true = any(
+                                    bool(prov.get(k, False))
+                                    for k in prov.keys()
+                                    if k != "mmwave"
+                                )
+                            if non_radar_true:
                                 # Reset #2.
                                 tracker._fan_interference_hold_until.pop(
                                     room_name, None,

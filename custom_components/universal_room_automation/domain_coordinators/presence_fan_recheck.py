@@ -516,6 +516,20 @@ class FanRecheckManager:
                 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             )
         )
+        # Override Occupied veto (B-M1): the operator's Occupied-override is
+        # intent, not a sensor fact — the capability radar-sole ring can't
+        # see it (label-only state). Applies on BOTH routing branches, and
+        # whether the master kill switch is on or off (operator intent wins).
+        # The old label-ring N-tick gate rejected the "override" label as
+        # `s != "mmwave"`; the capability ring doesn't, so re-add the veto
+        # explicitly here against the label ring.
+        try:
+            label_ring = list(room_coord.recent_occupancy_sources()) \
+                if hasattr(room_coord, "recent_occupancy_sources") else []
+        except Exception:  # noqa: BLE001
+            label_ring = []
+        if any(s == "override" for s in label_ring[-ticks_required:]):
+            return sink.veto(room_name, "override_occupied")
         if capability_routing_enabled():
             # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: N-tick history of
             # the capability radar-sole bool. Fail-closed: a coordinator
@@ -809,9 +823,6 @@ class FanRecheckManager:
         room_coord = self._room_coord_for(ctx.room_name)
         outcome = OUTCOME_OCCUPIED_CONFIRMED
         if room_coord is not None:
-            recent = []
-            if hasattr(room_coord, "recent_occupancy_sources"):
-                recent = list(room_coord.recent_occupancy_sources())
             data = getattr(room_coord, "data", None) or {}
             # If mmwave (the lone driver pre-pause) no longer drives occupancy
             # after airflow stopped, the fan was the culprit -> vacated.
@@ -1030,6 +1041,12 @@ class FanRecheckManager:
             return False
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
+            return False
+        # Override Occupied veto (B-M1): operator intent, not a sensor
+        # fact; applies on both routing branches and under either kill
+        # switch state. Read the live label — override is a sustained
+        # label state, so the current tick is authoritative.
+        if str(data.get("occupancy_source", "none")) == "override":
             return False
         if capability_routing_enabled():
             # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D4: live tick must be

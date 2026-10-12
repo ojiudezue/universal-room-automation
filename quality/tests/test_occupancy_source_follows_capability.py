@@ -884,3 +884,96 @@ def test_kill_switch_presence_list_radar_same_verdict(monkeypatch, routing):
     assert _pause_outcome(monkeypatch, mgr, rc) == FR.OUTCOME_VACATED
     merged = {**rc.entry.data, **rc.entry.options}
     assert mgr._family_factor(merged, {}, "Media") == 2.0
+
+
+# ===========================================================================
+# B-M1 fix-up: Override Occupied vetoes the recheck at BOTH sites, under
+# either kill-switch state.
+# ===========================================================================
+
+
+@pytest.mark.parametrize("routing", [True, False])
+def test_override_occupied_vetoes_is_recheck_eligible(monkeypatch, routing):
+    """Operator Occupied override: capability radar-sole ring can't see it,
+    so an explicit label-ring veto is required. Fires on both routing
+    branches (operator intent, not capability)."""
+    _routing(monkeypatch, routing)
+    mgr, rc, _s = _recheck_world(monkeypatch, on={ZK}, presence=[ZK])
+    _fill(rc)                                            # radar-sole ring full
+    assert _eligible(mgr, rc) is True                    # pre-condition
+    # Operator presses Occupied override -> label ring stamps "override".
+    rc._recent_occupancy_sources.extend(["override"] * 3)
+    assert _eligible(mgr, rc) is False
+    assert mgr._veto_counts["Media"]["override_occupied"] >= 1
+
+
+@pytest.mark.parametrize("routing", [True, False])
+def test_override_occupied_vetoes_still_armed_eligible(monkeypatch, routing):
+    """Second site: ARM_DELAY re-check. The live label (data.occupancy_source)
+    == 'override' is operator intent -> refuse."""
+    _routing(monkeypatch, routing)
+    mgr, rc, _s = _recheck_world(monkeypatch, on={ZK}, presence=[ZK])
+    ctx = FR._RoomCtx(room_name="Media", entry_id=rc.entry.entry_id)
+    rc.data = {CONST.STATE_OCCUPIED: True,
+               CONST.STATE_OCCUPANCY_SOURCE: "mmwave", RADAR: True}
+    assert mgr._still_armed_eligible(ctx, rc) is True    # pre-condition
+    rc.data = {CONST.STATE_OCCUPIED: True,
+               CONST.STATE_OCCUPANCY_SOURCE: "override", RADAR: True}
+    assert mgr._still_armed_eligible(ctx, rc) is False
+
+
+# ===========================================================================
+# A-LOW: fan-interference hold Reset #2 routes through capability — a radar
+# in occupancy_sensors keeps the hold; kill switch restores the old provenance
+# behaviour (any non-mmwave kind True clears).
+# ===========================================================================
+
+
+def _hold_reset_world(monkeypatch, *, occupancy=(), presence=(), motion=(),
+                      on=()):
+    """Build a presence coord with a hold already set on 'Media', ready for
+    the Reset #2 path in `_apply_fan_interference_gate` with an empty
+    suspect list."""
+    _install_registry(monkeypatch)
+    states = {e: _State("on" if e in on else "off") for e in MODELS}
+    hass = _hass(states)
+    entry = _entry(
+        "Media", presence=presence, motion=motion, occupancy=occupancy,
+    )
+    hass.config_entries.async_entries = lambda domain=None: [entry]
+    coord = PR.PresenceCoordinator(hass)
+    tracker = PR.ZonePresenceTracker(hass, "z1", ["Media"])
+    coord._zone_trackers = {"z1": tracker}
+    # Hold already in place from a prior suspect cycle.
+    tracker._fan_interference_hold_until["Media"] = (
+        datetime.utcnow() + timedelta(seconds=120)
+    )
+    return hass, coord, tracker
+
+
+def test_hold_reset_capability_keeps_hold_for_occupancy_list_radar(monkeypatch):
+    """A-LOW: MS600 radar filed in occupancy_sensors, on now. Capability
+    says radar-sole -> Reset #2 does NOT fire -> hold kept."""
+    _routing(monkeypatch, True)
+    hass, coord, tracker = _hold_reset_world(
+        monkeypatch, occupancy=[MS_OCC], on={MS_OCC},
+    )
+    # Provenance stamp is "occupancy" (MS_OCC filed under occupancy_sensors).
+    # Old prov-kind check would see non-mmwave True and clear; capability
+    # must override that.
+    tracker.update_room_occupancy("Media", True, kind="occupancy")
+    # Empty suspect list -> runs the Reset branch.
+    coord._apply_fan_interference_gate([], 300)
+    assert "Media" in tracker._fan_interference_hold_until
+
+
+def test_hold_reset_kill_switch_clears_on_non_mmwave_provenance(monkeypatch):
+    """Kill switch restores the old behaviour: a non-mmwave provenance kind
+    True clears the hold even for an occupancy-list radar."""
+    _routing(monkeypatch, False)
+    hass, coord, tracker = _hold_reset_world(
+        monkeypatch, occupancy=[MS_OCC], on={MS_OCC},
+    )
+    tracker.update_room_occupancy("Media", True, kind="occupancy")
+    coord._apply_fan_interference_gate([], 300)
+    assert "Media" not in tracker._fan_interference_hold_until
