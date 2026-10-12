@@ -30899,7 +30899,8 @@ cards:
 - id: SENSOR-FORM-PLAIN-TEXT-1
   title: Room sensors form — brief, user-focused wording (motion / presence / combined; 'What can it see?' dropdown; hide advanced JSON)
   thread: onboarding
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.52
   tier: 1
   created: "2026-10-11 23:50"
   updated: "2026-10-11 23:50"
@@ -30923,7 +30924,8 @@ cards:
   gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob covers the reconciler path. (2) REUSE the shared resolver. (3) BUILD. (4) Tier 1, lighting only. Built to review overnight, no deploy."
   title: A night light that reconnects during sleep comes back warm white, not red (reconcile path ignores the red sleep hue)
   thread: lighting
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.52
   tier: 1
   created: "2026-10-10 22:00"
   updated: "2026-10-11 04:10"
