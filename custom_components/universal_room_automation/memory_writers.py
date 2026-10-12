@@ -52,6 +52,8 @@ from .const import (
     AWAY_BLOCK_EPISODE_MAX_OPEN_S,
     AWAY_BLOCK_EPISODE_MIN_HOLD_S,
     DOMAIN,
+    FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
+    FAN_RECHECK_OUTCOME_WRITER_ENABLED,
     HOUSE_STATE_TRANSITION_WRITER_ENABLED,
     PHANTOM_RETRO_ENABLED,
     PHANTOM_RETRO_MIN_HOLD_S,
@@ -79,14 +81,43 @@ def _db(hass: Any):
         return None
 
 
-def _schedule(hass: Any, coro) -> None:
-    """Fire-and-forget: prefer async_create_background_task, else task."""
+# Per-writer-name rate-limit for swallowed-schedule WARNINGs. Reset only
+# on process restart. Keyed by the `name=` passed to _schedule so each
+# writer (phantom_retro / away_block / tracker_trust / house_state /
+# fan_recheck_outcome) warns exactly once per boot about a failing path.
+_SCHEDULE_WARNED: set[str] = set()
+
+
+def _schedule(hass: Any, coro, *, name: str = "ura_memory_writer") -> None:
+    """Fire-and-forget: prefer async_create_background_task, else task.
+
+    HA's ``async_create_background_task`` requires a ``name`` argument
+    (``(target, name, eager_start=True)`` — no default). Earlier calls
+    omitted ``name`` and swallowed the resulting TypeError, closing the
+    coroutine, which caused phantom_retro / tracker_trust_excluded /
+    house_state_transition to write 0 rows live since v5.78.0. This
+    fix passes ``name`` and surfaces any residual failure at WARNING
+    once per writer per boot (so a regression cannot be silent again).
+    """
     try:
-        sched = getattr(
-            hass, "async_create_background_task", None,
-        ) or hass.async_create_task
-        sched(coro)
+        sched = getattr(hass, "async_create_background_task", None)
+        if sched is not None:
+            sched(coro, name)
+        else:
+            hass.async_create_task(coro)
     except Exception:  # noqa: BLE001 — defensive
+        if name not in _SCHEDULE_WARNED:
+            _SCHEDULE_WARNED.add(name)
+            _LOGGER.warning(
+                "memory_writers: schedule(%s) failed; episode dropped "
+                "(further failures for this writer logged at debug this boot)",
+                name, exc_info=True,
+            )
+        else:
+            _LOGGER.debug(
+                "memory_writers: schedule(%s) failed again (suppressed)",
+                name, exc_info=True,
+            )
         try:
             coro.close()  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
@@ -173,6 +204,7 @@ def write_phantom_retro(
                 source_ref=source_ref,
                 dedup_source_ref=True,
             ),
+            name=f"ura_memory_phantom_retro:{room_slug}",
         )
     except Exception:  # noqa: BLE001 — defensive; observational-only
         _LOGGER.debug("phantom_retro writer failed (non-fatal)", exc_info=True)
@@ -554,6 +586,7 @@ class TrackerTrustExcludedWriter:
                 source_ref=source_ref,
                 dedup_source_ref=True,
             ),
+            name=f"ura_memory_tracker_trust_excluded:{person}",
         )
 
 
@@ -641,9 +674,99 @@ def write_house_state_transition(
                 source_ref=source_ref,
                 dedup_source_ref=True,
             ),
+            name=f"ura_memory_house_state_transition:{old_state}->{new_state}",
         )
     except Exception:  # noqa: BLE001 — defensive
         _LOGGER.debug(
             "house_state_transition writer failed (non-fatal)",
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# D2 — fan_recheck_outcome (one row per completed recheck)
+# ---------------------------------------------------------------------------
+
+
+def write_fan_recheck_outcome(
+    hass: Any,
+    *,
+    room_name: str,
+    verdict: str,
+    reason: Optional[str] = None,
+    pause_window_s: Optional[float] = None,
+    radar_family_factor: Optional[float] = None,
+    fan_restored: Optional[bool] = None,
+    manual_fan_on_followup: Optional[bool] = None,
+    house_state: Optional[str] = None,
+    at: Optional[datetime] = None,
+) -> None:
+    """Emit a ``fan_recheck_outcome`` episode (room node, observational).
+
+    Fires once per completed fan-recheck. ``manual_fan_on_followup`` is
+    an optional boolean the caller MAY resolve (e.g. by sampling the
+    oracle after ``FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN`` minutes) —
+    pass ``None`` if the follow-up could not be observed.
+
+    Kill-switch: ``FAN_RECHECK_OUTCOME_WRITER_ENABLED`` short-circuits
+    the writer. Rate-bounding is BY CONSTRUCTION — the upstream state
+    machine already caps rechecks at ``CONF_FAN_RECHECK_MAX_PER_HOUR``
+    per room with a cooldown between attempts.
+    """
+    try:
+        if not FAN_RECHECK_OUTCOME_WRITER_ENABLED:
+            return
+        db = _db(hass)
+        if db is None or not hasattr(db, "log_memory_episode"):
+            return
+        _at = at or datetime.now(timezone.utc)
+        room_slug = _slug(room_name)
+        attrs: dict[str, Any] = {"verdict": verdict}
+        if reason is not None:
+            attrs["reason"] = reason
+        if pause_window_s is not None:
+            try:
+                attrs["pause_window_s"] = round(float(pause_window_s), 3)
+            except Exception:  # noqa: BLE001
+                pass
+        if radar_family_factor is not None:
+            try:
+                attrs["radar_family_factor"] = round(
+                    float(radar_family_factor), 3,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        if fan_restored is not None:
+            attrs["fan_restored"] = bool(fan_restored)
+        if manual_fan_on_followup is not None:
+            attrs["manual_fan_on_followup"] = bool(manual_fan_on_followup)
+            attrs["manual_fan_on_followup_window_min"] = int(
+                FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
+            )
+        if house_state:
+            attrs["house_state"] = str(house_state)
+        source_ref = f"fan_recheck_outcome:{room_slug}:{_at.isoformat()}"
+        _LOGGER.info(
+            "fan_recheck_outcome: room=%s verdict=%s restored=%s "
+            "manual_fan_on_followup=%s house_state=%s",
+            room_slug, verdict, fan_restored, manual_fan_on_followup,
+            house_state,
+        )
+        _schedule(
+            hass,
+            db.log_memory_episode(
+                node_id=f"room:{room_slug}",
+                episode_type="fan_recheck_outcome",
+                adjudication="observed",
+                adjudicated_by="fan_recheck_manager",
+                attrs=attrs,
+                source_ref=source_ref,
+                dedup_source_ref=True,
+            ),
+            name=f"ura_memory_fan_recheck_outcome:{room_slug}",
+        )
+    except Exception:  # noqa: BLE001 — defensive
+        _LOGGER.debug(
+            "fan_recheck_outcome writer failed (non-fatal)",
             exc_info=True,
         )

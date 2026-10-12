@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_RECHECK_ARM_DELAY_S,
     CONF_FAN_RECHECK_COOLDOWN_S,
@@ -870,6 +871,81 @@ class FanRecheckManager:
                 "cancel_driven": cancel_driven,
             },
         )
+        # MEMORY-WRITERS-SILENT-DROP-1 D2 — observational episode mirror of
+        # the activity_log row. One row per completed recheck. Rate-bound
+        # BY CONSTRUCTION via the recheck state machine's own cooldown +
+        # max-per-hour cap. Memory-ineligible: never read on an actuation
+        # path (arch §8). Follow-up manual_fan_on sampling is scheduled
+        # FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN minutes after the verdict.
+        try:
+            merged_cfg = {}
+            room_coord = self._room_coord_for(ctx.room_name)
+            if room_coord is not None:
+                merged_cfg = self._merged_config(room_coord)
+            radar_factor = self._family_factor(
+                merged_cfg, self._timing_config(), ctx.room_name,
+            ) if merged_cfg else None
+            house_state_now = getattr(self._presence, "house_state", None)
+            # Verdict reason: cancel-driven vs max-out vs observed vacancy.
+            if cancel_driven:
+                _reason = "cancel_driven"
+            elif forced:
+                _reason = "forced"
+            else:
+                _reason = "pause_window_complete"
+            _fan_restored = not leave_off
+            _window = self._effective_window_s(
+                merged_cfg, self._timing_config(), ctx.room_name,
+            ) if merged_cfg else None
+
+            # Lazy import — some test harnesses load this module under a
+            # non-package alias ("ura_fanrecheck_pkg"), which breaks a
+            # top-level relative import. Inline import is cheap, HA has
+            # already paid the import cost for memory_writers elsewhere.
+            from ..memory_writers import (
+                write_fan_recheck_outcome as _write_fan_recheck_outcome,
+            )
+
+            def _emit(manual_followup: Optional[bool]) -> None:
+                _write_fan_recheck_outcome(
+                    self.hass,
+                    room_name=ctx.room_name,
+                    verdict=outcome,
+                    reason=_reason,
+                    pause_window_s=_window,
+                    radar_family_factor=radar_factor,
+                    fan_restored=_fan_restored,
+                    manual_fan_on_followup=manual_followup,
+                    house_state=house_state_now,
+                )
+
+            # If the writer is disabled upstream nothing lands; also skip
+            # scheduling the follow-up probe in that case for parsimony.
+            try:
+                from ..const import FAN_RECHECK_OUTCOME_WRITER_ENABLED
+            except Exception:  # noqa: BLE001
+                FAN_RECHECK_OUTCOME_WRITER_ENABLED = True  # type: ignore
+            if FAN_RECHECK_OUTCOME_WRITER_ENABLED:
+                async def _followup_probe(_now):
+                    try:
+                        manual_hold = self._fan_in_manual_on_hold(
+                            ctx.room_name,
+                        )
+                    except Exception:  # noqa: BLE001
+                        manual_hold = None
+                    _emit(manual_hold)
+
+                async_call_later(
+                    self.hass,
+                    FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN * 60,
+                    _followup_probe,
+                )
+        except Exception:  # noqa: BLE001 — observational, never raises
+            _LOGGER.debug(
+                "FanRecheck %s: fan_recheck_outcome memory write skipped",
+                ctx.room_name, exc_info=True,
+            )
+
         # Reset the marker so the next arm/outcome cycle doesn't inherit it.
         if cancel_driven:
             ctx._cancel_driven = False
