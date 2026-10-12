@@ -19072,7 +19072,8 @@ cards:
 - id: MEMORY-WRITERS-SILENT-DROP-1
   title: 3 of 4 v5.78 memory writers have never written a row — _schedule drops the coroutine
   rank: {value: 7, time_criticality: 3, effort: 1}
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.53
   updated: '2026-10-11 21:00'
   thread: memory
   created: 2026-10-11 21:00
@@ -30907,7 +30908,8 @@ cards:
 - id: OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.53
   tier: 2
   created: "2026-10-11 23:50"
   updated: "2026-10-12 12:00"
@@ -30952,7 +30954,8 @@ cards:
 - id: URA-SENSOR-TUNING-1
   title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.103.53
   created: "2026-10-11 18:30"
   updated: "2026-10-11 18:30"
   origin: "Operator 2026-10-11: 'We may need to add sensor tuning directly to URA' — after Study A ZG-204ZK tuning (motion 8->5, static 8->6, distance 4.34->3.0 m) and the Wigton fleet retune (17 units by hand)."
