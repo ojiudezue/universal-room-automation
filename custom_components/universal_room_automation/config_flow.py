@@ -12502,6 +12502,48 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         _coerced = _val
                 _radar_new.setdefault(_eid, {})[_field] = _coerced
 
+            # Review fix (4): carry forward saved radar settings for
+            # entities still in CONF_MMWAVE_SENSORS whose fields didn't
+            # render this time (resolution transiently failed — e.g. the
+            # entity registry lookup returned None, or the number.*
+            # sibling wasn't found). Without this, a save would silently
+            # DROP the operator's prior picks for an unaffected radar.
+            try:
+                from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                    resolve_zk_zx_tuning_entities as _rt_resolve_cf,
+                )
+                _radar_saved_cf = (
+                    self._config_entry.options.get(CONF_RADAR_SETTINGS)
+                    or self._config_entry.data.get(CONF_RADAR_SETTINGS)
+                    or {}
+                )
+                _mmwave_submitted = set(mmwave or [])
+                for _s_eid, _s_fields in (_radar_saved_cf or {}).items():
+                    if (
+                        not isinstance(_s_eid, str)
+                        or not isinstance(_s_fields, dict)
+                    ):
+                        continue
+                    if _s_eid not in _mmwave_submitted:
+                        continue  # entity removed — intentionally drop
+                    try:
+                        _resolved_cf = _rt_resolve_cf(self.hass, _s_eid) or {}
+                    except Exception:  # noqa: BLE001
+                        _resolved_cf = {}
+                    for _f, _v in _s_fields.items():
+                        if _f not in _RT_FIELDS:
+                            continue
+                        if _f in _radar_new.get(_s_eid, {}):
+                            continue  # operator just set it — new wins
+                        if _f in _resolved_cf:
+                            continue  # field rendered → user_input is truth
+                        _radar_new.setdefault(_s_eid, {})[_f] = _v
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "radar_settings: carry-forward skipped (non-fatal)",
+                    exc_info=True,
+                )
+
             if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
@@ -12525,22 +12567,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # Scheduled as a background task so the options-flow
                     # save returns promptly; the send path is fire-and-
                     # forget (blocking=False in the service call).
-                    try:
-                        from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
-                            async_send_radar_settings as _rt_send,
-                        )
-                        self.hass.async_create_task(
-                            _rt_send(
-                                self.hass,
-                                previous_settings=_radar_prev,
-                                new_settings=_radar_new,
-                            ),
-                        )
-                    except Exception:  # noqa: BLE001 — never break save on send
-                        _LOGGER.warning(
-                            "radar_settings: failed to schedule send",
-                            exc_info=True,
-                        )
+                    # Only schedule when the saved radar dict actually
+                    # changed. Review fix (3): all-sentinel on a fresh
+                    # install (prev=={} AND new=={}) must not fire the
+                    # send path; the diff helper short-circuits anyway,
+                    # but gating here keeps the "sends nothing" invariant
+                    # observable at the schedule site.
+                    if _radar_new != _radar_prev:
+                        try:
+                            from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                                async_send_radar_settings as _rt_send,
+                            )
+                            self.hass.async_create_task(
+                                _rt_send(
+                                    self.hass,
+                                    previous_settings=_radar_prev,
+                                    new_settings=_radar_new,
+                                ),
+                            )
+                        except Exception:  # noqa: BLE001 — never break save on send
+                            _LOGGER.warning(
+                                "radar_settings: failed to schedule send",
+                                exc_info=True,
+                            )
                     # v5.37.0/v5.37.1: explicit-clear control for the otherwise
                     # unclearable optional single-entity selectors (temperature,
                     # humidity, illuminance, water_leak). An optional
@@ -12726,14 +12775,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
             _radar_saved: dict = self._get_current(CONF_RADAR_SETTINGS, {}) or {}
 
-            def _mk_option(_sentinel_label, bucket_map, unit=""):
-                opts = [{"value": _RT_LEAVE, "label": _sentinel_label}]
+            # Plain-English field labels (feedback_label_style_guide:
+            # no nerd words, short). Each option label carries its
+            # field so the four dropdowns on a single radar are
+            # distinguishable at a glance ("Moving people: High" etc).
+            # Dynamic field keys like `radar_motion_sensitivity__<eid>`
+            # have no translation entry; without this prefix every
+            # dropdown would just show "High / Medium / Low" with no
+            # indication of which setting it controls.
+            _FIELD_LABEL = {
+                _RT_F_MOTION: "Moving people",
+                _RT_F_STATIC: "Still people",
+                _RT_F_DIST: "Watch distance",
+                _RT_F_FADE: "Hold time",
+            }
+
+            def _mk_option(field_label, bucket_map, unit=""):
+                opts = [{
+                    "value": _RT_LEAVE,
+                    "label": f"{field_label}: Leave as is",
+                }]
                 for label, value in bucket_map.items():
+                    _b = label.replace("_", " ").title()
                     opts.append({
                         "value": str(value),
-                        "label": f"{label.replace('_', ' ').title()} ({value}{unit})",
+                        "label": f"{field_label}: {_b} ({value}{unit})",
                     })
                 return opts
+
+            # Review fix (5): if the step is being re-rendered after an
+            # error, the operator's un-saved radar picks come back on
+            # ``user_input``. Prefer those over the saved dict so the
+            # dropdowns don't silently revert to "Leave as is".
+            _ui = user_input if isinstance(user_input, dict) else {}
 
             for _zk_eid in _mmwave_now or []:
                 _resolved = _rt_resolve(self.hass, _zk_eid)
@@ -12743,11 +12817,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 if not isinstance(_entity_saved, dict):
                     _entity_saved = {}
 
-                def _default_for(field):
-                    v = _entity_saved.get(field)
+                def _default_for(field, _eid=_zk_eid, _saved=_entity_saved):
+                    _k = f"radar_{field}__{_eid}"
+                    if _k in _ui:
+                        _uv = _ui.get(_k)
+                        if _uv is not None:
+                            return str(_uv)
+                    v = _saved.get(field)
                     if v is None:
                         return _RT_LEAVE
                     return str(v)
+
+                def _opts_with_saved(bucket_map, field, unit="",
+                                     _eid=_zk_eid, _saved=_entity_saved):
+                    """Build options, adding the saved value as an
+                    extra option if it's not already in bucket_map
+                    (review fix 6: don't let an out-of-bucket saved
+                    distance get rejected by the SelectSelector)."""
+                    opts = _mk_option(_FIELD_LABEL[field], bucket_map, unit=unit)
+                    v = _saved.get(field)
+                    if v is None:
+                        return opts
+                    _vs = str(v)
+                    if any(o["value"] == _vs for o in opts):
+                        return opts
+                    opts.append({
+                        "value": _vs,
+                        "label": f"{_FIELD_LABEL[field]}: Saved ({v}{unit})",
+                    })
+                    return opts
 
                 # Motion sensitivity
                 if _RT_F_MOTION in _resolved:
@@ -12756,8 +12854,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         default=_default_for(_RT_F_MOTION),
                     )] = selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=_mk_option(
-                                "Leave as is", _RT_B_MOTION,
+                            options=_opts_with_saved(
+                                _RT_B_MOTION, _RT_F_MOTION,
                             ),
                             mode=selector.SelectSelectorMode.DROPDOWN,
                             custom_value=False,
@@ -12770,8 +12868,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         default=_default_for(_RT_F_STATIC),
                     )] = selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=_mk_option(
-                                "Leave as is", _RT_B_STATIC,
+                            options=_opts_with_saved(
+                                _RT_B_STATIC, _RT_F_STATIC,
                             ),
                             mode=selector.SelectSelectorMode.DROPDOWN,
                             custom_value=False,
@@ -12787,8 +12885,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         default=_default_for(_RT_F_DIST),
                     )] = selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=_mk_option(
-                                "Leave as is", _dist_bk, unit=" m",
+                            options=_opts_with_saved(
+                                _dist_bk, _RT_F_DIST, unit=" m",
                             ),
                             mode=selector.SelectSelectorMode.DROPDOWN,
                             custom_value=False,
@@ -12801,8 +12899,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         default=_default_for(_RT_F_FADE),
                     )] = selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=_mk_option(
-                                "Leave as is", _RT_B_FADE, unit=" s",
+                            options=_opts_with_saved(
+                                _RT_B_FADE, _RT_F_FADE, unit=" s",
                             ),
                             mode=selector.SelectSelectorMode.DROPDOWN,
                             custom_value=False,

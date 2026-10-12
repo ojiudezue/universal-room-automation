@@ -4539,6 +4539,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "set_house_state",
             "clear_house_state_override",
             "fan_recheck_force_restore",
+            "reapply_radar_settings",
             # _async_register_safety_services
             "test_safety_hazard",
             # _async_register_security_services

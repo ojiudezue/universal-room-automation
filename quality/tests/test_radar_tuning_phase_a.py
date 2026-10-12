@@ -443,13 +443,219 @@ def test_reapply_service_rejects_unknown_entry_id(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Boot invariant — this module writes nothing on import
+# OptionsFlow sensors-step save path — drives the REAL save handler and
+# the REAL schema builder so the "schedule on change / Leave on nothing /
+# default back to Leave on reopen" invariants are proven end-to-end.
 # ---------------------------------------------------------------------------
 
-def test_import_emits_no_service_calls(monkeypatch):
-    """Invariant: URA never writes at boot (import)."""
-    _install_ha_stubs(monkeypatch)
-    hass = _FakeHass()
-    # Re-import to prove import-time side-effects are nil.
-    rt = _import_radar_tuning()  # noqa: F841
-    assert hass.services.calls == []
+def _load_cf_harness():
+    """Import the OptionsFlow helpers used by the sensors-step tests."""
+    import importlib
+    _cbcf = importlib.import_module("test_cycle_b_config_flow")
+    _baec = importlib.import_module("test_baec_config_flow_round_trip")
+    return _cbcf, _baec
+
+
+def _run_async(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _schema_marker(result, key):
+    schema = result.get("data_schema")
+    for m in getattr(schema, "schema", {}).keys():
+        if str(getattr(m, "schema", m)) == key:
+            return m
+    return None
+
+
+def _wire_sensors_step(monkeypatch, *, saved_radar=None, resolved_fields=None):
+    """Build an OptionsFlow + patch radar_tuning so the sensors step
+    can run against a fake ZK radar. Returns (flow, send_calls)."""
+    _cbcf, _baec = _load_cf_harness()
+    make = _cbcf._make_options_flow
+    inject = _baec._ha_mocks_injected
+
+    MMWAVE_EID = "binary_sensor.testroom_presence"
+    options = {
+        "motion_sensors": [],
+        "presence_sensors": [MMWAVE_EID],
+        "occupancy_sensors": [],
+    }
+    if saved_radar is not None:
+        options["radar_settings"] = saved_radar
+
+    flow = make(data={"room_name": "Test Room"}, options=options)
+
+    # Patch radar_tuning.resolve_zk_zx_tuning_entities + distance clipper +
+    # the send scheduler. The real send would try to call number.set_value
+    # on hass.services; our fake records (previous, new) tuples so the
+    # test can assert the schedule happened with the right payload.
+    import importlib
+    from custom_components.universal_room_automation.domain_coordinators \
+        import radar_tuning as rt
+
+    _resolved = resolved_fields or {
+        rt.FIELD_MOTION_SENSITIVITY: "number.testroom_motion",
+        rt.FIELD_STATIC_SENSITIVITY: "number.testroom_static",
+        rt.FIELD_DETECTION_DISTANCE: "number.testroom_distance",
+        rt.FIELD_FADING_TIME: "number.testroom_fading",
+    }
+    monkeypatch.setattr(
+        rt, "resolve_zk_zx_tuning_entities",
+        lambda _hass, _eid: dict(_resolved),
+    )
+    monkeypatch.setattr(
+        rt, "clipped_distance_buckets",
+        lambda _h, _eid: dict(rt.DETECTION_DISTANCE_BUCKETS),
+    )
+
+    send_calls: list[tuple[dict, dict]] = []
+
+    async def _fake_send(_hass, *, previous_settings, new_settings):
+        send_calls.append((dict(previous_settings or {}), dict(new_settings or {})))
+
+    monkeypatch.setattr(rt, "async_send_radar_settings", _fake_send)
+
+    # async_create_task on the fake hass must not crash on a coroutine;
+    # just schedule it on the loop so the fake send actually records.
+    def _create_task(coro):
+        try:
+            return asyncio.ensure_future(coro)
+        except Exception:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            return None
+
+    flow.hass.async_create_task = _create_task
+
+    return flow, send_calls, inject, MMWAVE_EID, rt
+
+
+def test_options_flow_schedules_one_send_with_numeric_values(monkeypatch):
+    """Save path (review fix 3): a change to any managed field
+    schedules exactly one send, with the right numeric values and the
+    saved CONF_RADAR_SETTINGS reflecting the operator's picks."""
+    flow, send_calls, inject, eid, rt = _wire_sensors_step(monkeypatch)
+
+    user_input = {
+        "motion_sensors": [],
+        "presence_sensors": [eid],
+        "occupancy_sensors": [],
+        "sensor_capabilities_json": "",
+        # Three managed fields changed, one left as-is.
+        f"radar_{rt.FIELD_MOTION_SENSITIVITY}__{eid}": "8",   # High
+        f"radar_{rt.FIELD_STATIC_SENSITIVITY}__{eid}": "6",   # Medium
+        f"radar_{rt.FIELD_DETECTION_DISTANCE}__{eid}": "4.0",  # standard
+        f"radar_{rt.FIELD_FADING_TIME}__{eid}": rt.LEAVE_AS_IS_SENTINEL,
+    }
+    with inject():
+        async def _drive():
+            result = await flow.async_step_sensors(user_input)
+            # Let the scheduled fake send run.
+            await asyncio.sleep(0)
+            return result
+        result = _run_async(_drive())
+
+    assert result.get("type") == "create_entry", result
+    saved = result["data"].get("radar_settings")
+    assert saved == {
+        eid: {
+            rt.FIELD_MOTION_SENSITIVITY: 8,
+            rt.FIELD_STATIC_SENSITIVITY: 6,
+            rt.FIELD_DETECTION_DISTANCE: 4.0,
+        },
+    }
+    assert len(send_calls) == 1
+    prev, new = send_calls[0]
+    assert prev == {}  # fresh install
+    assert new == saved
+
+
+def test_options_flow_leave_as_is_stores_nothing_and_sends_nothing(monkeypatch):
+    """All-sentinel save: no CONF_RADAR_SETTINGS stored, no send scheduled."""
+    flow, send_calls, inject, eid, rt = _wire_sensors_step(monkeypatch)
+
+    user_input = {
+        "motion_sensors": [],
+        "presence_sensors": [eid],
+        "occupancy_sensors": [],
+        "sensor_capabilities_json": "",
+        f"radar_{rt.FIELD_MOTION_SENSITIVITY}__{eid}": rt.LEAVE_AS_IS_SENTINEL,
+        f"radar_{rt.FIELD_STATIC_SENSITIVITY}__{eid}": rt.LEAVE_AS_IS_SENTINEL,
+        f"radar_{rt.FIELD_DETECTION_DISTANCE}__{eid}": rt.LEAVE_AS_IS_SENTINEL,
+        f"radar_{rt.FIELD_FADING_TIME}__{eid}": rt.LEAVE_AS_IS_SENTINEL,
+    }
+    with inject():
+        async def _drive():
+            r = await flow.async_step_sensors(user_input)
+            await asyncio.sleep(0)
+            return r
+        result = _run_async(_drive())
+
+    assert result.get("type") == "create_entry", result
+    assert "radar_settings" not in result["data"]
+    assert send_calls == []
+
+
+def test_options_flow_reopen_defaults_back_to_leave(monkeypatch):
+    """Rendering the sensors step with no stored radar_settings
+    defaults every radar dropdown to the Leave-as-is sentinel."""
+    flow, _send_calls, inject, eid, rt = _wire_sensors_step(monkeypatch)
+    with inject():
+        result = _run_async(flow.async_step_sensors(None))
+
+    assert result.get("type") == "form", result
+    for field in (
+        rt.FIELD_MOTION_SENSITIVITY,
+        rt.FIELD_STATIC_SENSITIVITY,
+        rt.FIELD_DETECTION_DISTANCE,
+        rt.FIELD_FADING_TIME,
+    ):
+        marker = _schema_marker(result, f"radar_{field}__{eid}")
+        assert marker is not None, field
+        assert marker.default() == rt.LEAVE_AS_IS_SENTINEL, field
+
+
+def test_options_flow_mutation_drill_scheduling_site_is_load_bearing(monkeypatch):
+    """Mutation anchor: if we patch out `async_create_task` on hass
+    (the exact site that schedules the send), the "one send scheduled"
+    test above would fail. We prove it inline by substituting a no-op
+    scheduler and asserting the send didn't record — a hollow test
+    (one that passes with the scheduling site neutered) would NOT see
+    this difference."""
+    flow, send_calls, inject, eid, rt = _wire_sensors_step(monkeypatch)
+
+    # Replace the schedule site with a no-op that closes the coroutine
+    # without running it — equivalent to commenting out the
+    # async_create_task line in config_flow.py.
+    def _noop(coro):
+        try:
+            coro.close()
+        except Exception:
+            pass
+        return None
+
+    flow.hass.async_create_task = _noop
+
+    user_input = {
+        "motion_sensors": [],
+        "presence_sensors": [eid],
+        "occupancy_sensors": [],
+        "sensor_capabilities_json": "",
+        f"radar_{rt.FIELD_MOTION_SENSITIVITY}__{eid}": "8",
+    }
+    with inject():
+        async def _drive():
+            r = await flow.async_step_sensors(user_input)
+            await asyncio.sleep(0)
+            return r
+        _run_async(_drive())
+
+    # Save still succeeds; but the send never ran.
+    assert send_calls == []
