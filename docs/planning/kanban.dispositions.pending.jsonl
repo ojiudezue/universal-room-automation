@@ -13,3 +13,11 @@
 {"action": "instruct", "at": "2026-10-13T11:38:35.143Z", "card_id": "HVAC-W1C-GENERIC-THERMOSTAT-1", "text": "Parked or closed?"}
 {"action": "ack", "at": "2026-10-13T11:38:36.012Z", "card_id": "HVAC-W1C-GENERIC-THERMOSTAT-1@2026-10-08T03:00:02"}
 {"action": "ack", "at": "2026-10-13T11:38:39.292Z", "card_id": "CM-COORDINATORS-ADD-ONE-BY-ONE-1@2026-10-08T03:00:01"}
+{"action": "ack", "at": "2026-10-13T11:43:46.991Z", "card_id": "BLE-BLEED-EXTEND-SLEEP-1@2026-10-08T04:05:00"}
+{"action": "instruct", "at": "2026-10-13T11:43:51.292Z", "card_id": "BLE-BLEED-EXTEND-SLEEP-1", "text": "PArk"}
+{"action": "ack", "at": "2026-10-13T11:43:56.524Z", "card_id": "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:44:20.606Z", "card_id": "PERIMETER-DETECTION-WENT-DARK-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:44:27.141Z", "card_id": "PERIMETER-PHANTOM-XCORR-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:44:37.639Z", "card_id": "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:44:46.041Z", "card_id": "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:44:58.723Z", "card_id": "EC-DEGRADED-DATA-POLICY-1@2026-10-09T02:12:00"}
