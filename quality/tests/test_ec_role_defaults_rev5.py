@@ -20,15 +20,66 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import custom_components.universal_room_automation as ura
-from custom_components.universal_room_automation.const import (
-    CONF_ENTRY_TYPE,
-    DOMAIN,
-    ENTRY_TYPE_COORDINATOR_MANAGER,
-)
-from custom_components.universal_room_automation.domain_coordinators import (
-    energy_const as ec_const,
-)
+import sys
+
+# ---------------------------------------------------------------------------
+# Order independence (TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 family). Earlier
+# test files install bare stub modules for `custom_components.*` (and, when
+# they run first, for some `homeassistant.*` names) and never remove them.
+# This file needs the REAL integration package, so a module-scoped fixture
+# sets aside every `custom_components*` entry plus any stubbed
+# `homeassistant*` entry (not a really-imported module), imports the real modules
+# fresh, and on teardown restores sys.modules EXACTLY as it was (added keys
+# removed, replaced keys put back) so nothing leaks onward. Production code
+# is untouched. The module globals below are bound by that fixture.
+# ---------------------------------------------------------------------------
+ura = None
+ec_const = None
+CONF_ENTRY_TYPE = "entry_type"
+DOMAIN = "universal_room_automation"
+ENTRY_TYPE_COORDINATOR_MANAGER = "coordinator_manager"
+
+
+def _is_set_aside(name: str, mod) -> bool:
+    if name == "custom_components" or name.startswith("custom_components."):
+        return True
+    if name == "homeassistant" or name.startswith("homeassistant."):
+        # A stub is anything that isn't a really-imported module (MagicMock,
+        # or a bare ModuleType, whose __spec__ is None).
+        import types
+        return not isinstance(mod, types.ModuleType) or mod.__spec__ is None
+    return False
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    global ura, ec_const, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_COORDINATOR_MANAGER
+    import importlib
+
+    before = dict(sys.modules)
+    for name, mod in list(sys.modules.items()):
+        if _is_set_aside(name, mod):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+    try:
+        ura = importlib.import_module("custom_components.universal_room_automation")
+        const = importlib.import_module("custom_components.universal_room_automation.const")
+        ec_const = importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators.energy_const",
+        )
+        assert hasattr(ura, "_bootstrap_pin_ec_defaults_once"), ura
+        CONF_ENTRY_TYPE = const.CONF_ENTRY_TYPE
+        DOMAIN = const.DOMAIN
+        ENTRY_TYPE_COORDINATOR_MANAGER = const.ENTRY_TYPE_COORDINATOR_MANAGER
+        yield
+    finally:
+        for name in list(sys.modules):
+            if name not in before:
+                del sys.modules[name]
+        for name, mod in before.items():
+            if sys.modules.get(name) is not mod:
+                sys.modules[name] = mod
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PKG = _REPO_ROOT / "custom_components" / "universal_room_automation"
