@@ -663,6 +663,13 @@ class OptimizationCoordinator(BaseCoordinator):
         self._never_fires_loaded: bool = False
         self._never_fires_listener_unsub = None
         self._never_fires_subscribed: set[str] = set()
+        # Review B B3 — dirty flag + per-cycle flush. The listener only
+        # marks dirty; the evaluator (every 5 min) calls
+        # `_never_fires_schedule_save()` when dirty. Without this, in a
+        # ~150-sensor house the trailing 120s `async_delay_save`
+        # debounce can be pushed out indefinitely by a steady drizzle
+        # of state events and a crash loses hours of accrual.
+        self._never_fires_dirty: bool = False
         # In-memory only: timestamp of the most recent transition INTO
         # unavailable/unknown, so a transition BACK OUT can accrue the
         # delta into `unavailable_s`. Not persisted — a crash during an
@@ -908,12 +915,15 @@ class OptimizationCoordinator(BaseCoordinator):
         # `_never_fires_loaded` so a slow load returns [] rather than
         # firing against a half-restored dict.
         await self._never_fires_async_load()
-        # Rev 3 F7 + review A HIGH #3 — subscribe to state changes for
-        # the current D1 universe. The evaluator will call
-        # `_never_fires_resubscribe()` again on every tick so sensors
-        # that materialise AFTER setup (options-flow edit, camera whose
-        # state wasn't present yet at `_exterior_person_sensors` time)
-        # get subscribed before they can be falsely reported as silent.
+        # Rev 3 F7 + review A HIGH #3 + review B B5 — subscribe to state
+        # changes for the configured D1 universe. `_cancel_listeners`
+        # (BaseCoordinator teardown) clears `_unsub_listeners` but NOT
+        # these two private fields, so on a second `async_setup` on the
+        # same instance the stale `_never_fires_subscribed` would equal
+        # the configured set and resubscribe would skip. Clear both
+        # before resubscribe so the second setup actually re-wires.
+        self._never_fires_subscribed = set()
+        self._never_fires_listener_unsub = None
         self._never_fires_resubscribe()
 
         # 5-min cycle (matches plan D1). Scheduled via HA's tracker so the
@@ -951,7 +961,33 @@ class OptimizationCoordinator(BaseCoordinator):
         return []
 
     async def async_teardown(self) -> None:
-        """Cancel timers + unsubscribe from signals."""
+        """Cancel timers + unsubscribe from signals.
+
+        Review B B4 — flush the never-fires Store synchronously when
+        dirty before cancelling listeners. HA's `async_delay_save`
+        FINAL_WRITE on clean stop would otherwise race a new instance
+        that constructed its own Store on the same key, which could
+        overwrite freshly-restored state with the OLD snapshot (the
+        pre-reload snapshot that the OLD instance still holds in RAM).
+        A direct `async_save` guarantees the latest state wins.
+        """
+        try:
+            store = self._never_fires_store
+            if store is not None and self._never_fires_dirty:
+                try:
+                    await store.async_save(
+                        self._never_fires_payload_provider()
+                    )
+                    self._never_fires_dirty = False
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "never-fires: teardown flush failed",
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: teardown flush outer failed", exc_info=True,
+            )
         self.broker.async_stop()
         self._cancel_listeners()
 
@@ -2088,15 +2124,23 @@ class OptimizationCoordinator(BaseCoordinator):
                     "last_on_seen": rec.get("last_on_seen"),
                     "unavailable_s": int(rec.get("unavailable_s") or 0),
                 }
-        # Rev 3 F3: prune at load — eids no longer in D1 are dropped so
-        # a config-removed sensor cannot linger in the blob forever.
+        # Rev 3 F3 + review B B1 — prune by CONFIGURED membership, not
+        # by current state presence. At OC setup time (very early in
+        # URA entry setup, before Frigate/Protect have published their
+        # entities) `_watched_raw_sensors` returns a camera-free dict,
+        # so a camera record restored from the Store would be pruned
+        # here and rebuilt with `first_seen=now` after Frigate loads.
+        # With ~16 restarts/week the 7d horizon would never elapse for
+        # cameras and the plan's motivating case
+        # (CAMERA-ZERO-FIRE-DETECTORS-1) could never fire. Use the
+        # config-only resolver for prune.
         try:
-            watched = set(self._watched_raw_sensors().keys())
+            configured = self._configured_watched_eids()
         except Exception:  # noqa: BLE001
-            watched = set()
-        if watched:
+            configured = set()
+        if configured:
             for eid in list(state):
-                if eid not in watched:
+                if eid not in configured:
                     state.pop(eid, None)
         self._never_fires_state = state
         self._never_fires_loaded = True
@@ -2173,16 +2217,16 @@ class OptimizationCoordinator(BaseCoordinator):
                 if old is not None and getattr(old, "state", None) is not None
                 else None
             )
-            # Lazy-create the record for a brand-new eid observed via
-            # the listener (first_seen write-once per Rev 3 F2).
+            # Review B B6 — membership check against the subscribed
+            # set is O(1) and avoids calling `_watched_raw_sensors()`
+            # on every spurious event (which would re-run the full
+            # config enumeration + registry lookups per event). Events
+            # for eids we don't subscribe to can't legally fire this
+            # callback, but defensive-return handles racy edge cases.
+            if eid not in self._never_fires_subscribed:
+                return
             rec = self._never_fires_state.get(eid)
             if rec is None:
-                # Only track eids that still belong to the D1 universe.
-                try:
-                    if eid not in self._watched_raw_sensors():
-                        return
-                except Exception:  # noqa: BLE001
-                    return
                 rec = {
                     "first_seen": dt_util.utcnow().isoformat(),
                     "last_on_seen": None,
@@ -2223,32 +2267,59 @@ class OptimizationCoordinator(BaseCoordinator):
                     if isinstance(k, tuple) and k and k[0] == prefix
                 ]:
                     self._sensor_health_last_persisted.pop(pk, None)
-            self._never_fires_schedule_save()
+            # Review B B3 — mark dirty; the evaluator (every 5 min)
+            # schedules the delay-save. Previously each listener
+            # transition scheduled a 120s trailing debounce, so under
+            # steady event load the save kept getting pushed out and a
+            # crash lost hours of accrual.
+            self._never_fires_dirty = True
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "never-fires: state-change listener failed", exc_info=True,
             )
 
     def _never_fires_resubscribe(self) -> None:
-        """Review A HIGH #3 — reconcile the state-change subscription
-        with the current D1 universe. Called from `async_setup` AND
-        from the evaluator every tick so a sensor added after setup
-        (options-flow edit, camera whose binary_sensor materialised
-        later) is subscribed before it is evaluated. Without this a
-        late-arriving sensor would be evaluated against a horizon it
-        never gets a chance to meet — false-positive silence.
+        """Review A HIGH #3 + review B B1/B2/B5 — reconcile the
+        state-change subscription with the CONFIGURED D1 universe.
 
-        Keeps `_unsub_listeners` correct across the swap (Bug Class
-        #50) so unload still clears the subscription.
+        Called from `async_setup` AND from every evaluator tick so a
+        sensor added after setup (options-flow edit, camera whose
+        binary_sensor only materialises after Frigate loads — which is
+        after OC `async_setup` returns) is subscribed before being
+        evaluated.
+
+        Review B B1 — uses the CONFIG-only resolver so camera eids are
+        subscribed even before their binary_sensors exist. The
+        evaluation path still uses the state-dependent resolver for
+        the available-now gate, but the subscription + prune are
+        config-based so a 7d horizon can actually elapse for a camera
+        across the measured ~16 restarts/week cadence.
+
+        Review B B2 — bootstraps `_never_fires_last_unavail_at` for
+        any configured eid currently in `unavailable`/`unknown` with
+        no existing mark. Without this, a sensor that was already
+        unavailable at subscribe time (e.g. still unavailable after a
+        restart during a multi-day outage) never gets stamped, so the
+        downtime after subscribe is uncharged and the never-fires
+        finding fires falsely once availability returns.
+
+        Keeps `_unsub_listeners` correct across the swap (Bug Class #50).
         """
         try:
-            watched = set(self._watched_raw_sensors().keys())
+            watched = set(self._configured_watched_eids())
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "never-fires: resubscribe watched-set failed", exc_info=True,
+                "never-fires: resubscribe configured-set failed",
+                exc_info=True,
             )
             return
         if watched == self._never_fires_subscribed:
+            # No membership change — still bootstrap the unavail clock
+            # for any already-unavailable eid without a mark (handles
+            # the first evaluator tick AFTER async_setup, where the
+            # subscription may already be present but the eid was
+            # unavailable from the start).
+            self._never_fires_bootstrap_unavail_clock(watched)
             return
         # Tear down the stale subscription (if any) and drop it from
         # `_unsub_listeners`.
@@ -2278,13 +2349,38 @@ class OptimizationCoordinator(BaseCoordinator):
             self._unsub_listeners.append(unsub)
             self._never_fires_subscribed = watched
             _LOGGER.debug(
-                "never-fires: subscribed to %d watched eid(s)",
+                "never-fires: subscribed to %d configured eid(s)",
                 len(watched),
             )
+            # Review B B2 — bootstrap unavailable clock for any newly-
+            # subscribed eid that is already unavailable/unknown.
+            self._never_fires_bootstrap_unavail_clock(watched)
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "never-fires: resubscribe setup failed", exc_info=True,
             )
+
+    def _never_fires_bootstrap_unavail_clock(self, eids) -> None:
+        """Review B B2 — if a watched eid is CURRENTLY unavailable /
+        unknown and has no `_never_fires_last_unavail_at` stamp, stamp
+        now so the eventual rejoin accrues post-subscribe downtime.
+        Downtime BEFORE this bootstrap stays uncharged (per spec F1
+        HA-down-is-neither); we deliberately do NOT backfill.
+        """
+        unavail = {"unavailable", "unknown"}
+        now = dt_util.utcnow()
+        for eid in eids:
+            if eid in self._never_fires_last_unavail_at:
+                continue
+            try:
+                st = self._state_value(eid)
+            except Exception:  # noqa: BLE001
+                continue
+            if st is None:
+                continue
+            state_str = str(getattr(st, "state", "")).lower()
+            if state_str in unavail:
+                self._never_fires_last_unavail_at[eid] = now
 
     def _watched_raw_sensors(self) -> dict[str, dict]:
         """Rev 2/3 D1 resolver — raw motion/occupancy sensors URA watches.
@@ -2380,6 +2476,87 @@ class OptimizationCoordinator(BaseCoordinator):
             )
         return out
 
+    def _configured_exterior_person_sensor_eids(self) -> set[str]:
+        """Review B B1 — enumerate camera person-detector candidate eids
+        PURELY from config, without any `_state_value is not None`
+        check. Returns BOTH candidate suffixes per configured camera
+        so the subscription + prune include eids whose
+        `binary_sensor.*` entity has not been published yet (Frigate /
+        Protect come up AFTER URA sets up the OC, per
+        __init__.py:~4311 / manager.py:~492).
+        """
+        out: set[str] = set()
+        try:
+            from ..const import CONF_EGRESS_CAMERAS, CONF_PERIMETER_CAMERAS  # noqa: PLC0415
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                cams = list(merged.get(CONF_PERIMETER_CAMERAS) or [])
+                cams += list(merged.get(CONF_EGRESS_CAMERAS) or [])
+                for cam in cams:
+                    if not isinstance(cam, str) or "." not in cam:
+                        continue
+                    key = cam.split(".", 1)[1]
+                    for suffix in ("_person_occupancy_2", "_person_occupancy"):
+                        out.add(f"binary_sensor.{key}{suffix}")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "configured_exterior_person_sensor_eids failed",
+                exc_info=True,
+            )
+        return out
+
+    def _configured_watched_eids(self) -> set[str]:
+        """Review B B1 — the CONFIGURED D1 universe (eids only, no meta,
+        no state check). Used by prune at load, prune at evaluator
+        entry, AND the listener subscription so a camera eid is
+        preserved across restart windows where Frigate hasn't published
+        its binary_sensor yet. The evaluation loop still uses
+        `_watched_raw_sensors` (which filters cameras by state
+        presence) for the available-now gate.
+        """
+        eids: set[str] = set()
+        try:
+            for entry in self._iter_room_entries():
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                for key in (
+                    CONF_OCCUPANCY_SENSORS,
+                    CONF_MOTION_SENSORS,
+                    CONF_MMWAVE_SENSORS,
+                ):
+                    val = merged.get(key)
+                    if isinstance(val, list):
+                        for v in val:
+                            if isinstance(v, str) and v:
+                                eids.add(v)
+                    elif isinstance(val, str) and val:
+                        eids.add(val)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "configured_watched_eids rooms failed", exc_info=True,
+            )
+        # URA-aggregate filter via entity registry — same shape as
+        # `_watched_raw_sensors`. We want the SAME filtered universe
+        # on both sides so prune and evaluate agree on what is "ours".
+        reg = None
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+        if reg is not None:
+            for eid in list(eids):
+                try:
+                    entry = reg.async_get(eid)
+                except Exception:  # noqa: BLE001
+                    entry = None
+                if entry is not None and getattr(
+                    entry, "platform", None,
+                ) == DOMAIN:
+                    eids.discard(eid)
+        # Cameras — ALWAYS from config, no state check.
+        eids |= self._configured_exterior_person_sensor_eids()
+        return eids
+
     def _evaluate_sensor_never_fires_dimension(
         self,
     ) -> list[OptimizationFinding]:
@@ -2442,11 +2619,26 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             return findings
 
-        # Prune eids no longer in D1 at evaluator entry.
+        # Review B B1 — prune by CONFIGURED membership (NOT the state-
+        # dependent watched map). A camera eid whose binary_sensor
+        # hasn't published yet is still "ours" and must survive the
+        # tick.
+        try:
+            configured = self._configured_watched_eids()
+        except Exception:  # noqa: BLE001
+            configured = set(watched.keys())
         for eid in list(self._never_fires_state):
-            if eid not in watched:
+            if eid not in configured:
                 self._never_fires_state.pop(eid, None)
                 self._never_fires_last_unavail_at.pop(eid, None)
+
+        # Review B B3 — if the listener marked us dirty since the last
+        # cycle, schedule the save now so it actually gets flushed at
+        # cycle cadence rather than being pushed out by the trailing
+        # debounce under steady event load.
+        if self._never_fires_dirty:
+            self._never_fires_schedule_save()
+            self._never_fires_dirty = False
 
         for eid, meta in watched.items():
             # Review A SHOULD #5 — per-entity horizon override.
@@ -2463,13 +2655,15 @@ class OptimizationCoordinator(BaseCoordinator):
 
             rec = self._never_fires_state.get(eid)
             if rec is None:
-                # first_seen write-once at first appearance.
+                # first_seen write-once at first appearance. Review B
+                # B3 — mark dirty, don't call `async_delay_save` here;
+                # the next tick (or teardown) flushes.
                 self._never_fires_state[eid] = {
                     "first_seen": now.isoformat(),
                     "last_on_seen": None,
                     "unavailable_s": 0,
                 }
-                self._never_fires_schedule_save()
+                self._never_fires_dirty = True
                 continue
 
             first_seen_iso = rec.get("first_seen")
@@ -2481,7 +2675,7 @@ class OptimizationCoordinator(BaseCoordinator):
                 # Should not happen (first_seen is write-once), but
                 # heal defensively rather than crash.
                 rec["first_seen"] = now.isoformat()
-                self._never_fires_schedule_save()
+                self._never_fires_dirty = True
                 continue
             anchor_iso = max(candidates)
             try:

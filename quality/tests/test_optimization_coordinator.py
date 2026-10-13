@@ -4494,7 +4494,13 @@ def _nf_prime(coord, loaded=True):
 
 
 def _nf_watched(coord, mapping):
+    """Stub the state-dependent resolver AND the config-only resolver
+    AND the subscribed-set so listener tests can target entities
+    without going through the resubscribe path."""
     coord._watched_raw_sensors = lambda: mapping
+    eids = set(mapping.keys())
+    coord._configured_watched_eids = lambda: eids
+    coord._never_fires_subscribed = set(eids)
 
 
 # ---------------- D1 resolver -----------------------------------------
@@ -4796,7 +4802,10 @@ def test_never_fires_unavailable_s_resets_on_clock_reset(monkeypatch):
 
 
 def test_never_fires_prunes_vanished_entities_on_load(monkeypatch):
-    """Rev 3 F3 — eids absent from D1 pruned at load AND at eval entry."""
+    """Rev 3 F3 + review B B1 — eids absent from the CONFIGURED
+    universe are pruned at load AND at eval entry. (Camera eids whose
+    state hasn't materialised yet are NOT pruned — see separate B1
+    camera-restart test.)"""
     hass = _nf_hass([])
     coord = _nf_coord(hass, monkeypatch)
     _nf_watched(coord, {
@@ -4834,8 +4843,13 @@ def test_never_fires_prunes_vanished_entities_on_load(monkeypatch):
     assert "binary_sensor.late_gone" not in coord._never_fires_state
 
 
-def test_never_fires_debounce_flush_shape(monkeypatch):
-    """Rev 3 F4 — whole-blob async_delay_save at 120s; no sync async_save."""
+def test_never_fires_debounce_dirty_flag_flushes_on_cycle(monkeypatch):
+    """Review B B3 — the listener MARKS DIRTY and does NOT schedule a
+    save per transition (the trailing 120s debounce would otherwise be
+    pushed out indefinitely under steady event load in a ~150-sensor
+    house). The evaluator (every 5-min cycle) calls `async_delay_save`
+    ONCE when dirty, then clears the flag.
+    """
     from custom_components.universal_room_automation.domain_coordinators import (
         optimization as opt_mod,
     )
@@ -4847,6 +4861,7 @@ def test_never_fires_debounce_flush_shape(monkeypatch):
             "device_class": "motion", "source": "room_input", "room": "A",
         },
     })
+    hass.states.set("binary_sensor.m1", "off")
 
     class _CountingStore:
         def __init__(self):
@@ -4861,20 +4876,76 @@ def test_never_fires_debounce_flush_shape(monkeypatch):
 
     store = _CountingStore()
     coord._never_fires_store = store
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record("2026-01-01T00:00:00", None, 0),
+    }
+    # 5 listener callbacks: no delay-save, just dirty.
     for _ in range(5):
-        evt = types.SimpleNamespace(data={
+        coord._on_never_fires_state_change(types.SimpleNamespace(data={
             "entity_id": "binary_sensor.m1",
             "new_state": types.SimpleNamespace(state="on"),
             "old_state": types.SimpleNamespace(state="off"),
-        })
-        coord._on_never_fires_state_change(evt)
-    assert len(store.save_calls) == 0
-    assert len(store.delay_calls) == 5
-    for _p, debounce in store.delay_calls:
-        assert int(debounce) == int(
-            opt_mod.SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S
-        )
-        assert debounce == 120
+        }))
+    assert len(store.save_calls) == 0, "listener must not sync-save"
+    assert len(store.delay_calls) == 0, (
+        "listener must NOT schedule async_delay_save per transition "
+        "(review B B3 — trailing debounce would be pushed out)"
+    )
+    assert coord._never_fires_dirty is True
+    # Evaluator tick: ONE delay-save, dirty cleared.
+    coord._evaluate_sensor_never_fires_dimension()
+    assert len(store.delay_calls) == 1, (
+        f"expected one delay-save at cycle cadence, got "
+        f"{len(store.delay_calls)}"
+    )
+    assert coord._never_fires_dirty is False
+    _p, debounce = store.delay_calls[0]
+    assert int(debounce) == int(
+        opt_mod.SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S
+    )
+    assert debounce == 120
+
+
+def test_never_fires_teardown_flushes_pending_save(monkeypatch):
+    """Review B B4 — `async_teardown` awaits `async_save` when dirty so
+    a new instance on the same Store key cannot be overwritten by the
+    OLD snapshot at FINAL_WRITE. Mutation-anchored: without the flush,
+    `async_save` would never be called in teardown.
+    """
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+
+    class _CountingStore:
+        def __init__(self):
+            self.save_calls = []
+            self.delay_calls = []
+
+        async def async_save(self, data):
+            self.save_calls.append(data)
+
+        def async_delay_save(self, provider, debounce):
+            self.delay_calls.append((provider, debounce))
+
+    store = _CountingStore()
+    coord._never_fires_store = store
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record("2026-01-01T00:00:00", None, 0),
+    }
+    coord._never_fires_dirty = True
+    # Shim broker.async_stop to a no-op.
+    coord.broker.async_stop = lambda: None
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        loop.run_until_complete(coord.async_teardown())
+    finally:
+        loop.close()
+    assert len(store.save_calls) == 1, (
+        f"teardown must flush pending save; got "
+        f"{len(store.save_calls)} saves (B4 regression)"
+    )
+    assert coord._never_fires_dirty is False
 
 
 def test_never_fires_listener_unsub_on_unload(monkeypatch):
