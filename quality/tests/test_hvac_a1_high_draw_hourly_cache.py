@@ -13,10 +13,13 @@ event loop and causing ~2 s stalls. This cycle:
   (3) serves the cached value between refreshes;
   (4) survives restart (empty cache → one compute on the first tick).
 
-Each gate has its own per-site neuter drill: see
-`test_drill_hourly_gate_neutered_breaks_the_cache_test` /
-`test_drill_executor_offload_neutered_breaks_the_executor_test` for the
-mutation-anchored discipline from the Tier-1 build rules.
+Each gate has its own per-site neuter drill (recorded in the cycle
+commit message, not test-named): neutering the hourly gate reddens
+`test_second_call_within_the_hour_serves_from_cache_no_executor`; neutering
+the executor dispatch reddens
+`test_executor_offload_runs_the_canonical_sync_parser`; reverting the
+kWh branch fall-through fix reddens
+`test_compute_worker_kwh_rows_do_not_count_as_high_draw`.
 """
 from __future__ import annotations
 
@@ -158,25 +161,29 @@ class _FakeRecorderInstance:
             raise
 
 
-def _mk_arrester(now_value, recorder_result):
+def _mk_arrester(monkeypatch, now_value, recorder_result):
     """Build an OverrideArrester with a single zone and a stubbed
-    recorder that returns ``recorder_result`` from the sync parser."""
+    recorder that returns ``recorder_result`` from the sync parser.
+
+    HIGH fix: every module-global patch (recorder_get_instance,
+    _compute_high_draw_time_s_7d, dt_util.now) goes through
+    ``monkeypatch`` so pytest restores it at test teardown. Under
+    .venv-ha, ``hvac_override.dt_util`` IS ``homeassistant.util.dt`` —
+    leaking a frozen `now` from this file into sibling tests would
+    freeze time or hand them a MagicMock parser.
+    """
     z = _mk_zone()
     zm = MagicMock()
     zm.zones = {z.zone_id: z}
     hass = MagicMock()
     a = OverrideArrester(hass, zm, compromise_minutes=30,
                          ac_reset_timeout=60, enabled=True)
-    # Patch the recorder instance accessor used by the method.
     rec = _FakeRecorderInstance()
-    hvac_override.recorder_get_instance = MagicMock(return_value=rec)
-    # Patch the sync parser to return a deterministic value, so we test
-    # the surrounding plumbing (cache + executor dispatch), not the
-    # row-walking logic.
-    hvac_override._compute_high_draw_time_s_7d = MagicMock(
-        return_value=recorder_result,
-    )
-    hvac_override.dt_util.now = lambda: now_value
+    monkeypatch.setattr(hvac_override, "recorder_get_instance",
+                        MagicMock(return_value=rec))
+    monkeypatch.setattr(hvac_override, "_compute_high_draw_time_s_7d",
+                        MagicMock(return_value=recorder_result))
+    monkeypatch.setattr(hvac_override.dt_util, "now", lambda: now_value)
     return a, z, rec
 
 
@@ -184,9 +191,9 @@ def _mk_arrester(now_value, recorder_result):
 # Behaviour: hourly gate (cache serves between refreshes)
 # ---------------------------------------------------------------------------
 
-def test_first_call_computes_via_executor_and_populates_cache():
+def test_first_call_computes_via_executor_and_populates_cache(monkeypatch):
     now = datetime(2026, 10, 13, 12, 0, 0)
-    a, z, rec = _mk_arrester(now, recorder_result=1234.0)
+    a, z, rec = _mk_arrester(monkeypatch, now, recorder_result=1234.0)
     val = asyncio.get_event_loop().run_until_complete(
         a._high_draw_time_s_7d(z, now),
     )
@@ -200,9 +207,9 @@ def test_first_call_computes_via_executor_and_populates_cache():
     assert cached == (1234.0, now)
 
 
-def test_second_call_within_the_hour_serves_from_cache_no_executor():
+def test_second_call_within_the_hour_serves_from_cache_no_executor(monkeypatch):
     now = datetime(2026, 10, 13, 12, 0, 0)
-    a, z, rec = _mk_arrester(now, recorder_result=1234.0)
+    a, z, rec = _mk_arrester(monkeypatch, now, recorder_result=1234.0)
     loop = asyncio.get_event_loop()
     # First call seeds the cache.
     loop.run_until_complete(a._high_draw_time_s_7d(z, now))
@@ -217,16 +224,16 @@ def test_second_call_within_the_hour_serves_from_cache_no_executor():
     assert len(rec.calls) == 1
 
 
-def test_call_after_ttl_recomputes_once():
+def test_call_after_ttl_recomputes_once(monkeypatch):
     now = datetime(2026, 10, 13, 12, 0, 0)
-    a, z, rec = _mk_arrester(now, recorder_result=1000.0)
+    a, z, rec = _mk_arrester(monkeypatch, now, recorder_result=1000.0)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(a._high_draw_time_s_7d(z, now))
     assert len(rec.calls) == 1
-    # Jump past the TTL (1 h + 5 min).
-    hvac_override._compute_high_draw_time_s_7d = MagicMock(
-        return_value=2222.0,
-    )
+    # Jump past the TTL (1 h + 5 min); monkeypatch again so the second
+    # compute returns a distinguishable value.
+    monkeypatch.setattr(hvac_override, "_compute_high_draw_time_s_7d",
+                        MagicMock(return_value=2222.0))
     much_later = now + timedelta(seconds=hvac_const.HVAC_A1_HIGH_DRAW_REFRESH_S + 300)
     val = loop.run_until_complete(a._high_draw_time_s_7d(z, much_later))
     assert val == 2222.0
@@ -234,11 +241,11 @@ def test_call_after_ttl_recomputes_once():
     assert len(rec.calls) == 2
 
 
-def test_restart_path_empty_cache_computes_on_first_call():
+def test_restart_path_empty_cache_computes_on_first_call(monkeypatch):
     """After construction the per-zone cache is empty; first call MUST
     recompute (no stale value survives across process restart)."""
     now = datetime(2026, 10, 13, 12, 0, 0)
-    a, z, rec = _mk_arrester(now, recorder_result=777.0)
+    a, z, rec = _mk_arrester(monkeypatch, now, recorder_result=777.0)
     assert z.zone_id not in a._a1_high_draw_cache
     val = asyncio.get_event_loop().run_until_complete(
         a._high_draw_time_s_7d(z, now),
@@ -248,13 +255,13 @@ def test_restart_path_empty_cache_computes_on_first_call():
     assert len(rec.calls) == 1
 
 
-def test_executor_offload_runs_the_canonical_sync_parser():
+def test_executor_offload_runs_the_canonical_sync_parser(monkeypatch):
     """Wire-in anchor: the method MUST dispatch via async_add_executor_job
     AND the dispatched callable MUST be the module-level
     `_compute_high_draw_time_s_7d`. A builder who inlined the parse back
     onto the loop would send `None` or a lambda — this test catches it."""
     now = datetime(2026, 10, 13, 12, 0, 0)
-    a, z, rec = _mk_arrester(now, recorder_result=42.0)
+    a, z, rec = _mk_arrester(monkeypatch, now, recorder_result=42.0)
     asyncio.get_event_loop().run_until_complete(
         a._high_draw_time_s_7d(z, now),
     )
@@ -272,3 +279,103 @@ def test_const_rung_1_is_one_hour():
     code change moves it. A dashboard-tunable slider would be the wrong
     rung for this diagnostic cost bound."""
     assert hvac_const.HVAC_A1_HIGH_DRAW_REFRESH_S == 3600
+
+
+# ---------------------------------------------------------------------------
+# Direct test of the real `_compute_high_draw_time_s_7d` worker.
+# Patches `get_significant_states` at the module level and feeds fake
+# State rows in W, kW and kWh units. MEDIUM fix: the kWh branch is a
+# correctness guard (a cumulative-counter value is meaningless as an
+# instant kW), and the latent fall-through in the pre-cycle code
+# silently counted every reading above threshold as "high draw".
+# ---------------------------------------------------------------------------
+
+
+class _FakeState:
+    """Minimal State stand-in: the worker reads .state, .attributes and
+    .last_updated via getattr, so this duck-typed class suffices."""
+
+    def __init__(self, state, unit, ts):
+        self.state = state
+        self.attributes = {"unit_of_measurement": unit} if unit else {}
+        self.last_updated = ts
+        self.last_changed = ts
+
+
+def test_compute_worker_watts_above_threshold_are_counted(monkeypatch):
+    """W rows ≥ 500 W (= 0.5 kW threshold) count as high-draw time."""
+    base = datetime(2026, 10, 13, 10, 0, 0)
+    rows = [
+        _FakeState("600", "W", base),
+        _FakeState("600", "W", base + timedelta(seconds=120)),
+        _FakeState("50",  "W", base + timedelta(seconds=180)),  # drop
+    ]
+    monkeypatch.setattr(
+        hvac_override, "get_significant_states",
+        lambda hass, start, end, entities: {entities[0]: rows},
+    )
+    now = base + timedelta(seconds=300)
+    val = hvac_override._compute_high_draw_time_s_7d(
+        MagicMock(), "sensor.x", base - timedelta(days=7), now,
+    )
+    # High from base -> base+120 (120 s) and base+120 -> base+180 (60 s);
+    # after the drop at 180 s, no further high interval.
+    assert val == pytest.approx(180.0)
+
+
+def test_compute_worker_kilowatts_above_threshold_are_counted(monkeypatch):
+    """kW rows ≥ 0.5 kW count as high-draw (no /1000 conversion applies)."""
+    base = datetime(2026, 10, 13, 10, 0, 0)
+    rows = [
+        _FakeState("1.2", "kW", base),
+        _FakeState("0.1", "kW", base + timedelta(seconds=100)),
+    ]
+    monkeypatch.setattr(
+        hvac_override, "get_significant_states",
+        lambda hass, start, end, entities: {entities[0]: rows},
+    )
+    now = base + timedelta(seconds=200)
+    val = hvac_override._compute_high_draw_time_s_7d(
+        MagicMock(), "sensor.x", base - timedelta(days=7), now,
+    )
+    assert val == pytest.approx(100.0)
+
+
+def test_compute_worker_kwh_rows_do_not_count_as_high_draw(monkeypatch):
+    """MEDIUM fix: kWh / Wh rows are cumulative energy counters whose
+    numeric value far exceeds the 0.5 kW threshold once the counter has
+    been running for an hour. The worker MUST classify them as NOT high
+    draw. Reverting the explicit nested if/elif/else at
+    hvac_override.py:342-349 back to a fall-through assignment would
+    re-introduce the latent bug and this test would go RED.
+    """
+    base = datetime(2026, 10, 13, 10, 0, 0)
+    # Large kWh readings — a cumulative counter well past threshold if
+    # the kWh branch were treated as kW.
+    rows = [
+        _FakeState("1250.5", "kWh", base),
+        _FakeState("1251.0", "kWh", base + timedelta(seconds=120)),
+        _FakeState("1251.2", "kWh", base + timedelta(seconds=240)),
+    ]
+    monkeypatch.setattr(
+        hvac_override, "get_significant_states",
+        lambda hass, start, end, entities: {entities[0]: rows},
+    )
+    now = base + timedelta(seconds=300)
+    val = hvac_override._compute_high_draw_time_s_7d(
+        MagicMock(), "sensor.x", base - timedelta(days=7), now,
+    )
+    # Every row MUST be classified `is_high=False`, so the integral is 0.
+    assert val == 0.0
+
+
+def test_compute_worker_returns_none_on_no_rows(monkeypatch):
+    monkeypatch.setattr(
+        hvac_override, "get_significant_states",
+        lambda hass, start, end, entities: {},
+    )
+    now = datetime(2026, 10, 13, 12, 0, 0)
+    val = hvac_override._compute_high_draw_time_s_7d(
+        MagicMock(), "sensor.x", now - timedelta(days=7), now,
+    )
+    assert val is None
