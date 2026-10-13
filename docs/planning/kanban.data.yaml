@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-13T02:50:00"
+    at: "2026-10-13T02:50:00"
+    outcome: "measured"
+    headline: "Saved 2 days of unsaved work. The never-fires stuck-sensor detector's second-review fixes had been left uncommitted in a builder worktree since 10-11. I committed them, a builder finished them (22/22 tests, my own break-test confirms the camera fix is covered), and a re-review is running. Not deployed."
+    acknowledged: false
   - fid: "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-13T02:31:00"
     at: "2026-10-13T02:31:00"
     outcome: "measured"
@@ -3492,6 +3497,7 @@ cards:
   - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
   - docs/planning/AUDIT_exterior_camera_detection_settings.md
 - id: OC-STUCK-SENSOR-GENERALIZE-1
+  rescued_2026_10_13_overnight: "CARD-WAS-WRONG on next (it said waits for STUCK-SENSOR-WARNING-PER-TICK-1, which shipped in v5.103.49). Real state: the Review B fix-up had been written by the 10-11 builder but was left UNCOMMITTED in worktree agent-ac8787e66cc2eda5c for 2 days (at risk of loss). Rescued as 5fc73e501 and pushed. A builder then finished it in 6ab92608e: one test stub was out of step with the B1 change, and it added B1/B2/B5 behavioural anchors. It also merged develop (8601cff52). Orchestrator verify: never-fires subset 22/22 green; my own B1 drill (prune by state presence again at optimization.py:2138) turns test_never_fires_camera_record_survives_load_without_state red, restore turns it green, tree clean. Full file: 132 pass / 10 pre-existing MockHassForOpt failures. Review B re-verify dispatched."
   review_b_2026_10_11_overnight: "Fix-up 508d3c5bc applied all Review A items (orchestrator re-drill: neutering the unavailable_s reset turns test_never_fires_unavailable_s_resets_on_clock_reset red, restored). Review B (lifecycle/restart/Store) FIX-REQUIRED: B1 HIGH camera records pruned at every restart because cameras are resolved only when their state exists and OC sets up before Frigate - cameras could never reach the 7-day horizon (the plan's motivating case); B2 MEDIUM an already-unavailable sensor at restart is never charged unavailable time -> false finding after a long outage; LOWs B3 save debounce starves in a busy house, B4 no flush on teardown, B5 latent no-resubscribe on re-setup, B6 listener cost. All sent to the builder."
   review_2026_10_11_overnight: "Review A (correctness+tests) FIX-REQUIRED: HIGH-1 the finding is emitted once then latched 7 d, but HIGH findings only reach the operator via the daily digest built from the latest 5-min cycle (optimization.py ~5418, notification_manager.py:4771) - so it is computed but effectively never seen (#53); HIGH-2 unavailable_s never resets, so >~33.6 h of lifetime outages disables a sensor forever; HIGH-3 listener subscription frozen at setup -> sensors added later (options flow, late cameras) give false never-fires; MED test globals leak (no monkeypatch), hollow source-text anchor, misnamed DST test, guest-room horizon needs an override map; LOW unavailable->on counted as firing. Fix-ups sent to the builder (emit every cycle + drop last_fired_at/latch, reset unavailable_s on ON, resubscribe on watched-set change, monkeypatch, SENSOR_NEVER_FIRES_OVERRIDES_S, behavioral anchor, off->on only). Review B after fix-ups."
   built_2026_10_11_overnight: "Built on feature/oc-never-fires b5cf84465 (pushed; base = develop minus 8 docs-only commits, 0 code drift). const.py +3 knobs, optimization.py +491 (never-fires evaluator + Store + listener, loaded before the cycle timer), 19 new tests (file 123 pass; 10 pre-existing failures, builder confirmed identical on clean develop - MockHassForOpt lacks hass.loop/config). Drills: evaluator tuple, Store load, unsub - each turns its test red. Declared deviation: persisted last_fired_at per sensor so 16 restarts/7 d = exactly one fire (Rev 3 F1); an ON transition clears it. Review A (correctness + tests) dispatched; Review B (lifecycle/restart/Store) queued."
@@ -3507,7 +3513,7 @@ cards:
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: "in_progress"
   created: '2026-09-14 02:20'
-  updated: "2026-10-11 02:20"
+  updated: '2026-10-13 02:50'
   refinement_status: "refined"
   problem_solution:
   - 'Problem: sensors get stuck — reporting the same value for hours or days — and URA has no
@@ -24369,6 +24375,7 @@ cards:
     on it yet. This does not need an operator decision to establish — it is a measurement — but which
     of the three you want touched, and by whom, still does.'
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  reverified_2026_10_13_overnight: "STILL-REAL: in the error_log window 01:56-02:02 the WattBox lines are 11 each per ~5.7 min (pywattbox x3 + custom_components.wattbox x1, about 115/h per line, matching the card). The other big flood source in that window is the urllib3 InsecureRequestWarning: 419 lines for 192.168.13.12 and 122 for .13.14 (about 4,400 and 1,300 per hour). Is that already covered by the card? If not, it is the bigger one and worth adding to your PICK."
   verified_2026_10_11_overnight: "Re-verified 02:00 CDT: WattBox flood still live - ha_get_logs error_log structured, 2-min window 01:59:50-02:01:54: pywattbox.http x3 lines + custom_components.wattbox 'No outlets available in client', 4 each (~120/h per line). Pick still needed."
   remeasured_2026_10_10_overnight: "PROXMOX + BOND FLOODS RESOLVED (unexplained), second night running. ha_get_logs error_log (journald now reaches back ~3.5 h, 10-09 22:35 -> 10-10 02:03): 0 InsecureRequestWarning lines and 0 homeassistant.components.bond lines; neither appears in the structured top issues at offset 0 or 20000. Per last night's rule (absent two nights -> close as resolved-unexplained) the Proxmox ANSWER is withdrawn. Remaining talkers per ~35-45 min window: pywattbox/custom_components.wattbox 58-83 events x4 lines ('No outlets available in client'), tuya_local ~130-190, shelly ~140-170, bermuda ~120, Sonoff garage-porch MQTT number 'Invalid value ... delayed_power_on_time 0' ~44-70 ERROR. URA's own stuck-sensor per-tick warning is fixed in review (STUCK-SENSOR-WARNING-PER-TICK-1). Recorder DB 19.6 GB + 0.17 GB WAL, unchanged from 10-05; disk 25% used."
   remeasured_2026_10_09_overnight: "The PROXMOX FLOOD IS ABSENT in every window I sampled, but the reason is unknown, so this is not yet a close. ha_get_logs error_log searches for InsecureRequestWarning / \"Unverified HTTPS\" / proxmox found 0 lines at offsets 0, 10000 and 20000 (2000-line windows), and the top structured issues 01:38-02:01 contain no urllib3 entries. At ~4,800/h it would dominate any window. Nothing changed on the URA/HA config side: configuration.yaml mtime is 2026-09-28 and has no logger block, both proxmoxve entries are still enabled with verify_ssl=False, and the custom integration is v5.3.1. The journald history now reaches back ~4 h (21:57 -> 02:02), against under 1 h before. The current top talkers are pywattbox (~135 lines per 23 min, \"No outlets available in client\"), shelly, bermuda and tuya_local. The garage-porch Sonoff (switch_sonoffduo_zigbee_garagebporchinside) is BACK: its selects read \"edge\", not unavailable. That sub-question is answered."
@@ -24466,7 +24473,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: "2026-10-10 02:25"
+  updated: '2026-10-13 02:30'
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -31476,6 +31483,7 @@ cards:
   refs:
   - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
 - id: EC-RESERVE-CLOUD-DIVERGENCE-1
+  lead_2026_10_13_overnight: "STRONGEST LEAD (hypothesis, not proven): writes are not landing at Enphase. anomaly_log battery_write_failed 10-12 15:34 and 17:31 CDT: number.set_value reserve 90 and switch.turn_off charge_from_grid both raised ServiceValidationError translation_key control_change_pending; battery_write_churn ALERT (13 reserve writes/hour, cap 12) on 10-11, 10-12 and 10-13 01:00 UTC. EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 records that local battery writes have gone via the cloud since firmware 8.2.4225, so the cloud value (14) may be the one the battery actually obeys. That fits the battery sitting idle at 14% all night when URA wanted 10. If confirmed: the problem is an Enphase-side change stuck in pending, plus URA re-writing every ~15 min, which keeps it pending. Not a URA comparison bug. Then the next step becomes an operator DO (check the Enphase app for a pending or failed profile change), and URA should back off writes while control_change_pending is up (that is EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 item 2)."
   title: Battery reserve write keeps being flagged "reverted" because the Enphase cloud reports a different reserve (14) than the one URA set and the local gateway holds (10)
   thread: energy
   status: investigating
@@ -31515,7 +31523,7 @@ cards:
     touches reserve emission). Read EC manual + ura-energy-strategy-reference first. BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
     (done, declined 08-29) is related but different (that was unavailable/unknown flaps; this is a stable
     disagreeing value).
-  next: 'Me, daytime measurement (read-only): (1) when SOC rises above ~20% today, does the cloud reserve drop
+  next: 'Me, daytime measurement (read-only): (0) does control_change_pending still come back on writes (anomaly_log battery_write_failed / HA log); (1) when SOC rises above ~20% today, does the cloud reserve drop
     back to 10 (cloud = max(reserve, SOC)) or stay at 14? (2) overnight, did the battery discharge below 14%
     while URA wanted it to (Envoy battery power vs load) - i.e. which reserve is the battery obeying? (3) how
     many NM pages did write-verify send since 10-11. Then: if local is obeyed, the fix is to accept the
