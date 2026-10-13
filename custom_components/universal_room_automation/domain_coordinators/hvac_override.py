@@ -72,6 +72,7 @@ from .hvac_const import (
     # AC-RAMP-PIPELINE-HARDENING-1
     AC_ACTIVELY_COOLING_BLOWER_RPM_MIN,
     AC_ACTIVELY_COOLING_KW_MIN,
+    HVAC_A1_HIGH_DRAW_REFRESH_S,
     AC_KWH_SENSOR_STALENESS_S,
     AC_RAMP_EVENT_GATE4_DIVERGENCE_SHADOW,
     AC_RAMP_EVENT_HARD_RESET_DECLINED,
@@ -301,6 +302,66 @@ SUPPRESS_TTL_SECONDS = 15
 # Knob ladder: MODULE CONSTANT, deliberately. These are safety-adjacent —
 # changing them should require code review, not a dashboard slider.
 SUPPRESS_TTL_SECONDS_PRESET = 120
+
+
+def _compute_high_draw_time_s_7d(
+    hass, entity_id: str, start_dt: datetime, now: datetime,
+) -> float | None:
+    """HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1: synchronous worker for the A1
+    "high draw time 7d" display-only diagnostic. Runs ENTIRELY inside the
+    recorder's executor — the recorder read and every per-state parse /
+    sum happens off the event loop.
+
+    Returns seconds the entity was at or above AC_ACTIVELY_COOLING_KW_MIN
+    across the window, or None on recorder error / no samples.
+    """
+    try:
+        states_dict = get_significant_states(
+            hass, start_dt, now, [entity_id],
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    states = states_dict.get(entity_id) if states_dict else None
+    if not states:
+        return None
+    total_high_s = 0.0
+    prev_ts = None
+    prev_high = False
+    for st in states:
+        raw = getattr(st, "state", None)
+        if raw in (None, "unknown", "unavailable", ""):
+            is_high = False
+        else:
+            try:
+                value = float(raw)
+            except (ValueError, TypeError):
+                is_high = False
+            else:
+                attrs = getattr(st, "attributes", None) or {}
+                unit = (attrs.get("unit_of_measurement") or "").lower()
+                if unit in ("w", "watt", "watts"):
+                    value = value / 1000.0
+                    is_high = value >= AC_ACTIVELY_COOLING_KW_MIN
+                elif unit in ("kwh", "wh", "watt hour", "watt-hour"):
+                    # Cumulative counter — meaningless as instant kW.
+                    is_high = False
+                else:
+                    is_high = value >= AC_ACTIVELY_COOLING_KW_MIN
+        ts = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
+        if ts is None:
+            continue
+        try:
+            ts_local = dt_util.as_local(ts)
+        except Exception:  # noqa: BLE001
+            ts_local = ts
+        if prev_ts is not None and prev_high:
+            total_high_s += (ts_local - prev_ts).total_seconds()
+        prev_ts = ts_local
+        prev_high = is_high
+    # Trailing interval from the last transition to `now`.
+    if prev_ts is not None and prev_high:
+        total_high_s += (now - prev_ts).total_seconds()
+    return total_high_s
 
 
 class OverrideArrester:
@@ -571,6 +632,13 @@ class OverrideArrester:
         # ac_reset_last_outcome, durability_rate_full,
         # durability_rate_trunc, durability_sample_count.
         self._a1_zone_cache: dict[str, dict] = {}
+        # HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1: per-zone cache of the 7d
+        # high-draw aggregate. Key = zone_id -> (value_s_or_None,
+        # computed_at_dt). Refreshed at most every
+        # HVAC_A1_HIGH_DRAW_REFRESH_S; served from cache otherwise.
+        self._a1_high_draw_cache: dict[
+            str, tuple[float | None, datetime]
+        ] = {}
         # Track today's date so we can detect day-rollover and prune events.
         self._last_rollover_date: str = ""
 
@@ -1790,61 +1858,51 @@ class OverrideArrester:
         A None flows through to `gate4_blind_fraction_high_draw_7d = None`
         rather than falsely zero — an honest UNBOUND per operator ruling.
 
-        Bounded once per 5-min cache refresh per zone. Loop-body work is
-        O(n) over 7 days of state changes on one sensor; empirically a
-        few thousand rows per zone for a Span-reported kW entity.
+        HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1 (2026-10-13): a 7-day aggregate
+        cannot move meaningfully across a 5-min tick. Pre-fix this routine
+        ran every tick, scanning ~90k raw recorder rows per zone and
+        parsing them on the event loop (~44 ms work + the allocation
+        burst that was tripping ~2 s GC pauses on 11/12 ticks). Now:
+          - at most ONE refresh per zone per HVAC_A1_HIGH_DRAW_REFRESH_S
+            (1 h); subsequent calls return the cached value;
+          - the recorder read AND all per-state parsing + summation
+            happen inside the recorder's executor callable, so the
+            event loop never walks the states list.
+        Long-term statistics were measured not equivalent: for the live
+        SPAN AC power sensors over 7 d, "hourly mean >= threshold"
+        diverged from the raw-states integral by -7% / +10% / +32% for
+        zones 1/2/3 respectively (see cycle commit message).
         """
         if zone is None or not getattr(zone, "ac_load_sensor", None):
             return None
         entity_id = zone.ac_load_sensor
+        zone_id = getattr(zone, "zone_id", entity_id)
+        # Serve from the hourly cache if fresh.
+        cached = self._a1_high_draw_cache.get(zone_id)
+        if cached is not None:
+            value, computed_at = cached
+            age_s = (now - computed_at).total_seconds()
+            if 0 <= age_s < HVAC_A1_HIGH_DRAW_REFRESH_S:
+                return value
         start_dt = now - timedelta(days=7)
         try:
             instance = recorder_get_instance(self.hass)
-            states_dict = await instance.async_add_executor_job(
-                get_significant_states, self.hass,
-                start_dt, now, [entity_id],
+            value = await instance.async_add_executor_job(
+                _compute_high_draw_time_s_7d,
+                self.hass, entity_id, start_dt, now,
             )
         except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "A1 high-draw refresh failed for zone %s (%s)",
+                zone_id, entity_id, exc_info=True,
+            )
             return None
-        states = states_dict.get(entity_id) if states_dict else None
-        if not states:
-            return None
-        total_high_s = 0.0
-        prev_ts = None
-        prev_high = False
-        for st in states:
-            raw = getattr(st, "state", None)
-            if raw in (None, "unknown", "unavailable", ""):
-                is_high = False
-            else:
-                try:
-                    value = float(raw)
-                except (ValueError, TypeError):
-                    is_high = False
-                else:
-                    attrs = getattr(st, "attributes", None) or {}
-                    unit = (attrs.get("unit_of_measurement") or "").lower()
-                    if unit in ("w", "watt", "watts"):
-                        value = value / 1000.0
-                    elif unit in ("kwh", "wh", "watt hour", "watt-hour"):
-                        # Cumulative counter — meaningless as instant kW.
-                        is_high = False
-                    is_high = value >= AC_ACTIVELY_COOLING_KW_MIN
-            ts = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
-            if ts is None:
-                continue
-            try:
-                ts_local = dt_util.as_local(ts)
-            except Exception:  # noqa: BLE001
-                ts_local = ts
-            if prev_ts is not None and prev_high:
-                total_high_s += (ts_local - prev_ts).total_seconds()
-            prev_ts = ts_local
-            prev_high = is_high
-        # Trailing interval from the last transition to `now`.
-        if prev_ts is not None and prev_high:
-            total_high_s += (now - prev_ts).total_seconds()
-        return total_high_s
+        self._a1_high_draw_cache[zone_id] = (value, now)
+        _LOGGER.info(
+            "A1 high-draw refresh: zone=%s value=%s (next refresh in %ds)",
+            zone_id, value, HVAC_A1_HIGH_DRAW_REFRESH_S,
+        )
+        return value
 
     async def _refresh_a1_cache(self) -> None:
         """A1 fix-up: refresh the per-zone diagnostic cache read by
