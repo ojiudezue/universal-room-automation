@@ -2,3 +2,14 @@
 {"action": "ack", "at": "2026-10-13T11:32:43.079Z", "card_id": "PERIMETER-PHANTOM-XCORR-1@2026-10-08T02:10:00"}
 {"action": "ack", "at": "2026-10-13T11:34:03.045Z", "card_id": "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-08T02:20:00"}
 {"action": "ack", "at": "2026-10-13T11:34:12.178Z", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-08T02:20:01"}
+{"action": "instruct", "at": "2026-10-13T11:35:12.495Z", "card_id": "HA-TRUSTED-PROXIES-UI-MIGRATION-1", "text": "APPROVED"}
+{"action": "ack", "at": "2026-10-13T11:35:13.632Z", "card_id": "HA-TRUSTED-PROXIES-UI-MIGRATION-1@2026-10-08T02:35:00"}
+{"action": "ack", "at": "2026-10-13T11:35:31.812Z", "card_id": "HVAC-GARAGE-GUARD-STAGED-SUNSET-1@2026-10-08T02:35:01"}
+{"action": "ack", "at": "2026-10-13T11:36:03.048Z", "card_id": "HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1@2026-10-08T02:50:00"}
+{"action": "ack", "at": "2026-10-13T11:36:19.813Z", "card_id": "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-08T02:50:01"}
+{"action": "ack", "at": "2026-10-13T11:36:30.031Z", "card_id": "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-08T02:50:02"}
+{"action": "instruct", "at": "2026-10-13T11:37:34.794Z", "card_id": "HVAC-CUSTOM-PRESET-RANGES-1", "text": "I think I switched it on"}
+{"action": "instruct", "at": "2026-10-13T11:38:00.561Z", "card_id": "CM-COORDINATORS-ADD-ONE-BY-ONE-1", "text": "So it was built?"}
+{"action": "instruct", "at": "2026-10-13T11:38:35.143Z", "card_id": "HVAC-W1C-GENERIC-THERMOSTAT-1", "text": "Parked or closed?"}
+{"action": "ack", "at": "2026-10-13T11:38:36.012Z", "card_id": "HVAC-W1C-GENERIC-THERMOSTAT-1@2026-10-08T03:00:02"}
+{"action": "ack", "at": "2026-10-13T11:38:39.292Z", "card_id": "CM-COORDINATORS-ADD-ONE-BY-ONE-1@2026-10-08T03:00:01"}
