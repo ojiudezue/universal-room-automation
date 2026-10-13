@@ -45,18 +45,28 @@ from ..const import (
     CONF_NIGHT_LIGHT_EVENING_COLOR,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHT_SLEEP_COLOR,
+    CONF_NIGHT_LIGHT_SLEEP_HUE,
     CONF_NIGHT_LIGHTS,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
     LIGHT_CAPABILITY_BASIC,
     LIGHT_CAPABILITY_BRIGHTNESS,
     LIGHT_CAPABILITY_FULL,
     LIGHT_SLOT_DAY,
     LIGHT_SLOT_EVENING,
     LIGHT_SLOT_SLEEP,
+    NIGHT_LIGHT_SLEEP_HUE_RED,
+    NIGHT_LIGHT_SLEEP_RED_RGB,
 )
+
+# Colour modes that can render saturated red. Mirrors the per-entity
+# ``supported_color_modes`` check at automation.py's canonical night-light
+# writer (pre-parity) and reconciler. Kelvin-only lights (``color_temp``)
+# cannot do red and keep ``color_temp_kelvin``.
+_RGB_COLOR_MODES: frozenset[str] = frozenset({"rgb", "rgbw", "rgbww", "hs", "xy"})
 
 
 def _dedup_preserving_order(items: Iterable[str]) -> list[str]:
@@ -150,17 +160,28 @@ def night_light_turn_on_params(
     mode: str,
     *,
     include_transition: bool = False,
+    supported_color_modes: Iterable[str] | None = None,
 ) -> dict:
     """Build the turn-on service params for a night light in ``mode``.
 
     Shared by canonical ``_turn_on_night_lights`` and the reconciler
     ``_resolve_light`` night-light sub-rule so both controllers assert
-    identical brightness / colour (R3-M2).
+    identical brightness / colour (NIGHTLIGHT-RED-RECONCILE-PARITY-1).
 
     ``mode`` is one of ``"sleep"``, ``"day"``, ``"evening"``. Evening
     overrides fall back to day defaults when the operator did not set
     them. Only brightness is included when capability is
-    BRIGHTNESS-only; color_temp_kelvin is added for FULL.
+    BRIGHTNESS-only; ``color_temp_kelvin`` is added for FULL.
+
+    ``supported_color_modes`` is the live ``supported_color_modes``
+    attribute of the target bulb (``hass.states.get(eid).attributes``).
+    When provided AND ``mode == "sleep"`` AND capability is FULL AND the
+    room's ``CONF_NIGHT_LIGHT_SLEEP_HUE`` is red AND the bulb reports a
+    colour-capable mode (rgb/rgbw/rgbww/hs/xy), the helper emits
+    ``rgb_color`` red and drops ``color_temp_kelvin`` (kelvin cannot
+    make red). ``None`` preserves today's kelvin-only output — callers
+    that KNOW the bulb's modes must supply the set; callers that cannot
+    (unit tests, white-only lights) get the pre-parity behaviour.
     """
     if mode == "sleep":
         brightness = cfg.get(
@@ -205,6 +226,24 @@ def night_light_turn_on_params(
         out["brightness_pct"] = brightness
     if capability == LIGHT_CAPABILITY_FULL:
         out["color_temp_kelvin"] = color_temp
+    # NIGHTLIGHT-RED-RECONCILE-PARITY-1: red-hue override, lives in the
+    # shared resolver so canonical (automation.py) and reconciler
+    # (actuator_reconciler.py) produce identical params. White-only
+    # bulbs keep the kelvin value above — kelvin cannot make red.
+    if (
+        mode == "sleep"
+        and capability == LIGHT_CAPABILITY_FULL
+        and supported_color_modes is not None
+        and cfg.get(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE)
+        == NIGHT_LIGHT_SLEEP_HUE_RED
+    ):
+        try:
+            modes = {str(m) for m in supported_color_modes}
+        except TypeError:
+            modes = set()
+        if modes & _RGB_COLOR_MODES:
+            out.pop("color_temp_kelvin", None)
+            out["rgb_color"] = list(NIGHT_LIGHT_SLEEP_RED_RGB)
     if include_transition:
         from ..const import CONF_LIGHT_TRANSITION_ON
         out["transition"] = cfg.get(CONF_LIGHT_TRANSITION_ON, 1)

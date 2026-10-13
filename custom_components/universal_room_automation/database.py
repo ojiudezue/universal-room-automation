@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.50
+# Universal Room Automation vv5.103.54
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -10368,6 +10368,182 @@ class UniversalRoomDatabase:
             triggered_by,
         )
         return stats
+
+    # ------------------------------------------------------------------
+    # Weekly memory-writer health trip-wire
+    #   MEMORY-WRITERS-SILENT-DROP-1 D3 (2026-10-11).
+    # Each nightly maintenance tick calls `run_memory_writer_health_check`;
+    # it runs the real check at most once every 7 days (cadence-guarded by
+    # a RAM timestamp — resets on process restart, which is acceptable: a
+    # restart just defers the first check to the next midnight sweep).
+    # A writer-backed episode_type with zero rows in the trailing 7 days
+    # raises a WARNING log + one POINT_IN_TIME anomaly row (same channel
+    # used by stuck_signal / write_verification_failed — no new pipeline).
+    # ------------------------------------------------------------------
+    _last_memory_writer_health_check_ts: float | None = None
+
+    async def run_memory_writer_health_check(
+        self, *, cadence_days: int = 7, triggered_by: str = "nightly",
+    ) -> dict | None:
+        """Weekly check: writer-backed episode types with 0 rows in 7d.
+
+        Returns ``None`` when the check was skipped (cadence not elapsed,
+        kill-switch, or DB failure). Returns a stats dict otherwise:
+        ``{checked_at, cadence_days, zero_row_types, exempt_types,
+        counts}``.
+
+        Observational: writes a POINT_IN_TIME anomaly per zero-row type +
+        a single WARNING log line. Never raises.
+        """
+        from .const import (  # noqa: PLC0415
+            MEMORY_WRITER_BACKED_EPISODE_TYPES,
+            MEMORY_WRITER_HEALTH_EXEMPT_TYPES,
+        )
+        try:
+            now = datetime.now(timezone.utc)
+            # Fix-up #7: cadence timestamp persists across restarts via the
+            # existing energy_state key/value table — so a nightly restart
+            # cannot re-fire the trip-wire every day. The RAM cache is a
+            # best-effort fast-path; on first call per boot we rehydrate
+            # from the DB.
+            if self._last_memory_writer_health_check_ts is None:
+                try:
+                    stored = await self.restore_energy_state(
+                        "memory_writer_health_last_run_ts",
+                    )
+                    if stored is not None:
+                        self._last_memory_writer_health_check_ts = float(stored)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "memory_writer_health: rehydrate last-run ts failed",
+                        exc_info=True,
+                    )
+            if (
+                triggered_by == "nightly"
+                and self._last_memory_writer_health_check_ts is not None
+                and cadence_days > 0
+                and (now.timestamp()
+                     - self._last_memory_writer_health_check_ts)
+                < (cadence_days * 86400.0)
+            ):
+                _LOGGER.debug(
+                    "memory_writer_health: within cadence — skipped",
+                )
+                return None
+            since_iso = (
+                now - timedelta(days=cadence_days)
+            ).isoformat()
+            checked = [
+                t for t in MEMORY_WRITER_BACKED_EPISODE_TYPES
+                if t not in MEMORY_WRITER_HEALTH_EXEMPT_TYPES
+            ]
+            counts: dict[str, int] = {}
+            try:
+                async with self._db() as db:
+                    for ep_type in checked:
+                        try:
+                            cursor = await db.execute(
+                                "SELECT COUNT(*) FROM memory_episodes "
+                                "WHERE episode_type = ? "
+                                "AND started_at >= ?",
+                                (ep_type, since_iso),
+                            )
+                            row = await cursor.fetchone()
+                            counts[ep_type] = int(row[0]) if row else 0
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "memory_writer_health: count failed for %s",
+                                ep_type, exc_info=True,
+                            )
+                            counts[ep_type] = -1  # unknown; do not alert
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "memory_writer_health: DB open failed: %s", e,
+                    exc_info=True,
+                )
+                return None
+
+            self._last_memory_writer_health_check_ts = now.timestamp()
+            # Fix-up #7: persist across restart.
+            try:
+                await self.save_energy_state(
+                    "memory_writer_health_last_run_ts",
+                    str(self._last_memory_writer_health_check_ts),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "memory_writer_health: persist last-run ts failed",
+                    exc_info=True,
+                )
+            zero_types = sorted(
+                t for t, n in counts.items() if n == 0
+            )
+            if zero_types:
+                _LOGGER.warning(
+                    "memory_writer_health: %d writer-backed episode "
+                    "type(s) produced 0 rows in the last %dd: %s "
+                    "(counts=%s)",
+                    len(zero_types), cadence_days, zero_types, counts,
+                )
+                # Fire one anomaly per silent writer via the same channel
+                # that stuck_signal uses. Import locally to sidestep the
+                # notification_manager → const circular hazard.
+                try:
+                    from .domain_coordinators.anomaly_event import (  # noqa: PLC0415
+                        AnomalyEvent,
+                        AnomalySeverity,
+                        AnomalyType,
+                        build_context_json,
+                    )
+                    for ep_type in zero_types:
+                        try:
+                            payload = build_context_json(
+                                source_signal="memory_writer_silent",
+                                extra={
+                                    "episode_type": ep_type,
+                                    "cadence_days": cadence_days,
+                                    "row_count": 0,
+                                },
+                            )
+                            evt = AnomalyEvent(
+                                coordinator="memory_writer_health",
+                                type="memory_writer_silent",
+                                severity=AnomalySeverity.WARNING,
+                                anomaly_type=AnomalyType.POINT_IN_TIME,
+                                detected_at=now.isoformat(),
+                                payload=payload,
+                            )
+                            await self.save_anomaly_event(evt)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "memory_writer_health: anomaly dispatch "
+                                "failed for %s", ep_type, exc_info=True,
+                            )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "memory_writer_health: anomaly path unavailable",
+                        exc_info=True,
+                    )
+            else:
+                _LOGGER.info(
+                    "memory_writer_health: all %d writer-backed episode "
+                    "types produced ≥1 row in last %dd (counts=%s)",
+                    len(checked), cadence_days, counts,
+                )
+            return {
+                "checked_at": now.isoformat(),
+                "cadence_days": cadence_days,
+                "triggered_by": triggered_by,
+                "zero_row_types": zero_types,
+                "exempt_types": sorted(MEMORY_WRITER_HEALTH_EXEMPT_TYPES),
+                "counts": counts,
+            }
+        except Exception as e:  # noqa: BLE001 — observational, never raises
+            _LOGGER.debug(
+                "run_memory_writer_health_check failed: %s", e,
+                exc_info=True,
+            )
+            return None
 
     async def read_decision_log_since(
         self, since_iso: str, limit: int = 500,

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.50
+# Universal Room Automation vv5.103.54
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2445,6 +2445,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # adapter is cadence-guarded and no-ops when
                             # MEMORY_COMPACTOR_ENABLED is False.
                             ("memory_compactor", "run_memory_compactor", {}),
+                            # MEMORY-WRITERS-SILENT-DROP-1 D3: weekly
+                            # writer-health trip-wire. Internally cadence-
+                            # guarded (RAM ts); nightly tick is a no-op
+                            # 6/7 days. A zero-row writer-backed type
+                            # fires one WARNING + one anomaly row.
+                            ("memory_writer_health", "run_memory_writer_health_check", {}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -2581,6 +2587,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # nightly path (button still works). Same short-circuit / cadence
                 # guard semantics as primary.
                 ("memory_compactor", "run_memory_compactor", {}),
+                # MEMORY-WRITERS-SILENT-DROP-1 D3 mirror: deferred-startup
+                # path also schedules the weekly writer-health trip-wire.
+                ("memory_writer_health", "run_memory_writer_health_check", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):
@@ -4539,6 +4548,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "set_house_state",
             "clear_house_state_override",
             "fan_recheck_force_restore",
+            "reapply_radar_settings",
             # _async_register_safety_services
             "test_safety_hazard",
             # _async_register_security_services
@@ -5917,6 +5927,33 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
             }),
         )
         _LOGGER.info("Registered fan_recheck_force_restore service")
+
+    # URA-SENSOR-TUNING-1 Phase A (Rev 2): operator-triggered recovery
+    # path after factory reset / out-of-band Z2M edit on a ZK/ZX radar.
+    async def handle_reapply_radar_settings(call):
+        """Handle reapply_radar_settings service call."""
+        room_entry_id = call.data.get("room_entry_id", "")
+        try:
+            from .domain_coordinators.radar_tuning import (  # noqa: PLC0415
+                async_reapply_radar_settings,
+            )
+            await async_reapply_radar_settings(hass, room_entry_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "reapply_radar_settings: handler failed for entry=%s",
+                room_entry_id, exc_info=True,
+            )
+
+    if not hass.services.has_service(DOMAIN, "reapply_radar_settings"):
+        hass.services.async_register(
+            DOMAIN,
+            "reapply_radar_settings",
+            handle_reapply_radar_settings,
+            schema=vol.Schema({
+                vol.Required("room_entry_id"): str,
+            }),
+        )
+        _LOGGER.info("Registered reapply_radar_settings service")
 
 
 async def _async_wire_memory(

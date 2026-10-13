@@ -101,9 +101,9 @@
         "title": "📡 Presence & Environmental Sensors",
         "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
         "data": {
-          "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors",
-          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
+          "motion_sensors": "Motion sensors",
+          "presence_sensors": "Presence sensors",
+          "occupancy_sensors": "Combined sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
@@ -116,9 +116,9 @@
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
-          "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
-          "presence_sensors": "mmWave/radar sensors that see you even when you're still — good for reading nooks and desks",
-          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal — usually vendor-supplied",
+          "motion_sensors": "See movement only.",
+          "presence_sensors": "See people sitting still.",
+          "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
@@ -894,16 +894,18 @@
               "fan_recheck_cooldown_s": "Cooldown After Recheck (s)",
               "fan_recheck_max_per_hour": "Max Rechecks Per Hour",
               "fan_recheck_hvac_suppress_s": "HVAC Suppression Window (s)",
-              "fan_recheck_mmwave_history_ticks": "mmWave-Sole Consecutive Ticks"
+              "fan_recheck_mmwave_history_ticks": "mmWave-Sole Consecutive Ticks",
+              "fan_recheck_family_scaling_enabled": "Longer wait for slow radars"
             },
             "data_description": {
               "fan_recheck_arm_delay_s": "Delay between trigger eligibility and arming the recheck. Filters quick false-positives. Default: 60s.",
               "fan_recheck_spindown_s": "How long airflow takes to stop after the fan is paused. mmWave is ignored during this period. Default: 30s.",
               "fan_recheck_window_s": "Observation window after spindown. If mmWave drops while the fan is paused, the room vacates. Default: 60s.",
-              "fan_recheck_cooldown_s": "Wait time between rechecks per room before another can fire. Default: 1800s (30 min).",
+              "fan_recheck_cooldown_s": "Wait time between rechecks per room before another can fire. Default: 900s (15 min).",
               "fan_recheck_max_per_hour": "Hard cap on how many rechecks a single room can run per hour. 0 disables the cap. Default: 2.",
               "fan_recheck_hvac_suppress_s": "How long HVAC fan-routing stays suppressed for this room after a recheck pauses the fan, so heat/cool doesn't immediately re-energize it. Default: 600s (10 min).",
-              "fan_recheck_mmwave_history_ticks": "Number of consecutive presence ticks that must be mmWave-only (no motion/occupancy/camera) before a recheck is eligible. Default: 3."
+              "fan_recheck_mmwave_history_ticks": "Number of consecutive presence ticks that must be mmWave-only (no motion/occupancy/camera) before a recheck is eligible. Default: 3.",
+              "fan_recheck_family_scaling_enabled": "Lengthen the recheck window for radar models that take longer to clear after a fan stops (Hobeian presence radars x2, LD2410/LD2412 x3, other radars x1.5). Off = same window for every room. Default: on."
             }
           }
         }
@@ -1722,11 +1724,11 @@
       },
       "sensors": {
         "title": "📡 Sensors",
-        "description": "Update presence and environmental sensors.",
+        "description": "Update presence and environmental sensors. {advanced_hint}",
         "data": {
-          "motion_sensors": "Motion Sensors (PIR)",
-          "presence_sensors": "Presence Sensors",
-          "occupancy_sensors": "Pre-Combined Motion + Presence Sensors",
+          "motion_sensors": "Motion sensors",
+          "presence_sensors": "Presence sensors",
+          "occupancy_sensors": "Combined sensors",
           "scanner_areas": "BLE Scanner Areas (Optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
@@ -1741,9 +1743,9 @@
           "clear_sensor_fields": "Clear Optional Sensors"
         },
         "data_description": {
-          "motion_sensors": "PIR sensors that detect movement",
-          "presence_sensors": "mmWave/radar sensors that see you even when you're still",
-          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal",
+          "motion_sensors": "See movement only.",
+          "presence_sensors": "See people sitting still.",
+          "occupancy_sensors": "Radar and motion reported as one signal.",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
           "temperature_sensor": "Room temperature sensor",

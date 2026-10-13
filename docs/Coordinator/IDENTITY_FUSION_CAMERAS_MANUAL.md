@@ -15,7 +15,8 @@ consumer-gap audit).
 
 This is NOT a code walkthrough. Sibling of
 `ENERGY_COORDINATOR_MANUAL.md`, `HVAC_COORDINATOR_MANUAL.md`,
-`CM_MANUAL.md`, `PRESENCE_COORDINATOR.md`. For fusion research
+`CM_MANUAL.md`, `PRESENCE_COORDINATOR.md`,
+`PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`. For fusion research
 context see `docs/planning/PLANNING_paper_and_oss_fusion_library.md`,
 `PLANNING_room_camera_fusion.md`, `PLANNING_census_fusion_policy.md`,
 `AUDIT_census_identity_supersession_and_consumers.md`.
@@ -311,7 +312,8 @@ Direction gating on the census union feed
 Per-person GPS/WiFi/BLE fusion, `_log_person_room_change` writes to
 `person_visits`. BLE fleet-liveness gate at
 `person_coordinator.py:67` (`BLE_FLEET_LIVENESS_WINDOW_S = 90`).
-Presence details in `PRESENCE_COORDINATOR.md`.
+Presence details in `PRESENCE_COORDINATOR.md` and
+`PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`.
 
 ### 4.5 Perimeter surfaces
 
@@ -539,3 +541,20 @@ Memory bodies (verify before quoting — memories are point-in-time):
 `reference_egress_face_coverage_7pct_not_a_ceiling`
 (READ THE AMENDMENTS — the original conclusion was refuted twice),
 `feedback_read_consumers_before_asserting_function`.
+
+---
+
+## 7. Sibling: Presence state of play
+
+For the non-identity side of how URA sees people — room-level occupancy, BLE / Bermuda /
+`private_ble_device` / IRK, the person_coordinator and `CONF_SCANNER_AREAS` scanner
+ladder, the room coordinator's chatter / duty-cycle / fan-transition CREATION gate, D2
+sustain demotion, fan pause-recheck, comfort-fan house-AWAY veto, `StateInferenceEngine`
+(path α / path β / guest / sleep / arriving), the `_skip_first_automation` + boot-settle
+gates, the room-switch resolver (v5.103.48 registry lookup) and the fan-noise mechanism
+efficacy numbers measured 2026-10-11 — the canonical doc is
+**`docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`**. It is the sibling of this
+manual: identity / camera / census / fusion / egress stays HERE; everything else about how
+presence is produced and consumed lives THERE. Agents touching presence-adjacent code read
+it first, completely, before planning or building — and if the two docs ever disagree,
+verify against the cited code and fix the stale one in the same turn.

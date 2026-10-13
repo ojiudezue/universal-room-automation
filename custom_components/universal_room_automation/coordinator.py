@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.50
+# Universal Room Automation vv5.103.54
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -73,6 +73,7 @@ from .const import (
     STATE_TIMEOUT_REMAINING,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
+    STATE_RADAR_SOLE_TICK,
     OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
     OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
     MMWAVE_FAN_CORROBORATION_ENABLED,
@@ -153,6 +154,7 @@ from .automation import RoomAutomation
 from .actuator_reconciler import ActuatorReconciler
 from .domain_coordinators.chatter_detector import ChatterDetector
 from .domain_coordinators.sensor_exclusion import SensorExclusionSet
+from .domain_coordinators.sensor_capability import capability_routing_enabled
 from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
@@ -503,6 +505,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # guard in _d2_motion_sensors_present() is the primary
         # defense for rooms with no PIR at all.
         self._last_pir_motion_time: datetime | None = _now
+        # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1 fix-up (Review B
+        # MED): the P24 max-occupancy failsafe freshness gate keeps the
+        # PRE-change semantics — refreshed on ANY motion_detected tick
+        # (incl. a radar-derived motion bit). Narrowing the failsafe is
+        # a separate policy call (it would force-vacate a sleeping
+        # guest in GB1/GB2 held only by the MS600), so it reads this
+        # field, not the witness-only ``_last_pir_motion_time``.
+        self._last_motion_bit_time: datetime | None = _now
 
         # mmWave fan-corroboration Tier-3 D2 — observability. Set True
         # on the tick the demotion fires; carried until next tick.
@@ -543,6 +553,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # ticks (D1 #2). Appended at end of _async_update_data.
         import collections
         self._recent_occupancy_sources: collections.deque[str] = (
+            collections.deque(maxlen=10)
+        )
+        # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1c: parallel ring of the
+        # per-tick capability radar-sole bool (STATE_RADAR_SOLE_TICK).
+        # Co-created with the label ring; appended at the SAME single tail
+        # site so the two always have equal length.
+        self._recent_radar_sole_ring: collections.deque[bool] = (
             collections.deque(maxlen=10)
         )
 
@@ -2157,10 +2174,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return True
 
     def _d2_motion_sensors_present(self) -> bool:
-        """D-HIGH-1: True if the room has ≥1 real PIR motion sensor
-        configured (after filtering out entries that match
-        ``MMWAVE_NAME_PATTERN`` — operator-misfiled mmWave hybrids
-        under CONF_MOTION_SENSORS).
+        """D-HIGH-1: True if the room has ≥1 fan-immune motion witness
+        configured (capability-classified via ``is_fan_immune_witness``;
+        a radar mis-filed under CONF_MOTION_SENSORS is dropped by its
+        device model — C2 Rev 2).
 
         Fail-closed: an empty filtered list means the staleness leg is
         UNSATISFIABLE (mmwave itself would have to prove its own
@@ -2168,11 +2185,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         boot at DEBUG.
         """
         try:
-            from .fan_veto import MMWAVE_NAME_PATTERN  # noqa: PLC0415
+            from .fan_veto import is_fan_immune_motion_witness  # noqa: PLC0415
             motion = self._get_config(CONF_MOTION_SENSORS, []) or []
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            # C2 Rev 2: capability + device-model radar safety net, never
+            # the entity name (ZG-204ZV units are named `..._presence`).
             filtered = [
                 s for s in motion
-                if isinstance(s, str) and not MMWAVE_NAME_PATTERN.search(s)
+                if is_fan_immune_motion_witness(self.hass, room_config, s)
             ]
             if not filtered:
                 if not self._d2_no_pir_logged:
@@ -2184,6 +2204,52 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._d2_no_pir_logged = True
                 return False
             return True
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+
+    def _fan_immune_motion_witness_on(self, motion_sensors) -> bool:
+        """D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1: True iff at least
+        one configured motion entity is currently ``on`` AND passes
+        ``fan_veto.is_fan_immune_motion_witness`` (capability + device-
+        model filter — reuses the leg (e) witness pattern at
+        ``_d2_motion_sensors_present`` ~ coordinator.py:2168).
+
+        Used by the PIR-stamp site and by the D2 flap-latch
+        ``pir_motion`` clear reason so neither can be refreshed/cleared
+        by a radar-derived motion bit (e.g. meross_lan MS600) that a
+        fan can fake. Legacy semantics preserved: this is a stricter
+        subset of the filtered ``motion_detected`` bit, so under
+        capability_routing-off we still filter radars (model-based,
+        independent of capability routing — strictly better than the
+        pre-existing bug).
+
+        On ANY exception -> False: the latch is NOT cleared (stays
+        demoted) and the stamp is NOT refreshed (ages toward D2
+        demotion). The stamp direction is bounded by
+        ``_d2_motion_sensors_present``, which refuses to demote when
+        the same classifier throws; only a per-entity read failure
+        lands here.
+        """
+        try:
+            from .fan_veto import is_fan_immune_motion_witness  # noqa: PLC0415
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            # Review A HIGH: iterate the SAME stuck/chatter-filtered list
+            # motion_detected uses — an excluded-but-on PIR must not
+            # count as a witness (it would clear the latch every tick).
+            for s in self._fusion_filter_active(list(motion_sensors or [])):
+                if not s:
+                    continue
+                try:
+                    if (
+                        self._is_sensor_on(s)
+                        and is_fan_immune_motion_witness(
+                            self.hass, room_config, s,
+                        )
+                    ):
+                        return True
+                except Exception:  # noqa: BLE001 — fail-closed per entity
+                    continue
+            return False
         except Exception:  # noqa: BLE001 — fail-closed
             return False
 
@@ -2860,24 +2926,45 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     def _evaluate_mmwave_demoted_latch(
         self, room_name: str, motion_detected: bool,
-        presence_detected: bool,
+        presence_detected: bool, radar_sole: bool | None = None,
+        motion_witness_detected: bool | None = None,
     ) -> None:
         """Clear the D2 flap-protection latch on any recovery signal.
 
         Clear conditions (per Reviewer B + C latch spec):
           - mmWave reads off (clean edge — presence_detected False)
-          - PIR motion fires (motion_detected True)
+          - PIR motion fires (fan-immune witness on — see
+            D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1; the raw
+            ``motion_detected`` bit can include a radar-derived motion
+            tick that a fan can fake, so we require witness evidence
+            via ``_fan_immune_motion_witness_on`` here)
           - BLE person arrives in room
           - Fan turns off (tracker._fan_on_since drops the room)
         """
         if not getattr(self, "_mmwave_demoted_latch", False):
             return
         reason: str | None = None
-        if not presence_detected:
+        if capability_routing_enabled():
+            # D2 (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1): clear when the
+            # tick is not capability radar-sole (a radar filed outside
+            # presence_sensors keeps the latch instead of clearing on
+            # presence_detected=False every tick).
+            if not radar_sole:
+                reason = "radar_absent"
+        elif not presence_detected:
             reason = "mmwave_off"
-        elif motion_detected:
-            reason = "pir_motion"
+        # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1: a fan-faked radar
+        # motion bit must NOT clear the latch — require an actual
+        # fan-immune witness. Callers that don't pass the explicit
+        # bool fall back to the legacy raw motion_detected to preserve
+        # existing semantics for direct callers.
+        if motion_witness_detected is None:
+            pir_fire = motion_detected
         else:
+            pir_fire = bool(motion_witness_detected)
+        if reason is None and pir_fire:
+            reason = "pir_motion"
+        elif reason is None:
             # BLE person in room?
             try:
                 person_coord = self.hass.data.get(DOMAIN, {}).get(
@@ -3520,14 +3607,37 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         any_sensor_active = motion_detected or presence_detected or occupancy_detected
 
+        # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1b: per-tick capability
+        # radar-sole bool over the fusion-filtered on-set of ALL three CONF
+        # lists (empty under grace_hold, matching the zeroed detections).
+        # Written on EVERY tick; trust gates read this, not the
+        # occupancy_source LIST label.
+        radar_sole = (
+            False if grace_hold
+            else self._radar_sole_on_set(
+                motion_sensors, mmwave_sensors, occupancy_sensors,
+            )
+        )
+        data[STATE_RADAR_SOLE_TICK] = radar_sole
+
         # Tier-3 D2 flap-protection: evaluate + apply the mmwave-demoted
         # latch. When latched, mmwave-sole activity cannot recreate
         # occupancy (post-demote the still-firing mmwave would flip us
         # back to occupied after debounce → immediate re-demote →
         # oscillation). Clear on any real recovery signal (mmwave off,
         # PIR fire, BLE person, fan off) via the helper.
+        # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1: a fan-faked radar
+        # motion bit (e.g. meross MS600) must not clear the latch; pass
+        # the explicit witness-on bool so the pir_motion reason only
+        # fires on a real fan-immune witness. Fail-closed on exception.
+        motion_witness_detected = (
+            False if grace_hold
+            else self._fan_immune_motion_witness_on(motion_sensors)
+        )
         self._evaluate_mmwave_demoted_latch(
             room_name, motion_detected, presence_detected,
+            radar_sole=radar_sole,
+            motion_witness_detected=motion_witness_detected,
         )
 
         # PATH-ALPHA D4 (phantom_retro): detector-INDEPENDENT retro-
@@ -3585,11 +3695,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 exc_info=True,
             )
         if getattr(self, "_mmwave_demoted_latch", False):
-            mmwave_sole_here = (
-                presence_detected
-                and not motion_detected
-                and not occupancy_detected
-            )
+            if capability_routing_enabled():
+                # D2 (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1): capability
+                # radar-sole, so a radar filed outside presence_sensors
+                # is suppressed too.
+                mmwave_sole_here = radar_sole
+            else:
+                mmwave_sole_here = (
+                    presence_detected
+                    and not motion_detected
+                    and not occupancy_detected
+                )
             if mmwave_sole_here:
                 any_sensor_active = False
 
@@ -3831,7 +3947,22 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # leg (e). Refreshed ONLY on true PIR fire — mmWave and
                 # occupancy_sensor branches deliberately do NOT touch
                 # this so mmwave can't self-confirm the staleness gate.
-                self._last_pir_motion_time = now
+                #
+                # D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1: a radar-
+                # derived motion bit (e.g. meross_lan MS600, which can
+                # be faked by a fan) must NOT refresh this stamp or
+                # the pir_stale leg (e) stays False forever and D2
+                # cannot demote. Only stamp when at least one on
+                # motion entity passes
+                # fan_veto.is_fan_immune_motion_witness (capability +
+                # device-model filter — same classifier used at
+                # _d2_motion_sensors_present ~coordinator.py:2168).
+                # Fail-closed: exception -> helper returns False ->
+                # NOT stamped. STATE_OCCUPANCY_SOURCE="motion" is
+                # intentionally unchanged (card constraint).
+                self._last_motion_bit_time = now  # failsafe (legacy)
+                if motion_witness_detected:
+                    self._last_pir_motion_time = now
             elif presence_detected:
                 data[STATE_OCCUPANCY_SOURCE] = "mmwave"
             else:
@@ -4173,7 +4304,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 and self._d2_debounce_elapsed(now)
                 and self._d2_motion_sensors_present()
                 and self._d2_house_state_allows()
-                and str(data.get(STATE_OCCUPANCY_SOURCE, "")) == "mmwave"
+                and (
+                    # OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D2: capability
+                    # radar-sole tick, not the occupancy_source LIST label.
+                    bool(data.get(STATE_RADAR_SOLE_TICK, False))
+                    if capability_routing_enabled()
+                    else str(data.get(STATE_OCCUPANCY_SOURCE, "")) == "mmwave"
+                )
             ):
                 # PIR-only motion staleness (Invariant M leg (e)).
                 stale_threshold_s = (
@@ -4565,10 +4702,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if duration > failsafe_seconds:
                 signal_stale = True
                 signal_age = None
-                if self._last_pir_motion_time:
+                if self._last_motion_bit_time:
                     try:
                         signal_age = (
-                            now - self._last_pir_motion_time
+                            now - self._last_motion_bit_time
                         ).total_seconds()
                     except (TypeError, ValueError):
                         signal_age = None
@@ -5467,6 +5604,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._recent_occupancy_sources.append(
             str(data.get(STATE_OCCUPANCY_SOURCE, "none"))
         )
+        self._recent_radar_sole_ring.append(
+            bool(data.get(STATE_RADAR_SOLE_TICK, False))
+        )
 
         # Reconcile-on-Return (v5.8.0, D2.7 grace + D2.11 quarantine): once the
         # presence boot-settle gate has released, arm the reconciler's post-boot
@@ -5493,6 +5633,49 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def recent_occupancy_sources(self) -> list[str]:
         """Return the recent-tick occupancy_source ring as a list (newest last)."""
         return list(self._recent_occupancy_sources)
+
+    def recent_radar_sole_ring(self) -> list[bool]:
+        """D1d: recent-tick capability radar-sole ring (newest last)."""
+        return list(self._recent_radar_sole_ring)
+
+    def is_radar(self, entity_id: str) -> bool:
+        """D1a: positive-evidence radar classification for this room
+        (override > CONF kind mmwave > device family). Fail-closed."""
+        try:
+            from .fan_veto import is_radar_entity  # noqa: PLC0415
+            room_config = {**self.entry.data, **(self.entry.options or {})}
+            return bool(is_radar_entity(self.hass, room_config, entity_id))
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+
+    def _live_on_set(self, *sensor_lists) -> list[str]:
+        """Fusion-filtered, currently-on entities across ``sensor_lists``
+        (deduped, order-preserving)."""
+        out: list[str] = []
+        for sensors in sensor_lists:
+            for s in self._fusion_filter_active(sensors or []):
+                if s not in out and self._is_sensor_on(s):
+                    out.append(s)
+        return out
+
+    def _radar_sole_on_set(
+        self, motion_sensors, mmwave_sensors, occupancy_sensors,
+    ) -> bool:
+        """D1b: on-set non-empty AND every on entity is radar-bearing."""
+        on_set = self._live_on_set(
+            motion_sensors, mmwave_sensors, occupancy_sensors,
+        )
+        return bool(on_set) and all(self.is_radar(e) for e in on_set)
+
+    def any_radar_bearing_on_now(self) -> bool:
+        """D1d: True iff any radar-bearing entity (any CONF list) is on
+        right now — the recheck VACATED gate's live read."""
+        on_set = self._live_on_set(
+            self._get_config(CONF_MOTION_SENSORS, []),
+            self._get_config(CONF_MMWAVE_SENSORS, []),
+            self._get_config(CONF_OCCUPANCY_SENSORS, []),
+        )
+        return any(self.is_radar(e) for e in on_set)
 
     def apply_fan_recheck_release(self) -> None:
         """Force vacancy from the room-tier fan-recheck mechanism.

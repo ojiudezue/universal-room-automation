@@ -44,6 +44,13 @@ from .const import (
     TRACKING_STATUS_ACTIVE,
 )
 from .domain_coordinators.house_state import HouseState
+from .domain_coordinators.sensor_capability import (
+    RADAR_SENSOR_FAMILIES,
+    SENSOR_FAMILY_UNKNOWN,
+    family_for_model,
+    is_fan_immune_witness,
+    is_radar_capability,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,9 +65,94 @@ _AWAY_STATES = frozenset({HouseState.AWAY, HouseState.VACATION})
 # hybrids). device_class cannot distinguish mmWave from PIR (both report
 # `motion` or `occupancy`) so we exclude by name. Motion sensors named for
 # a specific technology (pir, ir) or bare `motion` still count.
+#
+# Demoted (PLANNING_fan_noise_running_rejection.md Rev 2, C2 + review
+# A-M1): classification is by capability + device model. The name pattern
+# is now ONLY the fallback for a sensor whose device family is "unknown"
+# (unrecognised model), so an unmapped radar keeps the develop exclusion.
 MMWAVE_NAME_PATTERN = re.compile(
     r"(mmwave|radar|presence|ld2410|ld2412)", re.IGNORECASE
 )
+
+_SENSOR_FAMILY_CACHE_KEY = "_sensor_family_cache"
+
+
+def resolve_sensor_family(hass: HomeAssistant, entity_id: str) -> str:
+    """Sensor family of ``entity_id`` from its device's model_id (fallback
+    model) via ``sensor_capability.FAMILY_BY_MODEL_ID``.
+
+    One registry read per entity, cached per boot on ``hass.data``. A miss
+    (no registry entry / no device) returns "unknown" and is NOT cached, so
+    an early-boot read before the registry is populated is retried.
+    """
+    try:
+        domain_data = hass.data.setdefault(DOMAIN, {})
+        cache = domain_data.setdefault(_SENSOR_FAMILY_CACHE_KEY, {})
+    except Exception:  # noqa: BLE001 — defensive
+        cache = {}
+    if entity_id in cache:
+        return cache[entity_id]
+    try:
+        from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        ent = er.async_get(hass).async_get(entity_id)
+        if ent is None or not ent.device_id:
+            return SENSOR_FAMILY_UNKNOWN
+        dev = dr.async_get(hass).async_get(ent.device_id)
+        if dev is None:
+            return SENSOR_FAMILY_UNKNOWN
+        family = family_for_model(
+            getattr(dev, "model_id", None), getattr(dev, "model", None),
+        )
+    except Exception:  # noqa: BLE001 — registry unavailable: fail to unknown
+        return SENSOR_FAMILY_UNKNOWN
+    cache[entity_id] = family
+    return family
+
+
+def is_fan_immune_motion_witness(
+    hass: HomeAssistant, config: dict[str, Any], entity_id: str,
+) -> bool:
+    """C2: fan-immune by capability AND not a radar by device model (the
+    D-MED-2 safety net against a radar mis-filed under motion_sensors)."""
+    if not isinstance(entity_id, str):
+        return False
+    if not is_fan_immune_witness(config, entity_id):
+        return False
+    family = resolve_sensor_family(hass, entity_id)
+    if family in RADAR_SENSOR_FAMILIES:
+        return False
+    # Review A-M1: unrecognised model -> keep the pre-C2 name exclusion.
+    if family == SENSOR_FAMILY_UNKNOWN and MMWAVE_NAME_PATTERN.search(entity_id):
+        return False
+    return True
+
+
+def is_radar_entity(
+    hass: HomeAssistant, config: dict[str, Any], entity_id: str,
+) -> bool:
+    """OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 D1a: ``entity_id`` is
+    radar-bearing in this room — override wins both ways, then CONF-list
+    kind mmwave, then device family (``resolve_sensor_family``). Positive
+    evidence only; any error -> False (fail-closed)."""
+    if not isinstance(entity_id, str) or not entity_id:
+        return False
+    try:
+        return bool(is_radar_capability(
+            config, entity_id,
+            lambda: resolve_sensor_family(hass, entity_id),
+        ))
+    except Exception:  # noqa: BLE001 — fail-closed
+        return False
+
+
+def radar_sole_on_set(
+    hass: HomeAssistant, config: dict[str, Any], on_set,
+) -> bool:
+    """D1b: True iff the on-set is non-empty AND every entity in it is
+    radar-bearing (sole-source: one non-radar entity on -> False)."""
+    on = [e for e in (on_set or ()) if e]
+    return bool(on) and all(is_radar_entity(hass, config, e) for e in on)
 
 
 def is_veto_relevant(hass: HomeAssistant) -> bool:
@@ -139,13 +231,14 @@ def _has_recent_motion(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     motion_sensors = config.get(CONF_MOTION_SENSORS) or []
     if not motion_sensors:
         return False
-    # D-MED-2 fix: strip mmWave/radar/presence hybrids that operators have
-    # misfiled under CONF_MOTION_SENSORS (see MMWAVE_NAME_PATTERN). Without
-    # this, a fan-interfered mmWave "on" would defeat the veto — exactly
-    # the failure mode this cycle exists to prevent.
+    # D-MED-2 fix (C2 Rev 2): keep only fan-immune witnesses — classified
+    # by capability (derive_capability + CONF_SENSOR_CAPABILITIES), with a
+    # device-model safety net that drops a radar mis-filed under
+    # CONF_MOTION_SENSORS. Never by entity name (a ZG-204ZV is named
+    # `..._presence` but is motion-class — SENSOR_FLEET_CLASSES.md Rule 1).
     motion_sensors = [
         eid for eid in motion_sensors
-        if isinstance(eid, str) and not MMWAVE_NAME_PATTERN.search(eid)
+        if is_fan_immune_motion_witness(hass, config, eid)
     ]
     if not motion_sensors:
         return False
