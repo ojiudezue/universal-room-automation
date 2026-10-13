@@ -19113,7 +19113,8 @@ cards:
 - id: EC-HOUSE-ENTITY-DEFAULTS-1
   title: Energy code hardcodes this house's entity IDs as defaults (EVSE, L1 plugs, Envoy serial, SPAN) — config-only + warn on missing
   rank: {value: 7, time_criticality: 5, effort: 3}
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.55
   updated: '2026-10-12 23:55'
   thread: energy
   created: 2026-10-12 23:55
@@ -19132,6 +19133,37 @@ cards:
     off/0. Battery/EV control path -> Tier 2-DB (3 framing-disjoint reviews). Read EC manual + reference_ec_config_surface first.
   next: ura-planner writes PLANNING_ec_house_entity_defaults.md (prior-art scan, full enumeration
     re-grepped, migration, missing-entity surface), plan review, then build.
+- id: SONOFF-R4M-MULTICAST-AB-1
+  title: Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test
+  rank: {value: 7, time_criticality: 7, effort: 1}
+  status: waiting_me
+  updated: '2026-10-13 07:46'
+  thread: devices
+  created: 2026-10-13 07:46
+  problem: ~17 MINI R4M (SonoffLAN, mode auto) went 0 -> 30-300 unavailable/day from 10-06; only 1-3 of
+    17 reach local mode, rest ride eWeLink cloud. Onset = AP fw 8.8.9 -> 8.8.11 on all 8 U7/U6 APs
+    10-06 10:53-10:58 (auto-update). MINI-2GS and 3rd Reality night lights unaffected (except Master
+    Toilet night light on old fw v1.00.51 — update it). Wi-Fi association stable (UniFi, 0 disconnects).
+  evidence: Smidg SSID has Multicast/Broadcast Control (bc_filter) ON with 13-device allowlist + multicast
+    enhancement + suppressor "aggressive"; no Sonoff on the allowlist. SonoffLAN local mode needs mDNS.
+  next: 'ME at 2026-10-14 ~07:46 CDT: per-day unavailable counts (scratchpad sonoff_drops.py) TEST group
+    (54:32:04:8e:09:f4 MasterBath Toilet 1002192efa, 54:32:04:90:35:04 Master Closet Bath Fan,
+    64:e8:33:87:d0:28 Living Room 1002199676) vs CONTROL (all other R4M), plus SonoffLAN local:true per
+    device. Test ~0 + local while control stays bad -> confirmed: add all Sonoffs to allowlist / relax
+    suppressor (Homelab). No difference -> hypothesis out; next = AP fw rollback test (operator said not
+    yet) or SonoffLAN static hosts. Rollback snapshot (homelab): configs/snapshots/udm-beast/wlan-smidg-2026-10-13-pre-sonoff-bcfilter-test.json.'
+- id: EC-OPTIONS-CLEAR-FIELD-NOOP-1
+  title: Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options)
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  status: inbox
+  updated: '2026-10-13 12:00'
+  thread: energy
+  created: 2026-10-13 12:00
+  problem: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity
+    field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327);
+    its Repairs text no longer says "leave blank". Adjacent - V5_37_1 clear-sensor-fields precedent
+    (test_v5_37_1_clear_sensor_fields) for room options; reuse that pattern.
+  next: Plan - apply the room clear-field pattern to the EC entity fields; test that clear removes the key.
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
