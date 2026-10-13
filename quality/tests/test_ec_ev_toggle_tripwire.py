@@ -62,9 +62,20 @@ def _live_ec():
     )
 
 
-def _live_dt_util():
-    """The dt_util module object the verifier's code uses (its own global)."""
-    return _wv.dt_util
+def _pin_local_tz(monkeypatch, tz):
+    """Make the verifier's own ``dt_util`` global convert to ``tz``.
+
+    In full-suite order ``_wv.dt_util`` can be a sibling file's stub of
+    ``homeassistant.util.dt`` with no DEFAULT_TIME_ZONE, so patching that
+    attribute fails. Replace the verifier's global with a minimal shim
+    covering exactly what the bound methods call (as_local, utcnow).
+    monkeypatch restores the original after the test.
+    """
+    shim = _types.SimpleNamespace(
+        as_local=lambda d: d.astimezone(tz),
+        utcnow=lambda: datetime.now(timezone.utc),
+    )
+    monkeypatch.setattr(_wv, "dt_util", shim)
 
 
 # ----- helpers -------------------------------------------------------------
@@ -210,7 +221,7 @@ def test_d_next_day_resets_latch(monkeypatch):
     12:00 LOCAL — the 24h gap evicts day-1 stamps via the rolling
     window and the local-day latch rolls to a new key naturally."""
     tz = zoneinfo.ZoneInfo("America/Chicago")
-    monkeypatch.setattr(_live_dt_util(), "DEFAULT_TIME_ZONE", tz)
+    _pin_local_tz(monkeypatch, tz)
     db = _StubDatabase()
     hass = _Hass(database=db)
     nm: list = []
@@ -244,7 +255,7 @@ def test_d2_late_local_night_then_next_local_morning_fires_nm(monkeypatch):
     UTC date 10-06 (would have suppressed NM under the old UTC latch)
     but LOCAL dates 10-05 and 10-06 (so NM must fire on day 2)."""
     tz = zoneinfo.ZoneInfo("America/Chicago")
-    monkeypatch.setattr(_live_dt_util(), "DEFAULT_TIME_ZONE", tz)
+    _pin_local_tz(monkeypatch, tz)
     db = _StubDatabase()
     hass = _Hass(database=db)
     nm: list = []
