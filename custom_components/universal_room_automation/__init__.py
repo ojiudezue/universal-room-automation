@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -782,6 +783,217 @@ async def _migrate_hvac_zone_entry_dwell_to_zero(
     new_options[DONE_KEY] = True
     hass.config_entries.async_update_entry(cm_entry, options=new_options)
     return changed
+
+
+EC_DEFAULTS_PINNED_FLAG: str = "_ec_defaults_pinned"
+EC_DEFAULTS_PINNED_VERSION_FLAG: str = "_ec_defaults_pinned_version"
+EC_DEFAULTS_PINNED_AT_FLAG: str = "_ec_defaults_pinned_at"
+EC_DEFAULTS_PINNED_VERSION: str = "ec-house-entity-defaults-1-rev5"
+
+
+async def _bootstrap_pin_ec_defaults_once(
+    hass: HomeAssistant, cm_entry: ConfigEntry,
+) -> bool:
+    """EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13) — one-shot pin.
+
+    Rev 5 removes the house-specific entity_id DEFAULT_* literals from
+    ``energy_const.py`` / ``energy_pool.py`` / ``energy_circuits.py``. To
+    preserve byte-identity on THIS house, we copy the OLD defaults into
+    the Coordinator Manager entry's options exactly once — but ONLY for
+    role-keys that are (a) absent from ``data | options`` AND (b) whose
+    old-default entity_id is still registered in the HA entity registry.
+    On a 2nd install the registry check fails and no pin happens — the
+    operator picks real entities instead (satisfies G1).
+
+    Reload-safe: ALL writes land in one ``async_update_entry`` call and
+    every key the migration can touch (including the three bookkeeping
+    flags) sits in ``OPTIONS_RELOAD_SUPPRESS_KEYS`` so the CM is not
+    reloaded by the write. Idempotent via ``EC_DEFAULTS_PINNED_FLAG``.
+
+    Returns True if the migration wrote anything (first run on this
+    install), False otherwise.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from .domain_coordinators.energy_const import (
+        EC_ROLE_KEY_DEFAULTS,
+    )
+
+    try:
+        if cm_entry.options.get(EC_DEFAULTS_PINNED_FLAG):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+
+    data = cm_entry.data or {}
+    options = cm_entry.options or {}
+    new_options = dict(options)
+    pinned: list[tuple[str, Any]] = []  # noqa: F821 - runtime typing
+
+    try:
+        registry = er.async_get(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: entity registry unavailable; "
+            "deferring migration — will retry next setup",
+            exc_info=True,
+        )
+        return False
+
+    for key, old_default in EC_ROLE_KEY_DEFAULTS.items():
+        if key in data or key in options:
+            continue  # already set — never overwrite operator config
+        if old_default is None:
+            continue
+        if isinstance(old_default, list):
+            # List-shaped role (L1 chargers). Pin only the subset that
+            # resolves in the live registry. If NONE resolve, skip entirely
+            # so a 2nd install sees an empty configurable field.
+            resolved: list[str] = []
+            for eid in old_default:
+                if eid and registry.async_get(eid) is not None:
+                    resolved.append(eid)
+            if resolved:
+                new_options[key] = resolved
+                pinned.append((key, resolved))
+            continue
+        # Scalar entity_id role.
+        if registry.async_get(old_default) is None:
+            continue  # 2nd install: entity absent → operator must configure
+        new_options[key] = old_default
+        pinned.append((key, old_default))
+
+    # Always stamp the flag so this migration doesn't re-scan every setup.
+    new_options[EC_DEFAULTS_PINNED_FLAG] = True
+    new_options[EC_DEFAULTS_PINNED_VERSION_FLAG] = EC_DEFAULTS_PINNED_VERSION
+    try:
+        new_options[EC_DEFAULTS_PINNED_AT_FLAG] = dt_util.utcnow().isoformat()
+    except Exception:  # noqa: BLE001
+        new_options[EC_DEFAULTS_PINNED_AT_FLAG] = ""
+
+    hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    if pinned:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: wrote %d role-key defaults into "
+            "CM options (reload-safe via OPTIONS_RELOAD_SUPPRESS_KEYS). Keys: %s",
+            len(pinned), [k for k, _ in pinned],
+        )
+    else:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: no role-key defaults needed "
+            "pinning (all already-configured or absent from registry)."
+        )
+    return True
+
+
+_EC_ROLE_SCAN_ISSUE_PREFIX: str = "ec_role_entity_"
+
+
+@callback
+def _scan_ec_role_entities(
+    hass: HomeAssistant, cm_entry: ConfigEntry,
+) -> None:
+    """EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5) — repair-issue scanner.
+
+    For each role-key in ``EC_ROLE_KEY_SET`` that is CONFIGURED on this
+    CM entry, check that every referenced entity_id is (a) present in the
+    entity registry and (b) not in ``unavailable`` state. Any violation
+    fires a WARNING repair issue naming the key and entity; recovery
+    deletes the issue. Runs once at setup and hourly thereafter via the
+    existing ``async_track_time_interval`` scheduling at CM setup. No new
+    sensor, no state machine, no grace-ticks debounce — the hourly rescan
+    IS the discharge (suppression-needs-discharge rule).
+    """
+    from homeassistant.helpers import (
+        entity_registry as er,
+        issue_registry as ir,
+    )
+    from .domain_coordinators.energy_const import EC_ROLE_KEY_SET
+
+    try:
+        registry = er.async_get(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("ec role-entity scan: registry unavailable", exc_info=True)
+        return
+
+    merged = {**(cm_entry.data or {}), **(cm_entry.options or {})}
+    seen_problem_issue_ids: set[str] = set()
+
+    for key in EC_ROLE_KEY_SET:
+        value = merged.get(key)
+        if value is None:
+            continue
+        entities: list[str] = (
+            [e for e in value if e]
+            if isinstance(value, list) else ([value] if value else [])
+        )
+        if not entities:
+            continue
+
+        issue_id = f"{_EC_ROLE_SCAN_ISSUE_PREFIX}{key}"
+        problem: str | None = None
+        offending: str | None = None
+        for eid in entities:
+            try:
+                reg_entry = registry.async_get(eid)
+            except Exception:  # noqa: BLE001
+                reg_entry = None
+            if reg_entry is None:
+                problem = "not_in_registry"
+                offending = eid
+                break
+            try:
+                state = hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                state = None
+            if state is None or state.state == "unavailable":
+                problem = "unavailable"
+                offending = eid
+                break
+
+        if problem is None:
+            # Healthy — clear any prior issue.
+            try:
+                ir.async_delete_issue(hass, DOMAIN, issue_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "ec role-entity scan: delete_issue failed for %s",
+                    issue_id, exc_info=True,
+                )
+            continue
+
+        seen_problem_issue_ids.add(issue_id)
+        try:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="ec_role_entity_broken",
+                translation_placeholders={
+                    "key": key,
+                    "entity_id": offending or "",
+                    "problem": problem,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ec role-entity scan: create_issue failed for %s",
+                issue_id, exc_info=True,
+            )
+
+    if seen_problem_issue_ids:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 role-entity scan: %d configured "
+            "entity reference(s) are missing or unavailable — see Repairs. "
+            "Issue ids: %s",
+            len(seen_problem_issue_ids), sorted(seen_problem_issue_ids),
+        )
+    else:
+        _LOGGER.debug(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 role-entity scan: all configured "
+            "role-key entities resolve (nothing to flag)."
+        )
 
 
 async def _migrate_arbitrage_target_to_peak_buffer(
@@ -3334,6 +3546,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
                         cm_entry = ce
                         break
+
+                # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): one-shot
+                # pin of the old house-specific DEFAULT_* entity ids into
+                # THIS CM entry's options. Must run BEFORE cm_config is
+                # built so EnergyCoordinator reads the pinned values on
+                # first construction. Reload-safe (all keys in
+                # OPTIONS_RELOAD_SUPPRESS_KEYS); idempotent via
+                # _ec_defaults_pinned flag.
+                if cm_entry is not None:
+                    try:
+                        await _bootstrap_pin_ec_defaults_once(hass, cm_entry)
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.error(
+                            "EC-HOUSE-ENTITY-DEFAULTS-1 pin migration "
+                            "failed (non-fatal): %s", e,
+                        )
+
+                    # Setup-time repair-issue scan + hourly rescan (D-5.4).
+                    try:
+                        _scan_ec_role_entities(hass, cm_entry)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "EC-HOUSE-ENTITY-DEFAULTS-1 initial role-entity "
+                            "scan failed (non-fatal)", exc_info=True,
+                        )
+                    _ec_scan_cm_entry = cm_entry
+
+                    @callback
+                    def _ec_role_scan_tick(_now):
+                        try:
+                            _scan_ec_role_entities(hass, _ec_scan_cm_entry)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "EC-HOUSE-ENTITY-DEFAULTS-1 hourly "
+                                "role-entity scan failed (non-fatal)",
+                                exc_info=True,
+                            )
+
+                    _unsub_ec_role_scan = async_track_time_interval(
+                        hass, _ec_role_scan_tick, timedelta(hours=1),
+                    )
+                    cm_entry.async_on_unload(_unsub_ec_role_scan)
 
                 # v4.5.0 D2: Migrate arbitrage_target → peak_buffer_target and
                 # drop the now-removed arbitrage_trigger key. Idempotent —
@@ -7101,6 +7359,14 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     CONF_APPLIANCE_RECORDS,
 })
 
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13) — role-key set the one-shot
+# pin migration can write. Imported here so OPTIONS_RELOAD_SUPPRESS_KEYS can
+# splat it (avoids a module-load-order cycle with energy_const.py).
+from .domain_coordinators.energy_const import (
+    EC_ROLE_KEY_SET as _EC_ROLE_KEY_SET_FOR_SUPPRESS,
+)
+
+
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # v4.7.26 (Cycle 1) — HVAC presence timers + DPM dwell
     _CONF_HVAC_VACANCY_GRACE_MINUTES,
@@ -7225,6 +7491,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # NM Cycle C — options-flow-authored keys; NM re-reads via
     # `_refresh_config`. No CM reload needed.
     *_NM_C_KEYS,
+    # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13). The one-shot pin
+    # migration (`_bootstrap_pin_ec_defaults_once`) writes role-key defaults
+    # plus bookkeeping flags into CM options at setup. The write must NOT
+    # trigger a CM reload (reload-watchdog hazard). All keys the migration
+    # can touch — the role-key set itself + the three bookkeeping flags —
+    # are allowlisted here. Expanded via `*EC_ROLE_KEY_SET`.
+    *_EC_ROLE_KEY_SET_FOR_SUPPRESS,
+    EC_DEFAULTS_PINNED_FLAG,
+    EC_DEFAULTS_PINNED_VERSION_FLAG,
+    EC_DEFAULTS_PINNED_AT_FLAG,
     # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. Iterative
     # onboarding saves (add / edit / remove one record at a time) must
     # NOT trigger a full CM reload (the reload-watchdog hazard on the

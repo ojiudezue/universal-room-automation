@@ -51,7 +51,9 @@ GEN_OFF = "off"
 GEN_UNAVAILABLE = "unavailable"
 
 # Default generator entity
-DEFAULT_GENERATOR_STATUS_ENTITY = "sensor.generac_2325624_status_2"
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): house-specific default removed. Name
+# preserved; value None. Phalanx is unaffected via options-pin migration.
+DEFAULT_GENERATOR_STATUS_ENTITY = None
 
 
 class CircuitInfo:
@@ -444,6 +446,10 @@ class GeneratorMonitor:
     @property
     def status(self) -> str:
         """Current generator status."""
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): None-safe. Default is now None
+        # on a 2nd install; treat as "no generator configured → unavailable".
+        if not self._status_entity:
+            return GEN_UNAVAILABLE
         state = self.hass.states.get(self._status_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return GEN_UNAVAILABLE

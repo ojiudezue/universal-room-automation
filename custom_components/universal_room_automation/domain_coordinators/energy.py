@@ -338,7 +338,11 @@ class EnergyCoordinator(BaseCoordinator):
         # is not yet set up. At runtime, _get_active_weather_entity() resolves via
         # the manager first, falling back here. See A4 migration note.
         from .energy_const import DEFAULT_WEATHER_ENTITY
-        self._weather_entity: str = ec.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): default now None on 2nd install.
+        # Phalanx pins its weather entity into options at setup.
+        self._weather_entity: str | None = ec.get(
+            CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY,
+        )
 
         # v3.11.0: Excess solar EVSE config
         self._excess_solar_enabled: bool = ec.get(CONF_ENERGY_EXCESS_SOLAR_ENABLED, False)
@@ -11574,9 +11578,18 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def l1_charger_active(self) -> bool:
-        """Whether any L1 charger socket is on (Moes plug, switch-only)."""
-        from .energy_const import DEFAULT_L1_CHARGER_ENTITIES
-        for entity_id in DEFAULT_L1_CHARGER_ENTITIES:
+        """Whether any L1 charger socket is on (Moes plug, switch-only).
+
+        EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): reads the CONFIGURED
+        L1 plug list off the SmartPlugController (sourced from
+        CONF_ENERGY_L1_CHARGER_ENTITIES at setup) instead of the former
+        module-level DEFAULT_L1_CHARGER_ENTITIES literal. On a 2nd install
+        with no plugs configured, the list is empty and this returns False.
+        """
+        plugs = getattr(self._smart_plugs, "_plugs", None) or []
+        for entity_id in plugs:
+            if not entity_id:
+                continue
             state = self.hass.states.get(entity_id)
             if state is not None and state.state == "on":
                 return True

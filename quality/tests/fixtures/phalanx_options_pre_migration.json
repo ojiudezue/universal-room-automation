@@ -1,0 +1,20 @@
+{
+  "_comment": "EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13). Snapshot of the role-key subset of Phalanx's live CM options blob, captured from .storage/core.config_entries entry 01KJEC3FYPYAGBQKZWC94CR8GR via Samba mount on 2026-10-13. Only role-key options (entity_ids) are included; redaction is unnecessary — all values are entity_ids, no secrets. Used by test_bootstrap_pins_phalanx_shape_options_byte_identical to prove G3 (per-key byte-identity).",
+  "energy_envoy_entity": "sensor.envoy_482543015950_current_power_production",
+  "energy_solcast_today_entity": "sensor.solcast_pv_forecast_forecast_today",
+  "energy_solcast_tomorrow_entity": "sensor.solcast_pv_forecast_forecast_tomorrow",
+  "energy_solcast_remaining_entity": "sensor.solcast_pv_forecast_forecast_remaining_today",
+  "energy_solcast_day_3_entity": "sensor.solcast_pv_forecast_forecast_day_3",
+  "energy_weather_entity": "weather.phalanxmadrone",
+  "energy_evse_a_entity": "sensor.garage_a_power_minute_average",
+  "energy_evse_b_entity": "sensor.garage_b_power_minute_average",
+  "energy_l1_charger_entities": [
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_2"
+  ],
+  "energy_cloud_reserve_oracle_entity": "number.iq_battery_hacs_battery_reserve",
+  "energy_cloud_charge_from_grid_oracle_entity": "switch.iq_battery_hacs_charge_battery_from_grid",
+  "energy_cloud_storage_mode_oracle_entity": "select.iq_gateway_hacs_system_profile",
+  "energy_cloud_battery_soc_fallback_entity": "sensor.iq_battery_hacs_battery_overall_charge",
+  "energy_generator_entity": "sensor.generac_2325624_status_2"
+}

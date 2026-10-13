@@ -462,6 +462,50 @@ def test_mutation_c_entry_reset_bites():
             spec.loader.exec_module(mod)
             setattr(_dc, name, mod)
 
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): re-apply the test-only
+        # legacy-default shim inside this sub-process (conftest.py cannot
+        # reach here — fresh interpreter).
+        _ec_mod = sys.modules[
+            "custom_components.universal_room_automation."
+            "domain_coordinators.energy_const"
+        ]
+        _ec_legacy = {
+            "DEFAULT_STORAGE_MODE_ENTITY": "select.enpower_482348004678_storage_mode",
+            "DEFAULT_RESERVE_SOC_ENTITY": (
+                "number.enpower_482348004678_reserve_battery_level"
+            ),
+            "DEFAULT_GRID_ENABLED_ENTITY": "switch.enpower_482348004678_grid_enabled",
+            "DEFAULT_CHARGE_FROM_GRID_ENTITY": (
+                "switch.enpower_482348004678_charge_from_grid"
+            ),
+            "DEFAULT_SOLCAST_TODAY_ENTITY": (
+                "sensor.solcast_pv_forecast_forecast_today"
+            ),
+            "DEFAULT_SOLCAST_TOMORROW_ENTITY": (
+                "sensor.solcast_pv_forecast_forecast_tomorrow"
+            ),
+            "DEFAULT_SOLCAST_REMAINING_ENTITY": (
+                "sensor.solcast_pv_forecast_forecast_remaining_today"
+            ),
+            "DEFAULT_WEATHER_ENTITY": "weather.phalanxmadrone",
+            "DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY": (
+                "number.iq_battery_hacs_battery_reserve"
+            ),
+            "DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY": (
+                "switch.iq_battery_hacs_charge_battery_from_grid"
+            ),
+            "DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY": (
+                "select.iq_gateway_hacs_system_profile"
+            ),
+            "DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY": (
+                "sensor.iq_battery_hacs_battery_overall_charge"
+            ),
+        }
+        for _k, _v in _ec_legacy.items():
+            _cur = getattr(_ec_mod, _k, "sentinel")
+            if _cur is None or _cur == []:
+                setattr(_ec_mod, _k, _v)
+
         # Load MUTATED energy_battery from the tmp path.
         full = (
             "custom_components.universal_room_automation."

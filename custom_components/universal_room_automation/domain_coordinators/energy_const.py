@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Final
+from typing import Any, Final
 
 # ============================================================================
 # PEC TOU Rate Table (2026 Interconnect Time-of-Use)
@@ -231,36 +231,36 @@ BATTERY_MODE_BACKUP: Final = "backup"
 #   DEFAULT_NET_POWER_ENTITY, DEFAULT_LIFETIME_*_ENTITY (×6),
 #   DEFAULT_BATTERY_CAPACITY_ENTITY, DEFAULT_CONSUMPTION_TODAY_ENTITY.
 
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): house-specific entity-id
+# literals removed. Names preserved so callers don't break; values are now
+# None / []. On this house, the one-shot pin migration in __init__.py copies
+# today's resolved values into options at setup, so behaviour is byte-identical.
+# On a 2nd install, options stay empty and operators pick real entities.
 # Enpower control entities
-DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
-DEFAULT_RESERVE_SOC_ENTITY: Final = "number.enpower_482348004678_reserve_battery_level"
-DEFAULT_GRID_ENABLED_ENTITY: Final = "switch.enpower_482348004678_grid_enabled"
-DEFAULT_CHARGE_FROM_GRID_ENTITY: Final = "switch.enpower_482348004678_charge_from_grid"
+DEFAULT_STORAGE_MODE_ENTITY: Final = None
+DEFAULT_RESERVE_SOC_ENTITY: Final = None
+DEFAULT_GRID_ENABLED_ENTITY: Final = None
+DEFAULT_CHARGE_FROM_GRID_ENTITY: Final = None
 
 # Solcast forecast
-DEFAULT_SOLCAST_TODAY_ENTITY: Final = "sensor.solcast_pv_forecast_forecast_today"
-DEFAULT_SOLCAST_TOMORROW_ENTITY: Final = "sensor.solcast_pv_forecast_forecast_tomorrow"
-DEFAULT_SOLCAST_REMAINING_ENTITY: Final = "sensor.solcast_pv_forecast_forecast_remaining_today"
-DEFAULT_SOLCAST_PEAK_ENTITY: Final = "sensor.solcast_pv_forecast_peak_forecast_today"
-DEFAULT_SOLCAST_PEAK_TIME_ENTITY: Final = "sensor.solcast_pv_forecast_peak_time_today"
+DEFAULT_SOLCAST_TODAY_ENTITY: Final = None
+DEFAULT_SOLCAST_TOMORROW_ENTITY: Final = None
+DEFAULT_SOLCAST_REMAINING_ENTITY: Final = None
+DEFAULT_SOLCAST_PEAK_ENTITY: Final = None
+DEFAULT_SOLCAST_PEAK_TIME_ENTITY: Final = None
 
 # Weather
-DEFAULT_WEATHER_ENTITY: Final = "weather.phalanxmadrone"
+DEFAULT_WEATHER_ENTITY: Final = None
 # v4.7.x Cycle A: WeatherProviderManager — ranked-list provider with failover
 DEFAULT_WEATHER_STALENESS_MAX_HOURS: Final = 6
 DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F: Final = 5.0
 
 # EVSE (Emporia WiFi chargers)
-DEFAULT_EVSE_GARAGE_A_POWER_ENTITY: Final = "sensor.garage_a_power_minute_average"
-DEFAULT_EVSE_GARAGE_B_POWER_ENTITY: Final = "sensor.garage_b_power_minute_average"
+DEFAULT_EVSE_GARAGE_A_POWER_ENTITY: Final = None
+DEFAULT_EVSE_GARAGE_B_POWER_ENTITY: Final = None
 
 # Monitored plugs (L1 charger — switch-only, no power sensor)
-DEFAULT_L1_CHARGER_ENTITIES: Final = [
-    "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
-    "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
-    "switch.smartplug_moes_wifi_garagealeftfront_socket_3",
-    "switch.smartplug_moes_wifi_garagealeftfront_socket_4",
-]
+DEFAULT_L1_CHARGER_ENTITIES: Final = []
 
 # TOU rate file path
 DEFAULT_TOU_RATE_FILE: Final = "universal_room_automation/tou_rates.json"
@@ -302,16 +302,10 @@ CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY: Final = (
 CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: Final = (
     "energy_cloud_battery_soc_fallback_entity"
 )
-DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY: Final = "number.iq_battery_hacs_battery_reserve"
-DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: Final = (
-    "switch.iq_battery_hacs_charge_battery_from_grid"
-)
-DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY: Final = (
-    "select.iq_gateway_hacs_system_profile"
-)
-DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: Final = (
-    "sensor.iq_battery_hacs_battery_overall_charge"
-)
+DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY: Final = None
+DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: Final = None
+DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY: Final = None
+DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: Final = None
 DEFAULT_WRITE_VERIFY_WINDOW_S: Final = 900
 MIN_WRITE_VERIFY_WINDOW_S: Final = 300
 MAX_WRITE_VERIFY_WINDOW_S: Final = 1800
@@ -569,9 +563,7 @@ DEFAULT_CFG_OFF_READ_MAX_AGE_S: Final = 300
 # this first; when the entity does not exist on this install it falls back
 # to the settings-entity age (multi-home). House-specific default, same
 # posture as the DEFAULT_CLOUD_* oracles. Probe P3 confirmed the id live.
-DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = (
-    "sensor.enphase_cloud_last_successful_update"
-)
+DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = None
 
 # Review B MED / D-MED-4 — a persisted charge-from-grid command-ledger
 # entry (`wv_commanded_ledger`) whose `commanded_at` is older than this is
@@ -1010,9 +1002,7 @@ CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED: Final = (
 ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK: Final = 2
 # v4.5.0 D3: multi-day Solcast lookback (D+2 awareness). Default OFF
 # during calibration cycle per Open Question #3.
-DEFAULT_SOLCAST_DAY_3_ENTITY: Final = (
-    "sensor.solcast_pv_forecast_forecast_day_3"
-)
+DEFAULT_SOLCAST_DAY_3_ENTITY: Final = None
 CONF_ENERGY_SOLCAST_DAY_3_ENTITY: Final = "energy_solcast_day_3_entity"
 CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED: Final = "energy_multi_day_horizon_enabled"
 
@@ -1204,8 +1194,8 @@ SOLAR_FOLLOW_IDLE_DERESERVE_TICKS: Final[int] = 10
 # Grid entities for solar-follow (deliberately NOT reusing CONF_ENERGY_GRID_IMPORT_ENTITY).
 CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY: Final = "energy_solar_follow_grid_entity"
 CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "energy_solar_follow_grid_fallback_entity"
-DEFAULT_SOLAR_FOLLOW_GRID_ENTITY: Final = "sensor.mains_vue_3_power_minute_average"
-DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "sensor.envoy_482543015950_current_net_power_consumption"
+DEFAULT_SOLAR_FOLLOW_GRID_ENTITY: Final = None
+DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = None
 
 # CF-10 fix-up: the operator knob (rung 3) also lives here as a CONF key so
 # EnergyCoordinator can read the options value at __init__ time, making the
@@ -2094,3 +2084,84 @@ def solar_upper_bounds(
         return (lo, hi, tier)
 
     return _bounds
+
+
+# ============================================================================
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13)
+# ----------------------------------------------------------------------------
+# EC_ROLE_KEY_DEFAULTS maps each role-named CONF option key → the entity_id
+# (or list) that used to live as a DEFAULT_* literal in this module. On this
+# house (Phalanx), setup runs a one-shot "pin today's resolved values into
+# options" migration (``_bootstrap_pin_ec_defaults_once`` in __init__.py)
+# which copies the OLD default into THIS house's options IFF the key is
+# unset AND the entity still exists in the registry. The module-level
+# DEFAULT_* constants are now None/[]; the migration preserves G3
+# byte-identity on existing installs while a 2nd install sees empty fields
+# and is forced to configure real entities (satisfies G1 + G2).
+# ============================================================================
+EC_ROLE_KEY_DEFAULTS: Final[dict[str, Any]] = {
+    # Enpower control (local writes)
+    CONF_ENERGY_STORAGE_MODE_ENTITY: "select.enpower_482348004678_storage_mode",
+    CONF_ENERGY_RESERVE_SOC_ENTITY: (
+        "number.enpower_482348004678_reserve_battery_level"
+    ),
+    CONF_ENERGY_GRID_ENABLED_ENTITY: (
+        "switch.enpower_482348004678_grid_enabled"
+    ),
+    CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: (
+        "switch.enpower_482348004678_charge_from_grid"
+    ),
+    # Solcast forecast
+    CONF_ENERGY_SOLCAST_TODAY_ENTITY: (
+        "sensor.solcast_pv_forecast_forecast_today"
+    ),
+    CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: (
+        "sensor.solcast_pv_forecast_forecast_tomorrow"
+    ),
+    CONF_ENERGY_SOLCAST_REMAINING_ENTITY: (
+        "sensor.solcast_pv_forecast_forecast_remaining_today"
+    ),
+    CONF_ENERGY_SOLCAST_DAY_3_ENTITY: (
+        "sensor.solcast_pv_forecast_forecast_day_3"
+    ),
+    # Weather
+    CONF_ENERGY_WEATHER_ENTITY: "weather.phalanxmadrone",
+    # EVSE power
+    CONF_ENERGY_EVSE_A_ENTITY: "sensor.garage_a_power_minute_average",
+    CONF_ENERGY_EVSE_B_ENTITY: "sensor.garage_b_power_minute_average",
+    # L1 chargers (list)
+    CONF_ENERGY_L1_CHARGER_ENTITIES: [
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_3",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_4",
+    ],
+    # Cloud oracles (read-back / fallback)
+    CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY: (
+        "number.iq_battery_hacs_battery_reserve"
+    ),
+    CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY: (
+        "switch.iq_battery_hacs_charge_battery_from_grid"
+    ),
+    CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY: (
+        "select.iq_gateway_hacs_system_profile"
+    ),
+    CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: (
+        "sensor.iq_battery_hacs_battery_overall_charge"
+    ),
+    # Solar-follow grid-power inputs
+    CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY: (
+        "sensor.mains_vue_3_power_minute_average"
+    ),
+    CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: (
+        "sensor.envoy_482543015950_current_net_power_consumption"
+    ),
+}
+
+
+# EC_ROLE_KEY_SET — the full set of role-key CONF names the migration pins
+# AND that the setup/hourly repair-issue scanner inspects. Keep aligned
+# with ``EC_ROLE_KEY_DEFAULTS``; additions here must be reload-safe (see
+# ``OPTIONS_RELOAD_SUPPRESS_KEYS`` in __init__.py).
+EC_ROLE_KEY_SET: Final[frozenset[str]] = frozenset(EC_ROLE_KEY_DEFAULTS)
+

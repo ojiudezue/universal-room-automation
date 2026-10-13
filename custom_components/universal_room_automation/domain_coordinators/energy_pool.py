@@ -39,13 +39,16 @@ _LOGGER = logging.getLogger(__name__)
 # ============================================================================
 
 # Default Pentair entities (confirmed via HA)
-DEFAULT_POOL_VSF_SPEED_ENTITY = "number.pentair_pool_variable_speed_pump_1_speed"
-DEFAULT_SPA_VSF_SPEED_ENTITY = "number.pentair_spa_variable_speed_pump_1_speed"
-DEFAULT_POOL_PUMP_POWER_ENTITY = "sensor.pentair_pool_variable_speed_pump_1_power"
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): house-specific defaults removed. Names
+# preserved; values None so a 2nd install doesn't silently target Phalanx's
+# Pentair entities. Phalanx is unaffected via options-pin migration.
+DEFAULT_POOL_VSF_SPEED_ENTITY = None
+DEFAULT_SPA_VSF_SPEED_ENTITY = None
+DEFAULT_POOL_PUMP_POWER_ENTITY = None
 
 # Pentair circuit switches for load shedding (stubbed)
-DEFAULT_POOL_INFINITY_EDGE_ENTITY = "switch.pentair_feature_7"
-DEFAULT_POOL_HEATER_ENTITY = "switch.pentair_heater_solar_preferred"
+DEFAULT_POOL_INFINITY_EDGE_ENTITY = None
+DEFAULT_POOL_HEATER_ENTITY = None
 
 # evse-charge-onset Rev 6 — bounded hold window. See
 # `ONSET_MAX_HOLD_H` in energy_const.py for the semantics + rationale.
@@ -364,6 +367,9 @@ class PoolOptimizer:
     @property
     def current_speed(self) -> float | None:
         """Current VSF pump speed."""
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): None-safe for 2nd install.
+        if not self._speed_entity:
+            return None
         state = self.hass.states.get(self._speed_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
@@ -375,6 +381,8 @@ class PoolOptimizer:
     @property
     def current_power(self) -> float | None:
         """Current pump power consumption in watts."""
+        if not self._power_entity:
+            return None
         state = self.hass.states.get(self._power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None

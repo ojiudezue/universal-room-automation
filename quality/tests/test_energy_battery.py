@@ -108,8 +108,75 @@ _dc.__package__ = "custom_components.universal_room_automation.domain_coordinato
 sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
 _ura.domain_coordinators = _dc
 
-# Import energy_const, energy_tou (D8 — needed by D1's phase machine), energy_battery
-for _submod_name in ("energy_const", "energy_tou", "energy_battery"):
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): load energy_const FIRST,
+# then re-apply the test-only legacy-default shim BEFORE loading
+# energy_battery / energy_tou (which do `from .energy_const import
+# DEFAULT_X` at their module top and would otherwise bind the None /
+# empty-list values the Rev 5 edits leave in the source). Production
+# code reads from options, so this shim is test-only.
+_full_name = (
+    "custom_components.universal_room_automation.domain_coordinators.energy_const"
+)
+_spec = importlib.util.spec_from_file_location(
+    _full_name, os.path.join(_dc_path, "energy_const.py"),
+)
+_ec_mod = importlib.util.module_from_spec(_spec)
+sys.modules[_full_name] = _ec_mod
+_spec.loader.exec_module(_ec_mod)
+_dc.energy_const = _ec_mod
+
+_EC_TEST_LEGACY_DEFAULTS_LOCAL = {
+    "DEFAULT_STORAGE_MODE_ENTITY": "select.enpower_482348004678_storage_mode",
+    "DEFAULT_RESERVE_SOC_ENTITY": (
+        "number.enpower_482348004678_reserve_battery_level"
+    ),
+    "DEFAULT_GRID_ENABLED_ENTITY": "switch.enpower_482348004678_grid_enabled",
+    "DEFAULT_CHARGE_FROM_GRID_ENTITY": (
+        "switch.enpower_482348004678_charge_from_grid"
+    ),
+    "DEFAULT_SOLCAST_TODAY_ENTITY": "sensor.solcast_pv_forecast_forecast_today",
+    "DEFAULT_SOLCAST_TOMORROW_ENTITY": (
+        "sensor.solcast_pv_forecast_forecast_tomorrow"
+    ),
+    "DEFAULT_SOLCAST_REMAINING_ENTITY": (
+        "sensor.solcast_pv_forecast_forecast_remaining_today"
+    ),
+    "DEFAULT_SOLCAST_DAY_3_ENTITY": (
+        "sensor.solcast_pv_forecast_forecast_day_3"
+    ),
+    "DEFAULT_WEATHER_ENTITY": "weather.phalanxmadrone",
+    "DEFAULT_EVSE_GARAGE_A_POWER_ENTITY": "sensor.garage_a_power_minute_average",
+    "DEFAULT_EVSE_GARAGE_B_POWER_ENTITY": "sensor.garage_b_power_minute_average",
+    "DEFAULT_L1_CHARGER_ENTITIES": [
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_3",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_4",
+    ],
+    "DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY": "number.iq_battery_hacs_battery_reserve",
+    "DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY": (
+        "switch.iq_battery_hacs_charge_battery_from_grid"
+    ),
+    "DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY": (
+        "select.iq_gateway_hacs_system_profile"
+    ),
+    "DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY": (
+        "sensor.iq_battery_hacs_battery_overall_charge"
+    ),
+    "DEFAULT_CLOUD_LAST_SUCCESS_ENTITY": (
+        "sensor.enphase_cloud_last_successful_update"
+    ),
+}
+for _k, _v in _EC_TEST_LEGACY_DEFAULTS_LOCAL.items():
+    _cur = getattr(_ec_mod, _k, "sentinel")
+    if _cur is None or _cur == []:
+        setattr(_ec_mod, _k, _v)
+del _k, _v, _cur, _EC_TEST_LEGACY_DEFAULTS_LOCAL
+
+# Now load the remaining submodules (energy_tou + energy_battery) — their
+# `from .energy_const import DEFAULT_X` top-level imports will bind the
+# shimmed string values.
+for _submod_name in ("energy_tou", "energy_battery"):
     _full_name = f"custom_components.universal_room_automation.domain_coordinators.{_submod_name}"
     _spec = importlib.util.spec_from_file_location(
         _full_name, os.path.join(_dc_path, f"{_submod_name}.py"),
@@ -129,13 +196,6 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
     BATTERY_MODE_SELF_CONSUMPTION,
     BATTERY_MODE_BACKUP,
     DEFAULT_RESERVE_SOC,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
@@ -143,6 +203,18 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
     DEFAULT_OFFPEAK_DRAIN_UNKNOWN,
     DEFAULT_ARBITRAGE_SOC_TARGET,
 )
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): the house-specific
+# entity-id DEFAULT_* literals in energy_const.py are now None/[]. These
+# tests exercise the live production path which, on this house, has these
+# entity_ids pinned into options at setup. Keep hardcoded fixtures here so
+# the behavioural tests stay deterministic; production reads from options.
+DEFAULT_RESERVE_SOC_ENTITY = "number.enpower_482348004678_reserve_battery_level"
+DEFAULT_STORAGE_MODE_ENTITY = "select.enpower_482348004678_storage_mode"
+DEFAULT_GRID_ENABLED_ENTITY = "switch.enpower_482348004678_grid_enabled"
+DEFAULT_CHARGE_FROM_GRID_ENTITY = "switch.enpower_482348004678_charge_from_grid"
+DEFAULT_SOLCAST_TODAY_ENTITY = "sensor.solcast_pv_forecast_forecast_today"
+DEFAULT_SOLCAST_TOMORROW_ENTITY = "sensor.solcast_pv_forecast_forecast_tomorrow"
+DEFAULT_WEATHER_ENTITY = "weather.phalanxmadrone"
 # v4.5.0 D2: legacy constant kept inline for tests that exercise the removed
 # trigger field's continued absence in the validator's optional path.
 DEFAULT_ARBITRAGE_SOC_TRIGGER = 20
@@ -2490,8 +2562,10 @@ class TestV5175BlindHoldGateRelax:
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
         # Wire the cloud fallback SOC entity (default entity id).
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
@@ -2621,8 +2695,10 @@ class TestV5175BlindPeakDeEscalation:
     def test_degraded_reason_suffix_on_fallback(self):
         """Reason carries `(degraded telemetry: cloud_fallback)` when a
         non-envoy tier serves SOC."""
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h = _BatteryHarness(soc=45)
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
@@ -2647,8 +2723,10 @@ class TestV5175BlindNoneSafeProceedingPath:
     """
 
     def test_none_solar_and_net_power_do_not_crash(self):
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h = _BatteryHarness(soc=45)
         # All primary Envoy sensors down; only cloud fallback SOC works.
@@ -2696,8 +2774,10 @@ class TestV5175DegradedEntryGuard:
             solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=arbitrage, with_tou_engine=True,
         )
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         # Envoy telemetry blind.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
@@ -2848,8 +2928,10 @@ class TestV5175CloudFallbackStaleness:
 
     def test_stale_cloud_fallback_returns_none_gate_engages_blind_hold(self):
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+        )
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h = _BatteryHarness(soc=80)
         # Primary + LKG both dead
@@ -2882,8 +2964,10 @@ class TestV5175CloudFallbackStaleness:
 
     def test_fresh_cloud_fallback_still_serves(self):
         """Anchor: fresh cloud reading proceeds as before."""
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         from homeassistant.util import dt as dt_util
         h = _BatteryHarness(soc=45)
@@ -3021,8 +3105,10 @@ class TestV5175FixUp4DHigh1GraceTickHoist:
             attributes={"unit_of_measurement": "W"},
         )
         h.strategy._arbitrage_grid_import_guard_kw = 12.0
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "15",
@@ -3118,8 +3204,10 @@ class TestV5175FixUp4DMed1OnHealSuppression:
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
@@ -3196,8 +3284,10 @@ class TestV5175FixUp4DMed1OnHealSuppression:
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
+        # hardcode the entity_id string for test determinism.
+        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
+            "sensor.iq_battery_hacs_battery_overall_charge"
         )
         h.hass.set_state(
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
