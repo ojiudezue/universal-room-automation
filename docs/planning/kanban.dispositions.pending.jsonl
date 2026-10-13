@@ -21,3 +21,5 @@
 {"action": "ack", "at": "2026-10-13T11:44:37.639Z", "card_id": "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-09T02:12:00"}
 {"action": "ack", "at": "2026-10-13T11:44:46.041Z", "card_id": "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-09T02:12:00"}
 {"action": "ack", "at": "2026-10-13T11:44:58.723Z", "card_id": "EC-DEGRADED-DATA-POLICY-1@2026-10-09T02:12:00"}
+{"action": "ack", "at": "2026-10-13T11:45:10.806Z", "card_id": "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-09T02:12:00"}
+{"action": "instruct", "at": "2026-10-13T11:45:42.889Z", "card_id": "RECORDER-BLOAT-LOGFLOOD-1", "text": "Didn't change anything"}
