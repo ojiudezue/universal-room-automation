@@ -4948,6 +4948,203 @@ def test_never_fires_teardown_flushes_pending_save(monkeypatch):
     assert coord._never_fires_dirty is False
 
 
+def test_never_fires_camera_record_survives_load_without_state(monkeypatch):
+    """Review B B1 — a camera record restored from the Store MUST
+    survive `_never_fires_async_load` even when the camera's
+    binary_sensor state has not been published yet (Frigate/Protect
+    load AFTER OC `async_setup`). Prune by CONFIGURED membership, not
+    by current state presence.
+
+    Mutation anchor: swapping prune back to `_watched_raw_sensors`
+    (the pre-B1 behavior) must drop the camera record and fail this
+    test.
+    """
+    from custom_components.universal_room_automation.const import (
+        CONF_MOTION_SENSORS, CONF_PERIMETER_CAMERAS, ENTRY_TYPE_ROOM,
+    )
+    # Include a motion-sensor room so `_watched_raw_sensors()` returns
+    # a non-empty mapping; this ensures the prune block actually
+    # executes (so a non-member camera eid would be dropped) and lets
+    # the B1 mutation drill discriminate.
+    hass = _nf_hass([{CONF_MOTION_SENSORS: ["binary_sensor.m1"]}])
+    hass.states.set("binary_sensor.m1", "off")
+    pe = _MockEntry(
+        "cam_entry", ENTRY_TYPE_ROOM,
+        data={"room_name": "exterior", "entry_type": ENTRY_TYPE_ROOM},
+        options={CONF_PERIMETER_CAMERAS: ["camera.pool_equipment"]},
+    )
+    hass.config_entries._entries.append(pe)
+    # Deliberately do NOT set binary_sensor.pool_equipment_person_occupancy_2
+    # in hass.states — simulates Frigate not having loaded yet.
+    coord = _nf_coord(hass, monkeypatch, registry_map={
+        "binary_sensor.m1": _NFRegEntry(platform="zha"),
+    })
+
+    stored = {
+        "binary_sensor.pool_equipment_person_occupancy_2": _nf_record(
+            "2026-09-01T00:00:00", None, 0,
+        ),
+    }
+
+    class _FakeStore:
+        def __init__(self, *_a, **_kw):
+            pass
+
+        async def async_load(self):
+            return stored
+
+        async def async_save(self, _data):
+            pass
+
+        def async_delay_save(self, _p, _d):
+            pass
+
+    import homeassistant.helpers.storage as _storage
+    monkeypatch.setattr(_storage, "Store", _FakeStore)
+
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        loop.run_until_complete(coord._never_fires_async_load())
+    finally:
+        loop.close()
+
+    assert (
+        "binary_sensor.pool_equipment_person_occupancy_2"
+        in coord._never_fires_state
+    ), (
+        "camera record restored from Store must survive load even "
+        "when camera state not yet published (B1 regression)"
+    )
+    # first_seen is the stored value — not refreshed to now.
+    assert coord._never_fires_state[
+        "binary_sensor.pool_equipment_person_occupancy_2"
+    ]["first_seen"] == "2026-09-01T00:00:00"
+
+
+def test_never_fires_unavail_at_boot_accrues_time(monkeypatch):
+    """Review B B2 — a sensor already `unavailable` at subscribe time
+    gets `_never_fires_last_unavail_at` stamped by the bootstrap, so
+    the eventual rejoin accrues post-subscribe downtime into
+    `unavailable_s`. Without the bootstrap, the rejoin would not
+    accrue anything and a long outage would produce a false finding.
+
+    Mutation anchor: short-circuit `_never_fires_bootstrap_unavail_clock`
+    to a no-op and this test must fail (no stamp, no accrual).
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+    # Sensor is unavailable right now (as it would be at post-restart
+    # subscribe time during a multi-day outage).
+    hass.states.set("binary_sensor.m1", "unavailable")
+
+    # Spy to let resubscribe actually install the listener callback
+    # (so a later transition flows through the listener).
+    captured = {}
+
+    def _fake_track(_h, eids, cb):
+        captured["cb"] = cb
+        captured["eids"] = set(eids)
+        return MagicMock(name="unsub")
+
+    monkeypatch.setattr(
+        opt_mod, "async_track_state_change_event", _fake_track,
+    )
+
+    coord._configured_watched_eids = lambda: {"binary_sensor.m1"}
+    coord._watched_raw_sensors = lambda: {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    }
+    coord._never_fires_resubscribe()
+
+    assert "binary_sensor.m1" in coord._never_fires_last_unavail_at, (
+        "bootstrap must stamp the unavail clock for an already-"
+        "unavailable eid at subscribe time (B2 regression)"
+    )
+    stamp = coord._never_fires_last_unavail_at["binary_sensor.m1"]
+
+    # Simulate the eventual rejoin: fast-forward dt_util.utcnow by 1h
+    # and deliver a transition from unavailable -> off through the
+    # live listener callback.
+    from datetime import timedelta as _td
+    later = stamp + _td(seconds=3600)
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: later)
+
+    # Prime a record for the eid so the listener accrual lands.
+    coord._never_fires_state["binary_sensor.m1"] = _nf_record(
+        "2026-01-01T00:00:00", None, 0,
+    )
+    captured["cb"](types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="off"),
+        "old_state": types.SimpleNamespace(state="unavailable"),
+    }))
+    rec = coord._never_fires_state["binary_sensor.m1"]
+    assert rec["unavailable_s"] >= 3500, (
+        f"unavailable spell after boot must accrue; got "
+        f"{rec['unavailable_s']}s (B2 regression)"
+    )
+
+
+def test_never_fires_second_async_setup_resubscribes(monkeypatch):
+    """Review B B5 — a second `async_setup` on the SAME coordinator
+    instance must re-subscribe to state changes. `_cancel_listeners`
+    (BaseCoordinator teardown) clears `_unsub_listeners` but not the
+    private `_never_fires_subscribed` / `_never_fires_listener_unsub`
+    fields; without the explicit reset in async_setup, the second
+    setup would see watched == subscribed and skip the subscribe,
+    leaving the coordinator un-wired after reload.
+    """
+    from custom_components.universal_room_automation.const import (
+        CONF_MOTION_SENSORS,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([{CONF_MOTION_SENSORS: ["binary_sensor.m1"]}])
+    coord = _nf_coord(hass, monkeypatch, registry_map={
+        "binary_sensor.m1": _NFRegEntry(platform="zha"),
+    })
+    created = []
+
+    def _fake_track(_h, _e, _cb):
+        unsub = MagicMock(name=f"unsub_{len(created)}")
+        created.append(unsub)
+        return unsub
+
+    monkeypatch.setattr(
+        opt_mod, "async_track_state_change_event", _fake_track,
+    )
+    monkeypatch.setattr(
+        opt_mod, "async_track_time_interval",
+        lambda _h, _cb, _iv: MagicMock(),
+    )
+
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        loop.run_until_complete(coord.async_setup())
+        # Simulate a reload: tear down (clears _unsub_listeners but
+        # NOT _never_fires_subscribed) then setup again.
+        coord.broker.async_stop = lambda: None
+        loop.run_until_complete(coord.async_teardown())
+        loop.run_until_complete(coord.async_setup())
+    finally:
+        loop.close()
+
+    assert len(created) >= 2, (
+        f"second async_setup must re-subscribe; got {len(created)} "
+        f"subscriptions (B5 regression)"
+    )
+    assert created[-1] in coord._unsub_listeners
+
+
 def test_never_fires_listener_unsub_on_unload(monkeypatch):
     """Rev 3 F7 — the state-change listener unsub lands on
     `_unsub_listeners` so BaseCoordinator teardown clears it."""
@@ -5017,7 +5214,11 @@ def test_never_fires_resubscribes_when_watched_set_changes(monkeypatch):
         opt_mod, "async_track_state_change_event", _fake_track,
     )
 
-    # Initial watched set is just m1.
+    # Initial watched set is just m1. Review B B1 — resubscribe now
+    # drives off the CONFIGURED set (so camera eids survive even when
+    # their state is absent). Stub both resolvers in lockstep so the
+    # evaluator's state-dependent gate and the subscription's config
+    # gate agree on membership.
     watched_box = {
         "set": {
             "binary_sensor.m1": {
@@ -5026,6 +5227,7 @@ def test_never_fires_resubscribes_when_watched_set_changes(monkeypatch):
         },
     }
     coord._watched_raw_sensors = lambda: watched_box["set"]
+    coord._configured_watched_eids = lambda: set(watched_box["set"].keys())
     hass.states.set("binary_sensor.m1", "off")
     hass.states.set("binary_sensor.m2", "off")
 
