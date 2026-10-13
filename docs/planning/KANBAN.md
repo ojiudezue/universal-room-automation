@@ -2,18 +2,18 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-13T02:09:02-05:00_ - _Data commit: `383250820781`_ - _last_reconciled: 2026-10-13_
+_Generated: 2026-10-13T02:16:08-05:00_ - _Data commit: `c1afb86fd7be`_ - _last_reconciled: 2026-10-13_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 5 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 7 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 41 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -21,16 +21,10 @@ _Generated: 2026-10-13T02:09:02-05:00_ - _Data commit: `383250820781`_ - _last_r
 | 🅿️ Parked | 84 |
 | ✅ Done | 307 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **tests** - status: **inbox**
-_created 2026-10-10 21:00_
-- **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
-- **Next:** Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching.
-- **Forensic keys (1):**
-  - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
+_(none)_
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -129,7 +123,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
 
 ### `EC-HOUSE-ENTITY-DEFAULTS-1` - Energy code hardcodes this house's entity IDs as defaults (EVSE, L1 plugs, Envoy serial, SPAN) — config-only + warn on missing — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
@@ -184,28 +178,7 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#5 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **planned**
-_created 2026-08-18 02:30 · updated 2026-10-13 03:15 · refined_
-- **Problem / Solution:**
-  - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
-- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
-- **Forensic keys (13):**
-  - `planned_2026_10_13_overnight`: Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, ...
-  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
-  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
-  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
-  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
-  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
-  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
-  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
-  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
-  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
-  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
-  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
-  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
-
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#5 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -224,7 +197,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -241,7 +214,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -256,10 +229,39 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (2)
 _being built_
 
-_(none)_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#1 · WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **platform** - status: **in_progress**
+_created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
+- **Problem / Solution:**
+  - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
+- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
+- **Forensic keys (14):**
+  - `build_dispatched_2026_10_13_overnight`: Plan review FIX-PLAN-REQUIRED (2 HIGH: the shutdown job would be called with zero args but the handler requires _event, so it would silently never run; the Live check named a nonexistent column; plus 4 MEDIUM) -> Rev 2 applied all (66a8f...
+  - `planned_2026_10_13_overnight`: Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, ...
+  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
+  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
+  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
+  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
+  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
+  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
+  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
+  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
+  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
+  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
+  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
+  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
+
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tests** - status: **in_progress**
+_created 2026-10-10 21:00 · updated 2026-10-13 04:35 · refined_
+- **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
+- **Next:** Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching.
+- **Forensic keys (2):**
+  - `verified_2026_10_13_overnight`: STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production r...
+  - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
 
 ## 🔍 Review (1)
 _under review_

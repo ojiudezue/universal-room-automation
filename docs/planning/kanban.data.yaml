@@ -19367,6 +19367,7 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  build_dispatched_2026_10_13_overnight: "Plan review FIX-PLAN-REQUIRED (2 HIGH: the shutdown job would be called with zero args but the handler requires _event, so it would silently never run; the Live check named a nonexistent column; plus 4 MEDIUM) -> Rev 2 applied all (66a8fb6a9). Planner disagreed on centralizing in the DAO layer, with reasons recorded in the plan. Notable fact from the review: today the stop-time baseline save ALWAYS loses, because the STOP listener runs after the DB worker is cancelled. Build dispatched to worktree feature/unload-symmetry, build-to-review only."
   planned_2026_10_13_overnight: "Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, stays on _db()), and the real read set is 5 SELECTs at :320, 361, 752, 793, 825 (the card missed 793 and 825). (1b) config-first: no knob applies. (2) prior-art: REUSE _db_read() (database.py:644-654) and HA async_add_shutdown_job (core.py:1019-1039). (3) parsimony BUILD-narrow. (4) cost/benefit: three small edits on one surface. Plan written: docs/planning/PLANNING_unload_symmetry_task_hygiene.md (d9513e305). Tier 2-DB plan review dispatched. Planner defaults on its 3 questions: keep DBShuttingDown in database.py; convert every DAO except-arm wrapping a _db( write; deploy waits for the operator (overnight)."
   problem_solution: "Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the race and fail, and one diagnostics module reads the database through the write path. Solution: after the shutdown fast-fail fix ships, raise a dedicated shutting-down error that is logged quietly, schedule the stop-time save as an HA shutdown job (it then runs while the worker is still alive), and switch those reads to the read path."
   verified_2026_10_08_overnight: "CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_residuals, which sit on the same database.py _db() surface as SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (in review, not shipped). Building them first would mean two branches editing _db() at once, so they are sequenced after that ship. Narrowed to the residual; effort lowered."
@@ -19405,7 +19406,7 @@ cards:
     CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
     owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
   title: "Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path"
-  status: planned
+  status: in_progress
   groom_2026_09_29: 'Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   shipped_version: v5.103.5
@@ -19440,7 +19441,7 @@ cards:
     the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: '2026-10-13 03:15'
+  updated: '2026-10-13 03:55'
   refinement_status: "refined"
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
@@ -30909,11 +30910,13 @@ cards:
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 - id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
+  refinement_status: "refined"
+  verified_2026_10_13_overnight: "STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production resolves `from . import energy_const` at call time (energy_write_verify.py:1320) after sibling files swap that module. test_d/d2 patched dt_util.DEFAULT_TIME_ZONE, but the verifier's own dt_util global was a sibling's stub of homeassistant.util.dt with no DEFAULT_TIME_ZONE (AttributeError). FIX (test-only, branch fix/ev-tripwire-order-dependence b30aca17e): resolve energy_const the way production does, and pin the verifier's dt_util global with a 2-function shim via monkeypatch. Evidence: the 118-file suite prefix through this file went from 29 -> 27 failures, and the failing-ID diff is exactly these 3 tests removed. Drill: production latch switched to the UTC date (:1340) turns test_d2 red, restored green. One review (test-authority framing) dispatched."
   title: Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)
   thread: tests
-  status: inbox
+  status: in_progress
   created: "2026-10-10 21:00"
-  updated: "2026-10-10 21:00"
+  updated: '2026-10-13 04:35'
   origin: "v5.103.49 full-suite name-diff 2026-10-10: test_d2_late_local_night_then_next_local_morning_fires_nm, test_d_next_day_resets_latch, test_g_kill_switch_disables in quality/tests/test_ec_ev_toggle_tripwire.py fail in suite order, pass isolated on both sides."
   why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
   next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
