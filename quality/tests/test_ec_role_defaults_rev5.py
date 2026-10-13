@@ -636,3 +636,89 @@ def test_relabel_battery_gateway_online_binary_sensor() -> None:
     s = EnergyEnvoyAvailableBinarySensor(MagicMock(), MagicMock())
     assert s._attr_name == "Battery gateway online"
     assert s._attr_unique_id == "universal_room_automation_energy_envoy_available"
+
+
+# ---------------------------------------------------------------------------
+# Wire-in anchor: the REAL integration-entry setup (async_setup_entry) calls
+# the pin, starts the role scan owned by the integration entry, and builds the
+# EnergyCoordinator's EVSE config from the role-keyed CM options.
+# ---------------------------------------------------------------------------
+
+
+# A full integration-entry setup with no unload leaves the integration's own
+# timers/DB writer running; those are not under test here.
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+@pytest.mark.asyncio
+async def test_integration_setup_wires_pin_scan_and_evse_builder() -> None:
+    from unittest.mock import AsyncMock
+
+    from runtime_harness import StubConfigEntry, StubHass, make_coordinator_manager_entry
+
+    from custom_components.universal_room_automation import coordinator_gate
+    from custom_components.universal_room_automation.const import (
+        CONF_DOMAIN_COORDINATORS_ENABLED,
+        ENTRY_TYPE_INTEGRATION,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy as energy_mod,
+    )
+
+    class _Entry(StubConfigEntry):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.unloads: list = []
+
+        def async_on_unload(self, func):
+            self.unloads.append(func)
+
+    cm = make_coordinator_manager_entry(options={
+        "energy_evse_a_switch_entity": "switch.my_charger_a",
+        "energy_evse_b_span_breaker": "switch.my_breaker_b",
+    })
+    integ = _Entry(
+        "integ", ENTRY_TYPE_INTEGRATION,
+        data={CONF_DOMAIN_COORDINATORS_ENABLED: True},
+    )
+    hass = StubHass(config_entries=[cm, integ])
+    hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+
+    calls: list = []
+
+    async def _pin(h, entry):
+        calls.append(("pin", entry.entry_id))
+        return False
+
+    def _scan(h, owner, cm_entry_id):
+        calls.append(("scan", owner.entry_id, cm_entry_id))
+
+    real_builder = ura._build_evse_config_from_options
+
+    def _builder(cm_config):
+        out = real_builder(cm_config)
+        calls.append(("evse", out))
+        return out
+
+    ec_cls = MagicMock(name="EnergyCoordinator")
+    with patch.object(ura, "_bootstrap_pin_ec_defaults_once", _pin), patch.object(
+        ura, "_start_ec_role_scan", _scan,
+    ), patch.object(ura, "_build_evse_config_from_options", _builder), patch.object(
+        coordinator_gate, "coordinators_to_register", lambda *a, **k: {"energy"},
+    ), patch.object(energy_mod, "EnergyCoordinator", ec_cls):
+        try:
+            assert await ura.async_setup_entry(hass, integ) is True
+        finally:
+            # Setup starts the loop-stall watchdog thread; stop it.
+            from custom_components.universal_room_automation.domain_coordinators._loop_stall_watchdog import (
+                uninstall,
+            )
+            uninstall(hass)
+
+    expected_evse = {
+        "garage_a": {"switch": "switch.my_charger_a"},
+        "garage_b": {"span_breaker": "switch.my_breaker_b"},
+    }
+    assert ("pin", "coordinator_manager_entry") in calls
+    assert ("scan", "integ", "coordinator_manager_entry") in calls
+    assert ("evse", expected_evse) in calls
+    assert ec_cls.call_args.kwargs["evse_config"] == expected_evse
