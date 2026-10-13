@@ -45,15 +45,16 @@ from custom_components.universal_room_automation.domain_coordinators.energy_batt
     BatteryStrategy,
     compose_release_floor,
 )
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E402
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_REMAINING_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_REMAINING_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_projector import (  # noqa: E402
     EnergyProjector,
@@ -152,21 +153,21 @@ def _make(
     if soc is not None:
         hass.set_state(_SOC, str(soc))
     hass.set_state(_CAP, cap_kwh, attributes={"unit_of_measurement": "kWh"})
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
     # Far from every emitted value so the deadband never hides the write.
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, reserve_entity)
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, today_kwh)
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, tomorrow_kwh)
-    hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, remaining_kwh)
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, reserve_entity)
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, today_kwh)
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, tomorrow_kwh)
+    hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, remaining_kwh)
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     # Local wall-clock (as_local is identity in these unit tests).
     _sun(hass, "2026-10-01T07:00:00+00:00", "2026-10-01T19:00:00+00:00")
     strat = cls(
         hass,
         reserve_soc=reserve,
-        entity_config={"battery_soc": _SOC, "battery_capacity": _CAP,
+        entity_config=phalanx_battery_entities() | {"battery_soc": _SOC, "battery_capacity": _CAP,
                        "net_power": _NET, "battery_power": _BPW},
         solar_classification_mode="custom",
         custom_solar_thresholds={
@@ -802,7 +803,7 @@ def test_wait_does_not_stamp_dp_target():
     r1 = strat.determine_mode("off_peak", "shoulder", now=_W_NOW, ev_load_w=0.0)
     assert r1["arbitrage_phase"] != "wait"
     assert strat._offpeak_drain_branch_target == 15
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "40")  # → poor
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "40")  # → poor
     _wait_now = _W_NOW + timedelta(minutes=5)
     r2 = strat.determine_mode("off_peak", "shoulder", now=_wait_now, ev_load_w=0.0)
     assert r2["arbitrage_phase"] == "wait"
@@ -1000,9 +1001,9 @@ def _replay(monkeypatch, *, legacy_sunrise: bool = False):
         if r["capacity_wh"] is not None:
             hass.set_state(_CAP, str(r["capacity_wh"]),
                            attributes={"unit_of_measurement": "Wh"})
-        for eid, key in ((DEFAULT_SOLCAST_REMAINING_ENTITY, "solcast_remaining"),
-                         (DEFAULT_SOLCAST_TODAY_ENTITY, "solcast_today"),
-                         (DEFAULT_SOLCAST_TOMORROW_ENTITY, "solcast_tomorrow")):
+        for eid, key in ((PHALANX_SOLCAST_REMAINING_ENTITY, "solcast_remaining"),
+                         (PHALANX_SOLCAST_TODAY_ENTITY, "solcast_today"),
+                         (PHALANX_SOLCAST_TOMORROW_ENTITY, "solcast_tomorrow")):
             if r[key] is not None:
                 hass.set_state(eid, str(r[key]))
         _sun(hass, r["sun_next_rising"], r["sun_next_setting"])

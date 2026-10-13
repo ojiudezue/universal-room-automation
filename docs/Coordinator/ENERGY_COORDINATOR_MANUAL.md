@@ -292,7 +292,7 @@ There are three entities with "charge from grid" in the name. Only one tells you
 
 **Don't toggle "Charge battery from grid" in the Enphase app.** That app setting is the cloud switch URA owns: URA turns it on only for planned arbitrage/attain charges and off afterwards. Turning it OFF in the app is harmless (URA re-commands when it needs it); turning it ON can grid-charge outside URA's plan until URA notices and turns it off.
 
-Known tidy-up: `DEFAULT_CHARGE_FROM_GRID_ENTITY` in `energy_const.py` still names the local Enpower switch; the role-aware lookup routes writes and gates to the cloud entity. Rename tracked on the board.
+EC-HOUSE-ENTITY-DEFAULTS-1: no entity id is a code default any more. The local switch is the `energy_charge_from_grid_entity` option ("Charge-from-grid switch"), pinned into this house's options by the one-shot migration; the role-aware lookup still routes writes and gates to the cloud entity.
 
 ---
 
@@ -318,10 +318,22 @@ turning it should require code review.
 
 - TOU schedule bindings (`sensor.pec_current_tou_period` and season
   windows).
-- Battery / Enpower entity IDs (cloud + local witness).
-- EVSE switch and power-monitor entity IDs.
-- Pool VSF and circuit entity IDs.
-- Solcast forecast entity IDs.
+- **Every energy entity is a role-worded option with NO code default
+  (EC-HOUSE-ENTITY-DEFAULTS-1).** Battery mode / reserve / grid connection /
+  charge-from-grid controls, cloud read-backs + last-update stamp, solar
+  forecasts, weather, per-charger switch / power / energy today / energy
+  this month / breaker / current limit (Garage A and B), L1 plugs, mains
+  power readings 1/2 (battery-aware EV house load), pool pump speed / power,
+  generator status, solar-follow grid sensors. On this house a one-shot
+  setup migration copied the former code defaults into options (only for
+  keys that were unset AND whose entity is in the registry; flag
+  `_ec_defaults_pinned`); the migration's own write does not reload the CM.
+  A second install starts with these blank. Editing any of them reloads
+  the CM so the new entity takes effect. A configured entity that is
+  missing or unavailable on two consecutive hourly scans (first scan after
+  HA start) raises a Repairs issue `ec_role_entity_<key>`; it clears when
+  the entity recovers or the option is removed. Unconfigured battery /
+  pool roles emit no writes.
 - **Battery-Aware EV Charging section (v5.21.0):** enable toggle +
   Latest charge start, with a collapsed "Advanced (rarely change)"
   apron for Decision delay, Charging time buffer, Typical charge

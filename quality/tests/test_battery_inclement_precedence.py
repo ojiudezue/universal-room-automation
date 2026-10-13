@@ -108,14 +108,17 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
     BATTERY_MODE_SELF_CONSUMPTION,
     BATTERY_MODE_BACKUP,
     DEFAULT_RESERVE_SOC,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
     CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+)
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
     BatteryStrategy,
@@ -132,17 +135,17 @@ _NOW = datetime(2026, 6, 11, 17, 0, 0)  # peak-ish hour
 def _make_battery(soc=80.0, grid="on", reserve_init=10):
     hass = MockHass()
     hass.set_state(_BATTERY_SOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, grid)
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, str(reserve_init))
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, "90")
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "90")
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, grid)
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, str(reserve_init))
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, "90")
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "90")
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     strat = BatteryStrategy(
         hass,
         reserve_soc=DEFAULT_RESERVE_SOC,
-        entity_config={"battery_soc": _BATTERY_SOC},
+        entity_config=phalanx_battery_entities() | {"battery_soc": _BATTERY_SOC},
         solar_classification_mode="custom",
         custom_solar_thresholds={"excellent": 100.0, "good": 80.0,
                                  "moderate": 50.0, "poor": 30.0},
@@ -390,7 +393,7 @@ def test_evse_battery_hold_raises_but_never_lowers_reserve_floor():
         "soc": 80,
         "actions": [{
             "service": "number.set_value",
-            "target": DEFAULT_RESERVE_SOC_ENTITY,
+            "target": PHALANX_RESERVE_SOC_ENTITY,
             "data": {"value": 50},
         }],
     }
@@ -407,7 +410,7 @@ def test_evse_battery_hold_cannot_lower_partial_hold_reserve_floor():
         "soc": 80,
         "actions": [{
             "service": "number.set_value",
-            "target": DEFAULT_RESERVE_SOC_ENTITY,
+            "target": PHALANX_RESERVE_SOC_ENTITY,
             "data": {"value": 50},
         }],
     }
@@ -426,7 +429,7 @@ def test_evse_battery_hold_still_raises_reserve_when_capture_exceeds_floor():
         "soc": 80,
         "actions": [{
             "service": "number.set_value",
-            "target": DEFAULT_RESERVE_SOC_ENTITY,
+            "target": PHALANX_RESERVE_SOC_ENTITY,
             "data": {"value": 50},
         }],
     }

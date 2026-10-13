@@ -25,6 +25,9 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+from ec_phalanx_entities import phalanx_evse_config  # this house's EVSE roles (EC-HOUSE-ENTITY-DEFAULTS-1)
+
+
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -214,7 +217,7 @@ class _Harness:
         self.hass.set_state(LIMIT_A, str(a_current))
         self.hass.set_state(LIMIT_B, str(b_current))
         # EV controller.
-        self.ev = EVChargerController(self.hass)
+        self.ev = EVChargerController(self.hass, phalanx_evse_config())
         self.ev._excess_solar_active = set(active)
         # Coordinator stub.
         self.coord = _FakeCoord(

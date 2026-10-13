@@ -146,13 +146,16 @@ from conftest import MockHass
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (
     BATTERY_MODE_SELF_CONSUMPTION,
     DEFAULT_ARBITRAGE_SOC_TARGET,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
+)
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
@@ -193,16 +196,16 @@ def _build_strategy(
     hass.set_state(_BSOC, str(soc))
     # Production default entity IDs (NOT in entity_config — strategy reads
     # them via _get_entity(..., default=DEFAULT_*)).
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
     hass.set_state(_SOLAR, "5000")
     hass.set_state(_NETP, str(net_power_w), attributes={"unit_of_measurement": "W"})
     hass.set_state(_BPOW, "-200", attributes={"unit_of_measurement": "W"})
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "50")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, solcast_today)
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "50")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, solcast_today)
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     entity_config = {
         "battery_soc": _BSOC,
         "battery_power": _BPOW,
@@ -213,7 +216,7 @@ def _build_strategy(
         hass,
         reserve_soc=20,
         arbitrage_enabled=arbitrage_enabled,
-        entity_config=entity_config,
+        entity_config=phalanx_battery_entities() | entity_config,
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -610,7 +613,7 @@ class TestAttainabilityLatchNoFeedbackOscillation:
         )
         results.append(r1)
         # Flip the cfg ON in hass to simulate the actuation having landed.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         # Ticks 2-4: SOC rising (charge is flowing) → observed rate rises.
         for i, (t_off, soc_val) in enumerate(
             [(5, 22), (10, 35), (15, 50)], start=2,
@@ -688,8 +691,8 @@ class TestRebootMidAttainHoldCurrent:
         """
         strat, hass = _build_strategy(soc=40)
         # Simulate the pre-reboot Enphase state.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
-        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "80")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "80")
         # Force-latch (RAM-only attr lost on real reboot; here we model the
         # alternative: the operator wants attain to RE-LATCH on first cycle
         # — but the rate window is empty, so the reboot-hold path fires).
@@ -932,8 +935,8 @@ class TestRebootRecoveryFromHardware:
         charging WITHOUT hand-priming _attain_active. K-warm-up is skipped
         for adoption per brief."""
         strat, hass = _build_strategy(soc=40)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
-        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "80")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "80")
         # Real reboot: no _attain_active priming. No rate-window seed.
         r = strat.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
@@ -954,8 +957,8 @@ class TestRebootRecoveryFromHardware:
     def test_reboot_with_cfg_on_and_soc_at_target_adopts_holding(self):
         """cfg ON + SOC ≥ target + boundary ahead → adopt holding."""
         strat, hass = _build_strategy(soc=82)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
-        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "80")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "80")
         r = strat.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -981,7 +984,7 @@ class TestRebootRecoveryFromHardware:
         can lag minutes behind local Envoy poll). First ticks issue no
         commands; latch unconsumed; cfg resolves on → adopt charging."""
         strat, hass = _build_strategy(soc=40)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "unavailable")
         # Tick 1 — cfg unavailable.
         r1 = strat.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
@@ -1000,7 +1003,7 @@ class TestRebootRecoveryFromHardware:
         assert strat._attain_reboot_recovered is False
         assert r2["actions"] == []
         # Tick 3 — cfg resolves ON → adopt charging.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         r3 = strat.determine_mode(
             "off_peak", "summer",
             now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=10),
@@ -1016,7 +1019,7 @@ class TestRebootRecoveryFromHardware:
         opens). Adoption returns 'release' → orderly turn_off + reserve
         restore, distinct from the drain fallback's incidental unwind."""
         strat, hass = _build_strategy(soc=70, lead_time_min=360)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         # 22:00 local — off_peak (evening peak 16-20 has ended), and
         # well before the morning charge window opens (mid_peak at 14:00
         # tomorrow, window opens 6h prior = 08:00) → _is_charge_window_open
@@ -1039,7 +1042,7 @@ class TestRebootRecoveryFromHardware:
         peak-branch handles it (recovery isn't invoked during peak —
         attain branch is never entered)."""
         strat, hass = _build_strategy(soc=70)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         peak_time = datetime(2026, 7, 15, 17, 30)  # inside peak 16-20
         r = strat.determine_mode(
             "peak", "summer", now=peak_time,
@@ -1133,18 +1136,18 @@ def _build_strategy_with_solar(
     the solar surplus term computes to a nonzero value (mutation authority)."""
     hass = MockHass()
     hass.set_state(_BSOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
     hass.set_state(_SOLAR, "5000")
     hass.set_state(_NETP, "-500", attributes={"unit_of_measurement": "W"})
     hass.set_state(_BPOW, "-200", attributes={"unit_of_measurement": "W"})
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "50")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, solcast_today)
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "50")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, solcast_today)
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
     hass.set_state(_SOLR, solcast_remaining)
     hass.set_state(_BCAP, capacity_kwh, attributes={"unit_of_measurement": "kWh"})
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     # Fake sun.sun with sunrise/sunset attrs.
     hass.set_state(
         "sun.sun", "above_horizon",
@@ -1165,7 +1168,7 @@ def _build_strategy_with_solar(
         hass,
         reserve_soc=20,
         arbitrage_enabled=True,
-        entity_config=entity_config,
+        entity_config=phalanx_battery_entities() | entity_config,
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -1377,7 +1380,7 @@ class TestOperatorDriftPolicy:
         _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
         strat.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         # Tick 2-4: cfg observed ON (commanded ON landed).
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         for i in range(2, 5):
             strat.determine_mode(
                 "off_peak", "summer",
@@ -1386,7 +1389,7 @@ class TestOperatorDriftPolicy:
         assert strat._attain_cfg_observed_on is True
         assert strat._attain_state == "charging"
         # Tick 5: operator flips OFF.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         r = strat.determine_mode(
             "off_peak", "summer",
             now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=25),
@@ -1403,7 +1406,7 @@ class TestOperatorDriftPolicy:
         # Tick 1: entry. cfg starts OFF (the action fires turn_on).
         strat.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         # Simulate cfg ON having landed (4 ticks of "charging committed").
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         for i in range(2, 5):
             strat.determine_mode(
                 "off_peak", "summer",
@@ -1412,7 +1415,7 @@ class TestOperatorDriftPolicy:
         assert strat._attain_state == "charging"
         assert strat._attain_charging_ticks >= 4
         # Now operator manually flips cfg OFF.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         r = strat.determine_mode(
             "off_peak", "summer",
             now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=25),

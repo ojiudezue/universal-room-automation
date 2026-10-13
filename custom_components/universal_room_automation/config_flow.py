@@ -5814,6 +5814,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_EVSE_B_ENTITY,
             CONF_ENERGY_EVSE_A_SPAN_BREAKER,
             CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: role-keyed entity fields.
+            CONF_ENERGY_EVSE_A_SWITCH_ENTITY,
+            CONF_ENERGY_EVSE_B_SWITCH_ENTITY,
+            CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY,
+            CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY,
+            CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY,
+            CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY,
+            CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY,
+            CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY,
+            CONF_ENERGY_POOL_SPEED_ENTITY,
+            CONF_ENERGY_POOL_POWER_ENTITY,
+            CONF_ENERGY_DP_SPAN_R1_ENTITY,
+            CONF_ENERGY_DP_SPAN_R2_ENTITY,
+            CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
+            CONF_ENERGY_STORAGE_MODE_ENTITY,
+            CONF_ENERGY_RESERVE_SOC_ENTITY,
+            CONF_ENERGY_GRID_ENABLED_ENTITY,
+            CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
             CONF_ENERGY_L1_CHARGER_ENTITIES,
             CONF_ENERGY_TOU_RATE_FILE,
             DEFAULT_TOU_RATE_FILE,
@@ -6024,6 +6042,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                    CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
                     # EC-DEGRADED-DATA-POLICY-1 D1 stream tier fields.
                     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
                     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
@@ -6553,6 +6572,104 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_ENERGY_L1_CHARGER_ENTITIES, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch", multiple=True)
+            ),
+            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: role-keyed entity fields
+            # (formerly code defaults; pinned on the original install).
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_SWITCH_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_SWITCH_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_SWITCH_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_SWITCH_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional(
+                CONF_ENERGY_STORAGE_MODE_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_STORAGE_MODE_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="select")
+            ),
+            vol.Optional(
+                CONF_ENERGY_RESERVE_SOC_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_RESERVE_SOC_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional(
+                CONF_ENERGY_GRID_ENABLED_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_GRID_ENABLED_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Optional(
+                CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_CHARGE_FROM_GRID_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_SPAN_R1_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_DP_SPAN_R1_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_DP_SPAN_R2_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_DP_SPAN_R2_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_POOL_SPEED_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_POOL_SPEED_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="number")
+            ),
+            vol.Optional(
+                CONF_ENERGY_POOL_POWER_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_POOL_POWER_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(
                 CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
@@ -7123,6 +7240,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         "suggested_value": self._get_current(
                             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
                             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: cloud last-update stamp.
+                vol.Optional(
+                    CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY, None,
                         ),
                     },
                 ): selector.EntitySelector(

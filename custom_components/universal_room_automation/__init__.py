@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -782,6 +783,336 @@ async def _migrate_hvac_zone_entry_dwell_to_zero(
     new_options[DONE_KEY] = True
     hass.config_entries.async_update_entry(cm_entry, options=new_options)
     return changed
+
+
+EC_DEFAULTS_PINNED_FLAG: str = "_ec_defaults_pinned"
+EC_DEFAULTS_PINNED_VERSION_FLAG: str = "_ec_defaults_pinned_version"
+EC_DEFAULTS_PINNED_AT_FLAG: str = "_ec_defaults_pinned_at"
+EC_DEFAULTS_PINNED_VERSION: str = "ec-house-entity-defaults-1-rev5"
+
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up — role-entity repair scan cadence and
+# debounce. Rung 1 (module constants): protocol windows, not operator policy.
+# A configured role entity must read bad on this many CONSECUTIVE scans
+# before a Repairs issue is raised (one bad scan = a reboot-time blip).
+EC_ROLE_SCAN_CONSECUTIVE_BAD_SCANS: int = 2
+EC_ROLE_SCAN_INTERVAL: timedelta = timedelta(hours=1)
+
+
+def _reseed_cm_snapshot_if_present(
+    hass: HomeAssistant, entry_id: str, options: dict,
+) -> None:
+    """Point the CM update listener's last-applied snapshot at ``options``.
+
+    ``_async_update_listener`` diffs ``entry.options`` against
+    ``hass.data[DOMAIN]["cm_last_applied_options"][entry_id]``. Seeding the
+    snapshot to the about-to-be-written options makes the migration's own
+    write diff as "no change", so it never reloads the CM. Only acts when
+    the snapshot dict already exists (CM entry set up earlier); otherwise
+    the CM's own setup seeds from the post-migration options.
+    """
+    snapshots = hass.data.get(DOMAIN, {}).get("cm_last_applied_options")
+    if snapshots is not None:
+        snapshots[entry_id] = dict(options)
+
+
+async def _bootstrap_pin_ec_defaults_once(
+    hass: HomeAssistant, cm_entry: ConfigEntry,
+) -> bool:
+    """EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13) — one-shot pin.
+
+    Rev 5 removes the house-specific entity_id defaults from the energy
+    modules. To keep THIS house byte-identical, copy each former default
+    from ``EC_ROLE_KEY_DEFAULTS`` into the Coordinator Manager entry's
+    options exactly once — but ONLY for role keys that are (a) absent from
+    ``data | options`` AND (b) whose former entity_id is still registered
+    in the HA entity registry. On a 2nd install the registry check fails
+    and nothing is pinned; the operator picks real entities (G1).
+
+    Reload-safe: one ``async_update_entry`` call. The role keys are NOT in
+    the reload-suppress allowlist (operator edits must reload), so before
+    the write the CM listener's last-applied snapshot is reseeded to the new
+    options. The listener is scheduled eagerly inside
+    ``async_update_entry`` (``hass.async_create_task`` defaults to
+    ``eager_start=True``), so the seed has to land BEFORE the write.
+    Idempotent via ``EC_DEFAULTS_PINNED_FLAG``.
+
+    Returns True if the migration wrote (first run on this install).
+    """
+    from homeassistant.helpers import entity_registry as er
+    from .domain_coordinators.energy_const import (
+        EC_ROLE_KEY_DEFAULTS,
+    )
+
+    try:
+        if cm_entry.options.get(EC_DEFAULTS_PINNED_FLAG):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+
+    data = cm_entry.data or {}
+    options = cm_entry.options or {}
+    new_options = dict(options)
+    pinned: list[tuple[str, Any]] = []
+
+    try:
+        registry = er.async_get(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: entity registry unavailable; "
+            "deferring migration — will retry next setup",
+            exc_info=True,
+        )
+        return False
+
+    for key, old_default in EC_ROLE_KEY_DEFAULTS.items():
+        if key in data or key in options:
+            continue  # already set — never overwrite operator config
+        if old_default is None:
+            continue
+        if isinstance(old_default, list):
+            # List-shaped role (L1 chargers). Pin only the subset that
+            # resolves in the live registry. If NONE resolve, skip entirely
+            # so a 2nd install sees an empty configurable field.
+            resolved: list[str] = []
+            for eid in old_default:
+                if eid and registry.async_get(eid) is not None:
+                    resolved.append(eid)
+            if resolved:
+                new_options[key] = resolved
+                pinned.append((key, resolved))
+            continue
+        # Scalar entity_id role.
+        if registry.async_get(old_default) is None:
+            continue  # 2nd install: entity absent → operator must configure
+        new_options[key] = old_default
+        pinned.append((key, old_default))
+
+    # Always stamp the flag so this migration doesn't re-scan every setup.
+    new_options[EC_DEFAULTS_PINNED_FLAG] = True
+    new_options[EC_DEFAULTS_PINNED_VERSION_FLAG] = EC_DEFAULTS_PINNED_VERSION
+    try:
+        new_options[EC_DEFAULTS_PINNED_AT_FLAG] = dt_util.utcnow().isoformat()
+    except Exception:  # noqa: BLE001
+        new_options[EC_DEFAULTS_PINNED_AT_FLAG] = ""
+
+    _reseed_cm_snapshot_if_present(hass, cm_entry.entry_id, new_options)
+    hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    if pinned:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: wrote %d role-key defaults into "
+            "CM options (listener snapshot reseeded — no reload). Keys: %s",
+            len(pinned), [k for k, _ in pinned],
+        )
+    else:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 pin: no role-key defaults needed "
+            "pinning (all already-configured or absent from registry)."
+        )
+    return True
+
+
+_EC_ROLE_SCAN_ISSUE_PREFIX: str = "ec_role_entity_"
+
+
+@callback
+def _scan_ec_role_entities(
+    hass: HomeAssistant,
+    cm_entry: ConfigEntry,
+    strikes: dict[str, int],
+) -> None:
+    """EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5) — repair-issue scanner.
+
+    For each role key in ``EC_ROLE_KEY_SET`` that is CONFIGURED on the CM
+    entry, check every referenced entity_id is (a) in the entity registry
+    and (b) has a state that is not ``unavailable``. ``strikes`` (owned by
+    the caller, persists across scans) counts consecutive bad scans per
+    key; an issue is raised only at ``EC_ROLE_SCAN_CONSECUTIVE_BAD_SCANS``.
+    A healthy or UNSET key clears its strike count and deletes its issue.
+    Discharge: the hourly rescan; restart resets ``strikes`` (in-memory).
+    """
+    from homeassistant.helpers import (
+        entity_registry as er,
+        issue_registry as ir,
+    )
+    from .domain_coordinators.energy_const import EC_ROLE_KEY_SET
+
+    try:
+        registry = er.async_get(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("ec role-entity scan: registry unavailable", exc_info=True)
+        return
+
+    merged = {**(cm_entry.data or {}), **(cm_entry.options or {})}
+    raised: list[str] = []
+
+    def _clear(key: str, issue_id: str) -> None:
+        strikes.pop(key, None)
+        try:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ec role-entity scan: delete_issue failed for %s",
+                issue_id, exc_info=True,
+            )
+
+    for key in sorted(EC_ROLE_KEY_SET):
+        issue_id = f"{_EC_ROLE_SCAN_ISSUE_PREFIX}{key}"
+        value = merged.get(key)
+        entities: list[str] = (
+            [e for e in value if e]
+            if isinstance(value, list) else ([value] if value else [])
+        )
+        if not entities:
+            _clear(key, issue_id)  # unset → no issue
+            continue
+
+        problem: str | None = None
+        offending: str | None = None
+        for eid in entities:
+            try:
+                reg_entry = registry.async_get(eid)
+            except Exception:  # noqa: BLE001
+                reg_entry = None
+            if reg_entry is None:
+                problem = "not_in_registry"
+                offending = eid
+                break
+            try:
+                state = hass.states.get(eid)
+            except Exception:  # noqa: BLE001
+                state = None
+            if state is None or state.state == "unavailable":
+                problem = "unavailable"
+                offending = eid
+                break
+
+        if problem is None:
+            _clear(key, issue_id)
+            continue
+
+        strikes[key] = strikes.get(key, 0) + 1
+        if strikes[key] < EC_ROLE_SCAN_CONSECUTIVE_BAD_SCANS:
+            continue
+        raised.append(issue_id)
+        try:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="ec_role_entity_broken",
+                translation_placeholders={
+                    "key": key,
+                    "entity_id": offending or "",
+                    "problem": problem,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ec role-entity scan: create_issue failed for %s",
+                issue_id, exc_info=True,
+            )
+
+    if raised:
+        _LOGGER.info(
+            "EC-HOUSE-ENTITY-DEFAULTS-1 role-entity scan: %d configured "
+            "entity reference(s) missing or unavailable on %d consecutive "
+            "scans — see Repairs. Issue ids: %s",
+            len(raised), EC_ROLE_SCAN_CONSECUTIVE_BAD_SCANS, raised,
+        )
+
+
+def _build_evse_config_from_options(cm_config: dict) -> dict[str, dict[str, str]]:
+    """Build the EVChargerController config from role-keyed CM options.
+
+    EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (replaces the former
+    ``energy_pool.DEFAULT_EVSE_ENTITIES`` literal table). Unset roles are
+    omitted; a charger with no configured role is left out entirely.
+    """
+    from .domain_coordinators.energy_const import (
+        CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY,
+        CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY,
+        CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY,
+        CONF_ENERGY_EVSE_A_ENTITY,
+        CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+        CONF_ENERGY_EVSE_A_SWITCH_ENTITY,
+        CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY,
+        CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY,
+        CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY,
+        CONF_ENERGY_EVSE_B_ENTITY,
+        CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+        CONF_ENERGY_EVSE_B_SWITCH_ENTITY,
+    )
+
+    roles = {
+        "garage_a": {
+            "switch": CONF_ENERGY_EVSE_A_SWITCH_ENTITY,
+            "power": CONF_ENERGY_EVSE_A_ENTITY,
+            "energy_today": CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY,
+            "energy_month": CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY,
+            "span_breaker": CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+            "current_limit": CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY,
+        },
+        "garage_b": {
+            "switch": CONF_ENERGY_EVSE_B_SWITCH_ENTITY,
+            "power": CONF_ENERGY_EVSE_B_ENTITY,
+            "energy_today": CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY,
+            "energy_month": CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY,
+            "span_breaker": CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+            "current_limit": CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY,
+        },
+    }
+    out: dict[str, dict[str, str]] = {}
+    for evse_id, role_keys in roles.items():
+        cfg = {
+            role: cm_config[conf]
+            for role, conf in role_keys.items()
+            if cm_config.get(conf)
+        }
+        if cfg:
+            out[evse_id] = cfg
+    return out
+
+
+@callback
+def _start_ec_role_scan(
+    hass: HomeAssistant, owner_entry: ConfigEntry, cm_entry_id: str,
+) -> None:
+    """Schedule the role-entity scan, owned by ``owner_entry``.
+
+    First scan runs once HA has started (``async_at_started``: before that,
+    most entities have no state yet); then every ``EC_ROLE_SCAN_INTERVAL``.
+    Both unsubs are registered on ``owner_entry`` — the entry whose setup
+    creates the scan — so its reload replaces (never duplicates) the scan
+    and an unrelated CM unload does not kill it. The CM entry is re-read
+    on every scan so option edits are seen.
+    """
+    from homeassistant.helpers.start import async_at_started
+
+    strikes: dict[str, int] = {}
+
+    @callback
+    def _run(_now: Any = None) -> None:
+        ce = hass.config_entries.async_get_entry(cm_entry_id)
+        if ce is None:
+            return
+        try:
+            _scan_ec_role_entities(hass, ce, strikes)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EC-HOUSE-ENTITY-DEFAULTS-1 role-entity scan failed "
+                "(non-fatal)", exc_info=True,
+            )
+
+    @callback
+    def _at_started(_hass: HomeAssistant) -> None:
+        _run()
+        owner_entry.async_on_unload(
+            async_track_time_interval(hass, _run, EC_ROLE_SCAN_INTERVAL),
+        )
+
+    owner_entry.async_on_unload(async_at_started(hass, _at_started))
 
 
 async def _migrate_arbitrage_target_to_peak_buffer(
@@ -3335,6 +3666,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         cm_entry = ce
                         break
 
+                # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): one-shot
+                # pin of the former house-specific entity ids into THIS CM
+                # entry's options. Must run BEFORE cm_config is built so
+                # EnergyCoordinator reads the pinned values on first
+                # construction. Reload-safe (listener snapshot reseeded);
+                # idempotent via _ec_defaults_pinned flag.
+                if cm_entry is not None:
+                    try:
+                        await _bootstrap_pin_ec_defaults_once(hass, cm_entry)
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.error(
+                            "EC-HOUSE-ENTITY-DEFAULTS-1 pin migration "
+                            "failed (non-fatal): %s", e,
+                        )
+                    # D-5.4 repair-issue scan (at HA-started, then hourly),
+                    # owned by THIS (integration) entry.
+                    _start_ec_role_scan(hass, entry, cm_entry.entry_id)
+
                 # v4.5.0 D2: Migrate arbitrage_target → peak_buffer_target and
                 # drop the now-removed arbitrage_trigger key. Idempotent —
                 # gated on options["arbitrage_target_rename_migration_done"].
@@ -3753,34 +4106,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 energy_entity_config[CONF_ENERGY_WEATHER_ENTITY] = house_weather
 
                     # EVSE config — EVChargerController expects nested dicts
-                    # with at minimum a "power" key per charger
-                    from .domain_coordinators.energy_pool import DEFAULT_EVSE_ENTITIES
-                    evse_config = {}
-                    for evse_id, defaults in DEFAULT_EVSE_ENTITIES.items():
-                        evse_config[evse_id] = dict(defaults)
-                    # Override power entities from user config
-                    evse_a_power = cm_config.get(CONF_ENERGY_EVSE_A_ENTITY)
-                    if evse_a_power:
-                        evse_config["garage_a"]["power"] = evse_a_power
-                    evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
-                    if evse_b_power:
-                        evse_config["garage_b"]["power"] = evse_b_power
-                    # v5.12.0: SPAN breaker overrides (rename-recovery).
-                    # Absent options keep the DEFAULT_EVSE_ENTITIES value —
-                    # byte-identical behaviour on upgrade.
-                    evse_a_breaker = cm_config.get(CONF_ENERGY_EVSE_A_SPAN_BREAKER)
-                    if evse_a_breaker:
-                        evse_config["garage_a"]["span_breaker"] = evse_a_breaker
-                    evse_b_breaker = cm_config.get(CONF_ENERGY_EVSE_B_SPAN_BREAKER)
-                    if evse_b_breaker:
-                        evse_config["garage_b"]["span_breaker"] = evse_b_breaker
+                    # keyed by charger id. EC-HOUSE-ENTITY-DEFAULTS-1 fix-up:
+                    # every per-charger entity comes from a role-keyed CM
+                    # option (pinned on this house from EC_ROLE_KEY_DEFAULTS);
+                    # an unset role is omitted (consumers read
+                    # `cfg.get(role, "")`) and a charger with no role set is
+                    # not managed at all (2nd-install graceful degrade).
+                    evse_config = _build_evse_config_from_options(cm_config)
                     # v4.7.6 D3.4: per-EVSE self_modulates flag from config flow.
                     # Default False (Option B / smart manual-override detection).
-                    if "garage_a_self_modulates" in cm_config:
+                    if "garage_a_self_modulates" in cm_config and "garage_a" in evse_config:
                         evse_config["garage_a"]["self_modulates"] = bool(
                             cm_config.get("garage_a_self_modulates", False)
                         )
-                    if "garage_b_self_modulates" in cm_config:
+                    if "garage_b_self_modulates" in cm_config and "garage_b" in evse_config:
                         evse_config["garage_b"]["self_modulates"] = bool(
                             cm_config.get("garage_b_self_modulates", False)
                         )
@@ -7099,6 +7438,13 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # — no live-attr push needed; flow through `_apply_in_place` as a
     # no-op so the snapshot advances.
     CONF_APPLIANCE_RECORDS,
+    # EC-HOUSE-ENTITY-DEFAULTS-1: pin-migration bookkeeping flags — pure
+    # persistence, nothing live to push. String literals (== the
+    # EC_DEFAULTS_PINNED_*_FLAG constants, pinned by a test) so the AST-slice
+    # test loaders need no extra symbols.
+    "_ec_defaults_pinned",
+    "_ec_defaults_pinned_version",
+    "_ec_defaults_pinned_at",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7225,6 +7571,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # NM Cycle C — options-flow-authored keys; NM re-reads via
     # `_refresh_config`. No CM reload needed.
     *_NM_C_KEYS,
+    # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13). Only the pin
+    # migration's three bookkeeping flags are suppressed. The role keys
+    # themselves (EC_ROLE_KEY_SET) are deliberately NOT here: an operator
+    # edit must reload the CM so the new entity takes effect. The pin's own
+    # write avoids the reload by reseeding the listener snapshot instead.
+    # String literals == EC_DEFAULTS_PINNED_*_FLAG (pinned by a test), so
+    # the AST-slice test loaders need no extra symbols.
+    "_ec_defaults_pinned",
+    "_ec_defaults_pinned_version",
+    "_ec_defaults_pinned_at",
     # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. Iterative
     # onboarding saves (add / edit / remove one record at a time) must
     # NOT trigger a full CM reload (the reload-watchdog hazard on the
@@ -7420,6 +7776,43 @@ def _dispatch_integration_key_signals(
         if all_ok:
             dispatched_ok.add(key)
     return dispatched_ok
+
+
+# EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3): energy entity-mapping keys read
+# only at EnergyCoordinator construction (see energy_const for derivation).
+from .domain_coordinators.energy_const import (  # noqa: E402
+    EC_CONSTRUCTION_ENTITY_KEYS as _EC_CONSTRUCTION_ENTITY_KEYS,
+)
+
+
+def _norm_cm_opt(value: Any) -> Any:
+    """Normalise an option value for change detection.
+
+    None, "" and a missing key are all "unset"; tuples compare as lists.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, tuple):
+        return list(value)
+    return value
+
+
+def _schedule_parent_reload(hass: HomeAssistant) -> None:
+    """Schedule ONE reload of the parent (integration) entry.
+
+    Same mechanism as ``_cm_save_and_reload`` in config_flow.py: find the
+    integration entry and, when domain coordinators are on, schedule an
+    untracked ``async_reload`` (it must outlive the listener). When the
+    master switch is off no coordinator runs, so there is nothing to rebuild.
+    """
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
+            continue
+        if bool({**ce.data, **ce.options}.get(CONF_DOMAIN_COORDINATORS_ENABLED, False)):
+            hass.async_create_task(  # noqa: untracked-ok — parent reload must outlive this listener; same as _cm_save_and_reload
+                hass.config_entries.async_reload(ce.entry_id),
+            )
+        return
 
 
 def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -8224,15 +8617,40 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         )
         old = snapshots.get(entry.entry_id, {})
         new = dict(entry.options)
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3): compare VALUES, normalised
+        # (None / "" / missing are the same "unset"; lists compare as lists),
+        # so a field changed and set back before saving, or a form saved
+        # unchanged, is not a change.
         changed_keys = {
             k for k in (old.keys() | new.keys())
-            if old.get(k) != new.get(k)
+            if _norm_cm_opt(old.get(k)) != _norm_cm_opt(new.get(k))
         }
         if not changed_keys:
             # Defensive no-op (HA core already short-circuits identical writes
             # at the `async_update_entry` layer; this guard handles paths that
             # bypass that short-circuit, e.g. external snapshot drift).
             return
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3, operator option A): energy
+        # entity mappings are read only when the EnergyCoordinator is built,
+        # which happens in the PARENT (integration) entry's setup — a CM
+        # reload would not pick them up. Schedule ONE parent reload, exactly
+        # as `_cm_save_and_reload` (config_flow.py) does.
+        _ec_changed = changed_keys & (
+            _EC_CONSTRUCTION_ENTITY_KEYS - OPTIONS_RELOAD_SUPPRESS_KEYS
+        )
+        if _ec_changed:
+            snapshots[entry.entry_id] = dict(new)
+            _LOGGER.info(
+                "CM options changed for '%s' (%s) — energy entity mapping "
+                "changed (%s); reloading the integration so it takes effect",
+                entry.title, entry.entry_id, sorted(_ec_changed),
+            )
+            _schedule_parent_reload(hass)
+            _rest = changed_keys - _ec_changed - OPTIONS_RELOAD_SUPPRESS_KEYS
+            if not _rest:
+                return
+            # Mixed save with other non-allowlisted keys: also fall through
+            # to the CM entry reload those keys have always needed.
         if changed_keys.issubset(OPTIONS_RELOAD_SUPPRESS_KEYS):
             _LOGGER.info(
                 "CM options changed for '%s' (%s) — in-place apply, "

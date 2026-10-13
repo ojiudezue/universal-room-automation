@@ -327,7 +327,7 @@ def test_d2_setter_dispatch_registrations_and_setters_exist():
         assert key_alias in disp, key_alias
         assert f'"{setter}"' in disp, setter
 
-    supp_start = src.index("OPTIONS_RELOAD_SUPPRESS_KEYS")
+    supp_start = src.index("OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset")
     supp_end = src.index("})", supp_start)
     supp = src[supp_start:supp_end]
     for key_alias in (

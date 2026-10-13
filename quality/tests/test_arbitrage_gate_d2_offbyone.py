@@ -134,13 +134,16 @@ from conftest import MockHass  # noqa: E402
 
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E402
     DEFAULT_RESERVE_SOC,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
+)
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (  # noqa: E402
     BatteryStrategy,
@@ -164,18 +167,18 @@ class _FakeTOU:
 def _make_battery(*, today_kwh, tomorrow_kwh, day3_kwh, tou_next_dt):
     hass = MockHass()
     hass.set_state(_BATTERY_SOC, "50")
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "10")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, str(today_kwh))
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, str(tomorrow_kwh))
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "10")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, str(today_kwh))
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, str(tomorrow_kwh))
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     thresholds = {"excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0}
     strat = BatteryStrategy(
         hass,
         reserve_soc=DEFAULT_RESERVE_SOC,
-        entity_config={"battery_soc": _BATTERY_SOC},
+        entity_config=phalanx_battery_entities() | {"battery_soc": _BATTERY_SOC},
         solar_classification_mode="custom",
         custom_solar_thresholds=thresholds,
     )

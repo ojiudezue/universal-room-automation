@@ -2847,7 +2847,10 @@ class EnergyEnvoyAvailableBinarySensor(AggregationEntity, BinarySensorEntity):
         """Initialize."""
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_envoy_available"
-        self._attr_name = "Energy Envoy Available"
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): friendly-name
+        # relabel. entity_id + unique_id unchanged (see Rev 4 R4-1 for
+        # downstream consumer rationale).
+        self._attr_name = "Battery gateway online"
         from homeassistant.helpers.device_registry import DeviceInfo
         from .const import VERSION
         self._attr_device_info = DeviceInfo(

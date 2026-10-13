@@ -37,6 +37,9 @@ from custom_components.universal_room_automation.const import DOMAIN  # noqa: E4
 # ----- shared fixtures -----------------------------------------------------
 
 
+from ec_phalanx_entities import phalanx_evse_config  # this house's EVSE roles (EC-HOUSE-ENTITY-DEFAULTS-1)
+
+
 class _StubActivityLogger:
     def __init__(self):
         self.calls: list[dict] = []
@@ -92,7 +95,7 @@ def _tz_naive_to_local(y, m, d, hh, mm):
 
 def test_onset_hold_then_release_logs_activity_edges():
     hass = _Hass(activity_logger=_StubActivityLogger())
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     logger = hass.data[DOMAIN]["activity_logger"]
 
     # onset time 23:00, `now` 22:00 → inside 6h hold window → HELD.
@@ -147,7 +150,7 @@ def test_onset_hold_then_release_logs_activity_edges():
 
 def test_control_path_unchanged_when_logger_absent():
     hass = _Hass(activity_logger=None)  # no logger installed
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     now_hold = _tz_naive_to_local(2026, 9, 8, 22, 0)
     a = ev._charge_on_or_defer(
         "garage_a", "switch.garage_a", now_hold, True, "23:00", None
@@ -171,7 +174,7 @@ class _RaisingLogger:
 
 def test_control_path_unchanged_when_logger_raises():
     hass = _Hass(activity_logger=_RaisingLogger())
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     now_hold = _tz_naive_to_local(2026, 9, 8, 22, 0)
     a = ev._charge_on_or_defer(
         "garage_a", "switch.garage_a", now_hold, True, "23:00", None
@@ -192,7 +195,7 @@ def test_control_path_unchanged_when_logger_raises():
 
 def test_onset_edge_helper_is_load_bearing(monkeypatch):
     hass = _Hass(activity_logger=_StubActivityLogger())
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     logger = hass.data[DOMAIN]["activity_logger"]
     monkeypatch.setattr(_pool_mod, "_maybe_log_onset_edge",
                         lambda *a, **k: None)
@@ -238,7 +241,7 @@ def _make_energy_coord_stub_for_actuation():
         return None
     hass.services.async_call = _async_call
 
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     plugs = SmartPlugController(
         hass,
         plug_entities=["switch.plug_a"],
@@ -317,7 +320,7 @@ def test_h1_edge_cache_is_load_bearing():
 
 def test_h2_bypass_onset_does_not_emit_ensure_on_edge():
     hass = _Hass(activity_logger=_StubActivityLogger())
-    ev = EVChargerController(hass)
+    ev = EVChargerController(hass, phalanx_evse_config())
     logger = hass.data[DOMAIN]["activity_logger"]
 
     now_hold = _tz_naive_to_local(2026, 9, 8, 22, 0)
