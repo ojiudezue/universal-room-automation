@@ -103,6 +103,8 @@ _KEEP_FUNCS = {
     "_apply_in_place",
     "_dispatch_integration_key_signals",
     "_async_update_listener",
+    "_norm_cm_opt",
+    "_schedule_parent_reload",
 }
 
 
@@ -273,6 +275,9 @@ def _load_ns() -> dict:
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
+    from ec_phalanx_entities import cm_listener_slice_ns_extras
+    for _k, _v in cm_listener_slice_ns_extras().items():
+        ns.setdefault(_k, _v)
     _ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns

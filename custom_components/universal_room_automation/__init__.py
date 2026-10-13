@@ -7778,6 +7778,43 @@ def _dispatch_integration_key_signals(
     return dispatched_ok
 
 
+# EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3): energy entity-mapping keys read
+# only at EnergyCoordinator construction (see energy_const for derivation).
+from .domain_coordinators.energy_const import (  # noqa: E402
+    EC_CONSTRUCTION_ENTITY_KEYS as _EC_CONSTRUCTION_ENTITY_KEYS,
+)
+
+
+def _norm_cm_opt(value: Any) -> Any:
+    """Normalise an option value for change detection.
+
+    None, "" and a missing key are all "unset"; tuples compare as lists.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, tuple):
+        return list(value)
+    return value
+
+
+def _schedule_parent_reload(hass: HomeAssistant) -> None:
+    """Schedule ONE reload of the parent (integration) entry.
+
+    Same mechanism as ``_cm_save_and_reload`` in config_flow.py: find the
+    integration entry and, when domain coordinators are on, schedule an
+    untracked ``async_reload`` (it must outlive the listener). When the
+    master switch is off no coordinator runs, so there is nothing to rebuild.
+    """
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
+            continue
+        if bool({**ce.data, **ce.options}.get(CONF_DOMAIN_COORDINATORS_ENABLED, False)):
+            hass.async_create_task(  # noqa: untracked-ok — parent reload must outlive this listener; same as _cm_save_and_reload
+                hass.config_entries.async_reload(ce.entry_id),
+            )
+        return
+
+
 def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Seed/refresh the per-CM-entry last-applied-options snapshot.
 
@@ -8580,15 +8617,40 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         )
         old = snapshots.get(entry.entry_id, {})
         new = dict(entry.options)
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3): compare VALUES, normalised
+        # (None / "" / missing are the same "unset"; lists compare as lists),
+        # so a field changed and set back before saving, or a form saved
+        # unchanged, is not a change.
         changed_keys = {
             k for k in (old.keys() | new.keys())
-            if old.get(k) != new.get(k)
+            if _norm_cm_opt(old.get(k)) != _norm_cm_opt(new.get(k))
         }
         if not changed_keys:
             # Defensive no-op (HA core already short-circuits identical writes
             # at the `async_update_entry` layer; this guard handles paths that
             # bypass that short-circuit, e.g. external snapshot drift).
             return
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3, operator option A): energy
+        # entity mappings are read only when the EnergyCoordinator is built,
+        # which happens in the PARENT (integration) entry's setup — a CM
+        # reload would not pick them up. Schedule ONE parent reload, exactly
+        # as `_cm_save_and_reload` (config_flow.py) does.
+        _ec_changed = changed_keys & (
+            _EC_CONSTRUCTION_ENTITY_KEYS - OPTIONS_RELOAD_SUPPRESS_KEYS
+        )
+        if _ec_changed:
+            snapshots[entry.entry_id] = dict(new)
+            _LOGGER.info(
+                "CM options changed for '%s' (%s) — energy entity mapping "
+                "changed (%s); reloading the integration so it takes effect",
+                entry.title, entry.entry_id, sorted(_ec_changed),
+            )
+            _schedule_parent_reload(hass)
+            _rest = changed_keys - _ec_changed - OPTIONS_RELOAD_SUPPRESS_KEYS
+            if not _rest:
+                return
+            # Mixed save with other non-allowlisted keys: also fall through
+            # to the CM entry reload those keys have always needed.
         if changed_keys.issubset(OPTIONS_RELOAD_SUPPRESS_KEYS):
             _LOGGER.info(
                 "CM options changed for '%s' (%s) — in-place apply, "

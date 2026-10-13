@@ -391,6 +391,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_seed_cm_last_applied_options",
         "_apply_in_place",
         "_async_update_listener",
+        "_norm_cm_opt",
+        "_schedule_parent_reload",
         # F16 (2026-08-22, v5.89.0): _apply_in_place now routes tunables
         # through this helper so the coordinator setters' range guards
         # actually run. Slicing _apply_in_place without it leaves a free
@@ -625,6 +627,9 @@ def _load_init_dispatch_namespace() -> dict:
     # Review-C M-1 fix-up (RELOAD-WATCHDOG-HAZARD, 2026-08-15): post-
     # compile AST guard. See _ast_slice_guard for rationale.
     from _ast_slice_guard import assert_ast_slice_names_covered  # noqa: PLC0415
+    from ec_phalanx_entities import cm_listener_slice_ns_extras
+    for _k, _v in cm_listener_slice_ns_extras().items():
+        ns.setdefault(_k, _v)
     assert_ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns

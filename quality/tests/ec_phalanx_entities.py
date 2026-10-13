@@ -135,3 +135,21 @@ def phalanx_evse_config() -> dict:
 def phalanx_options() -> dict:
     """Fresh copy of this house's role-keyed options (pin-migration table)."""
     return copy.deepcopy(ROLE_DEFAULTS)
+
+
+# Names the CM update-listener AST slices need since review D I3 (energy
+# entity-mapping change → parent reload). Real values, not stand-ins.
+CM_LISTENER_SLICE_FUNCS: frozenset = frozenset({
+    "_norm_cm_opt", "_schedule_parent_reload",
+})
+
+
+def cm_listener_slice_ns_extras() -> dict:
+    from typing import Any
+    return {
+        "_EC_CONSTRUCTION_ENTITY_KEYS": _c.EC_CONSTRUCTION_ENTITY_KEYS,
+        "ENTRY_TYPE_INTEGRATION": "integration",
+        "CONF_DOMAIN_COORDINATORS_ENABLED": "domain_coordinators_enabled",
+        "CONF_ENTRY_TYPE": "entry_type",
+        "Any": Any,
+    }

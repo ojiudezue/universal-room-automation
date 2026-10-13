@@ -154,11 +154,15 @@ class _ConfigEntries:
     `_async_save_and_notify` -> `hass.async_create_task(..., eager_start=True)`):
     the listener runs synchronously inside async_update_entry."""
 
-    def __init__(self, hass, eager_listener=None) -> None:
+    def __init__(self, hass, eager_listener=None, entries=()) -> None:
         self._hass = hass
         self._eager_listener = eager_listener
         self.updates: list[dict] = []
         self.async_reload = MagicMock(name="async_reload")
+        self._entries = list(entries) or [_parent_entry()]
+
+    def async_entries(self, domain=None):
+        return list(self._entries)
 
     def async_update_entry(self, entry, *, options):
         entry.options = dict(options)
@@ -166,6 +170,14 @@ class _ConfigEntries:
         if self._eager_listener is not None:
             _drive_eager(self._eager_listener(self._hass, entry))
         return True
+
+
+def _parent_entry(master_on: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        entry_id="parent-integ",
+        data={CONF_ENTRY_TYPE: "integration", "domain_coordinators_enabled": master_on},
+        options={},
+    )
 
 
 def _drive_eager(coro) -> None:
@@ -358,17 +370,90 @@ async def test_pin_write_through_real_listener_does_not_reload_deferred() -> Non
     hass.config_entries.async_reload.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_operator_edit_of_one_role_key_reloads() -> None:
-    """(b) Changing one role key (an options-flow save) must reload the CM so
-    the new entity takes effect."""
-    before = _pre_options()
+async def _listen(before: dict, after: dict, *, master_on: bool = True, manager=None):
+    """Run the REAL CM update listener for a save of ``after`` over a
+    snapshot of ``before``; return the hass (async_reload is a mock)."""
     cm = _cm_entry(before)
     hass = _hass_with_snapshot(cm.entry_id, before)
-    hass.config_entries = _ConfigEntries(hass)
-    cm.options = {**before, "energy_weather_entity": "weather.somewhere_else"}
+    hass.config_entries = _ConfigEntries(
+        hass, entries=[_parent_entry(master_on), cm],
+    )
+    if manager is not None:
+        hass.data[DOMAIN]["coordinator_manager"] = manager
+    cm.options = dict(after)
     await ura._async_update_listener(hass, cm)
-    hass.config_entries.async_reload.assert_called_once_with(cm.entry_id)
+    return hass
+
+
+@pytest.mark.asyncio
+async def test_role_key_change_schedules_exactly_one_parent_reload() -> None:
+    """(a, part 1) one role-key change → ONE reload, of the PARENT entry
+    (the EnergyCoordinator is built in the parent's setup; a CM reload
+    would not pick the change up)."""
+    before = _pre_options()
+    hass = await _listen(
+        before, {**before, "energy_evse_a_switch_entity": "switch.new_charger_a"},
+    )
+    hass.config_entries.async_reload.assert_called_once_with("parent-integ")
+
+
+@pytest.mark.asyncio
+async def test_legacy_entity_mapping_change_schedules_parent_reload() -> None:
+    """Older construction-time mapping (solar sensor) behaves the same."""
+    before = _pre_options()
+    hass = await _listen(before, {**before, "energy_solar_entity": "sensor.new_solar"})
+    hass.config_entries.async_reload.assert_called_once_with("parent-integ")
+
+
+@pytest.mark.asyncio
+async def test_role_key_change_with_master_off_does_not_reload() -> None:
+    before = _pre_options()
+    hass = await _listen(
+        before, {**before, "energy_evse_a_switch_entity": "switch.new"}, master_on=False,
+    )
+    hass.config_entries.async_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_change_and_revert_before_save_does_not_reload() -> None:
+    """(b) operator edits a field then sets it back: the SAVED value equals
+    the snapshot → no change → no reload."""
+    before = _pre_options()
+    hass = await _listen(before, dict(before))
+    hass.config_entries.async_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_save_unchanged_does_not_reload() -> None:
+    """(c) saving the form unchanged (fresh dict, list copied) → no reload."""
+    before = _pre_options()
+    after = {k: (list(v) if isinstance(v, list) else v) for k, v in before.items()}
+    hass = await _listen(before, after)
+    hass.config_entries.async_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_none_empty_missing_equivalent_does_not_reload() -> None:
+    """(e) None ↔ "" ↔ missing on a mapping key is not a change."""
+    before = {**_pre_options(), "energy_solar_entity": None}
+    hass = await _listen(before, {**before, "energy_solar_entity": ""})
+    hass.config_entries.async_reload.assert_not_called()
+    hass = await _listen(before, {k: v for k, v in before.items() if k != "energy_solar_entity"})
+    hass.config_entries.async_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_setter_dispatch_key_applies_live_without_reload() -> None:
+    """(d) a live-applied energy knob (_EC_SETTER_DISPATCH) → no reload of
+    any entry; the coordinator's setter receives the new value."""
+    energy = MagicMock(name="energy_coordinator")
+    manager = SimpleNamespace(coordinators={"energy": energy})
+    before = _pre_options()
+    hass = await _listen(
+        before, {**before, "energy_peak_buffer_target": 85}, manager=manager,
+    )
+    hass.config_entries.async_reload.assert_not_called()
+    energy.set_peak_buffer_target.assert_called_once_with(85)
 
 
 # ---------------------------------------------------------------------------
@@ -722,3 +807,70 @@ async def test_integration_setup_wires_pin_scan_and_evse_builder() -> None:
     assert ("scan", "integ", "coordinator_manager_entry") in calls
     assert ("evse", expected_evse) in calls
     assert ec_cls.call_args.kwargs["evse_config"] == expected_evse
+
+
+@pytest.mark.parametrize("expected_lingering_tasks", [True])
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+@pytest.mark.asyncio
+async def test_role_key_edit_reload_rebuilds_coordinator_with_new_entity() -> None:
+    """(a, part 2) the save schedules ONE parent reload; performing that
+    reload (the real parent setup) builds the EnergyCoordinator with the NEW
+    entity, read from the saved options."""
+    from unittest.mock import AsyncMock
+
+    from runtime_harness import StubConfigEntry, StubHass, make_coordinator_manager_entry
+
+    from custom_components.universal_room_automation import coordinator_gate
+    from custom_components.universal_room_automation.const import (
+        CONF_DOMAIN_COORDINATORS_ENABLED,
+        ENTRY_TYPE_INTEGRATION,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy as energy_mod,
+    )
+
+    class _Entry(StubConfigEntry):
+        def async_on_unload(self, func):
+            pass
+
+    before = {
+        "energy_evse_a_switch_entity": "switch.old_charger_a",
+        "energy_storage_mode_entity": "select.old_battery_mode",
+        "_ec_defaults_pinned": True,
+    }
+    cm = make_coordinator_manager_entry(options=dict(before))
+    integ = _Entry(
+        "integ", ENTRY_TYPE_INTEGRATION,
+        data={CONF_DOMAIN_COORDINATORS_ENABLED: True},
+    )
+    hass = StubHass(config_entries=[cm, integ])
+    hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+    hass.config_entries.async_reload = AsyncMock(name="async_reload")
+    hass.data.setdefault(DOMAIN, {})["cm_last_applied_options"] = {cm.entry_id: dict(before)}
+
+    # Operator saves a new charger switch + battery-mode entity.
+    cm.options = {
+        **before,
+        "energy_evse_a_switch_entity": "switch.new_charger_a",
+        "energy_storage_mode_entity": "select.new_battery_mode",
+    }
+    await ura._async_update_listener(hass, cm)
+    hass.config_entries.async_reload.assert_called_once_with("integ")
+
+    # Perform that reload: the parent entry's real setup.
+    ec_cls = MagicMock(name="EnergyCoordinator")
+    with patch.object(
+        coordinator_gate, "coordinators_to_register", lambda *a, **k: {"energy"},
+    ), patch.object(energy_mod, "EnergyCoordinator", ec_cls), patch.object(
+        ura, "_start_ec_role_scan", lambda *a, **k: None,
+    ):
+        try:
+            assert await ura.async_setup_entry(hass, integ) is True
+        finally:
+            from custom_components.universal_room_automation.domain_coordinators._loop_stall_watchdog import (
+                uninstall,
+            )
+            uninstall(hass)
+    kwargs = ec_cls.call_args.kwargs
+    assert kwargs["evse_config"] == {"garage_a": {"switch": "switch.new_charger_a"}}
+    assert kwargs["entity_config"]["energy_storage_mode_entity"] == "select.new_battery_mode"

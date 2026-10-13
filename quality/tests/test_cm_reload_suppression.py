@@ -146,6 +146,8 @@ def _load_init_listener_helpers():
         "_seed_cm_last_applied_options",
         "_apply_in_place",
         "_async_update_listener",
+        "_norm_cm_opt",
+        "_schedule_parent_reload",
         # Part 2 — dispatch tables (read inside _apply_in_place).
         "_HVAC_TUNABLE_DISPATCH",
         "_EC_SETTER_DISPATCH",
@@ -409,6 +411,9 @@ def _load_init_listener_helpers():
     # compile AST guard. Converts the silent stub-miss (the class the
     # D2 build tripped on) into a hard test failure at load time.
     from _ast_slice_guard import assert_ast_slice_names_covered  # noqa: PLC0415
+    from ec_phalanx_entities import cm_listener_slice_ns_extras
+    for _k, _v in cm_listener_slice_ns_extras().items():
+        ns.setdefault(_k, _v)
     assert_ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns

@@ -2227,3 +2227,43 @@ EC_ROLE_KEY_DEFAULTS: Final[dict[str, Any]] = {
 # reseeding the listener snapshot (see ``_bootstrap_pin_ec_defaults_once``).
 EC_ROLE_KEY_SET: Final[frozenset[str]] = frozenset(EC_ROLE_KEY_DEFAULTS)
 
+
+
+# EC-HOUSE-ENTITY-DEFAULTS-1 (review D I3, operator option A) — energy
+# entity-mapping keys that are read ONLY when the EnergyCoordinator (and its
+# helpers) is CONSTRUCTED during the parent (integration) entry's setup, so a
+# saved change needs a PARENT reload to take effect (a CM-entry reload does
+# not rebuild the EC). How derived (2026-10-13): every `CONF_ENERGY_*_ENTITY /
+# _ENTITIES / _BREAKER / WEATHER_FALLBACK_n` constant in this module, kept iff
+# it is read in `EnergyCoordinator.__init__` / `_build_entity_map`
+# (energy.py) or in the EC/weather-manager construction block of
+# `__init__.py` (`cm_config` → EVSE builder, L1 list, envoy anchor,
+# `WeatherProviderManager(hass, cm_config)`), and NOT live-applied (not in
+# `OPTIONS_RELOAD_SUPPRESS_KEYS` — e.g. CONF_ENERGY_MAINS_EXPORT_ENTITY is
+# excluded). The DP mains readings are read per tick but from the
+# `_entity_config` copy taken at construction, so they belong here too.
+EC_CONSTRUCTION_ENTITY_KEYS: Final[frozenset[str]] = EC_ROLE_KEY_SET | frozenset({
+    CONF_ENERGY_SOLAR_ENTITY,
+    CONF_ENERGY_GRID_ENTITY,
+    CONF_ENERGY_NET_POWER_ENTITY,
+    CONF_ENERGY_BATTERY_SOC_ENTITY,
+    CONF_ENERGY_BATTERY_POWER_ENTITY,
+    CONF_ENERGY_BATTERY_CAPACITY_ENTITY,
+    CONF_ENERGY_CONSUMPTION_TODAY_ENTITY,
+    CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
+    CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY,
+    CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY,
+    CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY,
+    CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY,
+    CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY,
+    CONF_ENERGY_GRID_IMPORT_ENTITY,
+    CONF_ENERGY_GRID_EXPORT_ENTITY,
+    CONF_ENERGY_UTILITY_METER_ENTITY,
+    CONF_ENERGY_ENVOY_ENTITY,
+    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+    CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+    CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES,
+    CONF_ENERGY_WEATHER_FALLBACK_1,
+    CONF_ENERGY_WEATHER_FALLBACK_2,
+})

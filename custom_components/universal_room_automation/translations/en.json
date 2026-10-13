@@ -962,7 +962,7 @@
       },
       "coordinator_energy": {
         "title": "⚡ Energy Coordinator",
-        "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting.",
+        "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting. Changing which entity a field points to takes effect when you save (the integration reloads briefly).",
         "data": {
           "energy_envoy_entity": "Solar gateway sensor (pick any — serial auto-derives related sensors)",
           "energy_solar_entity": "Solar power sensor (override)",
