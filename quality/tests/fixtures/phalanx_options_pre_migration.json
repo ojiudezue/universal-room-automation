@@ -1,6 +1,5 @@
 {
-  "_comment": "EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13). Snapshot of the role-key subset of Phalanx's live CM options blob, captured from .storage/core.config_entries entry 01KJEC3FYPYAGBQKZWC94CR8GR via Samba mount on 2026-10-13. Only role-key options (entity_ids) are included; redaction is unnecessary — all values are entity_ids, no secrets. Used by test_bootstrap_pins_phalanx_shape_options_byte_identical to prove G3 (per-key byte-identity).",
-  "energy_envoy_entity": "sensor.envoy_482543015950_current_power_production",
+  "_comment": "EC-HOUSE-ENTITY-DEFAULTS-1. Role-key subset (every EC_ROLE_KEY_DEFAULTS key that is SET, plus energy_envoy_entity) of this house's live Coordinator Manager options, re-pulled 2026-10-13 via `ssh ha` from /config/.storage/core.config_entries entry 01KJEC3FYPYAGBQKZWC94CR8GR (pre-migration: no _ec_defaults_pinned flag yet). Values are entity_ids only, no secrets. Keys absent here are UNSET live and are exactly the ones the pin migration fills. Used by test_bootstrap_pins_phalanx_shape_options_byte_identical (G3).",
   "energy_solcast_today_entity": "sensor.solcast_pv_forecast_forecast_today",
   "energy_solcast_tomorrow_entity": "sensor.solcast_pv_forecast_forecast_tomorrow",
   "energy_solcast_remaining_entity": "sensor.solcast_pv_forecast_forecast_remaining_today",
@@ -16,5 +15,8 @@
   "energy_cloud_charge_from_grid_oracle_entity": "switch.iq_battery_hacs_charge_battery_from_grid",
   "energy_cloud_storage_mode_oracle_entity": "select.iq_gateway_hacs_system_profile",
   "energy_cloud_battery_soc_fallback_entity": "sensor.iq_battery_hacs_battery_overall_charge",
-  "energy_generator_entity": "sensor.generac_2325624_status_2"
+  "energy_solar_follow_grid_entity": "sensor.mains_vue_3_power_minute_average",
+  "energy_solar_follow_grid_fallback_entity": "sensor.envoy_stream_grid_power",
+  "energy_generator_entity": "sensor.generac_2325624_status_2",
+  "energy_envoy_entity": "sensor.envoy_482543015950_current_power_production"
 }

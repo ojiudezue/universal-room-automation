@@ -5646,24 +5646,27 @@ class BatteryStrategy:
                     _cfg_live is True or _cfg_last_cmd is True
                 )
                 if _cfg_currently_on:
-                    de_escalate_actions = [
-                        {
+                    # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: never emit a
+                    # write whose target role is unconfigured (2nd install).
+                    _de_res_eid = self._get_entity(
+                        "reserve_soc_number",
+                        DEFAULT_RESERVE_SOC_ENTITY,
+                        role="write",
+                    )
+                    if _cfg_write_eid:
+                        de_escalate_actions.append({
                             "service": "switch.turn_off",
                             "target": _cfg_write_eid,
                             "data": {},
-                        },
-                        {
+                        })
+                    if _de_res_eid:
+                        de_escalate_actions.append({
                             "service": "number.set_value",
-                            "target": self._get_entity(
-                                "reserve_soc_number",
-                                DEFAULT_RESERVE_SOC_ENTITY,
-                                role="write",
-                            ),
+                            "target": _de_res_eid,
                             "data": {"value": max(
                                 0, min(100, int(self.reserve_soc))
                             )},
-                        },
-                    ]
+                        })
                     de_escalate_reason = (
                         "Blind de-escalation — never import through peak "
                         f"blind (reserve→{int(self.reserve_soc)}, "
@@ -6338,20 +6341,23 @@ class BatteryStrategy:
                 sm_option = STORAGE_MODE_LOCAL_TO_CLOUD.get(mode, mode)
             else:
                 sm_option = mode
-            actions.append({
-                "service": "select.select_option",
-                "target": sm_target,
-                "data": {"option": sm_option},
-            })
+            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: no target → no write.
+            if sm_target:
+                actions.append({
+                    "service": "select.select_option",
+                    "target": sm_target,
+                    "data": {"option": sm_option},
+                })
 
         # 2. Reserve level — primary control lever
         if reserve_level is not None:
-            current_reserve = self._get_state_float(
-                self._get_entity(
-                    "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
-                    role="write",
-                )
+            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: resolve the write target
+            # once; an unconfigured reserve role emits no write.
+            _reserve_target = self._get_entity(
+                "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                role="write",
             )
+            current_reserve = self._get_state_float(_reserve_target)
             target_reserve = max(0, min(100, reserve_level))
             # Root 2 (a) — HARD STAND-DOWN honesty. During a stand-down
             # on the reserve surface at `target_reserve` (== the stuck
@@ -6381,16 +6387,13 @@ class BatteryStrategy:
                         )
                 except Exception:  # noqa: BLE001
                     _standdown_skip = False
-            if not _standdown_skip and (
+            if _reserve_target and not _standdown_skip and (
                 current_reserve is None
                 or abs(current_reserve - target_reserve) >= 2
             ):
                 actions.append({
                     "service": "number.set_value",
-                    "target": self._get_entity(
-                        "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
-                        role="write",
-                    ),
+                    "target": _reserve_target,
                     "data": {"value": target_reserve},
                 })
 
@@ -6459,14 +6462,17 @@ class BatteryStrategy:
                         )
                 except Exception:  # noqa: BLE001
                     pass
-                actions.append({
-                    "service": "switch.turn_on",
-                    "target": self._get_entity(
-                        "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
-                        role="write",
-                    ),
-                    "data": {},
-                })
+                _cfg_on_target = self._get_entity(
+                    "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                    role="write",
+                )
+                # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: no target → no write.
+                if _cfg_on_target:
+                    actions.append({
+                        "service": "switch.turn_on",
+                        "target": _cfg_on_target,
+                        "data": {},
+                    })
         else:
             current_cfg = self._get_state_bool(
                 self._get_entity(

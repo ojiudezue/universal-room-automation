@@ -438,46 +438,29 @@ class TestD2EvseSpanBreakerConfig:
         window = src[window_start:window_start + 500]
         assert 'domain="switch"' in window
 
-    def test_init_wires_override_with_default_fallback(self):
-        src = _read(_INIT_PY)
-        # Import present.
-        assert 'CONF_ENERGY_EVSE_A_SPAN_BREAKER' in src
-        assert 'CONF_ENERGY_EVSE_B_SPAN_BREAKER' in src
-        # Override merged into evse_config[..]["span_breaker"] only when set.
-        assert 'evse_config["garage_a"]["span_breaker"] = evse_a_breaker' in src
-        assert 'evse_config["garage_b"]["span_breaker"] = evse_b_breaker' in src
+    # EC-HOUSE-ENTITY-DEFAULTS-1: the former source-grep of the __init__.py
+    # merge block and its hand-replica round trip are replaced by the
+    # behavioural tests of `_build_evse_config_from_options` in
+    # test_ec_role_defaults_rev5.py (test_build_evse_config_*).
 
-    def test_default_evse_entities_preserves_backward_compat(self):
-        """When options are unset, span_breaker keeps the pre-cycle defaults."""
+    def test_default_evse_entities_empty_and_breakers_pinned_from_role_table(self):
+        """No house literals in energy_pool any more; this house keeps its
+        breakers through the pin-migration table (G3)."""
         from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
             DEFAULT_EVSE_ENTITIES,
         )
-        assert DEFAULT_EVSE_ENTITIES["garage_a"]["span_breaker"] == (
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_A_SPAN_BREAKER,
+            CONF_ENERGY_EVSE_B_SPAN_BREAKER,
+            EC_ROLE_KEY_DEFAULTS,
+        )
+        assert DEFAULT_EVSE_ENTITIES == {}
+        assert EC_ROLE_KEY_DEFAULTS[CONF_ENERGY_EVSE_A_SPAN_BREAKER] == (
             "switch.span_panel_car_charger_breaker"
         )
-        assert DEFAULT_EVSE_ENTITIES["garage_b"]["span_breaker"] == (
+        assert EC_ROLE_KEY_DEFAULTS[CONF_ENERGY_EVSE_B_SPAN_BREAKER] == (
             "switch.span_panel_garage_b_evse_breaker"
         )
-
-    def test_override_round_trip(self):
-        """Simulate the __init__.py merge path with options set."""
-        from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
-            DEFAULT_EVSE_ENTITIES,
-        )
-        evse_config = {k: dict(v) for k, v in DEFAULT_EVSE_ENTITIES.items()}
-        cm_config = {
-            "energy_evse_a_span_breaker": "switch.span_panel_renamed_a",
-            "energy_evse_b_span_breaker": "switch.span_panel_renamed_b",
-        }
-        # Replicate the __init__.py logic.
-        a = cm_config.get("energy_evse_a_span_breaker")
-        if a:
-            evse_config["garage_a"]["span_breaker"] = a
-        b = cm_config.get("energy_evse_b_span_breaker")
-        if b:
-            evse_config["garage_b"]["span_breaker"] = b
-        assert evse_config["garage_a"]["span_breaker"] == "switch.span_panel_renamed_a"
-        assert evse_config["garage_b"]["span_breaker"] == "switch.span_panel_renamed_b"
 
     def test_translations_carry_labels_in_both_files(self):
         """strings.json and translations/en.json BOTH carry the labels and
@@ -485,13 +468,13 @@ class TestD2EvseSpanBreakerConfig:
         s = _read(_STRINGS)
         e = _read(_EN_JSON)
         for token in (
-            '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker"',
-            '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker"',
+            '"energy_evse_a_span_breaker": "Garage A charger breaker switch"',
+            '"energy_evse_b_span_breaker": "Garage B charger breaker switch"',
         ):
             assert token in s, f"{token} missing from strings.json"
             assert token in e, f"{token} missing from translations/en.json"
-        assert '"energy_evse_a_span_breaker": "SPAN panel breaker switch that pauses/resumes Garage A' in s
-        assert '"energy_evse_a_span_breaker": "SPAN panel breaker switch that pauses/resumes Garage A' in e
+        assert '"energy_evse_a_span_breaker": "Panel breaker switch that pauses/resumes Garage A' in s
+        assert '"energy_evse_a_span_breaker": "Panel breaker switch that pauses/resumes Garage A' in e
 
 
 # ---------------------------------------------------------------------------
@@ -1115,30 +1098,17 @@ class TestF5DuplicateFriendlyWarn:
 # ---------------------------------------------------------------------------
 
 class TestF7EvseMergeProductionPath:
+    # EC-HOUSE-ENTITY-DEFAULTS-1: the merge itself is now the production
+    # helper `_build_evse_config_from_options` (behavioural tests in
+    # test_ec_role_defaults_rev5.py). These pin the CONSUMER side.
     def test_merge_reaches_ev_charger_controller_evse(self):
-        """Execute the exact `__init__.py` merge block against a mock
-        cm_config, then construct EVChargerController with the result and
-        assert the override reaches `._evse[...]["span_breaker"]`."""
         from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
-            DEFAULT_EVSE_ENTITIES, EVChargerController,
+            EVChargerController,
         )
-        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            CONF_ENERGY_EVSE_A_SPAN_BREAKER,
-            CONF_ENERGY_EVSE_B_SPAN_BREAKER,
-        )
-        cm_config = {
-            CONF_ENERGY_EVSE_A_SPAN_BREAKER: "switch.span_panel_new_a_breaker",
-            CONF_ENERGY_EVSE_B_SPAN_BREAKER: "switch.span_panel_new_b_breaker",
+        evse_config = {
+            "garage_a": {"switch": "switch.a", "span_breaker": "switch.span_panel_new_a_breaker"},
+            "garage_b": {"switch": "switch.b", "span_breaker": "switch.span_panel_new_b_breaker"},
         }
-        # Replicate the merge block from __init__.py verbatim in behaviour.
-        evse_config = {k: dict(v) for k, v in DEFAULT_EVSE_ENTITIES.items()}
-        evse_a_breaker = cm_config.get(CONF_ENERGY_EVSE_A_SPAN_BREAKER)
-        if evse_a_breaker:
-            evse_config["garage_a"]["span_breaker"] = evse_a_breaker
-        evse_b_breaker = cm_config.get(CONF_ENERGY_EVSE_B_SPAN_BREAKER)
-        if evse_b_breaker:
-            evse_config["garage_b"]["span_breaker"] = evse_b_breaker
-        # Now the production consumer.
         controller = EVChargerController(MagicMock(), evse_config)
         assert controller._evse["garage_a"]["span_breaker"] == (
             "switch.span_panel_new_a_breaker"
@@ -1147,18 +1117,13 @@ class TestF7EvseMergeProductionPath:
             "switch.span_panel_new_b_breaker"
         )
 
-    def test_merge_omitted_options_keeps_defaults_in_controller(self):
+    def test_unconfigured_controller_manages_no_chargers(self):
+        """2nd install: no EVSE config → no chargers (was: house defaults)."""
         from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
-            DEFAULT_EVSE_ENTITIES, EVChargerController,
+            EVChargerController,
         )
-        evse_config = {k: dict(v) for k, v in DEFAULT_EVSE_ENTITIES.items()}
-        controller = EVChargerController(MagicMock(), evse_config)
-        assert controller._evse["garage_a"]["span_breaker"] == (
-            "switch.span_panel_car_charger_breaker"
-        )
-        assert controller._evse["garage_b"]["span_breaker"] == (
-            "switch.span_panel_garage_b_evse_breaker"
-        )
+        controller = EVChargerController(MagicMock(), None)
+        assert controller._evse == {}
 
 
 # ---------------------------------------------------------------------------
@@ -1301,8 +1266,8 @@ class TestF13SwitchSuffixDropped:
                 f"{path} still carries '(switch)' suffix"
             )
             assert '"EVSE Garage B SPAN breaker (switch)"' not in src
-            assert '"energy_evse_a_span_breaker": "EVSE Garage A SPAN breaker"' in src
-            assert '"energy_evse_b_span_breaker": "EVSE Garage B SPAN breaker"' in src
+            assert '"energy_evse_a_span_breaker": "Garage A charger breaker switch"' in src
+            assert '"energy_evse_b_span_breaker": "Garage B charger breaker switch"' in src
 
 
 # ---------------------------------------------------------------------------

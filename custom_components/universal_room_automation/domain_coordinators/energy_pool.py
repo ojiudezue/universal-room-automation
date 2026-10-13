@@ -450,26 +450,11 @@ class PoolOptimizer:
 # EV Charger Controller
 # ============================================================================
 
-# Default Emporia EVSE entities (confirmed via HA)
-DEFAULT_EVSE_ENTITIES = {
-    "garage_a": {
-        "switch": "switch.garage_a",
-        "power": "sensor.garage_a_power_minute_average",
-        "energy_today": "sensor.garage_a_energy_today",
-        "energy_month": "sensor.garage_a_energy_this_month",
-        "span_breaker": "switch.span_panel_car_charger_breaker",
-        # SolarFollowController D1 §5.5 — Emporia current-limit Number.
-        "current_limit": "number.garage_a_evse_emporia_wifi_garagea_current_limit",
-    },
-    "garage_b": {
-        "switch": "switch.garage_b",
-        "power": "sensor.garage_b_power_minute_average",
-        "energy_today": "sensor.garage_b_energy_today",
-        "energy_month": "sensor.garage_b_energy_this_month",
-        "span_breaker": "switch.span_panel_garage_b_evse_breaker",
-        "current_limit": "number.garage_b_evse_emporia_wifi_garageb_current_limit",
-    },
-}
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the house-specific per-charger entity
+# literals moved to role-keyed CM options (CONF_ENERGY_EVSE_{A,B}_*; pinned
+# on this house by the one-shot migration via EC_ROLE_KEY_DEFAULTS). Name
+# preserved for importers; an unconfigured install manages no chargers.
+DEFAULT_EVSE_ENTITIES: dict[str, dict[str, str]] = {}
 
 
 class EVChargerController:
@@ -486,7 +471,7 @@ class EVChargerController:
     ) -> None:
         """Initialize EV charger controller."""
         self.hass = hass
-        self._evse = evse_config or DEFAULT_EVSE_ENTITIES
+        self._evse = evse_config or {}
         self._paused_by_us: set[str] = set()
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()

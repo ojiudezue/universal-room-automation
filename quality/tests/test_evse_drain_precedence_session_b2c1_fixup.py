@@ -425,6 +425,12 @@ def _make_coord(
         drain_target=drain_target,
         house_load_source=house_load_source,
     )
+    # EC-HOUSE-ENTITY-DEFAULTS-1: the two mains readings are role-keyed
+    # options now (no code default).
+    coord._entity_config = {
+        "energy_dp_span_r1_entity": "sensor.span_panel_current_power",
+        "energy_dp_span_r2_entity": "sensor.span_panel_current_power_2",
+    }
     return coord, ev, battery, tou
 
 
@@ -972,3 +978,16 @@ def test_dhigh1_state_machine_revert_edge_site(monkeypatch, hold, expect_kept):
     _dhigh1_tick(coord, 60, "off_peak", 30)
     assert coord._dp_carrier.state == DPState.HOLD_ONLY
     assert ("garage_a" in ev._paused_by_dp) is expect_kept
+
+
+def test_house_load_live_span_zero_when_mains_roles_unconfigured():
+    """EC-HOUSE-ENTITY-DEFAULTS-1: no mains readings configured (second
+    install) → the live-SPAN source contributes nothing, even though the
+    former hard-coded sensors exist with values in the state machine."""
+    coord, _, _, _ = _make_coord(
+        span_r1="2000", span_r2="1000",
+        house_load_source="live_span",
+        predicted_consumption_kwh=None,
+    )
+    coord._entity_config = {}
+    assert coord._dp_house_load_kw(ev_load_w=0.0) == 0.0

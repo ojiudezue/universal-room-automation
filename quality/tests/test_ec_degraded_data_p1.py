@@ -55,17 +55,18 @@ from custom_components.universal_room_automation.domain_coordinators.energy_batt
     ARBITRAGE_PHASE_CHARGE,
     BatteryStrategy,
 )
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E402
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
-    DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_REMAINING_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    PHALANX_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_REMAINING_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_pool import (  # noqa: E402
     EVChargerController,
@@ -77,10 +78,10 @@ from custom_components.universal_room_automation.domain_coordinators.energy_tou 
 _NATIVE = "sensor.envoy_482543015950_battery"
 _STREAM = "sensor.envoy_stream_battery_soc"
 _COW = "sensor.envoy_stream_grid_power"
-_CLOUD = DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY
-_CFG_W = DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY  # write leg (cloud)
-_CFG_L = DEFAULT_CHARGE_FROM_GRID_ENTITY               # local read leg
-_SM = DEFAULT_STORAGE_MODE_ENTITY
+_CLOUD = PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY
+_CFG_W = PHALANX_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY  # write leg (cloud)
+_CFG_L = PHALANX_CHARGE_FROM_GRID_ENTITY               # local read leg
+_SM = PHALANX_STORAGE_MODE_ENTITY
 _CDT = timezone(timedelta(hours=-5))
 _UTC = timezone.utc
 _FIX = Path(__file__).parent / "fixtures" / "ec_degraded_data_p1_outages.json"
@@ -196,14 +197,14 @@ def _strategy(clock, *, stream=True, cowitness=True, arbitrage=False, extra=None
     t = clock.t
     _st(hass, _NATIVE, "80", unit="%", lu=t)
     _st(hass, _SM, "self_consumption", lu=t)
-    _st(hass, DEFAULT_GRID_ENABLED_ENTITY, "on", lu=t)
+    _st(hass, PHALANX_GRID_ENABLED_ENTITY, "on", lu=t)
     _st(hass, _CFG_L, "off", lu=t)
     _st(hass, _CFG_W, "off", lu=t)
-    _st(hass, DEFAULT_RESERVE_SOC_ENTITY, "20", lu=t)
-    _st(hass, DEFAULT_SOLCAST_TODAY_ENTITY, "20", lu=t)
-    _st(hass, DEFAULT_SOLCAST_TOMORROW_ENTITY, "20", lu=t)
-    _st(hass, DEFAULT_SOLCAST_REMAINING_ENTITY, "5", lu=t)
-    _st(hass, DEFAULT_WEATHER_ENTITY, "cloudy", lu=t)
+    _st(hass, PHALANX_RESERVE_SOC_ENTITY, "20", lu=t)
+    _st(hass, PHALANX_SOLCAST_TODAY_ENTITY, "20", lu=t)
+    _st(hass, PHALANX_SOLCAST_TOMORROW_ENTITY, "20", lu=t)
+    _st(hass, PHALANX_SOLCAST_REMAINING_ENTITY, "5", lu=t)
+    _st(hass, PHALANX_WEATHER_ENTITY, "cloudy", lu=t)
     cfg = {
         "battery_soc": _NATIVE,
         "cloud_charge_from_grid_oracle": _CFG_W,
@@ -218,7 +219,7 @@ def _strategy(clock, *, stream=True, cowitness=True, arbitrage=False, extra=None
         reserve_soc=10,
         arbitrage_enabled=arbitrage,
         peak_buffer_target=80,
-        entity_config=cfg,
+        entity_config=phalanx_battery_entities() | cfg,
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -2015,7 +2016,7 @@ class TestB2WriteOutcome:
         from homeassistant.exceptions import HomeAssistantError
         c, s = _write_shell(clock, raise_on=("number", "set_value"),
                             exc=HomeAssistantError("cloud down"))
-        reserve_eid = s._get_entity("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+        reserve_eid = s._get_entity("reserve_soc_number", PHALANX_RESERVE_SOC_ENTITY,
                                     role="write")
         d = {"actions": [{"service": "number.set_value", "target": reserve_eid,
                           "data": {"value": 40}}],
@@ -2066,7 +2067,7 @@ class TestB2WriteOutcome:
         from homeassistant.exceptions import HomeAssistantError
         c, s = _write_shell(clock, raise_on=("select", "select_option"),
                             exc=HomeAssistantError("cloud down"))
-        sm = s._get_entity("storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="write")
+        sm = s._get_entity("storage_mode", PHALANX_STORAGE_MODE_ENTITY, role="write")
         d = {"actions": [{"service": "select.select_option", "target": sm,
                           "data": {"option": "backup"}}],
              "arbitrage_phase": "n/a", "charge_from_grid": False}
@@ -2257,7 +2258,7 @@ class TestB5FreshCfgOff:
         """No cloud oracle configured → write leg is local → no gate."""
         s, hass, _ = _strategy(clock, stream=False,
                                extra={"cloud_charge_from_grid_oracle": ""})
-        eid = s._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+        eid = s._get_entity("charge_from_grid", PHALANX_CHARGE_FROM_GRID_ENTITY,
                             role="write")
         assert eid == _CFG_L
         _st(hass, _CFG_L, "off", lu=clock.t - timedelta(hours=5))

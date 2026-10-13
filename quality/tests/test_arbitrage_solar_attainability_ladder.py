@@ -37,6 +37,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_REMAINING_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
+)
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -166,16 +177,6 @@ for _sub in ("energy_const", "energy_tou", "energy_battery", "energy_pool"):
 # ---------------------------------------------------------------------------
 from conftest import MockHass
 
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_REMAINING_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
-)
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
     ARBITRAGE_PHASE_CHARGE,
     ARBITRAGE_PHASE_NA,
@@ -212,22 +213,22 @@ def _build_strategy(
     """
     hass = MockHass()
     hass.set_state(_BSOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
     hass.set_state(_SOLAR, "5000")
     hass.set_state(_NETP, "0", attributes={"unit_of_measurement": "W"})
     hass.set_state(_BPOW, "-200", attributes={"unit_of_measurement": "W"})
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "50")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, solcast_today)
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "50")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, solcast_today)
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
     # Solcast remaining-today (kWh forecast left until sunset). Most tests
     # want this aligned with solcast_today (full forecast remaining) so
     # the sliced-solar surplus computes a positive number when daylight
     # remains after the anchor.
     remaining = solcast_remaining if solcast_remaining is not None else solcast_today
-    hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, remaining)
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, remaining)
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     # Battery capacity — production reads this for the v5.3.8 attain
     # projection AND for the new rung-1 EV-load → %/h conversion. Test
     # uses 100 kWh so ev_load_w (W) → %/h math is on a clean grid
@@ -255,7 +256,7 @@ def _build_strategy(
         reserve_soc=20,
         arbitrage_enabled=arbitrage_enabled,
         peak_buffer_target=peak_buffer_target,
-        entity_config=entity_config,
+        entity_config=phalanx_battery_entities() | entity_config,
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -759,7 +760,7 @@ def _battery_with_grid_charge_entity(grid_charge_state="off"):
     """
     strat, hass = _build_strategy(soc=20, solcast_today="5")
     # ensure charge_from_grid switch is at our test_state
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, grid_charge_state)
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, grid_charge_state)
     return strat, hass
 
 
@@ -967,7 +968,7 @@ class TestBreakerSafetyChokepoint:
         strat, hass = _build_strategy(soc=70)
         # Force the live charge_from_grid switch ON, simulating mid-
         # charge restart.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         # Build a "neutral" decision that does NOT command grid charge.
         # Simplest: rung-0/non-arbitrage shape with no actions.
         decision = {
@@ -1096,17 +1097,17 @@ class TestCapacityFix:
         # Build a strategy whose battery_capacity entity is missing.
         hass = MockHass()
         hass.set_state(_BSOC, "50")
-        hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+        hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
         hass.set_state(_SOLAR, "5000")
         hass.set_state(_NETP, "0", attributes={"unit_of_measurement": "W"})
         hass.set_state(_BPOW, "-200", attributes={"unit_of_measurement": "W"})
-        hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, "10")
-        hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "10")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "10")
-        hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+        hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+        hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "50")
+        hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, "10")
+        hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "10")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "10")
+        hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
         hass.set_state(
             "sun.sun", "above_horizon",
             attributes={
@@ -1127,7 +1128,7 @@ class TestCapacityFix:
             reserve_soc=20,
             arbitrage_enabled=True,
             peak_buffer_target=80,
-            entity_config=entity_config,
+            entity_config=phalanx_battery_entities() | entity_config,
             solar_classification_mode="custom",
             custom_solar_thresholds={
                 "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -1489,7 +1490,7 @@ class TestEnvoyBlipFailClosed:
         last-known-good was ON → tick treated as breaker.
         """
         strat, hass = _build_strategy(soc=50)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "unavailable")
         decision = {
             "actions": [],
             "arbitrage_phase": ARBITRAGE_PHASE_NA,
@@ -1522,7 +1523,7 @@ class TestEnvoyBlipFailClosed:
         (no false positive when we never had grid charge on).
         """
         strat, hass = _build_strategy(soc=50)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "unavailable")
         decision = {
             "actions": [],
             "arbitrage_phase": ARBITRAGE_PHASE_NA,
@@ -1542,7 +1543,7 @@ class TestEnvoyBlipFailClosed:
         fails CLOSED.
         """
         strat, hass = _build_strategy(soc=50)
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         decision = {
             "actions": [],
             "arbitrage_phase": ARBITRAGE_PHASE_NA,
@@ -1555,7 +1556,7 @@ class TestEnvoyBlipFailClosed:
         await coord._execute_breaker_safe_dispatch(decision, "off_peak")
         assert coord._last_known_grid_charge_on is True
         # Now flip to unavailable — fails CLOSED.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "unavailable")
         _, _, grid_charge_intent2 = await (
             coord._execute_breaker_safe_dispatch(decision, "off_peak")
         )
@@ -1568,7 +1569,7 @@ class TestEnvoyBlipFailClosed:
         """
         strat, hass = _build_strategy(soc=50)
         # Seed LKG ON via a prior clean ON read.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         decision = {
             "actions": [],
             "arbitrage_phase": ARBITRAGE_PHASE_NA,
@@ -1581,11 +1582,11 @@ class TestEnvoyBlipFailClosed:
         await coord._execute_breaker_safe_dispatch(decision, "off_peak")
         assert coord._last_known_grid_charge_on is True
         # Then a clean OFF read clears LKG.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         await coord._execute_breaker_safe_dispatch(decision, "off_peak")
         assert coord._last_known_grid_charge_on is False
         # Now a blip should NOT assert grid-charge intent.
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "unavailable")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "unavailable")
         _, _, grid_charge_intent = await (
             coord._execute_breaker_safe_dispatch(decision, "off_peak")
         )

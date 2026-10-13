@@ -564,6 +564,9 @@ DEFAULT_CFG_OFF_READ_MAX_AGE_S: Final = 300
 # to the settings-entity age (multi-home). House-specific default, same
 # posture as the DEFAULT_CLOUD_* oracles. Probe P3 confirmed the id live.
 DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = None
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the last-successful-update sensor is a
+# role-keyed option (pinned on this house by the one-shot migration).
+CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY: Final = "energy_cloud_last_success_entity"
 
 # Review B MED / D-MED-4 — a persisted charge-from-grid command-ledger
 # entry (`wv_commanded_ledger`) whose `commanded_at` is older than this is
@@ -853,6 +856,21 @@ CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
 # Backward-compat: unset → falls back to DEFAULT_EVSE_ENTITIES in energy_pool.
 CONF_ENERGY_EVSE_A_SPAN_BREAKER: Final = "energy_evse_a_span_breaker"
 CONF_ENERGY_EVSE_B_SPAN_BREAKER: Final = "energy_evse_b_span_breaker"
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the remaining per-charger entity roles
+# (formerly literals in energy_pool.DEFAULT_EVSE_ENTITIES). Unset = that role
+# is not wired; a charger with no role configured at all is not managed.
+CONF_ENERGY_EVSE_A_SWITCH_ENTITY: Final = "energy_evse_a_switch_entity"
+CONF_ENERGY_EVSE_B_SWITCH_ENTITY: Final = "energy_evse_b_switch_entity"
+CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY: Final = "energy_evse_a_energy_today_entity"
+CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY: Final = "energy_evse_b_energy_today_entity"
+CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY: Final = "energy_evse_a_energy_month_entity"
+CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY: Final = "energy_evse_b_energy_month_entity"
+CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY: Final = "energy_evse_a_current_limit_entity"
+CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY: Final = "energy_evse_b_current_limit_entity"
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: pool pump roles (formerly literals in
+# energy_pool.DEFAULT_POOL_*). Unset = no pool management.
+CONF_ENERGY_POOL_SPEED_ENTITY: Final = "energy_pool_speed_entity"
+CONF_ENERGY_POOL_POWER_ENTITY: Final = "energy_pool_power_entity"
 CONF_ENERGY_L1_CHARGER_ENTITIES: Final = "energy_l1_charger_entities"
 CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
 # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for TOU rate-file
@@ -1816,6 +1834,11 @@ CONF_ENERGY_DP_MUST_START_BY_MIN: Final[str] = "energy_dp_must_start_by_min"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A: Final[str] = "energy_dp_needed_kwh_garage_a"
 CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B: Final[str] = "energy_dp_needed_kwh_garage_b"
 CONF_ENERGY_DP_HOUSE_LOAD_SOURCE: Final[str] = "energy_dp_house_load_source"
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the two mains power readings the
+# "live_span" house-load source sums (formerly literals in
+# EnergyCoordinator._dp_house_load_kw). Unset = that reading is absent.
+CONF_ENERGY_DP_SPAN_R1_ENTITY: Final[str] = "energy_dp_span_r1_entity"
+CONF_ENERGY_DP_SPAN_R2_ENTITY: Final[str] = "energy_dp_span_r2_entity"
 
 # v5.21.0 D4 — BAEC shadow-eval INFO-log rate-limit interval (seconds).
 # Rung-1 module constant (safety bound; log-volume incident risk mitigation
@@ -2156,12 +2179,51 @@ EC_ROLE_KEY_DEFAULTS: Final[dict[str, Any]] = {
     CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: (
         "sensor.envoy_482543015950_current_net_power_consumption"
     ),
+    # Fix-up additions (review G1 completeness).
+    # EVSE per-charger roles (formerly energy_pool.DEFAULT_EVSE_ENTITIES).
+    CONF_ENERGY_EVSE_A_SWITCH_ENTITY: "switch.garage_a",
+    CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY: "sensor.garage_a_energy_today",
+    CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY: (
+        "sensor.garage_a_energy_this_month"
+    ),
+    CONF_ENERGY_EVSE_A_SPAN_BREAKER: "switch.span_panel_car_charger_breaker",
+    CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY: (
+        "number.garage_a_evse_emporia_wifi_garagea_current_limit"
+    ),
+    CONF_ENERGY_EVSE_B_SWITCH_ENTITY: "switch.garage_b",
+    CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY: "sensor.garage_b_energy_today",
+    CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY: (
+        "sensor.garage_b_energy_this_month"
+    ),
+    CONF_ENERGY_EVSE_B_SPAN_BREAKER: "switch.span_panel_garage_b_evse_breaker",
+    CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY: (
+        "number.garage_b_evse_emporia_wifi_garageb_current_limit"
+    ),
+    # Drain-precedence live house-load mains readings.
+    CONF_ENERGY_DP_SPAN_R1_ENTITY: "sensor.span_panel_current_power",
+    CONF_ENERGY_DP_SPAN_R2_ENTITY: "sensor.span_panel_current_power_2",
+    # Cloud last-successful-update stamp.
+    CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY: (
+        "sensor.enphase_cloud_last_successful_update"
+    ),
+    # Pool pump (formerly energy_pool.DEFAULT_POOL_*).
+    CONF_ENERGY_POOL_SPEED_ENTITY: (
+        "number.pentair_pool_variable_speed_pump_1_speed"
+    ),
+    CONF_ENERGY_POOL_POWER_ENTITY: (
+        "sensor.pentair_pool_variable_speed_pump_1_power"
+    ),
+    # Generator status (key already existed; set on this house — pinned only
+    # where unset, registry-gated like every other row).
+    CONF_ENERGY_GENERATOR_ENTITY: "sensor.generac_2325624_status_2",
 }
 
 
 # EC_ROLE_KEY_SET — the full set of role-key CONF names the migration pins
 # AND that the setup/hourly repair-issue scanner inspects. Keep aligned
-# with ``EC_ROLE_KEY_DEFAULTS``; additions here must be reload-safe (see
-# ``OPTIONS_RELOAD_SUPPRESS_KEYS`` in __init__.py).
+# with ``EC_ROLE_KEY_DEFAULTS``. These keys are deliberately NOT in
+# ``OPTIONS_RELOAD_SUPPRESS_KEYS``: an operator edit must reload the CM so
+# the new entity takes effect. The one-shot pin avoids that reload by
+# reseeding the listener snapshot (see ``_bootstrap_pin_ec_defaults_once``).
 EC_ROLE_KEY_SET: Final[frozenset[str]] = frozenset(EC_ROLE_KEY_DEFAULTS)
 

@@ -33,13 +33,16 @@ from conftest import MockHass  # noqa: E402
 
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E402
     CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
+)
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (  # noqa: E402
     BatteryStrategy,
@@ -75,21 +78,21 @@ def _make(reserve, drains, *, soc=95.0, cls="excellent", season="summer",
           inclement_floor=50):
     hass = MockHass()
     hass.set_state(_SOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
     # Enphase reserve Number currently far from any target so the
     # reserve write always dispatches and its value is observable.
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "99")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "99")
     kwh = _CLASS_KWH[cls]
     if kwh is not None:
-        hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, str(kwh))
-        hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, str(kwh))
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+        hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, str(kwh))
+        hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, str(kwh))
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     strat = BatteryStrategy(
         hass,
         reserve_soc=reserve,
-        entity_config={"battery_soc": _SOC},
+        entity_config=phalanx_battery_entities() | {"battery_soc": _SOC},
         offpeak_drain_targets=dict(drains),
         solar_classification_mode="custom",
         custom_solar_thresholds={

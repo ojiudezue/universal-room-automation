@@ -108,75 +108,8 @@ _dc.__package__ = "custom_components.universal_room_automation.domain_coordinato
 sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
 _ura.domain_coordinators = _dc
 
-# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): load energy_const FIRST,
-# then re-apply the test-only legacy-default shim BEFORE loading
-# energy_battery / energy_tou (which do `from .energy_const import
-# DEFAULT_X` at their module top and would otherwise bind the None /
-# empty-list values the Rev 5 edits leave in the source). Production
-# code reads from options, so this shim is test-only.
-_full_name = (
-    "custom_components.universal_room_automation.domain_coordinators.energy_const"
-)
-_spec = importlib.util.spec_from_file_location(
-    _full_name, os.path.join(_dc_path, "energy_const.py"),
-)
-_ec_mod = importlib.util.module_from_spec(_spec)
-sys.modules[_full_name] = _ec_mod
-_spec.loader.exec_module(_ec_mod)
-_dc.energy_const = _ec_mod
-
-_EC_TEST_LEGACY_DEFAULTS_LOCAL = {
-    "DEFAULT_STORAGE_MODE_ENTITY": "select.enpower_482348004678_storage_mode",
-    "DEFAULT_RESERVE_SOC_ENTITY": (
-        "number.enpower_482348004678_reserve_battery_level"
-    ),
-    "DEFAULT_GRID_ENABLED_ENTITY": "switch.enpower_482348004678_grid_enabled",
-    "DEFAULT_CHARGE_FROM_GRID_ENTITY": (
-        "switch.enpower_482348004678_charge_from_grid"
-    ),
-    "DEFAULT_SOLCAST_TODAY_ENTITY": "sensor.solcast_pv_forecast_forecast_today",
-    "DEFAULT_SOLCAST_TOMORROW_ENTITY": (
-        "sensor.solcast_pv_forecast_forecast_tomorrow"
-    ),
-    "DEFAULT_SOLCAST_REMAINING_ENTITY": (
-        "sensor.solcast_pv_forecast_forecast_remaining_today"
-    ),
-    "DEFAULT_SOLCAST_DAY_3_ENTITY": (
-        "sensor.solcast_pv_forecast_forecast_day_3"
-    ),
-    "DEFAULT_WEATHER_ENTITY": "weather.phalanxmadrone",
-    "DEFAULT_EVSE_GARAGE_A_POWER_ENTITY": "sensor.garage_a_power_minute_average",
-    "DEFAULT_EVSE_GARAGE_B_POWER_ENTITY": "sensor.garage_b_power_minute_average",
-    "DEFAULT_L1_CHARGER_ENTITIES": [
-        "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
-        "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
-        "switch.smartplug_moes_wifi_garagealeftfront_socket_3",
-        "switch.smartplug_moes_wifi_garagealeftfront_socket_4",
-    ],
-    "DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY": "number.iq_battery_hacs_battery_reserve",
-    "DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY": (
-        "switch.iq_battery_hacs_charge_battery_from_grid"
-    ),
-    "DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY": (
-        "select.iq_gateway_hacs_system_profile"
-    ),
-    "DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY": (
-        "sensor.iq_battery_hacs_battery_overall_charge"
-    ),
-    "DEFAULT_CLOUD_LAST_SUCCESS_ENTITY": (
-        "sensor.enphase_cloud_last_successful_update"
-    ),
-}
-for _k, _v in _EC_TEST_LEGACY_DEFAULTS_LOCAL.items():
-    _cur = getattr(_ec_mod, _k, "sentinel")
-    if _cur is None or _cur == []:
-        setattr(_ec_mod, _k, _v)
-del _k, _v, _cur, _EC_TEST_LEGACY_DEFAULTS_LOCAL
-
-# Now load the remaining submodules (energy_tou + energy_battery) — their
-# `from .energy_const import DEFAULT_X` top-level imports will bind the
-# shimmed string values.
-for _submod_name in ("energy_tou", "energy_battery"):
+# Import energy_const, energy_tou (D8 — needed by D1's phase machine), energy_battery
+for _submod_name in ("energy_const", "energy_tou", "energy_battery"):
     _full_name = f"custom_components.universal_room_automation.domain_coordinators.{_submod_name}"
     _spec = importlib.util.spec_from_file_location(
         _full_name, os.path.join(_dc_path, f"{_submod_name}.py"),
@@ -203,18 +136,17 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
     DEFAULT_OFFPEAK_DRAIN_UNKNOWN,
     DEFAULT_ARBITRAGE_SOC_TARGET,
 )
-# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): the house-specific
-# entity-id DEFAULT_* literals in energy_const.py are now None/[]. These
-# tests exercise the live production path which, on this house, has these
-# entity_ids pinned into options at setup. Keep hardcoded fixtures here so
-# the behavioural tests stay deterministic; production reads from options.
-DEFAULT_RESERVE_SOC_ENTITY = "number.enpower_482348004678_reserve_battery_level"
-DEFAULT_STORAGE_MODE_ENTITY = "select.enpower_482348004678_storage_mode"
-DEFAULT_GRID_ENABLED_ENTITY = "switch.enpower_482348004678_grid_enabled"
-DEFAULT_CHARGE_FROM_GRID_ENTITY = "switch.enpower_482348004678_charge_from_grid"
-DEFAULT_SOLCAST_TODAY_ENTITY = "sensor.solcast_pv_forecast_forecast_today"
-DEFAULT_SOLCAST_TOMORROW_ENTITY = "sensor.solcast_pv_forecast_forecast_tomorrow"
-DEFAULT_WEATHER_ENTITY = "weather.phalanxmadrone"
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
+)
 # v4.5.0 D2: legacy constant kept inline for tests that exercise the removed
 # trigger field's continued absence in the validator's optional path.
 DEFAULT_ARBITRAGE_SOC_TRIGGER = 20
@@ -271,19 +203,19 @@ class _BatteryHarness:
                  grid_import_guard_enabled=True):  # pre-cycle behavior: always-on
         self.hass = MockHass()
         self.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(soc))
-        self.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, storage_mode)
+        self.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, storage_mode)
         self.hass.set_state(DEFAULT_SOLAR_PRODUCTION_ENTITY, str(solar))
         self.hass.set_state(
             DEFAULT_NET_POWER_ENTITY, str(net_power),
             attributes={"unit_of_measurement": net_power_uom},
         )
         self.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "-200")
-        self.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-        self.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-        self.hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, str(_HARNESS_INITIAL_RESERVE))
-        self.hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, solcast_today)
-        self.hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
-        self.hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+        self.hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+        self.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+        self.hass.set_state(PHALANX_RESERVE_SOC_ENTITY, str(_HARNESS_INITIAL_RESERVE))
+        self.hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, solcast_today)
+        self.hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
+        self.hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
         # v4.3.0: default to custom thresholds for date-independent tests.
         # Tests that specifically exercise the monthly-percentile path can
         # pass solar_classification_mode="automatic".
@@ -318,7 +250,7 @@ class _BatteryHarness:
             self.hass,
             reserve_soc=DEFAULT_RESERVE_SOC,
             arbitrage_enabled=arbitrage_enabled,
-            entity_config=entity_config,
+            entity_config=phalanx_battery_entities() | entity_config,
             solar_classification_mode=solar_classification_mode,
             custom_solar_thresholds=custom_solar_thresholds,
             tou_engine=self.tou_engine,
@@ -589,7 +521,7 @@ class TestEnvoyUnavailable:
         # a real Envoy outage on the local leg); we no longer freeze
         # state when SOC is available on any resolver tier.
         h = _BatteryHarness(soc=80)
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         result = h.strategy.determine_mode("off_peak", "winter")
         assert result["envoy_available"] is False
         assert result["season"] == "winter"
@@ -646,7 +578,7 @@ class TestOffPeakDrain:
     def test_unknown_tomorrow_uses_conservative_40(self):
         """Unknown forecast → drain to 40% (conservative default)."""
         h = _BatteryHarness(soc=90)
-        h.hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "unavailable")
         result = h.strategy.determine_mode("off_peak", "summer")
         reserve_actions = _get_reserve_actions(result)
         assert reserve_actions[0]["data"]["value"] == DEFAULT_OFFPEAK_DRAIN_UNKNOWN
@@ -1043,14 +975,14 @@ class TestGridDisconnected:
 
     def test_grid_disconnected_uses_backup(self):
         h = _BatteryHarness(soc=80)
-        h.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "off")
+        h.hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "off")
         result = h.strategy.determine_mode("off_peak", "summer")
         assert result["mode"] == BATTERY_MODE_BACKUP
         assert "grid disconnected" in result["reason"].lower()
 
     def test_grid_disconnected_during_peak(self):
         h = _BatteryHarness(soc=80)
-        h.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "off")
+        h.hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "off")
         result = h.strategy.determine_mode("peak", "summer")
         assert result["mode"] == BATTERY_MODE_BACKUP
 
@@ -1589,7 +1521,7 @@ class TestArbitrageStateMatrixRows:
             soc=15, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
         )
-        h.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "off")
+        h.hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "off")
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
@@ -2428,7 +2360,7 @@ class TestD5InteractionGuards:
             soc=15, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
         )
-        h.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "off")
+        h.hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "off")
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
@@ -2521,8 +2453,8 @@ class TestMultiDayMatrix:
 #        Inclement full_hold exempt (grid-precharge is deliberate).
 # ---------------------------------------------------------------------------
 
-_CFG_STATE_ENTITY = DEFAULT_CHARGE_FROM_GRID_ENTITY
-_RESERVE_STATE_ENTITY = DEFAULT_RESERVE_SOC_ENTITY
+_CFG_STATE_ENTITY = PHALANX_CHARGE_FROM_GRID_ENTITY
+_RESERVE_STATE_ENTITY = PHALANX_RESERVE_SOC_ENTITY
 
 
 def _freshen_cloud_soc_lu(hass, entity_id):
@@ -2560,20 +2492,15 @@ class TestV5175BlindHoldGateRelax:
         h = _BatteryHarness(soc=45)  # primed
         # Force primary Envoy telemetry-blind.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         # Wire the cloud fallback SOC entity (default entity id).
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             str(soc_via_fallback),
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         # Ensure LKG is not set so we prove the CLOUD FALLBACK path.
         h.strategy._soc_lkg = None
@@ -2695,20 +2622,15 @@ class TestV5175BlindPeakDeEscalation:
     def test_degraded_reason_suffix_on_fallback(self):
         """Reason carries `(degraded telemetry: cloud_fallback)` when a
         non-envoy tier serves SOC."""
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h = _BatteryHarness(soc=45)
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2723,24 +2645,19 @@ class TestV5175BlindNoneSafeProceedingPath:
     """
 
     def test_none_solar_and_net_power_do_not_crash(self):
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h = _BatteryHarness(soc=45)
         # All primary Envoy sensors down; only cloud fallback SOC works.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_SOLAR_PRODUCTION_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2774,23 +2691,18 @@ class TestV5175DegradedEntryGuard:
             solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=arbitrage, with_tou_engine=True,
         )
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         # Envoy telemetry blind.
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         # net_power blind too — anchors B-CRIT-2 fail-closed path.
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             str(soc_fallback),
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
@@ -2829,7 +2741,7 @@ class TestV5175DegradedEntryGuard:
         """
         h = self._make_blind_fallback()
         # Ensure CFG reads OFF (fresh entry, not continuing).
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         # Inside a summer overnight charge window.
         r = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
@@ -2856,7 +2768,7 @@ class TestV5175DegradedEntryGuard:
             DEFAULT_NET_POWER_ENTITY, "-500",
             attributes={"unit_of_measurement": "W"},
         )
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         r = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2886,7 +2798,7 @@ class TestV5175DegradedEntryGuard:
         h = self._make_blind_fallback()
         h.strategy._soc_lkg = 15.0
         h.strategy._soc_lkg_at = dt_util.utcnow()
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         r = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2900,7 +2812,7 @@ class TestV5175DegradedEntryGuard:
         )
         # Cloud-only tier: the D3 chokepoint stands the charge down.
         h2 = self._make_blind_fallback()
-        h2.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        h2.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
         r2 = h2.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -2930,13 +2842,10 @@ class TestV5175CloudFallbackStaleness:
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
             DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
         )
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h = _BatteryHarness(soc=80)
         # Primary + LKG both dead
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
         # Wire cloud fallback with a STALE last_updated (2× max age old)
@@ -2946,11 +2855,11 @@ class TestV5175CloudFallbackStaleness:
             seconds=DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S * 2,
         )
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
         # MockHass state doesn't always expose last_updated — patch it.
-        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        _st = h.hass.states.get(PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
         try:
             _st.last_updated = stale_lu
         except Exception:
@@ -2964,22 +2873,17 @@ class TestV5175CloudFallbackStaleness:
 
     def test_fresh_cloud_fallback_still_serves(self):
         """Anchor: fresh cloud reading proceeds as before."""
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         from homeassistant.util import dt as dt_util
         h = _BatteryHarness(soc=45)
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
-        _st = h.hass.states.get(DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
+        _st = h.hass.states.get(PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY)
         try:
             _st.last_updated = dt_util.utcnow()
         except Exception:
@@ -3098,28 +3002,23 @@ class TestV5175FixUp4DHigh1GraceTickHoist:
             arbitrage_enabled=True, with_tou_engine=True,
         )
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         # net_power READABLE and above the 12 kW cap → trip=1 without hoist
         h.hass.set_state(
             DEFAULT_NET_POWER_ENTITY, net_w,
             attributes={"unit_of_measurement": "W"},
         )
         h.strategy._arbitrage_grid_import_guard_kw = 12.0
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "15",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "15",
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         return h
 
     def test_grace_tick_no_fresh_turn_on_under_degraded_telemetry(self):
@@ -3202,23 +3101,18 @@ class TestV5175FixUp4DMed1OnHealSuppression:
             arbitrage_enabled=True, with_tou_engine=True,
         )
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         s = h.strategy
         s._attain_reboot_recovered = True
         s._attain_state = "charging"
@@ -3254,7 +3148,7 @@ class TestV5175FixUp4DMed1OnHealSuppression:
         h = _BatteryHarness(soc=45)
         # Force degraded flag directly (bypasses determine_mode gate)
         h.strategy._degraded_telemetry_source = "cloud_fallback"
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         r = h.strategy._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             "test attain continuation",
@@ -3282,23 +3176,18 @@ class TestV5175FixUp4DMed1OnHealSuppression:
             arbitrage_enabled=True, with_tou_engine=True,
         )
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
-        h.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "unavailable")
+        h.hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "unavailable")
         h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): old DEFAULT literal now None;
-        # hardcode the entity_id string for test determinism.
-        DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = (
-            "sensor.iq_battery_hacs_battery_overall_charge"
-        )
         h.hass.set_state(
-            DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
+            PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY, "45",
             attributes={"unit_of_measurement": "%"},
         )
         _freshen_cloud_soc_lu(
-            h.hass, DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            h.hass, PHALANX_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
         )
         h.strategy._soc_lkg = None
         h.strategy._soc_lkg_at = None
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         s = h.strategy
         s._attain_reboot_recovered = True
         s._attain_state = "charging"
@@ -3326,7 +3215,7 @@ class TestV5175FixUp4DMed1OnHealSuppression:
         h = _BatteryHarness(soc=15)  # envoy healthy — no degraded flag
         # Force _result via a direct call: mock CFG=off, ask for
         # charge_from_grid=True, verify turn_on emitted.
-        h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+        h.hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
         r = h.strategy._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             "healthy sighted heal anchor",
@@ -3361,3 +3250,60 @@ class TestV5175FixUp4DHigh2Stub:
         refused, reason = h.strategy._precharge_refused_on_blind(_Dec(), 40.0)
         assert refused is False
         assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up — second install (no battery roles
+# configured): `_result` / blind de-escalation must never emit a write whose
+# target is None. Positive controls use test-local entity ids.
+# ---------------------------------------------------------------------------
+
+
+class TestSecondInstallNoTargetlessWrites:
+    def _strategy(self, entity_config):
+        hass = MockHass()
+        return BatteryStrategy(hass, entity_config=entity_config), hass
+
+    def test_result_emits_no_writes_when_roles_unconfigured(self):
+        strat, _ = self._strategy({})
+        r = strat._result(
+            "self_consumption", "t", current_mode="backup",
+            charge_from_grid=True, reserve_level=40,
+        )
+        services = [a["service"] for a in r["actions"]]
+        assert "select.select_option" not in services
+        assert "number.set_value" not in services
+        assert "switch.turn_on" not in services
+        assert all(a.get("target") for a in r["actions"])
+
+    def test_result_emits_all_three_writes_when_roles_configured(self):
+        strat, hass = self._strategy({
+            "storage_mode": "select.test_mode",
+            "reserve_soc_number": "number.test_reserve",
+            "charge_from_grid": "switch.test_cfg",
+        })
+        hass.set_state("number.test_reserve", "10")
+        hass.set_state("switch.test_cfg", "off")
+        r = strat._result(
+            "self_consumption", "t", current_mode="backup",
+            charge_from_grid=True, reserve_level=40,
+        )
+        assert [(a["service"], a["target"]) for a in r["actions"]] == [
+            ("select.select_option", "select.test_mode"),
+            ("number.set_value", "number.test_reserve"),
+            ("switch.turn_on", "switch.test_cfg"),
+        ]
+
+    def test_blind_de_escalation_emits_no_targetless_writes(self):
+        h = _BatteryHarness(soc=80)
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h.strategy._soc_lkg = None
+        h.strategy._soc_lkg_at = None
+        # Second install: neither the charge-from-grid nor the reserve role
+        # is wired; the ledger says URA last commanded charge-from-grid ON.
+        h.strategy._entities.pop("charge_from_grid", None)
+        h.strategy._entities.pop("reserve_soc_number", None)
+        h.strategy._last_charge_from_grid_command = True
+        r = h.strategy.determine_mode("peak", "summer")
+        assert r["envoy_available"] is False
+        assert r["actions"] == []

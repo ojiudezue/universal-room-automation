@@ -1030,7 +1030,23 @@
           "energy_circuit_autodiscover_span": "Auto-discover panel circuits",
           "energy_generator_entity": "Generator status sensor",
           "energy_grid_import_entity": "Grid import sensor",
-          "energy_grid_export_entity": "Grid export sensor"
+          "energy_grid_export_entity": "Grid export sensor",
+          "energy_evse_a_switch_entity": "Garage A charger switch",
+          "energy_evse_a_energy_today_entity": "Garage A charger energy today",
+          "energy_evse_a_energy_month_entity": "Garage A charger energy this month",
+          "energy_evse_a_current_limit_entity": "Garage A charger current limit",
+          "energy_evse_b_switch_entity": "Garage B charger switch",
+          "energy_evse_b_energy_today_entity": "Garage B charger energy today",
+          "energy_evse_b_energy_month_entity": "Garage B charger energy this month",
+          "energy_evse_b_current_limit_entity": "Garage B charger current limit",
+          "energy_storage_mode_entity": "Battery mode control",
+          "energy_reserve_soc_entity": "Battery reserve control",
+          "energy_grid_enabled_entity": "Grid connection switch",
+          "energy_charge_from_grid_entity": "Charge-from-grid switch",
+          "energy_dp_span_r1_entity": "Mains power reading 1",
+          "energy_dp_span_r2_entity": "Mains power reading 2",
+          "energy_pool_speed_entity": "Pool pump speed",
+          "energy_pool_power_entity": "Pool pump power"
         },
         "data_description": {
           "energy_solar_entity": "Leave blank to use the solar gateway's reading. Pick a sensor here only if that reading is wrong.",
@@ -1098,7 +1114,23 @@
           "energy_circuit_autodiscover_span": "Automatically discover SPAN panel circuit sensors. Disable if you don't have SPAN panels. Default: ON.",
           "energy_generator_entity": "Generator status sensor. Leave blank if there is no backup generator.",
           "energy_grid_import_entity": "Direct grid-import power sensor. When set, used as primary source for cost tracking instead of the solar gateway's net power.",
-          "energy_grid_export_entity": "Direct grid-export power sensor. When set, used as primary source for export tracking."
+          "energy_grid_export_entity": "Direct grid-export power sensor. When set, used as primary source for export tracking.",
+          "energy_evse_a_switch_entity": "On/off switch for the Garage A EV charger. URA turns it off to pause charging and on to resume. Leave blank if this charger can't be switched.",
+          "energy_evse_a_energy_today_entity": "Sensor reporting the Garage A charger's energy used today (kWh). Optional.",
+          "energy_evse_a_energy_month_entity": "Sensor reporting the Garage A charger's energy used this month (kWh). Optional.",
+          "energy_evse_a_current_limit_entity": "Number control that sets the Garage A charger's current (amps). Used by solar-follow charging. Leave blank if the charger has no current control.",
+          "energy_evse_b_switch_entity": "On/off switch for the Garage B EV charger. URA turns it off to pause charging and on to resume. Leave blank if this charger can't be switched.",
+          "energy_evse_b_energy_today_entity": "Sensor reporting the Garage B charger's energy used today (kWh). Optional.",
+          "energy_evse_b_energy_month_entity": "Sensor reporting the Garage B charger's energy used this month (kWh). Optional.",
+          "energy_evse_b_current_limit_entity": "Number control that sets the Garage B charger's current (amps). Used by solar-follow charging. Leave blank if the charger has no current control.",
+          "energy_storage_mode_entity": "Local select that sets the battery's operating mode. Leave blank if you have no home battery.",
+          "energy_reserve_soc_entity": "Local number that sets the battery's reserve %. Leave blank if you have no home battery.",
+          "energy_grid_enabled_entity": "Switch showing whether the house is connected to the grid. Leave blank if you have no battery gateway.",
+          "energy_charge_from_grid_entity": "Local switch that lets the battery charge from the grid. Leave blank if you have no home battery.",
+          "energy_dp_span_r1_entity": "First whole-house mains power sensor (W). Summed with reading 2 for the live house-load estimate used by battery-aware EV charging. Leave blank if you don't have one.",
+          "energy_dp_span_r2_entity": "Second whole-house mains power sensor (W), for split-phase panels. Leave blank if you only have one reading.",
+          "energy_pool_speed_entity": "Number control for the variable-speed pool pump. URA slows the pump during peak rates. Leave blank if you have no pool pump to manage.",
+          "energy_pool_power_entity": "Power sensor for the pool pump (W). Optional; shown on the energy status."
         },
         "sections": {
           "inclement_advanced": {
@@ -1127,7 +1159,8 @@
               "energy_stream_cowitness_entity": "Stream heartbeat sensor",
               "energy_soc_divergence_threshold_pp": "Battery level disagreement alert (pp)",
               "energy_soc_divergence_dwell_min": "Disagreement confirmation time (min)",
-              "energy_cloud_lag_alert_s": "Cloud update delay alert (s)"
+              "energy_cloud_lag_alert_s": "Cloud update delay alert (s)",
+              "energy_cloud_last_success_entity": "Battery cloud last update"
             },
             "data_description": {
               "energy_cloud_reserve_oracle_entity": "Cloud number entity that reports back the battery reserve % the cloud actually accepted. Used to verify reserve-SOC writes.",
@@ -1138,7 +1171,8 @@
               "energy_stream_cowitness_entity": "Optional. A fast-changing sensor from the same local stream (for example its grid power). Shows the stream is still live.",
               "energy_soc_divergence_threshold_pp": "Warn when local and cloud battery readings disagree by more than this many percentage points. Set to 0 to turn detection off.",
               "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting — filters one-off blips.",
-              "energy_cloud_lag_alert_s": "Warn when Enphase cloud settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor)."
+              "energy_cloud_lag_alert_s": "Warn when Enphase cloud settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor).",
+              "energy_cloud_last_success_entity": "Timestamp sensor showing when the battery cloud last refreshed successfully. Used to judge whether cloud read-backs are fresh. Leave blank if your battery cloud integration has no such sensor."
             }
           },
           "baec": {
@@ -2274,7 +2308,7 @@
   "issues": {
     "ec_role_entity_broken": {
       "title": "Energy entity unavailable: {key}",
-      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and either pick a working entity or leave the field blank."
+      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and pick a working entity."
     },
     "egress_identity_face_failsafe_drill_boot_on": {
       "title": "Egress Identity Fail-Safe Drill still engaged after restart",

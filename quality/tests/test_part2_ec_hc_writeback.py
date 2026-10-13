@@ -206,6 +206,12 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # the definition of a fresh-read key, so it belongs on the suppress list.
     # This guard caught the omission when the suite became runnable again.
     "appliance_records",
+    # EC-HOUSE-ENTITY-DEFAULTS-1: the pin migration's three bookkeeping
+    # flags (the role keys themselves are deliberately NOT suppressed —
+    # an operator edit must reload).
+    "_ec_defaults_pinned",
+    "_ec_defaults_pinned_version",
+    "_ec_defaults_pinned_at",
 }
 
 
@@ -349,7 +355,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
     #    B-CRIT-2) -> 95
     # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 98  # +hvac_return_window_minutes (v5.103.20)
+    # +3 EC-HOUSE-ENTITY-DEFAULTS-1 pin bookkeeping flags -> 101
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 101
 
 
 # ---------------------------------------------------------------------------

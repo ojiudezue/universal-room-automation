@@ -36,6 +36,9 @@ import pytest
 # Mock homeassistant before importing URA code (same pattern as test_energy_evse.py)
 # ---------------------------------------------------------------------------
 
+from ec_phalanx_entities import phalanx_evse_config  # this house's EVSE roles (EC-HOUSE-ENTITY-DEFAULTS-1)
+
+
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -219,7 +222,7 @@ class _EVSEHarness:
         self.hass.set_state("sensor.garage_b_power_minute_average", str(garage_b_power))
         self.hass.set_state("sensor.garage_b_energy_today", "0")
         self.hass.set_state("sensor.garage_b_energy_this_month", "0")
-        self.ev = EVChargerController(self.hass)
+        self.ev = EVChargerController(self.hass, phalanx_evse_config())
 
 
 # ===========================================================================

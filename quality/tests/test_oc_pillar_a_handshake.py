@@ -41,6 +41,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 # ---------------------------------------------------------------------------
 
 
+from ec_phalanx_entities import phalanx_evse_config  # this house's EVSE roles (EC-HOUSE-ENTITY-DEFAULTS-1)
+
+
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -233,6 +236,7 @@ def _make_energy_coord(entity_config=None, tou_period="off_peak"):
         reserve_soc=20,
         decision_interval=10,
         entity_config=entity_config or {},
+        evse_config=phalanx_evse_config(),
         tou_engine=_TOU(tou_period),
     )
     return coord

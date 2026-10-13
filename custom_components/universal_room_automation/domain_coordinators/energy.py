@@ -52,6 +52,7 @@ from .energy_const import (
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
@@ -325,7 +326,19 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("WriteVerifier init failed (swallowed)", exc_info=True)
             self._write_verifier = None
         # E2: Pool, EV, Smart Plugs
-        self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
+        # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: pool pump roles come from the
+        # role-keyed CM options (pinned on this house); unset = no pool.
+        from .energy_const import (
+            CONF_ENERGY_POOL_POWER_ENTITY,
+            CONF_ENERGY_POOL_SPEED_ENTITY,
+        )
+        self._pool = PoolOptimizer(
+            hass,
+            pool_speed_entity=(
+                pool_speed_entity or ec.get(CONF_ENERGY_POOL_SPEED_ENTITY)
+            ),
+            pool_power_entity=ec.get(CONF_ENERGY_POOL_POWER_ENTITY),
+        )
         self._ev = EVChargerController(hass, evse_config=evse_config)
         self._smart_plugs = SmartPlugController(
             hass,
@@ -1074,6 +1087,8 @@ class EnergyCoordinator(BaseCoordinator):
                 "cloud_storage_mode_oracle"
             ),
             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: "battery_soc_cloud",
+            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: last-successful-update stamp.
+            CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY: "cloud_last_success",
             # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
             CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY: "battery_soc_stream",
             CONF_ENERGY_STREAM_COWITNESS_ENTITY: "stream_cowitness",
@@ -4701,8 +4716,17 @@ class EnergyCoordinator(BaseCoordinator):
         non-positive value as MISSING_INPUTS → abstain (no state change).
         """
         # (a) Live SPAN mains — sum r1 + r2 (W), subtract EVSE draw.
-        span_r1 = self._get_state_float("sensor.span_panel_current_power")
-        span_r2 = self._get_state_float("sensor.span_panel_current_power_2")
+        # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the two mains readings are
+        # role-keyed options (pinned on this house); unset = reading absent.
+        from .energy_const import (
+            CONF_ENERGY_DP_SPAN_R1_ENTITY,
+            CONF_ENERGY_DP_SPAN_R2_ENTITY,
+        )
+        _cfg = getattr(self, "_entity_config", None) or {}
+        _r1_eid = _cfg.get(CONF_ENERGY_DP_SPAN_R1_ENTITY)
+        _r2_eid = _cfg.get(CONF_ENERGY_DP_SPAN_R2_ENTITY)
+        span_r1 = self._get_state_float(_r1_eid) if _r1_eid else None
+        span_r2 = self._get_state_float(_r2_eid) if _r2_eid else None
         live_kw: float | None = None
         if span_r1 is not None or span_r2 is not None:
             total_w = (span_r1 or 0.0) + (span_r2 or 0.0)
@@ -5308,6 +5332,10 @@ class EnergyCoordinator(BaseCoordinator):
             "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
             role="write",
         )
+        # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: no reserve role configured
+        # (2nd install) → the overlay has nothing to write.
+        if not reserve_entity:
+            return decision
 
         # v5.19.0 fix-up 2 (Review D re-pass, D2-HIGH-1) — stand-down gate.
         # `_result` guards its normal dispatch leg via
@@ -8660,7 +8688,12 @@ class EnergyCoordinator(BaseCoordinator):
 
         if target == "pool":
             from .energy_pool import POOL_REDUCED_SPEED, POOL_STATE_REDUCED, POOL_STATE_NORMAL
-            if activate:
+            if not self._pool._speed_entity:
+                # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: no pool speed role
+                # configured (2nd install) — nothing to shed or release;
+                # never emit a write with no target.
+                pass
+            elif activate:
                 current = self._pool.current_speed
                 if current is not None and current > POOL_REDUCED_SPEED:
                     if self._pool._original_speed is None:

@@ -24,6 +24,10 @@ import importlib
 # Mock homeassistant before importing URA code
 # ---------------------------------------------------------------------------
 
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    PHALANX_SOLCAST_REMAINING_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+)
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -131,10 +135,6 @@ for _submod_name in ("energy_const", "energy_forecast"):
 
 from conftest import MockHass, MockState
 
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-    DEFAULT_SOLCAST_REMAINING_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-)
 from custom_components.universal_room_automation.domain_coordinators.energy_forecast import (
     DailyEnergyPredictor,
     AVERAGE_CHARGE_RATE_KW,
@@ -352,13 +352,16 @@ class TestBatteryFullTime:
             hass,
             battery_soc_entity=DEFAULT_BATTERY_SOC_ENTITY,
             battery_capacity_entity=DEFAULT_BATTERY_CAPACITY_ENTITY,
+            # EC-HOUSE-ENTITY-DEFAULTS-1: no module default any more.
+            solcast_remaining_entity=PHALANX_SOLCAST_REMAINING_ENTITY,
+            solcast_today_entity=PHALANX_SOLCAST_TODAY_ENTITY,
         )
 
     def test_battery_full_already_full(self):
         """SOC >= 99 returns 'already_full'."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "100")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "50.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "50.0")
 
         p = self._make_predictor(hass)
         p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
@@ -368,7 +371,7 @@ class TestBatteryFullTime:
         """High consumption eats all solar surplus."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "20.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass)
@@ -387,7 +390,7 @@ class TestBatteryFullTime:
         """
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "30")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "60.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "60.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass)
@@ -408,7 +411,7 @@ class TestBatteryFullTime:
         """Above 90% SOC, only the 1.5 kW band applies."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "92")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "40.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "40.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass)
@@ -427,7 +430,7 @@ class TestBatteryFullTime:
         """SOC=85%, piecewise: 85→90% @ 2.5 kW + 90→100% @ 1.5 kW."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "85")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "50.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "50.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass)
@@ -448,7 +451,7 @@ class TestBatteryFullTime:
         """After 8 PM, hours_left=0, remaining_consumption=0. Near-zero solar left."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "80")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "0.5")  # tiny solar left
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "0.5")  # tiny solar left
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass)
@@ -463,7 +466,7 @@ class TestBatteryFullTime:
     def test_battery_full_none_when_soc_missing(self):
         """If SOC entity unavailable, battery_full_time = None."""
         hass = MockHass()
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "50.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "50.0")
         # No SOC entity
 
         p = self._make_predictor(hass)
@@ -722,6 +725,9 @@ class TestBatteryFullTimeH2:
             hass,
             battery_soc_entity=DEFAULT_BATTERY_SOC_ENTITY,
             battery_capacity_entity=DEFAULT_BATTERY_CAPACITY_ENTITY,
+            # EC-HOUSE-ENTITY-DEFAULTS-1: no module default any more.
+            solcast_remaining_entity=PHALANX_SOLCAST_REMAINING_ENTITY,
+            solcast_today_entity=PHALANX_SOLCAST_TODAY_ENTITY,
             battery_power_w_fn=(
                 (lambda: battery_power_w) if battery_power_w is not None else None
             ),
@@ -732,7 +738,7 @@ class TestBatteryFullTimeH2:
         and ETA is derived from the observed rate (taper-scaled)."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "20.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         # Charging at 3500 W = 3.5 kW = AVERAGE_CHARGE_RATE_KW (ratio 1.0).
@@ -756,7 +762,7 @@ class TestBatteryFullTimeH2:
         solar_forecast."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "20.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         # Discharging → not charging → fallback.
@@ -771,7 +777,7 @@ class TestBatteryFullTimeH2:
         MUST fall back to solar_forecast (not current_rate)."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "40.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "40.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass, battery_power_w=-2500.0)
@@ -784,7 +790,7 @@ class TestBatteryFullTimeH2:
         """When SOC unavailable, attrs.basis='unavailable',
         attrs.missing_input='soc' (not bare unknown)."""
         hass = MockHass()
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "20.0")
         p = self._make_predictor(hass, battery_power_w=3000.0)
         p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
         assert p._battery_full_time is None
@@ -808,7 +814,7 @@ class TestBatteryFullTimeH2:
         larger than the flat model (upper bands are slower)."""
         hass = MockHass()
         hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "50")
-        hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, "20.0")
+        hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, "20.0")
         hass.set_state(DEFAULT_BATTERY_CAPACITY_ENTITY, "15000")
 
         p = self._make_predictor(hass, battery_power_w=3500.0)

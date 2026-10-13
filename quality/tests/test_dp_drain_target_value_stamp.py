@@ -150,15 +150,18 @@ from conftest import MockHass  # noqa: E402
 
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E402
     DEFAULT_RESERVE_SOC,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
     CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+)
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (  # noqa: E402
     BatteryStrategy,
@@ -172,17 +175,17 @@ _NOW = datetime(2026, 6, 11, 22, 30, 0)  # inside off_peak window
 def _make_battery(soc=50.0):
     hass = MockHass()
     hass.set_state(_BATTERY_SOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "10")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, "90")
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "110")
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "10")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, "90")
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "110")
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     strat = BatteryStrategy(
         hass,
         reserve_soc=DEFAULT_RESERVE_SOC,
-        entity_config={"battery_soc": _BATTERY_SOC},
+        entity_config=phalanx_battery_entities() | {"battery_soc": _BATTERY_SOC},
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
@@ -462,50 +465,6 @@ def test_mutation_c_entry_reset_bites():
             spec.loader.exec_module(mod)
             setattr(_dc, name, mod)
 
-        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): re-apply the test-only
-        # legacy-default shim inside this sub-process (conftest.py cannot
-        # reach here — fresh interpreter).
-        _ec_mod = sys.modules[
-            "custom_components.universal_room_automation."
-            "domain_coordinators.energy_const"
-        ]
-        _ec_legacy = {
-            "DEFAULT_STORAGE_MODE_ENTITY": "select.enpower_482348004678_storage_mode",
-            "DEFAULT_RESERVE_SOC_ENTITY": (
-                "number.enpower_482348004678_reserve_battery_level"
-            ),
-            "DEFAULT_GRID_ENABLED_ENTITY": "switch.enpower_482348004678_grid_enabled",
-            "DEFAULT_CHARGE_FROM_GRID_ENTITY": (
-                "switch.enpower_482348004678_charge_from_grid"
-            ),
-            "DEFAULT_SOLCAST_TODAY_ENTITY": (
-                "sensor.solcast_pv_forecast_forecast_today"
-            ),
-            "DEFAULT_SOLCAST_TOMORROW_ENTITY": (
-                "sensor.solcast_pv_forecast_forecast_tomorrow"
-            ),
-            "DEFAULT_SOLCAST_REMAINING_ENTITY": (
-                "sensor.solcast_pv_forecast_forecast_remaining_today"
-            ),
-            "DEFAULT_WEATHER_ENTITY": "weather.phalanxmadrone",
-            "DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY": (
-                "number.iq_battery_hacs_battery_reserve"
-            ),
-            "DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY": (
-                "switch.iq_battery_hacs_charge_battery_from_grid"
-            ),
-            "DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY": (
-                "select.iq_gateway_hacs_system_profile"
-            ),
-            "DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY": (
-                "sensor.iq_battery_hacs_battery_overall_charge"
-            ),
-        }
-        for _k, _v in _ec_legacy.items():
-            _cur = getattr(_ec_mod, _k, "sentinel")
-            if _cur is None or _cur == []:
-                setattr(_ec_mod, _k, _v)
-
         # Load MUTATED energy_battery from the tmp path.
         full = (
             "custom_components.universal_room_automation."
@@ -520,12 +479,18 @@ def test_mutation_c_entry_reset_bites():
         setattr(_dc, "energy_battery", mod)
 
         from conftest import MockHass
+        from ec_phalanx_entities import (
+            PHALANX_CHARGE_FROM_GRID_ENTITY,
+            PHALANX_GRID_ENABLED_ENTITY,
+            PHALANX_RESERVE_SOC_ENTITY,
+            PHALANX_SOLCAST_TODAY_ENTITY,
+            PHALANX_SOLCAST_TOMORROW_ENTITY,
+            PHALANX_STORAGE_MODE_ENTITY,
+            PHALANX_WEATHER_ENTITY,
+            phalanx_battery_entities,
+        )
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-            DEFAULT_RESERVE_SOC, DEFAULT_RESERVE_SOC_ENTITY,
-            DEFAULT_STORAGE_MODE_ENTITY, DEFAULT_GRID_ENABLED_ENTITY,
-            DEFAULT_CHARGE_FROM_GRID_ENTITY, DEFAULT_SOLCAST_TODAY_ENTITY,
-            DEFAULT_SOLCAST_TOMORROW_ENTITY, DEFAULT_WEATHER_ENTITY,
-            CONF_INCLEMENT_NWS_ALERTS_ENTITY,
+            DEFAULT_RESERVE_SOC, CONF_INCLEMENT_NWS_ALERTS_ENTITY,
         )
         BatteryStrategy = mod.BatteryStrategy
 
@@ -535,16 +500,16 @@ def test_mutation_c_entry_reset_bites():
 
         hass = MockHass()
         hass.set_state(_BAT, "50")
-        hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
-        hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
-        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "10")
-        hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, "90")
-        hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, "110")
-        hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+        hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
+        hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+        hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
+        hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "10")
+        hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, "90")
+        hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, "110")
+        hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
         strat = BatteryStrategy(
             hass, reserve_soc=DEFAULT_RESERVE_SOC,
-            entity_config={"battery_soc": _BAT},
+            entity_config=phalanx_battery_entities() | {"battery_soc": _BAT},
             solar_classification_mode="custom",
             custom_solar_thresholds={
                 "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
