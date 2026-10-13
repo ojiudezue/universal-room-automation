@@ -31,6 +31,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
+from ..database import DBShuttingDown
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -299,6 +300,9 @@ class DecisionLogger:
                 ))
                 await db.commit()
                 return cursor.lastrowid
+        except DBShuttingDown:
+            _LOGGER.debug("log_decision skipped: HA shutting down")
+            return None
         except Exception as e:
             _LOGGER.error("Error logging decision: %s", e)
             return None
@@ -317,7 +321,10 @@ class DecisionLogger:
             return []
 
         try:
-            async with database._db() as db:
+            # UNLOAD-SYMMETRY-TASK-HYGIENE-1 D3: read via _db_read() so
+            # SELECT does not block on the write queue and survives a
+            # stopped writer at shutdown.
+            async with database._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 query = "SELECT * FROM decision_log WHERE 1=1"
                 params: list = []
@@ -358,7 +365,8 @@ class DecisionLogger:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with database._db() as db:
+            # D3: SELECT via _db_read().
+            async with database._db_read() as db:
                 query = "SELECT COUNT(*) FROM decision_log WHERE timestamp >= ?"
                 params: list = [cutoff]
 
@@ -749,7 +757,8 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with database._db() as db:
+            # D3: SELECT via _db_read().
+            async with database._db_read() as db:
                 query = """
                     SELECT
                         COUNT(*) as total,
@@ -790,7 +799,8 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with database._db() as db:
+            # D3: SELECT via _db_read().
+            async with database._db_read() as db:
                 query = """
                     SELECT COUNT(*) FROM compliance_log c
                     JOIN decision_log d ON c.decision_id = d.id
@@ -822,7 +832,8 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with database._db() as db:
+            # D3: SELECT via _db_read().
+            async with database._db_read() as db:
                 query = """
                     SELECT DISTINCT c.override_source FROM compliance_log c
                     JOIN decision_log d ON c.decision_id = d.id
@@ -1633,7 +1644,8 @@ class AnomalyDetector:
         cutoff = (dt_util.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with database._db() as db:
+            # D3: SELECT via _db_read().
+            async with database._db_read() as db:
                 cursor = await db.execute(
                     "SELECT COUNT(*) FROM anomaly_log "
                     "WHERE coordinator_id = ? AND timestamp >= ?",
@@ -1667,7 +1679,12 @@ class AnomalyDetector:
         # dict over mature stored rows if the SELECT raises below.
         self._baselines_loaded = False
         try:
-            async with database._db() as db:
+            # UNLOAD-SYMMETRY-TASK-HYGIENE-1 D3: split SELECT (read) from
+            # the orphan-prune DELETE (write). The SELECT routes through
+            # _db_read() so it does not block on the write queue and
+            # survives a stopped writer at shutdown; the prune stays on
+            # _db() because it is a write.
+            async with database._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT metric_name, scope, mean, variance,
@@ -1677,52 +1694,55 @@ class AnomalyDetector:
                 """, (self.coordinator_id,))
                 rows = await cursor.fetchall()
 
-                loaded = 0
-                for row in rows:
-                    metric_name = row["metric_name"]
-                    scope = row["scope"]
-                    if metric_name not in valid_metrics:
-                        orphan_keys.append((metric_name, scope))
-                        continue
-                    key = (metric_name, scope)
-                    self._baselines[key] = MetricBaseline(
-                        metric_name=metric_name,
-                        coordinator_id=self.coordinator_id,
-                        scope=scope,
-                        mean=row["mean"],
-                        variance=row["variance"],
-                        sample_count=row["sample_count"],
-                        last_updated=row["last_updated"],
-                    )
-                    loaded += 1
+            loaded = 0
+            for row in rows:
+                metric_name = row["metric_name"]
+                scope = row["scope"]
+                if metric_name not in valid_metrics:
+                    orphan_keys.append((metric_name, scope))
+                    continue
+                key = (metric_name, scope)
+                self._baselines[key] = MetricBaseline(
+                    metric_name=metric_name,
+                    coordinator_id=self.coordinator_id,
+                    scope=scope,
+                    mean=row["mean"],
+                    variance=row["variance"],
+                    sample_count=row["sample_count"],
+                    last_updated=row["last_updated"],
+                )
+                loaded += 1
 
-                if orphan_keys:
-                    _LOGGER.info(
-                        "Pruning %d orphaned baseline row(s) for %s: %s",
-                        len(orphan_keys),
-                        self.coordinator_id,
-                        [f"{m}@{s}" for m, s in orphan_keys],
-                    )
-                    # v4.6.5 review A-H1: batch the prune into a single DELETE
-                    # so we hold the write queue for one statement, not N.
-                    # The prune only runs when orphans exist (first restart
-                    # after a metric is removed), so this is a one-time cost
-                    # rather than ongoing — but keeping the writer slot tight
-                    # avoids contention with concurrent setup_entry on the
-                    # other AnomalyDetector coordinators.
+            if orphan_keys:
+                _LOGGER.info(
+                    "Pruning %d orphaned baseline row(s) for %s: %s",
+                    len(orphan_keys),
+                    self.coordinator_id,
+                    [f"{m}@{s}" for m, s in orphan_keys],
+                )
+                # v4.6.5 review A-H1: batch the prune into a single DELETE
+                # so we hold the write queue for one statement, not N.
+                # D3 split: the prune is a WRITE, so it stays on _db().
+                try:
                     distinct_metrics = {m for m, _ in orphan_keys}
                     placeholders = ",".join("?" for _ in distinct_metrics)
-                    await db.execute(
-                        f"DELETE FROM metric_baselines "
-                        f"WHERE coordinator_id = ? AND metric_name IN ({placeholders})",
-                        (self.coordinator_id, *distinct_metrics),
+                    async with database._db() as db:
+                        await db.execute(
+                            f"DELETE FROM metric_baselines "
+                            f"WHERE coordinator_id = ? AND metric_name IN ({placeholders})",
+                            (self.coordinator_id, *distinct_metrics),
+                        )
+                        await db.commit()
+                except DBShuttingDown:
+                    _LOGGER.debug(
+                        "Orphan prune skipped for %s: HA shutting down",
+                        self.coordinator_id,
                     )
-                    await db.commit()
 
-                _LOGGER.debug(
-                    "Loaded %d baselines for %s (skipped %d orphan)",
-                    loaded, self.coordinator_id, len(orphan_keys),
-                )
+            _LOGGER.debug(
+                "Loaded %d baselines for %s (skipped %d orphan)",
+                loaded, self.coordinator_id, len(orphan_keys),
+            )
             # Successful load (including "nothing stored yet" — the SELECT
             # returning zero rows is a legitimate cold-start, not a failure):
             # enable subsequent saves.
@@ -1798,6 +1818,11 @@ class AnomalyDetector:
                     "Saved %d baselines for %s",
                     len(self._baselines), self.coordinator_id,
                 )
+        except DBShuttingDown:
+            _LOGGER.debug(
+                "save_baselines skipped for %s: HA shutting down",
+                self.coordinator_id,
+            )
         except Exception as e:
             _LOGGER.error("Error saving baselines: %s", e)
 
@@ -1890,6 +1915,9 @@ class OutcomeMeasurer:
                 ))
                 await db.commit()
                 return cursor.lastrowid
+        except DBShuttingDown:
+            _LOGGER.debug("store_outcome skipped: HA shutting down")
+            return None
         except Exception as e:
             _LOGGER.error("Error storing outcome: %s", e)
             return None

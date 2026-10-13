@@ -31,6 +31,18 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class DBShuttingDown(RuntimeError):
+    """Raised when a DB write is submitted or drained after the worker has
+    stopped because Home Assistant is shutting down. Expected during HA
+    stop; callers log at DEBUG, not ERROR.
+
+    UNLOAD-SYMMETRY-TASK-HYGIENE-1 D1: dedicated subclass so DAO except
+    arms can route stop-time no-ops to DEBUG while real failures
+    (connection-lost, corruption) still land at ERROR via the general
+    ``except Exception`` arm.
+    """
+
 # ENERGY-HISTORY-KW-SUMMED-AS-KWH-1: energy_history power columns
 # (grid_import, solar_export, solar_production, ...) hold INSTANTANEOUS kW
 # snapshots written every ~15 min (energy.py _log_energy_history_snapshot).
@@ -397,9 +409,19 @@ class UniversalRoomDatabase:
                 await db.execute("PRAGMA journal_mode=WAL")
                 while not self._write_queue.empty():
                     if time.monotonic() > deadline:
-                        _LOGGER.warning(
-                            "DB flush hit 5s budget after %d writes", flushed
-                        )
+                        # UNLOAD-SYMMETRY-TASK-HYGIENE-1 D1: demote to DEBUG
+                        # during HA shutdown (the only legitimate caller of
+                        # _flush_pending_writes). A non-shutdown invocation
+                        # would still log at WARNING.
+                        if getattr(self.hass, "is_stopping", False) is True:
+                            _LOGGER.debug(
+                                "DB flush hit 5s budget after %d writes (shutdown)",
+                                flushed,
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "DB flush hit 5s budget after %d writes", flushed
+                            )
                         break
                     try:
                         factory, future = self._write_queue.get_nowait()
@@ -424,24 +446,44 @@ class UniversalRoomDatabase:
         # Drain anything left over the budget
         remaining = self._write_queue.qsize()
         if remaining:
-            self._drain_pending_futures("shutdown timeout")
+            self._drain_pending_futures("shutdown timeout", is_shutdown=True)
 
-    def _drain_pending_futures(self, reason: str) -> None:
-        """Fail all pending write futures so callers don't hang."""
+    def _drain_pending_futures(
+        self, reason: str, *, is_shutdown: bool = False,
+    ) -> None:
+        """Fail all pending write futures so callers don't hang.
+
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1 D1: when ``is_shutdown`` is True
+        (the ``_flush_pending_writes`` shutdown-timeout call site), drained
+        futures raise :class:`DBShuttingDown` so DAO except arms route to
+        DEBUG. The lost-connection call site (reason==str(exc)) leaves
+        ``is_shutdown=False`` so drained futures raise plain ``RuntimeError``
+        and still log ERROR.
+        """
         drained = 0
+        exc_cls: type[RuntimeError] = DBShuttingDown if is_shutdown else RuntimeError
         while not self._write_queue.empty():
             try:
                 _factory, future = self._write_queue.get_nowait()
                 if not future.done():
                     future.set_exception(
-                        RuntimeError(f"DB write failed: {reason}")
+                        exc_cls(f"DB write failed: {reason}")
                     )
                 self._write_queue.task_done()
                 drained += 1
             except asyncio.QueueEmpty:
                 break
         if drained:
-            _LOGGER.warning("DB write worker drained %d pending writes", drained)
+            # D1: demote drained-count noise to DEBUG during HA shutdown.
+            if is_shutdown or getattr(self.hass, "is_stopping", False) is True:
+                _LOGGER.debug(
+                    "DB write worker drained %d pending writes (shutdown)",
+                    drained,
+                )
+            else:
+                _LOGGER.warning(
+                    "DB write worker drained %d pending writes", drained
+                )
 
     async def async_close(self) -> None:
         """Stop write worker and close connections on shutdown."""
@@ -496,7 +538,7 @@ class UniversalRoomDatabase:
             (self._write_task is None or self._write_task.done())
             and getattr(self.hass, "is_stopping", False) is True
         ):
-            raise RuntimeError(
+            raise DBShuttingDown(
                 "DB write skipped: Home Assistant is stopping and the "
                 "write worker is closed"
             )
