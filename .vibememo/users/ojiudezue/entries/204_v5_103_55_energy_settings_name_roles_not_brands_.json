@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "204",
+  "author": "ojiudezue",
+  "session_id": "claude_20261013_162807_ship_v5_103_55",
+  "timestamp": "2026-10-13T16:28:07Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.55 shipped: Energy settings name roles, not brands; no house-specific entity defaults in code",
+  "summary": "Energy settings name roles, not brands; no house-specific entity defaults in code",
+  "why": "URA's energy code shipped this house's entity IDs as built-in defaults, so a second home would silently target entities that don't exist and quietly do nothing, and a SPAN rename here silently broke a control path. Every default becomes a role-named setting copied into this house once from the entity registry, labels name roles not brands, mapping edits reload on save, and an hourly check surfaces configured-but-missing entities.",
+  "implications": "Shipped EC-HOUSE-ENTITY-DEFAULTS-1 at v5.103.55; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.55.md (Live criteria).",
+  "revisit_trigger": "If any energy role resolves differently on this house after upgrade, or a Repairs issue names an entity that exists.",
+  "refs": {
+    "cards": [
+      "EC-HOUSE-ENTITY-DEFAULTS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.55.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.55.md"
+  }
+}

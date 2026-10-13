@@ -1091,3 +1091,15 @@ def test_plug_tou_peak_skip_when_load_shed_claims_BLOW1():
     assert not any(
         a.get("service") == "switch.turn_off" for a in actions
     ), "TOU peak must not re-pause a load-shed-held plug"
+
+
+def test_pool_release_emits_no_write_when_speed_role_unconfigured():
+    """EC-HOUSE-ENTITY-DEFAULTS-1: second install (no pool speed role) with a
+    restored `_original_speed` — the release must not emit number.set_value
+    with no target."""
+    coord, _ = _make_coord()
+    coord._pool = PoolOptimizer(coord.hass)  # no pool roles configured
+    coord._pool._original_speed = 75.0       # e.g. restored from persistence
+    coord._pool._state = POOL_STATE_REDUCED
+    coord._execute_shed_action("pool", activate=False)
+    assert [c for c in coord._service_calls if c.get("service") == "number.set_value"] == []

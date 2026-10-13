@@ -70,7 +70,11 @@ class _FakeBattery:
         self._last_reserve_level_at = None
 
     def _get_entity(self, key, default, role=None):
-        return default
+        # EC-HOUSE-ENTITY-DEFAULTS-1: module defaults are None now; the
+        # overlay emits nothing without a configured reserve role.
+        return {"reserve_soc_number": "number.test_battery_reserve"}.get(
+            key, default,
+        )
 
 
 class _CoordShell:
@@ -367,3 +371,20 @@ async def test_seam5_restore_naive_persisted_boundary_passed_still_dropped():
     assert battery._arbitrage_chunk_completed is False, (
         "Seam #5: naive passed boundary was resurrected — staleness gate broken."
     )
+
+
+def test_evse_hold_overlay_emits_nothing_when_reserve_role_unconfigured():
+    """EC-HOUSE-ENTITY-DEFAULTS-1: second install (no reserve role) — the
+    EVSE-hold overlay must not append a reserve write with no target."""
+    from custom_components.universal_room_automation.domain_coordinators.energy import (
+        EnergyCoordinator,
+    )
+
+    class _UnconfiguredBattery(_FakeBattery):
+        def _get_entity(self, key, default, role=None):
+            return default  # module default is None now
+
+    shell = _CoordShell(evse_hold_soc=45, battery=_UnconfiguredBattery(desired=80))
+    apply = EnergyCoordinator._apply_evse_battery_hold.__get__(shell, _CoordShell)
+    out = apply({"reason": "test", "soc": 79, "actions": []})
+    assert out["actions"] == []

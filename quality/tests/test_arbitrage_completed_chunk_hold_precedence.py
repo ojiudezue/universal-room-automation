@@ -38,6 +38,17 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    phalanx_battery_entities,
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+    PHALANX_GRID_ENABLED_ENTITY,
+    PHALANX_RESERVE_SOC_ENTITY,
+    PHALANX_SOLCAST_REMAINING_ENTITY,
+    PHALANX_SOLCAST_TODAY_ENTITY,
+    PHALANX_SOLCAST_TOMORROW_ENTITY,
+    PHALANX_STORAGE_MODE_ENTITY,
+    PHALANX_WEATHER_ENTITY,
+)
 def _mock_module(name, **attrs):
     mod = types.ModuleType(name)
     for k, v in attrs.items():
@@ -152,16 +163,6 @@ for _sub in ("energy_const", "energy_tou", "energy_battery", "energy_pool"):
 # ---------------------------------------------------------------------------
 from conftest import MockHass
 
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLCAST_REMAINING_ENTITY,
-    DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_SOLCAST_TOMORROW_ENTITY,
-    DEFAULT_STORAGE_MODE_ENTITY,
-    DEFAULT_WEATHER_ENTITY,
-)
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
     ARBITRAGE_PHASE_CHARGE,
     ARBITRAGE_PHASE_HOLD,
@@ -232,21 +233,21 @@ def _build_strategy(
 ):
     hass = MockHass()
     hass.set_state(_BSOC, str(soc))
-    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(PHALANX_STORAGE_MODE_ENTITY, "self_consumption")
     hass.set_state(_SOLAR, "5000")
     hass.set_state(_NETP, "0", attributes={"unit_of_measurement": "W"})
     hass.set_state(_BPOW, "-200", attributes={"unit_of_measurement": "W"})
-    hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
+    hass.set_state(PHALANX_GRID_ENABLED_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "off")
     # Simulates the live incident: current on-hardware reserve is 30 (the
     # value the buggy tick drove it to). A correct decision emits an
     # action to raise it back to target.
-    hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "30")
-    hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, solcast_today)
-    hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
+    hass.set_state(PHALANX_RESERVE_SOC_ENTITY, "30")
+    hass.set_state(PHALANX_SOLCAST_TODAY_ENTITY, solcast_today)
+    hass.set_state(PHALANX_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
     remaining = solcast_remaining if solcast_remaining is not None else solcast_today
-    hass.set_state(DEFAULT_SOLCAST_REMAINING_ENTITY, remaining)
-    hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+    hass.set_state(PHALANX_SOLCAST_REMAINING_ENTITY, remaining)
+    hass.set_state(PHALANX_WEATHER_ENTITY, "sunny")
     _BCAP = "sensor.test_envoy_battery_capacity"
     hass.set_state(_BCAP, "100", attributes={"unit_of_measurement": "kWh"})
     hass.set_state(
@@ -268,7 +269,7 @@ def _build_strategy(
         reserve_soc=20,
         arbitrage_enabled=arbitrage_enabled,
         peak_buffer_target=peak_buffer_target,
-        entity_config=entity_config,
+        entity_config=phalanx_battery_entities() | entity_config,
         solar_classification_mode="custom",
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,

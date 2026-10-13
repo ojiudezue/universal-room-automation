@@ -149,7 +149,13 @@ class DailyEnergyPredictor:
             return None
 
     def _get_current_temperature(self) -> float | None:
-        """Get current temperature from weather entity (°F)."""
+        """Get current temperature from weather entity (°F).
+
+        EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): None-safe. On a 2nd install with
+        no weather entity configured, returns None quietly.
+        """
+        if not self._weather_entity:
+            return None
         weather_state = self.hass.states.get(self._weather_entity)
         if weather_state and weather_state.attributes:
             temp = weather_state.attributes.get("temperature")

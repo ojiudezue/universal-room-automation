@@ -13,6 +13,12 @@ Cards: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1, HOUSE-STATE-SENSOR-BOOT-AWAY-D
 ## Not built / deferred
 None from either card.
 
-## Live validation (prospective)
-- Boot: 0 URA errors; house-state sensors go unknown → real state, never "away", across the restart.
-- GB1/GB2/Media: next time the fan runs with the room empty, D2 can release (organic; folds into the 2026-10-18 fan re-measure).
+## Validated 2026-10-12 (restart 09:03 CDT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed + restarted | PASS | manifest v5.103.54; recorder `current_recorder_run` 14:03:43Z |
+| Boot: 0 URA errors | PASS | HA system_log level ERROR, search universal_room_automation = 0 |
+| House state never "away" across restart | PASS | `sensor.ura_presence_coordinator_presence_house_state` history 08:55–09:05: guest → home_day only, no away |
+| D2 release in GB1/GB2/Media | PENDING (organic) | folds into the 2026-10-18 fan re-measure |
+
+Deploy note: deploy.sh step 6 hit a GitHub "base branch was modified" race; master already held the merge commit (5ec1c88c1, code identical to develop), so the release was created by hand with deploy.sh's own command. PR #625 left open by the race.

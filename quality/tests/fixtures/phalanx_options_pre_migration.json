@@ -1,0 +1,22 @@
+{
+  "_comment": "EC-HOUSE-ENTITY-DEFAULTS-1. Role-key subset (every EC_ROLE_KEY_DEFAULTS key that is SET, plus energy_envoy_entity) of this house's live Coordinator Manager options, re-pulled 2026-10-13 via `ssh ha` from /config/.storage/core.config_entries entry 01KJEC3FYPYAGBQKZWC94CR8GR (pre-migration: no _ec_defaults_pinned flag yet). Values are entity_ids only, no secrets. Keys absent here are UNSET live and are exactly the ones the pin migration fills. Used by test_bootstrap_pins_phalanx_shape_options_byte_identical (G3).",
+  "energy_solcast_today_entity": "sensor.solcast_pv_forecast_forecast_today",
+  "energy_solcast_tomorrow_entity": "sensor.solcast_pv_forecast_forecast_tomorrow",
+  "energy_solcast_remaining_entity": "sensor.solcast_pv_forecast_forecast_remaining_today",
+  "energy_solcast_day_3_entity": "sensor.solcast_pv_forecast_forecast_day_3",
+  "energy_weather_entity": "weather.phalanxmadrone",
+  "energy_evse_a_entity": "sensor.garage_a_power_minute_average",
+  "energy_evse_b_entity": "sensor.garage_b_power_minute_average",
+  "energy_l1_charger_entities": [
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_2"
+  ],
+  "energy_cloud_reserve_oracle_entity": "number.iq_battery_hacs_battery_reserve",
+  "energy_cloud_charge_from_grid_oracle_entity": "switch.iq_battery_hacs_charge_battery_from_grid",
+  "energy_cloud_storage_mode_oracle_entity": "select.iq_gateway_hacs_system_profile",
+  "energy_cloud_battery_soc_fallback_entity": "sensor.iq_battery_hacs_battery_overall_charge",
+  "energy_solar_follow_grid_entity": "sensor.mains_vue_3_power_minute_average",
+  "energy_solar_follow_grid_fallback_entity": "sensor.envoy_stream_grid_power",
+  "energy_generator_entity": "sensor.generac_2325624_status_2",
+  "energy_envoy_entity": "sensor.envoy_482543015950_current_power_production"
+}

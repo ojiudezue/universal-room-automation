@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.54
+# Universal Room Automation vv5.103.55
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -14212,7 +14212,10 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_envoy_status"
-        self._attr_name = "Envoy Status"
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5, 2026-10-13): friendly-name
+        # relabel to a role word. entity_id + unique_id unchanged (see
+        # Rev 4 R4-1 — dashboards + PWA + tests reference the entity_id).
+        self._attr_name = "Battery gateway status"
         self._attr_device_info = _energy_device_info()
 
     def _get_energy(self):

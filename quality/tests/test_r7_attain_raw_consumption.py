@@ -39,6 +39,9 @@ from test_arbitrage_solar_attainability_ladder import (  # noqa: F401
 # anchor — must NOT call the primitive).
 # --------------------------------------------------------------------------
 
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
+)
 def _pre_r7_attain_raw(soc: float, rate: float, mins: float, surplus: float) -> float:
     return soc + (mins / 60.0) * rate + surplus
 
@@ -125,10 +128,7 @@ def test_attain_hold_current_publishes_raw_projection_over_100():
     strat._attain_cfg_observed_on = True
     # Match the charge_from_grid entity to observed-on to avoid the
     # ON→OFF transition branch.
-    from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E501
-        DEFAULT_CHARGE_FROM_GRID_ENTITY,
-    )
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
     next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=20.0)
     hass.set_state(_BSOC, f"{next_soc:.4f}")
     strat.determine_mode("off_peak", "summer", now=_ANCHOR)

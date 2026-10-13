@@ -21,8 +21,8 @@ from test_arbitrage_solar_attainability_ladder import (  # noqa: F401
     _seed_rate,
 )
 
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (  # noqa: E501
-    DEFAULT_CHARGE_FROM_GRID_ENTITY,
+from ec_phalanx_entities import (  # this house's role entities (EC-HOUSE-ENTITY-DEFAULTS-1)
+    PHALANX_CHARGE_FROM_GRID_ENTITY,
 )
 
 _LT_RE = re.compile(r"projected SOC (\d+)% < target (\d+)%")
@@ -43,7 +43,7 @@ def _latched_charging(soc_start: float, rate: float, target: int):
     strat._attain_reboot_recovered = True
     strat._attain_state = "charging"
     strat._attain_cfg_observed_on = True
-    hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+    hass.set_state(PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
     next_soc = _seed_rate(strat, _ANCHOR, start_soc=soc_start, rate_pct_per_h=rate)
     hass.set_state(_BSOC, f"{next_soc:.4f}")
     return strat, next_soc

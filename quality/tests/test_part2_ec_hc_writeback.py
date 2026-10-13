@@ -206,6 +206,12 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # the definition of a fresh-read key, so it belongs on the suppress list.
     # This guard caught the omission when the suite became runnable again.
     "appliance_records",
+    # EC-HOUSE-ENTITY-DEFAULTS-1: the pin migration's three bookkeeping
+    # flags (the role keys themselves are deliberately NOT suppressed —
+    # an operator edit must reload).
+    "_ec_defaults_pinned",
+    "_ec_defaults_pinned_version",
+    "_ec_defaults_pinned_at",
 }
 
 
@@ -349,7 +355,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
     #    B-CRIT-2) -> 95
     # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 98  # +hvac_return_window_minutes (v5.103.20)
+    # +3 EC-HOUSE-ENTITY-DEFAULTS-1 pin bookkeeping flags -> 101
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 101
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +391,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_seed_cm_last_applied_options",
         "_apply_in_place",
         "_async_update_listener",
+        "_norm_cm_opt",
+        "_schedule_parent_reload",
         # F16 (2026-08-22, v5.89.0): _apply_in_place now routes tunables
         # through this helper so the coordinator setters' range guards
         # actually run. Slicing _apply_in_place without it leaves a free
@@ -618,6 +627,9 @@ def _load_init_dispatch_namespace() -> dict:
     # Review-C M-1 fix-up (RELOAD-WATCHDOG-HAZARD, 2026-08-15): post-
     # compile AST guard. See _ast_slice_guard for rationale.
     from _ast_slice_guard import assert_ast_slice_names_covered  # noqa: PLC0415
+    from ec_phalanx_entities import cm_listener_slice_ns_extras
+    for _k, _v in cm_listener_slice_ns_extras().items():
+        ns.setdefault(_k, _v)
     assert_ast_slice_names_covered(mod, ns)
     exec(code, ns)
     return ns

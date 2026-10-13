@@ -39,13 +39,16 @@ _LOGGER = logging.getLogger(__name__)
 # ============================================================================
 
 # Default Pentair entities (confirmed via HA)
-DEFAULT_POOL_VSF_SPEED_ENTITY = "number.pentair_pool_variable_speed_pump_1_speed"
-DEFAULT_SPA_VSF_SPEED_ENTITY = "number.pentair_spa_variable_speed_pump_1_speed"
-DEFAULT_POOL_PUMP_POWER_ENTITY = "sensor.pentair_pool_variable_speed_pump_1_power"
+# EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): house-specific defaults removed. Names
+# preserved; values None so a 2nd install doesn't silently target Phalanx's
+# Pentair entities. Phalanx is unaffected via options-pin migration.
+DEFAULT_POOL_VSF_SPEED_ENTITY = None
+DEFAULT_SPA_VSF_SPEED_ENTITY = None
+DEFAULT_POOL_PUMP_POWER_ENTITY = None
 
 # Pentair circuit switches for load shedding (stubbed)
-DEFAULT_POOL_INFINITY_EDGE_ENTITY = "switch.pentair_feature_7"
-DEFAULT_POOL_HEATER_ENTITY = "switch.pentair_heater_solar_preferred"
+DEFAULT_POOL_INFINITY_EDGE_ENTITY = None
+DEFAULT_POOL_HEATER_ENTITY = None
 
 # evse-charge-onset Rev 6 — bounded hold window. See
 # `ONSET_MAX_HOLD_H` in energy_const.py for the semantics + rationale.
@@ -364,6 +367,9 @@ class PoolOptimizer:
     @property
     def current_speed(self) -> float | None:
         """Current VSF pump speed."""
+        # EC-HOUSE-ENTITY-DEFAULTS-1 (Rev 5): None-safe for 2nd install.
+        if not self._speed_entity:
+            return None
         state = self.hass.states.get(self._speed_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
@@ -375,6 +381,8 @@ class PoolOptimizer:
     @property
     def current_power(self) -> float | None:
         """Current pump power consumption in watts."""
+        if not self._power_entity:
+            return None
         state = self.hass.states.get(self._power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
@@ -442,26 +450,11 @@ class PoolOptimizer:
 # EV Charger Controller
 # ============================================================================
 
-# Default Emporia EVSE entities (confirmed via HA)
-DEFAULT_EVSE_ENTITIES = {
-    "garage_a": {
-        "switch": "switch.garage_a",
-        "power": "sensor.garage_a_power_minute_average",
-        "energy_today": "sensor.garage_a_energy_today",
-        "energy_month": "sensor.garage_a_energy_this_month",
-        "span_breaker": "switch.span_panel_car_charger_breaker",
-        # SolarFollowController D1 §5.5 — Emporia current-limit Number.
-        "current_limit": "number.garage_a_evse_emporia_wifi_garagea_current_limit",
-    },
-    "garage_b": {
-        "switch": "switch.garage_b",
-        "power": "sensor.garage_b_power_minute_average",
-        "energy_today": "sensor.garage_b_energy_today",
-        "energy_month": "sensor.garage_b_energy_this_month",
-        "span_breaker": "switch.span_panel_garage_b_evse_breaker",
-        "current_limit": "number.garage_b_evse_emporia_wifi_garageb_current_limit",
-    },
-}
+# EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: the house-specific per-charger entity
+# literals moved to role-keyed CM options (CONF_ENERGY_EVSE_{A,B}_*; pinned
+# on this house by the one-shot migration via EC_ROLE_KEY_DEFAULTS). Name
+# preserved for importers; an unconfigured install manages no chargers.
+DEFAULT_EVSE_ENTITIES: dict[str, dict[str, str]] = {}
 
 
 class EVChargerController:
@@ -478,7 +471,7 @@ class EVChargerController:
     ) -> None:
         """Initialize EV charger controller."""
         self.hass = hass
-        self._evse = evse_config or DEFAULT_EVSE_ENTITIES
+        self._evse = evse_config or {}
         self._paused_by_us: set[str] = set()
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()
