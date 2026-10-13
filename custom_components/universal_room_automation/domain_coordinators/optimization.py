@@ -973,19 +973,29 @@ class OptimizationCoordinator(BaseCoordinator):
         """
         try:
             store = self._never_fires_store
-            if store is not None and self._never_fires_dirty:
+            # Review B B7 — always flush when the store exists, not
+            # just when the in-memory dirty flag is set. The evaluator
+            # clears `_never_fires_dirty` at the moment it SCHEDULES a
+            # delay-save (see `_evaluate_sensor_never_fires_dimension`),
+            # so a reload within the 120s debounce window would see
+            # dirty=False and skip the flush, letting the OLD Store's
+            # pending write land AFTER the new instance has loaded.
+            # Unconditionally saving on teardown is cheap and
+            # idempotent and makes the latest state win.
+            if store is not None:
                 try:
                     await store.async_save(
                         self._never_fires_payload_provider()
                     )
                     self._never_fires_dirty = False
                 except Exception:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "never-fires: teardown flush failed",
+                    _LOGGER.warning(
+                        "never-fires: teardown flush failed; "
+                        "pending state changes may be lost",
                         exc_info=True,
                     )
         except Exception:  # noqa: BLE001
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "never-fires: teardown flush outer failed", exc_info=True,
             )
         self.broker.async_stop()
@@ -2123,7 +2133,25 @@ class OptimizationCoordinator(BaseCoordinator):
                     "first_seen": rec.get("first_seen"),
                     "last_on_seen": rec.get("last_on_seen"),
                     "unavailable_s": int(rec.get("unavailable_s") or 0),
+                    "unavail_since": rec.get("unavail_since"),
                 }
+                # Review B B2-R — restore the open-outage stamp into
+                # the in-memory map so a sensor that was unavailable
+                # when HA stopped keeps its outage clock. HA-down time
+                # is DELIBERATELY counted as unavailable (conservative:
+                # the never-fires detector is an advisory alarm and we
+                # prefer not to raise a false HIGH finding after a
+                # multi-day outage spanning restarts — the alternative,
+                # re-stamping to now on load, charges only the segment
+                # after the restart and emits a false finding).
+                stamp_iso = rec.get("unavail_since")
+                if isinstance(stamp_iso, str) and stamp_iso:
+                    try:
+                        parsed = dt_util.parse_datetime(stamp_iso)
+                    except Exception:  # noqa: BLE001
+                        parsed = None
+                    if parsed is not None:
+                        self._never_fires_last_unavail_at[eid] = parsed
         # Rev 3 F3 + review B B1 — prune by CONFIGURED membership, not
         # by current state presence. At OC setup time (very early in
         # URA entry setup, before Frigate/Protect have published their
@@ -2157,6 +2185,9 @@ class OptimizationCoordinator(BaseCoordinator):
                 "first_seen": rec.get("first_seen"),
                 "last_on_seen": rec.get("last_on_seen"),
                 "unavailable_s": int(rec.get("unavailable_s") or 0),
+                # Review B B2-R — persist the open-outage stamp so a
+                # restart mid-outage doesn't lose the pre-restart time.
+                "unavail_since": rec.get("unavail_since"),
             }
             for eid, rec in self._never_fires_state.items()
         }
@@ -2240,6 +2271,9 @@ class OptimizationCoordinator(BaseCoordinator):
                 old_state is None or old_state not in unavail
             ):
                 self._never_fires_last_unavail_at[eid] = now
+                # Review B B2-R — mirror the stamp onto the Store
+                # record so a restart mid-outage can restore it.
+                rec["unavail_since"] = now.isoformat()
             # OUT OF unavailable (rejoin): accrue delta. This does NOT
             # count as the sensor firing (SHOULD #8).
             if new_state not in unavail and old_state in unavail:
@@ -2249,6 +2283,8 @@ class OptimizationCoordinator(BaseCoordinator):
                     rec["unavailable_s"] = int(
                         rec.get("unavailable_s") or 0
                     ) + delta
+                # Review B B2-R — clear the persisted open-outage stamp.
+                rec["unavail_since"] = None
             # Genuine off->on firing event: reset clock and discharge.
             # Review A SHOULD #8 — only off->on; a rejoin
             # (unavailable->on) is NOT a firing.
@@ -2258,6 +2294,9 @@ class OptimizationCoordinator(BaseCoordinator):
                 # the fraction gate measures time SINCE this clock reset.
                 rec["unavailable_s"] = 0
                 self._never_fires_last_unavail_at.pop(eid, None)
+                # Review B B2-R — clear any lingering open-outage stamp
+                # so the Store doesn't carry it past a genuine firing.
+                rec["unavail_since"] = None
                 # Rev 2 M2 — clear the shared 24h-repeat key so a
                 # re-silence within 24h of recovery persists a row
                 # rather than being suppressed as a repeat.
@@ -2356,9 +2395,21 @@ class OptimizationCoordinator(BaseCoordinator):
             # subscribed eid that is already unavailable/unknown.
             self._never_fires_bootstrap_unavail_clock(watched)
         except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "never-fires: resubscribe setup failed", exc_info=True,
-            )
+            # Review B LOW — a failed subscription means the detector
+            # is silently dead. Warn once so the log carries evidence
+            # (per-event noise stays at DEBUG below).
+            if not getattr(self, "_never_fires_subscribe_warned", False):
+                _LOGGER.warning(
+                    "never-fires: resubscribe setup failed; detector "
+                    "will not observe sensor transitions",
+                    exc_info=True,
+                )
+                self._never_fires_subscribe_warned = True
+            else:
+                _LOGGER.debug(
+                    "never-fires: resubscribe setup failed (repeat)",
+                    exc_info=True,
+                )
 
     def _never_fires_bootstrap_unavail_clock(self, eids) -> None:
         """Review B B2 — if a watched eid is CURRENTLY unavailable /
@@ -2381,6 +2432,22 @@ class OptimizationCoordinator(BaseCoordinator):
             state_str = str(getattr(st, "state", "")).lower()
             if state_str in unavail:
                 self._never_fires_last_unavail_at[eid] = now
+                # Review B B2-R — mirror the stamp onto the Store
+                # record so it persists across restarts. The record
+                # may not exist yet (first_seen is written by the
+                # evaluator on first appearance); seed a minimal one.
+                rec = self._never_fires_state.get(eid)
+                if rec is None:
+                    rec = {
+                        "first_seen": now.isoformat(),
+                        "last_on_seen": None,
+                        "unavailable_s": 0,
+                        "unavail_since": now.isoformat(),
+                    }
+                    self._never_fires_state[eid] = rec
+                else:
+                    rec["unavail_since"] = now.isoformat()
+                self._never_fires_dirty = True
 
     def _watched_raw_sensors(self) -> dict[str, dict]:
         """Rev 2/3 D1 resolver — raw motion/occupancy sensors URA watches.

@@ -5092,6 +5092,162 @@ def test_never_fires_unavail_at_boot_accrues_time(monkeypatch):
     )
 
 
+def test_never_fires_outage_spans_restart_fully_charged(monkeypatch):
+    """Review B B2-R — an outage that spans a restart must be fully
+    charged into `unavailable_s`, not just the segment after the
+    restart. Policy: HA-down time counts as unavailable (conservative;
+    avoids a false never-fires HIGH after a multi-day outage).
+
+    Scenario (defaults 7d horizon, 0.8 availability, max_unavail=33.6h):
+    - T0: last ON
+    - T0+1d: sensor goes unavailable (stamp written to Store)
+    - T0+5.5d: HA restarts (new coord instance loads from Store)
+    - T0+6d: sensor rejoins -> rec["unavailable_s"] += ~5d
+    - At evaluation (T0+7d) the condition fails and no finding fires.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    from datetime import datetime, timezone, timedelta
+    t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    outage_start = t0 + timedelta(days=1)
+
+    # Instance 1: writes `unavail_since` to the Store on INTO-unavailable.
+    hass1 = _nf_hass([])
+    coord1 = _nf_coord(hass1, monkeypatch)
+    _nf_prime(coord1)
+    _nf_watched(coord1, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+    coord1._never_fires_state["binary_sensor.m1"] = _nf_record(
+        t0.isoformat(), t0.isoformat(), 0,
+    )
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: outage_start)
+    coord1._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="unavailable"),
+        "old_state": types.SimpleNamespace(state="off"),
+    }))
+    persisted = coord1._never_fires_payload_provider()
+    assert persisted["binary_sensor.m1"]["unavail_since"] is not None, (
+        "stamp must be mirrored onto the Store record (B2-R regression)"
+    )
+
+    # Instance 2: new OC after a restart at T0+5.5d; loads the Store;
+    # mutation anchor is the stamp-restore line in `_never_fires_async_load`.
+    hass2 = _nf_hass([])
+    coord2 = _nf_coord(hass2, monkeypatch)
+    _nf_watched(coord2, {
+        "binary_sensor.m1": {
+            "device_class": "motion", "source": "room_input", "room": "A",
+        },
+    })
+
+    class _FakeStore:
+        async def async_load(self):
+            return persisted
+
+        def async_delay_save(self, provider, debounce):
+            pass
+
+        async def async_save(self, data):
+            pass
+
+    import homeassistant.helpers.storage as _storage
+    monkeypatch.setattr(_storage, "Store", lambda *a, **k: _FakeStore())
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        loop.run_until_complete(coord2._never_fires_async_load())
+    finally:
+        loop.close()
+    assert "binary_sensor.m1" in coord2._never_fires_last_unavail_at, (
+        "restored stamp must repopulate `_never_fires_last_unavail_at` "
+        "(B2-R regression — HA-down time otherwise uncharged)"
+    )
+
+    # Sensor rejoins at T0+6d. The accrued time MUST include the
+    # whole 5d pre-restart + HA-down window (not just the post-restart
+    # segment).
+    rejoin_at = t0 + timedelta(days=6)
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: rejoin_at)
+    coord2._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": "binary_sensor.m1",
+        "new_state": types.SimpleNamespace(state="off"),
+        "old_state": types.SimpleNamespace(state="unavailable"),
+    }))
+    accrued = coord2._never_fires_state["binary_sensor.m1"]["unavailable_s"]
+    expected = int(timedelta(days=5).total_seconds())
+    assert accrued >= expected - 60, (
+        f"outage spanning restart must be fully charged; got "
+        f"{accrued}s expected ~{expected}s (B2-R regression)"
+    )
+
+    # And no finding: unavailable_s > max_unavail(=0.2*7d=1.4d) -> gate
+    # blocks (sensor was mostly offline), so condition does not fire.
+    # (This asserts the second-order outcome: the fix prevents the
+    # false HIGH scenario in the review record.)
+    coord2._never_fires_state["binary_sensor.m1"]["first_seen"] = t0.isoformat()
+    coord2._never_fires_state["binary_sensor.m1"]["last_on_seen"] = (
+        t0.isoformat()
+    )
+    at_t7 = t0 + timedelta(days=7, seconds=1)
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: at_t7)
+    hass2.states.set("binary_sensor.m1", "off")
+    out = coord2._evaluate_sensor_never_fires_dimension()
+    assert out == [], (
+        f"outage-dominated horizon must not fire a never-fires finding; "
+        f"got {out} (B2-R regression)"
+    )
+
+
+def test_never_fires_teardown_flushes_even_when_not_dirty(monkeypatch):
+    """Review B B7 — teardown must flush even when `_never_fires_dirty`
+    is False. The evaluator clears the dirty flag at the moment it
+    SCHEDULES a delay-save (see B3 debounce coalescing); a reload
+    within the 120s debounce window would otherwise skip the flush
+    and the OLD Store's pending write would land AFTER the new
+    instance has already loaded, losing recent changes.
+
+    Mutation anchor: re-gating teardown on `self._never_fires_dirty`
+    must drop save_calls to 0 and fail this test.
+    """
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_prime(coord)
+
+    class _CountingStore:
+        def __init__(self):
+            self.save_calls = []
+
+        async def async_save(self, data):
+            self.save_calls.append(data)
+
+        def async_delay_save(self, provider, debounce):
+            pass
+
+    store = _CountingStore()
+    coord._never_fires_store = store
+    coord._never_fires_state = {
+        "binary_sensor.m1": _nf_record("2026-01-01T00:00:00", None, 0),
+    }
+    # Dirty=False: evaluator cleared it when it scheduled the delay-save.
+    coord._never_fires_dirty = False
+    coord.broker.async_stop = lambda: None
+    import asyncio as _aio
+    loop = _aio.new_event_loop()
+    try:
+        loop.run_until_complete(coord.async_teardown())
+    finally:
+        loop.close()
+    assert len(store.save_calls) == 1, (
+        f"teardown must flush even when dirty=False; got "
+        f"{len(store.save_calls)} saves (B7 regression)"
+    )
+
+
 def test_never_fires_second_async_setup_resubscribes(monkeypatch):
     """Review B B5 — a second `async_setup` on the SAME coordinator
     instance must re-subscribe to state changes. `_cancel_listeners`
