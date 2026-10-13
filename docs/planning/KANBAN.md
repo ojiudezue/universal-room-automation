@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-13T02:06:27-05:00_ - _Data commit: `2942250a1cb3`_ - _last_reconciled: 2026-10-13_
+_Generated: 2026-10-13T02:09:02-05:00_ - _Data commit: `383250820781`_ - _last_reconciled: 2026-10-13_
 
 
 ## Columns
@@ -11,10 +11,10 @@ _Generated: 2026-10-13T02:06:27-05:00_ - _Data commit: `2942250a1cb3`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 6 |
-| 📝 Planned | 7 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🧭 Pre-planning | 5 |
+| 📝 Planned | 8 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 41 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 16 |
@@ -49,7 +49,7 @@ _created 2026-10-13 02:30 · refined_
   - `measured_2026_10_13_overnight`: URA DB anomaly_log (coordinator energy): write_reverted 0/day before 10-11, then 2 / 8 / 23 (10-11 / 10-12 / 10-13 to 02:00); write_verification_failed went from 1-7/day (Sept) to 9 / 14 / 31, and 10-13 rows include reason self_heal_star...
   - `my_claim_retracted_2026_10_13`: I first guessed the cloud reading was stale (age_s 38069 in command_trail). WRONG: command_trail age is time since the value last CHANGED; last_reported shows the cloud integration polls normally. The cloud really reports 14.
 
-## 🧭 Pre-planning (6)
+## 🧭 Pre-planning (5)
 _idea being decomposed_
 
 ### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
@@ -105,27 +105,7 @@ _created 2026-10-04 01:00 · updated 2026-10-05 02:22_
   - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#4 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **pre_planning**
-_created 2026-08-18 02:30 · updated 2026-10-08 03:10 · refined_
-- **Problem / Solution:**
-  - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
-- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
-- **Forensic keys (12):**
-  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
-  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
-  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
-  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
-  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
-  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
-  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
-  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
-  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
-  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
-  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
-  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
-
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#5 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#4 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -136,7 +116,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#6 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#5 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -149,7 +129,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (7)
+## 📝 Planned (8)
 _has plan / acceptance_
 
 ### `EC-HOUSE-ENTITY-DEFAULTS-1` - Energy code hardcodes this house's entity IDs as defaults (EVSE, L1 plugs, Envoy serial, SPAN) — config-only + warn on missing — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
@@ -204,7 +184,28 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#5 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#5 · WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **platform** - status: **planned**
+_created 2026-08-18 02:30 · updated 2026-10-13 03:15 · refined_
+- **Problem / Solution:**
+  - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
+- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
+- **Forensic keys (13):**
+  - `planned_2026_10_13_overnight`: Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, ...
+  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
+  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
+  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
+  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
+  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
+  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
+  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
+  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
+  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
+  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
+  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
+  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
+
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -223,7 +224,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -240,7 +241,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -255,19 +256,26 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (1)
+_under review_
+
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#1 · WSJF 1.8 · v8 tc4 u2 /e8_
-thread: **optimization** - status: **in_progress** - approval: **explicit**
-_created 2026-09-14 02:20 · updated 2026-10-13 02:50 · refined_
+thread: **optimization** - status: **review** - approval: **explicit**
+_created 2026-09-14 02:20 · updated 2026-10-13 03:40 · refined_
 - **Problem / Solution:**
   - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
 - **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
-- **Next:** Waits for STUCK-SENSOR-WARNING-PER-TICK-1 to merge (your daytime ship). Then me: one short final re-verify of Rev 3 -> build to review (Tier 2: two reviews, A correctness incl. unavailable handling, B lifecycle/restart/Store). Stop rule:...
+- **Next:** APPROVE: ship the never-fires detector with your next attended deploy -> I run the serial full-suite name-diff vs develop, merge feature/oc-never-fires (cf4ecd67f), write the README with Live checks (Store file created, no false finding ...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
-- **Forensic keys (13):**
+- **Forensic keys (15):**
+  - `built_to_review_2026_10_13_overnight`: IN REVIEW LANE (not deployed, not merged). Branch feature/oc-never-fires at cf4ecd67f, pushed. Second fix-up: B2-R persists the outage start (unavail_since) in the Store, so an outage that spans a restart is fully charged (policy: HA-dow...
+  - `review_b_reverify_2026_10_13_overnight`: FIX-REQUIRED (record: docs/reviews/code-review/v_oc_never_fires_review_B_reverify.md on the branch). B1, B3, B4, B5 and B6 confirmed fixed with file:line; B5 has no listener leak (base.py _cancel_listeners already calls the old unsub). S...
   - `rescued_2026_10_13_overnight`: CARD-WAS-WRONG on next (it said waits for STUCK-SENSOR-WARNING-PER-TICK-1, which shipped in v5.103.49). Real state: the Review B fix-up had been written by the 10-11 builder but was left UNCOMMITTED in worktree agent-ac8787e66cc2eda5c fo...
   - `review_b_2026_10_11_overnight`: Fix-up 508d3c5bc applied all Review A items (orchestrator re-drill: neutering the unavailable_s reset turns test_never_fires_unavailable_s_resets_on_clock_reset red, restored). Review B (lifecycle/restart/Store) FIX-REQUIRED: B1 HIGH cam...
   - `review_2026_10_11_overnight`: Review A (correctness+tests) FIX-REQUIRED: HIGH-1 the finding is emitted once then latched 7 d, but HIGH findings only reach the operator via the daily digest built from the latest 5-min cycle (optimization.py ~5418, notification_manager...
@@ -281,11 +289,6 @@ _created 2026-09-14 02:20 · updated 2026-10-13 02:50 · refined_
   - `THE_STRUCTURAL_GAP`: MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS...
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (41)
 _needs a human call — groomed first_
