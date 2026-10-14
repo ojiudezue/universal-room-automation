@@ -25,41 +25,64 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Reuse the HA mock plumbing + UniversalRoomDatabase import.
-from test_db_write_worker_boot_race import (  # noqa: F401,E402
-    UniversalRoomDatabase,
-    ura_db,
-)
+# Reuse the HA mock plumbing. UniversalRoomDatabase is resolved freshly
+# per-test via _reload_db_modules() below — do NOT import it at module
+# scope. Sibling test files (anomaly-coverage harness uses
+# `import_isolated`; provenance/reconcile harnesses rewrite
+# `sys.modules["custom_components.universal_room_automation.*"]`) can
+# leave the `database` module and `coordinator_diagnostics` module as
+# two DIFFERENT copies in sys.modules, so a module-level
+# `UniversalRoomDatabase` captured at collection raises one
+# `DBShuttingDown` class while cdiag's `except DBShuttingDown` arm (and
+# this file's module-level import) hold a DIFFERENT class. The isinstance
+# / pytest.raises checks then miss and the DAO logs ERROR instead of
+# DEBUG. Reloading both modules together at the start of every test
+# forces one consistent pair.
+from test_db_write_worker_boot_race import ura_db  # noqa: F401,E402
 
-from custom_components.universal_room_automation.database import (  # noqa: E402
-    DBShuttingDown as _InitialDBShuttingDown,
-)
 
+def _reload_db_modules():
+    """Return (database_module, coordinator_diagnostics_module), freshly
+    loaded as a consistent pair.
 
-def _dbshutting_down_cls():
-    """Resolve DBShuttingDown from the live `database` module in sys.modules.
-
-    Sibling tests (anomaly-coverage suite) stash and reinstall
-    custom_components.* modules via import_isolated, which can swap the
-    `database` module object mid-suite. The production _db() / drain path
-    raises whichever DBShuttingDown is bound in the CURRENT UniversalRoomDatabase
-    class — resolving the class at call time keeps isinstance / pytest.raises
-    checks aligned with it regardless of which copy is live.
+    Guarantees:
+      - `sys.modules[<database>]` is this exact `database` module object
+        AFTER the call (so later imports anywhere resolve to it).
+      - `coordinator_diagnostics.DBShuttingDown is database.DBShuttingDown`
+        (cdiag's `from ..database import DBShuttingDown` is re-bound to
+        the fresh database module).
     """
+    import importlib
     import sys as _sys
-    mod = _sys.modules.get(
-        "custom_components.universal_room_automation.database"
+
+    db_name = "custom_components.universal_room_automation.database"
+    cdiag_name = (
+        "custom_components.universal_room_automation."
+        "domain_coordinators.coordinator_diagnostics"
     )
-    if mod is not None and hasattr(mod, "DBShuttingDown"):
-        return mod.DBShuttingDown
-    return _InitialDBShuttingDown
+    # Drop any cached copies — a sibling harness may have left a swapped
+    # database module behind.
+    _sys.modules.pop(cdiag_name, None)
+    _sys.modules.pop(db_name, None)
+    db = importlib.import_module(db_name)
+    cdiag = importlib.import_module(cdiag_name)
+    assert cdiag.DBShuttingDown is db.DBShuttingDown, (
+        "coordinator_diagnostics did not rebind to the freshly-reloaded "
+        "database module"
+    )
+    return db, cdiag
 
 
-# Back-compat name for existing references in this file.
-DBShuttingDown = _InitialDBShuttingDown
+@pytest.fixture(autouse=True)
+def _hermetic_db_modules():
+    """Ensure every test in this file sees a consistent (database,
+    coordinator_diagnostics) pair, regardless of what sibling test
+    modules left in sys.modules."""
+    _reload_db_modules()
+    yield
 
 
-def _make_db(tmp_path: str, is_stopping: bool = False) -> UniversalRoomDatabase:
+def _make_db(tmp_path: str, is_stopping: bool = False):
     hass = MagicMock()
     hass.config.path = lambda *parts: os.path.join(tmp_path, *parts)
     hass.is_stopping = is_stopping
@@ -70,7 +93,19 @@ def _make_db(tmp_path: str, is_stopping: bool = False) -> UniversalRoomDatabase:
 
     hass.async_create_background_task = _schedule_task
     hass.async_create_task = _schedule_task
-    return UniversalRoomDatabase(hass)
+    import sys as _sys
+    db_mod = _sys.modules[
+        "custom_components.universal_room_automation.database"
+    ]
+    return db_mod.UniversalRoomDatabase(hass)
+
+
+def _dbshutting_down_cls():
+    """Current DBShuttingDown class, from the live database module."""
+    import sys as _sys
+    return _sys.modules[
+        "custom_components.universal_room_automation.database"
+    ].DBShuttingDown
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +287,7 @@ def test_drain_pending_futures_connection_lost_raises_runtime_error(tmp_path):
             await fut
         # It must NOT be the DBShuttingDown subclass (type-check).
         assert type(excinfo.value) is RuntimeError
-        assert not isinstance(excinfo.value, DBShuttingDown)
+        assert not isinstance(excinfo.value, _dbshutting_down_cls())
 
     asyncio.get_event_loop().run_until_complete(_scenario())
 
@@ -472,7 +507,7 @@ def test_flush_leftover_outside_shutdown_stays_plain_runtime_error(tmp_path, mon
     db = _make_db(str(tmp_path), is_stopping=False)
     exc = _flush_with_expired_budget(db, monkeypatch)
     assert type(exc) is RuntimeError
-    assert not isinstance(exc, DBShuttingDown)
+    assert not isinstance(exc, _dbshutting_down_cls())
 
 
 def test_flush_leftover_at_ha_stop_is_db_shutting_down(tmp_path, monkeypatch):
@@ -480,7 +515,7 @@ def test_flush_leftover_at_ha_stop_is_db_shutting_down(tmp_path, monkeypatch):
     DBShuttingDown (callers log DEBUG)."""
     db = _make_db(str(tmp_path), is_stopping=True)
     exc = _flush_with_expired_budget(db, monkeypatch)
-    assert isinstance(exc, DBShuttingDown)
+    assert isinstance(exc, _dbshutting_down_cls())
 
 
 def test_load_baselines_prune_failure_keeps_saves_enabled(tmp_path):
