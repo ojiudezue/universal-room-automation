@@ -65,3 +65,4 @@
 {"action": "ack", "at": "2026-10-14T02:32:42.033Z", "card_id": "FAN-SUSTAINED-SHAKE-DEMOTE-1@2026-10-13T02:21:00"}
 {"action": "ack", "at": "2026-10-14T02:32:47.965Z", "card_id": "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-13T02:28:00"}
 {"action": "instruct", "at": "2026-10-14T02:35:00.513Z", "card_id": "EC-RESERVE-CLOUD-DIVERGENCE-1", "text": "Wasnt it a poort day so the reserve was higher but that was the drain level before the TOU rate change?"}
+{"action": "ack", "at": "2026-10-14T02:35:01.766Z", "card_id": "EC-RESERVE-CLOUD-DIVERGENCE-1@2026-10-13T02:30:00"}
