@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-10-14T02:30:00"
+    at: "2026-10-14T02:30:00"
+    outcome: "done"
+    headline: "Closed the garage-door guard for room covers. Live proof came by chance on 10-11: Garage A was open at sunset, and URA's sunset close moved 30+ shades and left both garage doors alone. Security's lock check then closed Garage A at 7:12 pm, as designed. Side note: Garage B started closing at the exact sunset second with no command from HA, so something outside HA closed it. Worth knowing if that wasn't you."
+    acknowledged: false
   - fid: "BOND-BRIDGE-UNRESPONSIVE-1@2026-10-14T03:05:00"
     at: "2026-10-14T03:05:00"
     outcome: "done"
@@ -238,6 +243,8 @@ cards:
   next: "Closed 2026-10-08 (validated 10-03; fresh-install residual folded into ONBOARDING-SIMPLIFY-1)."
   why: 'Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natural gate to monetize each feature 1 by 1. HVAC, Energy and Security are pretty big modules." Adjacent: ONBOARDING-SIMPLIFY phase 2 S4 (Add Coordinator dead end points to the switch).'
 - id: HVAC-GARAGE-GUARD-STAGED-SUNSET-1
+  disposition_2026_10_14: "done: discriminator met live."
+  organic_evidence_2026_10_14: "Revival trigger FIRED by chance on 2026-10-11 (verified 10-14 overnight, HA recorder events + URA DB). sun.sun below_horizon 19:07:12.141 CDT. Garage A (cover.konnected_f0f5bd523b00_garage_door) was OPEN from 18:36:15 to 19:12:26. Garage B (cover.ratgdov25i_dbfe2a_door) was open from 19:01:30 and started closing at 19:07:12.055, 0.09 s before the sun flip, with NO HA call_service for it anywhere 19:05-19:17, so something outside HA moved it (wall button, remote, or an automation on the opener's own side; I do not know which). Room-tier sunset close: 19:07:12.402-19:08:05 HA recorded close_cover / close_cover_tilt for 30+ shades and blinds (hallway_shade, living_bot_1-4, dining_*, patio_1-5, breakfast_*, media_*, master_bath_*, ...) and NONE for either garage door. ura_activity_log has no room cover action for Garage A/B. Garage A was then closed at 19:12:24.179 by URA SECURITY's periodic lock check (decision_log service_call 'Periodic lock check: closing cover.konnected_f0f5bd523b00_garage_door'; activity_log 'Periodic lock check notification'), which is the designated owner per cover_ownership.py. Discriminator met: the room tier left an open garage door alone at sunset, and Security kept sole control."
   trigger_check_2026_10_09_overnight: "Revival trigger NOT fired: recorder, sun.sun below_horizon edges 10-01..10-08 (19:10-19:19 CDT): both cover.konnected_f0f5bd523b00_garage_door and cover.ratgdov25i_dbfe2a_door were closed at every sunset. Stays parked."
   disposition_2026_10_08_soak_exit: "PARKED under the Soak Exit rule (discriminator could not be evaluated inside its ~1-week window: 10-02 -> 10-08). The guard is proven in the test suite with mutation drills (v5.103.28); the live proof is a nice-to-have, and re-checking it every night only adds noise to your queue."
   reverified_2026_10_08_overnight: "Still not staged on 10-07 (sun below_horizon 00:11Z; cover.konnected_f0f5bd523b00_garage_door open only 23:43-23:46Z, closed at sunset; cover.ratgdov25i_dbfe2a_door closed all evening). Sixth night unexercised."
@@ -247,10 +254,10 @@ cards:
   reverified_2026_10_03_overnight: "Not yet exercised: on 10-02 the only garage door opening was cover.konnected_..._garage_door 23:16-23:18 (well after sunset), no URA cover action logged. Operator DO (door open across sunset) still outstanding."
   title: One staged evening to prove room covers leave an open garage door alone at sunset
   thread: hvac
-  status: "parked"
+  status: "done"
   created: '2026-10-02 22:00'
-  updated: "2026-10-09 02:28"
-  next: "PARKED 2026-10-08. REVIVE when any garage cover (cover.konnected_f0f5bd523b00_garage_door / cover.ratgdov25i_dbfe2a_door) is open at the moment sun.sun goes below_horizon, whether by chance or because you stage it. Then I check ura_activity_log for the cover skip and that the door did not move, and close the card. Any overnight pass can run that check in one recorder query."
+  updated: "2026-10-14 02:13"
+  next: "Closed 10-14: live proof obtained from the 10-11 sunset (see organic_evidence_2026_10_14)."
   why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
   superseded_by: "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1"
@@ -30558,18 +30565,20 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
+  disposition_2026_10_14: "done: discriminator met live."
+  organic_evidence_2026_10_14: "Revival trigger FIRED by chance on 2026-10-11 (verified 10-14 overnight, HA recorder events + URA DB). sun.sun below_horizon 19:07:12.141 CDT. Garage A (cover.konnected_f0f5bd523b00_garage_door) was OPEN from 18:36:15 to 19:12:26. Garage B (cover.ratgdov25i_dbfe2a_door) was open from 19:01:30 and started closing at 19:07:12.055, 0.09 s before the sun flip, with NO HA call_service for it anywhere 19:05-19:17, so something outside HA moved it (wall button, remote, or an automation on the opener's own side; I do not know which). Room-tier sunset close: 19:07:12.402-19:08:05 HA recorded close_cover / close_cover_tilt for 30+ shades and blinds (hallway_shade, living_bot_1-4, dining_*, patio_1-5, breakfast_*, media_*, master_bath_*, ...) and NONE for either garage door. ura_activity_log has no room cover action for Garage A/B. Garage A was then closed at 19:12:24.179 by URA SECURITY's periodic lock check (decision_log service_call 'Periodic lock check: closing cover.konnected_f0f5bd523b00_garage_door'; activity_log 'Periodic lock check notification'), which is the designated owner per cover_ownership.py. Discriminator met: the room tier left an open garage door alone at sunset, and Security kept sole control."
   verify_2026_10_03_overnight: "CARD-WAS-WRONG on 'next' (said BUILD): shipped in v5.103.28 (README_v5.103.28.md, per-site drills on _get_available_covers + _send_covers_with_verify). Live proof is the staged test on HVAC-GARAGE-GUARD-STAGED-SUNSET-1 (operator DO); 10-02 had no garage door open at sunset, and 0 garage cover-skip rows since 09-30."
   title: Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion
   thread: ux
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.28
   reconcile_2026_09_30_overnight: 'LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rule cover actions on garage doors/gates, review LOW + tests). The card was never moved. NOT deployed (deploy held, per the card). I did not re-run its suite or reviews overnight; the validator name-diff is still owed before merge.'
   measured_2026_09_29: 'Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored cover_type shade). Both have entry/exit cover action none and open mode none, but timed_close_enabled = True (sunset). ura_activity_log has no cover actions for either room (not proof the timed close never ran). Operator: "the protection is a good idea".'
   created: '2026-09-29 23:20'
-  updated: "2026-10-03 02:16"
+  updated: "2026-10-14 02:13"
   origin: 'Found by the plan review of ROOM-TYPE-TRIMMED-MENU-1 (docs/reviews/code-review/plan_review_room_type_trimmed_menu.md): only hvac_covers.py:795 excludes garage doors; the room-tier cover behaviour does not.'
   why: 'A garage door added to a room''s covers could be opened at sunrise or on entry by URA. Safety/security-relevant. Pre-existing, not caused by the menu work.'
-  next: "Waits on HVAC-GARAGE-GUARD-STAGED-SUNSET-1 (operator DO: leave a garage door open across sunset) -> I query the skip row and close both cards."
+  next: "Closed 10-14: live proof obtained from the 10-11 sunset (see organic_evidence_2026_10_14)."
   links: {related: [ROOM-TYPE-TRIMMED-MENU-1]}
   rank: {value: 4, time_criticality: 3, effort: 1}
 - id: LIGHTS-GUEST-MODE-BEHAVIOUR-1
