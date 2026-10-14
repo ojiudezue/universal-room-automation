@@ -930,6 +930,13 @@ AC_RAMP_EVENT_HARD_RESET_DECLINED: Final = "hard_reset_declined"
 # cycles; a wrong high value silently disables the predicate).
 AC_ACTIVELY_COOLING_KW_MIN: Final = 0.5
 AC_ACTIVELY_COOLING_BLOWER_RPM_MIN: Final = 100
+# HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1 (2026-10-13): the A1 "high draw time 7d"
+# diagnostic (consumed only by sensor.py:18555 as a display attribute) was
+# re-scanning ~90k raw recorder rows per zone per 5-min decision tick and
+# causing ~2 s event-loop stalls on 11/12 ticks. A 7-day aggregate cannot
+# move meaningfully in 5 min, so cap the refresh at hourly per zone (rung 1,
+# diagnostic cost bound, not a policy knob — changing it requires review).
+HVAC_A1_HIGH_DRAW_REFRESH_S: Final = 3600
 # Invariant P bound (display-only fraction, 0.0-1.0).
 GATE4_MAX_BLIND_FRACTION: Final = 0.01
 

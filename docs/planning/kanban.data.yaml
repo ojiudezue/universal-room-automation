@@ -19164,6 +19164,32 @@ cards:
     its Repairs text no longer says "leave blank". Adjacent - V5_37_1 clear-sensor-fields precedent
     (test_v5_37_1_clear_sensor_fields) for room options; reuse that pattern.
   next: Plan - apply the room clear-field pattern to the EC entity fields; test that clear removes the key.
+- id: HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1
+  title: hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall)
+  rank: {value: 7, time_criticality: 6, effort: 2}
+  status: shipped_organic
+  shipped_version: v5.103.56
+  updated: '2026-10-13 15:30'
+  thread: hvac
+  created: 2026-10-13 15:30
+  problem: _high_draw_time_s_7d (hvac_override.py:1779) via _refresh_a1_cache (:5163) reads ~90k raw
+    rows per zone (~272k/tick) every 5-min tick; stall ~2.1 s lands 3-6 s after the decision cycle on
+    11/12 ticks (HA Health Monitor v2 stack samples). Consumer is display-only (sensor.py:18555).
+    Work ~44 ms; leading hypothesis = burst triggers a gen-2 GC pause (unverified; HM v2.1 GC timing
+    will tell). Investigation - docs/planning/INVESTIGATION_hvac_override_loop_stall.md.
+  next: Tier 1 build - hourly cache (HVAC_A1_HIGH_DRAW_REFRESH_S=3600), long-term statistics if the
+    SPAN sensors have them else raw in executor, no loop parsing; tick-aligned stalls ~11/h -> ~1/h.
+- id: URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1
+  title: Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries)
+  rank: {value: 5, time_criticality: 3, effort: 2}
+  status: inbox
+  updated: '2026-10-13 15:30'
+  thread: platform
+  created: 2026-10-13 15:30
+  problem: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303
+    config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10).
+    Not on the HVAC tick; boot-time cost. Breaks in 2027.8 (async_get_device) / 2027.10 (config_entries).
+  next: Plan - swap to async_get_device_by_identifier / config_entries_subentries per HA 2026.10 source.
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}

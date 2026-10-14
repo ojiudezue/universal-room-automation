@@ -24,8 +24,13 @@ URA's energy code shipped this house's entity IDs as built-in defaults (EV charg
 ## Rollback
 Setting keys are unchanged and the copied values equal the old defaults, so v5.103.54 reads the same values.
 
-## Live validation (prospective)
-- Boot: 0 URA errors.
-- Options for the CM entry gain the pinned role keys with the exact old default values; `_ec_defaults_pinned` set; no CM/parent reload at boot.
-- Battery reserve/storage-mode/charge-from-grid writes still target the Enpower entities; EVSE A/B pause/resume entities unchanged.
-- No new Repairs issue for energy entities after start + 2 scans (unless an entity is genuinely missing).
+## Validated 2026-10-13 (restart 11:31 CDT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed | PASS | HACS v5.103.55; release PR #626 carries 23 code files |
+| Boot: 0 URA errors | PASS | HA system_log, level ERROR, search universal_room_automation = 0 |
+| Pin reproduces old defaults exactly | PASS | CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options diff vs pre-deploy snapshot: +19 role keys, each equal to the former code default (4 Enpower controls, 10 EVSE A/B entities incl. both SPAN breakers, DP span r1/r2, cloud last-success) + 3 pin flags (`_ec_defaults_pinned_at` 16:33:38Z); no pre-existing key changed |
+| Pin written once, no reload | PASS | single pin timestamp; no extra recorder run after the restart |
+| Battery/EVSE targets unchanged | PASS (by construction) | pinned values identical to former literals; per-key byte-identity test vs live fixture |
+| No false energy Repairs issue | PENDING | scanner waits for start + two consecutive bad scans (~2 h); one-shot check later |
+| Mapping edit reloads on save | in-suite only | tests (a)–(e); not exercised live (no operator edit) |
