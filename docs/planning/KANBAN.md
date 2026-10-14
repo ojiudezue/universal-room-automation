@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:34:30-05:00_ - _Data commit: `a85cb7fcf6e5`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:34:50-05:00_ - _Data commit: `b9ff9cd3e3d7`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -19,7 +19,7 @@ _Generated: 2026-10-14T03:34:30-05:00_ - _Data commit: `a85cb7fcf6e5`_ - _last_r
 | ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 5 |
 | 🅿️ Parked | 89 |
-| ✅ Done | 320 |
+| ✅ Done | 321 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -2415,8 +2415,22 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (320)
+## ✅ Done (321)
 _closed, evidence in refs_
+
+### `ARC-CLOSE-GATE-1` - Shipping part of an arc left sibling cards open -> deploy.sh refuses until siblings ship, park, or are cut with a reason — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **board** - status: **done** - approval: **explicit**
+_created 2026-10-14 03:38 · initial_
+- **Problem / Solution:**
+  - Problem: an October review of recent arcs showed work piling up rather than getting finished — 69 cards opened since 10-01 vs 31 closed, built work waiting in review for a month, and arcs shipped partly with their sibling pieces left ope...
+- **Origin:** 2026-10-14 - operator asked whether we dropped arc work and why; approved the five fixes
+- **Why:** the only forcing function at ship time was "name the cards"; nothing looked at the cards you did NOT name
+- **Next:** none — shipped in repo tooling (no HA deploy needed). Measure at the next 3 deploys whether the gate fires and what it catches.
+- **Tags:** tier-1, mutation-drill
+- **Parsimony:** [BUILD] a ship can close one card of an arc while its siblings stay open with no recorded decision
+- **Refs:** scripts/kanban_ship.py; scripts/deploy.sh; quality/tests/test_kanban_ship.py; .claude/skills/ura-kanban/SKILL.md
+- **Forensic keys (1):**
+  - `evidence_2026_10_14`: test_kanban_ship.py 18 passed; mutation (if related -> if False) -> 2 arc tests FAILED, restored; live board: 70 cards carry arc keys, 1 in-flight card (HM-GC-1H-COUNTERS-RING-WINDOW-1) would trip it today; the 3 review cards pass.
 
 ### `BOND-BRIDGE-UNRESPONSIVE-1` - Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **done**

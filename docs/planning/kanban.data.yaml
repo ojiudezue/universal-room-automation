@@ -4743,6 +4743,30 @@ cards:
     regardless of what is triggering them. This does NOT auto-approve a build — it is a shared energy
     primitive (Tier 2+) and the operator owns the go — but the held-pending-root-cause rationale is
     spent and should be re-decided.'
+- id: ARC-CLOSE-GATE-1
+  title: Shipping part of an arc left sibling cards open -> deploy.sh refuses until siblings ship, park, or are cut with a reason
+  thread: board
+  status: done
+  created: '2026-10-14 03:38'
+  updated: '2026-10-14 03:38'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-10-14 ("yes" to the five finish-the-arc changes + wire item 1 into deploy.sh)'
+  tags: [tier-1, mutation-drill]
+  problem_solution:
+  - 'Problem: an October review of recent arcs showed work piling up rather than getting finished — 69 cards opened since 10-01 vs 31 closed, built work waiting in review for a month, and arcs shipped partly with their sibling pieces left open. Solution: deploy.sh now checks the shipped cards'' siblings (same batch, same parent, or sibling_of) and refuses to deploy while any is still open, unless it ships too, is parked with a trigger, or is cut with a written reason; plus four practice rules in the kanban skills (recommend-not-menu, review WIP cap, residuals fold into parent, capture HA-config and sibling-repo work).'
+  origin:
+    date: '2026-10-14'
+    gist: operator asked whether we dropped arc work and why; approved the five fixes
+  why: the only forcing function at ship time was "name the cards"; nothing looked at the cards you did NOT name
+  constraints: [arc-check runs BEFORE any push; arc-cut reasons written post-push and never fail a pushed deploy]
+  parked_alts: ['blocking on dependents (blocked_by) too — dropped: dependents are next work, not unfinished siblings']
+  refinement: []
+  knobs: []
+  parsimony: {problem: 'a ship can close one card of an arc while its siblings stay open with no recorded decision', verdict: BUILD}
+  next: 'none — shipped in repo tooling (no HA deploy needed). Measure at the next 3 deploys whether the gate fires and what it catches.'
+  refs: [scripts/kanban_ship.py, scripts/deploy.sh, quality/tests/test_kanban_ship.py, .claude/skills/ura-kanban/SKILL.md]
+  evidence_2026_10_14: 'test_kanban_ship.py 18 passed; mutation (if related -> if False) -> 2 arc tests FAILED, restored; live board: 70 cards carry arc keys, 1 in-flight card (HM-GC-1H-COUNTERS-RING-WINDOW-1) would trip it today; the 3 review cards pass.'
 - id: OVERNIGHT-PASS-FUTURE-TIMESTAMPS-1
   title: The nightly board pass writes clock times that have not happened yet -> stamp every time from `date`
   thread: board

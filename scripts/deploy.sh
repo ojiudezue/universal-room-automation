@@ -10,6 +10,9 @@
 # --cards / --why are FORCING GATES (BOARD-CURRENCY-1 + vibememo): a real release
 #   reconciles the board AND writes a proper reasoning trail, or it does not ship.
 #   --no-cards is the explicit escape for pure-docs releases (writes neither).
+# --arc-cut "ID:reason;ID:reason" — ARC-CLOSE-GATE-1: shipping a card whose arc
+#   siblings (same batch / links.parent / sibling_of) are still open is refused
+#   unless each sibling ships too, is parked, or is cut here with a reason.
 # With --dry-run flag, prints each step without executing.
 
 set -euo pipefail
@@ -36,6 +39,7 @@ CARDS=""
 NO_CARDS=false
 WHY=""
 REVISIT=""
+ARC_CUT=""
 # Forcing function (operator-coined 2026-08-19): a real ship MUST carry a proper
 # vibememo reasoning trail (the WHY), not the thin auto-stub that just echoed the
 # release notes. --why is required whenever --cards is (i.e. a real release);
@@ -83,6 +87,18 @@ for arg in "$@"; do
       ;;
     --why=*)
       WHY="${arg#--why=}"
+      ;;
+    --arc-cut)
+      next_idx=$((i+1))
+      next_val="${!next_idx:-}"
+      if [[ -z "$next_val" || "$next_val" == --* ]]; then
+        echo "ERROR: --arc-cut requires \"ID:reason;ID:reason\" (got: '${next_val}')." >&2
+        exit 1
+      fi
+      ARC_CUT="$next_val"
+      ;;
+    --arc-cut=*)
+      ARC_CUT="${arg#--arc-cut=}"
       ;;
     --revisit)
       next_idx=$((i+1))
@@ -174,6 +190,13 @@ if [[ -n "$CARDS" ]]; then
   # Validate every ID exists BEFORE any push happens.
   if ! python3 "$SCRIPT_DIR/kanban_ship.py" validate "$CARDS" --file "$KANBAN_YAML"; then
     echo "ERROR: refusing to deploy — unknown card ID(s) above." >&2
+    exit 1
+  fi
+  # ARC-CLOSE-GATE-1 (operator 2026-10-14): shipping part of an arc must not
+  # leave its siblings (same batch / parent / sibling_of) silently open. Ship
+  # them too, park them with a trigger, or cut them with --arc-cut "ID:reason".
+  if ! python3 "$SCRIPT_DIR/kanban_ship.py" arc-check "$CARDS" --cut "$ARC_CUT" --file "$KANBAN_YAML"; then
+    echo "ERROR: refusing to deploy — open arc siblings above (ARC-CLOSE-GATE-1)." >&2
     exit 1
   fi
   # Every --cards ID must be named in this release's README. v5.101.0 stamped
@@ -339,6 +362,11 @@ if [[ -n "$CARDS" ]]; then
     python3 "$SCRIPT_DIR/kanban_ship.py" mark-shipped "$CARDS" \
       --version "$VERSION" --file "$KANBAN_YAML"
     kanban_rc=$?
+    if [[ -n "$ARC_CUT" ]]; then
+      python3 "$SCRIPT_DIR/kanban_ship.py" record-arc-cuts --cut "$ARC_CUT" \
+        --version "$VERSION" --file "$KANBAN_YAML" \
+        || echo "  [BOARD-CURRENCY-1] [warn] arc-cut reasons not written (board left as-is)" >&2
+    fi
     python3 "$SCRIPT_DIR/vibememo_ship.py" \
       --version "$VERSION" \
       --summary "$SUMMARY" \
