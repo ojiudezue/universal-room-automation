@@ -31644,6 +31644,46 @@ cards:
       Enphase degraded-data policy; EC-HOUSE-ENTITY-DEFAULTS-1 renames the oracle CONF (Build A row 8), so a
       fix here must land on the renamed key.'
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492), docs/Coordinator/ENERGY_COORDINATOR manual, memory reference_ec_config_surface]
+- id: ELK-M1-HA-USABILITY-1
+  title: Make ELK M1 controls usable in HA (zones, one-tap arm, bypass, card) — blocked on zone 7 fire short
+  thread: security
+  status: waiting_operator
+  created: '2026-10-14 02:10'
+  updated: '2026-10-14 02:10'
+  rank: {value: 6, time_criticality: 6, effort: 4}
+  origin: {date: '2026-10-14', gist: 'Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected'}
+  why: 'Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168.12.78 (2101, no creds). 17 zone binary_sensors exist but integration-disabled.'
+  constraints:
+  - Never mask or mirror-suppress a panel-reported alarm state.
+  - Alarm code only in secrets.yaml.
+  next: 'DO: inspect/reset kitchen heat detector (zone 7) and clear at keypad; enroll new keypad in ElkRP; confirm Global Settings 35-40 -> I enable zones, add arm wrapper + bypass scripts + card, report to Homelab.'
+- id: HM-V21-LIVE-VALIDATION-1
+  title: HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict
+  thread: health_monitor
+  status: waiting_me
+  created: '2026-10-14 02:10'
+  updated: '2026-10-14 02:10'
+  rank: {value: 7, time_criticality: 6, effort: 2}
+  why: 'v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or another-thread GIL hold.'
+  next: 'Run W1-W20 after >=1h uptime; read GC timings vs loop_stall samples; record in README_v2.1.0; also fill README_v5.103.56 validated table.'
+- id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
+  title: Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline
+  thread: lighting
+  status: waiting_me
+  created: '2026-10-14 02:10'
+  updated: '2026-10-14 02:10'
+  rank: {value: 3, time_criticality: 2, effort: 1}
+  why: 'Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.'
+  next: 'After ~7 nights: one-shot recorder query of landscape lights not on within 5 min of trigger; dispose done or reopen.'
+- id: STUDY-A-CSI-SENSOR-1
+  title: Study A Wi-Fi CSI (ESPectre) — motion-class today; track still-detection firmware
+  thread: presence
+  status: parked
+  created: '2026-10-14 02:10'
+  updated: '2026-10-14 02:10'
+  rank: {value: 4, time_criticality: 1, effort: 2}
+  why: 'Audit docs/planning/AUDIT_study_a_wifi_csi_sensor.md (a6ef49f88): 24h vs ZK radar 62.5% agree, 36% CSI-off while radar-on; upstream ESPectre states no stationary/breathing detection. Not wired into URA.'
+  next: 'Operator optional - assign device to Study A area + rename. Revival trigger - firmware with stillness/breathing; acceptance = CSI-off/radar-on share near 0% over 24h.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
