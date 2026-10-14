@@ -1993,3 +1993,34 @@ async def test_d3_crit_stamper_uses_rooms_as_parent(monkeypatch):
         "integration root - excluded from ura_index by the shell predicate. "
         "Residual counter would never reach 0; D1 re-arm reset never fires."
     )
+
+
+class _SingleOwnerDevice:
+    """HA 2026.10 shape: config_entry_id is the owner; reading the deprecated
+    `config_entries` property calls report_usage (a stack walk) every time."""
+
+    is_composite_device = False
+
+    def __init__(self, entry_id: str) -> None:
+        self.config_entry_id = entry_id
+
+    @property
+    def config_entries(self):  # pragma: no cover - must never be read
+        raise AssertionError("deprecated config_entries read (report_usage per call)")
+
+
+def test_device_config_entries_avoids_deprecated_property():
+    """2026-10-14 08:34 boot: reading `config_entries` per device in the
+    device-tree sweep stalled the loop 131 s (_devices.py:492). The helper must
+    use `config_entry_id` and never touch the deprecated property."""
+    d = _import_devices()
+    assert d._device_config_entries(_SingleOwnerDevice("abc")) == {"abc"}
+
+
+def test_device_config_entries_falls_back_on_older_ha():
+    d = _import_devices()
+
+    class _Old:
+        config_entries = {"a", "b"}
+
+    assert d._device_config_entries(_Old()) == {"a", "b"}
