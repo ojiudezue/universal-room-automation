@@ -506,6 +506,17 @@ a big-bang pass.
 The renderer surfaces `created` / `updated` / `refinement_status` on each card in both KANBAN.md
 and the Artifact board so staleness and maturity are visible without opening the YAML.
 
+**Every timestamp comes from the real clock — run `date`, never estimate (coined 2026-10-14).** This
+covers `created` / `updated` / `autonomy_feed.at` / any "measured at HH:MM" note, all in CDT. An agent
+has no reliable sense of wall-clock time — worst in a long unattended run. Observed 2026-10-14: the
+02:00 overnight pass stamped feed entries 02:20–03:05 while `date` read 02:10, and wrote "measured
+~07:46 CDT" on the Sonoff card five hours early. Invented times corrupt the 24h counter, staleness
+ordering, and the anti-starvation tiebreak, and they read as evidence.
+
+**An attended session that starts while the overnight pass is running holds its own repo writes**
+(check `ps aux | grep "claude -p"` / `launchctl list | grep ura-overnight-pass`) until the pass exits,
+so two writers never edit `kanban.data.yaml` at once.
+
 ## Understanding changes → the card changes, SAME TURN (operator-coined 2026-08-21)
 
 Operator: *"Update the card anyway so a new season doesn't make mistakes."* Said in a case where
