@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:56:31-05:00_ - _Data commit: `8713972712f8`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T04:01:54-05:00_ - _Data commit: `3e14dd8ebc46`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -829,11 +829,12 @@ _created 2026-10-11 05:10 · initial_
 
 ### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#25 · WSJF 3.5 · v6 tc6 u2 /e4_
 thread: **security** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-10-14 04:01 · refined_
+_created 2026-10-14 02:10 · updated 2026-10-14 04:06 · refined_
 - **Origin:** 2026-10-14 - Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected
 - **Why:** Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168....
 - **Next:** DO (when back, or anyone at home): check the 12 shorted zone loops at the ELK panel terminals (sensor removed / jumpered / wrong EOL) using the zone list on this card -> then decide Konnected interface kit in parallel for the control sur...
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `bypass_test_2026_10_14`: BYPASS TEST 04:06 (operator 'yes'): elkm1.sensor_zone_bypass works per zone (Family Room M -> Bypassed, logical_status bypassed, physical still short). Fire zones ARE bypassable on this panel (Kitchen Heat Det -> Bypassed; my 'fire zones...
   - `code_stored_2026_10_14`: Operator gave an ELK user code 04:01; stored ONLY in /config/secrets.yaml as elk_code (never in repo/board/memory). Not used yet: the panel is not ready to arm while 12 zones read violated, so an arm wrapper must bypass those zones first.
   - `done_2026_10_14`: Operator approved (a) at 03:56: enabled binary_sensor.elkm1_front_door (Show As door), binary_sensor.elkm1_family_to_patiol (door), binary_sensor.elkm1_garage_a_b_heat (heat). The 12 shorted zones stay disabled.
   - `refinement_note_2026_10_14`: Refinement: (1) the 10-14 Homelab hand-off said 'keep ELK, no Konnected'; operator now wants Konnected IN PARALLEL for a richer control surface — supersedes the no-Konnected constraint, ELK stays. (2) 'No regular entities' is partly conf...

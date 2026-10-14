@@ -31611,6 +31611,7 @@ cards:
       fix here must land on the renamed key.'
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492), docs/Coordinator/ENERGY_COORDINATOR manual, memory reference_ec_config_surface]
 - id: ELK-M1-HA-USABILITY-1
+  bypass_test_2026_10_14: "BYPASS TEST 04:06 (operator 'yes'): elkm1.sensor_zone_bypass works per zone (Family Room M -> Bypassed, logical_status bypassed, physical still short). Fire zones ARE bypassable on this panel (Kitchen Heat Det -> Bypassed; my 'fire zones can't be bypassed' guess was WRONG). sensor_zone_bypass is a TOGGLE (a second call un-bypasses). elkm1.alarm_clear_bypass on area 1 cleared the burglar zone but NOT the fire zone — that had to be toggled back individually. Restored: both back to Violated at 04:06, Front Door Normal, area disarmed / not_ready_to_arm / no_alarm_active. Not tested: whether bypassing all 12 (+ zone 19 Family to PatioR, troubled) makes the area ready to arm. Implication for an arm script: it must read each zone's logical_status before calling (toggle semantics), and clearing must toggle fire zones one by one."
   code_stored_2026_10_14: "Operator gave an ELK user code 04:01; stored ONLY in /config/secrets.yaml as elk_code (never in repo/board/memory). Not used yet: the panel is not ready to arm while 12 zones read violated, so an arm wrapper must bypass those zones first."
   done_2026_10_14: "Operator approved (a) at 03:56: enabled binary_sensor.elkm1_front_door (Show As door), binary_sensor.elkm1_family_to_patiol (door), binary_sensor.elkm1_garage_a_b_heat (heat). The 12 shorted zones stay disabled."
   refinement_note_2026_10_14: "Refinement: (1) the 10-14 Homelab hand-off said 'keep ELK, no Konnected'; operator now wants Konnected IN PARALLEL for a richer control surface — supersedes the no-Konnected constraint, ELK stays. (2) 'No regular entities' is partly config: the integration ships 17 zone binary_sensors DISABLED by default (registry disabled_by=integration) plus 7 unused areas disabled by user; enabling the live ones (Front Door, Family to PatioL, Garage A/B Heat) gives normal door/heat entities today. (3) Konnected wired in parallel reads the SAME loops, so the 12 statically-shorted zones would read shorted on Konnected too — the zone wiring diagnosis comes first whichever surface wins."
@@ -31622,7 +31623,7 @@ cards:
   thread: security
   status: waiting_operator
   created: '2026-10-14 02:10'
-  updated: '2026-10-14 04:01'
+  updated: '2026-10-14 04:06'
   rank: {value: 6, time_criticality: 6, effort: 4}
   origin: {date: '2026-10-14', gist: 'Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected'}
   why: 'Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168.12.78 (2101, no creds). 17 zone binary_sensors exist but integration-disabled.'
