@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T04:06:59-05:00_ - _Data commit: `72ccd7498fcd`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T04:24:30-05:00_ - _Data commit: `1a8d82156ed1`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -39,7 +39,8 @@ _created 2026-10-14 02:50 · initial_
 - **Next:** Me, attended session: profiler.memory / profiler.log_object_sources (HA profiler integration) for ~5 min, rank object sources by count, and check what share is URA. Then: biggest holder is a bug -> card it on its owner; legitimately larg...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `root_cause_2026_10_14`: ROOT CAUSE 04:57: house runs Python 3.14.6; Python 3.14.5 REVERTED 3.14's incremental GC (whose point was cutting max pauses 10x+ on large heaps) back to the 3.13 generational GC (docs.python.org/3.14/whatsnew/3.14.html). Profiler object...
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
