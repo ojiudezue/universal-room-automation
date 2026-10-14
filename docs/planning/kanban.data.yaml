@@ -19319,6 +19319,16 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
+- id: CM-SHUTDOWN-JOB-SETUP-FAIL-LEAK-1
+  title: Coordinator Manager setup failure leaves its stop-save shutdown job registered
+  status: "inbox"
+  thread: platform
+  created: 2026-10-14 08:25
+  updated: "2026-10-14 08:25"
+  rank: {value: 2, time_criticality: 1, effort: 1}
+  links: {"sibling_of": "UNLOAD-SYMMETRY-TASK-HYGIENE-1", "context": "Review B B-LOW-2 of that cycle; pre-existing shape, same teardown surface."}
+  problem: "If manager setup fails after the shutdown job is registered (manager.py ~:566), the job is not removed, so HA stop calls a stop-save on a half-built manager. Pre-existing (the old stop-event listener had the same gap). Review B B-LOW-2, docs/reviews/code-review/ (unload-symmetry B record on review/unload-symmetry-B 0698f57e5)."
+  next: "Tier 1: unregister the shutdown job on the setup-failure path; one test that fails setup after registration and asserts the job is gone."
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
   card_was_wrong_2026_10_14: "CARD-WAS-WRONG (stall diagnosis 10-14): next still said 'PLAN … AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships', but that card shipped (done 10-12) AND the build already exists — feature/unload-symmetry c93265887 (10-13 overnight, D1 DBShuttingDown + DEBUG routing, D2 stop-time save via async_add_shutdown_job, D3 diagnostics reads via _db_read). It stalled because nobody moved the card after the build, so no reviews were ever dispatched. 58 commits behind develop but only 1 line of drift on its files."
   build_dispatched_2026_10_13_overnight: "Plan review FIX-PLAN-REQUIRED (2 HIGH: the shutdown job would be called with zero args but the handler requires _event, so it would silently never run; the Live check named a nonexistent column; plus 4 MEDIUM) -> Rev 2 applied all (66a8fb6a9). Planner disagreed on centralizing in the DAO layer, with reasons recorded in the plan. Notable fact from the review: today the stop-time baseline save ALWAYS loses, because the STOP listener runs after the DB worker is cancelled. Build dispatched to worktree feature/unload-symmetry, build-to-review only."
