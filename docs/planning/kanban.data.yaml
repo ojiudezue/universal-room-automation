@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "ZONE-DIALOGS-CLEANUP-1@2026-10-14T02:20:00"
+    at: "2026-10-14T02:20:00"
+    outcome: "parked"
+    headline: "Parked 4 shipped cards that only you can judge or that need the second home: the zone, house and small-room settings menus (tell me 'menus OK' or what reads wrong) and the second-home onboarding (revives when URA is turned back on at Wigton). Also corrected the test-strategy card: its 'merge this' step was already done weeks ago."
+    acknowledged: false
   - fid: "EC-HOUSE-ENTITY-DEFAULTS-1@2026-10-14T02:20:00"
     at: "2026-10-14T02:20:00"
     outcome: "done"
@@ -20715,6 +20720,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  card_was_wrong_2026_10_14: "next said MERGE fix/test-bathroom-exhaust-collection (7bb1b5715); git merge-base --is-ancestor shows it is ALREADY in develop (237 commits back). Shipped slices recorded; the card is an epic, so moved shipped_organic -> planned rather than done."
   mergecheck_2026_10_10_overnight: "Branch fix/test-bathroom-exhaust-collection still merges cleanly onto develop fe0532918+ (git merge-tree: no conflicts); it is 52 commits behind develop, so the pre-ship suite name-diff must run on the merged tree, not the branch."
   built_to_review_2026_10_09_overnight: "BATHROOM SLICE BUILT-TO-REVIEW (test-only, no production code). Branch fix/test-bathroom-exhaust-collection HEAD 7bb1b5715 (ura-builder 812547a60 + orchestrator comment fix). Root cause: the file stubbed the URA package with __path__=[], and automation.py gained sibling imports (cover_ownership, fan_veto). Fixing that exposed 3 rotted harness issues: (a) _refresh_config() (09-19) rebuilt config from a MagicMock entry.data and wiped it; (b) a half-loaded sensor.py stayed in sys.modules after pytest.skip; (c) the autouse clock fixture mutated the REAL homeassistant.util.dt.utcnow, poisoning sibling files. Fixes: real __path__, config mirrored onto entry.data, sys.modules scrub on load failure, dt stub forced in before the automation import and real dt restored right after. No assertion changed and none deleted, skipped or xfailed (builder report, diff read by orchestrator). ORCHESTRATOR VERIFY: file alone 66 passed; full-suite name-diff vs develop (scripts/suite_namediff.py, /tmp/namediff_bath_1009.log) = CLEAN, 0 NEW, 23 GONE (all 23 bathroom_exhaust names). Baseline failing set 152 -> 129. test_v47x_weather_manager.py still has 17 in-suite failures (order-dependent; it passes alone), so that is the next slice."
   gate_2026_10_09_overnight: "FOUR-STEP GATE for the bathroom_exhaust slice. (1) validity STILL-REAL: run alone on develop 464440b12 -> collection ERROR, ModuleNotFoundError custom_components.universal_room_automation.cover_ownership (the file stubs the package with __path__=[]; automation.py now has relative sibling imports). The full-suite baseline (suite-cache 71aded1150a0, 10-09) still has 23 failing names there, the top file. test_v47x_weather_manager.py passes alone (76) but has 17 failing names in-suite, so it is order-dependent and is the next slice. (1b) config-first: N/A (test harness). (2) prior-art: REUSE quality/tests/_ura_const_support.py (ensure_ura_const / ensure_ura_signals complete-module helpers) and the real-package import pattern other tests use; no new infrastructure. (3) parsimony: BUILD (one test file). (4) cost/benefit: test-only, zero production risk, removes 23 of 152 baseline failures (15%) -> Tier 1, build to review."
@@ -20815,11 +20821,11 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: shipped_organic
+  status: "planned"
   shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: "2026-10-10 03:20"
+  updated: "2026-10-14 02:20"
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
@@ -20869,7 +20875,7 @@ cards:
     develop''s numbers — re-measure against that branch once it ships. This does NOT unblock the card:
     it is still blocked_by TEST-HARNESS-REAL-HA-DEFAULT-1, which is a separate operator PICK. It does
     mean the job may be materially smaller than 87 tests'' worth.'
-  next: "MERGE (test-only, no deploy needed): merge fix/test-bathroom-exhaust-collection (7bb1b5715) to develop. It removes 23 baseline failures with 0 new. Then the next slice: find what poisons test_v47x_weather_manager.py in suite order (17 names; it passes alone) with a bisect over the files collected before it. After that, re-measure and size the re-architecture."
+  next: "Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-order cards."
   refs: SUITE-ORDER-POLLUTION-1; scripts/hooks/pytest_serialize.sh; AUDIT_fan_recheck_bug_hunt.md (hollow
     class); step_chatter_review_C.md (C-CRIT); v5.8.0 incident memory (real-coord construction risk)
   pytest_restore_hook_2026_08_19: 'CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates
@@ -27322,13 +27328,13 @@ cards:
   disposition_2026_09_26_groom: 'RE-LANED (never built; wrongly stamped shipped by v5.101.0). Still a planning task: trace + document the first-run path and every field, then propose >=50% reduction for operator review.'
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
-  status: "shipped_organic"
+  status: "parked"
   groom_2026_09_29: 'Adjacency: linked to CONFIG-FLOW-SLOW-ONBOARDING-1 (same onboarding flow; ADJACENT, not duplicate). Rank scored (was default): value 6, tc 3, effort 8 (Tier 2-DB tag).'
   rank: {value: 6, time_criticality: 3, effort: 8}
   links: {related: [CONFIG-FLOW-SLOW-ONBOARDING-1], context: 'CONFIG-FLOW-SLOW-ONBOARDING-1 found the slow setups were a device outage, not onboarding, and its per-step timing instrumentation is live. Use those timings as the baseline when measuring the >=50% load reduction here.'}
   live_validated_2026_09_12: 'DEPLOYED v5.101.0 + live-validated post-restart. L1 PASS (45/45 URA entries loaded, ZERO ERROR logs — only normal boot WARNINGs), L2 PASS (one INTEGRATION entry, existing rooms untouched). L3-L6 operator-action-gated (manifest on next add-room/fresh-install) — code live + in-suite verified; README_v5.101.0 carries the Validated table. HACS installed_version=v5.101.0. Cycle closed pending organic add-room observation.'
   shipped_version: "5.103.36"
-  updated: "2026-10-08 03:00"
+  updated: "2026-10-14 02:20"
   f6_resolved_2026_09_12: 'F6 RESOLVED (operator 2026-09-12): KEEP EXCLUDED. _EXCLUDED_PLATFORMS already excludes BOTH template AND group (config_flow.py:776) + helpers/input_*/counter/timer/schedule. Operator: error-prone to auto-detect for the default path, groups uncommon, operator can still manually pick (no capability loss). ZERO code change — build already matched. F6 closed.'
   ship_ready_2026_09_12: 'SHIP-READY @ e61b0f962 (feature/onboarding-simplify). FIX-1(MED skip-route rooms_skipped abort string — House created before abort, reassuring copy in both strings files), FIX-2(LOW error-rerender preserves cleared fields), FIX-3(LOW door comment) all landed + anchored. 83/83 co-run. Tier-3 fully passed (4 reviews + consolidated fix-up + orchestrator verify + completeness re-review = SHIP). BLOCKED ONLY ON: operator Tier-3 DEPLOY CHECKPOINT (mandatory explicit go) + F6 decision (template/group in auto-suggest; _EXCLUDED_PLATFORMS:1109-1113 currently excludes template — 1-line change, folds into this deploy). README write-back drafted prospective. Next: on operator go -> deploy.sh (new MINOR, onboarding is a new user-facing capability) -> live-validate fresh-install path -> README observed-results table.'
   rereview_ship_2026_09_12: 'TIER-3 COMPLETENESS RE-REVIEW @ b6bdf637e = SHIP (no CRIT/HIGH). All 4 prior-round fixes verified CLOSED with source evidence: D-CRIT-1 (eager _mint_house_now at energy_setup, mutation-anchored RED-on-neuter, tree clean), D-HIGH-1 INV-2 (_opt_single suggested_value; legacy default=guess confirmed unreachable), D-HIGH-2/3/4, B4 strings (all steps have {name} descriptions in BOTH files), D-MED-1, D-MED-3 (single producer). Diff-blind falsification: ONE-HOUSE holds (all 6 first-run paths enumerated — no double/zero/orphan; _integration_data set only in integration_config, so second-room never re-mints); INV-2 holds; INV-3 holds on independent 48-key re-enumeration (every consumer fallback matches, no silent feature flip). Caveat: INV-3 TEST enforces one bathroom key-set, not the 48-key enumeration (would not catch a future 49th key) — acceptable, noted. FINDINGS: 1 MEDIUM (skip route aborts not_supported -> reads install-failed + dead skip_rooms_later text; ~4-line rooms_skipped abort string) + 3 LOW (sensors_confirm discards input on error re-render; template-platform exclusion = the open F6 decision; stale door comment). FIX-1(MED)+FIX-2/FIX-3(LOW) dispatched in-cycle; template LOW held for F6. NEXT: README write-back prep + operator TIER-3 DEPLOY CHECKPOINT (mandatory explicit go; HA restart; not unattended).'
@@ -27363,7 +27369,7 @@ cards:
   constraints:
   - '>=50% reduction in cognitive complexity AND required tasks across the initial steps/forms'
   - 'assistive stance: auto-detect/sane-default/progressive-disclosure over asking the operator'
-  next: "VERIFY: on the second home's Simple first-run path, tell me where it was confusing or broke, and whether the Coordinator Manager started empty with coordinators added one at a time -> I close this card or card the residuals. Dispose by 2026-10-10."
+  next: "PARKED (Soak Exit, 10-14; window was 10-10). Its check needs the second home first-run path, and URA is disabled at Wigton until WIGTON-URA-REENABLE-1 runs. Revive at that runbook Stage 1 (first URA enable at Wigton): watch the Simple first-run + one-by-one coordinator add, then close or card residuals."
   planning_2026_09_12: 'AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable
     step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE
     entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + separate (77-95 fields/10-13
@@ -30569,42 +30575,42 @@ cards:
   links: {related: [ROOM-DIALOGS-USABILITY-SWEEP-1]}
   rank: {value: 4, time_criticality: 2, effort: 3}
 - id: ZONE-DIALOGS-CLEANUP-1
-  updated: "2026-10-03 02:10"
+  updated: "2026-10-14 02:20"
   disposition_2026_10_03: "CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog wording'), and Simple/Advanced (D2) shipped in v5.103.36 (README_v5.103.36.md 'ZONE/HOUSE Simple/Advanced', with HOUSE-DIALOGS-CLEANUP-1). Live table: 'pending operator UI - code live, no exceptions'. Dispose by 2026-10-10: operator opens a zone's options once and the menu reads correctly -> done."
   shipped_version: "5.103.36"
   title: Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps)
   thread: ux
-  status: "shipped_organic"
+  status: "parked"
   created: '2026-09-29 22:30'
   origin: 'Operator 2026-09-29: "Room dialog is the absolute core of URA. then house and Zone. Then coordinators. Right now is a power user mess. Features are mature so turning back to refinement is good discipline... We should card Zone cleanup, House cleanup."'
   why: 'Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start from that list.'
-  next: "VERIFY (any time): open one zone's options (Simple and Advanced) and confirm the menu reads cleanly -> I close this card and HOUSE-DIALOGS-CLEANUP-1 together."
+  next: "PARKED (Soak Exit, 10-14): the discriminator is your read of the dialog, which no data source can answer, and it is past its ~1-week window. Shipped and validated at deploy. Revive when you open a zone options dialog and something reads wrong (raw key, confusing order), or when you say \"zone menus OK\" (-> I close it)."
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, HOUSE-DIALOGS-CLEANUP-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
 - id: HOUSE-DIALOGS-CLEANUP-1
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-14 02:20"
   reverified_2026_10_09_overnight: "House Simple/Advanced shipped in v5.103.36 (README_v5.103.36 Validated 2026-10-03: \"Zone/House Simple/Advanced: pending operator UI\"). The \"Me: plan house then coordinators\" next is half stale: the house pass is shipped, and the per-coordinator dialog pass (in this card's title) is the unbuilt residual."
   title: House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)
   thread: ux
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.103.36
   created: '2026-09-29 22:30'
   origin: 'Operator 2026-09-29: priority order is Room dialog, then House and Zone, then coordinators; "power user mess".'
   why: 'Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.'
-  next: "VERIFY (with ZONE-DIALOGS-CLEANUP-1): open House options in Simple and in Advanced and confirm they read cleanly -> I close the house half done and card the per-coordinator dialog pass as its own item (the residual)."
+  next: "PARKED (Soak Exit, 10-14): the discriminator is your read of the dialog, which no data source can answer, and it is past its ~1-week window. Shipped and validated at deploy. Revive when you open House options (Simple or Advanced) and something reads wrong, or say \"house menus OK\" (-> close). The per-coordinator dialog pass stays a separate residual if you want it."
   links: {related: [ZONE-DIALOGS-CLEANUP-1, CM-CONFIG-FLOW-UX-1, ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
 - id: ROOM-TYPE-TRIMMED-MENU-1
-  updated: "2026-10-03 02:10"
+  updated: "2026-10-14 02:20"
   disposition_2026_10_03: "CARD-WAS-WRONG on lane (overnight verify-before-work): the board said pre_planning, but it SHIPPED in v5.103.35 (README_v5.103.35.md 'ROOM-TYPE-TRIMMED-MENU-1 - room menu trimmed by room type, Simple/Advanced'). Live table: 'pending operator UI - code live, no config-flow exceptions'. Dispose by 2026-10-10 via one UI look."
   shipped_version: "5.103.35"
   title: Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape
   thread: ux
-  status: "shipped_organic"
+  status: "parked"
   created: '2026-09-29 22:55'
   origin: 'Operator 2026-09-29: "We had suggested a mini room at some point. Like a regular room but limited scope, like a hallway or closet. Or maybe we attenuate the configuration once the room type is set? Limit the options?"'
   why: 'Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type instead of a new entry kind (no second setup path, no migrations); hidden steps keep stored values and keep working; a "Show all settings" choice escapes. Behaviour unchanged - menu logic only. Adjacent: ROOM-LIGHTING-SETUP-REDESIGN-1 (same dialog cleanup arc).'
-  next: "VERIFY (any time): open the options for a small room type (e.g. a closet) and confirm the trimmed menu -> I close the card."
+  next: "PARKED (Soak Exit, 10-14): the discriminator is your read of the dialog, which no data source can answer, and it is past its ~1-week window. Shipped and validated at deploy. Revive when a small room type (closet, etc.) shows an option that does not belong, or say \"trimmed menu OK\" (-> close)."
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
