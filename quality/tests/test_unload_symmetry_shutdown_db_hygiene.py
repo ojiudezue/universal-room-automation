@@ -391,3 +391,95 @@ def test_load_baselines_split_prune_still_writes(tmp_path):
         await db.stop_write_worker()
 
     asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# Fix-up (reviews A-L1/A-L2/B-LOW-1/B-LOW-3, 2026-10-14)
+# ---------------------------------------------------------------------------
+
+
+def _flush_with_expired_budget(db, monkeypatch):
+    """Run _flush_pending_writes with one queued write and a budget that is
+    already spent, so the write is left for the leftover drain."""
+    from custom_components.universal_room_automation import database as dbmod
+
+    clock = iter([0.0] + [1e9] * 50)
+    monkeypatch.setattr(dbmod.time, "monotonic", lambda: next(clock))
+
+    async def _scenario():
+        await db.initialize()
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+
+        async def _factory(_db):  # pragma: no cover - never reached
+            return None
+
+        db._write_queue.put_nowait((_factory, fut))
+        await db._flush_pending_writes()
+        with pytest.raises(RuntimeError) as excinfo:
+            await fut
+        return excinfo.value
+
+    return asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+def test_flush_leftover_outside_shutdown_stays_plain_runtime_error(tmp_path, monkeypatch):
+    """B-LOW-1: a worker stop that is NOT an HA stop (config-entry reload,
+    VACUUM) and loses writes must fail them with plain RuntimeError, so
+    callers keep logging ERROR."""
+    db = _make_db(str(tmp_path), is_stopping=False)
+    exc = _flush_with_expired_budget(db, monkeypatch)
+    assert type(exc) is RuntimeError
+    assert not isinstance(exc, DBShuttingDown)
+
+
+def test_flush_leftover_at_ha_stop_is_db_shutting_down(tmp_path, monkeypatch):
+    """B-LOW-1 discriminator: the same leftover at a real HA stop is
+    DBShuttingDown (callers log DEBUG)."""
+    db = _make_db(str(tmp_path), is_stopping=True)
+    exc = _flush_with_expired_budget(db, monkeypatch)
+    assert isinstance(exc, DBShuttingDown)
+
+
+def test_load_baselines_prune_failure_keeps_saves_enabled(tmp_path):
+    """A-L2: a non-shutdown failure of the orphan prune must not mark the
+    load as failed — the baselines loaded, so saves stay enabled."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        coordinator_diagnostics as cdiag,
+    )
+
+    db = _make_db(str(tmp_path), is_stopping=False)
+    hass = MagicMock()
+    hass.data = {cdiag.DOMAIN: {"database": db}}
+    det = cdiag.AnomalyDetector(hass, coordinator_id="safety", metric_names=["noise_floor"])
+    det.metric_names = ["noise_floor"]
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        async with db._db() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO metric_baselines "
+                "(coordinator_id, metric_name, scope, mean, variance, "
+                "sample_count, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("safety", "deprecated_metric", "all", 1.0, 0.1, 10,
+                 "2026-10-13T00:00:00"),
+            )
+            await conn.commit()
+
+        real_db = db._db
+
+        def _failing_db():
+            raise OSError("disk I/O error")
+
+        db._db = _failing_db
+        try:
+            await det.load_baselines()
+        finally:
+            db._db = real_db
+        assert det._baselines_loaded is True, (
+            "a failed orphan prune must not disable baseline saves"
+        )
+        await db.stop_write_worker()
+
+    asyncio.get_event_loop().run_until_complete(_scenario())

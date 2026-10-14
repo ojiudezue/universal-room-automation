@@ -1738,6 +1738,15 @@ class AnomalyDetector:
                         "Orphan prune skipped for %s: HA shutting down",
                         self.coordinator_id,
                     )
+                except Exception as prune_exc:  # noqa: BLE001
+                    # Review A-L2: the baselines DID load; a failed prune is
+                    # hygiene only and must not disable saves. The orphans
+                    # are found again (and pruned) at the next load.
+                    _LOGGER.warning(
+                        "Orphan prune failed for %s (baselines loaded; retried "
+                        "at next load): %s",
+                        self.coordinator_id, prune_exc,
+                    )
 
             _LOGGER.debug(
                 "Loaded %d baselines for %s (skipped %d orphan)",
