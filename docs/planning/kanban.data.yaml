@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-14T02:16:00"
+    at: "2026-10-14T02:16:00"
+    outcome: "done"
+    headline: "Closed the night-light rule. By day, URA only turned night lights on in rooms that were actually dark, and nothing night-light related errored after tonight's restart. New find carded: URA tells the Master Bathroom fan to turn on every few seconds while it is humid, up to 650 times an hour, even when it's already on. Wasteful, and it would override you if you switched the fan off. Planning a fix; nothing built yet."
+    acknowledged: false
   - fid: "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-10-14T02:30:00"
     at: "2026-10-14T02:30:00"
     outcome: "done"
@@ -15102,7 +15107,35 @@ cards:
   - automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment)
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
+- id: HUMIDITY-FAN-ON-RESEND-SPAM-1
+  title: "The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on"
+  thread: fans
+  status: pre_planning
+  created: '2026-10-14 02:16'
+  updated: '2026-10-14 02:16'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-2, found-during-probe, measure-before-build, institutional-context]
+  rank: {value: 5, time_criticality: 4, effort: 5}
+  problem_solution:
+  - "Problem: while a bathroom is humid (a shower), URA re-sends 'turn the fan on' every time the humidity reading updates, even though the fan is already on. In the Master Bathroom that reached 491-652 commands an hour on 10-13. Each one becomes three service calls and a network command to the Shelly relay, which was also logging communication timeouts tonight. It is wasted traffic, and it may be why the relay struggles. It also means a person who switches the fan OFF by hand while it is humid gets overridden within seconds. Solution: send 'on' only on the transition (fan not already on), or re-assert at a slow capped rate if the relay is known to drop commands, and decide explicitly what a manual off during high humidity should mean (the same question the manual-fan cards answered for the temperature fan)."
+  origin: {date: '2026-10-14', gist: "overnight pass mid-turn find while disposing NIGHT-LIGHT-ACTION-SELECTOR-1 (recorder call_service trace around Master Bathroom 10-11 18:50)"}
+  measured_2026_10_14: "HA recorder call_service events homeassistant.turn_on with entity_id [fan.switch_shelly1pmminig3_wifi_masterbathfan], per local hour (last 3 days): 10-11 18h 528, 19h 212; 10-12 09h 90, 10h 407, 15h 326, 16h 249; 10-13 11h 491, 12h 652; 10-14 01h 73, 02h 28. No parent/user context. Each is followed by fan.turn_on -> switch.turn_on (switch_as_x) on switch.shelly1pmminig3_34b7daca4214_switch_0. Only URA references this fan (Master Bathroom humidity_fans; no other config entry or YAML). HA ERROR 10-14 ~01:4x: Shelly DeviceConnectionTimeoutError on Switch.Set for that relay via homeassistant.turn_on."
+  mechanism_2026_10_14: "automation.py ~3496-3518 (humidity fan control): when on_trigger (humidity >= threshold OR spike), the code calls _safe_service_call(\"homeassistant\", SERVICE_TURN_ON, {\"entity_id\": humidity_fans}) UNCONDITIONALLY; the `if not fan_is_on` guard only sets the timestamps. Line dates from 7ab922ea3 (2026-02-23). It is evaluated on every humidity update, so the rate tracks the sensor update rate."
+  why: "Real traffic and device load in the house today. Also a hidden manual-override conflict."
+  constraints:
+  - "Fan domain is regression-prone (FAN-MANUAL-1 needed 3 DO-NOT-SHIP reviews). Prior-art scan must cover the FAN-LAYER-2 oracle (oracle.actuate, chokepoint) and _fan_is_actually_on before choosing the fix; this path does not appear to go through the oracle."
+  - "Suppression needs a discharge: if re-sends are rate-limited, state what recovers a fan that the relay silently failed to turn on."
+  - "Numbers get knobs: any re-assert interval is a named constant with its rung."
+  next: "Me: prior-art scan (fan oracle / chokepoint, FAN-MANUAL-1 manual-off semantics, _fan_is_actually_on), then a Tier-2 plan + one plan review; build to review. Measure the same counts for the other rooms with humidity_fans first, so the plan states the house-wide rate."
+  links:
+    related: [FAN-MANUAL-1, MASTER-TOILET-SONOFF-DROPOUTS-1, WIFI-SWITCH-DROPOUTS-BATHROOMS-1]
+    context: "FAN-MANUAL-1 settled manual-on semantics for the temperature fan; this path has the mirror question (manual off while humid). The two dropout cards are bathroom relays with Wi-Fi drops; this command flood could be a contributor, unproven."
+  refs:
+  - custom_components/universal_room_automation/automation.py (humidity fan control ~3315-3560)
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  disposition_2026_10_14: "done."
+  organic_evidence_2026_10_14: "(a) Boot errors: ha_get_logs system level=ERROR after the 10-14 01:16 CDT restart shows 0 entries from universal_room_automation (no automation / actuator_reconciler / lighting errors). This closes the log-read gap left on 10-09. (b) Bright-day check, recorder 10-09 23:00 -> 10-14 (23 rooms with night lights; only Master Closet has 'Use night lights by day'): 7 off->on transitions of night-light-only entities while the sun was up. 5 were URA (URA's room context parent 0199B0AE...0141, plus Garage Hallway): Master Bathroom switch.sonoff_1002197ef7_1 at 10-10 08:50 (lux 0.4), 10-12 08:38 (8.0), 10-12 09:43 (12.4), 10-13 08:15 (1.9), all below the room's dark threshold 15; Garage Hallway 10-13 07:45 lux 1 (threshold 20). Night light ON in a DARK room by day is the shipped rule. The other 2 had NO HA call_service at all (Study B dimmer 10-10 18:24; Master Bathroom sonoff 10-11 18:51 at lux 31.1), so they were wall-switch or device presses, not URA. Discriminator met: no URA night-light turn-on in a bright room without the by-day checkbox."
   validated_2026_10_09_overnight: "LIVE VALIDATION written into README_v5.103.42 (Validated 2026-10-09 table). Live HA = v5.103.42. PASS: dusk once-per-entry (Living Room, entry=none, 3 turn-ons each paired with its own occupancy_entry); Sleep night lights on via BOTH controllers (Living Room main controller 22:22, Master Bath reconciler sleep_night_light 22:54); room-sensor darkness (Master Closet 18:07 at 4 lx). The Master Closet MAIN switch on at 22:27 in Sleep was the operator's HA automation automation.master_closet_storage_smart_lighting_v2 (recorder context_parent -> automation_triggered), NOT URA. NOT EVALUATED: boot errors (log-read gap). PENDING: the bright-daytime no-night-light check."
   onboarding_2026_10_08: 'New URA rooms created 2026-10-08 with URA automation switch OFF: Master Closet (01M4E5E14Z6YMW6KBD7QF74FDJ), Master Closet Storage (01M4E5H48Q118FW94HXNBGH9YW), Powder (01M4E5Z39WDX7GBTPZJX4352CQ, zone unset, no humidity sensor - H&T being retired), Staircase (01M4E5ZSJNH9QP6NMSWYXB0G36, Back Hallway, no camera motion). Operator HA automations for these rooms stay ON until the operator turns each room''s URA automation on; only then turn the HA automation off (never delete). Dining light moved: Jaya Bathroom night light + lux removed (Jaya Bathroom now has no lux sensor), Dining Room gained it as light + night light.'
   retirement_rule_2026_10_08: 'Operator: automations are TURNED OFF, never deleted. Before turning any off, confirm the room/hallway is onboarded in URA with that light in its config. Coverage check 2026-10-08 (lights in automations vs URA room lights/night_lights): COVERED - Master Toilet Closet adaptive (Master Bath Toilet), Pantry, Master Bath vanity LEDs, Ziri Bath, Stair Closet, Garage Hallway Adaptive (cabinet dimmer). PARTIAL - Master Toilet automation (toilet fan switch not in URA), Laundry x2 (laundry2_sw2 not in URA). NOT COVERED - Powder (no URA room), Master Closet x3 (no URA room), Staircase (no URA room), Guest Bathroom + Guest Toilet (guestroom1bath light / guest toilet switches not in Guest Bedroom 1 Bathroom config), Garage Hallway 3rdR light (_2 entity not in room), Master Hallway (room exists, light not configured), Jaya Night Light (old non-_2 entity). CONFIG BUG: the moved light light.rgbw_motion_lux_3rdr_wifi_matter_jayabath_2 is now physically in Dining Room but still in URA Jaya Bathroom night_lights (Dining Room has 0 lights).'
@@ -15114,12 +15147,12 @@ cards:
   title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
     action, so "none" silently means two different things
   thread: lights
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.44
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: "2026-10-09 02:12"
+  updated: "2026-10-14 02:16"
   refinement_status: "refined"
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
@@ -15163,7 +15196,7 @@ cards:
     problem: One field encodes two independent intentions (regular-light entry behaviour and
       night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
     verdict: BUILD
-  next: "Me, dispose by 2026-10-15: at the next attended session (a) read system_log within ~10 min of the restart for automation/actuator_reconciler/lighting errors, and (b) on a bright day, check that no night light comes on in an occupied room without \"Use night lights by day\" (ura_activity_log light_turn_on rows vs sun/lux). Both pass -> done. The stale \"PICK plan REV 2\" was superseded: the shipped rule is night-light-wins (REV 3)."
+  next: "Closed 10-14: both checks passed (see organic_evidence_2026_10_14)."
   links:
     related: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1, NIGHT-LIGHT-NO-OFF-PATH-1, KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1]
     blocks: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1]
