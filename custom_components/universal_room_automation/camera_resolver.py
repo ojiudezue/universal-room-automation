@@ -481,6 +481,12 @@ class CameraResolver:
         # (Protect NVR devices on this deployment). Populated during index
         # build in one pass so `_infer_integration` does not re-walk.
         self._device_platform_hint: dict[str, str] = {}
+        # Rung-3 index: (integration, key) identifier tuple -> device_ids, plus
+        # each device's registry position so rung 3 keeps registry order.
+        # Replaces a full device-registry walk per resolve_capabilities call
+        # (1.2 s boot stall at the old rung-3 loop, HM 2026-10-14).
+        self._ident_to_device_ids: dict[tuple[str, str], set[str]] = {}
+        self._device_order: dict[str, int] = {}
         self._build_indices()
 
     # ---- Index construction ------------------------------------------------
@@ -492,7 +498,15 @@ class CameraResolver:
         except Exception as exc:  # noqa: BLE001 — defensive; registry can be mocked oddly
             _LOGGER.warning("CameraResolver: device registry walk failed: %s", exc)
             devices = []
-        for dev in devices:
+        for pos, dev in enumerate(devices):
+            self._device_order[dev.id] = pos
+            for ident in getattr(dev, "identifiers", None) or ():
+                try:
+                    integ, key = ident
+                except Exception:
+                    continue
+                if isinstance(key, str) and integ:
+                    self._ident_to_device_ids.setdefault((integ, key), set()).add(dev.id)
             connections = getattr(dev, "connections", None) or ()
             for conn in connections:
                 try:
@@ -695,17 +709,14 @@ class CameraResolver:
                     continue
                 if isinstance(key, str) and integ:
                     input_identifier_tuples.add((integ, key))
-        for dev in getattr(self._dr, "devices", {}).values():
-            if dev.id in expanded:
-                continue
-            for ident in getattr(dev, "identifiers", None) or ():
-                try:
-                    integ, key = ident
-                except Exception:
-                    continue
-                if isinstance(key, str) and (integ, key) in input_identifier_tuples:
-                    expanded[dev.id] = BASIS_IDENTIFIERS
-                    break
+        ident_peers: set[str] = set()
+        for tup in input_identifier_tuples:
+            ident_peers |= self._ident_to_device_ids.get(tup, set())
+        for peer_did in sorted(
+            ident_peers, key=lambda d: self._device_order.get(d, 1 << 30)
+        ):
+            if peer_did not in expanded:
+                expanded[peer_did] = BASIS_IDENTIFIERS
 
         # Rung 4 (network-inventory): join via IP/hostname -> MAC.
         if self._network_inventory is not None:
