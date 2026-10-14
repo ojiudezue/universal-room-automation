@@ -60,15 +60,20 @@ def test_clear_role_entity_removes_stored_key():
         STORAGE_MODE: "select.span_storage_mode",
     }
     flow = _make_options_flow(options=stored)
+    # Review A fix-up (2026-10-14): mirror the real frontend form, which
+    # submits the stored value back (every field renders with
+    # suggested_value=stored). Clear must still remove the key.
     with _ha_mocks_injected():
         result = _run(flow.async_step_coordinator_energy(user_input={
+            EVSE_A_SWITCH: "switch.evse_a_relay_old",
+            STORAGE_MODE: "select.span_storage_mode",
             "clear_grid_fields": ["evse_a_switch"],
         }))
     assert result["type"] == "create_entry", result
     saved = result["data"]
     assert EVSE_A_SWITCH not in saved, (
         "clearing evse_a_switch must drop the stored key, not preserve "
-        "it via the merge"
+        "it via the merge or the resubmitted suggested_value"
     )
     # Untouched key is preserved.
     assert saved.get(STORAGE_MODE) == "select.span_storage_mode"
@@ -83,8 +88,10 @@ def test_clear_cloud_verification_entity_removes_stored_key():
         CLOUD_RESERVE_ORACLE: "number.cloud_reserve_floor",
     }
     flow = _make_options_flow(options=stored)
+    # Review A fix-up: mirror the real form (resubmit the stored value).
     with _ha_mocks_injected():
         result = _run(flow.async_step_coordinator_energy(user_input={
+            CLOUD_RESERVE_ORACLE: "number.cloud_reserve_floor",
             "clear_grid_fields": ["cloud_reserve_oracle"],
         }))
     assert result["type"] == "create_entry", result
@@ -230,17 +237,89 @@ def test_clear_solar_follow_grid_fallback_removes_stored_key():
     clear ``energy_solar_follow_grid_fallback_entity`` because its
     configured entity (``sensor.envoy_stream_grid_power``) died when
     the Envoy MQTT stream add-on was retired. This test anchors that
-    specific choice -> conf wiring."""
+    specific choice -> conf wiring. Mirrors the real form: resubmit
+    the stored value."""
     conf_key = "energy_solar_follow_grid_fallback_entity"
     stored = {conf_key: "sensor.envoy_stream_grid_power"}
     flow = _make_options_flow(options=stored)
     with _ha_mocks_injected():
         result = _run(flow.async_step_coordinator_energy(user_input={
+            conf_key: "sensor.envoy_stream_grid_power",
             "clear_grid_fields": ["solar_follow_grid_fallback"],
         }))
     assert result["type"] == "create_entry", result
     assert conf_key not in result["data"], (
         "clearing solar_follow_grid_fallback must drop the stored key"
+    )
+
+
+def test_clear_wins_when_form_resubmits_the_stored_value():
+    """Review A fix-up (2026-10-14) — the real frontend form submits
+    the stored value back on save because every field renders with
+    ``description={"suggested_value": <stored>}``. The clear loop must
+    still pop the stored key when the submitted value equals the stored
+    value. Four cases cover both single-entity and multi-entity shapes
+    and both the original grid_import choice and newly-added role /
+    solar-follow / L1-list choices:
+
+      1. role key (evse_a_switch)
+      2. live-evidence anchor (solar_follow_grid_fallback)
+      3. pre-existing grid_import choice (same loop, same regression)
+      4. multi-entity list (energy_l1_charger_entities), order-insensitive
+    """
+    # 1. role key
+    conf_role = "energy_evse_a_switch_entity"
+    flow = _make_options_flow(options={conf_role: "switch.garage_a"})
+    with _ha_mocks_injected():
+        result = _run(flow.async_step_coordinator_energy(user_input={
+            conf_role: "switch.garage_a",
+            "clear_grid_fields": ["evse_a_switch"],
+        }))
+    assert conf_role not in result["data"], (
+        "resubmitting the stored role entity + ticking Clear must still "
+        "remove the key — the real frontend ALWAYS resubmits the stored "
+        "value via suggested_value"
+    )
+
+    # 2. solar-follow fallback (live-evidence anchor)
+    conf_sff = "energy_solar_follow_grid_fallback_entity"
+    flow = _make_options_flow(options={conf_sff: "sensor.envoy_stream_grid_power"})
+    with _ha_mocks_injected():
+        result = _run(flow.async_step_coordinator_energy(user_input={
+            conf_sff: "sensor.envoy_stream_grid_power",
+            "clear_grid_fields": ["solar_follow_grid_fallback"],
+        }))
+    assert conf_sff not in result["data"]
+
+    # 3. pre-existing grid_import choice (same loop regression).
+    conf_gi = "energy_grid_import_entity"
+    flow = _make_options_flow(options={conf_gi: "sensor.mains_import_counter"})
+    with _ha_mocks_injected():
+        result = _run(flow.async_step_coordinator_energy(user_input={
+            conf_gi: "sensor.mains_import_counter",
+            "clear_grid_fields": ["grid_import"],
+        }))
+    assert conf_gi not in result["data"], (
+        "pre-existing grid_import clear must also work when the form "
+        "resubmits the stored kWh counter"
+    )
+
+    # 4. multi-entity list — compare as sets (order-insensitive).
+    conf_l1 = "energy_l1_charger_entities"
+    stored_list = [
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+        "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
+    ]
+    flow = _make_options_flow(options={conf_l1: list(stored_list)})
+    with _ha_mocks_injected():
+        result = _run(flow.async_step_coordinator_energy(user_input={
+            # Order flipped vs stored — set equality must still clear.
+            conf_l1: list(reversed(stored_list)),
+            "clear_grid_fields": ["l1_chargers"],
+        }))
+    assert conf_l1 not in result["data"], (
+        "list-valued key must compare as a set; a reordered resubmit of "
+        "the stored list is still 'unchanged' for the purposes of clear"
     )
 
 

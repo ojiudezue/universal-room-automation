@@ -6318,13 +6318,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # a Repairs issue for has a UI-reachable fix path. See
             # ``_EC_OPTIONS_CLEAR_FIELD_ENTRIES`` above.
             _clear_map = _EC_OPTIONS_CLEAR_FIELD_MAP
-            # A-LOW (2026-10-09): if the operator both ticked "Clear X"
-            # AND picked a new entity for X in the SAME submit, the new
-            # entity wins (clearing is for the "I set this once and now
-            # want it empty" case; a fresh pick is a stronger signal).
+            # EC-OPTIONS-CLEAR-FIELD-NOOP-1 review A fix-up (2026-10-14):
+            # every field renders with ``description={"suggested_value":
+            # <stored>}``, so the REAL frontend form submits the stored
+            # value back on save, not an omitted key. Clear therefore
+            # applies when the submitted value is empty (missing, None,
+            # "", []) OR when it equals the currently stored value
+            # (self._config_entry.options.get(_ck) — the value BEFORE
+            # this save, not after the merge). A genuinely DIFFERENT
+            # entity picked in the same submit still wins (preserves the
+            # 10-09 A-LOW intent for that case only). The multi-entity
+            # list key ``energy_l1_charger_entities`` compares as a set
+            # since order is not meaningful.
+            _sentinel = object()
             for _choice in _clear_grid:
                 _ck = _clear_map.get(_choice)
-                if _ck and not user_input.get(_ck):
+                if not _ck:
+                    continue
+                _submitted = user_input.get(_ck, _sentinel)
+                _stored = self._config_entry.options.get(_ck)
+                if _submitted is _sentinel or _submitted in (None, "", []):
+                    saved_options.pop(_ck, None)
+                    continue
+                # List-valued key: order-insensitive equality.
+                if isinstance(_submitted, (list, tuple)) and isinstance(
+                    _stored, (list, tuple)
+                ):
+                    if set(_submitted) == set(_stored):
+                        saved_options.pop(_ck, None)
+                    continue
+                if _submitted == _stored:
                     saved_options.pop(_ck, None)
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
