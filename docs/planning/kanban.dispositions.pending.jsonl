@@ -50,3 +50,9 @@
 {"action": "instruct", "at": "2026-10-14T02:08:40.263Z", "card_id": "ROOM-ENERGY-SENSOR-MISPICKS-1", "text": "Can you execute this yourself and present the results for ratification"}
 {"action": "ack", "at": "2026-10-14T02:08:44.247Z", "card_id": "ROOM-ENERGY-SENSOR-MISPICKS-1@2026-10-11T02:30:00"}
 {"action": "ack", "at": "2026-10-14T02:08:56.697Z", "card_id": "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-11T02:40:00"}
+{"action": "ack", "at": "2026-10-14T02:10:56.304Z", "card_id": "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-11T04:00:00"}
+{"action": "ack", "at": "2026-10-14T02:11:36.606Z", "card_id": "HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1@2026-10-12T02:05:00"}
+{"action": "ack", "at": "2026-10-14T02:12:45.704Z", "card_id": "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-12T02:05:00"}
+{"action": "ack", "at": "2026-10-14T02:13:06.152Z", "card_id": "SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1@2026-10-12T02:05:00"}
+{"action": "ack", "at": "2026-10-14T02:13:22.904Z", "card_id": "MEMORY-WRITERS-SILENT-DROP-1@2026-10-12T02:05:00"}
+{"action": "ack", "at": "2026-10-14T02:14:18.038Z", "card_id": "EC-EV-TOGGLE-TRIPWIRE-1@2026-10-12T02:06:00"}
