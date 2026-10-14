@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:23:37-05:00_ - _Data commit: `f2e0c1f953f4`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:24:04-05:00_ - _Data commit: `6d08df5515a3`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -300,11 +300,12 @@ _being built_
 
 ### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **energy** - status: **in_progress**
-_created 2026-10-13 12:00 · updated 2026-10-14 02:11 · refined_
+_created 2026-10-13 12:00 · updated 2026-10-14 02:25 · refined_
 - **Problem / Solution:**
   - Problem: in the Energy settings, if you clear one of the entity boxes (for example a cloud reserve or SOC fallback sensor) and save, the old entity silently stays configured, because the save keeps any field you did not send. Solution: g...
 - **Next:** Building (overnight 10-14, ura-builder in a worktree) -> one review + orchestrator verify -> review lane. Not deployed.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `build_2026_10_14`: Branch fix/ec-options-clear-field: 52e8496f6 (clear map + 5 tests), 798d50789 (fix-up 1: every EC_ROLE_KEY_SET key clearable, module-level map, coverage test test_clear_map_covers_every_ec_role_key + live-repair anchor test_clear_solar_f...
   - `gate_2026_10_14`: (1) Validity STILL-REAL: the EC options save merges {**options, **user_input} (config_flow.py ~6020 comment + merge), and HA omits a cleared single-entity selector from user_input, so the old value survives. (1b) Config-first: N/A, this ...
   - `problem`: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327); its Repairs text no longer says "leave bla...
 
