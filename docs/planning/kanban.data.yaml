@@ -1502,6 +1502,7 @@ cards:
   next: 'NONE: done (soak exit 2026-09-29). C stays parked in PLANNING_hvac_night_tail_follows_sleep.md.'
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ENTRY-DWELL-ROOM-CLOCK-1]}
 - id: HVAC-W1C-GENERIC-THERMOSTAT-1
+  residual_2026_10_14_arc_audit: "FOLDED from the 10-14 HVAC arc audit (these were orphaned — written in the State of Play as 'carded, not built' but no card existed): (1) first-boot preset_of match (P2 review D LOW-2); (2) _CTX singleton teardown (D LOW-3); (3) °C guard (A-L3); (4) zone_thermostat_profile override field — not built, Q2 never answered (PLANNING_hvac_w1c_p2_ecobee.md:1295); (5) ecobee Branch D comfort-number write — parked by ruling 3 (ECB501 exposes no number entity); (6) P4/P5/P6 D0b live tests (wall change / hold text / resume) never run, so option C's 'wall change reads as manual' is unproven. All six are only reachable once an ecobee zone runs an HVAC coordinator, so they ride this card's revival trigger (W1-C P3) rather than separate cards. (7) The latent Carrier + Custom Preset Ranges reference gap (arrester measures Carrier zones against the Seasonal Baseline even where S10 edited the device preset) is NOT ecobee-gated — it lives on HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1's surface; check it there when CPR rolls past zone 3."
   operator_instruction_2026_10_13: "Parked or closed?"
   reply_2026_10_14: 'Parked, not closed — the code shipped (v5.103.40/41) but has nowhere to run yet: Wigton has no HVAC coordinator enabled (persons not enrolled) and the main house is all Carrier/Bryant. Revival trigger: Wigton persons enrolled + HVAC enabled there.'
   disposition_2026_10_08_soak_exit: "CARD-WAS-WRONG on next (it still said PLAN). W1-C P2 shipped as v5.103.40 (ecobee HomeKit thin adapter) + v5.103.41 (option C, ecobee comfort select by default; Tier 3). Both READMEs carry PROSPECTIVE live validation only: Wigton has no URA HVAC coordinator enabled yet, and the main house is all Carrier/Bryant, so the ecobee path cannot run anywhere today. PARKED under Soak Exit with a revival trigger instead of riding organic."
@@ -1512,7 +1513,7 @@ cards:
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-27'
-  updated: "2026-10-08 03:00"
+  updated: "2026-10-14 03:41"
   origin: 'Operator 2026-09-27: "We need this to generalize URA. How and where is it configured? What remains?"'
   why: 'Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2) Carrier-tuned timings live in shared code (arrester echo TTL 15 s / preset 120 s, 5-min tick = cloud call-rate bound); (3) URA models holds as named home/away/sleep presets — many thermostats (Nest: eco/none) need a setpoint-based hold; (4) human-override detection keys on preset_mode == manual (Carriers anonymous hold) in the S1 gates and arrester.'
   revival_trigger: 'A second thermostat brand is available to test against, or the operator wants URA ready for other homes.'
@@ -2305,6 +2306,7 @@ cards:
   origin: 'Found by the raw-evidence gap probe 2026-09-26 (AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, could-not-measure section).'
   next: 'NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.'
 - id: HVAC-WRITE-CONFIRMATION-ORACLE-1
+  residual_2026_10_14_arc_audit: "FOLDED from the 10-14 HVAC arc audit: the Bryant vendor schedules on zones 2 and 3 are still assumed to be 'reduced' (State of Play ~line 306) with no tracking, and resume can still hand a zone to a vendor schedule (hvac_setpoint.py:303). The same Carrier-app operator test this card already asks for answers it: read what schedule zones 2/3 run, so 'resume' outcomes are knowable."
   measured_2026_09_28: 'Zone 1 away re-write loop NOT recurring: zone_1 on away 08:29 -> 09:00 CDT 09-28 with BOTH feeds agreeing (status away / hold_activity away) and exactly 1 away write (vs 6/h during the 09-26/27 feed split). The split ended after the operator reconnected the zone_1 thermostat to the network (~19:45 09-27) — consistent with the operators read that it was an integration/device-connectivity problem, not URA. Parked with trigger: status preset_mode != hold_activity for > 10 min on any zone, or > 2 same-preset S1 re-writes/h. Backoff build NOT needed now.'
   evidence_empty_house_2026_09_27: 'Empty-house experiment (21.6 h, nobody home): zone_1 received 130 re-issued away writes (6.0/h), zones 2/3 zero. The loop is not human-caused.'
   title: Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation
@@ -2312,7 +2314,7 @@ cards:
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-26'
-  updated: '2026-09-27 02:40'
+  updated: "2026-10-14 03:41"
   instance_2026_09_27_empty_house: 'INSTANCE from the empty-house natural experiment (overnight 2026-09-27, interim window 09-26 14:35 -> 09-27 02:15 CDT, nobody home and no human override logged): zone_1 received 70 URA away writes (6.0/h; "preset home -> away (house=away)" roughly every 10 min, site S1_reason_ladder vacant_past_grace), while zone_2 and zone_3 received ZERO. So the zone_1 re-issue loop runs with no human in the house, which rules out a person re-setting zone_1 as the cause. The loop is URA re-writing because zone_1s feed keeps reading home after each away write. This strengthens the feed-disagreement explanation (C22/C23) and is a ready-made cloud-sourced disagreement sample for step (2). Not yet stratified by hold_until. Step (1), the operator controlled test, is still outstanding.'
   origin: 'Operator 2026-09-26: "We could decouple problem 6 and build it ie w1-b. That problem is relatively new and we don''t understand it well."'
   evidence: 'State-of-play §9.7, C22, C23: zone_1 cloud status reads home while cloud hold_activity reads away on a named hold (reproduced after 2 Carrier reloads, hold_until None = cloud-sourced); physical evidence says the device is away. zone_2 2026-09-25/26: a human manual 70 (19:17 CDT) with the cloud hold flipping to sleep at 00:45 (co-occurring with a URA zone_3 write) while the device kept cooling at 70. ha_carrier writes hold_activity optimistically (hold_until "" = local copy). Probes: scripts/probes/carrier_feed_truth_probe.py, carrier_feed_truth_episodes.py.'
@@ -24776,6 +24778,7 @@ cards:
   - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822
   - energy_const.py:980
 - id: HVAC-BASELINE-MAXSAMPLES-1
+  trigger_check_2026_10_14: "Revival trigger (b) — 'the first heating-season week' — is arriving now (mid-October). Flagged by the 10-14 HVAC arc audit; check whether any zone has started calling for heat before deciding to revive."
   INSTANCE_2026_10_04_music_following: "Same defect, different coordinator, measured live: music_following transfer_success_rate baseline (sample_count 1604, mean 0.02) was learned while transfers were broken (May -> 10-02, MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1). Now that transfers work, every success logs an anomaly at z~9.9 (40 ura_activity_log rows 10-02..10-03). Log-only today (no NM), but it is concrete evidence that the shared detector needs a bounded/windowed sample count or a reset-on-fix path. Candidate revival trigger (c), proposed by the overnight pass - operator/attended session to rule; status left parked."
   groom_2026_09_29_arc: 'Given a real revival trigger (it had none).'
   workstream: HVAC-W4-ARC-CLOSURE
@@ -24783,7 +24786,7 @@ cards:
     October; scope a bounded/windowed sample count into the shared detector
   thread: hvac
   status: parked
-  updated: "2026-10-04 04:50"
+  updated: "2026-10-14 03:41"
   gate_2026_09_12: 'PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit).
     VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation
     sites _get_baseline + load_baselines both build MetricBaseline without a cap). PRIOR-ART/REUSE:
