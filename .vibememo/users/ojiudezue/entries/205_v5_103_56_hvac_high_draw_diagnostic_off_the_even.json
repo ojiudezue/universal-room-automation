@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "205",
+  "author": "ojiudezue",
+  "session_id": "claude_20261014_041708_ship_v5_103_56",
+  "timestamp": "2026-10-14T04:17:08Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.56 shipped: HVAC high-draw diagnostic off the event loop",
+  "summary": "HVAC high-draw diagnostic off the event loop",
+  "why": "HM v2 stack samples put a ~2s loop stall 5-6s after 11/12 HVAC ticks inside _high_draw_time_s_7d: a display-only diagnostic re-walking 7 days of SPAN history per zone every 5 min on the loop. Chose hourly cache + executor over long-term statistics (statistics availability for those SPAN sensors unverified; executor+cache removes the loop cost regardless). Measured work ~44ms so the 2s is likely a GC pause the burst triggers; off-loop at 1/h cuts URA's tick-aligned share either way. Reviews caught unpatched globals in tests and a missing kWh-branch test; fixed and drilled. Full-suite name-diff clean.",
+  "implications": "Shipped HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1 at v5.103.56; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.56.md (Live criteria).",
+  "revisit_trigger": "HM loop_stall samples over 1h post-restart contain 0 frames in hvac_override.py _high_draw_time_s_7d",
+  "refs": {
+    "cards": [
+      "HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.56.md"
+    ],
+    "release_notes": "Moves the A1 7-day high-draw scan to the executor with an hourly cache; removes a ~2s loop stall on every HVAC tick."
+  }
+}

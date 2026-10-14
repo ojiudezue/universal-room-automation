@@ -19167,7 +19167,8 @@ cards:
 - id: HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1
   title: hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall)
   rank: {value: 7, time_criticality: 6, effort: 2}
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.56
   updated: '2026-10-13 15:30'
   thread: hvac
   created: 2026-10-13 15:30
