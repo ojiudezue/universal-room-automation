@@ -3289,7 +3289,8 @@ cards:
   thread: optimization
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.57
   created: '2026-09-14 02:20'
   updated: '2026-10-13 03:40'
   refinement_status: "refined"
@@ -19044,7 +19045,8 @@ cards:
   refinement_status: "refined"
   title: Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options)
   rank: {value: 4, time_criticality: 2, effort: 2}
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.57
   updated: "2026-10-14 02:33"
   thread: energy
   created: 2026-10-13 12:00
@@ -19320,6 +19322,7 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: CM-SHUTDOWN-JOB-SETUP-FAIL-LEAK-1
+  arc_cut_v5_103_57: "pre-existing review B B-LOW-2 (setup-failure path), separate Tier-1 card, not part of this cycle's deliverables"
   title: Coordinator Manager setup failure leaves its stop-save shutdown job registered
   status: "inbox"
   thread: platform
@@ -19370,10 +19373,10 @@ cards:
     CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
     owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
   title: "Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path"
-  status: review
+  status: shipped_organic
   groom_2026_09_29: 'Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 5}
-  shipped_version: v5.103.5
+  shipped_version: v5.103.57
   AUDIT_2026_09_15: 'AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit,
     quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton
     shipped 2026-09-12; read-only, standalone, not gated on the broken suite).
@@ -30933,7 +30936,8 @@ cards:
   verified_2026_10_13_overnight: "STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production resolves `from . import energy_const` at call time (energy_write_verify.py:1320) after sibling files swap that module. test_d/d2 patched dt_util.DEFAULT_TIME_ZONE, but the verifier's own dt_util global was a sibling's stub of homeassistant.util.dt with no DEFAULT_TIME_ZONE (AttributeError). FIX (test-only, branch fix/ev-tripwire-order-dependence b30aca17e): resolve energy_const the way production does, and pin the verifier's dt_util global with a 2-function shim via monkeypatch. Evidence: the 118-file suite prefix through this file went from 29 -> 27 failures, and the failing-ID diff is exactly these 3 tests removed. Drill: production latch switched to the UTC date (:1340) turns test_d2 red, restored green. One review (test-authority framing) dispatched."
   title: Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)
   thread: tests
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.57
   created: "2026-10-10 21:00"
   updated: "2026-10-14 02:30"
   origin: "v5.103.49 full-suite name-diff 2026-10-10: test_d2_late_local_night_then_next_local_morning_fires_nm, test_d_next_day_resets_latch, test_g_kill_switch_disables in quality/tests/test_ec_ev_toggle_tripwire.py fail in suite order, pass isolated on both sides."

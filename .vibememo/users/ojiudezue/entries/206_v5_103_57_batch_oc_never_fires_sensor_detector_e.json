@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "206",
+  "author": "ojiudezue",
+  "session_id": "claude_20261014_133152_ship_v5_103_57",
+  "timestamp": "2026-10-14T13:31:52Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.57 shipped: Batch: OC never-fires sensor detector, EC entity-field clearing, shutdown DB hygiene, EV tripwire test order",
+  "summary": "Batch: OC never-fires sensor detector, EC entity-field clearing, shutdown DB hygiene, EV tripwire test order",
+  "why": "Batched into one restart because the operator is travelling (Jaya plus a guest home): the rule is at most one mid-day restart, deploy risk ranked, and every item here is MEDIUM or lower, with no presence, HVAC, safety or battery change. The batch validator merged all four onto a validate branch first. That run found the shutdown-hygiene branch broke 32 tests: the new _db_read path was missing from the test doubles. It also found order-dependent tests in that branch's own new file, traced to sibling suites swapping the database module in sys.modules, so the fix was a hermetic fixture that reloads the database and diagnostics modules as a matched pair and restores them afterwards. Review C on that cycle found no production defect but three hollow spots: mid-write cancel classification, three DBShuttingDown except arms, and the fixture leak. They were fixed with 9 tests and 7 red drills. The orchestrator mutation-verified the never-fires B2-R restart fix: two mutations, both red. The final develop name-diff showed one EC test failing only in suite order, fixed by compiling the real function from source rather than importing a possibly stubbed package. Alternatives rejected: shipping without the shutdown-hygiene branch would have needed a second restart; adding getattr fallbacks in production for the test doubles would have hidden real drift.",
+  "implications": "Shipped OC-STUCK-SENSOR-GENERALIZE-1, EC-OPTIONS-CLEAR-FIELD-NOOP-1, UNLOAD-SYMMETRY-TASK-HYGIENE-1, EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1 at v5.103.57; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.57.md (Live criteria).",
+  "revisit_trigger": "0 universal_room_automation ERRORs in system_log after the restart (none of Error logging decision / counting anomalies / saving baselines); the never-fires Store file exists with records for the configured sensors; EC options flow shows the clear choice",
+  "refs": {
+    "cards": [
+      "OC-STUCK-SENSOR-GENERALIZE-1",
+      "EC-OPTIONS-CLEAR-FIELD-NOOP-1",
+      "UNLOAD-SYMMETRY-TASK-HYGIENE-1",
+      "EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.57.md"
+    ],
+    "release_notes": "- OC-STUCK-SENSOR-GENERALIZE-1: never-fires detector for raw motion/occupancy sensors (advisory SENSOR_HEALTH finding, Store-persisted, restart-safe outage accrual)\n- EC-OPTIONS-CLEAR-FIELD-NOOP-1: EC entity fields can be cleared in the options flow; offline-device Repairs text\n- UNLOAD-SYMMETRY-TASK-HYGIENE-1: DBShuttingDown at HA stop (DEBUG not ERROR), diagnostics reads via _db_read, zero-arg CM shutdown job, prune failure keeps saves\n- EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1: test-only order fix"
+  }
+}
