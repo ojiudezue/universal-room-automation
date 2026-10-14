@@ -2,18 +2,24 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-13T11:28:07-05:00_ - _Data commit: `5ecadb5235bc`_ - _last_reconciled: 2026-10-13_
+_Generated: 2026-10-13T18:46:02-05:00_ - _Data commit: `7ef7551e09df`_ - _last_reconciled: 2026-10-13_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.56.md (2026-10-14) is newer than last_reconciled (2026-10-13)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 5 |
 | 📝 Planned | 6 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 41 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -21,10 +27,17 @@ _Generated: 2026-10-13T11:28:07-05:00_ - _Data commit: `5ecadb5235bc`_ - _last_r
 | 🅿️ Parked | 84 |
 | ✅ Done | 307 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
-### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1` - Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **platform** - status: **inbox**
+_created 2026-10-13 15:30_
+- **Next:** Plan - swap to async_get_device_by_identifier / config_entries_subentries per HA 2026.10 source.
+- **Forensic keys (1):**
+  - `problem`: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303 config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10). Not on the HVAC tick; boot-time cost. Breaks in...
+
+### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#2 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **energy** - status: **inbox**
 _created 2026-10-13 12:00_
 - **Next:** Plan - apply the room clear-field pattern to the EC entity fields; test that clear removes the key.
@@ -35,6 +48,7 @@ _created 2026-10-13 12:00_
 _measuring; truth not yet known_
 
 ### `EC-RESERVE-CLOUD-DIVERGENCE-1` - Battery reserve write keeps being flagged "reverted" because the Enphase cloud reports a different reserve (14) than the one URA set and the local gateway holds (10) — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:35:00.513Z)
 thread: **energy** - status: **investigating** - approval: **unreviewed**
 _created 2026-10-13 02:30 · refined_
 - **Problem / Solution:**
@@ -227,10 +241,17 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (3)
 _being built_
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#1 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1` - hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall) — _#1 · WSJF 7.5 · v7 tc6 u2 /e2_
+thread: **hvac** - status: **in_progress**
+_created 2026-10-13 15:30_
+- **Next:** Tier 1 build - hourly cache (HVAC_A1_HIGH_DRAW_REFRESH_S=3600), long-term statistics if the SPAN sensors have them else raw in executor, no loop parsing; tick-aligned stalls ~11/h -> ~1/h.
+- **Forensic keys (1):**
+  - `problem`: _high_draw_time_s_7d (hvac_override.py:1779) via _refresh_a1_cache (:5163) reads ~90k raw rows per zone (~272k/tick) every 5-min tick; stall ~2.1 s lands 3-6 s after the decision cycle on 11/12 ticks (HA Health Monitor v2 stack samples)....
+
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#2 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **platform** - status: **in_progress**
 _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
 - **Problem / Solution:**
@@ -252,7 +273,7 @@ _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tests** - status: **in_progress**
 _created 2026-10-10 21:00 · updated 2026-10-13 04:35 · refined_
 - **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
@@ -333,6 +354,7 @@ _created 2026-10-05 · updated 2026-10-13 02:30 · refined_
   - `sweep_2026_10_05`: NEW: no prior card on http/trusted_proxies.
 
 ### `ROOM-ENERGY-SENSOR-MISPICKS-1` - Several rooms read their "energy today" from the wrong sensor (a radar field, an export counter, a monthly total, shared circuits) — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:08:40.263Z)
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-11 02:30 · initial_
 - **Problem / Solution:**
@@ -401,6 +423,7 @@ _created 2026-09-30 08:40 · updated 2026-10-08 03:20_
   - `verified_2026_10_08_overnight`: STILL-REAL: no CONF_LIGHTS_GUEST_MODE in custom_components (grep 03:20 CDT); README_v5.103.29 'Guest — deferred' confirms Guest = same as Home for lights today. Card had no updated field (hygiene fix).
 
 ### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#8 · WSJF 5.0 · v7 tc6 u2 /e3_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:05:01.598Z)
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-28 22:50 · updated 2026-10-10 02:55_
 - **Origin:** 2026-09-28 - operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)
@@ -715,6 +738,7 @@ _created 2026-10-11 05:10 · initial_
   - `sweep_2026_10_11`: Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#25 · WSJF 3.3 · v5 tc3 u2 /e3_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T01:58:15.238Z)
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-26 11:00 · updated 2026-10-09 02:27 · refined ×1_
 - **Problem / Solution:**
@@ -828,6 +852,7 @@ _updated 2026-09-29 01:05_
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
 ### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#34 · WSJF 1.8 · v4 tc3 u2 /e5_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:16:31.250Z)
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-12 02:06 · initial_
 - **Problem / Solution:**
@@ -877,6 +902,8 @@ _updated 2026-09-29 01:05_
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
 ### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#37 · WSJF 1.6 · v4 tc2 u2 /e5_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:29:02.382Z)
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T02:30:04.850Z)
 thread: **census** - status: **waiting_operator**
 _created 2026-10-05 02:22 · updated 2026-10-12 02:12 · refined_
 - **Problem / Solution:**
@@ -2416,6 +2443,7 @@ _created 2026-10-11 04:00 · updated 2026-10-13 02:30 · initial_
   - `sweep_2026_10_11`: Board grep for house_state display / returns away / boot away display: only CENSUS-SHUTDOWN-AWAY-FENCE-1 (adjacent, different problem: real machine AWAY). NEW.
 
 ### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _WSJF 10.0 · v3 tc3 u4 /e1_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-14T01:56:31.338Z)
 thread: **presence** - status: **done** - approval: **implied**
 _created 2026-10-07 02:15 · updated 2026-10-13 02:30 · initial_
 - **Problem / Solution:**

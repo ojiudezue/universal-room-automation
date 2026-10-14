@@ -19175,7 +19175,7 @@ cards:
     rows per zone (~272k/tick) every 5-min tick; stall ~2.1 s lands 3-6 s after the decision cycle on
     11/12 ticks (HA Health Monitor v2 stack samples). Consumer is display-only (sensor.py:18555).
     Work ~44 ms; leading hypothesis = burst triggers a gen-2 GC pause (unverified; HM v2.1 GC timing
-    will tell). Investigation: docs/planning/INVESTIGATION_hvac_override_loop_stall.md.
+    will tell). Investigation - docs/planning/INVESTIGATION_hvac_override_loop_stall.md.
   next: Tier 1 build - hourly cache (HVAC_A1_HIGH_DRAW_REFRESH_S=3600), long-term statistics if the
     SPAN sensors have them else raw in executor, no loop parsing; tick-aligned stalls ~11/h -> ~1/h.
 - id: URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1
