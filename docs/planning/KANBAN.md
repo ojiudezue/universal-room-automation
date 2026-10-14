@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:38:22-05:00_ - _Data commit: `5360808129a7`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:41:09-05:00_ - _Data commit: `eebb4c00d374`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-14T03:38:22-05:00_ - _Data commit: `5360808129a7`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 2 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 5 |
@@ -295,7 +295,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
 ### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
@@ -310,13 +310,27 @@ _created 2026-10-13 12:00 · updated 2026-10-14 02:33 · refined_
   - `gate_2026_10_14`: (1) Validity STILL-REAL: the EC options save merges {**options, **user_input} (config_flow.py ~6020 comment + merge), and HA omits a cleared single-entity selector from user_input, so the old value survives. (1b) Config-first: N/A, this ...
   - `problem`: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327); its Repairs text no longer says "leave bla...
 
+## 🔍 Review (3)
+_under review_
+
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tests** - status: **review**
+_created 2026-10-10 21:00 · updated 2026-10-14 02:30 · refined_
+- **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
+- **Next:** APPROVE (or let the next attended session do it): merge branch review/ev-tripwire-order (test-only: a8cd6f9f0 + 01f257f1a, cherry-picked clean onto develop 295057da7, plus review record 8fa9c2e0d) into develop. No deploy needed (tests on...
+- **Forensic keys (3):**
+  - `review_2026_10_14`: Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-...
+  - `verified_2026_10_13_overnight`: STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production r...
+  - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
+
 ### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#2 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **in_progress**
-_created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
+thread: **platform** - status: **review**
+_created 2026-08-18 02:30 · updated 2026-10-14 03:41 · refined_
 - **Problem / Solution:**
   - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
-- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
-- **Forensic keys (14):**
+- **Next:** Me (10-14): Tier 2-DB reviews A (data integrity, running) -> B (lifecycle/shutdown ordering) + C (test authority via mutation) -> fix-ups -> batch name-diff -> ship with the 3 review cards at the next attended deploy. Live check at that ...
+- **Forensic keys (15):**
+  - `card_was_wrong_2026_10_14`: CARD-WAS-WRONG (stall diagnosis 10-14): next still said 'PLAN … AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships', but that card shipped (done 10-12) AND the build already exists — feature/unload-symmetry c93265887 (10-13 overnight, D1 DBSh...
   - `build_dispatched_2026_10_13_overnight`: Plan review FIX-PLAN-REQUIRED (2 HIGH: the shutdown job would be called with zero args but the handler requires _event, so it would silently never run; the Live check named a nonexistent column; plus 4 MEDIUM) -> Rev 2 applied all (66a8f...
   - `planned_2026_10_13_overnight`: Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, ...
   - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
@@ -332,20 +346,7 @@ _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
-## 🔍 Review (2)
-_under review_
-
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **tests** - status: **review**
-_created 2026-10-10 21:00 · updated 2026-10-14 02:30 · refined_
-- **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
-- **Next:** APPROVE (or let the next attended session do it): merge branch review/ev-tripwire-order (test-only: a8cd6f9f0 + 01f257f1a, cherry-picked clean onto develop 295057da7, plus review record 8fa9c2e0d) into develop. No deploy needed (tests on...
-- **Forensic keys (3):**
-  - `review_2026_10_14`: Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-...
-  - `verified_2026_10_13_overnight`: STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production r...
-  - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
-
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#2 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#3 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **review** - approval: **explicit**
 _created 2026-09-14 02:20 · updated 2026-10-13 03:40 · refined_
 - **Problem / Solution:**

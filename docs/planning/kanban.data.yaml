@@ -19289,6 +19289,7 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  card_was_wrong_2026_10_14: "CARD-WAS-WRONG (stall diagnosis 10-14): next still said 'PLAN … AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships', but that card shipped (done 10-12) AND the build already exists — feature/unload-symmetry c93265887 (10-13 overnight, D1 DBShuttingDown + DEBUG routing, D2 stop-time save via async_add_shutdown_job, D3 diagnostics reads via _db_read). It stalled because nobody moved the card after the build, so no reviews were ever dispatched. 58 commits behind develop but only 1 line of drift on its files."
   build_dispatched_2026_10_13_overnight: "Plan review FIX-PLAN-REQUIRED (2 HIGH: the shutdown job would be called with zero args but the handler requires _event, so it would silently never run; the Live check named a nonexistent column; plus 4 MEDIUM) -> Rev 2 applied all (66a8fb6a9). Planner disagreed on centralizing in the DAO layer, with reasons recorded in the plan. Notable fact from the review: today the stop-time baseline save ALWAYS loses, because the STOP listener runs after the DB worker is cancelled. Build dispatched to worktree feature/unload-symmetry, build-to-review only."
   planned_2026_10_13_overnight: "Gate: (1) validity STILL-REAL. v5.103.49 shipped the blocker; DBShuttingDown has 0 hits; manager.py:554-559 still uses an EVENT_HOMEASSISTANT_STOP listener. CARD-WAS-WRONG on item 3: coordinator_diagnostics.py:274 is an INSERT (a write, stays on _db()), and the real read set is 5 SELECTs at :320, 361, 752, 793, 825 (the card missed 793 and 825). (1b) config-first: no knob applies. (2) prior-art: REUSE _db_read() (database.py:644-654) and HA async_add_shutdown_job (core.py:1019-1039). (3) parsimony BUILD-narrow. (4) cost/benefit: three small edits on one surface. Plan written: docs/planning/PLANNING_unload_symmetry_task_hygiene.md (d9513e305). Tier 2-DB plan review dispatched. Planner defaults on its 3 questions: keep DBShuttingDown in database.py; convert every DAO except-arm wrapping a _db( write; deploy waits for the operator (overnight)."
   problem_solution: "Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the race and fail, and one diagnostics module reads the database through the write path. Solution: after the shutdown fast-fail fix ships, raise a dedicated shutting-down error that is logged quietly, schedule the stop-time save as an HA shutdown job (it then runs while the worker is still alive), and switch those reads to the read path."
@@ -19328,7 +19329,7 @@ cards:
     CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
     owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
   title: "Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path"
-  status: in_progress
+  status: review
   groom_2026_09_29: 'Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   shipped_version: v5.103.5
@@ -19363,7 +19364,7 @@ cards:
     the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: '2026-10-13 03:55'
+  updated: "2026-10-14 03:41"
   refinement_status: "refined"
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
@@ -19375,7 +19376,7 @@ cards:
     was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2).
     Task-hygiene half confirmed real and large: 178 `hass.async_create_task(` vs 31
     `async_create_background_task`. Corrected problem statement + re-scoped to the task-leak half.'
-  next: "PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_shutdown_job, (3) coordinator_diagnostics.py:274/320/361/752 reads via _db_read(). Item (4) close-stage buffering stays accepted. Live check at the restart after ship: no 'DB write failed: shutdown timeout', and metric_baselines rows updated at the stop time."
+  next: "Me (10-14): Tier 2-DB reviews A (data integrity, running) -> B (lifecycle/shutdown ordering) + C (test authority via mutation) -> fix-ups -> batch name-diff -> ship with the 3 review cards at the next attended deploy. Live check at that restart: no 'DB write failed: shutdown timeout' and metric_baselines rows written at stop time."
   refs: AUDIT_roadmap_undone_worthwhile.md
   links: {related: [PROPERTY-GETTER-SIDE-EFFECT-TASKS-1], blocked_by: [SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1], context: 'BLOCKED_BY (2026-10-08): SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 edits the same database.py _db() surface; build after it ships. INDEPENDENT production lifecycle hardening (async_on_unload 2 sites + untracked tasks), NOT test infra. It was once mis-referenced as parent of SUITE-ORDER-POLLUTION-1 (fixed there). Cross-ref parent-reload-watchdog hazard. PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 is the same background-task hygiene family (getters spawning tasks); build them one after the other.'}
   disposition:
