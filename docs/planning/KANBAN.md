@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T01:35:57-05:00_ - _Data commit: `643a0f4fa12c`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:00:22-05:00_ - _Data commit: `06b436701847`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -10,16 +10,16 @@ _Generated: 2026-10-14T01:35:57-05:00_ - _Data commit: `643a0f4fa12c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 6 |
+| 🔬 Investigating | 0 |
+| 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 37 |
-| ⏳ Waiting on me (Claude) | 4 |
+| ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 18 |
 | 🅿️ Parked | 85 |
-| ✅ Done | 307 |
+| ✅ Done | 309 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -38,26 +38,12 @@ _created 2026-10-13 12:00_
 - **Forensic keys (1):**
   - `problem`: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327); its Repairs text no longer says "leave bla...
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (0)
 _measuring; truth not yet known_
 
-### `EC-RESERVE-CLOUD-DIVERGENCE-1` - Battery reserve write keeps being flagged "reverted" because the Enphase cloud reports a different reserve (14) than the one URA set and the local gateway holds (10) — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
-thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-10-13 02:30 · refined_
-- **Problem / Solution:**
-  - Problem: since 2026-10-11 URA's battery write checker has been flagging the reserve setting as "reverted" over and over (anomaly rows per day: 2 on 10-11, 8 on 10-12, 23 in the first two hours of 10-13, plus 31 "verification failed" toni...
-- **Origin:** 2026-10-13 - overnight pass mid-turn find: WriteVerifier "reserve_soc REVERTED (commanded=10, oracle=14.0)" in the 6-min error_log window while disposing STUCK-SENSOR-WARNING-PER-TICK-1
-- **Next:** Me, daytime measurement (read-only): (0) does control_change_pending still come back on writes (anomaly_log battery_write_failed / HA log); (1) when SOC rises above ~20% today, does the cloud reserve drop back to 10 (cloud = max(reserve,...
-- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492); docs/Coordinator/ENERGY_COORDINATOR manual; memory reference_ec_config_surface
-- **Forensic keys (5):**
-  - `operator_instruction_2026_10_13`: Wasnt it a poort day so the reserve was higher but that was the drain level before the TOU rate change?
-  - `flagged_for_next_investigation_2026_10_14`: Operator hypothesis (alternative to the control_change_pending lead found overnight 10-13): the 14% the cloud reports may simply be a stale/prior drain-target reserve level from before a TOU rate change, elevated because it was a low-sol...
-  - `lead_2026_10_13_overnight`: STRONGEST LEAD (hypothesis, not proven): writes are not landing at Enphase. anomaly_log battery_write_failed 10-12 15:34 and 17:31 CDT: number.set_value reserve 90 and switch.turn_off charge_from_grid both raised ServiceValidationError t...
-  - `measured_2026_10_13_overnight`: URA DB anomaly_log (coordinator energy): write_reverted 0/day before 10-11, then 2 / 8 / 23 (10-11 / 10-12 / 10-13 to 02:00); write_verification_failed went from 1-7/day (Sept) to 9 / 14 / 31, and 10-13 rows include reason self_heal_star...
-  - `my_claim_retracted_2026_10_13`: I first guessed the cloud reading was stale (age_s 38069 in command_trail). WRONG: command_trail age is time since the value last CHANGED; last_reported shows the cloud integration polls normally. The cloud really reports 14.
+_(none)_
 
-## 🧭 Pre-planning (6)
+## 🧭 Pre-planning (7)
 _idea being decomposed_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#1 · WSJF 5.0 · v4 tc4 u2 /e2_
@@ -88,7 +74,21 @@ _created 2026-09-29 04:20 · updated 2026-10-14 08:00 · initial_
   - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
   - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
 
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#2 · WSJF 2.3 · v3 tc2 u2 /e3_
+thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-10-14 02:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a zone switches preset (e.g. Sleep to Away), the Carrier cloud keeps showing the OLD preset range on the thermostat for about 7 minutes. The Custom Preset Ranges pass runs 5 minutes later, sees the wrong numbers, concludes ...
+- **Origin:** 2026-10-14 - overnight pass mid-turn find while disposing HVAC-CUSTOM-PRESET-RANGES-1
+- **Why:** Small: no comfort or cost impact observed; the range held. Worth fixing because it doubles as a false drift signal and gets more frequent if CPR rolls out to zones 1 and 2.
+- **Next:** Me: read the HVAC state-of-play doc, check whether an existing per-zone last-preset-write timestamp can be reused (REUSE before BUILD), then a Tier-2 plan with one review. Not urgent; low value until CPR rolls out beyond zone 3.
+- **Tags:** tier-2, hvac, found-during-probe, no-fabrication-verify
+- **Parsimony:** [SIMPLIFY] S10 re-writes a correct preset range when it reads Carrier attributes within ~7 min of a preset change
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/hvac.py (_s10_zone_skip_reason ~4364, _s10_pass ~4439)
+- **Forensic keys (1):**
+  - `evidence_2026_10_14`: zone 3: S1 set preset sleep->away at 05:43:52Z (00:43:52 CDT). Recorder: target_temp_low/high stayed 70/77 (the sleep/home range) until 00:50:54 CDT, then 62/80. S10 ran at 00:48:52 CDT, read away=70/77, and issued set_activity_setpoint ...
+
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#3 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -117,7 +117,7 @@ _updated 2026-09-29 01:05_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#3 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#4 · WSJF 2.0 · v7 tc3 u6 /e8_
 thread: **census** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-11 02:15 · initial_
 - **Problem / Solution:**
@@ -130,18 +130,19 @@ _created 2026-10-11 02:15 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning**
-_created 2026-10-04 01:00 · updated 2026-10-05 02:22_
+_created 2026-10-04 01:00 · updated 2026-10-14 02:20_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
 - **Next:** PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225;...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `INSTANCE_2026_10_14_reserve_pending_episode`: From EC-RESERVE-CLOUD-DIVERGENCE-1 (closed 10-14): a reserve write sat pending at Enphase for about 2 days (10-11 to 10-13 11:40 CDT; control_change_pending on writes). The battery obeyed the cloud value, and the local gateway number sho...
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (problem known, solution being shaped; gated). PARTIALLY-DONE already, on the unshipped EC p1 branch: 7f60f137e EC resilience bundle B1-B5 covers part of item (2) (write-failure capture + battery write-churn trip-wi...
   - `INSTANCE_2026_10_04_overnight`: Two reserve-write STAND-DOWNS in the last 12 h, each paged CRITICAL on companion + iMessage + Pushover + WhatsApp (URA notification_log): 10-03 15:04 CDT 'URA commanded reserve_soc=80 but hardware reports 10.0 after 3602s' -> 3/3 attempt...
   - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#5 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#6 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -152,7 +153,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#6 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -973,7 +974,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ⏳ Waiting on me (Claude) (4)
+## ⏳ Waiting on me (Claude) (3)
 _I owe something_
 
 ### `SONOFF-R4M-MULTICAST-AB-1` - Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test — _#1 · WSJF 16.0 · v7 tc7 u2 /e1_
@@ -995,19 +996,6 @@ thread: **lighting** - status: **waiting_me**
 _created 2026-10-14 02:10_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
 - **Next:** After ~7 nights: one-shot recorder query of landscape lights not on within 5 min of trigger; dispose done or reopen.
-
-### `HVAC-CUSTOM-PRESET-RANGES-1` - Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier's defaults), plus its three blockers — _#4 · WSJF 2.8 · v6 tc3 u2 /e4_
-thread: **hvac** - status: **waiting_me** - approval: **explicit**
-_created 2026-09-29 13:10 · updated 2026-10-14 08:00_
-- **Origin:** 2026-09-27 - operator CPR answers: "Won't the app just reflect the new preset? Yes URA wins"; restore Carrier originals on off; default OFF; heat bug separately; "Run it in zone 3. Btw don't deploy after building until I say so"
-- **Why:** CPR is the last W1 tail item (state-of-play §11 step 5). Plan PLANNING_hvac_enable_custom_preset_ranges.md REV 2 with operator answers (D0 item 5 PASS). It cannot be enabled until its three blockers are fixed in the same cycle: HVAC-S10-...
-- **Next:** REVIVED 2026-10-14 (switch confirmed on). I owe: read climate_write over the first night the switch has been on — S10_preset_range rows land, no more than one write per zone per decision interval, no compose-away/throttle storm.
-- **Tags:** hvac, batch-c, w1-tail
-- **Forensic keys (4):**
-  - `operator_instruction_2026_10_13`: I think I switched it on
-  - `reply_2026_10_14`: Confirmed live: switch.ura_hvac_coordinator_guest_mode_actuation = on, last_changed 2026-10-14T01:20:47 CDT. Revival trigger fired — card un-parked.
-  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> PARKED. Shipped OFF in v5.103.39 and validated 10-06 (switch resolves OFF, no S10 writes, compose-away deleted). Its organic discriminator (zone 3 holds its custom ranges with no Carrier write storm) can only be evaluated on...
-  - `live_state_2026_10_03_overnight`: WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE...
 
 ## 🚀 Shipped (organic open) (18)
 _live, awaiting proof_
@@ -2444,8 +2432,42 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (307)
+## ✅ Done (309)
 _closed, evidence in refs_
+
+### `HVAC-CUSTOM-PRESET-RANGES-1` - Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier's defaults), plus its three blockers — _WSJF 2.8 · v6 tc3 u2 /e4_
+thread: **hvac** - status: **done** - approval: **explicit**
+_created 2026-09-29 13:10 · updated 2026-10-14 02:35_
+- **Origin:** 2026-09-27 - operator CPR answers: "Won't the app just reflect the new preset? Yes URA wins"; restore Carrier originals on off; default OFF; heat bug separately; "Run it in zone 3. Btw don't deploy after building until I say so"
+- **Why:** CPR is the last W1 tail item (state-of-play §11 step 5). Plan PLANNING_hvac_enable_custom_preset_ranges.md REV 2 with operator answers (D0 item 5 PASS). It cannot be enabled until its three blockers are fixed in the same cycle: HVAC-S10-...
+- **Next:** Closed 10-14: organic discriminator met. Residual stale-read rewrite carded as HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1.
+- **Tags:** hvac, batch-c, w1-tail
+- **Forensic keys (6):**
+  - `disposition_2026_10_14`: done: CPR on in zone 3 holds custom ranges with no write storm. Residual (one spurious re-write after a preset change) -> HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1.
+  - `organic_evidence_2026_10_14`: Measured 2026-10-14 02:30 CDT (URA DB ura_activity_log climate_write rows + recorder attributes of climate.back_hallway_zone_3). CPR switch ON since 10-13 06:37 CDT, rollout = zone 3 only. S10_preset_range writes: 3 in 19.5 h. 11:38Z hom...
+  - `operator_instruction_2026_10_13`: I think I switched it on
+  - `reply_2026_10_14`: Confirmed live: switch.ura_hvac_coordinator_guest_mode_actuation = on, last_changed 2026-10-14T01:20:47 CDT. Revival trigger fired — card un-parked.
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> PARKED. Shipped OFF in v5.103.39 and validated 10-06 (switch resolves OFF, no S10 writes, compose-away deleted). Its organic discriminator (zone 3 holds its custom ranges with no Carrier write storm) can only be evaluated on...
+  - `live_state_2026_10_03_overnight`: WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE...
+
+### `EC-RESERVE-CLOUD-DIVERGENCE-1` - Battery reserve write keeps being flagged "reverted" because the Enphase cloud reports a different reserve (14) than the one URA set and the local gateway holds (10) — _WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-10-13 02:30 · updated 2026-10-14 02:20 · refined_
+- **Problem / Solution:**
+  - Problem: since 2026-10-11 URA's battery write checker has been flagging the reserve setting as "reverted" over and over (anomaly rows per day: 2 on 10-11, 8 on 10-12, 23 in the first two hours of 10-13, plus 31 "verification failed" toni...
+- **Origin:** 2026-10-13 - overnight pass mid-turn find: WriteVerifier "reserve_soc REVERTED (commanded=10, oracle=14.0)" in the 6-min error_log window while disposing STUCK-SENSOR-WARNING-PER-TICK-1
+- **Next:** Closed. Residual (paging volume during Enphase pending-change episodes, plus backing off writes while control_change_pending is up) is carried on EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 as INSTANCE_2026_10_14.
+- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492); docs/Coordinator/ENERGY_COORDINATOR manual; memory reference_ec_config_surface
+- **Forensic keys (8):**
+  - `disposition_2026_10_14`: done: mechanism found (external Enphase pending-change), self-resolved, no URA build. Residual to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1.
+  - `verdict_2026_10_14`: CONFIRMED (the 10-13 lead), and the card's proposed fix is REFUTED. Mechanism: URA's reserve write sat pending at Enphase (control_change_pending) for about 2 days; the cloud reported the real setting (14), and the battery obeyed it. URA...
+  - `measured_2026_10_14_overnight`: Measured 2026-10-14 02:00 CDT (read-only; recorder via HA MCP ha_get_history + URA DB anomaly_log/notification_log over ssh). (1) The cloud reserve (number.iq_battery_hacs_battery_reserve) held 14 from midnight to 11:33 CDT 10-13; the cl...
+  - `operator_instruction_2026_10_13`: Wasnt it a poort day so the reserve was higher but that was the drain level before the TOU rate change?
+  - `flagged_for_next_investigation_2026_10_14`: Operator hypothesis (alternative to the control_change_pending lead found overnight 10-13): the 14% the cloud reports may simply be a stale/prior drain-target reserve level from before a TOU rate change, elevated because it was a low-sol...
+  - `lead_2026_10_13_overnight`: STRONGEST LEAD (hypothesis, not proven): writes are not landing at Enphase. anomaly_log battery_write_failed 10-12 15:34 and 17:31 CDT: number.set_value reserve 90 and switch.turn_off charge_from_grid both raised ServiceValidationError t...
+  - `measured_2026_10_13_overnight`: URA DB anomaly_log (coordinator energy): write_reverted 0/day before 10-11, then 2 / 8 / 23 (10-11 / 10-12 / 10-13 to 02:00); write_verification_failed went from 1-7/day (Sept) to 9 / 14 / 31, and 10-13 rows include reason self_heal_star...
+  - `my_claim_retracted_2026_10_13`: I first guessed the cloud reading was stale (age_s 38069 in command_trail). WRONG: command_trail age is time since the value last CHANGED; last_reported shows the cloud integration polls normally. The cloud really reports 14.
 
 ### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done**
