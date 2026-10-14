@@ -30855,11 +30855,12 @@ cards:
   next: "Closed 10-14 (symptom gone). Reopen if any bond entity flaps unavailable again (recorder: cover.patio_1 / fan.*_ceiling_fan unavailable count per hour > 0 outside restarts)."
   related: [FAN-NOISE C3, MASTER-TOILET-SONOFF-DROPOUTS-1]
 - id: WIFI-SWITCH-DROPOUTS-BATHROOMS-1
+  verified_2026_10_14: "Symptom much reduced since 10-13 ~07:46 (house-wide Sonoff R4M unavailable transitions -84% to -93% over 18.6 h; Master Toilet relay 178 -> 6, Master Toilet fan 193 -> 11, Master Bath LED 189 -> 10). See SONOFF-R4M-MULTICAST-AB-1 interim. The DO may be moot. Hold until the 24 h read confirms, then I will propose closing this card."
   title: Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath)
   thread: devices
   status: waiting_operator
   created: "2026-10-11 20:40"
-  updated: "2026-10-11 20:40"
+  updated: "2026-10-14 02:21"
   origin: "Fan flap census 2026-10-11 (switch_as_x fan wrappers over Shelly/Sonoff switches: 38-594 changes/day, ~50% unavailable)."
   why: "Underlying Wi-Fi/Matter switches dropping off network (same family as Master Toilet Sonoff 92 dropouts overnight). Multiple brands at once points to Wi-Fi coverage/AP rather than device faults."
   next: "DO (homelab): per-device RSSI + AP association history for these switches; check AP coverage in the bathroom wing."
@@ -30975,11 +30976,12 @@ cards:
   next: "Me, dispose by 2026-10-18: one-shot check of a colour-capable night light restored by the reconciler during Sleep (hs/rgb = red). Not evaluable on 10-14: the overnight Sleep reconciles were switch-type lights only; Living Room night lights came on via the main controller, not a reconciler return. If no colour light is reconciled during Sleep by 10-18, park with that trigger (proven in-suite)."
   related: [MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: MASTER-TOILET-SONOFF-DROPOUTS-1
+  verified_2026_10_14: "Symptom much reduced since 10-13 ~07:46 (house-wide Sonoff R4M unavailable transitions -84% to -93% over 18.6 h; Master Toilet relay 178 -> 6, Master Toilet fan 193 -> 11, Master Bath LED 189 -> 10). See SONOFF-R4M-MULTICAST-AB-1 interim. The DO may be moot. Hold until the 24 h read confirms, then I will propose closing this card."
   title: Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight
   thread: devices
   status: waiting_operator
   created: "2026-10-10 21:30"
-  updated: "2026-10-10 21:30"
+  updated: "2026-10-14 02:21"
   origin: "Master Toilet night-light investigation 2026-10-10: switch.switch_sonoffmini4rm_matter_mastertoilet went unavailable 92 times between 22:00 and 08:00 CDT."
   why: "URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic."
   next: "DO: check the Sonoff's Wi-Fi/Thread signal + power (it reconnects in ~10-60 s each time); move AP/Thread border router or re-pair. I can pull its RSSI/reboot history if exposed."

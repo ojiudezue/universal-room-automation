@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:20:57-05:00_ - _Data commit: `d2323877ead9`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:21:49-05:00_ - _Data commit: `1498feeb4c96`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -897,21 +897,23 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
   - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 
-### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIFI-SWITCH-DROPOUTS-BATHROOMS-1` - Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath) — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **waiting_operator**
-_created 2026-10-10 21:30_
-- **Why:** URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic.
-- **Next:** DO: check the Sonoff's Wi-Fi/Thread signal + power (it reconnects in ~10-60 s each time); move AP/Thread border router or re-pair. I can pull its RSSI/reboot history if exposed.
-- **Forensic keys (1):**
-  - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
-
-### `WIFI-SWITCH-DROPOUTS-BATHROOMS-1` - Shelly/Sonoff bathroom fan switches drop unavailable ~half their state changes (Master Toilet, Master Bath, Ziri bath, guest baths, laundry, Jaya bath) — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **devices** - status: **waiting_operator**
-_created 2026-10-11 20:40_
+_created 2026-10-11 20:40 · updated 2026-10-14 02:21_
 - **Why:** Underlying Wi-Fi/Matter switches dropping off network (same family as Master Toilet Sonoff 92 dropouts overnight). Multiple brands at once points to Wi-Fi coverage/AP rather than device faults.
 - **Next:** DO (homelab): per-device RSSI + AP association history for these switches; check AP coverage in the bathroom wing.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `verified_2026_10_14`: Symptom much reduced since 10-13 ~07:46 (house-wide Sonoff R4M unavailable transitions -84% to -93% over 18.6 h; Master Toilet relay 178 -> 6, Master Toilet fan 193 -> 11, Master Bath LED 189 -> 10). See SONOFF-R4M-MULTICAST-AB-1 interim...
   - `related`: MASTER-TOILET-SONOFF-DROPOUTS-1
+
+### `MASTER-TOILET-SONOFF-DROPOUTS-1` - Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **devices** - status: **waiting_operator**
+_created 2026-10-10 21:30 · updated 2026-10-14 02:21_
+- **Why:** URA cannot actuate an unavailable device; the operator's 'no lights in the master toilet' experience matches the main switch being offline, not URA logic.
+- **Next:** DO: check the Sonoff's Wi-Fi/Thread signal + power (it reconnects in ~10-60 s each time); move AP/Thread border router or re-pair. I can pull its RSSI/reboot history if exposed.
+- **Forensic keys (2):**
+  - `verified_2026_10_14`: Symptom much reduced since 10-13 ~07:46 (house-wide Sonoff R4M unavailable transitions -84% to -93% over 18.6 h; Master Toilet relay 178 -> 6, Master Toilet fan 193 -> 11, Master Bath LED 189 -> 10). See SONOFF-R4M-MULTICAST-AB-1 interim...
+  - `related`: MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#33 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
