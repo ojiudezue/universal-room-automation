@@ -1013,14 +1013,16 @@ from .const import COORDINATOR_LABELS as _COORDINATOR_LABELS  # noqa: E402
 # the UI and the Repairs issue is unfixable. The clear-apply loop in
 # ``async_step_coordinator_energy`` ``.pop()``s the matching stored key
 # on save, so the field falls back exactly as a never-set one does.
-# Also includes the ``CONF_ENERGY_STREAM_*`` single-entity selectors
-# (not in EC_ROLE_KEY_SET but in the same step with the same bug class).
 # Exposed at module level so tests can assert full coverage.
 # CONF values are stable string literals (changing one is a schema
 # break). Keeping the map at module scope avoids a package-level import
 # of ``domain_coordinators`` which pulls Home Assistant and breaks the
-# test-harness loader. A runtime guard inside the step validates these
-# strings against the imported CONF_* names so a rename trips loudly.
+# test-harness loader. Two tests in test_ec_options_clear_field_noop.py
+# anchor the invariants against the real CONF_* names in energy_const:
+# ``test_clear_map_covers_every_ec_role_key`` (every EC_ROLE_KEY_SET
+# key is in the map) and ``test_clear_map_literals_are_real_energy_
+# conf_keys`` (every literal here matches an actual CONF_ENERGY_* value,
+# so typos trip immediately).
 _EC_OPTIONS_CLEAR_FIELD_ENTRIES: tuple[tuple[str, str, str], ...] = (
     # Grid import / export counters (original two choices, pre-fix-up).
     ("grid_import", "energy_grid_import_entity", "Clear grid import entity"),

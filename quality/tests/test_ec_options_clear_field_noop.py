@@ -176,6 +176,55 @@ def test_clear_map_covers_every_ec_role_key():
         assert _k in covered, f"cloud oracle key {_k} must be clearable"
 
 
+def test_clear_map_literals_are_real_energy_conf_keys():
+    """Fix-up (2026-10-14): the module-level
+    ``_EC_OPTIONS_CLEAR_FIELD_ENTRIES`` holds the CONF names as plain
+    string literals (not imports — avoiding a module-level pull of
+    ``domain_coordinators`` that breaks the test harness). The subset
+    test against ``EC_ROLE_KEY_SET`` catches a role-key MISS, but not a
+    typo in a non-role entry (e.g. ``energy_grid_import_entity`` ->
+    ``energy_grid_import_entty``) because non-role entries are a
+    superset of the role set. This test closes that gap: every CONF
+    value in the map must match an actual module attribute named
+    ``CONF_ENERGY_*`` on ``energy_const``.
+
+    Also asserts choice values are unique (an accidental duplicate
+    would silently shadow the earlier entry in a dict comprehension).
+    """
+    from custom_components.universal_room_automation.config_flow import (
+        _EC_OPTIONS_CLEAR_FIELD_ENTRIES,
+        _EC_OPTIONS_CLEAR_FIELD_MAP,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_const,
+    )
+
+    real_conf_values = {
+        getattr(energy_const, _name)
+        for _name in dir(energy_const)
+        if _name.startswith("CONF_ENERGY_")
+        and isinstance(getattr(energy_const, _name), str)
+    }
+    unknown = {
+        conf
+        for conf in _EC_OPTIONS_CLEAR_FIELD_MAP.values()
+        if conf not in real_conf_values
+    }
+    assert not unknown, (
+        "every CONF literal in _EC_OPTIONS_CLEAR_FIELD_ENTRIES must "
+        f"match an actual CONF_ENERGY_* on energy_const; unknown: "
+        f"{sorted(unknown)}"
+    )
+
+    # Choice values must be unique — a duplicate would silently drop
+    # one entry when the tuple is collapsed to a dict.
+    choices = [c for c, _conf, _lbl in _EC_OPTIONS_CLEAR_FIELD_ENTRIES]
+    assert len(choices) == len(set(choices)), (
+        "duplicate choice values in _EC_OPTIONS_CLEAR_FIELD_ENTRIES: "
+        f"{sorted({c for c in choices if choices.count(c) > 1})}"
+    )
+
+
 def test_clear_solar_follow_grid_fallback_removes_stored_key():
     """Live-evidence regression: the operator's 2026-10-14 repair is to
     clear ``energy_solar_follow_grid_fallback_entity`` because its
