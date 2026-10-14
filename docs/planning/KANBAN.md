@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:41:47-05:00_ - _Data commit: `cc8d2abb9fa3`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:44:00-05:00_ - _Data commit: `b8e0968cc719`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -829,11 +829,13 @@ _created 2026-10-11 05:10 · initial_
 
 ### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#25 · WSJF 3.5 · v6 tc6 u2 /e4_
 thread: **security** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-10-14 03:34 · refined_
+_created 2026-10-14 02:10 · updated 2026-10-14 03:50 · refined_
 - **Origin:** 2026-10-14 - Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected
 - **Why:** Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168....
-- **Next:** ANSWER: is the ELK still the real alarm (any monitoring, anyone arms it), or is it legacy wiring you mainly want for the Front Door contact + panel status? -> LEGACY: I enable only the live zones, label the 12 shorted zones 'dead loop' (...
-- **Forensic keys (2):**
+- **Next:** PICK/APPROVE: (a) now, config-only: I enable the 3 live zone binary_sensors (Front Door as a door sensor) and leave the 12 shorted ones disabled + labelled 'dead loop' -> instant usable door contact; (b) before buying Konnected: someone ...
+- **Forensic keys (4):**
+  - `refinement_note_2026_10_14`: Refinement: (1) the 10-14 Homelab hand-off said 'keep ELK, no Konnected'; operator now wants Konnected IN PARALLEL for a richer control surface — supersedes the no-Konnected constraint, ELK stays. (2) 'No regular entities' is partly conf...
+  - `operator_answer_2026_10_14`: "It is [the real alarm] but never used. It's awkward in HA and it doesn't have regular entities. I'm trying to get it into a shape I can actually use. I chose it for the HA integration, but turns out it's shit. I was thinking of using th...
   - `correction_2026_10_14`: CARD-WAS-WRONG (operator pushback + live read 03:34). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway mo...
   - `verified_2026_10_14`: Verified 2026-10-14 ~02:10 CDT (live): sensor.elkm1_kitchen_heat_det = Violated, physical_status short. The zone 7 fault is still present, so nothing changes until you inspect or reset it.
 
