@@ -1031,6 +1031,7 @@
           "energy_generator_entity": "Generator status sensor",
           "energy_grid_import_entity": "Grid import sensor",
           "energy_grid_export_entity": "Grid export sensor",
+          "clear_grid_fields": "Clear saved entities",
           "energy_evse_a_switch_entity": "Garage A charger switch",
           "energy_evse_a_energy_today_entity": "Garage A charger energy today",
           "energy_evse_a_energy_month_entity": "Garage A charger energy this month",
@@ -1115,6 +1116,7 @@
           "energy_generator_entity": "Generator status sensor. Leave blank if there is no backup generator.",
           "energy_grid_import_entity": "Direct grid-import power sensor. When set, used as primary source for cost tracking instead of the solar gateway's net power.",
           "energy_grid_export_entity": "Direct grid-export power sensor. When set, used as primary source for export tracking.",
+          "clear_grid_fields": "Tick a field to remove its saved entity on save.",
           "energy_evse_a_switch_entity": "On/off switch for the Garage A EV charger. URA turns it off to pause charging and on to resume. Leave blank if this charger can't be switched.",
           "energy_evse_a_energy_today_entity": "Sensor reporting the Garage A charger's energy used today (kWh). Optional.",
           "energy_evse_a_energy_month_entity": "Sensor reporting the Garage A charger's energy used this month (kWh). Optional.",
@@ -2308,7 +2310,7 @@
   "issues": {
     "ec_role_entity_broken": {
       "title": "Energy entity unavailable: {key}",
-      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and pick a working entity."
+      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. If the device is temporarily offline this will clear itself within about an hour after it recovers. Otherwise open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and either pick a working entity, or tick the matching `Clear …` box to drop this field if you no longer use it."
     },
     "egress_identity_face_failsafe_drill_boot_on": {
       "title": "Egress Identity Fail-Safe Drill still engaged after restart",
