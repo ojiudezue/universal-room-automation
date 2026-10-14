@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.57
+# Universal Room Automation vv5.103.58
 # Build: 2026-01-04
 # File: button.py
 #
@@ -299,18 +299,21 @@ class ConfigDumpButton(UniversalRoomEntity, ButtonEntity):
         
         # Find devices for this config entry
         devices = []
-        for device in device_registry.devices.values():
-            if self.coordinator.entry.entry_id in device.config_entries:
-                devices.append({
-                    "device_id": device.id,
-                    "name": device.name,
-                    "name_by_user": device.name_by_user,
-                    "manufacturer": device.manufacturer,
-                    "model": device.model,
-                    "sw_version": device.sw_version,
-                    "disabled": device.disabled,
-                    "disabled_by": device.disabled_by,
-                })
+        # async_entries_for_config_entry, not a per-device `config_entries` read:
+        # HA 2026.10 made that property call report_usage on every read.
+        for device in dr.async_entries_for_config_entry(
+            device_registry, self.coordinator.entry.entry_id
+        ):
+            devices.append({
+                "device_id": device.id,
+                "name": device.name,
+                "name_by_user": device.name_by_user,
+                "manufacturer": device.manufacturer,
+                "model": device.model,
+                "sw_version": device.sw_version,
+                "disabled": device.disabled,
+                "disabled_by": device.disabled_by,
+            })
         
         return {
             "entities": entities,

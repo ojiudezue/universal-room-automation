@@ -172,6 +172,26 @@ _STATIC_CHILD_IDS: Final[frozenset[str]] = frozenset(
 _GROUPING_NODE_IDS: Final[frozenset[str]] = frozenset({"rooms"})
 
 
+def _device_config_entries(device) -> set[str] | None:
+    """Config entries a device belongs to, WITHOUT HA's deprecation report.
+
+    HA 2026.10 made a device single-owner (`DeviceEntry.config_entry_id`) and
+    turned `config_entries` into a compatibility property that calls
+    `report_usage` (a call-stack walk) on every read
+    (helpers/device_registry.py:429, breaks 2027.10). Read per device inside
+    the device-tree sweep, that cost a 131 s event-loop stall at the
+    2026-10-14 08:34 boot (HA Health Monitor: _devices.py:492, 10 samples).
+    Composite devices still expose a real multi-owner set without reporting.
+    Older HA (no `config_entry_id`) keeps the old property.
+    """
+    if getattr(device, "is_composite_device", False):
+        return getattr(device, "config_entries", None)
+    entry_id = getattr(device, "config_entry_id", None)
+    if isinstance(entry_id, str):
+        return {entry_id}
+    return getattr(device, "config_entries", None)
+
+
 def _resolve_parent_identifier(
     identifier: tuple[str, str],
 ) -> tuple[str, str] | None:
@@ -294,7 +314,7 @@ async def async_cleanup_parent_entry_shells(
         # SAFETY guard 1 — sole-parent-owner (exact set equality). A
         # membership check could match a dual-owned real device and
         # demote it.
-        dev_entries = getattr(device, "config_entries", None)
+        dev_entries = _device_config_entries(device)
         if dev_entries != {parent_entry_id}:
             continue
         # SAFETY guard 2 — not-CM-owned. Belt-and-suspenders on top of
@@ -489,7 +509,7 @@ async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:
                     and _identifier[1] in _GROUPING_NODE_IDS
                 ):
                     return False
-            if getattr(_device, "config_entries", None) != {_parent_entry_id}:
+            if _device_config_entries(_device) != {_parent_entry_id}:
                 return False
             from homeassistant.helpers import entity_registry as _er2
             _entries = _er2.async_entries_for_device(
