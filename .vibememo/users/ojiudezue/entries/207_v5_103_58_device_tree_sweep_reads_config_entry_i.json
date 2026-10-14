@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "207",
+  "author": "ojiudezue",
+  "session_id": "claude_20261014_140458_ship_v5_103_58",
+  "timestamp": "2026-10-14T14:04:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.58 shipped: Device-tree sweep reads config_entry_id, not HA 2026.10's deprecated config_entries (131 s boot stall)",
+  "summary": "Device-tree sweep reads config_entry_id, not HA 2026.10's deprecated config_entries (131 s boot stall)",
+  "why": "The v5.103.57 boot produced a 131 s event-loop stall that HA Health Monitor pinned to _devices.py:492, flagged as deprecation. HA 2026.10.1 made DeviceEntry.config_entries a compatibility property that runs report_usage, a call-stack walk, on every read, and the device-tree sweep read it once per device. The stall also left Envoy hung in setup_in_progress: reload, disable and enable all queued behind the stuck setup, so a restart is required anyway. Shipping the fix in the same restart avoids a fourth restart and a repeat stall. Chosen: a helper that reads config_entry_id, returning the same set the old property did per HA source dr.py:557-561, keeping the composite-device path and an old-HA fallback. Rejected: suppressing the deprecation log, which would not remove the stack walk, and the full HA-2027 deprecation migration, which is wider and already carded. Review A SHIP; the two LOWs were fixed in-cycle: the diagnostics button's per-device read, and hollow helper-only tests replaced by per-call-site behavioural anchors, each drilled red. The full suite name-diff is clean.",
+  "implications": "Shipped URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1 at v5.103.58; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.58.md (Live criteria).",
+  "revisit_trigger": "HM loop_stall samples after boot contain no universal_room_automation/_devices.py site; Envoy entry loaded with battery sensor reporting; coordinators still nest under the CM device",
+  "refs": {
+    "cards": [
+      "URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.58.md"
+    ],
+    "release_notes": "- _device_config_entries helper at both device-tree sweep sites (no report_usage stack walk per device)\n- Diagnostics button lists devices via async_entries_for_config_entry\n- Behavioural call-site tests, drilled per site"
+  }
+}

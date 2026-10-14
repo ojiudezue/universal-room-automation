@@ -19323,7 +19323,8 @@ cards:
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1
   title: Device-tree sweep reads HA 2026.10's deprecated DeviceEntry.config_entries per device (131 s boot stall)
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.58
   thread: platform
   created: 2026-10-14 08:45
   updated: "2026-10-14 08:55"
