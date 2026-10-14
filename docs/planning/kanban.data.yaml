@@ -19321,6 +19321,17 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
+- id: URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1
+  title: Device-tree sweep reads HA 2026.10's deprecated DeviceEntry.config_entries per device (131 s boot stall)
+  status: "review"
+  thread: platform
+  created: 2026-10-14 08:45
+  updated: "2026-10-14 08:55"
+  rank: {value: 9, time_criticality: 9, effort: 1}
+  links: {"related": ["HA-2027-DEPRECATIONS-URA-1"], "context": "Urgent slice of the same deprecation surface: only the per-device hot-loop reads (stall). Single-lookup deprecations stay on the survivor."}
+  dedupe_2026_10_14: "ADJACENT to HA-2027-DEPRECATIONS-URA-1 (same registry-deprecation surface, different problem: a live 131 s stall vs a 2027 breakage). Swept: board, BACKLOG, PLANNING_* (none on _devices.py report_usage cost)."
+  problem: "v5.103.57 boot 08:34: HA Health Monitor 131.2 s loop stall at _devices.py:492 (_is_empty_parent_shell), deprecation=true, + 2.6 s repeats; Envoy integration left hung in setup_in_progress. HA 2026.10.1 device_registry.py:429 config_entries property calls report_usage (stack walk) per read."
+  next: "Branch fix/devices-config-entries-deprecation (df2399052 + 7aab1c4e3): helper using config_entry_id at both sweep sites + diagnostics button; review A SHIP (2 LOWs fixed); drills red per site. Ship v5.103.58 + restart (also clears the hung Envoy setup)."
 - id: CM-SHUTDOWN-JOB-SETUP-FAIL-LEAK-1
   arc_cut_v5_103_57: "pre-existing review B B-LOW-2 (setup-failure path), separate Tier-1 card, not part of this cycle's deliverables"
   title: Coordinator Manager setup failure leaves its stop-save shutdown job registered
