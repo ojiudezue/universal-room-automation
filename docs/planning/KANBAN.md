@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:23:25-05:00_ - _Data commit: `13d8d899db8f`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:23:37-05:00_ - _Data commit: `f2e0c1f953f4`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -490,12 +490,13 @@ _created 2026-09-30 08:40 · updated 2026-10-08 03:20_
 
 ### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#8 · WSJF 5.0 · v7 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-28 22:50 · updated 2026-10-10 02:55_
+_created 2026-09-28 22:50 · updated 2026-10-14 02:23_
 - **Origin:** 2026-09-28 - operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)
 - **Why:** Audit finding: sensor.ura_energy_coordinator_energy_forecast_today = -73.7 kWh (Solcast minus predicted consumption). The prediction swung 55 -> 500 kWh today and read 1,234-2,274 kWh on earlier days, against about 185-225 kWh/day real. ...
 - **Next:** Two calls left (plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md rev 2). Call (3), the cleanup of the 4 poisoned rows, is DONE - v5.103.45 NULLed them (0 rows over 240 kWh). (1) APPROVE or decline, no code: set select.ur...
 - **Tags:** energy, forecast, data-integrity, found-during-audit
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `verified_2026_10_14`: Still waiting on you: select.ura_energy_coordinator_dp_house_load_source = max_span_r1 (live 02:3x CDT 10-14), so call (1) is not made yet. Call (2) is unchanged.
   - `operator_instruction_2026_10_13`: Need more details on the options
   - `reply_2026_10_14`: From PLANNING_energy_lifetime_counter_poisoning.md rev 2. Call (1): switch select.ura_energy_coordinator_dp_house_load_source from max_span_r1 to live_span — a config pick, no code, just which live meter feeds house-load math. Call (2), ...
   - `disposed_2026_10_10_overnight`: MET-WITH-RESIDUAL, re-laned shipped_organic -> waiting_operator. What v5.103.45 shipped (the impossible-row guard) is validated: URA DB energy_daily has 214 rows, max consumption 224.7 kWh, 0 rows over 240. What it did NOT fix is the car...
