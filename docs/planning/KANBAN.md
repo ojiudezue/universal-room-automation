@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T04:01:54-05:00_ - _Data commit: `3e14dd8ebc46`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T04:06:59-05:00_ - _Data commit: `72ccd7498fcd`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -39,7 +39,8 @@ _created 2026-10-14 02:50 · initial_
 - **Next:** Me, attended session: profiler.memory / profiler.log_object_sources (HA profiler integration) for ~5 min, rank object sources by count, and check what share is URA. Then: biggest holder is a bug -> card it on its owner; legitimately larg...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
 ## 🧭 Pre-planning (7)
@@ -833,7 +834,8 @@ _created 2026-10-14 02:10 · updated 2026-10-14 04:06 · refined_
 - **Origin:** 2026-10-14 - Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected
 - **Why:** Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168....
 - **Next:** DO (when back, or anyone at home): check the 12 shorted zone loops at the ELK panel terminals (sensor removed / jumpered / wrong EOL) using the zone list on this card -> then decide Konnected interface kit in parallel for the control sur...
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `research_2026_10_14`: 04:24: (1) Screenshot re-read: Garage\P Hallway is defined fire_alarm though named like a hallway zone; all Activity rows are 01:22:48 = HA reconnect, not events; Keypad 01 unknown matches panel 'Missing Keypad'; Light01 (AV Closet) is a...
   - `bypass_test_2026_10_14`: BYPASS TEST 04:06 (operator 'yes'): elkm1.sensor_zone_bypass works per zone (Family Room M -> Bypassed, logical_status bypassed, physical still short). Fire zones ARE bypassable on this panel (Kitchen Heat Det -> Bypassed; my 'fire zones...
   - `code_stored_2026_10_14`: Operator gave an ELK user code 04:01; stored ONLY in /config/secrets.yaml as elk_code (never in repo/board/memory). Not used yet: the panel is not ready to arm while 12 zones read violated, so an arm wrapper must bypass those zones first.
   - `done_2026_10_14`: Operator approved (a) at 03:56: enabled binary_sensor.elkm1_front_door (Show As door), binary_sensor.elkm1_family_to_patiol (door), binary_sensor.elkm1_garage_a_b_heat (heat). The 12 shorted zones stay disabled.
