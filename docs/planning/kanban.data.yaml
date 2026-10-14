@@ -12,7 +12,7 @@ meta:
   - fid: "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1@2026-10-14T02:22:00"
     at: "2026-10-14T02:22:00"
     outcome: "measured"
-    headline: "Looked into the Home Assistant device-registry deprecations URA is logging. It's bigger than a rename: HA 2026.10 now ties each device to a single integration entry, and 21 places in URA's device-tree code depend on the old model. The first one breaks in HA 2027.8, so it isn't urgent. Also found that the local test setup runs HA 2026.2, which can't test the new calls. Moved to planning; nothing built."
+    headline: "Looked into the Home Assistant device-registry deprecations URA is logging. It's bigger than a rename: HA 2026.10 now ties each device to a single integration entry, and 21 places in URA's device-tree code depend on the old model. The first one breaks in HA 2027.8, so it isn't urgent. Also found that the local test setup runs HA 2026.2, which can't test the new calls. It turned out a card from 10-05 already covers this and is parked until the test setup is upgraded, so I merged the new evidence into it and closed the duplicate. Nothing built."
     acknowledged: false
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-14T02:25:00"
     at: "2026-10-14T02:25:00"
