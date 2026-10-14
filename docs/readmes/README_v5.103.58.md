@@ -26,3 +26,13 @@ At the v5.103.57 boot (2026-10-14 08:34 CDT), HA Health Monitor recorded a **131
 - **Live:** device tree intact: the CM coordinators still nest under the Coordinator Manager, and rooms under Rooms. Spot-check `via_device_id` on 2 coordinators and 2 rooms.
 - **Live:** Envoy config entry `loaded`, `sensor.envoy_482543015950_battery` reporting.
 - **Live:** 0 URA ERRORs in system_log after boot.
+
+## Validated 2026-10-14 (HA restart 09:05 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| No `_devices.py` stall at boot | **PASS** | HM `markers.loop_lag.stalls` 14:06–14:10Z: no `_devices.py` site, compared with 131.2 s plus 2.6 s repeats at the previous boot. |
+| No URA stall > 1 s during boot | **FAIL (residual, fixed on a branch)** | 9.0 s at `entity.py:80 async_added_to_hass` (deprecated `async_get_device`, called once per room entity) and 1.2 s at `camera_resolver.py:698`. The entity.py fix (once per room) is on `fix/entity-area-inherit-lookup` 1fb37b2b9 and ships at the next restart. |
+| Device tree intact | **PASS** | `core.device_registry`: 65 URA devices, 0 without a parent. safety/hvac coordinator → coordinator_manager. 47 rooms → Rooms. |
+| Envoy loaded and reporting | **PASS** | Entry `loaded`; `sensor.envoy_482543015950_battery` = 6 (09:07), consumption 3.846 kW (09:09). The hung `setup_in_progress` from the previous boot cleared. |
+| 0 URA ERRORs | **PASS** | system_log ERROR filter: 0 entries. |
