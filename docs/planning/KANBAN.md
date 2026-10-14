@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:20:18-05:00_ - _Data commit: `ca29f28a1ec4`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:20:57-05:00_ - _Data commit: `d2323877ead9`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -1052,9 +1052,10 @@ _I owe something_
 
 ### `SONOFF-R4M-MULTICAST-AB-1` - Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test — _#1 · WSJF 16.0 · v7 tc7 u2 /e1_
 thread: **devices** - status: **waiting_me**
-_created 2026-10-13 07:46_
-- **Next:** ME at 2026-10-14 ~07:46 CDT: per-day unavailable counts (scratchpad sonoff_drops.py) TEST group (54:32:04:8e:09:f4 MasterBath Toilet 1002192efa, 54:32:04:90:35:04 Master Closet Bath Fan, 64:e8:33:87:d0:28 Living Room 1002199676) vs CONTR...
-- **Forensic keys (2):**
+_created 2026-10-13 07:46 · updated 2026-10-14 02:21_
+- **Next:** Me at/after 07:46 CDT 10-14: re-run .claude/tmp/sonoff_ab.py (24 h windows) to confirm. If test and control still fell together, the allowlist hypothesis is OUT as the discriminator, and the question becomes WHAT changed house-wide aroun...
+- **Forensic keys (3):**
+  - `interim_2026_10_14_0221`: Interim read (recorder, 18.6 h after 10-13 07:46 vs the 18.6 h before; unavailable transitions per relay, +-10 min around the 10-13 11:30 and 10-14 01:16 HA restarts excluded; script .claude/tmp/sonoff_ab.py). TEST (3 relays: Living Room...
   - `problem`: ~17 MINI R4M (SonoffLAN, mode auto) went 0 -> 30-300 unavailable/day from 10-06; only 1-3 of 17 reach local mode, rest ride eWeLink cloud. Onset = AP fw 8.8.9 -> 8.8.11 on all 8 U7/U6 APs 10-06 10:53-10:58 (auto-update). MINI-2GS and 3rd...
   - `evidence`: Smidg SSID has Multicast/Broadcast Control (bc_filter) ON with 13-device allowlist + multicast enhancement + suppressor "aggressive"; no Sonoff on the allowlist. SonoffLAN local mode needs mDNS.
 

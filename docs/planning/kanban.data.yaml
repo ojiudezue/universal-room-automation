@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-14T02:25:00"
+    at: "2026-10-14T02:25:00"
+    outcome: "measured"
+    headline: "Sonoff relay dropouts fell sharply after yesterday morning's Wi-Fi change, by about 90% across the house. But the 14 relays NOT in the test group improved almost as much as the 3 that were (-84% vs -93%), so the per-relay allowlist isn't what fixed it. Most likely the change affected the whole Wi-Fi network. I'll confirm with the full 24-hour read after 7:46; nothing rolled back."
+    acknowledged: false
   - fid: "ZONE-DIALOGS-CLEANUP-1@2026-10-14T02:20:00"
     at: "2026-10-14T02:20:00"
     outcome: "parked"
@@ -18922,10 +18927,11 @@ cards:
     off/0. Battery/EV control path -> Tier 2-DB (3 framing-disjoint reviews). Read EC manual + reference_ec_config_surface first.
   next: "Closed 10-14. Residuals in EC-OPTIONS-CLEAR-FIELD-NOOP-1. Operator config action: clear (or re-point) energy_solar_follow_grid_fallback_entity once that fix ships."
 - id: SONOFF-R4M-MULTICAST-AB-1
+  interim_2026_10_14_0221: "Interim read (recorder, 18.6 h after 10-13 07:46 vs the 18.6 h before; unavailable transitions per relay, +-10 min around the 10-13 11:30 and 10-14 01:16 HA restarts excluded; script .claude/tmp/sonoff_ab.py). TEST (3 relays: Living Room 1002199676, Master Toilet 1002192efa, Master Toilet Fan 100219a10c): 388 -> 28 (-93%). CONTROL (14 R4M relays): 731 -> 115 (-84%). The worst control relays fell just as hard: Master Closet 194 -> 5, Master Closet Storage 203 -> 25, Master Bath LED 189 -> 10, Foyer 84 -> 11. A few control relays rose slightly (Patio 3 -> 15, UpGuest Hallway 7 -> 13). READING: drops collapsed for BOTH groups at the same time, so the per-MAC allowlist does not explain the improvement (no separation between test and control). Something house-wide changed around 10-13 morning. Leading candidate: the WLAN change for the test itself acted on the whole SSID, not just the 3 MACs. Unconfirmed; it needs the homelab/UDM side. Do NOT roll anything back on this reading: the house is better now."
   title: Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test
   rank: {value: 7, time_criticality: 7, effort: 1}
   status: waiting_me
-  updated: '2026-10-13 07:46'
+  updated: "2026-10-14 02:21"
   thread: devices
   created: 2026-10-13 07:46
   problem: ~17 MINI R4M (SonoffLAN, mode auto) went 0 -> 30-300 unavailable/day from 10-06; only 1-3 of
@@ -18934,12 +18940,7 @@ cards:
     Toilet night light on old fw v1.00.51 — update it). Wi-Fi association stable (UniFi, 0 disconnects).
   evidence: Smidg SSID has Multicast/Broadcast Control (bc_filter) ON with 13-device allowlist + multicast
     enhancement + suppressor "aggressive"; no Sonoff on the allowlist. SonoffLAN local mode needs mDNS.
-  next: 'ME at 2026-10-14 ~07:46 CDT: per-day unavailable counts (scratchpad sonoff_drops.py) TEST group
-    (54:32:04:8e:09:f4 MasterBath Toilet 1002192efa, 54:32:04:90:35:04 Master Closet Bath Fan,
-    64:e8:33:87:d0:28 Living Room 1002199676) vs CONTROL (all other R4M), plus SonoffLAN local:true per
-    device. Test ~0 + local while control stays bad -> confirmed: add all Sonoffs to allowlist / relax
-    suppressor (Homelab). No difference -> hypothesis out; next = AP fw rollback test (operator said not
-    yet) or SonoffLAN static hosts. Rollback snapshot (homelab): configs/snapshots/udm-beast/wlan-smidg-2026-10-13-pre-sonoff-bcfilter-test.json.'
+  next: "Me at/after 07:46 CDT 10-14: re-run .claude/tmp/sonoff_ab.py (24 h windows) to confirm. If test and control still fell together, the allowlist hypothesis is OUT as the discriminator, and the question becomes WHAT changed house-wide around 10-13 morning: was the 10-13 WLAN change applied to the whole SSID (smidg), or did the AP/UDM do something else? That is a homelab read (UDM change log), handed to you as an ANSWER on the card."
 - id: EC-OPTIONS-CLEAR-FIELD-NOOP-1
   problem_solution: ["Problem: in the Energy settings, if you clear one of the entity boxes (for example a cloud reserve or SOC fallback sensor) and save, the old entity silently stays configured, because the save keeps any field you did not send. Solution: give those Energy entity fields the same explicit \"clear these\" choice the grid-billing fields and room sensor fields already have, so a cleared field is really removed on save."]
   gate_2026_10_14: "(1) Validity STILL-REAL: the EC options save merges {**options, **user_input} (config_flow.py ~6020 comment + merge), and HA omits a cleared single-entity selector from user_input, so the old value survives. (1b) Config-first: N/A, this is a UI defect. (2) Prior art: REUSE the clear_grid_fields multi-select pattern already in this flow (config_flow.py:6229-6230 pop + :7100 selector) and the room clear_sensor_fields pattern (:12746, :13161; test_v5_37_1_clear_sensor_fields.py). Nothing new. (3) Parsimony BUILD. (4) Cost/benefit: small, options-flow only, no runtime logic; Tier 1 with one review."
