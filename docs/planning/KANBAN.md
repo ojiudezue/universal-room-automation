@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:24:04-05:00_ - _Data commit: `6d08df5515a3`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:25:28-05:00_ - _Data commit: `f4ffbc3c0d53`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-14T02:24:04-05:00_ - _Data commit: `6d08df5515a3`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 3 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 2 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 5 |
@@ -295,7 +295,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
@@ -331,19 +331,20 @@ _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **tests** - status: **in_progress**
-_created 2026-10-10 21:00 · updated 2026-10-13 04:35 · refined_
+## 🔍 Review (2)
+_under review_
+
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tests** - status: **review**
+_created 2026-10-10 21:00 · updated 2026-10-14 02:30 · refined_
 - **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).
-- **Next:** Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching.
-- **Forensic keys (2):**
+- **Next:** APPROVE (or let the next attended session do it): merge branch review/ev-tripwire-order (test-only: a8cd6f9f0 + 01f257f1a, cherry-picked clean onto develop 295057da7, plus review record 8fa9c2e0d) into develop. No deploy needed (tests on...
+- **Forensic keys (3):**
+  - `review_2026_10_14`: Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-...
   - `verified_2026_10_13_overnight`: STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production r...
   - `related`: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
 
-## 🔍 Review (1)
-_under review_
-
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#1 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#2 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **review** - approval: **explicit**
 _created 2026-09-14 02:20 · updated 2026-10-13 03:40 · refined_
 - **Problem / Solution:**

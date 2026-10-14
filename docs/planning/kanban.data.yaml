@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1@2026-10-14T02:30:00"
+    at: "2026-10-14T02:30:00"
+    outcome: "built"
+    headline: "Fixed the three EV charger 'flip-flop alarm' tests that only failed when the whole test suite ran. A reviewer and I each broke the real alarm code on purpose and the tests caught it every time. It's test-only, sitting on a branch ready to merge to develop. Nothing in the house changes."
+    acknowledged: false
   - fid: "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1@2026-10-14T02:22:00"
     at: "2026-10-14T02:22:00"
     outcome: "measured"
@@ -30825,16 +30830,17 @@ cards:
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 - id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
+  review_2026_10_14: "Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-existing, unrelated). test_g did NOT reproduce on develop in that order (it passed by accident via the blanket except at energy_write_verify.py:1376); the fix removes that dependence. Reviewer per-site drills: :1340 UTC date -> test_d2 RED; :1324 kill switch -> test_g RED; :1340 constant date -> test_d+d2 RED. Orchestrator drill 10-14: :1324 `if max_n <= 0` -> `if False` -> test_g_kill_switch_disables RED (1 failed/10 passed), restored, porcelain clean, 11 passed. LOW: test_a/test_c/test_wire_in do not pin dt_util (pass in real order; fragile under a harsher stub)."
   refinement_status: "refined"
   verified_2026_10_13_overnight: "STILL-REAL: develop full suite tonight (14653 passed / 126 failed / 3 errors, 553 s) fails exactly these 3 in order. ROOT CAUSE (not leaked time): stale module objects. test_g patched the energy_const captured at import, but production resolves `from . import energy_const` at call time (energy_write_verify.py:1320) after sibling files swap that module. test_d/d2 patched dt_util.DEFAULT_TIME_ZONE, but the verifier's own dt_util global was a sibling's stub of homeassistant.util.dt with no DEFAULT_TIME_ZONE (AttributeError). FIX (test-only, branch fix/ev-tripwire-order-dependence b30aca17e): resolve energy_const the way production does, and pin the verifier's dt_util global with a 2-function shim via monkeypatch. Evidence: the 118-file suite prefix through this file went from 29 -> 27 failures, and the failing-ID diff is exactly these 3 tests removed. Drill: production latch switched to the UTC date (:1340) turns test_d2 red, restored green. One review (test-authority framing) dispatched."
   title: Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation)
   thread: tests
-  status: in_progress
+  status: "review"
   created: "2026-10-10 21:00"
-  updated: '2026-10-13 04:35'
+  updated: "2026-10-14 02:30"
   origin: "v5.103.49 full-suite name-diff 2026-10-10: test_d2_late_local_night_then_next_local_morning_fires_nm, test_d_next_day_resets_latch, test_g_kill_switch_disables in quality/tests/test_ec_ev_toggle_tripwire.py fail in suite order, pass isolated on both sides."
   why: "Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents)."
-  next: "Bisect the polluter (pytest -p no:randomly with --deselect halves), fix with monkeypatch-scoped patching."
+  next: "APPROVE (or let the next attended session do it): merge branch review/ev-tripwire-order (test-only: a8cd6f9f0 + 01f257f1a, cherry-picked clean onto develop 295057da7, plus review record 8fa9c2e0d) into develop. No deploy needed (tests only). Optional LOW follow-up: also apply _pin_local_tz to test_a / test_c / test_wire_in_through_execute_service_action."
   related: [TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, EC-EV-TOGGLE-TRIPWIRE-1]
 - id: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1
   title: Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room
