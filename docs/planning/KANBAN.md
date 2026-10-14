@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:25:49-05:00_ - _Data commit: `785b9f005253`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:34:30-05:00_ - _Data commit: `a85cb7fcf6e5`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -816,17 +816,17 @@ _created 2026-10-11 05:10 · initial_
 
 ### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#25 · WSJF 3.5 · v6 tc6 u2 /e4_
 thread: **security** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-10-14 03:40 · refined_
+_created 2026-10-14 02:10 · updated 2026-10-14 03:34 · refined_
 - **Origin:** 2026-10-14 - Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected
 - **Why:** Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168....
 - **Next:** ANSWER: is the ELK still the real alarm (any monitoring, anyone arms it), or is it legacy wiring you mainly want for the Front Door contact + panel status? -> LEGACY: I enable only the live zones, label the 12 shorted zones 'dead loop' (...
 - **Forensic keys (2):**
-  - `correction_2026_10_14`: CARD-WAS-WRONG (operator pushback + live read 03:40). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway mo...
+  - `correction_2026_10_14`: CARD-WAS-WRONG (operator pushback + live read 03:34). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway mo...
   - `verified_2026_10_14`: Verified 2026-10-14 ~02:10 CDT (live): sensor.elkm1_kitchen_heat_det = Violated, physical_status short. The zone 7 fault is still present, so nothing changes until you inspect or reset it.
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#26 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-26 11:00 · updated 2026-10-14 03:40 · refined ×1_
+_created 2026-08-26 11:00 · updated 2026-10-14 03:34 · refined ×1_
 - **Problem / Solution:**
   - Problem: a message URA sends me shows up TWICE in my iMessage — once when it is sent (my Mac sending as me) and once when it arrives (my phone/Mac receiving as me), so every URA alert reads as a duplicate. Solution to VERIFY (do NOT asse...
 - **Origin:** 2026-08-26 - operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes

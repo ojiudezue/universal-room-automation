@@ -7413,7 +7413,7 @@ cards:
   status: "waiting_operator"
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: "2026-10-14 03:40"
+  updated: "2026-10-14 03:34"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -31553,13 +31553,13 @@ cards:
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492), docs/Coordinator/ENERGY_COORDINATOR manual, memory reference_ec_config_surface]
 - id: ELK-M1-HA-USABILITY-1
   refinement_status: refined
-  correction_2026_10_14: "CARD-WAS-WRONG (operator pushback + live read 03:40). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway motions, Upstairs Balcony, Study B Patio, Kitchen Heat, Garage/P Hallway heat). 10-day recorder history: Family Room M, Kitchen Motion and Kitchen Heat never changed once (only flips are unavailable->Violated at HA restarts), while Front Door toggled 59 times. So those 12 loops are statically shorted (wiring/legacy state: sensors removed or jumpered, or EOL config mismatch) — not 12 live trips and not one bad heat detector. Only Front Door (eol, live) and Family to PatioL / Garage A/B Heat (eol, static normal) read healthy; zone 19 Family to PatioR = unconfigured/troubled (the 'Lost Transmitter z19'). Area 1 'triggered/fire_alarm' appeared only at reconnects (10-06 11:44, 10-13 11:36), disarmed 10-13 20:53, and is now alarm_state=no_alarm_active, arm_up_state=not_ready_to_arm (because the shorted zones are violated)."
+  correction_2026_10_14: "CARD-WAS-WRONG (operator pushback + live read 03:34). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway motions, Upstairs Balcony, Study B Patio, Kitchen Heat, Garage/P Hallway heat). 10-day recorder history: Family Room M, Kitchen Motion and Kitchen Heat never changed once (only flips are unavailable->Violated at HA restarts), while Front Door toggled 59 times. So those 12 loops are statically shorted (wiring/legacy state: sensors removed or jumpered, or EOL config mismatch) — not 12 live trips and not one bad heat detector. Only Front Door (eol, live) and Family to PatioL / Garage A/B Heat (eol, static normal) read healthy; zone 19 Family to PatioR = unconfigured/troubled (the 'Lost Transmitter z19'). Area 1 'triggered/fire_alarm' appeared only at reconnects (10-06 11:44, 10-13 11:36), disarmed 10-13 20:53, and is now alarm_state=no_alarm_active, arm_up_state=not_ready_to_arm (because the shorted zones are violated)."
   verified_2026_10_14: "Verified 2026-10-14 ~02:10 CDT (live): sensor.elkm1_kitchen_heat_det = Violated, physical_status short. The zone 7 fault is still present, so nothing changes until you inspect or reset it."
   title: "Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them"
   thread: security
   status: waiting_operator
   created: '2026-10-14 02:10'
-  updated: "2026-10-14 03:40"
+  updated: "2026-10-14 03:34"
   rank: {value: 6, time_criticality: 6, effort: 4}
   origin: {date: '2026-10-14', gist: 'Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected'}
   why: 'Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168.12.78 (2101, no creds). 17 zone binary_sensors exist but integration-disabled.'
