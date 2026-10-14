@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:13:54-05:00_ - _Data commit: `89bb7fea75b4`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:16:46-05:00_ - _Data commit: `ef7e88e0f1fd`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -95,15 +95,16 @@ _updated 2026-09-29 01:05_
 
 ### `HUMIDITY-FAN-ON-RESEND-SPAM-1` - The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on — _#3 · WSJF 2.2 · v5 tc4 u2 /e5_
 thread: **fans** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-10-14 02:16 · initial_
+_created 2026-10-14 02:16 · updated 2026-10-14 02:17 · initial_
 - **Problem / Solution:**
   - Problem: while a bathroom is humid (a shower), URA re-sends 'turn the fan on' every time the humidity reading updates, even though the fan is already on. In the Master Bathroom that reached 491-652 commands an hour on 10-13. Each one bec...
 - **Origin:** 2026-10-14 - overnight pass mid-turn find while disposing NIGHT-LIGHT-ACTION-SELECTOR-1 (recorder call_service trace around Master Bathroom 10-11 18:50)
 - **Why:** Real traffic and device load in the house today. Also a hidden manual-override conflict.
-- **Next:** Me: prior-art scan (fan oracle / chokepoint, FAN-MANUAL-1 manual-off semantics, _fan_is_actually_on), then a Tier-2 plan + one plan review; build to review. Measure the same counts for the other rooms with humidity_fans first, so the pla...
+- **Next:** Me: prior-art scan (fan oracle / chokepoint, FAN-MANUAL-1 manual-off semantics, _fan_is_actually_on), then a Tier-2 plan + one plan review; build to review. House-wide rate already measured (below).
 - **Tags:** tier-2, found-during-probe, measure-before-build, institutional-context
 - **Refs:** custom_components/universal_room_automation/automation.py (humidity fan control ~3315-3560)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `measured_housewide_2026_10_14`: 7-day recorder count of homeassistant.turn_on per configured humidity fan (6 rooms): Master Bathroom 3,806 (peak 652/h); Guest Bedroom 1 Bathroom, Ziri Bathroom, Laundry, Master Bath Toilet, Powder all 0. So the flood is one room today. ...
   - `measured_2026_10_14`: HA recorder call_service events homeassistant.turn_on with entity_id [fan.switch_shelly1pmminig3_wifi_masterbathfan], per local hour (last 3 days): 10-11 18h 528, 19h 212; 10-12 09h 90, 10h 407, 15h 326, 16h 249; 10-13 11h 491, 12h 652; ...
   - `mechanism_2026_10_14`: automation.py ~3496-3518 (humidity fan control): when on_trigger (humidity >= threshold OR spike), the code calls _safe_service_call("homeassistant", SERVICE_TURN_ON, {"entity_id": humidity_fans}) UNCONDITIONALLY; the `if not fan_is_on` ...
 

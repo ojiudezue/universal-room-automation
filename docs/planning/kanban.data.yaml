@@ -15108,11 +15108,12 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: HUMIDITY-FAN-ON-RESEND-SPAM-1
+  measured_housewide_2026_10_14: "7-day recorder count of homeassistant.turn_on per configured humidity fan (6 rooms): Master Bathroom 3,806 (peak 652/h); Guest Bedroom 1 Bathroom, Ziri Bathroom, Laundry, Master Bath Toilet, Powder all 0. So the flood is one room today. The other rooms either never crossed their threshold this week or use a different path. The plan must check which, so the fix is not tested only on the room that happens to be humid."
   title: "The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on"
   thread: fans
   status: pre_planning
   created: '2026-10-14 02:16'
-  updated: '2026-10-14 02:16'
+  updated: "2026-10-14 02:17"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-2, found-during-probe, measure-before-build, institutional-context]
@@ -15127,7 +15128,7 @@ cards:
   - "Fan domain is regression-prone (FAN-MANUAL-1 needed 3 DO-NOT-SHIP reviews). Prior-art scan must cover the FAN-LAYER-2 oracle (oracle.actuate, chokepoint) and _fan_is_actually_on before choosing the fix; this path does not appear to go through the oracle."
   - "Suppression needs a discharge: if re-sends are rate-limited, state what recovers a fan that the relay silently failed to turn on."
   - "Numbers get knobs: any re-assert interval is a named constant with its rung."
-  next: "Me: prior-art scan (fan oracle / chokepoint, FAN-MANUAL-1 manual-off semantics, _fan_is_actually_on), then a Tier-2 plan + one plan review; build to review. Measure the same counts for the other rooms with humidity_fans first, so the plan states the house-wide rate."
+  next: "Me: prior-art scan (fan oracle / chokepoint, FAN-MANUAL-1 manual-off semantics, _fan_is_actually_on), then a Tier-2 plan + one plan review; build to review. House-wide rate already measured (below)."
   links:
     related: [FAN-MANUAL-1, MASTER-TOILET-SONOFF-DROPOUTS-1, WIFI-SWITCH-DROPOUTS-BATHROOMS-1]
     context: "FAN-MANUAL-1 settled manual-on semantics for the temperature fan; this path has the mirror question (manual off while humid). The two dropout cards are bathroom relays with Wi-Fi drops; this command flood could be a contributor, unproven."
