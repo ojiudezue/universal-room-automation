@@ -59,3 +59,29 @@ The fixes for these need their own tests.
 1. Update the 6 stale tests.
 2. Add behavioral tests for every GREEN HIGH row, driving the coordinator caller with master off.
 3. Add an options round-trip test.
+
+## Re-verify 29b158738
+
+Own worktree `.claude/worktrees/reverify-exhaust-C` at 29b158738. Four targeted files: occupancy_and_resend, intelligence_cycle, fan_humidity_toggle_symmetry, safety_humidity_junk_floor. Baseline: **122 passed, 0 failed**. The 6 stale tests are fixed and not weakened: FIXF now covers the 1-arg contract plus a TypeError test, and d4 sleep-off now sets an anchor and adds a check that it does not re-emit. One site per run, `__pycache__` cleared, file restored after each run, tree clean at the end.
+
+**RED (31):** ON transition, re-assert interval, re-assert actual-off, manual-off window, listener old==on, unavailable exclusion, URA-ctx predicate, dwell threshold, dwell edge anchor, dwell timing, dwell-hold, dwell-OFF branch, sleep-off transition, absolute None-guard, OFF-branch None-guard, early-return None-guard, gate fn, skip_first return, coordinator D1 caller, listener registration, async_on_unload, None clears cap latch, @callback, dwell-OFF fallback, dwell_vacant_at stamp, cap-latch set, cap-latch clear, dwell default = wet_room.
+
+**Still GREEN:**
+| Site | Sev | Note |
+|---|---|---|
+| sleep-off anchor-only (re-add `_fan_is_actually_on`) | HIGH | `test_sleep_off_does_not_fight_hand_on_fan` uses `fan_on=False`, so the Review B fix is unanchored. Needs fan physically on with no anchor. |
+| coordinator D1 caller | MEDIUM | RED only through a source grep (`test_coordinator_call_site_uses_humidity_venting_enabled_helper`), Bug Class #62. No behavioral test covers it. |
+| unknown-occupancy hold (each guard, and both jointly) | MEDIUM | `test_dwell_unknown_occupancy_holds_state_not_vacant` stays green with both `is False` / `is not False` guards loosened. |
+| handler toggle3 + `_is_automation_enabled()` | MEDIUM | The mock coordinator's predicate is truthy. |
+| URA ctx on turn_on and on humidity-OFF write | MEDIUM | — |
+| presence arming at the fire edge, edge-tracking needs the dwell anchor | MEDIUM | — |
+| unregister body (`unsub()` calls) | MEDIUM | — |
+| sleep-off skip_first gate | LOW | — |
+| cap-off transition gate | LOW | — |
+| dwell `raw_sensor_live`, dwell `cap_suppressed`, dwell needs `not fan_is_on` | LOW | — |
+| spike None-guard | LOW | — |
+| listener anchor-None early return | LOW | — |
+
+**Options round-trip test for the dwell fields:** still missing. The only test is the handler runtime default. MEDIUM.
+
+**Verdict: FIX-REQUIRED.** Must fix: (1) a sleep-off test with the fan physically on and no anchor; (2) a dwell unknown-occupancy test that goes red when either guard is loosened; (3) an options round-trip test for the dwell fields. Everything else can be deferred or fixed as a LOW-pass item.
