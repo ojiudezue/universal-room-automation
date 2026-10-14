@@ -487,20 +487,29 @@ def test_humidity_fan_dwell_uses_raw_sensor_not_room_timer():
 
 
 def test_humidity_fan_dwell_hold_blocks_humidity_off_while_occupied():
-    """Rev 2 finding #2 — dwell holds the fan ON; humidity-OFF branch is blocked."""
+    """Rev 2 finding #2 — dwell holds the fan ON; humidity-OFF branch is blocked.
+
+    Build an in-progress dwell cycle (anchor set), then simulate a brief
+    raw-sensor flap off (dwell_satisfied drops to False) with URA's
+    room_occupied still True and humidity below off_threshold — the
+    guard at the top of the humidity-OFF branch MUST return without
+    emitting ``turn_off``.
+    """
     t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
-    # Dwell fires (raw sensor ON ≥ dwell_s), fan comes on.
     raw_lc = t0 - timedelta(seconds=90)
     auto, log, states = _make(raw_state="on", raw_last_changed=raw_lc, dwell_s=60, timeout=1)
     _set_now(t0)
     _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_dwell_fan_on_at is not None
     log.clear()
-    # Humidity collapses below off_threshold while STILL occupied.
+    # Raw sensor flaps OFF briefly — dwell_satisfied becomes False this tick.
+    states[RAW_SENSOR] = _mkstate("off", t0 + timedelta(seconds=199))
+    states[FAN_ENTITY] = _mkstate("on")
     _set_now(t0 + timedelta(seconds=200))
     _run(auto.handle_humidity_based_fan_control(40.0, room_occupied=True, automation_enabled=True))
     turn_offs = [e for e in log if e[1] == "turn_off"]
     assert turn_offs == [], (
-        f"Rev 2 #2: dwell + occupied must block humidity-OFF; got {log}"
+        f"Rev 2 #2: dwell anchor + occupied must block humidity-OFF; got {log}"
     )
 
 
