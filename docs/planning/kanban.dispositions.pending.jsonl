@@ -38,3 +38,6 @@
 {"action": "ack", "at": "2026-10-14T01:58:38.387Z", "card_id": "TEST-STRATEGY-REARCH-1@2026-10-09T02:44:00"}
 {"action": "ack", "at": "2026-10-14T01:58:49.154Z", "card_id": "ENERGY-BILL-ACCURACY-1@2026-10-10T02:15:00"}
 {"action": "ack", "at": "2026-10-14T01:58:53.972Z", "card_id": "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1@2026-10-10T02:15:00"}
+{"action": "ack", "at": "2026-10-14T02:00:27.504Z", "card_id": "RECORDER-BLOAT-LOGFLOOD-1@2026-10-10T02:25:00"}
+{"action": "ack", "at": "2026-10-14T02:02:43.434Z", "card_id": "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-10T02:30:00"}
+{"action": "instruct", "at": "2026-10-14T02:05:01.598Z", "card_id": "ENERGY-CONSUMPTION-FORECAST-POISONED-1", "text": "Need more details on the options"}
