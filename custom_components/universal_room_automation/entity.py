@@ -1,6 +1,6 @@
 """Base entity for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.58
+# Universal Room Automation vv5.103.59
 # Build: 2026-01-02
 # File: entity.py
 #
@@ -74,6 +74,12 @@ class UniversalRoomEntity(CoordinatorEntity[UniversalRoomCoordinator]):
             configured_area = None
         if not configured_area:
             return
+        # Once per room, not once per entity: every entity of a room shares
+        # this device, and on HA 2026.10 async_get_device runs report_usage (a
+        # call-stack walk) on every call. Per-entity calls cost a 9 s boot stall
+        # (HA Health Monitor, 2026-10-14 09:07, entity.py:80, ~50 entities/room).
+        if getattr(self.coordinator, "_ura_area_inherit_done", False):
+            return
         from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
         dev_reg = dr.async_get(self.hass)
         entry_id = self.coordinator.entry.entry_id
@@ -81,8 +87,12 @@ class UniversalRoomEntity(CoordinatorEntity[UniversalRoomCoordinator]):
         if device is None:
             # Device not yet present (shouldn't happen: async_added_to_hass
             # runs after platform-managed device registration). Silent
-            # skip — next sibling's add will retry.
+            # skip — next sibling's add will retry (flag stays unset).
             return
+        try:
+            self.coordinator._ura_area_inherit_done = True
+        except Exception:  # noqa: BLE001 — a frozen/slotted coordinator just re-checks
+            pass
         if device.area_id is not None:
             return  # Operator-set or previously-inherited; do not clobber.
         try:

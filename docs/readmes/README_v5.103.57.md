@@ -34,3 +34,15 @@ The EC options save merged over old options, so a blanked entity field kept its 
 - **Live:** no `sensor_never_fires` finding on the first day for a sensor that fired in the last 7 days. The first possible legitimate finding is ≥7 days after a sensor's `first_seen`.
 - **Live:** EC options flow opens and saves; the clear choice is present.
 - **Live:** anomaly baselines still save and load (diagnostics counts populated after boot).
+
+## Validated 2026-10-14 (HA restarts 08:33 CDT for v5.103.57 and 09:05 for v5.103.58)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| 0 URA ERRORs after boot, none at shutdown | **PASS** | `ha_get_logs source=system level=ERROR search=universal_room_automation`: 0 entries after both restarts. No "Error logging decision", "Error counting anomalies" or "Error saving baselines". |
+| Never-fires Store exists with records | **PASS** | `.storage/optimization.sensor_never_fires_last_on_seen`: 81 records. `first_seen` 13:36:49Z (the 08:33 boot) is preserved across the 09:05 restart, so the restart round-trip works. |
+| No first-day never_fires finding | **PASS (by construction)** | Every record has `first_seen` today; the 7-day horizon cannot elapse before 2026-10-21. |
+| EC options flow clear choice | In-suite only | No operator edit yet. The pending operator action is to clear `energy_solar_follow_grid_fallback_entity`. |
+| Baselines save/load | **PASS** | No baseline save/load errors after either boot. |
+
+Boot finding (not this release): the 08:33 boot stalled the loop for 131 s in `_devices.py:492`, a pre-existing per-device read of HA 2026.10's deprecated `config_entries`. Fixed in v5.103.58.

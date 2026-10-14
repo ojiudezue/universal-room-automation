@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "208",
+  "author": "ojiudezue",
+  "session_id": "claude_20261014_222444_ship_v5_103_59",
+  "timestamp": "2026-10-14T22:24:44Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.59 shipped: Remove two remaining boot stalls",
+  "summary": "Remove two remaining boot stalls",
+  "why": "Health Monitor showed two URA boot stalls left after v5.103.58. Kept async_get_device but ran it once per room, not per entity, to avoid changing child-device lookup semantics. Camera fix mirrors the existing MAC index so lifetime is unchanged. Review found one test gap (missing device then retry), fixed and drilled red.",
+  "implications": "Shipped URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1 at v5.103.59; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.59.md (Live criteria).",
+  "revisit_trigger": "HM sensor.hahm_loop_stalls samples in the 10 min after the next boot show no entity.py or camera_resolver.py site",
+  "refs": {
+    "cards": [
+      "URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.59.md"
+    ],
+    "release_notes": "entity.py area lookup once per room (9 s boot stall); camera_resolver identifier index (1.2 s). Review SHIP, name-diff clean."
+  }
+}

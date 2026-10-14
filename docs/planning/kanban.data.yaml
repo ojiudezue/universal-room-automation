@@ -15219,6 +15219,7 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: HUMIDITY-FAN-ON-RESEND-SPAM-1
+  why_only_master_2026_10_14: "Operator asked why only Master Bathroom. Measured 7d: Guest Bedroom 1 Bathroom + Master Bath Toilet have NO humidity sensor configured (path never runs). Laundry peaked 60.1% vs 60 threshold (2 samples). Ziri Bathroom crossed its 65% threshold 236 samples and Powder 60% 44 samples, but URA sent their fans ZERO turn_on: switch.ziri_bathroom_automation (off since at least 10-08 06:59) and switch.powder_automation (turned off 10-08 11:36 by the Oji account) are OFF, and venting requires room automation_enabled (coordinator.py:~5410 humidity_venting_enabled; handler gate). The humidity_fan_control toggles are ON. 21 room master switches are off house-wide. Decision to operator: turn those two on, or decouple humidity venting from the room master switch (it has its own toggle). The spam fix must be tested on Ziri/Powder paths too."
   measured_housewide_2026_10_14: "7-day recorder count of homeassistant.turn_on per configured humidity fan (6 rooms): Master Bathroom 3,806 (peak 652/h); Guest Bedroom 1 Bathroom, Ziri Bathroom, Laundry, Master Bath Toilet, Powder all 0. So the flood is one room today. The other rooms either never crossed their threshold this week or use a different path. The plan must check which, so the fix is not tested only on the room that happens to be humid."
   title: "The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on"
   thread: fans
@@ -19054,7 +19055,7 @@ cards:
     field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327);
     its Repairs text no longer says "leave blank". Adjacent - V5_37_1 clear-sensor-fields precedent
     (test_v5_37_1_clear_sensor_fields) for room options; reuse that pattern.
-  next: "Building (overnight 10-14, ura-builder in a worktree) -> one review + orchestrator verify -> review lane. Not deployed."
+  next: "Shipped v5.103.57. PENDING at next planned restart (operator 2026-10-14: apply then, not mid-trip, CM options save may reload the parent): set energy_solar_follow_grid_fallback_entity -> sensor.envoy_482543015950_current_net_power_consumption (same sign as primary Vue, kW auto-converted at energy_pool.py:4888). Bundle with fix/entity-area-inherit-lookup restart; this also live-validates the EC options save."
 - id: HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1
   organic_evidence_2026_10_14: "HA Health Monitor stall samples 06:29-07:05Z (50): zero mention hvac_override / _high_draw / universal_room_automation; culprits python_gc 44, ssl 3, spook 2, wiim 1. A1 attributes populated on all 3 zones at 01:21:51 CDT. 0 URA ERRORs in system_log since boot. Validated table written into docs/readmes/README_v5.103.56.md."
   title: hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall)
@@ -19324,7 +19325,7 @@ cards:
 - id: URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1
   title: Device-tree sweep reads HA 2026.10's deprecated DeviceEntry.config_entries per device (131 s boot stall)
   status: shipped_organic
-  shipped_version: v5.103.58
+  shipped_version: v5.103.59
   thread: platform
   created: 2026-10-14 08:45
   updated: "2026-10-14 08:55"
@@ -31687,6 +31688,7 @@ cards:
   - ~/Code/ha-health-monitor/custom_components/ha_health_monitor/gctrace.py
 - id: HA-GC-GEN2-PAUSES-1
   root_cause_2026_10_14: "ROOT CAUSE 04:57: house runs Python 3.14.6; Python 3.14.5 REVERTED 3.14's incremental GC (whose point was cutting max pauses 10x+ on large heaps) back to the 3.13 generational GC (docs.python.org/3.14/whatsnew/3.14.html). Profiler object census 04:45-04:55: heap ~5M tracked objects (1.47M dict, 591k list, 432k function, 384k tuple, 188k YAML Node*, 54k Template, 30.7k DeletedRegistryEntry, HACS ~4141x7 repo objects); growth a few hundred/min = NO leak. Full collection walks the whole heap = ~1.8 s. No explicit gc.collect anywhere. FIX in build: HM v2.2 gc_freeze knob (default off) + fix flow on loop_stall:python_gc: gc.collect() then gc.freeze() after startup, optional periodic refreeze; undo = gc.unfreeze(). Effect is an ESTIMATE until measured live (before/after 30 min). Secondary heap trims (deleted registry entries, templates, HACS) parked behind it."
+  correction_2026_10_14: "CORRECTION (operator challenged 'how did you confirm this'): the 3.14.5 incremental-GC revert is REAL but CONTEXT ONLY - the two collectors were never compared on this house, and a widespread regression would show in forum chatter. Confirmed cause = a ~5M-object heap walked by ordinary full collections. gc.freeze live result: gen-2 max 1.8 s -> 197 ms, stalls 46/h -> 0-3/h."
   research_2026_10_14: "04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but no profiler log lines in the last 2000-line window and no automation calls it -> not running). So the ~1.8 s gen-2 pauses ~1/min are AUTOMATIC collections: something promotes enough long-lived objects to trip the gen-2 threshold every minute. Next measurement: what object types grow between collections."
   title: "Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap)"
   thread: health_monitor
