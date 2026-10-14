@@ -39,7 +39,20 @@ from test_arbitrage_completed_chunk_hold_precedence import (  # noqa: F401
 # `as_local`; without `parse_datetime` and `UTC` the latch restore's
 # `try/except Exception` swallows all restores and every D2 assertion
 # spuriously "passes" by no-op. Force real implementations here.
-_dt_mod = sys.modules["homeassistant.util.dt"]
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1: several sibling tests pop
+# ``homeassistant.util.dt`` from sys.modules in teardown (see
+# test_ev_offpeak_proactive.py:400, _excursion_harness.py:235,
+# test_v4_6_9_hvac_intent_attrs.py, test_hvac_vacancy_sweep_manual_on_guard.py).
+# If any ran during collection before this file imports, the sibling's
+# ``_mock_module`` top-level ``setdefault`` block has already finished and
+# never re-installs the stub, so the bare ``sys.modules["..."]`` lookup
+# below raised KeyError in some shuffle orders. Install a minimal stub
+# ourselves if it is missing — we overwrite the needed attrs on the next
+# four lines regardless.
+_dt_mod = sys.modules.get("homeassistant.util.dt")
+if _dt_mod is None:
+    _dt_mod = _mock_module("homeassistant.util.dt")
+    sys.modules["homeassistant.util.dt"] = _dt_mod
 from datetime import timezone as _tz_module
 from datetime import datetime as _dt
 
