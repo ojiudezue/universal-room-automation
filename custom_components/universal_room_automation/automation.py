@@ -130,6 +130,13 @@ from .const import (
     CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
     CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
     CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED,
+    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+    DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+    HUMIDITY_FAN_REASSERT_INTERVAL_S,
+    HUMIDITY_FAN_MANUAL_OFF_RESPECT_S,
+    CONF_MOTION_SENSORS,
+    CONF_OCCUPANCY_SENSORS,
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
@@ -253,6 +260,32 @@ from .const import (  # noqa: E402
 from .lighting.resolver import night_light_turn_on_params as _nl_params  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _humidity_fan_ctx():
+    """Return a fresh URA write context for humidity-fan actuations.
+
+    Bathroom-exhaust occupancy-and-resend cycle (2026-10-14, D2 Rev 2
+    finding #5). Humidity-fan writes stamp a URA context so the manual-
+    OFF state-change listener (``RoomAutomation._on_humidity_fan_state_change``)
+    never books a URA emission as a human change. Mirrors
+    ``ura_context.ura_write_context`` but is importable from inside this
+    module without the test-harness-sensitive guards.
+    """
+    try:
+        from .ura_context import ura_write_context  # noqa: PLC0415
+        return ura_write_context()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _humidity_fan_ctx_is_ura(ctx) -> bool:
+    """Return True iff ``ctx`` was minted by :func:`_humidity_fan_ctx`."""
+    try:
+        from .ura_context import is_ura_context  # noqa: PLC0415
+        return is_ura_context(ctx)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _ura_ctx_kwargs(domain: str) -> dict:
@@ -489,6 +522,16 @@ class RoomAutomation:
         # D3 — presence/usage-proportional post-vacancy runtime window.
         self._humidity_presence_runtime_until: datetime | None = None
         self._humidity_last_room_occupied: bool | None = None
+        # Bathroom-exhaust occupancy-and-resend cycle (2026-10-14):
+        # D2 — transition-gated re-assert + external manual-OFF respect.
+        self._humidity_fan_last_asserted_at: datetime | None = None
+        self._humidity_fan_manual_off_until: datetime | None = None
+        # D3 — occupancy-dwell "number-2" trigger anchor (set when the
+        # dwell path fires; cleared on any OFF emission).
+        self._humidity_dwell_fan_on_at: datetime | None = None
+        # Teardown handles for the per-fan state_change listeners
+        # registered in :meth:`_register_humidity_fan_manual_off_listeners`.
+        self._humidity_fan_unsub_listeners: list = []
         # v3.1.0: Shared space - track last auto-off to prevent repeated triggers
         self._last_auto_off_date: str | None = None
         # v3.1.0: Alert light state tracking
@@ -879,6 +922,7 @@ class RoomAutomation:
         blocking: bool = False,
         timeout: float = 5.0,
         max_retries: int = 0,
+        context: Any = None,
     ) -> bool:
         """Call a service with timeout, error handling, and optional retry.
 
@@ -899,7 +943,13 @@ class RoomAutomation:
         # (entry / exit / sleep / shared-space / warning flash / room alert
         # lights / reconciler / Room lights switch) carries a URA context so
         # the D2 manual-change listener never books it as a person's change.
-        ctx_kw = _ura_ctx_kwargs(domain)
+        # Bathroom-exhaust D2 (2026-10-14): callers may pass an explicit
+        # URA context (humidity-fan writes stamp one so the manual-OFF
+        # state-change listener never books a URA emission as a human).
+        if context is not None:
+            ctx_kw = {"context": context}
+        else:
+            ctx_kw = _ura_ctx_kwargs(domain)
         for attempt in range(attempts):
             try:
                 await asyncio.wait_for(
@@ -3250,6 +3300,82 @@ class RoomAutomation:
             # No action this tick — baseline follows observed state.
             self._last_seen_any_fan_on = any_fan_on_now
 
+    def _register_humidity_fan_manual_off_listeners(self, fans: list[str]) -> None:
+        """Register state_change listeners on each humidity-fan entity.
+
+        Bathroom-exhaust D2 Rev 2 finding #5. Mirrors FAN-MANUAL-1 oracle
+        (``hvac_fans.py:343, 686``): on an observed ``on → off`` state
+        transition whose context was NOT minted by URA, arm the manual-
+        OFF respect window. ``on → unavailable`` is explicitly excluded
+        (it's a relay drop; the re-assert path handles it).
+        """
+        try:
+            from homeassistant.helpers.event import async_track_state_change_event  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            return
+        for ent_id in fans:
+            try:
+                unsub = async_track_state_change_event(
+                    self.hass, [ent_id], self._on_humidity_fan_state_change,
+                )
+                self._humidity_fan_unsub_listeners.append(unsub)
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "humidity_fan_listener_register_failed: %s (%s)", ent_id, exc,
+                )
+
+    def _unregister_humidity_fan_listeners(self) -> None:
+        """Teardown hook — called from config-entry unload paths."""
+        for unsub in self._humidity_fan_unsub_listeners:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._humidity_fan_unsub_listeners = []
+
+    def _on_humidity_fan_state_change(self, event) -> None:
+        """Fire on humidity-fan state transitions.
+
+        D2 Rev 2 finding #5: an observed ``on → off`` transition whose
+        context was not URA-minted is treated as a human / external OFF
+        — arm the manual-OFF respect window and clear anchors. Any
+        other transition (including ``on → unavailable``, ``off → on``,
+        or a URA-marked ``on → off``) is ignored.
+        """
+        try:
+            new_state = event.data.get("new_state") if hasattr(event, "data") else None
+            old_state = event.data.get("old_state") if hasattr(event, "data") else None
+            if new_state is None or old_state is None:
+                return
+            if getattr(old_state, "state", None) != STATE_ON:
+                return
+            if getattr(new_state, "state", None) != STATE_OFF:
+                # on → unavailable is a relay drop; re-assert path handles it.
+                return
+            ctx = getattr(event, "context", None) or getattr(new_state, "context", None)
+            if _humidity_fan_ctx_is_ura(ctx):
+                return  # our own write — ignore
+            if self._humidity_fan_triggered_time is None and self._humidity_dwell_fan_on_at is None:
+                # Fan already off from URA's point of view; nothing to arm.
+                return
+            now = dt_util.now()
+            self._humidity_fan_manual_off_until = (
+                now + timedelta(seconds=HUMIDITY_FAN_MANUAL_OFF_RESPECT_S)
+            )
+            _LOGGER.info(
+                "humidity_fan_manual_off_detected: %s external OFF — respecting %d s",
+                getattr(new_state, "entity_id", "?"),
+                HUMIDITY_FAN_MANUAL_OFF_RESPECT_S,
+            )
+            self._humidity_fan_triggered_time = None
+            self._humidity_on_since = None
+            self._humidity_fan_last_asserted_at = None
+            self._humidity_dwell_fan_on_at = None
+            self._humidity_presence_runtime_until = None
+            self._humidity_spike_was_trigger = False
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("humidity_fan_state_change_handler errored: %s", exc)
+
     def _fan_is_actually_on(self, fans: list[str]) -> bool:
         """Return True if any entity in fans reports state 'on'.
 
@@ -3313,7 +3439,19 @@ class RoomAutomation:
         # every reachable tick, not just the master-on path.
         self._refresh_config()
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
-        if not humidity_fans or humidity is None:
+        # D2 (bathroom-exhaust occupancy-and-resend, 2026-10-14): lazily
+        # register the manual-OFF state-change listeners on first tick.
+        # Torn down implicitly on HA entry unload (listener holds a weak
+        # reference to the dispatcher; _humidity_fan_unsub_listeners is
+        # also exposed for explicit cleanup if a future lifecycle hook
+        # calls :meth:`_unregister_humidity_fan_listeners`).
+        if humidity_fans and not self._humidity_fan_unsub_listeners:
+            self._register_humidity_fan_manual_off_listeners(humidity_fans)
+        # D3 (bathroom-exhaust occupancy-and-resend): dwell + cap paths
+        # must run even when humidity is None (no-humidity-sensor rooms
+        # like Master Bath Toilet). Humidity-driven comparisons below
+        # are guarded individually (Rev 2 finding #7).
+        if not humidity_fans:
             return
 
         toggle3_on = bool(self.config.get(
@@ -3338,13 +3476,14 @@ class RoomAutomation:
             self._humidity_on_since = now_seed
             self._humidity_fan_triggered_time = now_seed
 
-        # FIX 3a (bathroom-exhaust intelligence) — SAFETY-CAP EXCEPTION:
-        # FIX A (second fix-up — Option 2 / D-HIGH-1): also take this
-        # cap-only branch when master-automation is OFF. The safety cap
-        # is a universal backstop; venting/on-logic/off-threshold are
-        # comfort automation and require BOTH master-automation enabled
-        # AND toggle #3 ON.
-        if (not toggle3_on) or (not automation_enabled):
+        # D1 (bathroom-exhaust occupancy-and-resend cycle, 2026-10-14):
+        # humidity venting is DECOUPLED from the room master-automation
+        # switch. Toggle #3 (CONF_HUMIDITY_FAN_CONTROL_ENABLED) is the
+        # sole venting gate; the max-runtime cap continues to fire
+        # universally. The ``automation_enabled`` kw now carries the
+        # skip-first-tick inverse only (humidity_venting_enabled); see
+        # coordinator.py:5420.
+        if not toggle3_on:
             if self._humidity_on_since is not None:
                 max_runtime_cap = self.config.get(
                     CONF_HUMIDITY_FAN_MAX_RUNTIME,
@@ -3360,36 +3499,72 @@ class RoomAutomation:
                         toggle3_on, automation_enabled,
                         elapsed_cap, max_runtime_cap,
                     )
-                    await self._safe_service_call(
-                        "homeassistant", SERVICE_TURN_OFF,
-                        {"entity_id": humidity_fans},
-                        blocking=False,
-                    )
+                    if self._fan_is_actually_on(humidity_fans) or self._humidity_fan_triggered_time is not None:
+                        await self._safe_service_call(
+                            "homeassistant", SERVICE_TURN_OFF,
+                            {"entity_id": humidity_fans},
+                            blocking=False,
+                            context=_humidity_fan_ctx(),
+                        )
                     self._humidity_on_since = None
                     self._humidity_fan_triggered_time = None
                     self._humidity_cap_suppressed = True
                     self._humidity_spike_was_trigger = False
                     self._humidity_presence_runtime_until = None
+                    self._humidity_fan_last_asserted_at = None
+                    self._humidity_dwell_fan_on_at = None
+                    self._humidity_fan_manual_off_until = None
                     self._humidity_reset_baseline()
             return
 
         wet_room = bool(self.config.get(CONF_WET_ROOM, False))
 
+        # D1 (bathroom-exhaust occupancy-and-resend, 2026-10-14): the
+        # ``automation_enabled`` kw now carries only the skip-first gate.
+        # Sleep-off / venting / dwell paths all require skip_first=False.
+        skip_first = not bool(automation_enabled)
+
+        now = dt_util.now()
+
         # v3.18.1: Fan sleep policy — turn off humidity fans during sleep if
         # policy=off, EXCEPT wet-room exhausts (D4 sleep-exemption: a 3am
         # bathroom exhaust must not be blocked by sleep policy; max-runtime
-        # cap still bounds total runtime).
-        if self.is_sleep_mode_active() and not wet_room:
+        # cap still bounds total runtime). D2 Rev 2 finding #6 — transition-
+        # gate the OFF emission so repeated sleep ticks don't spam ``turn_off``
+        # on an already-off fan.
+        if (
+            not skip_first
+            and self.is_sleep_mode_active()
+            and not wet_room
+        ):
             policy = self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
             if policy == FAN_SLEEP_OFF:
-                await self._safe_service_call(
-                    "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
-                    blocking=False,
+                fan_believed_on_sleep = (
+                    self._humidity_fan_triggered_time is not None
+                    or self._humidity_dwell_fan_on_at is not None
+                    or self._fan_is_actually_on(humidity_fans)
                 )
+                if fan_believed_on_sleep:
+                    await self._safe_service_call(
+                        "homeassistant", SERVICE_TURN_OFF,
+                        {"entity_id": humidity_fans},
+                        blocking=False,
+                        context=_humidity_fan_ctx(),
+                    )
+                    _LOGGER.info(
+                        "humidity_fan_sleep_off: forcing off (policy=%s wet=%s)",
+                        policy, wet_room,
+                    )
                 self._humidity_fan_triggered_time = None
                 self._humidity_on_since = None
+                self._humidity_dwell_fan_on_at = None
+                self._humidity_fan_last_asserted_at = None
                 # D3: clear presence-runtime extension on forced sleep-off.
                 self._humidity_presence_runtime_until = None
+                # Max-runtime safety path never respects the manual-OFF
+                # window; sleep-off aligns with the safety-cap posture and
+                # clears it (operator decision §C).
+                self._humidity_fan_manual_off_until = None
                 # v4.6.4 P3a: do NOT clear `_humidity_cap_suppressed` here.
                 return
 
@@ -3397,7 +3572,6 @@ class RoomAutomation:
         timeout = self.config.get(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT)
         max_runtime = self.config.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
         off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
-        now = dt_util.now()
 
         # D2 — EMA spike detection state update (before the cap check so a
         # spike-armed fan still sees a fresh sample on the tick the cap fires).
@@ -3419,7 +3593,9 @@ class RoomAutomation:
             DEFAULT_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
         )
         spike_fired = False
-        if spike_enabled and spike_alpha_s > 0:
+        # Rev 2 finding #7 — spike baseline / fire-check both reference
+        # `humidity`; skip the whole block when humidity is None.
+        if humidity is not None and spike_enabled and spike_alpha_s > 0:
             try:
                 self._humidity_update_baseline(humidity, now, spike_alpha_s, spike_mode)
                 spike_fired = self._humidity_spike_should_fire(
@@ -3433,7 +3609,9 @@ class RoomAutomation:
         # branch (FIX B, second fix-up) so the cap is reachable when toggle
         # #3 or master-automation is OFF. Do NOT re-seed here.
 
-        # v4.6.2.1: Max-runtime cap — check before normal logic.
+        # v4.6.2.1: Max-runtime cap — check before normal logic. Rev 2
+        # finding #6 — transition-gate the OFF emission; also clear the
+        # new D2/D3 state anchors on cap-fire.
         if (
             self._humidity_on_since is not None
             and (now - self._humidity_on_since).total_seconds() >= max_runtime
@@ -3443,25 +3621,42 @@ class RoomAutomation:
                 (now - self._humidity_on_since).total_seconds(),
                 max_runtime,
             )
-            await self._safe_service_call(
-                "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
-                blocking=False,
-            )
+            if self._fan_is_actually_on(humidity_fans) or self._humidity_fan_triggered_time is not None:
+                await self._safe_service_call(
+                    "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
+                    blocking=False,
+                    context=_humidity_fan_ctx(),
+                )
             # v4.6.4 P3c: clear anchors on cap-fire.
             self._humidity_on_since = None
             self._humidity_fan_triggered_time = None
             self._humidity_cap_suppressed = True
             self._humidity_spike_was_trigger = False
             self._humidity_presence_runtime_until = None
+            self._humidity_fan_last_asserted_at = None
+            self._humidity_dwell_fan_on_at = None
+            # Max-runtime cap is a universal backstop (safety > comfort);
+            # clear the manual-OFF respect window alongside anchors.
+            self._humidity_fan_manual_off_until = None
             # D2 — clear EMA state on fan-off so the next ON event seeds a
             # fresh baseline (no stale shower humidity bleeding into the
             # post-cap quiet period).
             self._humidity_reset_baseline()
             return
 
+        # Skip-first-tick: everything below is venting (requires
+        # ``_skip_first_this_tick=False``). D1 (bathroom-exhaust).
+        if skip_first:
+            return
+
         # v4.6.2.1: Clear suppression once humidity drops below OFF threshold.
+        # Rev 2 finding #7 — when humidity is None (no sensor), clear the
+        # suppression latch so the dwell path isn't blocked forever by a
+        # stale latch from the prior wet-room cap fire.
         if self._humidity_cap_suppressed:
-            if humidity <= off_threshold:
+            if humidity is None:
+                self._humidity_cap_suppressed = False
+            elif humidity <= off_threshold:
                 self._humidity_cap_suppressed = False
             else:
                 # Still suppressed — do not re-trigger (spike does NOT bypass
@@ -3480,27 +3675,115 @@ class RoomAutomation:
         # latent window that a later unrelated fan-on cycle would inherit and
         # silently extend. Update last_room_occupied tracking ALWAYS so we
         # don't miss an edge, but only ARM when fan_is_on.
+        # D3 (Rev 2 finding #3): presence-runtime window must ARM
+        # regardless of ``wet_room`` so the no-humidity-sensor dwell
+        # path has an OFF obligation. Edge-tracking runs on every tick.
         presence_runtime_enabled = bool(
             self.config.get(CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, False)
         )
-        if presence_runtime_enabled and wet_room and room_occupied is not None:
-            if fan_is_on:
+        if presence_runtime_enabled and room_occupied is not None:
+            if fan_is_on or self._humidity_dwell_fan_on_at is not None:
                 self._humidity_update_presence_runtime(now, room_occupied)
             else:
                 # Keep edge-tracking current so a future fan-on cycle's
                 # vacate edge fires correctly; do NOT arm the window.
                 self._humidity_last_room_occupied = room_occupied
 
-        # D2 — compose the ON trigger: absolute threshold OR spike.
-        absolute_triggered = humidity >= threshold
-        on_trigger = absolute_triggered or spike_fired
+        # D3 — occupancy-dwell "number-2" trigger. Dwell times the raw
+        # occupancy / motion sensor's continuous ON-run (Rev 2 finding #4),
+        # NOT URA's room-occupied timer (which carries occupancy_timeout
+        # and would inflate every visit past dwell).
+        dwell_enabled = bool(
+            self.config.get(CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED, False)
+        )
+        dwell_s = int(
+            self.config.get(
+                CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+                DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+            )
+        )
+        dwell_elapsed = 0.0
+        raw_sensor_live = False
+        if dwell_enabled:
+            raw_sensors = (
+                list(self.config.get(CONF_OCCUPANCY_SENSORS, []) or [])
+                + list(self.config.get(CONF_MOTION_SENSORS, []) or [])
+            )
+            for raw_id in raw_sensors:
+                try:
+                    rs = self.hass.states.get(raw_id)
+                except Exception:  # noqa: BLE001
+                    rs = None
+                if rs is None:
+                    continue
+                if rs.state in ("unknown", "unavailable", None):
+                    continue
+                raw_sensor_live = True
+                if rs.state == STATE_ON:
+                    try:
+                        elapsed = (now - rs.last_changed).total_seconds()
+                    except Exception:  # noqa: BLE001
+                        elapsed = 0.0
+                    if elapsed > dwell_elapsed:
+                        dwell_elapsed = elapsed
+        dwell_satisfied = (
+            dwell_enabled
+            and raw_sensor_live
+            and dwell_elapsed >= dwell_s
+            and not self._humidity_cap_suppressed
+        )
+        dwell_fire_edge = (
+            dwell_satisfied
+            and not fan_is_on
+            and self._humidity_dwell_fan_on_at is None
+        )
+
+        # D2 — compose the ON trigger: absolute threshold OR spike OR
+        # D3 dwell. Humidity-driven triggers skipped on None (finding #7).
+        if humidity is not None:
+            absolute_triggered = humidity >= threshold
+        else:
+            absolute_triggered = False
+        on_trigger = absolute_triggered or spike_fired or dwell_satisfied
 
         if on_trigger:
-            if not fan_is_on:
+            # D2 Rev 2 finding #5: respect operator manual-OFF window.
+            # Safety cap bypasses it (handled above).
+            if (
+                self._humidity_fan_manual_off_until is not None
+                and now < self._humidity_fan_manual_off_until
+            ):
+                return
+            fan_actually_on = self._fan_is_actually_on(humidity_fans)
+            is_transition = not fan_is_on
+            due_for_reassert = (
+                fan_is_on
+                and not fan_actually_on
+                and (
+                    self._humidity_fan_last_asserted_at is None
+                    or (now - self._humidity_fan_last_asserted_at).total_seconds()
+                    >= HUMIDITY_FAN_REASSERT_INTERVAL_S
+                )
+            )
+            if not (is_transition or due_for_reassert):
+                return  # D2 Rev 2 finding #6 (ON side): no untransitioned re-emit
+            if is_transition:
                 self._humidity_fan_triggered_time = now
                 self._humidity_on_since = now
-                self._humidity_spike_was_trigger = spike_fired and not absolute_triggered
-                if self._humidity_spike_was_trigger:
+                self._humidity_spike_was_trigger = (
+                    spike_fired and not absolute_triggered and not dwell_fire_edge
+                )
+                if dwell_fire_edge:
+                    self._humidity_dwell_fan_on_at = now
+                    _LOGGER.info(
+                        "humidity_fan_dwell_triggered: raw-sensor ON %.0f s >= dwell %ds",
+                        dwell_elapsed, dwell_s,
+                    )
+                    # Rev 2 finding #3 — arm presence-runtime window
+                    # regardless of wet_room so dwell has an OFF obligation.
+                    if presence_runtime_enabled and room_occupied is not None:
+                        self._humidity_last_room_occupied = True
+                elif self._humidity_spike_was_trigger:
                     _LOGGER.info(
                         "humidity_fan_spike_triggered: baseline ≈ %s, "
                         "current %.1f%% (mode=%s)",
@@ -3512,10 +3795,14 @@ class RoomAutomation:
                 SERVICE_TURN_ON,
                 {"entity_id": humidity_fans},
                 blocking=False,
+                context=_humidity_fan_ctx(),
             )
+            self._humidity_fan_last_asserted_at = now
             _LOGGER.debug(
-                "Turned on humidity fans — humidity at %.1f%% (spike=%s)",
-                humidity, spike_fired,
+                "humidity_fan_turn_on: transition=%s reassert=%s (humidity=%s dwell_s=%d dwell_elapsed=%.0f)",
+                is_transition, due_for_reassert,
+                "%.1f" % humidity if humidity is not None else "None",
+                dwell_s, dwell_elapsed,
             )
             return
 
@@ -3529,9 +3816,20 @@ class RoomAutomation:
         ):
             return  # presence-runtime hold
 
+        # Rev 2 finding #2 — dwell HOLDS the fan on while the room is
+        # still occupied. Block the humidity-OFF branch so it cannot race
+        # dwell at the ``timeout`` edge.
+        if (
+            self._humidity_dwell_fan_on_at is not None
+            and bool(room_occupied)
+        ):
+            return
+
         # OFF branch — humidity at/below off_threshold OR (spike-was-trigger and
-        # baseline-relative OFF condition met).
-        if fan_is_on:
+        # baseline-relative OFF condition met). Rev 2 findings #1/#6/#7:
+        # transition-gate the OFF emission; dwell-OFF branch handles the
+        # humidity-None case.
+        if fan_is_on and humidity is not None:
             spike_off_ok = False
             if self._humidity_spike_was_trigger and self._humidity_ema is not None:
                 delta_off = max(spike_delta / 2.0, 1.0)  # Δ_off ≈ Δ/2
@@ -3541,29 +3839,60 @@ class RoomAutomation:
             if ready_to_off:
                 elapsed = (now - self._humidity_fan_triggered_time).total_seconds()
                 if elapsed >= timeout:
-                    await self._safe_service_call(
-                        "homeassistant",
-                        SERVICE_TURN_OFF,
-                        {"entity_id": humidity_fans},
-                        blocking=False,
-                    )
+                    if self._fan_is_actually_on(humidity_fans) or True:  # transition-gated by fan_is_on
+                        await self._safe_service_call(
+                            "homeassistant",
+                            SERVICE_TURN_OFF,
+                            {"entity_id": humidity_fans},
+                            blocking=False,
+                            context=_humidity_fan_ctx(),
+                        )
                     _LOGGER.debug(
-                        "Turned off humidity fans — humidity %.1f%% (spike_off=%s),"
-                        " ran %.0f s",
+                        "humidity_fan_turn_off: humidity %.1f%% (spike_off=%s), ran %.0f s",
                         humidity, spike_off_ok, elapsed,
                     )
                     self._humidity_fan_triggered_time = None
                     self._humidity_on_since = None
                     self._humidity_spike_was_trigger = False
                     self._humidity_presence_runtime_until = None
+                    self._humidity_fan_last_asserted_at = None
+                    self._humidity_dwell_fan_on_at = None
                     # D2: clear baseline state on fan-off for re-arming.
                     self._humidity_reset_baseline()
-        else:
+                    return
+
+        # D3 Rev 2 finding #1 — dwell-OFF branch for no-humidity rooms:
+        # fan-on by dwell, vacant, and presence-runtime window expired.
+        if (
+            humidity is None
+            and self._humidity_dwell_fan_on_at is not None
+            and not bool(room_occupied)
+            and self._humidity_presence_runtime_until is not None
+            and now >= self._humidity_presence_runtime_until
+            and (fan_is_on or self._fan_is_actually_on(humidity_fans))
+        ):
+            await self._safe_service_call(
+                "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
+                blocking=False,
+                context=_humidity_fan_ctx(),
+            )
+            _LOGGER.info("humidity_fan_dwell_off: presence window expired, fan off")
+            self._humidity_fan_triggered_time = None
+            self._humidity_on_since = None
+            self._humidity_dwell_fan_on_at = None
+            self._humidity_fan_last_asserted_at = None
+            self._humidity_presence_runtime_until = None
+            return
+
+        if not fan_is_on:
             # FIX 2 (bathroom-exhaust intelligence): no-fan, no-trigger path.
             # If a stale presence-runtime window is hanging around from a
             # prior cycle, clear it so it cannot bleed into a future fan-on
             # cycle. Tie the window's lifetime strictly to fan-on cycles.
-            if self._humidity_presence_runtime_until is not None:
+            if (
+                self._humidity_presence_runtime_until is not None
+                and self._humidity_dwell_fan_on_at is None
+            ):
                 self._humidity_presence_runtime_until = None
 
     # ------------------------------------------------------------------
