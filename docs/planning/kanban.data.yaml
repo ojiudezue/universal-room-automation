@@ -4743,6 +4743,32 @@ cards:
     regardless of what is triggering them. This does NOT auto-approve a build — it is a shared energy
     primitive (Tier 2+) and the operator owns the go — but the held-pending-root-cause rationale is
     spent and should be re-decided.'
+- id: OVERNIGHT-PASS-FUTURE-TIMESTAMPS-1
+  title: The nightly board pass writes clock times that have not happened yet -> stamp every time from `date`
+  thread: board
+  status: waiting_me
+  created: '2026-10-14 03:25'
+  updated: '2026-10-14 03:25'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, found-during-probe]
+  problem_solution:
+  - 'Problem: the unattended nightly pass guesses the time instead of reading the clock, so it stamps board entries hours in the future (feed entries at 02:20-03:05 written while the clock read 02:10; a "measured ~07:46" note on the Sonoff card written around 02:20). That makes the morning "done in the last 24 hours" counter and the card ordering wrong, and the fake times read like evidence. Solution: a skill rule that every timestamp comes from running `date` (added to ura-kanban b2b831197 and auto-kanban afd2ea8), then check the next nightly run actually follows it; if it still guesses, put the rule in the launchd prompt too.'
+  origin:
+    date: '2026-10-14'
+    gist: attended session found 10-14 overnight feed entries timestamped after the wall clock
+  why: invented times corrupt the 24h autonomy counter, staleness ordering and the anti-starvation tiebreak
+  constraints: [do not rewrite the already-committed 10-14 entries' history; correct forward only]
+  parked_alts: []
+  refinement: []
+  knobs: []
+  parsimony: {problem: 'overnight feed/card timestamps exceed wall-clock time at write', verdict: BUILD}
+  rank: {value: 4, time_criticality: 3, effort: 1}
+  links:
+    related: [OVERNIGHT-PASS-NO-LOG-REACH-1]
+    context: 'Same nightly pass, different defect: that card was about the pass not reaching HA logs; this one is about it inventing times.'
+  next: 'After the 10-15 02:00 run: compare every new autonomy_feed `at` and card `updated` to its git commit time; all <= commit time -> done; otherwise add the date rule to homelab-automation/scripts/overnight/ura_overnight_pass.sh prompt.'
+  refs: [.claude/skills/ura-kanban/SKILL.md, 'commit 11318af1b (03:05 feed entry committed at 02:10)']
 - id: OVERNIGHT-PASS-NO-LOG-REACH-1
   MCP_ROOT_CAUSE_2026_10_01: 'ROOT CAUSE of the home-assistant MCP failing in overnight runs, found 10-01 (card stays done; the hassio proxy route is still the canonical log read and worked tonight). Two separate faults: (1) the overnight launchd script exports PYTHONPATH=~/Library/Python/3.9/.../site-packages (for PyYAML); uvx inherits it, so ha-mcp''s Python 3.13 imports the user-site 3.9 httpcore and crashes with the socket_options TypeError recorded in MCP_STATUS_2026_09_21 - that was never a uv cache problem. Fixed locally by setting PYTHONPATH to empty in the home-assistant env of .mcp.json (gitignored; backup at .claude/mcp.json.bak-20261001). Also put ~/.local/bin on the script PATH so the unifi MCPs (bare uvx) can launch (homelab acfcffa). (2) Even with (1) fixed, ha-mcp gets "No route to host" to 192.168.13.13: macOS Local Network privacy blocks the uv-managed Python binary (verified: uv python3.13 urllib -> Errno 65, /usr/bin/python3 -> HTTP 401 i.e. reachable). Fix for (2) is an operator click (System Settings > Privacy & Security > Local Network, allow the terminal/claude host process) - optional, since the hassio proxy route needs nothing.'
   RESOLVED_2026_09_18: 'RESOLVED AUTONOMOUSLY — no operator action is needed, and BOTH of this

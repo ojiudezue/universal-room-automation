@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:30:52-05:00_ - _Data commit: `ab4998046e30`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:33:58-05:00_ - _Data commit: `a7ad12d60ac1`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -16,7 +16,7 @@ _Generated: 2026-10-14T02:30:52-05:00_ - _Data commit: `ab4998046e30`_ - _last_r
 | 🔨 In progress | 2 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 40 |
-| ⏳ Waiting on me (Claude) | 3 |
+| ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 5 |
 | 🅿️ Parked | 89 |
 | ✅ Done | 320 |
@@ -1049,7 +1049,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ⏳ Waiting on me (Claude) (3)
+## ⏳ Waiting on me (Claude) (4)
 _I owe something_
 
 ### `SONOFF-R4M-MULTICAST-AB-1` - Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test — _#1 · WSJF 16.0 · v7 tc7 u2 /e1_
@@ -1061,7 +1061,19 @@ _created 2026-10-13 07:46 · updated 2026-10-14 02:21_
   - `problem`: ~17 MINI R4M (SonoffLAN, mode auto) went 0 -> 30-300 unavailable/day from 10-06; only 1-3 of 17 reach local mode, rest ride eWeLink cloud. Onset = AP fw 8.8.9 -> 8.8.11 on all 8 U7/U6 APs 10-06 10:53-10:58 (auto-update). MINI-2GS and 3rd...
   - `evidence`: Smidg SSID has Multicast/Broadcast Control (bc_filter) ON with 13-device allowlist + multicast enhancement + suppressor "aggressive"; no Sonoff on the allowlist. SonoffLAN local mode needs mDNS.
 
-### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#2 · WSJF 7.5 · v7 tc6 u2 /e2_
+### `OVERNIGHT-PASS-FUTURE-TIMESTAMPS-1` - The nightly board pass writes clock times that have not happened yet -> stamp every time from `date` — _#2 · WSJF 9.0 · v4 tc3 u2 /e1_
+thread: **board** - status: **waiting_me** - approval: **implied**
+_created 2026-10-14 03:25 · initial_
+- **Problem / Solution:**
+  - Problem: the unattended nightly pass guesses the time instead of reading the clock, so it stamps board entries hours in the future (feed entries at 02:20-03:05 written while the clock read 02:10; a "measured ~07:46" note on the Sonoff ca...
+- **Origin:** 2026-10-14 - attended session found 10-14 overnight feed entries timestamped after the wall clock
+- **Why:** invented times corrupt the 24h autonomy counter, staleness ordering and the anti-starvation tiebreak
+- **Next:** After the 10-15 02:00 run: compare every new autonomy_feed `at` and card `updated` to its git commit time; all <= commit time -> done; otherwise add the date rule to homelab-automation/scripts/overnight/ura_overnight_pass.sh prompt.
+- **Tags:** tier-1, found-during-probe
+- **Parsimony:** [BUILD] overnight feed/card timestamps exceed wall-clock time at write
+- **Refs:** .claude/skills/ura-kanban/SKILL.md; commit 11318af1b (03:05 feed entry committed at 02:10)
+
+### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#3 · WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **health_monitor** - status: **waiting_me**
 _created 2026-10-14 02:10 · updated 2026-10-14 02:50 · refined_
 - **Why:** v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or a...
@@ -1069,7 +1081,7 @@ _created 2026-10-14 02:10 · updated 2026-10-14 02:50 · refined_
 - **Forensic keys (1):**
   - `measured_2026_10_14_overnight`: W1 PASS, W2 PASS (6 problems, 3 setup repairs), W4 PASS (1,302 devices; the README estimate of ~2,600 was wrong), W5 PARTIAL (only Z2M Bridge2 gets a row; Bridge1/Bridge3 missing), W6 as expected, W7 PASS, W8 PASS, W12 PASS, W13 interim ...
 
-### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
+### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#4 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **lighting** - status: **waiting_me**
 _created 2026-10-14 02:10_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
