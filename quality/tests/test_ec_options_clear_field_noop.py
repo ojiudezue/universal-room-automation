@@ -133,6 +133,68 @@ def test_clear_plus_new_pick_for_role_field_new_wins():
     )
 
 
+def test_clear_map_covers_every_ec_role_key():
+    """Fix-up (2026-10-14): the hourly ``_scan_ec_role_entities``
+    repair scanner raises ``ec_role_entity_<key>`` for EVERY key in
+    ``EC_ROLE_KEY_SET``, and the Repairs issue tells the operator to
+    clear the field. If a role key is NOT in the clear map it has no
+    UI-reachable fix path. Live evidence (2026-10-14): HA raised
+    ``ec_role_entity_energy_solar_follow_grid_fallback_entity`` after
+    the Envoy MQTT stream add-on was retired.
+
+    This test is the forcing function: every EC_ROLE_KEY_SET key must
+    be a value in the module-level clear map. Also check the 5 cloud
+    oracle keys explicitly (they are also in EC_ROLE_KEY_SET; belt and
+    braces so a refactor that drops them from the set still trips).
+    """
+    from custom_components.universal_room_automation.config_flow import (
+        _EC_OPTIONS_CLEAR_FIELD_MAP,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+        CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
+        CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+        CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+        EC_ROLE_KEY_SET,
+    )
+
+    covered = set(_EC_OPTIONS_CLEAR_FIELD_MAP.values())
+    missing = EC_ROLE_KEY_SET - covered
+    assert not missing, (
+        "every EC_ROLE_KEY_SET key must have a clear-widget choice; "
+        f"missing from _EC_OPTIONS_CLEAR_FIELD_MAP: {sorted(missing)}"
+    )
+    # Belt-and-braces for the 5 cloud oracle / stamp keys.
+    for _k in (
+        CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+        CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+        CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+        CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+        CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
+    ):
+        assert _k in covered, f"cloud oracle key {_k} must be clearable"
+
+
+def test_clear_solar_follow_grid_fallback_removes_stored_key():
+    """Live-evidence regression: the operator's 2026-10-14 repair is to
+    clear ``energy_solar_follow_grid_fallback_entity`` because its
+    configured entity (``sensor.envoy_stream_grid_power``) died when
+    the Envoy MQTT stream add-on was retired. This test anchors that
+    specific choice -> conf wiring."""
+    conf_key = "energy_solar_follow_grid_fallback_entity"
+    stored = {conf_key: "sensor.envoy_stream_grid_power"}
+    flow = _make_options_flow(options=stored)
+    with _ha_mocks_injected():
+        result = _run(flow.async_step_coordinator_energy(user_input={
+            "clear_grid_fields": ["solar_follow_grid_fallback"],
+        }))
+    assert result["type"] == "create_entry", result
+    assert conf_key not in result["data"], (
+        "clearing solar_follow_grid_fallback must drop the stored key"
+    )
+
+
 def test_cleared_key_is_a_change_under_normalised_diff():
     """A cleared role key (popped from saved options so .get(k) is None)
     MUST be seen as a change by the EC-HOUSE-ENTITY-DEFAULTS-1 review-D I3
