@@ -4751,8 +4751,8 @@ cards:
   status: planned
   batch: hm-v2.2
   created: '2026-10-14 03:43'
-  updated: '2026-10-14 03:43'
-  refinement_status: initial
+  updated: '2026-10-14 03:52'
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-10-14 ("I also want to build the next slice of the health monitor plan. I want to push and finish.")'
   tags: [tier-2, sibling-repo]
@@ -4764,7 +4764,9 @@ cards:
   why: scope cut by marginal benefit against measured house problems (docs/PLAN_v2.md R8 in ~/Code/ha-health-monitor)
   constraints: ['HM CLAUDE.md perf rules + perf gate', 'entity count stays <= 20', 'push GitHub + Gitea', 'install on the house only while awake']
   parked_alts: ['full Wave 2 list as written (~6 build days) — cut to the parts tied to live problems; rest parked in R8 with triggers']
-  refinement: []
+  refinement:
+  - 'Planned to park the Zigbee network map + Matter topology with triggers -> operator: "We don''t need these. The question is what from those integrations'' data is important to surface" -> DROPPED; added B5: cheap per-device signals from data already cached (Zigbee low battery, stale last-seen, weak-link count; Matter reboot-count deltas, battery, Thread/Wi-Fi drop counters if cached), measured on the house first, built only where present.'
+  - 'Counts shown bare ("23 Zigbee devices faulting") -> operator wants the share too -> C1: every human-readable count with a natural denominator shows "23 of 160 (14%)"; sensor states stay numeric, *_pct + denominator attributes added; denominator = the same population the count came from.'
   knobs: [flap_per_day_min (HM options, threshold for a flapping repair), zwave drop/timeout delta threshold (HM options)]
   parsimony: {problem: 'HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping', verdict: SIMPLIFY}
   links:

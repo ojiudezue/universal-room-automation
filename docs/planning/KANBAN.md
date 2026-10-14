@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:44:00-05:00_ - _Data commit: `b8e0968cc719`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:50:09-05:00_ - _Data commit: `8b5d9436664e`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -216,7 +216,7 @@ _created 2026-10-10 16:00_
 
 ### `HM-V22-NEXT-SLICE-1` - Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **health-monitor** - status: **planned** - approval: **explicit**
-_created 2026-10-14 03:43 · initial_
+_created 2026-10-14 03:43 · updated 2026-10-14 03:52 · refined ×2_
 - **Problem / Solution:**
   - Problem: the Health Monitor v2.1 is live but two of its readings are wrong (the "per hour" garbage-collection counts are really per-30-seconds, and two of the three Zigbee bridges have no radio row), and it can say a device is offline no...
 - **Origin:** 2026-10-14 - operator wants the next HM plan slice built, pushed and finished quickly
