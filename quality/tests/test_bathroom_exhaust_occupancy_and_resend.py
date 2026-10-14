@@ -40,7 +40,18 @@ def _mock_module(name: str, **attrs) -> types.ModuleType:
     return mod
 
 
-_identity = lambda fn: fn  # noqa: E731
+def _callback_marker(fn):
+    """Stand-in for ``homeassistant.core.callback`` that stamps
+    ``_hass_callback = True`` the way HA's real decorator does, so the
+    handler-is-callback test below can falsify a missing decorator."""
+    try:
+        fn._hass_callback = True
+    except Exception:  # noqa: BLE001
+        pass
+    return fn
+
+
+_identity = _callback_marker
 _mock_cls = MagicMock
 
 _captured_track_cbs: list = []
@@ -559,3 +570,424 @@ def test_humidity_fan_dwell_single_actuation_regardless_of_source():
     _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=True, automation_enabled=True))
     turn_ons = [e for e in log if e[1] == "turn_on"]
     assert len(turn_ons) == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix-up pass (Review A/B/C): behavioural + structural tests for each MED/HIGH
+# ---------------------------------------------------------------------------
+
+def test_on_humidity_fan_state_change_has_callback_decorator():
+    """Fix-up (Review A/B HIGH #1): the state-change handler MUST be
+    decorated with ``@callback`` so HA runs it on the event loop. A
+    missing decorator classifies it as ``HassJobType.Executor`` and
+    races the handler's own writes. Structural source-text check: a
+    mutation that deletes the decorator leaves the file without
+    ``@callback`` immediately above the method and fails this test.
+
+    The runtime check below (if the harness ``callback`` stamp is live)
+    adds a second line of defense.
+    """
+    with open(os.path.join(_ura_root, "automation.py"), "r") as f:
+        src = f.read()
+    idx = src.find("def _on_humidity_fan_state_change(")
+    assert idx > 0, "handler must exist"
+    # Walk back over whitespace/comment lines to the previous non-blank.
+    prefix = src[:idx].rstrip()
+    last_line = prefix.rsplit("\n", 1)[-1].strip()
+    assert last_line == "@callback", (
+        f"_on_humidity_fan_state_change must be decorated with @callback "
+        f"(got previous line: {last_line!r})"
+    )
+    # Runtime: when the harness stamp is active, the attribute is set.
+    fn = RoomAutomation._on_humidity_fan_state_change
+    assert getattr(fn, "_hass_callback", False) is True, (
+        "callback decorator must stamp _hass_callback=True so HA's "
+        "is_callback(func) returns True — HA runs it on the loop"
+    )
+
+
+def test_handler_toggle3_off_blocks_venting():
+    """D1 — ``CONF_HUMIDITY_FAN_CONTROL_ENABLED=False`` blocks venting
+    even above threshold (safety cap unchanged — covered elsewhere).
+    Catches a mutation that removes the toggle3 gate inside the handler.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    auto, log, _ = _make()
+    # ``_refresh_config()`` at the handler top rebuilds self.config from
+    # the config entry, so the mutation must land there.
+    auto._config_entry.data[CONF_HUMIDITY_FAN_CONTROL_ENABLED] = False
+    _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=True, automation_enabled=True))
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons == [], "toggle3 OFF must block venting"
+
+
+def test_handler_toggle3_off_safety_cap_still_fires():
+    """D1 — toggle3 OFF, anchor seeded past cap → safety cap force-offs
+    the fan. Catches a mutation that routes the cap through the toggle3
+    gate.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    auto, log, _ = _make(fan_on=True, max_runtime=60)
+    auto.config[CONF_HUMIDITY_FAN_CONTROL_ENABLED] = False
+    # Pre-seed an anchor from a pre-toggle3-off cycle.
+    auto._humidity_on_since = t0
+    auto._humidity_fan_triggered_time = t0
+    _set_now(t0 + timedelta(seconds=120))
+    _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=False, automation_enabled=True))
+    turn_offs = [e for e in log if e[1] == "turn_off"]
+    assert turn_offs, "safety cap must fire regardless of toggle3"
+
+
+def test_d1_caller_master_off_still_vents():
+    """D1 caller drill — mirrors the coordinator call-site expression
+    (``automation_enabled=humidity_venting_enabled(_skip_first_this_tick)``)
+    with master-automation OFF. If anyone re-adds
+    ``and self._is_automation_enabled()`` to the gate helper (or the
+    caller), venting goes silent and THIS test fails.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    auto, log, _ = _make()
+    master_automation_enabled = False  # ManualMode
+    skip_first_this_tick = False
+    gate = humidity_venting_enabled(skip_first_this_tick)
+    # Simulate a hypothetical re-coupling: ``gate = gate and master_automation_enabled``.
+    # If the caller re-adds the ``_is_automation_enabled`` term, the kw drops
+    # to False even on a non-skip-first tick and venting is silenced.
+    _run(auto.handle_humidity_based_fan_control(80.0, room_occupied=True, automation_enabled=gate))
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons, (
+        "D1 — venting must run on a non-skip-first tick regardless of "
+        f"master-automation state (master={master_automation_enabled})"
+    )
+    # And re-coupling the predicate silences it (sanity backstop).
+    log.clear()
+    auto2, log2, _ = _make()
+    bad_gate = humidity_venting_enabled(skip_first_this_tick) and master_automation_enabled
+    _set_now(t0 + timedelta(seconds=30))
+    _run(auto2.handle_humidity_based_fan_control(80.0, room_occupied=True, automation_enabled=bad_gate))
+    assert [e for e in log2 if e[1] == "turn_on"] == [], (
+        "sanity: re-coupling silences venting"
+    )
+
+
+def test_coordinator_call_site_uses_humidity_venting_enabled_helper():
+    """Structural: the single coordinator.py call site routes
+    ``automation_enabled`` through ``humidity_venting_enabled`` and NOT
+    through ``_is_automation_enabled()``. Falsifies the D1-caller
+    mutation at the call site itself.
+    """
+    coord_path = os.path.join(_ura_root, "coordinator.py")
+    with open(coord_path, "r") as f:
+        src = f.read()
+    idx = src.find("handle_humidity_based_fan_control(")
+    assert idx > 0
+    window = src[idx: idx + 1200]
+    assert "humidity_venting_enabled(" in window, (
+        "caller must route automation_enabled through humidity_venting_enabled"
+    )
+    assert "_is_automation_enabled()" not in window, (
+        "D1 — master-automation predicate must NOT be in the humidity call site"
+    )
+
+
+def test_listener_ura_own_off_does_not_arm_manual_window():
+    """D2 finding #5 — a URA-stamped on→off (our own turn_off) MUST NOT
+    arm the manual-off window. Falsifies a mutation that drops the URA
+    context check in the listener.
+    """
+    from custom_components.universal_room_automation.ura_context import (
+        URA_WRITE_CONTEXT_PARENT_ID,
+    )
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    auto, log, _ = _make()
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(70.0, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_fan_triggered_time is not None
+    ev = types.SimpleNamespace()
+    ev.data = {
+        "new_state": _mkstate("off"),
+        "old_state": _mkstate("on"),
+    }
+    ev.context = types.SimpleNamespace(
+        parent_id=URA_WRITE_CONTEXT_PARENT_ID, id="ura", user_id=None,
+    )
+    auto._on_humidity_fan_state_change(ev)
+    assert auto._humidity_fan_manual_off_until is None, (
+        "URA-own OFF must not arm the manual-OFF window"
+    )
+    assert auto._humidity_fan_triggered_time is not None, (
+        "URA-own OFF must not clear anchors"
+    )
+
+
+def test_listener_old_state_off_does_not_arm():
+    """D2 finding #5 — old_state=off (no on→off transition) must not
+    arm the window. Falsifies a mutation that drops the ``old==on`` guard.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    auto, _, _ = _make()
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(70.0, room_occupied=True, automation_enabled=True))
+    ev = types.SimpleNamespace()
+    ev.data = {
+        "new_state": _mkstate("off"),
+        "old_state": _mkstate("off"),
+    }
+    ev.context = types.SimpleNamespace(parent_id=None, id="x", user_id=None)
+    auto._on_humidity_fan_state_change(ev)
+    assert auto._humidity_fan_manual_off_until is None, (
+        "off→off transition must not arm the manual-OFF window"
+    )
+
+
+def test_dwell_short_on_run_does_not_fire():
+    """Review C — dwell timing source is the raw sensor's continuous ON
+    run. Raw ON for 10 s with dwell_s=60 must NOT fire. Falsifies a
+    mutation that replaces the computed ``dwell_elapsed`` with a huge
+    constant (which would require ``raw_state.state == STATE_ON`` anyway
+    — but combined with ``test_dwell_uses_raw_sensor_not_room_timer``
+    the matrix pins the source).
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    auto, log, _ = _make(
+        raw_state="on", raw_last_changed=t0 - timedelta(seconds=10),
+        dwell_s=60,
+    )
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons == [], "short on-run must not satisfy dwell"
+
+
+def test_reassert_does_not_emit_before_interval():
+    """D2 — anchor on, probe off, elapsed < reassert interval → no
+    re-emit. Falsifies a mutation of ``HUMIDITY_FAN_REASSERT_INTERVAL_S``
+    to 0 (which would re-assert every tick).
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    auto, log, states = _make()
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(70.0, room_occupied=True, automation_enabled=True))
+    # Simulate relay-drop (anchor on, fan reports off) at t + 10 s.
+    states[FAN_ENTITY] = _mkstate("off")
+    log.clear()
+    _set_now(t0 + timedelta(seconds=10))
+    _run(auto.handle_humidity_based_fan_control(70.0, room_occupied=True, automation_enabled=True))
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons == [], (
+        "re-assert must respect HUMIDITY_FAN_REASSERT_INTERVAL_S cap "
+        "— no re-emit within the interval"
+    )
+
+
+def test_dwell_presence_window_arms_in_non_wet_room():
+    """Rev 2 finding #3 — dwell fires in a non-wet room, and the vacancy
+    edge arms the presence-runtime window regardless of wet_room.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    raw_lc = t0 - timedelta(seconds=90)
+    auto, log, states = _make(
+        wet_room=False, raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+    )
+    _set_now(t0)
+    # Supply the occupied-since snapshot the handler reads to compute
+    # the window length.
+    auto.coordinator._last_occupied_since_for_handler = t0 - timedelta(seconds=90)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_dwell_fan_on_at is not None
+    # Vacancy edge.
+    states[RAW_SENSOR] = _mkstate("off", t0 + timedelta(seconds=120))
+    states[FAN_ENTITY] = _mkstate("on")
+    _set_now(t0 + timedelta(seconds=121))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=False, automation_enabled=True))
+    assert auto._humidity_presence_runtime_until is not None, (
+        "non-wet dwell cycle must arm the presence-runtime window on vacancy"
+    )
+
+
+def test_dwell_off_fallback_when_presence_runtime_disabled():
+    """Fix-up (MED #4) — presence-runtime disabled: dwell-OFF must still
+    fire after the fallback base window past the vacancy edge. No
+    ``occupied-since`` stamp available.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    raw_lc = t0 - timedelta(seconds=90)
+    auto, log, states = _make(
+        raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+        presence_runtime=False,  # OFF
+    )
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_dwell_fan_on_at is not None
+    assert auto._humidity_presence_runtime_until is None, (
+        "presence-runtime disabled — window must not arm"
+    )
+    # Vacancy edge stamps _humidity_dwell_vacant_at.
+    states[RAW_SENSOR] = _mkstate("off", t0 + timedelta(seconds=5))
+    states[FAN_ENTITY] = _mkstate("on")
+    _set_now(t0 + timedelta(seconds=5))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=False, automation_enabled=True))
+    log.clear()
+    # Jump past fallback base window.
+    _set_now(t0 + timedelta(seconds=5 + 61))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=False, automation_enabled=True))
+    turn_offs = [e for e in log if e[1] == "turn_off"]
+    assert turn_offs, (
+        f"dwell-OFF must fire via fallback once base-s elapsed; got {log}"
+    )
+
+
+def test_cap_suppression_holds_in_no_humidity_room_until_vacancy():
+    """Fix-up (MED #5) — stuck-ON occupancy sensor in a no-humidity
+    room: cap-fire sets ``_humidity_cap_awaits_vacancy``; the next tick
+    must NOT clear ``_humidity_cap_suppressed`` while raw is still ON.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    raw_lc = t0 - timedelta(seconds=600)
+    auto, log, states = _make(
+        raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+        max_runtime=60,
+    )
+    # Simulate cap-fire: seed anchors + awaits-vacancy latch.
+    auto._humidity_on_since = t0 - timedelta(seconds=120)
+    auto._humidity_fan_triggered_time = t0 - timedelta(seconds=120)
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    # Cap fires on this tick (anchor already past cap).
+    assert auto._humidity_cap_suppressed is True
+    assert auto._humidity_cap_awaits_vacancy is True
+    log.clear()
+    # Next tick, raw still ON — must NOT clear suppression, must NOT re-fire.
+    _set_now(t0 + timedelta(seconds=30))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_cap_suppressed is True, (
+        "cap suppression must hold until a raw-sensor OFF is observed"
+    )
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons == [], "dwell must not re-fire while cap-suppressed"
+    # Vacancy edge clears both.
+    states[RAW_SENSOR] = _mkstate("off", t0 + timedelta(seconds=60))
+    _set_now(t0 + timedelta(seconds=61))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=False, automation_enabled=True))
+    assert auto._humidity_cap_awaits_vacancy is False
+    assert auto._humidity_cap_suppressed is False, (
+        "suppression must release once vacancy is seen"
+    )
+
+
+def test_dwell_enabled_defaults_to_wet_room():
+    """Fix-up (MED #6) — handler runtime default is ``wet_room``. Wet
+    room without an explicit CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED
+    key gets dwell enabled.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    raw_lc = t0 - timedelta(seconds=90)
+    auto, log, _ = _make(
+        wet_room=True, raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+    )
+    # Remove the explicit key so the runtime default kicks in. Mutate
+    # the config entry — ``_refresh_config()`` rebuilds self.config.
+    auto._config_entry.data.pop(CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED, None)
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    turn_ons = [e for e in log if e[1] == "turn_on"]
+    assert turn_ons, (
+        "handler runtime default for dwell_enabled must be wet_room; "
+        "wet room with no explicit key should fire"
+    )
+    # Non-wet room with no key: must NOT fire.
+    auto2, log2, _ = _make(
+        wet_room=False, raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+    )
+    auto2._config_entry.data.pop(CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED, None)
+    _set_now(t0)
+    _run(auto2.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    assert [e for e in log2 if e[1] == "turn_on"] == [], (
+        "non-wet room default must be dwell DISABLED"
+    )
+
+
+def test_dwell_unknown_occupancy_holds_state_not_vacant():
+    """Fix-up (LOW #7) — ``room_occupied is None`` (unknown) must HOLD
+    state: the dwell-hold is not released, and the dwell-OFF branch is
+    not fired. Prevents a transient None from flipping the fan off.
+    """
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    raw_lc = t0 - timedelta(seconds=90)
+    auto, log, states = _make(
+        raw_state="on", raw_last_changed=raw_lc, dwell_s=60,
+    )
+    _set_now(t0)
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=True, automation_enabled=True))
+    assert auto._humidity_dwell_fan_on_at is not None
+    # Force window expiry so OFF would fire if the None-guard were weak.
+    auto._humidity_presence_runtime_until = t0
+    states[FAN_ENTITY] = _mkstate("on")
+    log.clear()
+    _set_now(t0 + timedelta(seconds=60))
+    _run(auto.handle_humidity_based_fan_control(None, room_occupied=None, automation_enabled=True))
+    turn_offs = [e for e in log if e[1] == "turn_off"]
+    assert turn_offs == [], (
+        "unknown occupancy must HOLD state; dwell-OFF must not fire on None"
+    )
+
+
+def test_listener_registered_on_first_tick():
+    """Review C — the manual-OFF listener registers on the first tick
+    through ``_register_humidity_fan_manual_off_listeners``, keyed on
+    the configured ``CONF_HUMIDITY_FANS`` list.
+    """
+    _captured_track_cbs.clear()
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    auto, _, _ = _make()
+    _run(auto.handle_humidity_based_fan_control(50.0, room_occupied=False, automation_enabled=True))
+    registered_entities = {e for ents, _cb in _captured_track_cbs for e in ents}
+    assert FAN_ENTITY in registered_entities, (
+        f"listener must be registered for CONF_HUMIDITY_FANS; got {registered_entities}"
+    )
+
+
+def test_async_on_unload_hook_registered():
+    """Review C — teardown is wired via ``entry.async_on_unload`` so a
+    config-entry unload tears down the listeners.
+    """
+    _captured_track_cbs.clear()
+    t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    auto, _, _ = _make()
+    _run(auto.handle_humidity_based_fan_control(50.0, room_occupied=False, automation_enabled=True))
+    assert auto.coordinator.entry.async_on_unload.called, (
+        "entry.async_on_unload must be called to register teardown"
+    )
+    assert getattr(auto, "_humidity_fan_unload_hooked", False) is True
+
+
+def test_sleep_off_does_not_fight_hand_on_fan():
+    """Fix-up (Review B MED #3) — in a non-wet room with sleep+policy=off
+    and NO URA anchor (no in-progress URA cycle, no reload-seed), URA
+    must NOT emit ``turn_off``. Anchor-only sleep-off eliminates the
+    ``_fan_is_actually_on`` probe branch that fought a human.
+
+    (Reload-seed can still adopt a physically-on fan at startup and
+    bring it under URA ownership — that is a separate, pre-existing
+    behavior out of scope for this fix. The narrower choice closes the
+    steady-state race.)
+    """
+    t0 = datetime(2026, 10, 14, 3, 0, 0, tzinfo=timezone.utc)
+    _set_now(t0)
+    # fan_on=False keeps reload-seed inert; no URA anchor.
+    auto, log, _ = _make(sleep=True, wet_room=False, fan_on=False)
+    _run(auto.handle_humidity_based_fan_control(40.0, room_occupied=False, automation_enabled=True))
+    turn_offs = [e for e in log if e[1] == "turn_off"]
+    assert turn_offs == [], (
+        f"sleep-off must not fire without a URA anchor; got {log}"
+    )
+    # Falsifier backstop: if someone re-adds ``_fan_is_actually_on`` to
+    # the sleep-off believed-on check, a physically-on fan with no
+    # anchor would trigger the OFF emit — this is prevented by the
+    # pre-condition above (anchor stays None).
+    assert auto._humidity_fan_triggered_time is None
