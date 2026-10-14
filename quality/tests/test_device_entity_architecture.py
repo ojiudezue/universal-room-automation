@@ -1255,6 +1255,7 @@ async def test_v5_94_1_shell_cleanup_survives_three_tuple_identifiers(monkeypatc
     assert "dev_shell_cm" not in fake_reg.devices
     assert "dev_bond" in fake_reg.devices  # untouched
 
+@pytest.mark.asyncio
 async def test_v5_94_1_shell_cleanup_skips_dual_owned(monkeypatch):
     """FIX 1: a shell dual-owned by parent AND another entry is NEVER
     removed — sole-owner (exact set equality) guard, not membership."""
@@ -1993,3 +1994,118 @@ async def test_d3_crit_stamper_uses_rooms_as_parent(monkeypatch):
         "integration root - excluded from ura_index by the shell predicate. "
         "Residual counter would never reach 0; D1 re-arm reset never fires."
     )
+
+
+class _SingleOwnerDevice:
+    """HA 2026.10 shape: config_entry_id is the owner; reading the deprecated
+    `config_entries` property calls report_usage (a stack walk) every time."""
+
+    is_composite_device = False
+
+    def __init__(self, entry_id: str) -> None:
+        self.config_entry_id = entry_id
+
+    @property
+    def config_entries(self):  # pragma: no cover - must never be read
+        raise AssertionError("deprecated config_entries read (report_usage per call)")
+
+
+def test_device_config_entries_avoids_deprecated_property():
+    """2026-10-14 08:34 boot: reading `config_entries` per device in the
+    device-tree sweep stalled the loop 131 s (_devices.py:492). The helper must
+    use `config_entry_id` and never touch the deprecated property."""
+    d = _import_devices()
+    assert d._device_config_entries(_SingleOwnerDevice("abc")) == {"abc"}
+
+
+def test_device_config_entries_falls_back_on_older_ha():
+    d = _import_devices()
+
+    class _Old:
+        config_entries = {"a", "b"}
+
+    assert d._device_config_entries(_Old()) == {"a", "b"}
+
+
+
+class _NewHaDevice(_FakeDevice2):
+    """HA 2026.10 device double: single owner in config_entry_id; the deprecated
+    config_entries property raises if any call site reads it."""
+
+    is_composite_device = False
+
+    def __init__(self, device_id, identifiers, owner):
+        super().__init__(device_id, identifiers, config_entries=None)
+        self.config_entry_id = owner
+
+    @property
+    def config_entries(self):
+        raise AssertionError("call site read deprecated DeviceEntry.config_entries")
+
+    @config_entries.setter
+    def config_entries(self, _v):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_shell_cleanup_call_site_uses_config_entry_id(monkeypatch):
+    """Behavioural anchor for the shell-cleanup guard: with HA 2026.10 devices the
+    empty parent-owned shell is still removed and the deprecated property is
+    never read (a read would be a report_usage stack walk per device)."""
+    d = _import_devices()
+    parent, cm = "PARENT_ENTRY", "CM_ENTRY"
+    real_cm = _NewHaDevice(
+        "dev_real_cm", {("universal_room_automation", "coordinator_manager")}, cm)
+    shell = _NewHaDevice(
+        "dev_shell_cm", {("universal_room_automation", "coordinator_manager")}, parent)
+    fake_reg = _FakeDevReg2([real_cm, shell])
+
+    def _update(device_id, *, remove_config_entry_id=None, **_kw):
+        # HA 2026.10 single-owner removal: removing the owner deletes the device.
+        dev = fake_reg.devices.get(device_id)
+        if dev is not None and remove_config_entry_id == dev.config_entry_id:
+            fake_reg.removed.append(device_id)
+            fake_reg.devices.pop(device_id, None)
+
+    fake_reg.async_update_device = _update
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({"dev_real_cm": ["e1"], "dev_shell_cm": []}))
+    removed = await d.async_cleanup_parent_entry_shells(MagicMock(), parent)
+    assert removed == 1 and "dev_shell_cm" in fake_reg.removed
+    assert "dev_real_cm" in fake_reg.devices
+
+
+@pytest.mark.asyncio
+async def test_stamper_shell_check_uses_config_entry_id(monkeypatch):
+    """Behavioural anchor for _is_empty_parent_shell: an empty parent-owned
+    shell sharing the CM identifier must not win the parent slot, using
+    config_entry_id (the deprecated property raises)."""
+    d = _import_devices()
+    import importlib
+    const = importlib.import_module("custom_components.universal_room_automation.const")
+    parent, cm = "PARENT_ENTRY", "CM_ENTRY"
+    integ = _NewHaDevice("dev_int", {("universal_room_automation", "integration")}, parent)
+    real_cm = _NewHaDevice(
+        "dev_real_cm", {("universal_room_automation", "coordinator_manager")}, cm)
+    shell = _NewHaDevice(
+        "dev_shell_cm", {("universal_room_automation", "coordinator_manager")}, parent)
+    safety = _NewHaDevice(
+        "dev_safety", {("universal_room_automation", "safety_coordinator")}, cm)
+    # shell LAST so last-writer-wins would pick it without the shell check
+    fake_reg = _FakeDevReg2([integ, real_cm, safety, shell])
+    fake_reg.async_update_device = (
+        lambda device_id, *, via_device_id: setattr(
+            fake_reg.devices[device_id], "via_device_id", via_device_id)
+    )
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg(
+        {"dev_int": ["i"], "dev_real_cm": ["e1"], "dev_safety": ["s"], "dev_shell_cm": []}))
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = parent
+    entry.data = {const.CONF_ENTRY_TYPE: const.ENTRY_TYPE_INTEGRATION}
+    hass.config_entries.async_entries.return_value = [entry]
+    await d.async_stamp_via_device_tree(hass)
+    assert fake_reg.devices["dev_safety"].via_device_id == "dev_real_cm"
