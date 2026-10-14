@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T03:41:09-05:00_ - _Data commit: `eebb4c00d374`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T03:41:47-05:00_ - _Data commit: `cc8d2abb9fa3`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-10-14T03:41:09-05:00_ - _Data commit: `eebb4c00d374`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 7 |
-| 📝 Planned | 8 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 40 |
@@ -152,7 +152,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (8)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `HM-GC-1H-COUNTERS-RING-WINDOW-1` - Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
@@ -214,7 +214,19 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#5 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `HM-V22-NEXT-SLICE-1` - Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **health-monitor** - status: **planned** - approval: **explicit**
+_created 2026-10-14 03:43 · initial_
+- **Problem / Solution:**
+  - Problem: the Health Monitor v2.1 is live but two of its readings are wrong (the "per hour" garbage-collection counts are really per-30-seconds, and two of the three Zigbee bridges have no radio row), and it can say a device is offline no...
+- **Origin:** 2026-10-14 - operator wants the next HM plan slice built, pushed and finished quickly
+- **Why:** scope cut by marginal benefit against measured house problems (docs/PLAN_v2.md R8 in ~/Code/ha-health-monitor)
+- **Next:** Me: dispatch one builder in ~/Code/ha-health-monitor (branch v2.2-slice off v2.1-wave1) for Part A then Part B, perf gate + drills per feature; then 3 framing reviews; README_v2.2.0; push both remotes; install when the house is awake.
+- **Tags:** tier-2, sibling-repo
+- **Parsimony:** [SIMPLIFY] HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping
+- **Refs:** ~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309); ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14
+
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -233,7 +245,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -250,7 +262,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#8 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -280,7 +292,7 @@ _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#9 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**

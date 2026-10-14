@@ -4745,6 +4745,34 @@ cards:
     regardless of what is triggering them. This does NOT auto-approve a build — it is a shared energy
     primitive (Tier 2+) and the operator owns the go — but the held-pending-root-cause rationale is
     spent and should be re-decided.'
+- id: HM-V22-NEXT-SLICE-1
+  title: Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations)
+  thread: health-monitor
+  status: planned
+  batch: hm-v2.2
+  created: '2026-10-14 03:43'
+  updated: '2026-10-14 03:43'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-10-14 ("I also want to build the next slice of the health monitor plan. I want to push and finish.")'
+  tags: [tier-2, sibling-repo]
+  problem_solution:
+  - 'Problem: the Health Monitor v2.1 is live but two of its readings are wrong (the "per hour" garbage-collection counts are really per-30-seconds, and two of the three Zigbee bridges have no radio row), and it can say a device is offline now but not that it drops 40 times a day — which is the house''s real Wi-Fi switch problem. Solution: fix the two v2.1 defects, then add flap rate and time-to-recover, per-access-point retry and satisfaction trends, Z-Wave node drop counts, and a count of broken automations; the fancier Wave 2 pieces (Zigbee network map, Matter topology, direct UniFi API) stay parked with triggers.'
+  origin:
+    date: '2026-10-14'
+    gist: operator wants the next HM plan slice built, pushed and finished quickly
+  why: scope cut by marginal benefit against measured house problems (docs/PLAN_v2.md R8 in ~/Code/ha-health-monitor)
+  constraints: ['HM CLAUDE.md perf rules + perf gate', 'entity count stays <= 20', 'push GitHub + Gitea', 'install on the house only while awake']
+  parked_alts: ['full Wave 2 list as written (~6 build days) — cut to the parts tied to live problems; rest parked in R8 with triggers']
+  refinement: []
+  knobs: [flap_per_day_min (HM options, threshold for a flapping repair), zwave drop/timeout delta threshold (HM options)]
+  parsimony: {problem: 'HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping', verdict: SIMPLIFY}
+  links:
+    parent: HM-GC-1H-COUNTERS-RING-WINDOW-1
+    related: [HM-V21-LIVE-VALIDATION-1, SONOFF-R4M-MULTICAST-AB-1, WIFI-ACTUATOR-FLEET-FLAP-1]
+    context: 'Part A1 IS the GC ring-window card''s fix; live-validation card holds the remaining v2.1 checks (W9/W11/W13); B1/B2 feed the Sonoff R4M and Wi-Fi flap investigations.'
+  next: 'Me: dispatch one builder in ~/Code/ha-health-monitor (branch v2.2-slice off v2.1-wave1) for Part A then Part B, perf gate + drills per feature; then 3 framing reviews; README_v2.2.0; push both remotes; install when the house is awake.'
+  refs: ['~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309)', '~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14']
 - id: ARC-CLOSE-GATE-1
   title: Shipping part of an arc left sibling cards open -> deploy.sh refuses until siblings ship, park, or are cut with a reason
   thread: board
@@ -31596,6 +31624,7 @@ cards:
   - Alarm code only in secrets.yaml.
   next: "ANSWER: is the ELK still the real alarm (any monitoring, anyone arms it), or is it legacy wiring you mainly want for the Front Door contact + panel status? -> LEGACY: I enable only the live zones, label the 12 shorted zones 'dead loop' (disabled, not deleted), skip arm/bypass UI, close. REAL ALARM: needs an installer/ElkRP pass on zone wiring + EOL definitions before any HA arm wrapper is safe; I write the zone-by-zone list for that visit."
 - id: HM-GC-1H-COUNTERS-RING-WINDOW-1
+  batch: hm-v2.2
   title: "Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem"
   thread: health_monitor
   status: planned
