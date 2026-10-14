@@ -7400,6 +7400,8 @@ cards:
   refs:
   - person_visits (URA DB)
 - id: NM-BB-CHATGUID-SELFSEND-1
+  reply_2026_10_14b: "Two levels: (1) separate THREAD only — create a group chat in Messages with you + at least one other handle, name it 'House'; I pin its chat_guid as the NM target. Alerts still show as sent by you, but in their own thread. (2) a genuinely separate SENDER — the BlueBubbles server's Mac must be signed into Messages with a dedicated Apple ID (e.g. a new 'house' Apple ID); then alerts arrive from that contact, like a normal person texting you. (2) is the clean fix but means BlueBubbles can no longer act as YOUR iMessage on that Mac."
+  operator_answer_2026_10_14: "No separate chat exists; alerts arrive as texts to me FROM me, which is awkward. Asked how to create a separate chat."
   operator_instruction_2026_10_13: "Check the version yourself. HOw do I alert in a seperate chat?"
   reply_2026_10_14: 'Checked live (update.bluebubbles_update): installed_version v0.7.1, so the chat_guid addressing feature this card needs IS available — blocker #1 cleared. On your second question: to alert in a separate chat you first need a non-self iMessage chat for URA to send into (e.g. a group chat with just you, or you + one other recipient, that is NOT your own 1:1 thread with yourself) — create that chat in Messages/BlueBubbles, then I pin its chat_guid as the NM send target instead of your handle, so the send and the receive land in different threads and stop duplicating. Still needs your ANSWER: is there already such a chat, or should one be created? Moving to planning once you answer.'
   groomed_2026_10_09_overnight: "Re-laned planned -> waiting_operator (overnight pass). Two reasons it cannot drive autonomously: (1) the card has been blocked since 09-12 on an operator fact (is there a non-self URA-alerts chat whose GUID can be pinned? the server version is still unconfirmed), and (2) it changes the outward NM iMessage send path, which the overnight contract never touches unattended. Approval is still unreviewed. No code read changed since STATIC_HALF_ANSWERED_2026_09_19: _send_imessage still passes addresses: <handle> straight through."
@@ -7411,7 +7413,7 @@ cards:
   status: "waiting_operator"
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: "2026-10-09 02:27"
+  updated: "2026-10-14 03:40"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -7448,7 +7450,7 @@ cards:
       release notes'
   why: A durable fix for the self-send footgun in NM iMessage delivery, if the recipient chats can be
     pinned by GUID. Verify NM's send path + how a chat_guid is obtained before scoping.
-  next: "ANSWER two facts: (1) is the BlueBubbles server on your Mac at v0.7.0 or later? (2) do you want URA alerts to land in a separate chat (e.g. a group \"URA alerts\" with you + one other handle) instead of your note-to-self thread? -> YES to both: I wire send-by-chat-GUID with an address fallback (Tier 2, 2 reviews), built to review. NO to (2): I close the card, because a self-send to your own handle will always show twice."
+  next: "PICK: (1) group-chat thread (create it, tell me its name -> I wire send-by-chat-GUID, Tier 2) or (2) dedicated house Apple ID on the BlueBubbles Mac (you set up the account -> I repoint NM, no code beyond the same GUID wiring)."
   refs:
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
   - ~/Code/bluebubbles-integration-guide.md
@@ -31550,19 +31552,21 @@ cards:
       fix here must land on the renamed key.'
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492), docs/Coordinator/ENERGY_COORDINATOR manual, memory reference_ec_config_surface]
 - id: ELK-M1-HA-USABILITY-1
+  refinement_status: refined
+  correction_2026_10_14: "CARD-WAS-WRONG (operator pushback + live read 03:40). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway motions, Upstairs Balcony, Study B Patio, Kitchen Heat, Garage/P Hallway heat). 10-day recorder history: Family Room M, Kitchen Motion and Kitchen Heat never changed once (only flips are unavailable->Violated at HA restarts), while Front Door toggled 59 times. So those 12 loops are statically shorted (wiring/legacy state: sensors removed or jumpered, or EOL config mismatch) — not 12 live trips and not one bad heat detector. Only Front Door (eol, live) and Family to PatioL / Garage A/B Heat (eol, static normal) read healthy; zone 19 Family to PatioR = unconfigured/troubled (the 'Lost Transmitter z19'). Area 1 'triggered/fire_alarm' appeared only at reconnects (10-06 11:44, 10-13 11:36), disarmed 10-13 20:53, and is now alarm_state=no_alarm_active, arm_up_state=not_ready_to_arm (because the shorted zones are violated)."
   verified_2026_10_14: "Verified 2026-10-14 ~02:10 CDT (live): sensor.elkm1_kitchen_heat_det = Violated, physical_status short. The zone 7 fault is still present, so nothing changes until you inspect or reset it."
-  title: Make ELK M1 controls usable in HA (zones, one-tap arm, bypass, card) — blocked on zone 7 fire short
+  title: "Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them"
   thread: security
   status: waiting_operator
   created: '2026-10-14 02:10'
-  updated: "2026-10-14 03:05"
+  updated: "2026-10-14 03:40"
   rank: {value: 6, time_criticality: 6, effort: 4}
   origin: {date: '2026-10-14', gist: 'Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected'}
   why: 'Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168.12.78 (2101, no creds). 17 zone binary_sensors exist but integration-disabled.'
   constraints:
   - Never mask or mirror-suppress a panel-reported alarm state.
   - Alarm code only in secrets.yaml.
-  next: 'DO: inspect/reset kitchen heat detector (zone 7) and clear at keypad; enroll new keypad in ElkRP; confirm Global Settings 35-40 -> I enable zones, add arm wrapper + bypass scripts + card, report to Homelab.'
+  next: "ANSWER: is the ELK still the real alarm (any monitoring, anyone arms it), or is it legacy wiring you mainly want for the Front Door contact + panel status? -> LEGACY: I enable only the live zones, label the 12 shorted zones 'dead loop' (disabled, not deleted), skip arm/bypass UI, close. REAL ALARM: needs an installer/ElkRP pass on zone wiring + EOL definitions before any HA arm wrapper is safe; I write the zone-by-zone list for that visit."
 - id: HM-GC-1H-COUNTERS-RING-WINDOW-1
   title: "Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem"
   thread: health_monitor
