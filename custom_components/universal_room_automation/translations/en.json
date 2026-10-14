@@ -2308,7 +2308,7 @@
   "issues": {
     "ec_role_entity_broken": {
       "title": "Energy entity unavailable: {key}",
-      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and pick a working entity."
+      "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. If the device is temporarily offline this will clear itself within about an hour after it recovers. Otherwise open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and either pick a working entity, or tick the matching `Clear …` box to drop this field if you no longer use it."
     },
     "egress_identity_face_failsafe_drill_boot_on": {
       "title": "Egress Identity Fail-Safe Drill still engaged after restart",
