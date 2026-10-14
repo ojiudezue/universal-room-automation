@@ -19054,7 +19054,7 @@ cards:
     field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327);
     its Repairs text no longer says "leave blank". Adjacent - V5_37_1 clear-sensor-fields precedent
     (test_v5_37_1_clear_sensor_fields) for room options; reuse that pattern.
-  next: "Building (overnight 10-14, ura-builder in a worktree) -> one review + orchestrator verify -> review lane. Not deployed."
+  next: "Shipped v5.103.57. PENDING at next planned restart (operator 2026-10-14: apply then, not mid-trip, CM options save may reload the parent): set energy_solar_follow_grid_fallback_entity -> sensor.envoy_482543015950_current_net_power_consumption (same sign as primary Vue, kW auto-converted at energy_pool.py:4888). Bundle with fix/entity-area-inherit-lookup restart; this also live-validates the EC options save."
 - id: HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1
   organic_evidence_2026_10_14: "HA Health Monitor stall samples 06:29-07:05Z (50): zero mention hvac_override / _high_draw / universal_room_automation; culprits python_gc 44, ssl 3, spook 2, wiim 1. A1 attributes populated on all 3 zones at 01:21:51 CDT. 0 URA ERRORs in system_log since boot. Validated table written into docs/readmes/README_v5.103.56.md."
   title: hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall)
