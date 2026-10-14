@@ -7456,6 +7456,7 @@ cards:
   refs:
   - person_visits (URA DB)
 - id: NM-BB-CHATGUID-SELFSEND-1
+  operator_answer_2026_10_14b: "BlueBubbles server runs on Oji's Mac mini (Macmini9,1, the always-on box; verified process /Applications/BlueBubbles.app running 04:2x). So option (2) — a dedicated house Apple ID in Messages on the Mac mini — costs only the operator's iMessage on the Mac mini, not on the phone/laptop."
   reply_2026_10_14b: "Two levels: (1) separate THREAD only — create a group chat in Messages with you + at least one other handle, name it 'House'; I pin its chat_guid as the NM target. Alerts still show as sent by you, but in their own thread. (2) a genuinely separate SENDER — the BlueBubbles server's Mac must be signed into Messages with a dedicated Apple ID (e.g. a new 'house' Apple ID); then alerts arrive from that contact, like a normal person texting you. (2) is the clean fix but means BlueBubbles can no longer act as YOUR iMessage on that Mac."
   operator_answer_2026_10_14: "No separate chat exists; alerts arrive as texts to me FROM me, which is awkward. Asked how to create a separate chat."
   operator_instruction_2026_10_13: "Check the version yourself. HOw do I alert in a seperate chat?"
@@ -7466,10 +7467,10 @@ cards:
     decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
   thread: notifications
   rank: {value: 5, time_criticality: 3, effort: 3}
-  status: "waiting_operator"
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: "2026-10-14 03:34"
+  updated: "2026-10-14 03:56"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -7506,7 +7507,7 @@ cards:
       release notes'
   why: A durable fix for the self-send footgun in NM iMessage delivery, if the recipient chats can be
     pinned by GUID. Verify NM's send path + how a chat_guid is obtained before scoping.
-  next: "PICK: (1) group-chat thread (create it, tell me its name -> I wire send-by-chat-GUID, Tier 2) or (2) dedicated house Apple ID on the BlueBubbles Mac (you set up the account -> I repoint NM, no code beyond the same GUID wiring)."
+  next: "DO (after the trip, back Sun 10-18): create the house Apple ID; save it as contact 'House' on your iPhone and reply once (Filter Unknown Senders); sign Messages on the Mac mini into it; exchange a few messages -> I check NM's person-handle mapping, send one test alert + one test ack, then switch over. Gotchas recorded in chat 10-14 (new-account iMessage activation, 2FA recovery, other BlueBubbles clients move with the account)."
   refs:
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
   - ~/Code/bluebubbles-integration-guide.md
@@ -31610,6 +31611,7 @@ cards:
       fix here must land on the renamed key.'
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_write_verify.py (REVERTED emit ~:955; oracle age display only ~:2492), docs/Coordinator/ENERGY_COORDINATOR manual, memory reference_ec_config_surface]
 - id: ELK-M1-HA-USABILITY-1
+  done_2026_10_14: "Operator approved (a) at 03:56: enabled binary_sensor.elkm1_front_door (Show As door), binary_sensor.elkm1_family_to_patiol (door), binary_sensor.elkm1_garage_a_b_heat (heat). The 12 shorted zones stay disabled."
   refinement_note_2026_10_14: "Refinement: (1) the 10-14 Homelab hand-off said 'keep ELK, no Konnected'; operator now wants Konnected IN PARALLEL for a richer control surface — supersedes the no-Konnected constraint, ELK stays. (2) 'No regular entities' is partly config: the integration ships 17 zone binary_sensors DISABLED by default (registry disabled_by=integration) plus 7 unused areas disabled by user; enabling the live ones (Front Door, Family to PatioL, Garage A/B Heat) gives normal door/heat entities today. (3) Konnected wired in parallel reads the SAME loops, so the 12 statically-shorted zones would read shorted on Konnected too — the zone wiring diagnosis comes first whichever surface wins."
   operator_answer_2026_10_14: "\"It is [the real alarm] but never used. It's awkward in HA and it doesn't have regular entities. I'm trying to get it into a shape I can actually use. I chose it for the HA integration, but turns out it's shit. I was thinking of using the Konnected Retrofit in parallel to it so I could use its richer surface for control.\""
   refinement_status: refined
@@ -31619,14 +31621,14 @@ cards:
   thread: security
   status: waiting_operator
   created: '2026-10-14 02:10'
-  updated: "2026-10-14 03:50"
+  updated: "2026-10-14 03:56"
   rank: {value: 6, time_criticality: 6, effort: 4}
   origin: {date: '2026-10-14', gist: 'Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected'}
   why: 'Area 1 shows triggered = panel-reported fire_alarm from zone 7 Kitchen Heat Det physical_status short (not a keypad). Panel troubles - Fail To Communicate, Missing Keypad (likely the new keypad), Lost Transmitter z19. Link elk://192.168.12.78 (2101, no creds). 17 zone binary_sensors exist but integration-disabled.'
   constraints:
   - Never mask or mirror-suppress a panel-reported alarm state.
   - Alarm code only in secrets.yaml.
-  next: "PICK/APPROVE: (a) now, config-only: I enable the 3 live zone binary_sensors (Front Door as a door sensor) and leave the 12 shorted ones disabled + labelled 'dead loop' -> instant usable door contact; (b) before buying Konnected: someone (you or an installer) checks the 12 shorted zone loops at the panel terminals (sensor removed / jumpered / wrong EOL), using the zone list I write; (c) then Konnected interface kit in parallel for the control surface. I recommend (a) now and (b) before (c)."
+  next: "DO (when back, or anyone at home): check the 12 shorted zone loops at the ELK panel terminals (sensor removed / jumpered / wrong EOL) using the zone list on this card -> then decide Konnected interface kit in parallel for the control surface. Me: write the zone-by-zone list."
 - id: HM-GC-1H-COUNTERS-RING-WINDOW-1
   batch: hm-v2.2
   title: "Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem"
