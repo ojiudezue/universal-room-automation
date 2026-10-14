@@ -6234,6 +6234,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             _clear_map = {
                 "grid_import": CONF_ENERGY_GRID_IMPORT_ENTITY,
                 "grid_export": CONF_ENERGY_GRID_EXPORT_ENTITY,
+                # EC-OPTIONS-CLEAR-FIELD-NOOP-1 (2026-10-14): extend the
+                # same clear-widget to cover the role-keyed single-entity
+                # selectors added by EC-HOUSE-ENTITY-DEFAULTS-1 fix-up
+                # (99b6f4327) and the cloud_verification single-entity
+                # oracles / fallbacks. Each has `suggested_value` but no
+                # `default=`, so HA omits an operator-cleared key from
+                # `user_input`, and the `{**options, **user_input}` merge
+                # resurrects the stored value — the operator could not
+                # un-configure the field via the options flow.
+                # (The step's `_cv` / `_baec` / `_baec_advanced` flattens
+                # above run BEFORE the merge/clear-apply, so these are
+                # top-level keys by the time we pop here.)
+                "evse_a_switch": CONF_ENERGY_EVSE_A_SWITCH_ENTITY,
+                "evse_b_switch": CONF_ENERGY_EVSE_B_SWITCH_ENTITY,
+                "evse_a_energy_today": CONF_ENERGY_EVSE_A_ENERGY_TODAY_ENTITY,
+                "evse_b_energy_today": CONF_ENERGY_EVSE_B_ENERGY_TODAY_ENTITY,
+                "evse_a_energy_month": CONF_ENERGY_EVSE_A_ENERGY_MONTH_ENTITY,
+                "evse_b_energy_month": CONF_ENERGY_EVSE_B_ENERGY_MONTH_ENTITY,
+                "evse_a_current_limit": CONF_ENERGY_EVSE_A_CURRENT_LIMIT_ENTITY,
+                "evse_b_current_limit": CONF_ENERGY_EVSE_B_CURRENT_LIMIT_ENTITY,
+                "pool_speed": CONF_ENERGY_POOL_SPEED_ENTITY,
+                "pool_power": CONF_ENERGY_POOL_POWER_ENTITY,
+                "dp_span_r1": CONF_ENERGY_DP_SPAN_R1_ENTITY,
+                "dp_span_r2": CONF_ENERGY_DP_SPAN_R2_ENTITY,
+                "storage_mode": CONF_ENERGY_STORAGE_MODE_ENTITY,
+                "reserve_soc": CONF_ENERGY_RESERVE_SOC_ENTITY,
+                "grid_enabled": CONF_ENERGY_GRID_ENABLED_ENTITY,
+                "charge_from_grid": CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+                "cloud_reserve_oracle": CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                "cloud_charge_from_grid_oracle": CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+                "cloud_storage_mode_oracle": CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
+                "cloud_battery_soc_fallback": CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                "cloud_last_success": CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
             }
             # A-LOW (2026-10-09): if the operator both ticked "Clear X"
             # AND picked a new entity for X in the SAME submit, the new
@@ -7105,6 +7138,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     options=[
                         {"value": "grid_import", "label": "Clear grid import entity"},
                         {"value": "grid_export", "label": "Clear grid export entity"},
+                        # EC-OPTIONS-CLEAR-FIELD-NOOP-1 (2026-10-14):
+                        # extend the clear widget to the role-keyed and
+                        # cloud-verification single-entity selectors on
+                        # this step. See the matching `_clear_map` above
+                        # at :6234 for the key -> CONF_* mapping.
+                        {"value": "evse_a_switch", "label": "Clear EVSE A switch"},
+                        {"value": "evse_b_switch", "label": "Clear EVSE B switch"},
+                        {"value": "evse_a_energy_today", "label": "Clear EVSE A energy today"},
+                        {"value": "evse_b_energy_today", "label": "Clear EVSE B energy today"},
+                        {"value": "evse_a_energy_month", "label": "Clear EVSE A energy this month"},
+                        {"value": "evse_b_energy_month", "label": "Clear EVSE B energy this month"},
+                        {"value": "evse_a_current_limit", "label": "Clear EVSE A current-limit number"},
+                        {"value": "evse_b_current_limit", "label": "Clear EVSE B current-limit number"},
+                        {"value": "pool_speed", "label": "Clear pool pump speed number"},
+                        {"value": "pool_power", "label": "Clear pool pump power sensor"},
+                        {"value": "dp_span_r1", "label": "Clear SPAN R1 mains reading"},
+                        {"value": "dp_span_r2", "label": "Clear SPAN R2 mains reading"},
+                        {"value": "storage_mode", "label": "Clear battery storage-mode select"},
+                        {"value": "reserve_soc", "label": "Clear battery reserve-SOC number"},
+                        {"value": "grid_enabled", "label": "Clear grid-enabled switch"},
+                        {"value": "charge_from_grid", "label": "Clear charge-from-grid switch"},
+                        {"value": "cloud_reserve_oracle", "label": "Clear cloud reserve-floor oracle"},
+                        {"value": "cloud_charge_from_grid_oracle", "label": "Clear cloud charge-from-grid oracle"},
+                        {"value": "cloud_storage_mode_oracle", "label": "Clear cloud storage-mode oracle"},
+                        {"value": "cloud_battery_soc_fallback", "label": "Clear cloud battery-SOC fallback"},
+                        {"value": "cloud_last_success", "label": "Clear cloud last-success stamp"},
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
