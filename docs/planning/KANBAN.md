@@ -9,11 +9,11 @@ _Generated: 2026-10-14T02:10:13-05:00_ - _Data commit: `6dd5a98bb3c2`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 7 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 3 |
@@ -21,7 +21,7 @@ _Generated: 2026-10-14T02:10:13-05:00_ - _Data commit: `6dd5a98bb3c2`_ - _last_r
 | 🅿️ Parked | 85 |
 | ✅ Done | 311 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
 ### `URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1` - Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
@@ -30,13 +30,6 @@ _created 2026-10-13 15:30_
 - **Next:** Plan - swap to async_get_device_by_identifier / config_entries_subentries per HA 2026.10 source.
 - **Forensic keys (1):**
   - `problem`: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303 config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10). Not on the HVAC tick; boot-time cost. Breaks in...
-
-### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#2 · WSJF 4.0 · v4 tc2 u2 /e2_
-thread: **energy** - status: **inbox**
-_created 2026-10-13 12:00_
-- **Next:** Plan - apply the room clear-field pattern to the EC entity fields; test that clear removes the key.
-- **Forensic keys (1):**
-  - `problem`: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327); its Repairs text no longer says "leave bla...
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -262,10 +255,20 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (3)
 _being built_
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#1 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `EC-OPTIONS-CLEAR-FIELD-NOOP-1` - Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options) — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **energy** - status: **in_progress**
+_created 2026-10-13 12:00 · updated 2026-10-14 02:11 · refined_
+- **Problem / Solution:**
+  - Problem: in the Energy settings, if you clear one of the entity boxes (for example a cloud reserve or SOC fallback sensor) and save, the old entity silently stays configured, because the save keeps any field you did not send. Solution: g...
+- **Next:** Building (overnight 10-14, ura-builder in a worktree) -> one review + orchestrator verify -> review lane. Not deployed.
+- **Forensic keys (2):**
+  - `gate_2026_10_14`: (1) Validity STILL-REAL: the EC options save merges {**options, **user_input} (config_flow.py ~6020 comment + merge), and HA omits a cleared single-entity selector from user_input, so the old value survives. (1b) Config-first: N/A, this ...
+  - `problem`: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327); its Repairs text no longer says "leave bla...
+
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#2 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **platform** - status: **in_progress**
 _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
 - **Problem / Solution:**
@@ -287,7 +290,7 @@ _created 2026-08-18 02:30 · updated 2026-10-13 03:55 · refined_
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
-### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1` - Three EV flip-flop tripwire tests fail only in full-suite order (pass in isolation) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tests** - status: **in_progress**
 _created 2026-10-10 21:00 · updated 2026-10-13 04:35 · refined_
 - **Why:** Order-dependence in a brand-new test file usually means leaked clock/time or module state (same family as the 10-09 _dt.now leak and the stub-pollution incidents).

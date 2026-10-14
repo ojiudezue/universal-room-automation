@@ -18889,17 +18889,20 @@ cards:
     suppressor (Homelab). No difference -> hypothesis out; next = AP fw rollback test (operator said not
     yet) or SonoffLAN static hosts. Rollback snapshot (homelab): configs/snapshots/udm-beast/wlan-smidg-2026-10-13-pre-sonoff-bcfilter-test.json.'
 - id: EC-OPTIONS-CLEAR-FIELD-NOOP-1
+  problem_solution: ["Problem: in the Energy settings, if you clear one of the entity boxes (for example a cloud reserve or SOC fallback sensor) and save, the old entity silently stays configured, because the save keeps any field you did not send. Solution: give those Energy entity fields the same explicit \"clear these\" choice the grid-billing fields and room sensor fields already have, so a cleared field is really removed on save."]
+  gate_2026_10_14: "(1) Validity STILL-REAL: the EC options save merges {**options, **user_input} (config_flow.py ~6020 comment + merge), and HA omits a cleared single-entity selector from user_input, so the old value survives. (1b) Config-first: N/A, this is a UI defect. (2) Prior art: REUSE the clear_grid_fields multi-select pattern already in this flow (config_flow.py:6229-6230 pop + :7100 selector) and the room clear_sensor_fields pattern (:12746, :13161; test_v5_37_1_clear_sensor_fields.py). Nothing new. (3) Parsimony BUILD. (4) Cost/benefit: small, options-flow only, no runtime logic; Tier 1 with one review."
+  refinement_status: "refined"
   title: Clearing an EC entity field in the options flow doesn't remove the option (save merges over old options)
   rank: {value: 4, time_criticality: 2, effort: 2}
-  status: inbox
-  updated: '2026-10-13 12:00'
+  status: "in_progress"
+  updated: "2026-10-14 02:11"
   thread: energy
   created: 2026-10-13 12:00
   problem: Pre-existing. The EC options flow saves by merging over the old options, so blanking an entity
     field leaves the old value in place. Surfaced by the EC-HOUSE-ENTITY-DEFAULTS-1 fix-up (99b6f4327);
     its Repairs text no longer says "leave blank". Adjacent - V5_37_1 clear-sensor-fields precedent
     (test_v5_37_1_clear_sensor_fields) for room options; reuse that pattern.
-  next: Plan - apply the room clear-field pattern to the EC entity fields; test that clear removes the key.
+  next: "Building (overnight 10-14, ura-builder in a worktree) -> one review + orchestrator verify -> review lane. Not deployed."
 - id: HVAC-A1-HIGHDRAW-PER-TICK-SCAN-1
   organic_evidence_2026_10_14: "HA Health Monitor stall samples 06:29-07:05Z (50): zero mention hvac_override / _high_draw / universal_room_automation; culprits python_gc 44, ssl 3, spook 2, wiim 1. A1 attributes populated on all 3 zones at 01:21:51 CDT. 0 URA ERRORs in system_log since boot. Validated table written into docs/readmes/README_v5.103.56.md."
   title: hvac_override re-scans 7 days of raw SPAN AC history every 5-min tick for a display-only sensor (~2 s loop stall)
