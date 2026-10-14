@@ -20,7 +20,7 @@ After v5.103.58 removed the 131 s `_devices.py` stall, HA Health Monitor still s
 - EC option `energy_solar_follow_grid_fallback_entity` re-pointed from the retired `sensor.envoy_stream_grid_power` to `sensor.envoy_482543015950_current_net_power_consumption` (same sign as the primary Vue meter; kW converted by `energy_pool.py:4888`). This also live-tests the v5.103.57 EC options save.
 
 ## Pre-deploy gate
-- Full-suite name-diff of develop 2c15723e6 vs 4ca767e56: PENDING.
+- Full-suite name-diff of develop 2c15723e6 vs 4ca767e56: **CLEAN**, 0 NEW; 3 GONE (the revived d3 area-inherit tests now pass). 119 failed / 14781 passed vs 122 / 14776. py_compile clean.
 
 ## Live acceptance
 - **Live:** HM loop-stall samples after boot show no `entity.py` or `camera_resolver.py` site.
