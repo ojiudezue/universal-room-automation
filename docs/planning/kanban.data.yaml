@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1@2026-10-14T02:22:00"
+    at: "2026-10-14T02:22:00"
+    outcome: "measured"
+    headline: "Looked into the Home Assistant device-registry deprecations URA is logging. It's bigger than a rename: HA 2026.10 now ties each device to a single integration entry, and 21 places in URA's device-tree code depend on the old model. The first one breaks in HA 2027.8, so it isn't urgent. Also found that the local test setup runs HA 2026.2, which can't test the new calls. Moved to planning; nothing built."
+    acknowledged: false
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-14T02:25:00"
     at: "2026-10-14T02:25:00"
     outcome: "measured"
@@ -18972,16 +18977,20 @@ cards:
     will tell). Investigation - docs/planning/INVESTIGATION_hvac_override_loop_stall.md.
   next: "Closed 10-14: discriminator met (tick-aligned URA stalls ~11/h -> 0 in HM samples). README_v5.103.56 carries the Validated table."
 - id: URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1
+  verified_2026_10_14: "STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boot) warns for __init__.py:5227 (devices as mapping, breaks 2027.9) and __init__.py:5305 + _devices.py:607 (async_get_device, breaks 2027.8). HA 2026.10.1 source (github raw helpers/device_registry.py, read 10-14): async_get_device(identifiers=, connections=) now report_usage ERROR, breaks_in_ha_version 2027.8.0 (:2039-2066). Replacements are async_get_device_by_identifier(identifier: tuple, config_entry_id: str) (:2091), async_get_device_by_connection(connection, config_entry_id) (:2119) and async_get_devices(*, identifiers=, connections=, config_entry_id=) -> list (:2132). The new lookups REQUIRE a config_entry_id. The `devices` property is now a backwards-compat view (iterate it; mapping use is deprecated, 2027.9). DeviceEntry.config_entries / primary_config_entry are deprecated in favour of a single config_entry_id (2027.10, :393/:433/:625). Old multi-entry devices are split into per-entry \"composite\" devices (:2070-2085). Sites (grep 10-14, 21): __init__.py:1404,1410,1441,5218-5227,5305; entity.py:80; button.py:302; _devices.py:228,238,267,297,319,341,345,438,492,607; config_flow.py:10742,11934. TEST CONSTRAINT: .venv-ha runs HA 2026.2.3 (homeassistant.const.__version__), so the 2026.10 replacement APIs do not exist in the local test environment. The plan must decide between upgrading the venv and version-guarded code + fakes."
+  problem_solution: ["Problem: Home Assistant 2026.10 changed how devices are stored. Each device now belongs to exactly one integration entry, and three registry calls URA uses are being removed: looking a device up by identifiers (stops working in 2027.8), reading the device list as a dictionary (2027.9), and reading the set of entries a device belongs to (2027.10). URA uses all three, mostly in the code that builds and tidies its own device tree. The house is logging deprecation warnings for them today. Solution: move each call to the new per-entry lookups, but plan it first. This is the same device-tree code that needed eight fixes in the v5.92-v5.94 arc, and URA's \"this device belongs only to the parent entry\" checks change meaning under the new one-entry-per-device model."]
+  tags: ["tier-2db", "institutional-context", "no-fabrication-verify"]
+  refinement_status: "refined"
   title: Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries)
   rank: {value: 5, time_criticality: 3, effort: 2}
-  status: inbox
-  updated: '2026-10-13 15:30'
+  status: "pre_planning"
+  updated: "2026-10-14 02:22"
   thread: platform
   created: 2026-10-13 15:30
   problem: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303
     config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10).
     Not on the HVAC tick; boot-time cost. Breaks in 2027.8 (async_get_device) / 2027.10 (config_entries).
-  next: Plan - swap to async_get_device_by_identifier / config_entries_subentries per HA 2026.10 source.
+  next: "Me (next overnight or attended): ura-planner writes PLANNING_ha_2026_10_device_registry_migration.md. It must first read docs/architecture/DEVICE_TREE.md and docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md in full, cover all 21 sites below, and say how tests can exercise HA 2026.10 semantics given the local venv is HA 2026.2.3. Then a plan review and a Tier 2-DB build. Deadline: first break is HA 2027.8, so this is not urgent."
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
   rank: {value: 4, time_criticality: 2, effort: 2}
