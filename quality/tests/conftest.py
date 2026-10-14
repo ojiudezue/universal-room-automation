@@ -113,6 +113,56 @@ def _ura_sys_modules_snapshot(request):
 # (real_schema_db, real_schema_db_session) must be registered explicitly.
 pytest_plugins = ["conftest_db"]
 
+
+# =============================================================================
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1: production-submodule partial-stub rescue
+# =============================================================================
+# Before each test file is imported for collection, upgrade any resident
+# partial stub of a first-party production submodule in-place via setdefault
+# semantics. This fixes the "ImportError: cannot import name X from ...signals
+# (unknown location)" / "cannot import name FanController from ...hvac_fans"
+# collection-order failures that shuffled seeds surface (0 default / 1-10
+# shuffled, measured 2026-09-22).
+#
+# Safety: the helper is ADDITIVE — a stub's intentional mock values survive
+# (setdefault); only MISSING real symbols are filled in. Marker-idempotent.
+# Mirrors the existing ensure_ura_const / ensure_ura_signals pattern in
+# quality/tests/_ura_const_support.py; this is the generalization asked for
+# in the card (production modules, not just const/signals).
+# =============================================================================
+try:
+    from _ura_const_support import (
+        ensure_ura_all_prod_modules as _ensure_prod_mods,
+        ensure_ura_pkg_paths as _ensure_pkg_paths,
+    )
+except Exception:  # pragma: no cover — helper always ships beside conftest
+    _ensure_prod_mods = None
+    _ensure_pkg_paths = None
+
+
+def pytest_collectstart(collector):
+    """Fire prod-stub rescue before each test file's imports.
+
+    - ``ensure_ura_pkg_paths``: repair resident package stubs' ``__path__`` so
+      ``from custom_components.universal_room_automation.X import Y`` can
+      locate X by filesystem.
+    - ``ensure_ura_all_prod_modules``: upgrade any resident partial stub for a
+      first-party production submodule in-place (setdefault semantics).
+
+    Running on EVERY collector (not just Module) is cheap: both helpers short-
+    circuit when nothing is resident, and are marker-idempotent.
+    """
+    if _ensure_pkg_paths is not None:
+        try:
+            _ensure_pkg_paths()
+        except Exception:
+            pass
+    if _ensure_prod_mods is not None:
+        try:
+            _ensure_prod_mods()
+        except Exception:
+            pass
+
 # v4.5.2 D2: aiosqlite is now a hard test dep (quality/requirements_test.txt).
 # Pre-fix, this file did `sys.modules.setdefault("aiosqlite", MagicMock())`
 # which made every `await db.execute(...)` a MagicMock no-op — `db.initialize()`
