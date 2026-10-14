@@ -31660,6 +31660,7 @@ cards:
   - Alarm code only in secrets.yaml.
   next: "DO (when back, or anyone at home): check the 12 shorted zone loops at the ELK panel terminals (sensor removed / jumpered / wrong EOL) using the zone list on this card -> then decide Konnected interface kit in parallel for the control surface. Me: write the zone-by-zone list."
 - id: HM-GC-1H-COUNTERS-RING-WINDOW-1
+  freeze_pause_in_1h_max_2026_10_14: "Also: gc_gen2_max_ms_1h counts the gc.freeze pause itself (1641.86 ms = gc_freeze_ms after the 17:30:56 refreeze), so the 1 h max reads as a real gen-2 pause for an hour after every restart. Exclude freeze-time collections from the 1 h max (same charge=False path as 9efd1e0)."
   batch: hm-v2.2
   title: "Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem"
   thread: health_monitor
