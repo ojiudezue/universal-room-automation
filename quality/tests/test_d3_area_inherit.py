@@ -150,6 +150,11 @@ def _install_device_registry(monkeypatch, ent_mod, dev_reg):
     monkeypatch.setitem(
         sys.modules, "homeassistant.helpers.device_registry", fake_hass_helpers,
     )
+    # `from homeassistant.helpers import device_registry` reads the attribute
+    # already bound on the package, not sys.modules; without this the REAL
+    # registry ran and every behavioural test here errored on hass.data.
+    import homeassistant.helpers as _helpers  # noqa: PLC0415
+    monkeypatch.setattr(_helpers, "device_registry", fake_hass_helpers, raising=False)
 
 
 def _run(coro):
@@ -261,3 +266,30 @@ def test_options_overrides_data_for_area(monkeypatch):
     assert len(dev_reg.update_calls) == 1
     _, kw = dev_reg.update_calls[0]
     assert kw == {"area_id": "moved_room"}
+
+
+def test_device_lookup_runs_once_per_room_not_per_entity(monkeypatch):
+    """HA 2026.10: async_get_device does a report_usage stack walk per call.
+    Two entities of the same room must look the device up once (9 s boot stall
+    2026-10-14 at entity.py:80); the area write still happens."""
+    ent_mod, sensor_mod, _domain = _import()
+    dev = _StubDevice(area_id=None)
+    reg = _StubDevReg(dev)
+    calls = []
+    orig = reg.async_get_device
+
+    def counting(identifiers=None, **kw):
+        calls.append(identifiers)
+        return orig(identifiers=identifiers, **kw)
+
+    reg.async_get_device = counting
+    _install_device_registry(monkeypatch, ent_mod, reg)
+    _neutered_super_added(monkeypatch, ent_mod)
+    coord = _Coord(_Entry(area_id="living_room"))
+    for _ in range(2):
+        e = _make_entity(sensor_mod, coord)
+        e.hass = _NoopHass()
+        _run(e.async_added_to_hass())
+    assert len(calls) == 1, calls
+    assert dev.area_id == "living_room"
+    assert len(reg.update_calls) == 1
