@@ -3440,13 +3440,25 @@ class RoomAutomation:
         self._refresh_config()
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         # D2 (bathroom-exhaust occupancy-and-resend, 2026-10-14): lazily
-        # register the manual-OFF state-change listeners on first tick.
-        # Torn down implicitly on HA entry unload (listener holds a weak
-        # reference to the dispatcher; _humidity_fan_unsub_listeners is
-        # also exposed for explicit cleanup if a future lifecycle hook
-        # calls :meth:`_unregister_humidity_fan_listeners`).
-        if humidity_fans and not self._humidity_fan_unsub_listeners:
-            self._register_humidity_fan_manual_off_listeners(humidity_fans)
+        # register the manual-OFF state-change listeners on first tick, and
+        # re-register when the fan list changes (CONF_HUMIDITY_FANS can be
+        # applied without a room reload). Teardown is registered once on the
+        # room entry's async_on_unload: HA does NOT drop state listeners on
+        # entry unload by itself.
+        _fans_key = tuple(sorted(humidity_fans or []))
+        if _fans_key != getattr(self, "_humidity_fan_listened", ()):
+            self._unregister_humidity_fan_listeners()
+            if _fans_key:
+                self._register_humidity_fan_manual_off_listeners(list(_fans_key))
+            self._humidity_fan_listened = _fans_key
+            if not getattr(self, "_humidity_fan_unload_hooked", False):
+                try:
+                    self.coordinator.entry.async_on_unload(
+                        self._unregister_humidity_fan_listeners
+                    )
+                    self._humidity_fan_unload_hooked = True
+                except Exception:  # noqa: BLE001 — test doubles without an entry
+                    pass
         # D3 (bathroom-exhaust occupancy-and-resend): dwell + cap paths
         # must run even when humidity is None (no-humidity-sensor rooms
         # like Master Bath Toilet). Humidity-driven comparisons below
