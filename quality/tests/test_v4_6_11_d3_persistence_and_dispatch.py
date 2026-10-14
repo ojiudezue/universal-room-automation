@@ -404,6 +404,11 @@ class TestD1SimulatedRestart:
                     def _db(self):
                         return aiosqlite.connect(self._path)
 
+                    # UNLOAD-SYMMETRY D3: production reads route through
+                    # _db_read(); mirror _db() so the fake double covers both.
+                    def _db_read(self):
+                        return aiosqlite.connect(self._path)
+
                     async def _init_schema(self):
                         async with self._db() as db:
                             await db.execute("""

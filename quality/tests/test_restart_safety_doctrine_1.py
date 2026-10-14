@@ -234,39 +234,62 @@ async def test_anomaly_detector_baselines_survive_simulated_restart(tmp_path):
         def _db(self):
             return _FakeDB()
 
-    # First instance: record baselines, save.
-    det1 = AnomalyDetector(
-        hass=MagicMock(),
-        coordinator_id="safety_test",
-        metric_names=["hazard_rate"],
-        minimum_samples=1,
-    )
-    det1._database_override = _FakeDatabase()  # not the real API; patch _database
-    # Patch _database property via monkeypatch on the instance's class in scope:
-    det1.__class__._database = property(lambda s: _FakeDatabase())
-    b = MetricBaseline(
-        metric_name="hazard_rate",
-        coordinator_id="safety_test",
-        scope="global",
-        mean=1.5, variance=0.5, sample_count=12,
-    )
-    det1._baselines[("hazard_rate", "global")] = b
-    await det1.save_baselines()
-    assert stored_rows, "save_baselines must have written a row"
+        # UNLOAD-SYMMETRY D3: production reads route through _db_read();
+        # mirror _db() so this double covers both call sites.
+        def _db_read(self):
+            return _FakeDB()
 
-    # Second instance: load and confirm the baseline came back.
-    det2 = AnomalyDetector(
-        hass=MagicMock(),
-        coordinator_id="safety_test",
-        metric_names=["hazard_rate"],
-        minimum_samples=1,
-    )
-    det2.__class__._database = property(lambda s: _FakeDatabase())
-    await det2.load_baselines()
-    key = ("hazard_rate", "global")
-    assert key in det2._baselines, (
-        "After simulated restart, baseline should be re-hydrated from the "
-        "shared store — this is what F1/F2 wire in for safety + manager."
-    )
-    assert det2._baselines[key].mean == 1.5
-    assert det2._baselines[key].sample_count == 12
+    # UNLOAD-SYMMETRY D3 fix-up: previously this test overwrote
+    # AnomalyDetector.__class__._database with a property pointing at a local
+    # _FakeDatabase, and NEVER restored it — so subsequent tests in the full
+    # suite (e.g. TestBaselinesLoadedGuard) saw a working fake DB instead of
+    # their own ExplodingDB and their _baselines_loaded==False assertion
+    # silently flipped. Save the original descriptor and restore in finally.
+    _orig_database_prop = AnomalyDetector.__dict__.get("_database")
+
+    try:
+        # First instance: record baselines, save.
+        det1 = AnomalyDetector(
+            hass=MagicMock(),
+            coordinator_id="safety_test",
+            metric_names=["hazard_rate"],
+            minimum_samples=1,
+        )
+        det1._database_override = _FakeDatabase()  # not the real API; patch _database
+        # Patch _database property via monkeypatch on the instance's class in scope:
+        AnomalyDetector._database = property(lambda s: _FakeDatabase())
+        b = MetricBaseline(
+            metric_name="hazard_rate",
+            coordinator_id="safety_test",
+            scope="global",
+            mean=1.5, variance=0.5, sample_count=12,
+        )
+        det1._baselines[("hazard_rate", "global")] = b
+        await det1.save_baselines()
+        assert stored_rows, "save_baselines must have written a row"
+
+        # Second instance: load and confirm the baseline came back.
+        det2 = AnomalyDetector(
+            hass=MagicMock(),
+            coordinator_id="safety_test",
+            metric_names=["hazard_rate"],
+            minimum_samples=1,
+        )
+        AnomalyDetector._database = property(lambda s: _FakeDatabase())
+        await det2.load_baselines()
+        key = ("hazard_rate", "global")
+        assert key in det2._baselines, (
+            "After simulated restart, baseline should be re-hydrated from the "
+            "shared store — this is what F1/F2 wire in for safety + manager."
+        )
+        assert det2._baselines[key].mean == 1.5
+        assert det2._baselines[key].sample_count == 12
+    finally:
+        if _orig_database_prop is not None:
+            AnomalyDetector._database = _orig_database_prop
+        else:
+            # Shouldn't happen (production defines the property), but be safe.
+            try:
+                del AnomalyDetector._database
+            except AttributeError:
+                pass

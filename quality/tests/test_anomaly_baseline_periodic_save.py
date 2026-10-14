@@ -68,6 +68,10 @@ def _make_manager(running: bool = True):
     hass.services = MagicMock()
     hass.bus = MagicMock()
     hass.bus.async_listen_once = MagicMock(return_value=MagicMock())
+    # UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2: baseline STOP flush moved from
+    # async_listen_once(EVENT_HOMEASSISTANT_STOP, ...) to
+    # async_add_shutdown_job(HassJob(...)).
+    hass.async_add_shutdown_job = MagicMock(return_value=MagicMock())
     mgr = CoordinatorManager(hass)
     mgr._running = running
     return mgr, hass
@@ -92,17 +96,25 @@ class TestStopEventPersistsAllDetectors:
 
     @pytest.mark.asyncio
     async def test_stop_listener_registered_with_correct_event(self):
+        """UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2: registration moved to
+        async_add_shutdown_job (Stage 1) so the save runs BEFORE
+        background-task cancel. The EVENT_HOMEASSISTANT_STOP once-listener
+        for baselines must be gone."""
         mgr, hass = _make_manager()
         mgr._wire_anomaly_baseline_persistence()
-        # The once-listener MUST be registered under EVENT_HOMEASSISTANT_STOP.
-        called = [
-            call for call in hass.bus.async_listen_once.call_args_list
-            if call.args and call.args[0] == EVENT_HOMEASSISTANT_STOP
+        assert hass.async_add_shutdown_job.call_count == 1, (
+            "D2: baseline flush must register exactly one "
+            "async_add_shutdown_job; "
+            f"got {hass.async_add_shutdown_job.call_args_list!r}"
+        )
+        # Negative: no EVENT_HOMEASSISTANT_STOP listener for baselines.
+        legacy = [
+            c for c in hass.bus.async_listen_once.call_args_list
+            if c.args and c.args[0] == EVENT_HOMEASSISTANT_STOP
         ]
-        assert len(called) == 1, (
-            "ANOMALY-BASELINES-...-1: _wire_anomaly_baseline_persistence must "
-            "register exactly one EVENT_HOMEASSISTANT_STOP once-listener. "
-            f"calls={hass.bus.async_listen_once.call_args_list!r}"
+        assert legacy == [], (
+            "D2 regression: baseline flush must not register an "
+            f"EVENT_HOMEASSISTANT_STOP listener; got {legacy!r}"
         )
 
     @pytest.mark.asyncio
@@ -124,9 +136,11 @@ class TestStopEventPersistsAllDetectors:
         mgr._setup_anomaly_detector = setup_det
 
         mgr._wire_anomaly_baseline_persistence()
-        # Grab the once-listener callback and drive it.
-        stop_cb = hass.bus.async_listen_once.call_args.args[1]
-        await stop_cb(object())
+        # D2: grab the HassJob registered via async_add_shutdown_job and
+        # invoke its target the way HA core.py:1083-1084 does — zero
+        # positional args.
+        job = hass.async_add_shutdown_job.call_args.args[0]
+        await job.target()
 
         for cid, c in coords.items():
             assert c.anomaly_detector.save_baselines.await_count == 1, (
@@ -332,7 +346,7 @@ class TestListenerHygiene:
                 _MGR_GLOBALS, "async_track_time_interval",
                 MagicMock(return_value=periodic_unsub),
             )
-            hass.bus.async_listen_once = MagicMock(return_value=stop_unsub)
+            hass.async_add_shutdown_job = MagicMock(return_value=stop_unsub)
             mgr._wire_anomaly_baseline_persistence()
         assert mgr._anomaly_baseline_periodic_unsub is periodic_unsub
         assert mgr._anomaly_baseline_stop_unsub is stop_unsub
@@ -406,6 +420,12 @@ class TestBaselinesLoadedGuard:
                     async def __aexit__(__s, *a):
                         return False
                 return _Ctx()
+
+            # D3: load_baselines SELECT now routes through _db_read();
+            # mirror the failing behaviour so the retry/warn test is
+            # unchanged in intent.
+            def _db_read(_s):
+                return _s._db()
 
         db = ExplodingDB()
         det = self._make_detector(database=db)
@@ -497,6 +517,10 @@ class TestBaselinesLoadedGuard:
 
                 return _Ctx()
 
+            # D3: load_baselines SELECT routes through _db_read().
+            def _db_read(_s):
+                return _s._db()
+
         db = RecoveringDB()
         det = self._make_detector(database=db)
         await det.load_baselines()  # fails -> flag False
@@ -555,6 +579,10 @@ class TestBaselinesLoadedGuard:
                         return False
                 return _Ctx()
 
+            # D3: load_baselines SELECT routes through _db_read().
+            def _db_read(_s):
+                return _s._db()
+
         det = self._make_detector(database=EmptyDB())
         await det.load_baselines()
         assert det._baselines_loaded is True, (
@@ -598,9 +626,9 @@ class TestAsyncStartWiresBaselinePersistence:
             MagicMock(return_value=periodic_unsub),
         )
         stop_unsub = MagicMock()
-        hass.bus.async_listen_once = MagicMock(return_value=stop_unsub)
+        hass.async_add_shutdown_job = MagicMock(return_value=stop_unsub)
 
-        # Register a detector so the stop callback has something to flush.
+        # Register a detector so the shutdown job has something to flush.
         presence = _make_coord_with_detector("presence")
         mgr._coordinators["presence"] = presence
 
@@ -612,20 +640,16 @@ class TestAsyncStartWiresBaselinePersistence:
             "If this fails, _wire_anomaly_baseline_persistence was NOT "
             "invoked from async_start (A-MEDIUM wire-anchor regression)."
         )
-        stop_calls = [
-            c for c in hass.bus.async_listen_once.call_args_list
-            if c.args and c.args[0] == EVENT_HOMEASSISTANT_STOP
-        ]
-        # One stop-listener per wiring (house-state is stubbed above).
-        assert len(stop_calls) == 1, (
-            "async_start must register exactly one baseline STOP once-listener; "
-            f"got {hass.bus.async_listen_once.call_args_list!r}"
+        assert hass.async_add_shutdown_job.call_count == 1, (
+            "D2: async_start must register exactly one baseline "
+            "shutdown-job via async_add_shutdown_job; "
+            f"got {hass.async_add_shutdown_job.call_args_list!r}"
         )
-        # Firing the stop event must flush the registered detector.
-        stop_cb = stop_calls[0].args[1]
-        await stop_cb(object())
+        # Invoke the registered HassJob the way HA core does (zero args).
+        job = hass.async_add_shutdown_job.call_args.args[0]
+        await job.target()
         assert presence.anomaly_detector.save_baselines.await_count == 1, (
-            "The STOP listener wired by async_start must flush each "
+            "The shutdown job wired by async_start must flush each "
             "registered coordinator's anomaly_detector."
         )
 
@@ -671,10 +695,95 @@ class TestWireInAnchor:
         coord = _make_coord_with_detector("presence")
         mgr._coordinators["presence"] = coord
         mgr._wire_anomaly_baseline_persistence()
-        stop_cb = hass.bus.async_listen_once.call_args.args[1]
-        await stop_cb(object())
+        job = hass.async_add_shutdown_job.call_args.args[0]
+        await job.target()
         assert coord.anomaly_detector.save_baselines.await_count == 0, (
             "Mutation drill: with the call site neutered, save_baselines must "
             "NOT be awaited. If it was, the oracle in "
             "TestStopEventPersistsAllDetectors is passing on an unrelated path."
         )
+
+
+# ---------------------------------------------------------------------------
+# UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2 — Stage-1 shutdown-job wiring
+# ---------------------------------------------------------------------------
+
+
+class TestD2ShutdownJobWiring:
+    """D2: baseline STOP flush moved to async_add_shutdown_job so it runs
+    in Stage 1 (before background-task cancel). P1 discriminator: handler
+    must be zero-arg (HA core invokes jobs via
+    async_run_hass_job(job.job, *job.args) with job.args=())."""
+
+    @pytest.mark.asyncio
+    async def test_handler_signature_is_zero_arg(self):
+        """P1: a stale (self, _event) signature would raise TypeError
+        when core.py:1083-1084 calls the job with zero positional args."""
+        import inspect
+        sig = inspect.signature(
+            CoordinatorManager._async_persist_coordinator_baselines_on_stop
+        )
+        # The only parameter must be `self` (bound by Python at method call).
+        params = [
+            p for p in sig.parameters.values() if p.name != "self"
+        ]
+        assert params == [], (
+            "D2 (P1): handler must be zero-arg; got "
+            f"{[p.name for p in params]}. "
+            "async_add_shutdown_job calls jobs with no args; a positional "
+            "_event parameter would raise TypeError in production."
+        )
+
+    @pytest.mark.asyncio
+    async def test_shutdown_job_invoked_zero_arg_the_way_core_does(self):
+        """Invoke the registered HassJob the way HA core.py:1083-1084
+        does (`async_run_hass_job(job.job, *job.args)` with job.args=())
+        and assert the save path ran."""
+        from homeassistant.core import HassJob
+
+        mgr, hass = _make_manager()
+        # One detector to assert the save ran.
+        coord = _make_coord_with_detector("presence")
+        mgr._coordinators["presence"] = coord
+        # Capture whatever HassJob the production code registers.
+        captured: dict = {}
+
+        def _capture(job, *args):
+            captured["job"] = job
+            captured["args"] = args
+            return MagicMock()  # unsub
+
+        hass.async_add_shutdown_job = _capture
+        mgr._wire_anomaly_baseline_persistence()
+
+        job = captured["job"]
+        assert isinstance(job, HassJob), (
+            "D2: wiring must register a HassJob instance via "
+            "async_add_shutdown_job (not a bare coroutine function)."
+        )
+        assert captured["args"] == (), (
+            "D2: wiring must pass no extra positional args to "
+            "async_add_shutdown_job — the handler is zero-arg."
+        )
+        # Drive the way core does: zero positional args.
+        await job.target()
+        assert coord.anomaly_detector.save_baselines.await_count == 1, (
+            "D2: invoking the HassJob target with zero args must run "
+            "the save path."
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeout_constant_fits_inside_stage_1_budget(self):
+        """P8: ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S must be <
+        STOPPING_STAGE_SHUTDOWN_TIMEOUT (20s) so the save finishes inside
+        Stage 1's budget."""
+        from custom_components.universal_room_automation.domain_coordinators.manager import (
+            ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S,
+        )
+        # HA's STOPPING_STAGE_SHUTDOWN_TIMEOUT is 20 (core.py:112).
+        assert ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S < 20, (
+            "D2 (P8): ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S must be < 20s "
+            f"to fit inside Stage 1; got {ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S}"
+        )
+        # And comfortably >0 so the save has a chance to run.
+        assert ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S >= 10

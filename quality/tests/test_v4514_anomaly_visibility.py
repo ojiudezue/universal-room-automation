@@ -81,6 +81,12 @@ def _load_anomaly_detector():
     const.DOMAIN = "universal_room_automation"
     sys.modules["ura_v4514_pkg"] = pkg
     sys.modules["ura_v4514_pkg.const"] = const
+    # UNLOAD-SYMMETRY D3: stub `..database` for the DBShuttingDown import.
+    db_stub = types.ModuleType("ura_v4514_pkg.database")
+    class _DBShuttingDown(RuntimeError):
+        pass
+    db_stub.DBShuttingDown = _DBShuttingDown
+    sys.modules["ura_v4514_pkg.database"] = db_stub
 
     root = Path(__file__).resolve().parents[2]
     src = root / "custom_components" / "universal_room_automation" / \
