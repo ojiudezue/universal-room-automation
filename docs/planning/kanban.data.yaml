@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EC-HOUSE-ENTITY-DEFAULTS-1@2026-10-14T02:20:00"
+    at: "2026-10-14T02:20:00"
+    outcome: "done"
+    headline: "Cleared out the shipped-but-unproven lane: closed 6 cards whose live checks had passed (room-create prefill, sensor form text, room dialogs, Energy role settings, radar tuning Phase A, plus earlier the garage guard and night lights). The 5 Energy repair warnings you may see are real, not false alarms: 4 are from the Envoy outage around midnight, and 1 is a setting still pointing at the retired Envoy stream (clear it once tonight's fix ships). 3 fan-related cards wait on the 10-18 fan re-measure."
+    acknowledged: false
   - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-14T02:16:00"
     at: "2026-10-14T02:16:00"
     outcome: "done"
@@ -18888,11 +18893,13 @@ cards:
   next: 'APPROVE: plan ZONE-AWAY-DURING-SLEEP-1 -> ura-planner writes the plan (prior-art scan incl.
     Pattern B/C vetoes, HVAC sleep/away preset consumers), plan review, then build.'
 - id: EC-HOUSE-ENTITY-DEFAULTS-1
+  disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
+  organic_evidence_2026_10_14: "README_v5.103.55 PENDING row 'No false energy Repairs issue' evaluated 10-14 (.storage/repairs.issue_registry): 5 ec_role_entity_* issues, ALL TRUE, none false. (1) energy_solar_follow_grid_fallback_entity (10-13 12:36 CDT) -> sensor.envoy_stream_grid_power, unavailable for >= 4 days because the Envoy MQTT stream add-on was retired after the NO-GO A/B: a real dead mapping. (2-5) charge_from_grid / grid_enabled / reserve_soc / storage_mode (10-14 00:36 CDT): Enpower entities really unavailable 23:04-01:14 during an Envoy outage. Residuals, folded into EC-OPTIONS-CLEAR-FIELD-NOOP-1 (in flight): the issue text tells you to 'pick a working entity' even when the device is just offline, and the fallback field could not be cleared in the UI. 'Mapping edit reloads on save' stays in-suite only (no operator edit yet)."
   title: Energy code hardcodes this house's entity IDs as defaults (EVSE, L1 plugs, Envoy serial, SPAN) — config-only + warn on missing
   rank: {value: 7, time_criticality: 5, effort: 3}
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.55
-  updated: '2026-10-12 23:55'
+  updated: "2026-10-14 02:20"
   thread: energy
   created: 2026-10-12 23:55
   problem: ~20 house-specific entity IDs live in shared code as defaults — energy_pool.py:446-463
@@ -18908,8 +18915,7 @@ cards:
     paths; one-time carry-over of this house's current values into its config so behaviour here is
     byte-identical; missing configured entity -> explicit "not configured" + boot warning, never silent
     off/0. Battery/EV control path -> Tier 2-DB (3 framing-disjoint reviews). Read EC manual + reference_ec_config_surface first.
-  next: ura-planner writes PLANNING_ec_house_entity_defaults.md (prior-art scan, full enumeration
-    re-grepped, migration, missing-entity surface), plan review, then build.
+  next: "Closed 10-14. Residuals in EC-OPTIONS-CLEAR-FIELD-NOOP-1. Operator config action: clear (or re-point) energy_solar_follow_grid_fallback_entity once that fix ships."
 - id: SONOFF-R4M-MULTICAST-AB-1
   title: Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test
   rank: {value: 7, time_criticality: 7, effort: 1}
@@ -30532,15 +30538,18 @@ cards:
   links: {related: [DB-WAIT-WARNING-REWORK-1], context: 'Found by the same boot-freeze audit; DB size is not the cause of the boot freeze.'}
   rank: {value: 3, time_criticality: 1, effort: 5}
 - id: ROOM-DIALOGS-USABILITY-SWEEP-1
+  disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
+  organic_evidence_2026_10_14: "Shipped in v5.103.26 (2026-09-29, \"room settings dialogs cleaned up\"), README Validated 2026-09-30 table PASS on the boot/watchdog items; the only not-re-checked row (L6 Fan Mode on Controls) belongs to a different item. Card next still said BUILD: CARD-WAS-WRONG (stale after the deploy auto-move). 15 days organic with no reported dialog regressions."
+  updated: "2026-10-14 02:20"
   title: Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long
   thread: ux
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.26
   tier: 1
   created: '2026-09-29 20:15'
   origin: 'Operator 2026-09-29 (screenshots of Climate & Fans): "this dialogs is really poor. Some things have weird looking lables with underscores. A bunch have no helper text. The ones that do have them too long. It needs to be cleaned up to look presentable. Might as well sweep the other room dialogs as well for usability."'
   why: 'Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same risk across every room config/options step. Adjacency: HVAC-KNOB-LABEL-PASS-1 (done, entity names), CM-CONFIG-FLOW-UX-1/-SELECTORS-1 (done, CM menu) - different surfaces. NEW.'
-  next: 'BUILD (strings-only + a meta-test): every field in every ROOM config and options step gets a plain label and a short helper text (label style guide), long texts trimmed; meta-test fails on any raw-key label, missing helper, or over-long helper. Ship with the next restart (bundled with BOOT-EVENT-LOOP-FREEZE-1 per operator choice).'
+  next: "Closed 10-14. Reopen on any raw-key label or missing helper report."
   links: {related: [HVAC-KNOB-LABEL-PASS-1, CM-CONFIG-FLOW-UX-1]}
   rank: {value: 3, time_criticality: 2, effort: 2}
 - id: ROOM-LIGHTING-SETUP-REDESIGN-1
@@ -30849,24 +30858,26 @@ cards:
   next: "DO (homelab): per-device RSSI + AP association history for these switches; check AP coverage in the bathroom wing."
   related: [MASTER-TOILET-SONOFF-DROPOUTS-1, BOND-BRIDGE-UNRESPONSIVE-1]
 - id: OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1
+  organic_check_2026_10_14: "README_v5.103.53 fan_recheck_outcome PENDING row now MET: memory_episodes has 84 fan_recheck_outcome rows (10-12 03:18Z -> 10-14 05:35Z). Remaining discriminator (capability-routed fan trust) waits on the 10-18 fan re-measure, inside the Soak Exit window."
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
   status: shipped_organic
   shipped_version: v5.103.53
   tier: 2
   created: "2026-10-11 23:50"
-  updated: "2026-10-12 12:00"
+  updated: "2026-10-14 02:20"
   build_2026_10_12: "Built on fix/occupancy-source-follows-capability (plan Rev 2, D1-D7): per-tick STATE_RADAR_SOLE_TICK + _recent_radar_sole_ring, positive-evidence is_radar (override wins both ways), six consumers + recheck family factor routed, kill switch sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED. 34 new tests; 27 per-site mutation drills all RED. Awaiting 2 framing-disjoint code reviews."
   origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
   why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
-  next: "Prior-art scan (coordinator occupancy_source producer ~3148, D2 sole-source check, recheck mmwave-only eligibility); plan the smallest change: source/radar-ness from derive_capability (kind mmwave / model family radar) rather than list."
+  next: "Me, 2026-10-18 fan re-measure: is the capability-routed fan rejection releasing radar-held rooms (GB1/GB2/Media MS600)? Met -> done; not met -> reopen. (Stale pre-build next replaced 10-14: shipped v5.103.53.)"
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
 - id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
+  card_was_wrong_2026_10_14: "next said APPROVE ship, but v5.103.54 shipped and was validated on 10-12 (README table: install, 0 boot errors, no away at restart all PASS). Only the organic D2-release row is pending."
   operator_instruction_2026_10_13: "Did we end up needing this? Is this after I messaged aboiut how the MS600 actually works?"
   reply_2026_10_14: 'Yes to both. It is downstream of your MS600 explanation: this card''s origin is the 2026-10-11 MS600 review where you said combined sensors (radar + motion) count as one signal, and that finding (Rev 2 Finding 8) is what surfaced the bug — a fan-faked MS600 radar motion bit was refreshing the PIR-staleness clock and clearing the D2 latch in Guest Bedroom 1/2/Media, defeating the fan-immunity protection those rooms otherwise have. It was needed: it already shipped (v5.103.54) and is confirmed built/reviewed/deployed, status shipped_organic.'
   built_2026_10_12_overnight: 'BUILT TO REVIEW, not deployed. Branch fix/d2-pir-stamp-fan-immune-witness: build 487d8c69b, then fix-up 8e678d826. Review A FIX-REQUIRED: one HIGH (the helper read the raw motion list instead of the stuck-filtered one) and fixed. Review B SHIP with one MEDIUM: the same timestamp fed the room failsafe, so GB1/GB2 sleeping guests would have been newly force-vacated. Fixed by keeping the failsafe on a separate field with the old meaning (_last_motion_bit_time). Doc corrected: ''ZV-only means D2 unreachable'' was WRONG. Orchestrator drills M1-M4 all RED, restored. Targeted tests: 52 passed. Review record: docs/reviews/code-review/overnight_2026-10-12_d2_pir_stamp_fan_immune_witness.md. Behaviour change is limited to GB1 and GB2 (ZV + MS600): an MS600 motion bit no longer keeps D2 from demoting a fan-held room or clears its latch.'
   open_question_2026_10_12: 'Separate from this card: should the room failsafe also ignore radar motion bits (MS600)? Today a fan-faked MS600 bit can defer the failsafe indefinitely in GB1/GB2; ignoring it would force-vacate a guest asleep for longer than the failsafe duration. I kept today''s behaviour. Card it only if you want it changed.'
-  next: 'APPROVE ship with your next attended deploy (I merge to develop, write README, deploy). Full-suite name-diff result is recorded here when the validator finishes.'
+  next: "Me, 2026-10-18 fan re-measure: D2 releases in GB1/GB2/Media (README_v5.103.54 PENDING row). Met -> done; not met -> reopen. (Stale \"APPROVE ship\" replaced 10-14: shipped and validated in v5.103.54.)"
   gate_2026_10_12_overnight: 'FOUR-STEP GATE. (1) VALIDITY STILL-REAL: coordinator.py:3873 stamps _last_pir_motion_time on any motion_detected; :2897-2898 clears the latch with reason pir_motion on any motion_detected. Neither is filtered. (1b) config-first: no knob decides which motion counts as a PIR witness, so this is code. (2) REUSE fan_veto.is_fan_immune_motion_witness (fan_veto.py:113), already used to filter the D2 witness list at coordinator.py:2180-2187. (3) parsimony BUILD: same filter at two more sites. (4) cost/benefit: small, presence-local, fail-closed. Build to review dispatched overnight in .claude/worktrees/overnight-1012-d2pir, branch fix/d2-pir-stamp-fan-immune-witness. No deploy.'
   title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
   thread: presence
@@ -30874,7 +30885,7 @@ cards:
   shipped_version: v5.103.54
   tier: 1
   created: "2026-10-12 12:00"
-  updated: '2026-10-12 02:15'
+  updated: "2026-10-14 02:20"
   origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
   why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
   related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
@@ -30890,27 +30901,56 @@ cards:
   next: "Revival trigger: any cycle that un-retires FAN_TRANSITION_SUSPECT_WINDOW_S must route predicate (d) through data[STATE_RADAR_SOLE_TICK]."
   related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
 - id: SENSOR-FORM-PLAIN-TEXT-1
+  disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
+  organic_evidence_2026_10_14: "README_v5.103.52 Validated 2026-10-11: form text + Advanced-only JSON PASS on installed code; 0 URA boot errors. Nothing pending for this card (the PENDING row belongs to NIGHTLIGHT-RED-RECONCILE-PARITY-1)."
   title: Room sensors form — brief, user-focused wording (motion / presence / combined; 'What can it see?' dropdown; hide advanced JSON)
   thread: onboarding
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.52
   tier: 1
   created: "2026-10-11 23:50"
-  updated: "2026-10-11 23:50"
+  updated: "2026-10-14 02:20"
   origin: "Operator 2026-10-11: plain question when a sensor is added; 'improve the text in the form, not bloat — user-focused, appropriately brief'; 'combined = sensors that have radar and motion reporting one combined signal'."
   why: "Current labels: 'Motion Sensors (PIR)', 'Pre-Combined Motion + Presence Sensors', per-sensor kind dropdown with codes (mmwave, pir_split…), advanced JSON shown to everyone. Existing caps_kind__<entity> dropdown (config_flow.py ~12540) already asks the question — relabel, don't rebuild."
-  next: "Text: Motion sensors — 'See movement only.' · Presence sensors — 'See people sitting still.' · Combined sensors — 'Radar and motion reported as one signal.' · Dropdown 'What can it see?' → Movement only / People sitting still / Bed or seat / Not sure (safe default = no override) · JSON box Advanced-only. Label style guide; strings + option labels only."
+  next: "Closed 10-14."
+- id: URA-SENSOR-TUNING-PHASE-B-1
+  title: "While a room fan is running, URA could turn the room radar down (sensitivity / range) so the fan cannot fake presence, then restore it when the fan stops"
+  thread: presence
+  status: parked
+  created: '2026-10-14 02:20'
+  updated: '2026-10-14 02:20'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-2db, measure-before-build, institutional-context]
+  rank: {value: 4, time_criticality: 2, effort: 8}
+  problem_solution:
+  - "Problem: ceiling fans can make radar presence sensors think someone is there. URA now sets each radar to fixed per-room settings (Phase A, shipped v5.103.53), but those settings are the same whether the fan is on or off. Solution (Phase B, not built): while URA believes the room fan is on, lower that radar motion sensitivity or range, and restore it when the fan stops. Only worth building if the fan-noise problems are still there after the software fixes already shipped."
+  origin: {date: '2026-10-14', gist: "Soak Exit split of URA-SENSOR-TUNING-1: Phase A done, Phase B never built"}
+  why: "Operator called anti-interference + distance tuning the biggest Study A lever. Several software-side fan-rejection fixes shipped since (v5.103.51/.53/.54), so the remaining need is unmeasured."
+  constraints:
+  - "Read docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md + docs/architecture/SENSOR_FLEET_CLASSES.md completely before planning."
+  - "Writing device settings on every fan edge is a new writer to hardware; needs a discharge (restore on fan off AND on restart) and a write-rate cap."
+  parked_alts: []
+  next: "PARKED. Revive if the 2026-10-18 fan re-measure (OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 / D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1) still shows fan-faked radar holds in a room whose fan is running."
+  links:
+    parent: URA-SENSOR-TUNING-1
+    related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1, D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1]
+    context: "Parent shipped Phase A. The two related cards hold the 10-18 measurement that decides whether Phase B is needed."
+  refs:
+  - docs/readmes/README_v5.103.53.md (Not built / deferred)
 - id: URA-SENSOR-TUNING-1
+  disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
+  organic_evidence_2026_10_14: "Phase A shipped v5.103.53 (per-room ZK/ZX radar settings); README Validated 2026-10-11: reapply_radar_settings service registered PASS, 0 URA boot errors. Phase B (fan-aware dynamic tuning) was never built; carded as URA-SENSOR-TUNING-PHASE-B-1 (parked with a revival trigger). The card next still said \"prior-art scan -> plan Phase A\": CARD-WAS-WRONG (stale)."
   title: URA owns presence-radar tuning (sensitivity / range / anti-interference) per room — static first, fan-aware later
   thread: presence
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.53
   created: "2026-10-11 18:30"
-  updated: "2026-10-11 18:30"
+  updated: "2026-10-14 02:20"
   origin: "Operator 2026-10-11: 'We may need to add sensor tuning directly to URA' — after Study A ZG-204ZK tuning (motion 8->5, static 8->6, distance 4.34->3.0 m) and the Wigton fleet retune (17 units by hand)."
   why: "Radar settings are exposed as HA number/switch entities but set by hand in Z2M and forgotten; they decide fan rejection (operator: anti-interference + distance tuning is the biggest Study A lever). Phase A (static): per-room target settings in URA config, applied + drift re-asserted + mismatch surfaced, per-model defaults from SENSOR_FLEET_CLASSES.md. Phase B (dynamic): while a room's fan is believed ON, lower motion sensitivity / range, restore on fan OFF — device-level running-fan rejection."
   constraints: "Battery Zigbee radars apply writes on wake (lag) and each write costs battery; URA becomes a second writer vs manual Z2M edits; B needs a restore backstop (restart, missed fan-off) so a radar is never left desensitised. Marginal-benefit gate: B only if A + FAN-NOISE fixes (recheck no-restore, D2 capability classification, live fan entities) leave a measured gap."
-  next: "Prior-art scan (sensor_capability.py, fan cycle cards, Wigton tuning script remote_tune.py) -> plan Phase A (Tier 2)."
+  next: "Closed 10-14 (Phase A). Phase B -> URA-SENSOR-TUNING-PHASE-B-1."
   related: [ROOM-CREATE-AREA-PREFILL-DETRITUS-1, OC-STUCK-SENSOR-GENERALIZE-1]
 - id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
   review_b_2026_10_11_overnight: "Review B FIX-REQUIRED: B1-1 HIGH (pre-existing, same problem) automation.py ~1553/~1566 night lights turned on with evening/day mode when main lights also qualify - the house-Sleep switch exists only in the night-light-only branch, and room sleep protection is off by default -> evening kelvin at house Sleep; B1-2 MEDIUM reconciler house-Sleep result lacks has_params_to_apply so a bulb returning on at factory warm white is skipped; B1-3 LOW switch.py RoomLightsSwitch builds night-light params by hand. All three sent to the builder (in scope - same red-at-sleep rule). Onset gap (already-lit lights at house Sleep onset) carded separately for the operator: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1."
@@ -30922,10 +30962,10 @@ cards:
   shipped_version: v5.103.52
   tier: 1
   created: "2026-10-10 22:00"
-  updated: "2026-10-11 04:10"
+  updated: "2026-10-14 02:20"
   origin: "Master Toilet night-light check 2026-10-10; operator: 'Sleep is red'."
   why: "automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns color_temp_kelvin (2000 K) -> a colour light reconnecting while occupied at sleep is restored warm white. Two writers, one value (Bug Class #53). The Master Toilet RGBW dropped once at 03:44 UTC 10-10 but the room was vacant, so not hit live yet."
-  next: "Move the red-hue decision into the shared resolver (night_light_turn_on_params returns rgb_color red for colour-capable lights at sleep, given a capability/colour-mode lookup), used by both writers; parity test canonical vs reconciler at sleep for an hs/xy light. Also hoist the function-local import at automation.py:1822 (Bug Class #34)."
+  next: "Me, dispose by 2026-10-18: one-shot check of a colour-capable night light restored by the reconciler during Sleep (hs/rgb = red). Not evaluable on 10-14: the overnight Sleep reconciles were switch-type lights only; Living Room night lights came on via the main controller, not a reconciler return. If no colour light is reconciled during Sleep by 10-18, park with that trigger (proven in-suite)."
   related: [MASTER-TOILET-NIGHTLIGHT-SLEEP-UNCONFIRMED-1, NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: MASTER-TOILET-SONOFF-DROPOUTS-1
   title: Master Toilet main switch (Sonoff Mini R4M Matter) drops offline every few minutes - 92 unavailable flips overnight
@@ -30960,17 +31000,19 @@ cards:
   next: "Follow docs/planning/RUNBOOK_wigton_ura_reenable.md: G1 stall vector (watcher + Profiler armed) -> G2 v5.103.48 installed -> G3 room configs clean -> G4/G5 sensors tuned + flicker down -> Stage 1 enable all-OFF -> Stage 2 zone by zone -> Stage 3 after Omonele enrolled."
   depends_on: [WIGTON-HA-UNRESPONSIVE-1, ROOM-SWITCH-LOOKUP-BY-NAME-1, ROOM-CREATE-AREA-PREFILL-DETRITUS-1]
 - id: ROOM-CREATE-AREA-PREFILL-DETRITUS-1
+  disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
+  organic_evidence_2026_10_14: "README_v5.103.50 Validated 2026-10-11: all criteria PASS (one boot-scan warning as expected, 0 URA errors, follow-up config cleanup done). Nothing pending."
   wigton_cleanup_2026_10_10: "G3 done at Wigton via each room options -> Lighting behaviour -> auto_manual_devices section (collapsed; NOT the Devices page - an agent read only Devices and falsely passed G3). Removed from auto_switches in 17 rooms: every mmWave *_anti_interference switch + URA own switches (switch.universal_room_automation_domain_coordinators, switch.ura_name_people_at_doors, switch.ura_presence_face_matching) from the House room. Kept Shelly relay outputs + plugs (real loads). Operator: Shelly 'detach' relay mode is exposed as its own switch (named *detach*) and must never be in any URA config. Code fix must also exclude URA's own entities from prefill. Backup: /homeassistant/.storage/core.config_entries.bak-pre-autoswitch-clear."
   title: Creating a room from an area auto-adds the wrong switches (relay 'detach' modes, sensor anti-interference, indicators) to its light/switch lists
   thread: rooms
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.50
   tier: 2
   created: "2026-10-10 14:30"
-  updated: "2026-10-10 14:30"
+  updated: "2026-10-14 02:20"
   origin: "Operator 2026-10-10 (Wigton bulk create): 'This is detritus from bulk create. It needs a card to stop it.' Seen first on main-house Master Closet onboarding (2026-10-09, auto_switches filled with detach switches + plugs); at Wigton URA then toggled mmWave anti_interference switches with occupancy."
   why: "config_flow area prefill (config_flow.py ~258 CONF_AUTO_SWITCHES: prefill['switches']; ~2707 default=area_switches) takes every switch in the area. Device configuration/diagnostic switches (entity_category config/diagnostic: anti_interference, indicator, detach/relay mode, child lock, LED) must never be offered as room actuators."
-  next: "Code: filter area prefill to switches with no entity_category (exclude config + diagnostic), and exclude known config-type keys; same filter for lights/fans prefill. Test with a fake area holding a Shelly detached-mode switch + a Tuya anti_interference switch. Cleanup of existing rooms done by hand 2026-10-10 (Wigton)."
+  next: "Closed 10-14."
 - id: ROOM-SWITCH-LOOKUP-BY-NAME-1
   disposed_2026_10_11_overnight: "DONE (soak exit, discriminator met). ura_activity_log for the Automation-OFF rooms (Guest Bedroom 2, Jaya Bedroom, Master Closet, Master Hallway, Media, Foyer): 12 rows 10-10 12:00-13:56Z under v5.103.47 (incl. light_turn_off, light_reconcile), 0 rows from the 15:57:16Z v5.103.48 boot to 10-11 07:05Z (~15 h). CORRECTED the README_v5.103.48 validation table: its two log rows relied on a bounded journald window (0 matches != 0 since restart) and are now marked unverified, with the longer DB window added. The Wigton half (removing reliance on the 10-10 renames) belongs to WIGTON-URA-REENABLE-1."
   title: Room control switches (Automation, AI, Manual, Cover, Override, Auto-recovery) are found by a built name and fail open when HA names the entity differently
