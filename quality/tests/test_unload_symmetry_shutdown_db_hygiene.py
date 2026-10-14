@@ -77,9 +77,35 @@ def _reload_db_modules():
 def _hermetic_db_modules():
     """Ensure every test in this file sees a consistent (database,
     coordinator_diagnostics) pair, regardless of what sibling test
-    modules left in sys.modules."""
+    modules left in sys.modules.
+
+    Review C-M3: on teardown, restore whichever module objects were in
+    sys.modules on entry — otherwise sibling tests that imported
+    ``database`` or ``coordinator_diagnostics`` as module-level names
+    (e.g. ``test_db_write_worker_boot_race.ura_db``) hold a stale
+    reference, and ``importlib.reload`` on that reference raises
+    ``ImportError: module ... not in sys.modules``.
+    """
+    import sys as _sys
+    db_name = "custom_components.universal_room_automation.database"
+    cdiag_name = (
+        "custom_components.universal_room_automation."
+        "domain_coordinators.coordinator_diagnostics"
+    )
+    orig_db = _sys.modules.get(db_name)
+    orig_cdiag = _sys.modules.get(cdiag_name)
     _reload_db_modules()
-    yield
+    try:
+        yield
+    finally:
+        if orig_db is not None:
+            _sys.modules[db_name] = orig_db
+        else:
+            _sys.modules.pop(db_name, None)
+        if orig_cdiag is not None:
+            _sys.modules[cdiag_name] = orig_cdiag
+        else:
+            _sys.modules.pop(cdiag_name, None)
 
 
 def _make_db(tmp_path: str, is_stopping: bool = False):
@@ -560,3 +586,293 @@ def test_load_baselines_prune_failure_keeps_saves_enabled(tmp_path):
         await db.stop_write_worker()
 
     asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# C-M1 — mid-write cancel classification (database.py ~:373)
+# ---------------------------------------------------------------------------
+
+
+def _run_mid_write_cancel(tmp_path, *, is_stopping: bool):
+    """Enqueue a factory that parks the worker; cancel the worker task; return
+    the exception the pending future received.
+
+    This exercises the worker-loop ``except asyncio.CancelledError`` arm that
+    classifies the in-flight future by ``hass.is_stopping``.
+    """
+    db = _make_db(str(tmp_path), is_stopping=is_stopping)
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        started = asyncio.Event()
+        hold = asyncio.Event()  # never set — worker parks inside factory
+
+        async def _factory(_conn):
+            started.set()
+            await hold.wait()
+            return None  # pragma: no cover
+
+        db._write_queue.put_nowait((_factory, fut))
+        await asyncio.wait_for(started.wait(), timeout=5.0)
+        # Cancel the worker mid-write.
+        assert db._write_task is not None
+        db._write_task.cancel()
+        try:
+            await db._write_task
+        except BaseException:
+            pass
+        assert fut.done(), "future must be set by the mid-write cancel arm"
+        return fut.exception()
+
+    return asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+def test_mid_write_cancel_at_ha_stop_is_db_shutting_down(tmp_path):
+    """C-M1: cancel while ``hass.is_stopping`` is True routes the in-flight
+    future to DBShuttingDown so the DAO except arm demotes to DEBUG."""
+    exc = _run_mid_write_cancel(tmp_path, is_stopping=True)
+    assert isinstance(exc, _dbshutting_down_cls()), (
+        f"expected DBShuttingDown, got {type(exc).__name__}: {exc!r}"
+    )
+
+
+def test_mid_write_cancel_outside_shutdown_is_plain_runtime_error(tmp_path):
+    """C-M1 discriminator: cancel outside shutdown (unload/reload/VACUUM) must
+    stay plain RuntimeError so lost writes still log ERROR."""
+    exc = _run_mid_write_cancel(tmp_path, is_stopping=False)
+    assert type(exc) is RuntimeError, (
+        f"expected bare RuntimeError, got {type(exc).__name__}: {exc!r}"
+    )
+    assert not isinstance(exc, _dbshutting_down_cls())
+
+
+# ---------------------------------------------------------------------------
+# C-M2 — DBShuttingDown except arms in cdiag writes
+# ---------------------------------------------------------------------------
+
+
+def _fake_db_raising(exc_cls):
+    """Return an object whose ``_db()`` async context manager raises
+    ``exc_cls`` immediately."""
+    from contextlib import asynccontextmanager
+
+    class _FakeDB:
+        @asynccontextmanager
+        async def _db(self):  # type: ignore[no-untyped-def]
+            raise exc_cls("shutting down")
+            yield  # pragma: no cover
+
+    return _FakeDB()
+
+
+def test_save_baselines_dbshuttingdown_arm_is_debug(tmp_path, caplog):
+    """C-M2: save_baselines ``except DBShuttingDown`` arm — DEBUG, no ERROR."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        coordinator_diagnostics as cdiag,
+    )
+    cls = _dbshutting_down_cls()
+    hass = MagicMock()
+    hass.data = {cdiag.DOMAIN: {"database": _fake_db_raising(cls)}}
+    det = cdiag.AnomalyDetector(
+        hass, coordinator_id="safety", metric_names=["noise_floor"]
+    )
+    det._baselines_loaded = True
+    det._baselines[("noise_floor", "all")] = cdiag.MetricBaseline(
+        metric_name="noise_floor",
+        coordinator_id="safety",
+        scope="all",
+        mean=1.0,
+        variance=0.1,
+        sample_count=10,
+        last_updated="2026-10-13T00:00:00",
+    )
+
+    async def _scenario():
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="custom_components.universal_room_automation."
+            "domain_coordinators.coordinator_diagnostics",
+        ):
+            await det.save_baselines()
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert errors == [], f"unexpected ERROR records: {errors!r}"
+        debugs = [
+            r for r in caplog.records
+            if r.levelno == logging.DEBUG
+            and "HA shutting down" in r.getMessage()
+            and "save_baselines" in r.getMessage()
+        ]
+        assert debugs, "expected a DEBUG line marking the save skip"
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+def test_store_outcome_dbshuttingdown_arm_is_debug(tmp_path, caplog):
+    """C-M2: store_outcome ``except DBShuttingDown`` arm — DEBUG, returns None."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        coordinator_diagnostics as cdiag,
+    )
+    import datetime as _dt
+    cls = _dbshutting_down_cls()
+    hass = MagicMock()
+    hass.data = {cdiag.DOMAIN: {"database": _fake_db_raising(cls)}}
+    om = cdiag.OutcomeMeasurer(hass)
+    outcome = cdiag.OutcomeMeasurement(
+        timestamp=_dt.datetime(2026, 10, 13),
+        coordinator_id="safety",
+        period_start=_dt.datetime(2026, 10, 13),
+        period_end=_dt.datetime(2026, 10, 13),
+        scope="all",
+    )
+
+    async def _scenario():
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="custom_components.universal_room_automation."
+            "domain_coordinators.coordinator_diagnostics",
+        ):
+            result = await om.store_outcome(outcome)
+        assert result is None
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert errors == [], f"unexpected ERROR records: {errors!r}"
+        debugs = [
+            r for r in caplog.records
+            if r.levelno == logging.DEBUG
+            and "store_outcome" in r.getMessage()
+            and "HA shutting down" in r.getMessage()
+        ]
+        assert debugs, "expected a DEBUG line marking the outcome skip"
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+def test_orphan_prune_dbshuttingdown_arm_is_debug(tmp_path, caplog):
+    """C-M2: load_baselines' orphan-prune ``except DBShuttingDown`` arm —
+    DEBUG, baselines_loaded stays True so saves are not disabled."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        coordinator_diagnostics as cdiag,
+    )
+    cls = _dbshutting_down_cls()
+    db = _make_db(str(tmp_path), is_stopping=False)
+    hass = MagicMock()
+    hass.data = {cdiag.DOMAIN: {"database": db}}
+    det = cdiag.AnomalyDetector(
+        hass, coordinator_id="safety", metric_names=["noise_floor"]
+    )
+    det.metric_names = ["noise_floor"]
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        # Seed one orphan row so the prune block fires.
+        async with db._db() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO metric_baselines "
+                "(coordinator_id, metric_name, scope, mean, variance, "
+                "sample_count, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("safety", "deprecated_metric", "all", 1.0, 0.1, 10,
+                 "2026-10-13T00:00:00"),
+            )
+            await conn.commit()
+
+        # Swap only _db (writes) to raise DBShuttingDown; _db_read (the SELECT
+        # portion) keeps working so load reaches the prune block.
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _raising_db():  # type: ignore[no-untyped-def]
+            raise cls("shutting down")
+            yield  # pragma: no cover
+
+        db._db = _raising_db
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="custom_components.universal_room_automation."
+            "domain_coordinators.coordinator_diagnostics",
+        ):
+            await det.load_baselines()
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert errors == [], f"unexpected ERROR records: {errors!r}"
+        debugs = [
+            r for r in caplog.records
+            if r.levelno == logging.DEBUG
+            and "Orphan prune skipped" in r.getMessage()
+        ]
+        assert debugs, "expected a DEBUG line marking the prune skip"
+        assert det._baselines_loaded is True, (
+            "DBShuttingDown prune skip must leave baselines_loaded True "
+            "so subsequent save_baselines is not disabled"
+        )
+        # Restore and clean up
+        db._db = type(db)._db.__get__(db, type(db))
+        await db.stop_write_worker()
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# C-L1 — flush-budget / drained-count log demotions (database.py ~:428 / :496)
+# ---------------------------------------------------------------------------
+
+
+def _run_flush_capture_logs(tmp_path, monkeypatch, caplog, *, is_stopping: bool):
+    db = _make_db(str(tmp_path), is_stopping=is_stopping)
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="custom_components.universal_room_automation.database",
+    ):
+        _flush_with_expired_budget(db, monkeypatch)
+    return caplog.records
+
+
+def test_flush_budget_log_demoted_to_debug_at_shutdown(tmp_path, monkeypatch, caplog):
+    """C-L1: at HA stop the ``DB flush hit 5s budget`` line is DEBUG, not WARNING."""
+    records = _run_flush_capture_logs(tmp_path, monkeypatch, caplog, is_stopping=True)
+    budget = [r for r in records if "DB flush hit 5s budget" in r.getMessage()]
+    assert budget, "expected a budget-hit log record"
+    assert any(r.levelno == logging.DEBUG for r in budget)
+    assert not any(r.levelno == logging.WARNING for r in budget)
+
+
+def test_flush_budget_log_stays_warning_outside_shutdown(
+    tmp_path, monkeypatch, caplog
+):
+    """C-L1 discriminator: outside HA stop the budget line keeps WARNING."""
+    records = _run_flush_capture_logs(
+        tmp_path, monkeypatch, caplog, is_stopping=False
+    )
+    budget = [r for r in records if "DB flush hit 5s budget" in r.getMessage()]
+    assert budget
+    assert any(r.levelno == logging.WARNING for r in budget)
+
+
+def test_drained_count_log_demoted_to_debug_at_shutdown(
+    tmp_path, monkeypatch, caplog
+):
+    """C-L1: at HA stop the ``drained N pending writes`` line is DEBUG."""
+    records = _run_flush_capture_logs(tmp_path, monkeypatch, caplog, is_stopping=True)
+    drained = [
+        r for r in records
+        if "drained" in r.getMessage() and "pending writes" in r.getMessage()
+    ]
+    assert drained
+    assert any(r.levelno == logging.DEBUG for r in drained)
+    assert not any(r.levelno == logging.WARNING for r in drained)
+
+
+def test_drained_count_log_stays_warning_outside_shutdown(
+    tmp_path, monkeypatch, caplog
+):
+    """C-L1 discriminator: outside HA stop the drained line keeps WARNING."""
+    records = _run_flush_capture_logs(
+        tmp_path, monkeypatch, caplog, is_stopping=False
+    )
+    drained = [
+        r for r in records
+        if "drained" in r.getMessage() and "pending writes" in r.getMessage()
+    ]
+    assert drained
+    assert any(r.levelno == logging.WARNING for r in drained)
