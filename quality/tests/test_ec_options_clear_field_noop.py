@@ -329,9 +329,25 @@ def test_cleared_key_is_a_change_under_normalised_diff():
     value-normalised listener diff — otherwise the EnergyCoordinator will
     not pick it up at runtime (it reads these keys only at construction).
     Mirror case: an unchanged save is NOT a change."""
-    from custom_components.universal_room_automation import (
-        _norm_cm_opt,
+    # Order-independence (batch 2026-10-14 name-diff): sibling suites can leave a
+    # stub package in sys.modules under the integration's name, so importing
+    # _norm_cm_opt from there is not hermetic. Compile the REAL function from the
+    # production __init__.py source instead (no copy of its logic here).
+    import ast
+    from pathlib import Path
+
+    src_path = (
+        Path(__file__).resolve().parents[2]
+        / "custom_components" / "universal_room_automation" / "__init__.py"
     )
+    tree = ast.parse(src_path.read_text())
+    fn = next(
+        n for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "_norm_cm_opt"
+    )
+    ns: dict = {"Any": object}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), str(src_path), "exec"), ns)
+    _norm_cm_opt = ns["_norm_cm_opt"]
     old = {EVSE_A_SWITCH: "switch.evse_a_relay_old"}
     # After clear-apply, the key is popped from saved options.
     new_cleared: dict = {}
