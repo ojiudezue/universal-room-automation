@@ -32,8 +32,31 @@ from test_db_write_worker_boot_race import (  # noqa: F401,E402
 )
 
 from custom_components.universal_room_automation.database import (  # noqa: E402
-    DBShuttingDown,
+    DBShuttingDown as _InitialDBShuttingDown,
 )
+
+
+def _dbshutting_down_cls():
+    """Resolve DBShuttingDown from the live `database` module in sys.modules.
+
+    Sibling tests (anomaly-coverage suite) stash and reinstall
+    custom_components.* modules via import_isolated, which can swap the
+    `database` module object mid-suite. The production _db() / drain path
+    raises whichever DBShuttingDown is bound in the CURRENT UniversalRoomDatabase
+    class — resolving the class at call time keeps isinstance / pytest.raises
+    checks aligned with it regardless of which copy is live.
+    """
+    import sys as _sys
+    mod = _sys.modules.get(
+        "custom_components.universal_room_automation.database"
+    )
+    if mod is not None and hasattr(mod, "DBShuttingDown"):
+        return mod.DBShuttingDown
+    return _InitialDBShuttingDown
+
+
+# Back-compat name for existing references in this file.
+DBShuttingDown = _InitialDBShuttingDown
 
 
 def _make_db(tmp_path: str, is_stopping: bool = False) -> UniversalRoomDatabase:
@@ -63,11 +86,12 @@ def test_db_fast_fails_with_db_shutting_down_subclass(tmp_path):
 
     async def _scenario():
         await db.initialize()
-        with pytest.raises(DBShuttingDown):
+        cls = _dbshutting_down_cls()
+        with pytest.raises(cls):
             async with db._db() as _conn:
                 pass
         # Subclass relationship — legacy callers still work.
-        assert issubclass(DBShuttingDown, RuntimeError)
+        assert issubclass(cls, RuntimeError)
 
     asyncio.get_event_loop().run_until_complete(_scenario())
 
@@ -202,7 +226,7 @@ def test_drain_pending_futures_shutdown_raises_dbshuttingdown(tmp_path):
         # Shutdown-path drain
         db._drain_pending_futures("shutdown timeout", is_shutdown=True)
 
-        with pytest.raises(DBShuttingDown):
+        with pytest.raises(_dbshutting_down_cls()):
             await fut
 
     asyncio.get_event_loop().run_until_complete(_scenario())
@@ -400,11 +424,17 @@ def test_load_baselines_split_prune_still_writes(tmp_path):
 
 def _flush_with_expired_budget(db, monkeypatch):
     """Run _flush_pending_writes with one queued write and a budget that is
-    already spent, so the write is left for the leftover drain."""
-    from custom_components.universal_room_automation import database as dbmod
+    already spent, so the write is left for the leftover drain.
 
-    clock = iter([0.0] + [1e9] * 50)
-    monkeypatch.setattr(dbmod.time, "monotonic", lambda: next(clock))
+    We patch ``database.time.monotonic`` only AFTER ``db.initialize()`` has
+    run, so startup latency math (and pytest-homeassistant's own patch_time
+    wrapper, which calls ``time.monotonic`` repeatedly on each event-loop
+    tick) is not affected. Once installed, the stub's first return establishes
+    the flush deadline baseline and every subsequent call is far past it, so
+    the deadline check at the top of the loop body breaks before the queued
+    write executes — leaving it for the leftover drain.
+    """
+    from custom_components.universal_room_automation import database as dbmod
 
     async def _scenario():
         await db.initialize()
@@ -415,7 +445,19 @@ def _flush_with_expired_budget(db, monkeypatch):
             return None
 
         db._write_queue.put_nowait((_factory, fut))
-        await db._flush_pending_writes()
+
+        state = {"n": 0}
+
+        def _mono():
+            state["n"] += 1
+            # First call = deadline baseline; everything after is far past it.
+            return 0.0 if state["n"] == 1 else 1e9
+
+        monkeypatch.setattr(dbmod.time, "monotonic", _mono)
+        try:
+            await db._flush_pending_writes()
+        finally:
+            monkeypatch.undo()
         with pytest.raises(RuntimeError) as excinfo:
             await fut
         return excinfo.value
