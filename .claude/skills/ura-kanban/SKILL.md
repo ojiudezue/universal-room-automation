@@ -161,6 +161,34 @@ see the work,"* because the visible half wasn't built.
   (#4) drawn-but-unbuilt. Operator: *"We keep making more work and not doing it...
   do all the pieces instead of doing one or two and leaving the rest on the board."*
 
+### Finish-the-arc mechanics — five rules (operator-coined 2026-10-14)
+
+An October arc review found that work was rarely *lost* outright but *piled up*: 69 cards opened
+since 10-01 vs 31 closed; 40 parked on the operator; a Tier-2 task-hygiene card `in_progress` since
+08-18; a built detector sitting in `review` a month. Operator: *"finish the key parts of an arc and
+not spawn too many unfinished tasks."* Five rules, the first one enforced in code:
+
+1. **Arc-close at deploy (HARD — ARC-CLOSE-GATE-1).** `deploy.sh` runs
+   `kanban_ship.py arc-check`: if a shipped card's arc siblings (same `batch`, same/pointing
+   `links.parent`, or `sibling_of`) are still open, the deploy is refused unless each sibling ships in
+   the same `--cards`, is `parked` with a trigger, or is cut with `--arc-cut "ID:reason;ID:reason"`
+   (the reason is written onto the card as `arc_cut_v<ver>`). Set `batch:` / `links.parent` when you
+   decompose an arc, or the gate cannot see it.
+2. **Recommend, don't menu.** A `waiting_operator` card's `next` states the default I will take and
+   why (`PICK: A (recommended — …) or B -> …`). For Tier-1, reversible, non-outward-facing cards, if
+   the operator has not vetoed by the next session, I take the default and record it. Everything else
+   still waits for an explicit answer. Fewer cards should reach the operator as open questions.
+3. **WIP cap on built work.** A `review` card older than 7 days gets the first slot at the next
+   attended deploy, ahead of new builds. The overnight pass does not start a new build while ≥3
+   cards sit in `review`; it drains (validate/merge-prep) instead.
+4. **Residuals fold into the parent.** A leftover from an investigation or a ship is an
+   `INSTANCE_`/`residual_` block on its parent card unless it has its own problem statement, fix and
+   acceptance criteria. "Found in a different cycle" is not a reason for a new card.
+5. **Capture covers everything that changes the house**, not only URA code: HA-config actions
+   (automations, entity-registry edits), sibling-repo work (Health Monitor, Shipwatch), and
+   cross-session hand-offs. October's landscape fix, 82-entity disable and ELK triage had no cards
+   because they never touched URA code.
+
 Sister doctrine: **Soak Exit** (CLAUDE.md — `shipped_organic` is not a parking lot)
 is the disposition analogue for work that already shipped; this rule is the
 build-side analogue for work that was decomposed but only partly built. See memory
@@ -505,6 +533,17 @@ a big-bang pass.
 
 The renderer surfaces `created` / `updated` / `refinement_status` on each card in both KANBAN.md
 and the Artifact board so staleness and maturity are visible without opening the YAML.
+
+**Every timestamp comes from the real clock — run `date`, never estimate (coined 2026-10-14).** This
+covers `created` / `updated` / `autonomy_feed.at` / any "measured at HH:MM" note, all in CDT. An agent
+has no reliable sense of wall-clock time — worst in a long unattended run. Observed 2026-10-14: the
+02:00 overnight pass stamped feed entries 02:20–03:05 while `date` read 02:10, and wrote "measured
+~07:46 CDT" on the Sonoff card five hours early. Invented times corrupt the 24h counter, staleness
+ordering, and the anti-starvation tiebreak, and they read as evidence.
+
+**An attended session that starts while the overnight pass is running holds its own repo writes**
+(check `ps aux | grep "claude -p"` / `launchctl list | grep ura-overnight-pass`) until the pass exits,
+so two writers never edit `kanban.data.yaml` at once.
 
 ## Understanding changes → the card changes, SAME TURN (operator-coined 2026-08-21)
 

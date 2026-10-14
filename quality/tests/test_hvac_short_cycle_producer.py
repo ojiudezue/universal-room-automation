@@ -93,6 +93,14 @@ def _load_anomaly_detector():
     const.DOMAIN = "universal_room_automation"
     sys.modules["ura_shortcycle_pkg"] = pkg
     sys.modules["ura_shortcycle_pkg.const"] = const
+    # UNLOAD-SYMMETRY D3: coordinator_diagnostics imports `from ..database
+    # import DBShuttingDown`. Stub it here so the fake-package load works
+    # without pulling the real database.py.
+    db_stub = types.ModuleType("ura_shortcycle_pkg.database")
+    class _DBShuttingDown(RuntimeError):
+        pass
+    db_stub.DBShuttingDown = _DBShuttingDown
+    sys.modules["ura_shortcycle_pkg.database"] = db_stub
 
     src = COORD_DIR / "coordinator_diagnostics.py"
     spec = importlib.util.spec_from_file_location(

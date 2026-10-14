@@ -75,6 +75,87 @@ def validate_ids(board: dict, ids: Iterable[str]) -> list[str]:
     return [i for i in ids if i not in known]
 
 
+# ---------------------------------------------------------------------------
+# Arc-close gate (ARC-CLOSE-GATE-1, operator-coined 2026-10-14): shipping part
+# of an arc must not silently leave its siblings open. Siblings = cards that
+# share a non-empty `batch` with a shipped card, share or point at its
+# `links.parent`, or are joined by `sibling_of`. An open sibling (any status
+# other than done / shipped_organic / parked) that is neither in this ship nor
+# explicitly cut with a reason blocks the deploy.
+# ---------------------------------------------------------------------------
+
+ARC_CLOSED_STATUSES = ("done", "shipped_organic", "parked")
+
+
+def _as_list(v) -> list[str]:
+    if not v:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [str(x) for x in v if x]
+    return [str(v)]
+
+
+def _arc_keys(card: dict) -> tuple[str, list[str], list[str]]:
+    links = card.get("links") if isinstance(card.get("links"), dict) else {}
+    batch = str(card.get("batch") or "").strip()
+    parents = _as_list(links.get("parent")) + _as_list(card.get("parent"))
+    sibs = _as_list(links.get("sibling_of")) + _as_list(card.get("sibling_of"))
+    return batch, parents, sibs
+
+
+def open_arc_siblings(board: dict, ids: Iterable[str]) -> dict[str, list[str]]:
+    """Return {open_sibling_id: [shipped ids it is an arc-sibling of]}."""
+    ship = set(ids)
+    cards = [c for c in board.get("cards", []) if c.get("id")]
+    by_id = {str(c["id"]): c for c in cards}
+    out: dict[str, list[str]] = {}
+    for sid in ship:
+        sc = by_id.get(sid)
+        if sc is None:
+            continue
+        s_batch, s_parents, s_sibs = _arc_keys(sc)
+        for c in cards:
+            cid = str(c["id"])
+            if cid in ship or c.get("status") in ARC_CLOSED_STATUSES:
+                continue
+            batch, parents, sibs = _arc_keys(c)
+            related = (
+                (s_batch and batch == s_batch)
+                or sid in parents
+                or cid in s_parents
+                or bool(set(parents) & set(s_parents))
+                or sid in sibs
+                or cid in s_sibs
+            )
+            if related:
+                out.setdefault(cid, []).append(sid)
+    return out
+
+
+def parse_arc_cuts(raw: str) -> dict[str, str]:
+    """`ID:reason;ID:reason` -> {ID: reason}. Empty reasons are dropped."""
+    cuts: dict[str, str] = {}
+    for part in (raw or "").split(";"):
+        if ":" not in part:
+            continue
+        cid, reason = part.split(":", 1)
+        cid, reason = cid.strip(), reason.strip()
+        if cid and reason:
+            cuts[cid] = reason
+    return cuts
+
+
+def record_arc_cuts_text(source: str, cuts: dict[str, str], version: str) -> str:
+    """Insert `arc_cut_<ver>: "<reason>"` right after each cut card's id line."""
+    ver = (version if version.startswith("v") else f"v{version}").replace(".", "_")
+    lines = source.splitlines(keepends=True)
+    for cid, start, _end in reversed(_find_card_blocks(lines)):
+        if cid in cuts:
+            reason = cuts[cid].replace("\\", "\\\\").replace('"', '\\"')
+            lines.insert(start + 1, f'  arc_cut_{ver}: "{reason}"\n')
+    return "".join(lines)
+
+
 def mark_shipped(
     board: dict,
     ids: Iterable[str],
@@ -361,6 +442,40 @@ def cmd_mark_shipped(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_arc_check(args: argparse.Namespace) -> int:
+    board = load_board(Path(args.file))
+    ids = _split_ids(args.ids)
+    cuts = parse_arc_cuts(args.cut or "")
+    open_sibs = open_arc_siblings(board, ids)
+    uncovered = {k: v for k, v in open_sibs.items() if k not in cuts}
+    if not uncovered:
+        if cuts:
+            print(f"arc-check: {len(cuts)} sibling(s) cut with a reason; arc closed.")
+        return 0
+    by_id = {str(c.get("id")): c for c in board.get("cards", [])}
+    print("ERROR: shipping part of an arc leaves open sibling card(s) (ARC-CLOSE-GATE-1):",
+          file=sys.stderr)
+    for cid, of in sorted(uncovered.items()):
+        c = by_id.get(cid, {})
+        print(f"  {cid}  [{c.get('status')}]  sibling of {', '.join(of)}  — {c.get('title', '')}",
+              file=sys.stderr)
+    print('  Ship them in this release (--cards), park them with a trigger, or cut them:\n'
+          '  --arc-cut "ID:reason;ID:reason"  (the reason is written onto the card).',
+          file=sys.stderr)
+    return 1
+
+
+def cmd_record_arc_cuts(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    cuts = parse_arc_cuts(args.cut)
+    if not cuts:
+        return 0
+    new_text = record_arc_cuts_text(path.read_text(encoding="utf-8"), cuts, args.version)
+    atomic_write_yaml(path, new_text)
+    print(f"kanban_ship: recorded arc cut on {len(cuts)} card(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -380,6 +495,18 @@ def main(argv: list[str] | None = None) -> int:
     p_mark.add_argument("--file", default=str(DEFAULT_YAML))
     p_mark.add_argument("--today", default=None, help="override today (YYYY-MM-DD) for tests")
     p_mark.set_defaults(func=cmd_mark_shipped)
+
+    p_arc = sub.add_parser("arc-check", help="refuse if shipped cards leave open arc siblings")
+    p_arc.add_argument("ids")
+    p_arc.add_argument("--cut", default="", help='"ID:reason;ID:reason"')
+    p_arc.add_argument("--file", default=str(DEFAULT_YAML))
+    p_arc.set_defaults(func=cmd_arc_check)
+
+    p_rec = sub.add_parser("record-arc-cuts", help="write arc_cut_<ver> reasons onto cut cards")
+    p_rec.add_argument("--cut", required=True)
+    p_rec.add_argument("--version", required=True)
+    p_rec.add_argument("--file", default=str(DEFAULT_YAML))
+    p_rec.set_defaults(func=cmd_record_arc_cuts)
 
     args = parser.parse_args(argv)
     return args.func(args)

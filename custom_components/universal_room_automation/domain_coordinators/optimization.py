@@ -38,7 +38,10 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.util import dt as dt_util
 
 from ..const import (
@@ -101,6 +104,10 @@ from ..const import (
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
     CAMERA_STUCK_ON_THRESHOLD_S,
     CAMERA_STUCK_ON_OVERRIDES_S,
+    SENSOR_NEVER_FIRES_HORIZON_S,
+    SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION,
+    SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S,
+    SENSOR_NEVER_FIRES_OVERRIDES_S,
     CAMERA_INPUT_DEGRADED_FIRE_THRESHOLD,
     CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
     CAMERA_INPUT_DEGRADED_DWELL_S,
@@ -638,6 +645,36 @@ class OptimizationCoordinator(BaseCoordinator):
         # which is the correct post-restart behaviour (the fact is re-stated
         # for the new boot) and bounded at one row per sensor.
         self._sensor_health_last_persisted: dict[tuple, datetime] = {}
+        # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) — sensor_never_fires:
+        #   persistent dict (via HA Store) `_never_fires_state[eid]` =
+        #     {first_seen, last_on_seen, unavailable_s}
+        # The Store load MUST complete before the OC cycle timer starts
+        # (see async_setup); the evaluator returns [] while unloaded.
+        #
+        # Review A HIGH #1: NO per-day latch and NO `last_fired_at`. The
+        # evaluator emits every cycle while the condition holds (same
+        # shape as `_evaluate_sensor_health_dimension`); the shared
+        # `_filter_repeat_sensor_health` 24h cover caps DB persistence
+        # to ≤1 row/entity/24h. Without this the daily digest
+        # (`_last_findings`, 5-min cycle) almost never contains the
+        # finding and the operator never sees it (Bug Class #53).
+        self._never_fires_store = None
+        self._never_fires_state: dict[str, dict] = {}
+        self._never_fires_loaded: bool = False
+        self._never_fires_listener_unsub = None
+        self._never_fires_subscribed: set[str] = set()
+        # Review B B3 — dirty flag + per-cycle flush. The listener only
+        # marks dirty; the evaluator (every 5 min) calls
+        # `_never_fires_schedule_save()` when dirty. Without this, in a
+        # ~150-sensor house the trailing 120s `async_delay_save`
+        # debounce can be pushed out indefinitely by a steady drizzle
+        # of state events and a crash loses hours of accrual.
+        self._never_fires_dirty: bool = False
+        # In-memory only: timestamp of the most recent transition INTO
+        # unavailable/unknown, so a transition BACK OUT can accrue the
+        # delta into `unavailable_s`. Not persisted — a crash during an
+        # unavailable spell under-counts by at most that spell.
+        self._never_fires_last_unavail_at: dict[str, datetime] = {}
         # A6 fix-up: per-room sustained occupancy/motion disagreement tracking.
         # Disagreement must persist >= OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS
         # before emitting (motion-on/occupancy-off is transient at wake).
@@ -871,6 +908,24 @@ class OptimizationCoordinator(BaseCoordinator):
                 exc_info=True,
             )
 
+        # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 F5 — restore the never-fires
+        # Store blob BEFORE the first cycle tick, so the evaluator sees
+        # persisted first_seen / last_on_seen / unavailable_s on tick #1
+        # instead of cold state. The evaluator guards on
+        # `_never_fires_loaded` so a slow load returns [] rather than
+        # firing against a half-restored dict.
+        await self._never_fires_async_load()
+        # Rev 3 F7 + review A HIGH #3 + review B B5 — subscribe to state
+        # changes for the configured D1 universe. `_cancel_listeners`
+        # (BaseCoordinator teardown) clears `_unsub_listeners` but NOT
+        # these two private fields, so on a second `async_setup` on the
+        # same instance the stale `_never_fires_subscribed` would equal
+        # the configured set and resubscribe would skip. Clear both
+        # before resubscribe so the second setup actually re-wires.
+        self._never_fires_subscribed = set()
+        self._never_fires_listener_unsub = None
+        self._never_fires_resubscribe()
+
         # 5-min cycle (matches plan D1). Scheduled via HA's tracker so the
         # unsub goes on the BaseCoordinator listener list.
         self._cycle_unsub = async_track_time_interval(
@@ -906,7 +961,43 @@ class OptimizationCoordinator(BaseCoordinator):
         return []
 
     async def async_teardown(self) -> None:
-        """Cancel timers + unsubscribe from signals."""
+        """Cancel timers + unsubscribe from signals.
+
+        Review B B4 — flush the never-fires Store synchronously when
+        dirty before cancelling listeners. HA's `async_delay_save`
+        FINAL_WRITE on clean stop would otherwise race a new instance
+        that constructed its own Store on the same key, which could
+        overwrite freshly-restored state with the OLD snapshot (the
+        pre-reload snapshot that the OLD instance still holds in RAM).
+        A direct `async_save` guarantees the latest state wins.
+        """
+        try:
+            store = self._never_fires_store
+            # Review B B7 — always flush when the store exists, not
+            # just when the in-memory dirty flag is set. The evaluator
+            # clears `_never_fires_dirty` at the moment it SCHEDULES a
+            # delay-save (see `_evaluate_sensor_never_fires_dimension`),
+            # so a reload within the 120s debounce window would see
+            # dirty=False and skip the flush, letting the OLD Store's
+            # pending write land AFTER the new instance has loaded.
+            # Unconditionally saving on teardown is cheap and
+            # idempotent and makes the latest state win.
+            if store is not None:
+                try:
+                    await store.async_save(
+                        self._never_fires_payload_provider()
+                    )
+                    self._never_fires_dirty = False
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "never-fires: teardown flush failed; "
+                        "pending state changes may be lost",
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "never-fires: teardown flush outer failed", exc_info=True,
+            )
         self.broker.async_stop()
         self._cancel_listeners()
 
@@ -965,6 +1056,14 @@ class OptimizationCoordinator(BaseCoordinator):
             # Phase 1 dimensions.
             ("sensor_health", self._evaluate_sensor_health_dimension),
             ("camera_stuck", self._evaluate_camera_stuck_dimension),
+            # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 — never-fires detector.
+            # Companion to camera_stuck (stuck-ON) and room-level P22
+            # (coordinator.py); covers the "pinned OFF for a long window"
+            # shape neither of those sees. Shares the SENSOR_HEALTH
+            # dimension so `_filter_repeat_sensor_health` and the NM
+            # allowlist cover it with no new wiring.
+            ("sensor_never_fires",
+             self._evaluate_sensor_never_fires_dimension),
             # FRIGATE-FLEET-DARK (Rev 2 D1): fleet-scope camera-input
             # tripwire. Sibling of camera_stuck (stuck-ON vs. gone-dark
             # — disjoint failure modes). Emits via OptimizationFinding
@@ -1989,6 +2088,728 @@ class OptimizationCoordinator(BaseCoordinator):
                     "threshold_s": threshold,
                 },
                 dedup_key=("camera_stuck", cam_key),
+            ))
+        return findings
+
+    # ------------------------------------------------------------------
+    # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 — never-fires evaluator
+    # ------------------------------------------------------------------
+
+    def _never_fires_store_key(self) -> str:
+        """Rev 3 F5 — single OC-scope Store key for the never-fires blob."""
+        return "optimization.sensor_never_fires_last_on_seen"
+
+    async def _never_fires_async_load(self) -> None:
+        """Rev 3 F5. Restore the per-entity `{first_seen, last_on_seen,
+        unavailable_s}` blob and prune eids no longer in D1 (F3 at load).
+
+        Fail-open on corrupt / missing blob: keep an empty dict and mark
+        loaded so the evaluator is not permanently dormant on a bad file.
+        Mirrors the `_async_load_stuck_state` posture at coordinator.py.
+        """
+        try:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+            self._never_fires_store = Store(
+                self.hass,
+                version=1,
+                key=self._never_fires_store_key(),
+            )
+            data = await self._never_fires_store.async_load()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "never-fires: Store load failed; continuing with empty "
+                "state (fail-open)",
+                exc_info=True,
+            )
+            self._never_fires_state = {}
+            self._never_fires_loaded = True
+            return
+        state: dict[str, dict] = {}
+        if isinstance(data, dict):
+            for eid, rec in data.items():
+                if not isinstance(eid, str) or not isinstance(rec, dict):
+                    continue
+                state[eid] = {
+                    "first_seen": rec.get("first_seen"),
+                    "last_on_seen": rec.get("last_on_seen"),
+                    "unavailable_s": int(rec.get("unavailable_s") or 0),
+                    "unavail_since": rec.get("unavail_since"),
+                }
+                # Review B B2-R — restore the open-outage stamp into
+                # the in-memory map so a sensor that was unavailable
+                # when HA stopped keeps its outage clock. HA-down time
+                # is DELIBERATELY counted as unavailable (conservative:
+                # the never-fires detector is an advisory alarm and we
+                # prefer not to raise a false HIGH finding after a
+                # multi-day outage spanning restarts — the alternative,
+                # re-stamping to now on load, charges only the segment
+                # after the restart and emits a false finding).
+                stamp_iso = rec.get("unavail_since")
+                if isinstance(stamp_iso, str) and stamp_iso:
+                    try:
+                        parsed = dt_util.parse_datetime(stamp_iso)
+                    except Exception:  # noqa: BLE001
+                        parsed = None
+                    if parsed is not None:
+                        self._never_fires_last_unavail_at[eid] = parsed
+        # Rev 3 F3 + review B B1 — prune by CONFIGURED membership, not
+        # by current state presence. At OC setup time (very early in
+        # URA entry setup, before Frigate/Protect have published their
+        # entities) `_watched_raw_sensors` returns a camera-free dict,
+        # so a camera record restored from the Store would be pruned
+        # here and rebuilt with `first_seen=now` after Frigate loads.
+        # With ~16 restarts/week the 7d horizon would never elapse for
+        # cameras and the plan's motivating case
+        # (CAMERA-ZERO-FIRE-DETECTORS-1) could never fire. Use the
+        # config-only resolver for prune.
+        try:
+            configured = self._configured_watched_eids()
+        except Exception:  # noqa: BLE001
+            configured = set()
+        if configured:
+            for eid in list(state):
+                if eid not in configured:
+                    state.pop(eid, None)
+        self._never_fires_state = state
+        self._never_fires_loaded = True
+        _LOGGER.info(
+            "never-fires: restored %d entries from Store", len(state),
+        )
+
+    def _never_fires_payload_provider(self) -> dict:
+        """Rev 3 F4 — callable passed to `Store.async_delay_save`; HA
+        invokes it at flush time so the persisted snapshot is the
+        freshest state at that moment (not schedule time)."""
+        return {
+            eid: {
+                "first_seen": rec.get("first_seen"),
+                "last_on_seen": rec.get("last_on_seen"),
+                "unavailable_s": int(rec.get("unavailable_s") or 0),
+                # Review B B2-R — persist the open-outage stamp so a
+                # restart mid-outage doesn't lose the pre-restart time.
+                "unavail_since": rec.get("unavail_since"),
+            }
+            for eid, rec in self._never_fires_state.items()
+        }
+
+    def _never_fires_schedule_save(self) -> None:
+        """Rev 3 F4 — whole-blob `async_delay_save`, 120s debounce.
+
+        Called from the listener on every observed transition and from
+        the evaluator when `first_seen` is first written for a brand-
+        new eid. HA coalesces concurrent calls into one scheduled flush;
+        a clean HA stop forces the pending save.
+        """
+        store = self._never_fires_store
+        if store is None:
+            return
+        try:
+            store.async_delay_save(
+                self._never_fires_payload_provider,
+                SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: schedule save failed", exc_info=True,
+            )
+
+    @callback
+    def _on_never_fires_state_change(self, event) -> None:
+        """Rev 3 F7 listener (review A HIGH #2 + SHOULD #8) — maintain
+        `last_on_seen` and `unavailable_s`.
+
+        Semantics:
+          - A GENUINE off->on transition (old_state == "off") resets the
+            horizon clock: ``last_on_seen = now`` AND ``unavailable_s = 0``
+            (review A HIGH #2 — the fraction gate is "unavailable time
+            SINCE the clock last reset", not cumulative lifetime).
+            A rejoin (unavailable->on) does NOT count (review A SHOULD
+            #8); the eid just came back online, it hasn't fired yet.
+          - unavailable->available transitions accrue the delta into
+            `unavailable_s`.
+          - Also pops any matching `_sensor_health_last_persisted` key
+            on a genuine ON so a re-silence within 24h of recovery
+            persists a row (Rev 2 M2).
+        """
+        try:
+            data = getattr(event, "data", None) or {}
+            eid = data.get("entity_id")
+            if not isinstance(eid, str) or not eid:
+                return
+            new = data.get("new_state")
+            old = data.get("old_state")
+            new_state = (
+                str(new.state).lower()
+                if new is not None and getattr(new, "state", None) is not None
+                else "unknown"
+            )
+            old_state = (
+                str(old.state).lower()
+                if old is not None and getattr(old, "state", None) is not None
+                else None
+            )
+            # Review B B6 — membership check against the subscribed
+            # set is O(1) and avoids calling `_watched_raw_sensors()`
+            # on every spurious event (which would re-run the full
+            # config enumeration + registry lookups per event). Events
+            # for eids we don't subscribe to can't legally fire this
+            # callback, but defensive-return handles racy edge cases.
+            if eid not in self._never_fires_subscribed:
+                return
+            rec = self._never_fires_state.get(eid)
+            if rec is None:
+                rec = {
+                    "first_seen": dt_util.utcnow().isoformat(),
+                    "last_on_seen": None,
+                    "unavailable_s": 0,
+                }
+                self._never_fires_state[eid] = rec
+            now = dt_util.utcnow()
+            unavail = {"unavailable", "unknown"}
+            # INTO unavailable: stamp.
+            if new_state in unavail and (
+                old_state is None or old_state not in unavail
+            ):
+                self._never_fires_last_unavail_at[eid] = now
+                # Review B B2-R — mirror the stamp onto the Store
+                # record so a restart mid-outage can restore it.
+                rec["unavail_since"] = now.isoformat()
+            # OUT OF unavailable (rejoin): accrue delta. This does NOT
+            # count as the sensor firing (SHOULD #8).
+            if new_state not in unavail and old_state in unavail:
+                stamp = self._never_fires_last_unavail_at.pop(eid, None)
+                if stamp is not None:
+                    delta = max(0, int((now - stamp).total_seconds()))
+                    rec["unavailable_s"] = int(
+                        rec.get("unavailable_s") or 0
+                    ) + delta
+                # Review B B2-R — clear the persisted open-outage stamp.
+                rec["unavail_since"] = None
+            # Genuine off->on firing event: reset clock and discharge.
+            # Review A SHOULD #8 — only off->on; a rejoin
+            # (unavailable->on) is NOT a firing.
+            if new_state == "on" and old_state == "off":
+                rec["last_on_seen"] = now.isoformat()
+                # Review A HIGH #2 — reset the availability counter so
+                # the fraction gate measures time SINCE this clock reset.
+                rec["unavailable_s"] = 0
+                self._never_fires_last_unavail_at.pop(eid, None)
+                # Review B B2-R — clear any lingering open-outage stamp
+                # so the Store doesn't carry it past a genuine firing.
+                rec["unavail_since"] = None
+                # Rev 2 M2 — clear the shared 24h-repeat key so a
+                # re-silence within 24h of recovery persists a row
+                # rather than being suppressed as a repeat.
+                prefix = str(("sensor_never_fires", eid))
+                for pk in [
+                    k for k in self._sensor_health_last_persisted
+                    if isinstance(k, tuple) and k and k[0] == prefix
+                ]:
+                    self._sensor_health_last_persisted.pop(pk, None)
+            # Review B B3 — mark dirty; the evaluator (every 5 min)
+            # schedules the delay-save. Previously each listener
+            # transition scheduled a 120s trailing debounce, so under
+            # steady event load the save kept getting pushed out and a
+            # crash lost hours of accrual.
+            self._never_fires_dirty = True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: state-change listener failed", exc_info=True,
+            )
+
+    def _never_fires_resubscribe(self) -> None:
+        """Review A HIGH #3 + review B B1/B2/B5 — reconcile the
+        state-change subscription with the CONFIGURED D1 universe.
+
+        Called from `async_setup` AND from every evaluator tick so a
+        sensor added after setup (options-flow edit, camera whose
+        binary_sensor only materialises after Frigate loads — which is
+        after OC `async_setup` returns) is subscribed before being
+        evaluated.
+
+        Review B B1 — uses the CONFIG-only resolver so camera eids are
+        subscribed even before their binary_sensors exist. The
+        evaluation path still uses the state-dependent resolver for
+        the available-now gate, but the subscription + prune are
+        config-based so a 7d horizon can actually elapse for a camera
+        across the measured ~16 restarts/week cadence.
+
+        Review B B2 — bootstraps `_never_fires_last_unavail_at` for
+        any configured eid currently in `unavailable`/`unknown` with
+        no existing mark. Without this, a sensor that was already
+        unavailable at subscribe time (e.g. still unavailable after a
+        restart during a multi-day outage) never gets stamped, so the
+        downtime after subscribe is uncharged and the never-fires
+        finding fires falsely once availability returns.
+
+        Keeps `_unsub_listeners` correct across the swap (Bug Class #50).
+        """
+        try:
+            watched = set(self._configured_watched_eids())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: resubscribe configured-set failed",
+                exc_info=True,
+            )
+            return
+        if watched == self._never_fires_subscribed:
+            # No membership change — still bootstrap the unavail clock
+            # for any already-unavailable eid without a mark (handles
+            # the first evaluator tick AFTER async_setup, where the
+            # subscription may already be present but the eid was
+            # unavailable from the start).
+            self._never_fires_bootstrap_unavail_clock(watched)
+            return
+        # Tear down the stale subscription (if any) and drop it from
+        # `_unsub_listeners`.
+        old = self._never_fires_listener_unsub
+        if old is not None:
+            try:
+                old()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "never-fires: previous unsub raised", exc_info=True,
+                )
+            try:
+                self._unsub_listeners.remove(old)
+            except ValueError:
+                pass
+            self._never_fires_listener_unsub = None
+        if not watched:
+            self._never_fires_subscribed = set()
+            return
+        try:
+            unsub = async_track_state_change_event(
+                self.hass,
+                sorted(watched),  # deterministic for test introspection
+                self._on_never_fires_state_change,
+            )
+            self._never_fires_listener_unsub = unsub
+            self._unsub_listeners.append(unsub)
+            self._never_fires_subscribed = watched
+            _LOGGER.debug(
+                "never-fires: subscribed to %d configured eid(s)",
+                len(watched),
+            )
+            # Review B B2 — bootstrap unavailable clock for any newly-
+            # subscribed eid that is already unavailable/unknown.
+            self._never_fires_bootstrap_unavail_clock(watched)
+        except Exception:  # noqa: BLE001
+            # Review B LOW — a failed subscription means the detector
+            # is silently dead. Warn once so the log carries evidence
+            # (per-event noise stays at DEBUG below).
+            if not getattr(self, "_never_fires_subscribe_warned", False):
+                _LOGGER.warning(
+                    "never-fires: resubscribe setup failed; detector "
+                    "will not observe sensor transitions",
+                    exc_info=True,
+                )
+                self._never_fires_subscribe_warned = True
+            else:
+                _LOGGER.debug(
+                    "never-fires: resubscribe setup failed (repeat)",
+                    exc_info=True,
+                )
+
+    def _never_fires_bootstrap_unavail_clock(self, eids) -> None:
+        """Review B B2 — if a watched eid is CURRENTLY unavailable /
+        unknown and has no `_never_fires_last_unavail_at` stamp, stamp
+        now so the eventual rejoin accrues post-subscribe downtime.
+        Downtime BEFORE this bootstrap stays uncharged (per spec F1
+        HA-down-is-neither); we deliberately do NOT backfill.
+        """
+        unavail = {"unavailable", "unknown"}
+        now = dt_util.utcnow()
+        for eid in eids:
+            if eid in self._never_fires_last_unavail_at:
+                continue
+            try:
+                st = self._state_value(eid)
+            except Exception:  # noqa: BLE001
+                continue
+            if st is None:
+                continue
+            state_str = str(getattr(st, "state", "")).lower()
+            if state_str in unavail:
+                self._never_fires_last_unavail_at[eid] = now
+                # Review B B2-R — mirror the stamp onto the Store
+                # record so it persists across restarts. The record
+                # may not exist yet (first_seen is written by the
+                # evaluator on first appearance); seed a minimal one.
+                rec = self._never_fires_state.get(eid)
+                if rec is None:
+                    rec = {
+                        "first_seen": now.isoformat(),
+                        "last_on_seen": None,
+                        "unavailable_s": 0,
+                        "unavail_since": now.isoformat(),
+                    }
+                    self._never_fires_state[eid] = rec
+                else:
+                    rec["unavail_since"] = now.isoformat()
+                self._never_fires_dirty = True
+
+    def _watched_raw_sensors(self) -> dict[str, dict]:
+        """Rev 2/3 D1 resolver — raw motion/occupancy sensors URA watches.
+
+        Returns ``{entity_id: {device_class, source, room}}`` across:
+          - room configs via ``_iter_room_entries`` (CONF_OCCUPANCY_SENSORS,
+            CONF_MOTION_SENSORS, CONF_MMWAVE_SENSORS)
+          - perimeter + egress camera person-detectors via
+            ``_exterior_person_sensors``
+
+        Rev 2 M1 — URA-aggregate occupancy sensors are filtered via the
+        entity registry (``platform == DOMAIN``). Rev 3 F6 — eids with
+        no registry entry are INCLUDED with a DEBUG log (not WARN; the
+        resolver runs every 5-min tick and WARN would spam config
+        noise outside URA's control).
+
+        v1 class scope is ``{motion, occupancy}``: for room inputs the
+        class is implicit in the CONF_* key; for cameras the person-
+        detector is treated as ``occupancy``. Duplicates across rooms
+        keep the first room, logged at DEBUG.
+        """
+        out: dict[str, dict] = {}
+        reg = None
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+
+        def _consider(eid, source: str, room, device_class: str) -> None:
+            if not isinstance(eid, str) or not eid:
+                return
+            if eid in out:
+                _LOGGER.debug(
+                    "watched_raw_sensors: duplicate %s already resolved; "
+                    "keeping first room",
+                    eid,
+                )
+                return
+            # Rev 2 M1 — URA-aggregate filter via entity-registry platform.
+            if reg is not None:
+                try:
+                    entry = reg.async_get(eid)
+                except Exception:  # noqa: BLE001
+                    entry = None
+                if entry is not None and getattr(
+                    entry, "platform", None,
+                ) == DOMAIN:
+                    return
+                if entry is None:
+                    # Rev 3 F6: unregistered -> include + DEBUG log,
+                    # carrying the reason so an operator triaging a
+                    # spurious finding can reconstruct the decision.
+                    _LOGGER.debug(
+                        "watched_raw_sensors: no registry entry for %s; "
+                        "including as external",
+                        eid,
+                    )
+            out[eid] = {
+                "device_class": device_class,
+                "source": source,
+                "room": room,
+            }
+
+        try:
+            for entry in self._iter_room_entries():
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                room = self._room_name(entry)
+                for key, implicit in (
+                    (CONF_OCCUPANCY_SENSORS, "occupancy"),
+                    (CONF_MOTION_SENSORS, "motion"),
+                    (CONF_MMWAVE_SENSORS, "occupancy"),
+                ):
+                    val = merged.get(key)
+                    if isinstance(val, list):
+                        for v in val:
+                            _consider(v, "room_input", room, implicit)
+                    elif isinstance(val, str) and val:
+                        _consider(val, "room_input", room, implicit)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "watched_raw_sensors: room enumeration failed",
+                exc_info=True,
+            )
+
+        try:
+            for _cam_key, eid in self._exterior_person_sensors().items():
+                _consider(eid, "perimeter_camera", None, "occupancy")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "watched_raw_sensors: camera enumeration failed",
+                exc_info=True,
+            )
+        return out
+
+    def _configured_exterior_person_sensor_eids(self) -> set[str]:
+        """Review B B1 — enumerate camera person-detector candidate eids
+        PURELY from config, without any `_state_value is not None`
+        check. Returns BOTH candidate suffixes per configured camera
+        so the subscription + prune include eids whose
+        `binary_sensor.*` entity has not been published yet (Frigate /
+        Protect come up AFTER URA sets up the OC, per
+        __init__.py:~4311 / manager.py:~492).
+        """
+        out: set[str] = set()
+        try:
+            from ..const import CONF_EGRESS_CAMERAS, CONF_PERIMETER_CAMERAS  # noqa: PLC0415
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                cams = list(merged.get(CONF_PERIMETER_CAMERAS) or [])
+                cams += list(merged.get(CONF_EGRESS_CAMERAS) or [])
+                for cam in cams:
+                    if not isinstance(cam, str) or "." not in cam:
+                        continue
+                    key = cam.split(".", 1)[1]
+                    for suffix in ("_person_occupancy_2", "_person_occupancy"):
+                        out.add(f"binary_sensor.{key}{suffix}")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "configured_exterior_person_sensor_eids failed",
+                exc_info=True,
+            )
+        return out
+
+    def _configured_watched_eids(self) -> set[str]:
+        """Review B B1 — the CONFIGURED D1 universe (eids only, no meta,
+        no state check). Used by prune at load, prune at evaluator
+        entry, AND the listener subscription so a camera eid is
+        preserved across restart windows where Frigate hasn't published
+        its binary_sensor yet. The evaluation loop still uses
+        `_watched_raw_sensors` (which filters cameras by state
+        presence) for the available-now gate.
+        """
+        eids: set[str] = set()
+        try:
+            for entry in self._iter_room_entries():
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                for key in (
+                    CONF_OCCUPANCY_SENSORS,
+                    CONF_MOTION_SENSORS,
+                    CONF_MMWAVE_SENSORS,
+                ):
+                    val = merged.get(key)
+                    if isinstance(val, list):
+                        for v in val:
+                            if isinstance(v, str) and v:
+                                eids.add(v)
+                    elif isinstance(val, str) and val:
+                        eids.add(val)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "configured_watched_eids rooms failed", exc_info=True,
+            )
+        # URA-aggregate filter via entity registry — same shape as
+        # `_watched_raw_sensors`. We want the SAME filtered universe
+        # on both sides so prune and evaluate agree on what is "ours".
+        reg = None
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            reg = None
+        if reg is not None:
+            for eid in list(eids):
+                try:
+                    entry = reg.async_get(eid)
+                except Exception:  # noqa: BLE001
+                    entry = None
+                if entry is not None and getattr(
+                    entry, "platform", None,
+                ) == DOMAIN:
+                    eids.discard(eid)
+        # Cameras — ALWAYS from config, no state check.
+        eids |= self._configured_exterior_person_sensor_eids()
+        return eids
+
+    def _evaluate_sensor_never_fires_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Rev 3 D3 evaluator (review A fix-up pass) — raw motion /
+        occupancy sensors that have produced ZERO ON transitions over
+        their horizon.
+
+        Review A HIGH #1: emit EVERY cycle while the condition holds
+        (same shape as `_evaluate_sensor_health_dimension`). The shared
+        `_filter_repeat_sensor_health` 24h repeat suppressor caps DB
+        persistence to ≤1 row/eid/24h; without emitting every cycle
+        the finding almost never reaches the daily digest built from
+        `_last_findings` (built from the latest 5-min cycle only).
+
+        Review A HIGH #3: `_never_fires_resubscribe()` runs at the top
+        so sensors added after setup are listened to before they are
+        evaluated.
+
+        Review A SHOULD #5: per-entity horizon via
+        `SENSOR_NEVER_FIRES_OVERRIDES_S` (0 = never alert for that
+        sensor; mirrors `CAMERA_STUCK_ON_OVERRIDES_S`).
+
+        Guards:
+          - Kill switch: SENSOR_NEVER_FIRES_HORIZON_S <= 0 -> [].
+          - Returns [] while `_never_fires_loaded is False`.
+          - Prunes eids no longer in D1 at entry.
+          - HA-down time does NOT consume the fraction window
+            (`unavailable_s` only accrues from listener-observed
+            transitions).
+          - Available-now gate: the eid must not currently be
+            unavailable/unknown.
+          - Fraction gate: `unavailable_s` since the clock last reset
+            must be ≤ (1 - min_fraction) × horizon.
+
+        Emits HIGH `SENSOR_HEALTH` findings with
+        ``dedup_key=("sensor_never_fires", eid)`` and
+        ``payload["stuck_state"] = "never_fires"``.
+        """
+        findings: list[OptimizationFinding] = []
+        default_horizon = int(SENSOR_NEVER_FIRES_HORIZON_S)
+        if default_horizon <= 0:
+            return findings  # kill switch
+        if not self._never_fires_loaded:
+            return findings  # Rev 3 F5 guard
+        # Review A HIGH #3 — reconcile the listener subscription before
+        # we evaluate, so a late-added sensor is subscribed first.
+        self._never_fires_resubscribe()
+        now = dt_util.utcnow()
+        try:
+            frac = float(SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION)
+        except Exception:  # noqa: BLE001
+            frac = 0.8
+        frac = max(0.0, min(1.0, frac))
+
+        try:
+            watched = self._watched_raw_sensors()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "never-fires: _watched_raw_sensors failed", exc_info=True,
+            )
+            return findings
+
+        # Review B B1 — prune by CONFIGURED membership (NOT the state-
+        # dependent watched map). A camera eid whose binary_sensor
+        # hasn't published yet is still "ours" and must survive the
+        # tick.
+        try:
+            configured = self._configured_watched_eids()
+        except Exception:  # noqa: BLE001
+            configured = set(watched.keys())
+        for eid in list(self._never_fires_state):
+            if eid not in configured:
+                self._never_fires_state.pop(eid, None)
+                self._never_fires_last_unavail_at.pop(eid, None)
+
+        # Review B B3 — if the listener marked us dirty since the last
+        # cycle, schedule the save now so it actually gets flushed at
+        # cycle cadence rather than being pushed out by the trailing
+        # debounce under steady event load.
+        if self._never_fires_dirty:
+            self._never_fires_schedule_save()
+            self._never_fires_dirty = False
+
+        for eid, meta in watched.items():
+            # Review A SHOULD #5 — per-entity horizon override.
+            try:
+                horizon = int(
+                    SENSOR_NEVER_FIRES_OVERRIDES_S.get(eid, default_horizon)
+                )
+            except Exception:  # noqa: BLE001
+                horizon = default_horizon
+            if horizon <= 0:
+                # 0 for this sensor = never alert.
+                continue
+            max_unavail_s = int((1.0 - frac) * horizon)
+
+            rec = self._never_fires_state.get(eid)
+            if rec is None:
+                # first_seen write-once at first appearance. Review B
+                # B3 — mark dirty, don't call `async_delay_save` here;
+                # the next tick (or teardown) flushes.
+                self._never_fires_state[eid] = {
+                    "first_seen": now.isoformat(),
+                    "last_on_seen": None,
+                    "unavailable_s": 0,
+                }
+                self._never_fires_dirty = True
+                continue
+
+            first_seen_iso = rec.get("first_seen")
+            last_on_iso = rec.get("last_on_seen")
+            candidates = [
+                x for x in (first_seen_iso, last_on_iso) if x
+            ]
+            if not candidates:
+                # Should not happen (first_seen is write-once), but
+                # heal defensively rather than crash.
+                rec["first_seen"] = now.isoformat()
+                self._never_fires_dirty = True
+                continue
+            anchor_iso = max(candidates)
+            try:
+                anchor = dt_util.parse_datetime(anchor_iso)
+            except Exception:  # noqa: BLE001
+                anchor = None
+            if anchor is None:
+                continue
+            # Match tz of `now` so arithmetic doesn't blow up on mixed
+            # naive/aware (restored ISO might be either).
+            if anchor.tzinfo is None and now.tzinfo is not None:
+                anchor = anchor.replace(tzinfo=now.tzinfo)
+            elif anchor.tzinfo is not None and now.tzinfo is None:
+                anchor = anchor.replace(tzinfo=None)
+            elapsed = (now - anchor).total_seconds()
+            if elapsed < horizon:
+                continue
+
+            # Available-now gate.
+            st = self._state_value(eid)
+            state_str = (
+                "" if st is None else str(getattr(st, "state", "")).lower()
+            )
+            if st is None or state_str in ("unavailable", "unknown"):
+                continue
+
+            # Fraction gate (review A HIGH #2) — unavailable time SINCE
+            # the clock last reset, not cumulative lifetime. The ON
+            # listener resets `unavailable_s` to 0 when the clock
+            # resets, so this measures only the window ending now.
+            unavail_s = int(rec.get("unavailable_s") or 0)
+            if unavail_s > max_unavail_s:
+                continue
+
+            # Review A HIGH #1 — emit every cycle; `_filter_repeat_sensor_health`
+            # bounds DB persistence to ≤1 row/24h. No in-evaluator
+            # latch, no `last_fired_at`.
+            dedup_key = ("sensor_never_fires", eid)
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="house",
+                target_id=eid,
+                dimension=OptimizationDimension.SENSOR_HEALTH,
+                severity="high",
+                confidence=0.9,
+                score=0.0,
+                description=(
+                    f"Sensor {eid} ({meta.get('source')}) has produced "
+                    f"no ON transitions in {int(elapsed / 3600)}h "
+                    f"(horizon {horizon // 3600}h; "
+                    f"unavailable {unavail_s}s of window)."
+                ),
+                proposed_action=None,
+                payload={
+                    "entity_id": eid,
+                    "device_class": meta.get("device_class"),
+                    "source": meta.get("source"),
+                    "room": meta.get("room"),
+                    "first_seen": first_seen_iso,
+                    "last_on_seen": last_on_iso,
+                    "unavailable_s": unavail_s,
+                    # Keyed into `_filter_repeat_sensor_health` via
+                    # payload.stuck_state so the shared 24h repeat
+                    # suppressor also covers never_fires rows.
+                    "stuck_state": "never_fires",
+                },
+                dedup_key=dedup_key,
             ))
         return findings
 

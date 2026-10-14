@@ -1,0 +1,23 @@
+# OC-STUCK-SENSOR-GENERALIZE-1 — Review B re-verify (async / lifecycle / restart / Store)
+
+Branch feature/oc-never-fires @ 6ab92608e. Fix-ups 5fc73e501 + 6ab92608e. Read-only.
+Presence docs not re-read in full this pass (reviewer scope = OC lifecycle only; no presence semantics changed).
+Suite: test_optimization_coordinator.py = 132 passed / 10 failed (matches the pre-existing MockHassForOpt baseline).
+
+## Prior items
+| Item | Status | Evidence |
+|---|---|---|
+| B1 camera records pruned at restart | CONFIRMED FIXED | `_configured_exterior_person_sensor_eids` (optimization.py:2474-2506) adds both `_person_occupancy_2` / `_person_occupancy` candidates from config with no state check. Load prune (2138-2144, also skipped when set is empty) and evaluator prune (2627-2633) both use `_configured_watched_eids` (2508). The listener (2226) only drops events for eids it is not subscribed to and never deletes records. Resubscribe (2309) uses the config set. No other path drops a camera record before its state exists. The evaluator's state-dependent `watched` set is used only to decide what gets evaluated. |
+| B2 already-unavailable sensor at restart | PARTIAL (see B2-R, MEDIUM) | Bootstrap at 2363-2383 stamps only when no stamp exists, and the rejoin pops the stamp (2246), so nothing is counted twice and recovery clears it. But the stamp lives only in memory, so each restart throws away the outage time charged so far. |
+| B3 debounce starvation | CONFIRMED FIXED | The listener only sets the dirty flag (2275). The evaluator schedules one delayed save per 5-min tick (2639-2641), and the 120 s debounce is shorter than the tick, so the save cannot be starved. |
+| B4 no flush on teardown | CONFIRMED FIXED, with residual B7 (LOW) | `async_teardown` awaits `store.async_save` when dirty (975-981), before `_cancel_listeners` (992). |
+| B5 no re-subscribe on re-setup | CONFIRMED FIXED, no leak | Teardown runs `_cancel_listeners` (base.py:287-299), which already calls the never-fires unsub because it was appended at 2349. Nulling the field in async_setup (925-926) therefore drops an already-called handle. The test at test_optimization_coordinator.py:5095 covers this. A second setup with no teardown in between would leak, but the cycle timer would leak the same way (existing pattern, not new). |
+| B6 listener cost | CONFIRMED FIXED | O(1) membership check at 2226. |
+
+## New / residual findings
+- **B2-R MEDIUM — the start of an outage is not charged after a restart** (optimization.py:2363-2383, 2240-2249; bug class: restart-unsafe in-memory state / #53-adjacent). `_never_fires_last_unavail_at` is not persisted, and nothing accrues an open spell into `unavailable_s` at teardown. After a restart, bootstrap stamps from setup time, so the time between the outage starting and the restart, while HA was up, is lost. Repro (defaults horizon 7d, frac 0.8, so max_unavail 33.6 h): last ON at T0, sensor unavailable from T0+1d to T0+6d, HA restart at T0+5.5d, sensor back at T0+6d. Charged time is 0.5 d = 12 h, under 33.6 h. At T0+7d the evaluator emits a HIGH never_fires finding for a sensor that was dark for 5 of the 7 days. With about 16 restarts per week, any multi-day outage gets charged only its last segment. Fix: persist an `unavail_since` in the Store record and restore it, or at teardown/flush add `now - stamp` into `unavailable_s` and re-stamp. Add a test for an outage that spans a restart.
+- **B7 LOW — a save scheduled at the last tick is skipped by the teardown flush** (optimization.py:2639-2641 clears the dirty flag at schedule time, and 976 checks only that flag). On a config-entry reload within 120 s of a tick, the old Store's delayed write is still pending, so the new instance's Store load (2107) reads the older file. Changes from that tick, including a `last_on_seen` reset, are missing in RAM until the new instance overwrites the file. The old pending write lands before the new instance's first save (after at least 5 min plus 120 s), so the newest data is not clobbered, but those changes are lost. Consequence: a possible stale false finding until the next ON. HA stop is unaffected because FINAL_WRITE covers it. Fix: keep a `_never_fires_save_pending` flag, or always `async_save` at teardown when the store exists.
+- **LOW-info**: all never-fires failure paths log at DEBUG (2179, 2276, 2311, 2335, 2361, teardown 983/988), so a broken listener or flush gives no warning in the logs. The Store load failure is a WARNING (2109). Acceptable for an advisory finding but noted.
+
+## Verdict
+FIX-REQUIRED (B2-R MEDIUM: the false-positive scenario B2 was meant to close is still reachable through a restart during an outage). B7 is fix-in-cycle LOW.

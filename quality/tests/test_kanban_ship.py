@@ -286,3 +286,60 @@ def test_cli_list_candidates_runs(board_copy: Path, capsys) -> None:
     assert rc == 0
     # Doesn't crash on the real board — enough for a smoke check.
     capsys.readouterr()
+
+
+# ---------------------------------------------------------------------------
+# ARC-CLOSE-GATE-1 — shipping part of an arc must not leave siblings open.
+# ---------------------------------------------------------------------------
+
+def _arc_board() -> dict:
+    return {"meta": {}, "cards": [
+        {"id": "A-1", "status": "review", "batch": "arc-x"},
+        {"id": "A-2", "status": "planned", "batch": "arc-x"},
+        {"id": "A-3", "status": "parked", "batch": "arc-x"},
+        {"id": "P-1", "status": "review", "links": {"parent": "EPIC-1"}},
+        {"id": "P-2", "status": "inbox", "links": {"parent": "EPIC-1"}},
+        {"id": "C-1", "status": "in_progress", "links": {"parent": "A-1"}},
+        {"id": "S-1", "status": "pre_planning", "links": {"sibling_of": "P-1"}},
+        {"id": "LONE", "status": "review"},
+        {"id": "DONE-SIB", "status": "done", "batch": "arc-x"},
+    ]}
+
+
+def test_arc_siblings_found_by_batch_parent_and_sibling_of() -> None:
+    b = _arc_board()
+    assert set(kanban_ship.open_arc_siblings(b, ["A-1"])) == {"A-2", "C-1"}
+    assert set(kanban_ship.open_arc_siblings(b, ["P-1"])) == {"P-2", "S-1"}
+
+
+def test_arc_check_ignores_closed_and_shipped_together() -> None:
+    b = _arc_board()
+    # parked / done siblings are dispositions, not open work
+    assert "A-3" not in kanban_ship.open_arc_siblings(b, ["A-1"])
+    assert "DONE-SIB" not in kanban_ship.open_arc_siblings(b, ["A-1"])
+    # shipping the whole set clears the gate
+    assert kanban_ship.open_arc_siblings(b, ["A-1", "A-2", "C-1"]) == {}
+    assert kanban_ship.open_arc_siblings(b, ["LONE"]) == {}
+
+
+def test_arc_check_cli_refuses_then_passes_with_cut(tmp_path: Path) -> None:
+    p = tmp_path / "board.yaml"
+    p.write_text(yaml.safe_dump(_arc_board()), encoding="utf-8")
+    assert kanban_ship.main(["arc-check", "A-1", "--file", str(p)]) == 1
+    assert kanban_ship.main(["arc-check", "A-1", "--file", str(p),
+                             "--cut", "A-2:next cycle;C-1:different objective"]) == 0
+    # a cut with no reason does not count
+    assert kanban_ship.main(["arc-check", "A-1", "--file", str(p),
+                             "--cut", "A-2:;C-1:different objective"]) == 1
+
+
+def test_record_arc_cuts_writes_reason_on_card_only(board_copy: Path) -> None:
+    board = kanban_ship.load_board(board_copy)
+    cid = kanban_ship.all_card_ids(board)[0]
+    before = board_copy.read_text(encoding="utf-8")
+    after = kanban_ship.record_arc_cuts_text(before, {cid: 'cut "for now"'}, "5.103.57")
+    added = [l for l in difflib.ndiff(before.splitlines(), after.splitlines()) if l.startswith("+ ")]
+    assert added == ['+   arc_cut_v5_103_57: "cut \\"for now\\""']
+    reparsed = yaml.safe_load(after)
+    card = next(c for c in reparsed["cards"] if c["id"] == cid)
+    assert card["arc_cut_v5_103_57"] == 'cut "for now"'

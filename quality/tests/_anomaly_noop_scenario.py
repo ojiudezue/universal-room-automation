@@ -181,6 +181,11 @@ class AiosqliteDB:
 
             yield _Conn()
 
+    # UNLOAD-SYMMETRY D3: production diagnostics reads route through
+    # database._db_read() (WAL-concurrent). Mirror _db() so this fake double
+    # satisfies both call sites with the same connection semantics.
+    _db_read = _db
+
     async def rows(self) -> list:
         async with _AIOSQLITE.connect(self.path) as db:
             cur = await db.execute(

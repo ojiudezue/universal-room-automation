@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.56
+# Universal Room Automation vv5.103.57
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.56"
+VERSION: Final = "v5.103.57"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -4179,6 +4179,53 @@ CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
     "garage_a": 7200,
     "pool_equipment": 28800,
 }
+
+# ================================================================
+# SENSOR_NEVER_FIRES evaluator — OC-STUCK-SENSOR-GENERALIZE-1 Rev 3.
+#
+# For every raw motion/occupancy sensor URA is configured to consume
+# (room inputs + perimeter/egress camera person-detectors), if the
+# entity has produced ZERO ON transitions over the horizon AND has
+# been available for enough of that window, emit one HIGH
+# `sensor_health`-dimension finding per sensor per local day with
+# dedup_key=("sensor_never_fires", entity_id).
+#
+# The stuck-ON side stays with the room-level P22 detector in
+# coordinator.py (Rev 2 parsimony SIMPLIFY: no OC stuck-ON mirror).
+#
+# Rung for all three knobs below: module constant. They trade false-
+# positive rate against detection latency and crash-loss risk, so
+# changing them is a reviewed code change (not operator-tunable).
+# 0 for the horizon acts as a kill switch.
+SENSOR_NEVER_FIRES_HORIZON_S: Final = 604800  # 7 days; 0 = disable.
+
+# Minimum fraction of the horizon the entity must have been AVAILABLE
+# (i.e. NOT in {unavailable, unknown}) since the horizon clock reset.
+# HA-down time (process not running) counts as neither — only
+# listener-observed state transitions accrue `unavailable_s`. Below
+# this fraction, the sensor's silence is sensor_health's problem, not
+# never-fires'. 0.8 means "at most 20% of the horizon spent
+# unavailable since max(first_seen, last_on_seen)".
+SENSOR_NEVER_FIRES_MIN_AVAILABILITY_FRACTION: Final = 0.8
+
+# Whole-blob `Store.async_delay_save` debounce for the never-fires
+# Store. Matches the `_async_load_stuck_state` precedent at
+# coordinator.py:~2405 (60s there; 120s here coalesces slightly longer
+# bursts without extending beyond typical uptime between restarts).
+# A crash within the window loses at most one state-transition record.
+SENSOR_NEVER_FIRES_PERSIST_DEBOUNCE_S: Final = 120
+
+# Per-entity never-fires horizon overrides. Mirrors
+# `CAMERA_STUCK_ON_OVERRIDES_S` (above). An override is a reviewed,
+# named exemption for a sensor whose rhythm is legitimately slower than
+# the fleet default (e.g. a guest-room motion detector that may sit
+# idle for weeks between stays). The map keys are entity_ids; values
+# are horizon seconds. **0 means NEVER alert for that sensor** (opt
+# out). The default `SENSOR_NEVER_FIRES_HORIZON_S` applies to any eid
+# not listed here. Not operator-tunable: use `SENSOR_NEVER_FIRES_HORIZON_S = 0`
+# to kill the whole evaluator; use this map to silence specific
+# sensors.
+SENSOR_NEVER_FIRES_OVERRIDES_S: Final[dict[str, int]] = {}
 
 # ================================================================
 # FRIGATE-FLEET-DARK TRIPWIRE (PLANNING_frigate_down_tripwire.md Rev 2).

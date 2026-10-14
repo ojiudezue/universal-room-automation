@@ -10,7 +10,7 @@ from datetime import timedelta
 from typing import Any, Final
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HassJob, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
@@ -64,7 +64,12 @@ ANOMALY_BASELINE_SAVE_INTERVAL_S: Final = 3600
 # EVENT_HOMEASSISTANT_STOP flush so a slow / wedged DB cannot delay HA
 # shutdown indefinitely. 30s is well above the normal multi-coordinator
 # save latency but below any supervisor shutdown-watchdog threshold.
-ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S: Final = 30
+# UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2 (P8): lowered 30 -> 15 so the save
+# finishes inside Stage 1's 20s STOPPING_STAGE_SHUTDOWN_TIMEOUT with
+# margin for the surrounding asyncio.gather. Module constant
+# (reviewed-code rung), not a knob — safety-adjacent, retuning requires
+# code review.
+ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S: Final = 15
 
 # v4.6.11 review fix (A.M2 / C.L4): hoisted to module level so the mapping is
 # allocated once, not rebuilt on every get_summary()/get_system_anomaly_status()
@@ -538,12 +543,14 @@ class CoordinatorManager:
     # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
     # ------------------------------------------------------------------
     def _wire_anomaly_baseline_persistence(self) -> None:
-        """Register the periodic save + EVENT_HOMEASSISTANT_STOP flush.
+        """Register the periodic save + Stage-1 shutdown-job flush.
 
-        Reuses the ``async_listen_once(EVENT_HOMEASSISTANT_STOP)`` pattern
-        from the house-state stop-hook above (see ``_wire_house_state_persistence``)
-        rather than introducing a second stop-listener style. The periodic
-        timer mirrors the house-state heartbeat shape.
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2: the stop-time save was lost
+        every restart because ``EVENT_HOMEASSISTANT_STOP`` fires in HA's
+        Stage 2, *after* background tasks (including the DB write worker)
+        are cancelled. Switch to ``async_add_shutdown_job`` which runs
+        inside Stage 1 (bounded by HA's 20s ``STOPPING_STAGE_SHUTDOWN_TIMEOUT``)
+        while the worker is still alive. The periodic timer is unchanged.
         """
         if self._anomaly_baseline_periodic_unsub is None:
             self._anomaly_baseline_periodic_unsub = async_track_time_interval(
@@ -553,13 +560,19 @@ class CoordinatorManager:
             )
         if self._anomaly_baseline_stop_unsub is None:
             try:
-                self._anomaly_baseline_stop_unsub = self.hass.bus.async_listen_once(
-                    EVENT_HOMEASSISTANT_STOP,
-                    self._async_persist_coordinator_baselines_on_stop,
+                # P1: zero-arg method invoked via HassJob — core calls
+                # async_run_hass_job(job.job, *job.args) with job.args=().
+                self._anomaly_baseline_stop_unsub = (
+                    self.hass.async_add_shutdown_job(
+                        HassJob(
+                            self._async_persist_coordinator_baselines_on_stop,
+                            "ura.anomaly_baseline_stop_save",
+                        )
+                    )
                 )
             except Exception:  # noqa: BLE001 — defensive
                 _LOGGER.debug(
-                    "Anomaly-baseline stop-hook registration failed",
+                    "Anomaly-baseline shutdown-job registration failed",
                     exc_info=True,
                 )
 
@@ -644,11 +657,16 @@ class CoordinatorManager:
         """Periodic-timer callback. Schedules the async persist."""
         self.hass.async_create_task(self._persist_coordinator_baselines())
 
-    async def _async_persist_coordinator_baselines_on_stop(
-        self, _event: Any
-    ) -> None:
-        """EVENT_HOMEASSISTANT_STOP callback — awaited inline so the save
-        completes before HA finishes stopping.
+    async def _async_persist_coordinator_baselines_on_stop(self) -> None:
+        """Stage-1 shutdown-job callback — awaited inline so the save
+        completes before HA cancels background tasks in Stage 2.
+
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1 D2 (P1): zero positional args.
+        ``async_add_shutdown_job`` calls jobs via
+        ``async_run_hass_job(job.job, *job.args)`` with ``job.args = ()``
+        (HA core.py:1083-1084) — no event object is delivered. A stale
+        ``(self, _event)`` signature would raise ``TypeError`` and be
+        swallowed by ``return_exceptions=True`` in prod.
 
         Bounded by ``ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S`` (B-LOW fix) so
         a wedged DB cannot stall HA shutdown; on timeout we log and move

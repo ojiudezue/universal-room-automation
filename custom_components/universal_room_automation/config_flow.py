@@ -1001,6 +1001,88 @@ _APPLIANCE_ADD_KEY = "apick_new"
 _COORD_ADD_PREFIX = "addc_"
 _COORD_REMOVE_PREFIX = "remc_"
 from .const import COORDINATOR_LABELS as _COORDINATOR_LABELS  # noqa: E402
+
+
+# EC-OPTIONS-CLEAR-FIELD-NOOP-1 fix-up (2026-10-14): module-level
+# clear-field map for the Energy Coordinator options step. Every key in
+# ``EC_ROLE_KEY_SET`` (energy_const.py :2228) must be clearable — the
+# hourly ``_scan_ec_role_entities`` repair scanner (__init__.py :915)
+# raises ``ec_role_entity_<key>`` for ANY role whose configured entity
+# is unavailable, and the Repairs issue tells the operator to clear the
+# field. If a role key is NOT in this map it cannot be cleared through
+# the UI and the Repairs issue is unfixable. The clear-apply loop in
+# ``async_step_coordinator_energy`` ``.pop()``s the matching stored key
+# on save, so the field falls back exactly as a never-set one does.
+# Exposed at module level so tests can assert full coverage.
+# CONF values are stable string literals (changing one is a schema
+# break). Keeping the map at module scope avoids a package-level import
+# of ``domain_coordinators`` which pulls Home Assistant and breaks the
+# test-harness loader. Two tests in test_ec_options_clear_field_noop.py
+# anchor the invariants against the real CONF_* names in energy_const:
+# ``test_clear_map_covers_every_ec_role_key`` (every EC_ROLE_KEY_SET
+# key is in the map) and ``test_clear_map_literals_are_real_energy_
+# conf_keys`` (every literal here matches an actual CONF_ENERGY_* value,
+# so typos trip immediately).
+_EC_OPTIONS_CLEAR_FIELD_ENTRIES: tuple[tuple[str, str, str], ...] = (
+    # Grid import / export counters (original two choices, pre-fix-up).
+    ("grid_import", "energy_grid_import_entity", "Clear grid import entity"),
+    ("grid_export", "energy_grid_export_entity", "Clear grid export entity"),
+    # Enpower local-write controls.
+    ("storage_mode", "energy_storage_mode_entity", "Clear battery storage-mode select"),
+    ("reserve_soc", "energy_reserve_soc_entity", "Clear battery reserve-SOC number"),
+    ("grid_enabled", "energy_grid_enabled_entity", "Clear grid-enabled switch"),
+    ("charge_from_grid", "energy_charge_from_grid_entity", "Clear charge-from-grid switch"),
+    # Solcast forecast entities.
+    ("solcast_today", "energy_solcast_today_entity", "Clear Solcast forecast today"),
+    ("solcast_tomorrow", "energy_solcast_tomorrow_entity", "Clear Solcast forecast tomorrow"),
+    ("solcast_remaining", "energy_solcast_remaining_entity", "Clear Solcast forecast remaining today"),
+    ("solcast_day_3", "energy_solcast_day_3_entity", "Clear Solcast forecast day 3"),
+    # Weather entity (role-keyed; raised by the scanner if the entity is dead).
+    ("weather", "energy_weather_entity", "Clear weather entity"),
+    # EVSE power sensors (per-charger live power).
+    ("evse_a_power", "energy_evse_a_entity", "Clear EVSE A power sensor"),
+    ("evse_b_power", "energy_evse_b_entity", "Clear EVSE B power sensor"),
+    # EVSE control + telemetry roles.
+    ("evse_a_switch", "energy_evse_a_switch_entity", "Clear EVSE A switch"),
+    ("evse_b_switch", "energy_evse_b_switch_entity", "Clear EVSE B switch"),
+    ("evse_a_energy_today", "energy_evse_a_energy_today_entity", "Clear EVSE A energy today"),
+    ("evse_b_energy_today", "energy_evse_b_energy_today_entity", "Clear EVSE B energy today"),
+    ("evse_a_energy_month", "energy_evse_a_energy_month_entity", "Clear EVSE A energy this month"),
+    ("evse_b_energy_month", "energy_evse_b_energy_month_entity", "Clear EVSE B energy this month"),
+    ("evse_a_current_limit", "energy_evse_a_current_limit_entity", "Clear EVSE A current-limit number"),
+    ("evse_b_current_limit", "energy_evse_b_current_limit_entity", "Clear EVSE B current-limit number"),
+    ("evse_a_span_breaker", "energy_evse_a_span_breaker", "Clear EVSE A SPAN breaker switch"),
+    ("evse_b_span_breaker", "energy_evse_b_span_breaker", "Clear EVSE B SPAN breaker switch"),
+    # L1 charger list (multi-select natively clearable; still exposed
+    # here so the scanner's repair issue has a UI-reachable fix path).
+    ("l1_chargers", "energy_l1_charger_entities", "Clear L1 charger list"),
+    # Cloud oracles / fallback / stamp.
+    ("cloud_reserve_oracle", "energy_cloud_reserve_oracle_entity", "Clear cloud reserve-floor oracle"),
+    ("cloud_charge_from_grid_oracle", "energy_cloud_charge_from_grid_oracle_entity", "Clear cloud charge-from-grid oracle"),
+    ("cloud_storage_mode_oracle", "energy_cloud_storage_mode_oracle_entity", "Clear cloud storage-mode oracle"),
+    ("cloud_battery_soc_fallback", "energy_cloud_battery_soc_fallback_entity", "Clear cloud battery-SOC fallback"),
+    ("cloud_last_success", "energy_cloud_last_success_entity", "Clear cloud last-success stamp"),
+    # Solar-follow grid power inputs. The *_fallback field points at the
+    # retired Envoy MQTT stream on this install (2026-10-14 live repair
+    # issue ``ec_role_entity_energy_solar_follow_grid_fallback_entity``);
+    # clearing it here is the operator's documented fix.
+    ("solar_follow_grid", "energy_solar_follow_grid_entity", "Clear solar-follow grid power entity"),
+    ("solar_follow_grid_fallback", "energy_solar_follow_grid_fallback_entity", "Clear solar-follow grid power fallback"),
+    # Drain-precedence live house-load mains readings.
+    ("dp_span_r1", "energy_dp_span_r1_entity", "Clear SPAN R1 mains reading"),
+    ("dp_span_r2", "energy_dp_span_r2_entity", "Clear SPAN R2 mains reading"),
+    # Pool pump role entities.
+    ("pool_speed", "energy_pool_speed_entity", "Clear pool pump speed number"),
+    ("pool_power", "energy_pool_power_entity", "Clear pool pump power sensor"),
+    # Generator status.
+    ("generator", "energy_generator_entity", "Clear generator status sensor"),
+)
+
+# Choice -> CONF key mapping consumed by the step's save handler.
+_EC_OPTIONS_CLEAR_FIELD_MAP: dict[str, str] = {
+    choice: conf for choice, conf, _label in _EC_OPTIONS_CLEAR_FIELD_ENTRIES
+}
+
 # Settings step each coordinator is added through. None = one-screen
 # confirm (no required settings).
 _COORDINATOR_ADD_STEP = {
@@ -6231,17 +6313,41 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             saved_options = {**self._config_entry.options, **user_input}
             if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
                 saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
-            _clear_map = {
-                "grid_import": CONF_ENERGY_GRID_IMPORT_ENTITY,
-                "grid_export": CONF_ENERGY_GRID_EXPORT_ENTITY,
-            }
-            # A-LOW (2026-10-09): if the operator both ticked "Clear X"
-            # AND picked a new entity for X in the SAME submit, the new
-            # entity wins (clearing is for the "I set this once and now
-            # want it empty" case; a fresh pick is a stronger signal).
+            # EC-OPTIONS-CLEAR-FIELD-NOOP-1 fix-up: use the module-level
+            # map so every EC_ROLE_KEY_SET key the hourly scanner raises
+            # a Repairs issue for has a UI-reachable fix path. See
+            # ``_EC_OPTIONS_CLEAR_FIELD_ENTRIES`` above.
+            _clear_map = _EC_OPTIONS_CLEAR_FIELD_MAP
+            # EC-OPTIONS-CLEAR-FIELD-NOOP-1 review A fix-up (2026-10-14):
+            # every field renders with ``description={"suggested_value":
+            # <stored>}``, so the REAL frontend form submits the stored
+            # value back on save, not an omitted key. Clear therefore
+            # applies when the submitted value is empty (missing, None,
+            # "", []) OR when it equals the currently stored value
+            # (self._config_entry.options.get(_ck) — the value BEFORE
+            # this save, not after the merge). A genuinely DIFFERENT
+            # entity picked in the same submit still wins (preserves the
+            # 10-09 A-LOW intent for that case only). The multi-entity
+            # list key ``energy_l1_charger_entities`` compares as a set
+            # since order is not meaningful.
+            _sentinel = object()
             for _choice in _clear_grid:
                 _ck = _clear_map.get(_choice)
-                if _ck and not user_input.get(_ck):
+                if not _ck:
+                    continue
+                _submitted = user_input.get(_ck, _sentinel)
+                _stored = self._config_entry.options.get(_ck)
+                if _submitted is _sentinel or _submitted in (None, "", []):
+                    saved_options.pop(_ck, None)
+                    continue
+                # List-valued key: order-insensitive equality.
+                if isinstance(_submitted, (list, tuple)) and isinstance(
+                    _stored, (list, tuple)
+                ):
+                    if set(_submitted) == set(_stored):
+                        saved_options.pop(_ck, None)
+                    continue
+                if _submitted == _stored:
                     saved_options.pop(_ck, None)
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
@@ -7103,8 +7209,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
-                        {"value": "grid_import", "label": "Clear grid import entity"},
-                        {"value": "grid_export", "label": "Clear grid export entity"},
+                        {"value": _c, "label": _lbl}
+                        for _c, _conf, _lbl in _EC_OPTIONS_CLEAR_FIELD_ENTRIES
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
