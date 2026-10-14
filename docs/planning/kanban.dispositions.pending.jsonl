@@ -71,3 +71,4 @@
 {"action": "instruct", "at": "2026-10-14T06:23:49.772Z", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "text": "BP1_B not live. Where should I put it? What's wrong with the http block? Room automations off in places where people in the house do not want automation or its not yet dialed in. I do think the minimum is turning things off not on.  But some of those need healthy timeouts"}
 {"action": "ack", "at": "2026-10-14T06:23:53.879Z", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-13T02:31:00"}
 {"action": "ack", "at": "2026-10-14T06:24:30.622Z", "card_id": "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-13T03:40:00"}
+{"action": "ack", "at": "2026-10-14T06:25:22.058Z", "card_id": "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-13T02:50:00"}
