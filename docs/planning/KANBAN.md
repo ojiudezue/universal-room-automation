@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-14T02:22:03-05:00_ - _Data commit: `34d1143e6e32`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-14T02:22:51-05:00_ - _Data commit: `69139ddd74c2`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-10-14T02:22:03-05:00_ - _Data commit: `34d1143e6e32`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 8 |
+| 🧭 Pre-planning | 7 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 1 |
@@ -19,7 +19,7 @@ _Generated: 2026-10-14T02:22:03-05:00_ - _Data commit: `34d1143e6e32`_ - _last_r
 | ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 5 |
 | 🅿️ Parked | 89 |
-| ✅ Done | 319 |
+| ✅ Done | 320 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -42,21 +42,10 @@ _created 2026-10-14 02:50 · initial_
 - **Forensic keys (1):**
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🧭 Pre-planning (8)
+## 🧭 Pre-planning (7)
 _idea being decomposed_
 
-### `URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1` - Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
-thread: **platform** - status: **pre_planning**
-_created 2026-10-13 15:30 · updated 2026-10-14 02:22 · refined_
-- **Problem / Solution:**
-  - Problem: Home Assistant 2026.10 changed how devices are stored. Each device now belongs to exactly one integration entry, and three registry calls URA uses are being removed: looking a device up by identifiers (stops working in 2027.8), ...
-- **Next:** Me (next overnight or attended): ura-planner writes PLANNING_ha_2026_10_device_registry_migration.md. It must first read docs/architecture/DEVICE_TREE.md and docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md in full, cover all 21 sites bel...
-- **Tags:** tier-2db, institutional-context, no-fabrication-verify
-- **Forensic keys (2):**
-  - `verified_2026_10_14`: STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boot) warns for __init__.py:5227 (devices as mapping, breaks 2027.9) and __init__.py:5305 + _devices.py:607 (async_get_device, breaks 2027.8). HA 2026.10.1 source (github raw helpers/...
-  - `problem`: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303 config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10). Not on the HVAC tick; boot-time cost. Breaks in...
-
-### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#2 · WSJF 2.3 · v3 tc2 u2 /e3_
+### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#1 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-14 02:35 · initial_
 - **Problem / Solution:**
@@ -70,7 +59,7 @@ _created 2026-10-14 02:35 · initial_
 - **Forensic keys (1):**
   - `evidence_2026_10_14`: zone 3: S1 set preset sleep->away at 05:43:52Z (00:43:52 CDT). Recorder: target_temp_low/high stayed 70/77 (the sleep/home range) until 00:50:54 CDT, then 62/80. S10 ran at 00:48:52 CDT, read away=70/77, and issued set_activity_setpoint ...
 
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#3 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -99,7 +88,7 @@ _updated 2026-09-29 01:05_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `HUMIDITY-FAN-ON-RESEND-SPAM-1` - The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on — _#4 · WSJF 2.2 · v5 tc4 u2 /e5_
+### `HUMIDITY-FAN-ON-RESEND-SPAM-1` - The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on — _#3 · WSJF 2.2 · v5 tc4 u2 /e5_
 thread: **fans** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-14 02:16 · updated 2026-10-14 02:17 · initial_
 - **Problem / Solution:**
@@ -114,7 +103,7 @@ _created 2026-10-14 02:16 · updated 2026-10-14 02:17 · initial_
   - `measured_2026_10_14`: HA recorder call_service events homeassistant.turn_on with entity_id [fan.switch_shelly1pmminig3_wifi_masterbathfan], per local hour (last 3 days): 10-11 18h 528, 19h 212; 10-12 09h 90, 10h 407, 15h 326, 16h 249; 10-13 11h 491, 12h 652; ...
   - `mechanism_2026_10_14`: automation.py ~3496-3518 (humidity fan control): when on_trigger (humidity >= threshold OR spike), the code calls _safe_service_call("homeassistant", SERVICE_TURN_ON, {"entity_id": humidity_fans}) UNCONDITIONALLY; the `if not fan_is_on` ...
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#5 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#4 · WSJF 2.0 · v7 tc3 u6 /e8_
 thread: **census** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-11 02:15 · initial_
 - **Problem / Solution:**
@@ -127,7 +116,7 @@ _created 2026-10-11 02:15 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning**
 _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
@@ -139,7 +128,7 @@ _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
   - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#6 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -150,7 +139,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#8 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -763,11 +752,12 @@ _created 2026-10-05 02:22 · updated 2026-10-09 02:12 · initial_
 
 ### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#21 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-05 02:22_
+_created 2026-10-05 · updated 2026-10-14 02:23_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
 - **Next:** PICK how URA hides advanced settings once HA removes profile Advanced mode from flows (2027.6): (A) collapsible Advanced sections in each form (HA guidance; my recommendation), (B) one URA-owned Show-advanced-settings switch in the integ...
 - **Tags:** tier-1, multi-home
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `DEDUPE_2026_10_14`: Folded in URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1 (created 10-13, a duplicate of this card's device-registry half; my adjacency sweep missed it). Carried over verbatim (the union): STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boo...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE (overnight). (1) VALIDITY: STILL-REAL - develop has 20 async_get_device( hits and 9 show_advanced_options refs (config_flow.py:63-98 hint helpers, :1138, :4465, :4500 shim context, :12978); the hiding itself rides HA data_...
   - `found_2026_10_05`: MAIN HOUSE log (docker logs since last restart) has ONE URA deprecation: "The deprecated function show_advanced_options was called from universal_room_automation. It will be removed in HA Core 2027.6." -> earlier than the 2027.8-9 window...
@@ -2406,7 +2396,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (319)
+## ✅ Done (320)
 _closed, evidence in refs_
 
 ### `BOND-BRIDGE-UNRESPONSIVE-1` - Bond Bridge Pro (192.168.9.69) times out 3/5 local API calls; every Bond entity (6 ceiling fans + lights, patio covers 1-5) flaps unavailable every ~40 s — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2442,6 +2432,18 @@ _created 2026-09-29 13:10 · updated 2026-10-14 02:35_
   - `reply_2026_10_14`: Confirmed live: switch.ura_hvac_coordinator_guest_mode_actuation = on, last_changed 2026-10-14T01:20:47 CDT. Revival trigger fired — card un-parked.
   - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> PARKED. Shipped OFF in v5.103.39 and validated 10-06 (switch resolves OFF, no S10 writes, compose-away deleted). Its organic discriminator (zone 3 holds its custom ranges with no Carrier write storm) can only be evaluated on...
   - `live_state_2026_10_03_overnight`: WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE...
+
+### `URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1` - Replace deprecated device-registry calls before HA 2027.8/2027.10 (async_get_device, DeviceEntry.config_entries) — _WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **platform** - status: **done**
+_created 2026-10-13 15:30 · updated 2026-10-14 02:23 · refined_
+- **Problem / Solution:**
+  - Problem: Home Assistant 2026.10 changed how devices are stored. Each device now belongs to exactly one integration entry, and three registry calls URA uses are being removed: looking a device up by identifiers (stops working in 2027.8), ...
+- **Next:** Closed 10-14 as DUPLICATE of HA-2027-DEPRECATIONS-URA-1 (device-registry half, parked behind TEST-HARNESS-REAL-HA-DEFAULT-1). Evidence merged there.
+- **Tags:** tier-2db, institutional-context, no-fabrication-verify
+- **Forensic keys (3):**
+  - `disposition_2026_10_14`: DUPLICATE -> HA-2027-DEPRECATIONS-URA-1. My earlier promotion to pre_planning this pass was wrong; the adjacency sweep found the survivor after the fact.
+  - `verified_2026_10_14`: STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boot) warns for __init__.py:5227 (devices as mapping, breaks 2027.9) and __init__.py:5305 + _devices.py:607 (async_get_device, breaks 2027.8). HA 2026.10.1 source (github raw helpers/...
+  - `problem`: entity.py:80 async_get_device on every entity add; __init__.py:5227/:5305; button.py:303 config_entries; _devices.py; config_flow.py. Each call frame-walks + scans sys.modules (HA 2026.10). Not on the HVAC tick; boot-time cost. Breaks in...
 
 ### `EC-HOUSE-ENTITY-DEFAULTS-1` - Energy code hardcodes this house's entity IDs as defaults (EVSE, L1 plugs, Envoy serial, SPAN) — config-only + warn on missing — _WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **energy** - status: **done**
