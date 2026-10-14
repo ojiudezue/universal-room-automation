@@ -64,7 +64,7 @@ The fixes for these need their own tests.
 
 Own worktree `.claude/worktrees/reverify-exhaust-C` at 29b158738. Four targeted files: occupancy_and_resend, intelligence_cycle, fan_humidity_toggle_symmetry, safety_humidity_junk_floor. Baseline: **122 passed, 0 failed**. The 6 stale tests are fixed and not weakened: FIXF now covers the 1-arg contract plus a TypeError test, and d4 sleep-off now sets an anchor and adds a check that it does not re-emit. One site per run, `__pycache__` cleared, file restored after each run, tree clean at the end.
 
-**RED (31):** ON transition, re-assert interval, re-assert actual-off, manual-off window, listener old==on, unavailable exclusion, URA-ctx predicate, dwell threshold, dwell edge anchor, dwell timing, dwell-hold, dwell-OFF branch, sleep-off transition, absolute None-guard, OFF-branch None-guard, early-return None-guard, gate fn, skip_first return, coordinator D1 caller, listener registration, async_on_unload, None clears cap latch, @callback, dwell-OFF fallback, dwell_vacant_at stamp, cap-latch set, cap-latch clear, dwell default = wet_room.
+**RED (28 of 43 single-site drills):** ON transition, re-assert interval, re-assert actual-off, manual-off window, listener old==on, unavailable exclusion, URA-ctx predicate, dwell threshold, dwell edge anchor, dwell timing, dwell-hold, dwell-OFF branch, sleep-off transition, absolute None-guard, OFF-branch None-guard, early-return None-guard, gate fn, skip_first return, coordinator D1 caller, listener registration, async_on_unload, None clears cap latch, @callback, dwell-OFF fallback, dwell_vacant_at stamp, cap-latch set, cap-latch clear, dwell default = wet_room.
 
 **Still GREEN:**
 | Site | Sev | Note |
