@@ -293,3 +293,24 @@ def test_device_lookup_runs_once_per_room_not_per_entity(monkeypatch):
     assert len(calls) == 1, calls
     assert dev.area_id == "living_room"
     assert len(reg.update_calls) == 1
+
+
+def test_missing_device_on_first_entity_is_retried_by_next(monkeypatch):
+    """The once-per-room flag must not latch while the room device does not
+    exist yet (first platform still registering): the next entity retries."""
+    ent_mod, sensor_mod, _domain = _import()
+    dev = _StubDevice(area_id=None)
+    reg = _StubDevReg(None)
+    _install_device_registry(monkeypatch, ent_mod, reg)
+    _neutered_super_added(monkeypatch, ent_mod)
+    coord = _Coord(_Entry(area_id="living_room"))
+    first = _make_entity(sensor_mod, coord)
+    first.hass = _NoopHass()
+    _run(first.async_added_to_hass())
+    assert reg.update_calls == []
+    reg._device = dev
+    second = _make_entity(sensor_mod, coord)
+    second.hass = _NoopHass()
+    _run(second.async_added_to_hass())
+    assert dev.area_id == "living_room"
+    assert len(reg.update_calls) == 1
