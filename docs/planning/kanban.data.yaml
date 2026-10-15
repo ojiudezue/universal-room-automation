@@ -115,6 +115,14 @@ meta:
     headline: "Parked as you suggested. The 5-minute ordering gap has no measured cost. The overlaps I found were a local Envoy switch reading on while URA's real grid-charge switch was off and the battery wasn't charging. Site load never went above 16 kW, about a third of the 200 A mains."
     acknowledged: false
 cards:
+- id: HVAC-S10-NOTIFY-UNDELIVERED-1
+  title: "Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config"
+  status: planned
+  tier: 1
+  origin: "HVAC S10 review C (C-H1), 2026-10-15. Swept board: no existing card."
+  why: "Live NM: one recipient (person.oji_udezue, digest delivery, no routing matrix); pushover/imessage/whatsapp CRITICAL only, companion HIGH, lights/TTS disabled; digest rows are written only for qualifying channels. So LOW/MEDIUM S10 notifications (s10_restore_not_taking, s10_preset_range_call_failed, s10_preset_range_not_sticking, s10_restore_pending, the switch backstop) produce only an [audit] row that get_pending_digest (database.py:4572) excludes: nobody is told. Pre-existing; the new settle-held alert is fixed to HIGH in feature/hvac-s10-settle."
+  next: "Me: decide per notification which deserve HIGH (operator-actionable: call_failed latch, restore_not_taking) vs digest; also check whether digest should include non-qualifying LOW rows at all. Tier 1."
+  related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
   title: "After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on"
   status: pre_planning
