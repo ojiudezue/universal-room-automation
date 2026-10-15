@@ -115,6 +115,14 @@ meta:
     headline: "Parked as you suggested. The 5-minute ordering gap has no measured cost. The overlaps I found were a local Envoy switch reading on while URA's real grid-charge switch was off and the battery wasn't charging. Site load never went above 16 kW, about a third of the 200 A mains."
     acknowledged: false
 cards:
+- id: SECURITY-REFIRE-INTRUSION-KEY-1
+  title: "Security alerts never re-fire after their cooldown: the re-check looks for 'intrusion' but Security emits 'intruder'"
+  status: planned
+  tier: 1
+  origin: "Plan review of SAFETY-NM-REFIRE-UNWIRED-1 (F4), 2026-10-15; verified by orchestrator."
+  why: "security.py:827 re-evaluates only hazard_type in ('intrusion','entry_alert','unknown_person'), but Security emits hazard_type='intruder' (security.py:1051, :1581). So an acknowledged intruder alert never re-pages after cooldown even if the intrusion continues. Swept: no existing card or BACKLOG item (grep intrusion/intruder/_re_evaluate_hazard)."
+  next: "Me: Tier 1 hotfix after the safety re-page cycle (same NM re-fire path): accept both spellings or align on 'intruder', with a test driving NM cooldown -> security _re_evaluate_hazard."
+  related: [SAFETY-NM-REFIRE-UNWIRED-1]
 - id: EV-FILL-PRIORITY-SOC-CHATTER-1
   operator_instruction_2026_10_13: "What is the problem exactly. Just a yo yo around the boundary?"
   reply_2026_10_14: 'Yes — exactly a yo-yo at the 80% boundary, with no hysteresis. Fill-priority pauses the car when battery SOC < 80% and resumes it at SOC >= 80%, same number both ways. When it resumes, the car draws ~11.7 kW, which is enough to pull the battery from 80% back down to 79% within one tick, so the car gets paused again almost immediately, then resumes again once solar/battery climbs back to 80-81%. Measured twice in 7 logged days (10-09, 10-11), each episode short-lived. Fix if you want it: give the resume a few points of headroom (e.g. once resumed, do not re-pause until SOC drops below 77%) so one resume does not immediately trigger its own pause.'
