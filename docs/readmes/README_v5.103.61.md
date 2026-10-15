@@ -14,7 +14,7 @@ Knobs (rung 1, `safety.py` ~251-276): `FREEZE_/OVERHEAT_CLEAR_OFFSET_F` 3, `HIGH
 `quality/tests/test_safety_hazard_clear_on_recovery.py` (75 tests, literal boundaries; I2 at hold 0/1/300/86400 s). Drills: builder 52/55 red (3 green = redundant backstops), review C 66/82 red before the fix-up, its must-fix sites now red.
 
 ## Pre-deploy gate
-- Full-suite name-diff vs develop 434d8f1f0: PENDING.
+- Full-suite name-diff vs develop 434d8f1f0: 5 NEW, all order-dependent (pass alone): the smoke-off and TVOC tests in `test_safety_coordinator.py` and `test_restart_safety_doctrine_1.py`, plus `test_safety_high_humidity_clear_follows_operator_override`. Cause: an earlier test re-imports `safety` / `_nm_cycle_a`, so the tests patched a stale module's clock and knob cache. Fixed (0069be22c) by resolving the module the coordinator actually runs in. Re-run 2026-10-15 of every file sorting before the targets plus the targets: all 5 pass; the 81 other failures are pre-existing develop failures. CLEAN.
 
 ## Live acceptance
 - **Live:** a humidity/temperature hazard active before the restart clears within ~6 min of its sensor recovering (safety active-hazard count falls).
