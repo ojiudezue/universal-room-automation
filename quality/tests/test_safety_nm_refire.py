@@ -577,3 +577,50 @@ async def test_d7_options_flow_round_trip_saves_selection(monkeypatch, clock):
     r = _NMRig(monkeypatch, clock, schedule=res["data"][_SCHED_KEY])
     await r.alert()
     assert r.at_age(0) == (60, "fast_start")
+
+
+# Scoping (orchestrator ruling): the schedule applies to Safety's CRITICAL
+# tokens only; every other life-safety token keeps 30 s (develop behaviour).
+
+_ALL_SCHEDULES = [None, "standard", "fast_start", "urgent", "bogus"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schedule", _ALL_SCHEDULES)
+async def test_d7_intruder_critical_repeats_30s_under_every_schedule(
+    monkeypatch, clock, schedule
+):
+    """R (regression guard, passes on develop): Security intruder CRITICAL."""
+    r = _NMRig(monkeypatch, clock, schedule=schedule, hazard="intruder")
+    await r.alert()
+    assert r.later[-1] == 30
+    assert r.at_age(0) == (30, "life_safety")
+    assert r.at_age(601) == (30, "life_safety")
+    assert r.at_age(86401) == (30, "life_safety")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schedule", _ALL_SCHEDULES)
+async def test_d7_extras_token_repeats_30s_under_every_schedule(
+    monkeypatch, clock, schedule
+):
+    """R: an operator-promoted extras token keeps 30 s."""
+    r = _NMRig(monkeypatch, clock, schedule=schedule, hazard="overheat")
+    r.entry.options = {**r.entry.options, "nm_extra_life_safety_hazards": ["overheat"]}
+    _knob_mod().invalidate_knob_cache()
+    await r.alert()
+    assert r.at_age(0) == (30, "life_safety")
+    assert r.at_age(86401) == (30, "life_safety")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hazard", ["smoke", "carbon_monoxide", "flooding", "fire"])
+@pytest.mark.parametrize(
+    "schedule,expected",
+    [(None, (300, "phase1")), ("fast_start", (60, "fast_start")),
+     ("urgent", (30, "life_safety"))],
+)
+async def test_d7_safety_tokens_follow_schedule(monkeypatch, clock, hazard, schedule, expected):
+    r = _NMRig(monkeypatch, clock, schedule=schedule, hazard=hazard)
+    await r.alert()
+    assert r.at_age(0) == expected

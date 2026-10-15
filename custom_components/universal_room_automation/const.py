@@ -3431,15 +3431,23 @@ NM_REPEAT_PHASE1_WINDOW_S: Final = 3600
 NM_REPEAT_PHASE2_S: Final = 1800
 NM_REPEAT_DAILY_AFTER_S: Final = 86400
 
-# SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2): unacked life-safety repeat
-# schedule. Rung 2 (options-flow select, CM "Quiet Hours" step); read live via
-# NM._refresh_config. Unknown/missing value -> standard.
+# SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2 + orchestrator ruling): the
+# "Smoke, CO and flood repeat schedule". Rung 2 (options-flow select, CM "Quiet
+# Hours" step); read live via NM._refresh_config. Unknown/missing -> standard.
+# Applies ONLY to NM_SCHEDULED_LIFE_SAFETY_HAZARDS; every other life-safety
+# token (intruder, operator extras) keeps NM_REPEAT_INTERVAL_LIFE_SAFETY (30 s).
 #   standard  : the ladder above (PHASE1_S / PHASE1_WINDOW_S / PHASE2_S /
 #               DAILY_AFTER_S) — same as non-life-safety CRITICALs.
 #   fast_start: NM_REPEAT_FAST_START_S for the first
 #               NM_REPEAT_FAST_START_WINDOW_S of unacked age, then standard.
 #   urgent    : NM_REPEAT_INTERVAL_LIFE_SAFETY (30 s) until acknowledged.
 CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE: Final = "nm_life_safety_repeat_schedule"
+# Safety-Coordinator hazard tokens that reach CRITICAL (smoke, CO >=100 ppm,
+# flooding) + "fire": a Safety HazardType token sharing smoke's cooldown key;
+# not emitted today, but if it ever is it must page like smoke.
+NM_SCHEDULED_LIFE_SAFETY_HAZARDS: Final = frozenset({
+    "smoke", "carbon_monoxide", "flooding", "fire",
+})
 NM_LIFE_SAFETY_SCHEDULE_STANDARD: Final = "standard"
 NM_LIFE_SAFETY_SCHEDULE_FAST_START: Final = "fast_start"
 NM_LIFE_SAFETY_SCHEDULE_URGENT: Final = "urgent"

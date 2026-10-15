@@ -133,6 +133,7 @@ from ..const import (
     NM_LIFE_SAFETY_SCHEDULE_URGENT,
     NM_REPEAT_FAST_START_S,
     NM_REPEAT_FAST_START_WINDOW_S,
+    NM_SCHEDULED_LIFE_SAFETY_HAZARDS,
     NM_DELIVERY_DIGEST,
     NM_DELIVERY_IMMEDIATE,
     NM_DELIVERY_OFF,
@@ -2554,10 +2555,10 @@ class NotificationManager:
     def _schedule_repeat(self) -> None:
         """Schedule the next repeat notification.
 
-        NM Cycle B B1: cadence selected by hazard subtype. Life-safety
-        hazards follow the operator's life-safety repeat schedule (D7:
-        standard ladder by default, fast_start, or urgent 30 s); everything
-        else uses the decay ladder. See ``_repeat_interval_for_active_alert``.
+        NM Cycle B B1: cadence selected by hazard subtype. Smoke/CO/flood
+        follow the operator's repeat schedule (D7: standard ladder by default,
+        fast_start, or urgent 30 s); other life-safety hazards repeat at 30 s;
+        everything else uses the decay ladder. See ``_repeat_interval_for_active_alert``.
         """
         if self._repeat_unsub:
             self._repeat_unsub()
@@ -2574,18 +2575,22 @@ class NotificationManager:
         Notification Hygiene FIX 2: non-life-safety CRITICALs use a
         decay ladder based on unacked age so a stuck alert (e.g.
         reserve_soc storm) doesn't page every 5 minutes for hours.
-        Life-safety cadence follows the D7 schedule setting
-        (CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE; default "standard" = this same
-        ladder; "urgent" = 30 s flat). Ladder is disabled (falls back to legacy 300s flat) when
+        Smoke/CO/flood (NM_SCHEDULED_LIFE_SAFETY_HAZARDS) follow the D7
+        schedule setting (CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE; default
+        "standard" = this same ladder; "urgent" = 30 s flat). Other
+        life-safety hazards stay 30 s flat. Ladder is disabled (falls back to legacy 300s flat) when
         ``NM_REPEAT_PHASE1_WINDOW_S == 0``.
         """
         hazard = ""
         if self._active_alert_data:
             hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
         # NM Cycle C-2 D2: union helper — extras share the life-safety schedule.
-        # SAFETY-NM-REFIRE-UNWIRED-1 D7: the life-safety cadence follows the
-        # operator's schedule; "standard" falls through to the ladder below.
+        # SAFETY-NM-REFIRE-UNWIRED-1 D7: smoke/CO/flood follow the operator's
+        # schedule ("standard" falls through to the ladder below); every other
+        # life-safety token (intruder, extras) keeps the 30 s cadence.
         if is_life_safety_hazard(self.hass, hazard):
+            if hazard not in NM_SCHEDULED_LIFE_SAFETY_HAZARDS:
+                return NM_REPEAT_INTERVAL_LIFE_SAFETY
             schedule = self._life_safety_repeat_schedule()
             if schedule == NM_LIFE_SAFETY_SCHEDULE_URGENT:
                 return NM_REPEAT_INTERVAL_LIFE_SAFETY
@@ -2636,7 +2641,7 @@ class NotificationManager:
             return 0
 
     def _life_safety_repeat_schedule(self) -> str:
-        """D7: operator-chosen unacked life-safety repeat schedule.
+        """D7: operator-chosen unacked smoke/CO/flood repeat schedule.
 
         Read from ``self._config`` (refreshed by ``_refresh_config`` on every
         notify / repeat tick, so no reload is needed). Unknown or missing
@@ -2667,7 +2672,10 @@ class NotificationManager:
             return "idle"
         hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
         if is_life_safety_hazard(self.hass, hazard):
-            # D7: label follows the chosen schedule ("standard" -> ladder labels).
+            # D7: smoke/CO/flood label follows the chosen schedule
+            # ("standard" -> ladder labels); other life-safety -> 30 s label.
+            if hazard not in NM_SCHEDULED_LIFE_SAFETY_HAZARDS:
+                return "life_safety"
             schedule = self._life_safety_repeat_schedule()
             if schedule == NM_LIFE_SAFETY_SCHEDULE_URGENT:
                 return "life_safety"

@@ -150,6 +150,8 @@ def test_fix2_phase_boundaries_are_correct():
     assert _interval("smoke", 100000) == 86400
     # ... and the "urgent" schedule = 30 s flat at any age.
     assert _interval("smoke", 100000, nm_life_safety_repeat_schedule="urgent") == 30
+    # Non-Safety life-safety (intruder) stays 30 s flat under the default.
+    assert _interval("intruder", 100000) == 30
 
 
 def test_fix2_created_at_stamped_and_recovered_from_db():

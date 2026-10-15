@@ -183,3 +183,50 @@ coverage, reload suppression, safety files).
   stubbing it in four AST-slice loaders (`test_cm_reload_suppression`, `test_part2_ec_hc_writeback`,
   `test_reload_watchdog_hazard`, `test_room_options_reload_suppression`). That is outside the Rev 4.2
   text, so it was left for a ruling.
+
+---
+
+# D7 scoping (orchestrator ruling, after the producer report)
+
+The schedule now applies only to `NM_SCHEDULED_LIFE_SAFETY_HAZARDS` (`const.py`, named constant) =
+`smoke, carbon_monoxide, flooding` (Safety's CRITICAL tokens) + `fire`. **Why fire is included:** it is
+a Safety `HazardType` token that shares smoke's cooldown key. Nothing emits it today, so including it
+changes no current behaviour, and if it is ever emitted it should page like smoke.
+
+Every other life-safety token (Security `intruder`, operator extras) returns
+`NM_REPEAT_INTERVAL_LIFE_SAFETY` (30 s) and the `life_safety` label, the same as develop. Two sites
+were added: an early return in `_repeat_interval_for_active_alert`, and the same guard in
+`_repeat_phase`. The setting was relabelled "Smoke, CO and flood repeat schedule" in strings,
+translations and both docs. The key name is unchanged.
+
+The reload-on-save question is closed per the ruling: no `_NM_C_KEYS` change. Like the other fields
+on that step, saving it reloads the CM.
+
+## Existing tests
+- `test_nm_cycle_b_safety_rails.py`: reverted to the pre-D7 content. `TestB1IntruderCadence` now
+  passes unchanged. `TestB1SubtypeCadence._nm` keeps `urgent` because that class loops over every
+  life-safety token, smoke/CO/flood/fire included (a Safety path).
+- `test_nm_cycle_c2_life_safety_union.py`: reverted. The overheat extras path (non-Safety) passes
+  unchanged. Only the final "base member unchanged" line moved from `smoke` to `intruder`, because
+  smoke now follows the default ladder.
+- `test_notification_hygiene.py` (the behavioural conversion): added `intruder` → 30 at age 100000.
+
+## New tests
+- `test_d7_intruder_critical_repeats_30s_under_every_schedule` [None/standard/fast_start/urgent/bogus]:
+  **R**, passes on develop.
+- `test_d7_extras_token_repeats_30s_under_every_schedule` (overheat promoted via extras) ×5: **R**.
+- `test_d7_safety_tokens_follow_schedule` (smoke/CO/flooding/fire × default/fast_start/urgent):
+  the default and fast_start rows are F (red on develop); the urgent row is R.
+
+develop run (all four source files at eddba5da4) against the new file: 30 failed, 23 passed. The
+intruder/extras rows are among the passes. Post-build: everything green; with siblings, see the
+commit report.
+
+## Scoping drills (pyc cleared; restored; tree verified)
+| Mutant | RED tests |
+|---|---|
+| D7k drop the scoping guard (interval) | intruder ×4 (all but urgent), extras ×4, `TestB1IntruderCadence`, hygiene boundaries, c2 union |
+| D7l drop the scoping guard (phase label) | intruder ×4, extras ×4 |
+| D7m scoped set loses `flooding` | `test_d7_safety_tokens_follow_schedule[*-flooding]` ×2 |
+| D7n scoped set gains `intruder` | intruder ×4, `TestB1IntruderCadence`, hygiene, c2 union |
+The full D7a–j and D1/D2/D6 drills were re-run on the scoped code; all still RED.

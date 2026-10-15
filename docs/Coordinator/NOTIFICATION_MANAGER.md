@@ -910,7 +910,8 @@ async def update_config(self, channel: str, config: dict) -> None:
 The code supersedes the `repeat_interval: 30s` sketch above. Unacked CRITICAL alerts repeat on a schedule picked by hazard class (`notification_manager.py` `_repeat_interval_for_active_alert`):
 
 - **Non-life-safety:** decay ladder. Every 5 min (`NM_REPEAT_PHASE1_S`) for the first hour (`NM_REPEAT_PHASE1_WINDOW_S`), then every 30 min (`NM_REPEAT_PHASE2_S`), then daily after 24 h (`NM_REPEAT_DAILY_AFTER_S`).
-- **Life-safety** (`NM_LIFE_SAFETY_HAZARDS` = smoke, fire, carbon_monoxide, water_leak, flooding, intruder, freeze_risk, plus the operator extras knob): follows the options-flow select `nm_life_safety_repeat_schedule` (Quiet Hours step, rung 2):
+- **Other life-safety** (`NM_LIFE_SAFETY_HAZARDS` minus the set below, e.g. intruder, plus operator extras): every 30 s (`NM_REPEAT_INTERVAL_LIFE_SAFETY`) until acknowledged, under every setting value.
+- **Smoke / CO / flood** (`NM_SCHEDULED_LIFE_SAFETY_HAZARDS` = smoke, carbon_monoxide, flooding, fire): follow the options-flow select "Smoke, CO and flood repeat schedule" `nm_life_safety_repeat_schedule` (Quiet Hours step, rung 2):
   - `standard` (default): the same ladder as non-life-safety.
   - `fast_start`: every 60 s (`NM_REPEAT_FAST_START_S`) for the first 600 s (`NM_REPEAT_FAST_START_WINDOW_S`), then the ladder.
   - `urgent`: every 30 s (`NM_REPEAT_INTERVAL_LIFE_SAFETY`) until acknowledged.

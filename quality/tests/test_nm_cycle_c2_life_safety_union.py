@@ -255,9 +255,7 @@ def test_extras_promote_cadence_end_to_end():
     for attr in ("services", "data", "bus", "loop"):
         if hasattr(src, attr):
             setattr(hass_base, attr, getattr(src, attr))
-    nm = NotificationManager(
-        hass_base, _make_config(nm_life_safety_repeat_schedule="urgent")
-    )  # D7: 30 s = "urgent" schedule
+    nm = NotificationManager(hass_base, _make_config())
     nm._active_alert_data = {"hazard_type": "overheat"}
     assert nm._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
 
@@ -267,14 +265,13 @@ def test_extras_promote_cadence_end_to_end():
     for attr in ("services", "data", "bus", "loop"):
         if hasattr(src, attr):
             setattr(hass_promoted, attr, getattr(src, attr))
-    nm2 = NotificationManager(
-        hass_promoted, _make_config(nm_life_safety_repeat_schedule="urgent")
-    )
+    nm2 = NotificationManager(hass_promoted, _make_config())
     nm2._active_alert_data = {"hazard_type": "overheat"}
     assert nm2._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
 
-    # Base member unchanged.
-    nm2._active_alert_data = {"hazard_type": "smoke"}
+    # Base member unchanged. (D7: smoke now follows the smoke/CO/flood
+    # schedule, default ladder; intruder is the base member that stays 30 s.)
+    nm2._active_alert_data = {"hazard_type": "intruder"}
     assert nm2._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
 
 

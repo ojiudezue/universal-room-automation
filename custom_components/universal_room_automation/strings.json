@@ -1579,7 +1579,7 @@
           "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
           "nm_quiet_manual_start": "Manual Quiet Start Time",
           "nm_quiet_manual_end": "Manual Quiet End Time",
-          "nm_life_safety_repeat_schedule": "Life-safety repeat schedule",
+          "nm_life_safety_repeat_schedule": "Smoke, CO and flood repeat schedule",
           "nm_safe_word": "Safe Word (for CRITICAL alert acknowledgment)",
           "nm_silence_duration": "Silence Duration (minutes)"
         },
@@ -1587,7 +1587,7 @@
           "nm_quiet_use_house_state": "When enabled, quiet hours activate automatically when house state is SLEEP or HOME_NIGHT. Disable to use manual time window.",
           "nm_quiet_manual_start": "Start time for manual quiet hours (used when house state mode is off).",
           "nm_quiet_manual_end": "End time for manual quiet hours.",
-          "nm_life_safety_repeat_schedule": "How often an unacknowledged smoke, CO, flood, leak, freeze or intruder CRITICAL alert repeats until someone acknowledges it.",
+          "nm_life_safety_repeat_schedule": "How often an unacknowledged smoke, CO or flood alert repeats until someone acknowledges it. Intruder alerts always repeat every 30 seconds.",
           "nm_safe_word": "A shared household secret word (min 4 chars) required to acknowledge CRITICAL alerts via text reply. Never sent in notifications.",
           "nm_silence_duration": "How long 'silence' command suppresses non-CRITICAL alerts. Default: 30 minutes."
         }
