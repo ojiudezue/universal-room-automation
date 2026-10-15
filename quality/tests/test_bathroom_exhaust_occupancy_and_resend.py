@@ -935,11 +935,24 @@ def test_dwell_unknown_occupancy_holds_state_not_vacant():
     )
 
 
-def test_listener_registered_on_first_tick():
+def _pin_track_helper(monkeypatch):
+    """Pin the lazily-imported HA tracker to the capturing stub for this test.
+
+    The handler imports ``async_track_state_change_event`` inside the call, so
+    in a full-suite run it resolves whatever ``homeassistant.helpers.event`` a
+    sibling file loaded (the real HA module), not this file's module-scope stub.
+    """
+    mod = types.ModuleType("homeassistant.helpers.event")
+    mod.async_track_state_change_event = _track_state_change_event
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.event", mod)
+
+
+def test_listener_registered_on_first_tick(monkeypatch):
     """Review C — the manual-OFF listener registers on the first tick
     through ``_register_humidity_fan_manual_off_listeners``, keyed on
     the configured ``CONF_HUMIDITY_FANS`` list.
     """
+    _pin_track_helper(monkeypatch)
     _captured_track_cbs.clear()
     t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
     _set_now(t0)
@@ -1280,11 +1293,12 @@ def test_presence_window_arms_at_dwell_fire_edge():
     )
 
 
-def test_listener_teardown_calls_each_unsub():
+def test_listener_teardown_calls_each_unsub(monkeypatch):
     """MED — ``_unregister_humidity_fan_listeners`` MUST invoke every
     stored unsub. Mutation drill: making the teardown body a no-op
     (``pass``) must flip this red.
     """
+    _pin_track_helper(monkeypatch)
     t0 = datetime(2026, 10, 14, 10, 0, 0, tzinfo=timezone.utc)
     _set_now(t0)
     auto, _, _ = _make()
