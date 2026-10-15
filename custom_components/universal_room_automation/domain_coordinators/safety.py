@@ -164,6 +164,13 @@ class Hazard:
     threshold: Any
     detected_at: datetime
     message: str
+    # SAFETY-HAZARD-NEVER-CLEARS-1 (§2a/§4-E): rate-of-change provenance.
+    # from_roc → keyed "type:location:roc"; raise_rate (learning/threshold
+    # mode) or raise_z (baselined z-score mode) is the triggering magnitude
+    # the periodic sweep compares against when deciding the ROC key cleared.
+    from_roc: bool = False
+    raise_rate: float | None = None
+    raise_z: float | None = None
 
 
 # ============================================================================
@@ -240,6 +247,45 @@ LOW_HUMIDITY_THRESHOLDS: dict[Severity, float] = {
 # raise LOW_HUMIDITY, trip the zone chip, or reset sustained-window state.
 # Kill switch: 0 disables the floor.
 HUMIDITY_PLAUSIBLE_MIN_PCT = 5.0
+
+# SAFETY-HAZARD-NEVER-CLEARS-1: clear-on-recovery hysteresis + hold.
+# All rung 1 (module constants): they change safety semantics, so changing
+# them should require review, not a dashboard tweak. A hazard key clears only
+# when every contributing sensor has crossed the CLEAR line (raise line of the
+# least-strict raising rung minus/plus the offset) and stayed there for
+# HAZARD_MIN_HOLD_S. An offset of 0 disables hysteresis for that type (hold
+# still applies); HAZARD_MIN_HOLD_S = 0 restores immediate clear.
+FREEZE_CLEAR_OFFSET_F = 3.0          # clear at >= 45 + 3 F
+OVERHEAT_CLEAR_OFFSET_F = 3.0        # clear at <= 100 - 3 F
+HIGH_HUMIDITY_CLEAR_OFFSET_PCT = 3.0  # clear at <= resolved "low" - 3 %
+LOW_HUMIDITY_CLEAR_OFFSET_PCT = 3.0   # clear at >= 30 + 3 %
+CO2_CLEAR_OFFSET_PPM = 100.0         # clear at <= 1500 - 100 (Study A 1500-1502 flap)
+TVOC_CLEAR_OFFSET_PPB = 50.0         # clear at <= 250 - 50
+CO_CLEAR_OFFSET_PPM = 2.0            # clear at <= 25 - 2
+# ROC key clears when the recomputed rate (or z) falls below this fraction
+# of the raise-time magnitude: |now| < |raise| x (1 - frac).
+ROC_CLEAR_OFFSET_FRAC = 0.5
+# Minimum time every contributor must stay on the clear side before the key
+# pops — the anti-flap discharge (NM dedup embeds the value; no help there).
+HAZARD_MIN_HOLD_S = 300
+# ROC safety net: a contributor with no sample for this long counts as
+# recovered even if get_rate still returns a value (primary signal is None).
+ROC_STALE_SAMPLE_S = 900
+# Comfort-type hazards drop a contributor that stays unavailable/removed this
+# long (longer than any Zigbee/BLE/Wi-Fi transient). Life-safety types never drop.
+SENSOR_UNAVAILABLE_WINDOW_S = 900
+
+# Life-safety types: a raise during a pending clear re-runs the full response
+# (§4-0-rev4 / invariant I2).
+_LIFE_SAFETY_REARM_TYPES = frozenset({
+    "smoke", "carbon_monoxide", "water_leak",
+})
+# Only these types drop an unavailable contributor (§4-J); everything else
+# (smoke, CO, leak, flooding, fire) is fail-safe keep.
+_UNAVAILABLE_DROP_TYPES = frozenset({
+    "high_humidity", "low_humidity", "freeze_risk", "overheat",
+    "high_co2", "high_tvoc", "hvac_failure",
+})
 
 
 # ============================================================================
@@ -991,6 +1037,11 @@ class SafetyCoordinator(BaseCoordinator):
         self._active_hazards: dict[str, Hazard] = {}
         # v4.0.11: Track occurrence count for repeated evaluations (like HA's "N occurrences")
         self._hazard_occurrences: dict[str, int] = {}
+        # SAFETY-HAZARD-NEVER-CLEARS-1 (§4-0): per-key contributor set, per-key
+        # first-all-clear time, per-sensor first-unavailable time. Ephemeral.
+        self._hazard_raising_sensors: dict[str, set[str]] = {}
+        self._hazard_clear_pending: dict[str, datetime] = {}
+        self._sensor_unavailable_since: dict[str, datetime] = {}
         self._deduplicator = AlertDeduplicator()
         self._rate_detector = RateOfChangeDetector()
 
@@ -1536,6 +1587,13 @@ class SafetyCoordinator(BaseCoordinator):
 
         state_value = new_state.state
         if state_value in _UNAVAILABLE_STATES:
+            # SAFETY-HAZARD-NEVER-CLEARS-1 §4-J writer 1: stamp first-unavailable
+            # time for a sensor currently contributing to an active hazard key.
+            if entity_id not in self._sensor_unavailable_since and any(
+                entity_id in sensors
+                for sensors in self._hazard_raising_sensors.values()
+            ):
+                self._sensor_unavailable_since[entity_id] = dt_util.utcnow()
             return
 
         # v3.6.0.8: If the sensor was previously unavailable/unknown,
@@ -1731,10 +1789,14 @@ class SafetyCoordinator(BaseCoordinator):
                 effective_severity = roc_severity if roc_severity is not None else Severity.MEDIUM
                 # Build threshold description
                 baseline = self._rate_detector._get_rate_baseline(entity_id)
+                raise_rate: float | None = None
+                raise_z: float | None = None
                 if baseline.sample_count >= self._rate_detector.RATE_MIN_SAMPLES:
                     z = baseline.z_score(rate)
+                    raise_z = z
                     threshold_desc = f"z={z:.1f}σ (mean={baseline.mean:.2f}, std={baseline.std:.2f})"
                 else:
+                    raise_rate = rate
                     threshold_desc = f"fixed={self._rate_detector.RATE_THRESHOLDS.get(name, {}).get('rate', '?')} (learning: {baseline.sample_count}/{self._rate_detector.RATE_MIN_SAMPLES})"
                 hazard = Hazard(
                     type=hazard_type,
@@ -1749,6 +1811,9 @@ class SafetyCoordinator(BaseCoordinator):
                         f"Rapid {sensor_type} change in {location}: "
                         f"{rate:.1f}/30min ({threshold_desc})"
                     ),
+                    from_roc=True,
+                    raise_rate=raise_rate,
+                    raise_z=raise_z,
                 )
                 hazards.append(hazard)
 
@@ -1770,12 +1835,22 @@ class SafetyCoordinator(BaseCoordinator):
         if new_state != "on":
             # Hazard cleared
             key = f"{hazard_type}:{location}"
-            self._active_hazards.pop(key, None)
-            self._hazard_occurrences.pop(key, None)
+            # SAFETY-HAZARD-NEVER-CLEARS-1 §4-site-table row 1: SMOKE and
+            # WATER_LEAK clear through the shared hold (no hysteresis — binary).
+            now = dt_util.utcnow()
+            self._record_sensor_recovery(key, entity_id, now)
+            self._try_clear_if_quiet(key, now)
             # Clear leak tracking
             if hazard_type == HazardType.WATER_LEAK:
                 self._leak_start_times.pop(entity_id, None)
                 self._active_leak_sensors.discard(entity_id)
+                # §4-D: no leak sensor wet anywhere → no flooding.
+                if not self._active_leak_sensors:
+                    for fkey in [
+                        k for k in self._active_hazards
+                        if k.startswith(f"{HazardType.FLOODING.value}:")
+                    ]:
+                        self._pop_hazard_key(fkey)
             # v3.6.0.3: Push entity updates on hazard clear
             self._notify_entity_update()
             return None
@@ -1879,6 +1954,14 @@ class SafetyCoordinator(BaseCoordinator):
         """Handle a numeric sensor exceeding thresholds."""
         # NM Cycle A A5: CO2 LOW is log-only (occupied-room noise floor).
         # Runtime knob CONF_CO2_LOG_ONLY_CEILING_PPM adjusts the LOW ceiling.
+        # SAFETY-HAZARD-NEVER-CLEARS-1: lowest rung that actually RAISES —
+        # anchors the clear line (raise − offset) for the severity-None path.
+        lowest_raise = NUMERIC_THRESHOLDS[hazard_type][Severity.LOW]
+        clear_offset = {
+            HazardType.CARBON_MONOXIDE: CO_CLEAR_OFFSET_PPM,
+            HazardType.HIGH_CO2: CO2_CLEAR_OFFSET_PPM,
+            HazardType.HIGH_TVOC: TVOC_CLEAR_OFFSET_PPB,
+        }.get(hazard_type, 0.0)
         if hazard_type == HazardType.HIGH_CO2:
             from ..const import (
                 CONF_CO2_LOG_ONLY_CEILING_PPM,
@@ -1893,15 +1976,26 @@ class SafetyCoordinator(BaseCoordinator):
             # If value is below MEDIUM but above co2_low, it's log-only.
             # Fix-up L5: read MEDIUM from NUMERIC_THRESHOLDS (single source of truth).
             co2_medium = NUMERIC_THRESHOLDS[HazardType.HIGH_CO2][Severity.MEDIUM]
+            # LOW is log-only whenever co2_low <= MEDIUM, so MEDIUM is the
+            # lowest raising rung; otherwise the table LOW still raises.
+            if co2_low <= co2_medium:
+                lowest_raise = co2_medium
             if value < co2_medium and value >= co2_low:
                 location = self._sensor_locations.get(entity_id, "unknown")
                 _LOGGER.info(
                     "CO2 log-only rung: %s at %s ppm (below MEDIUM 1500)",
                     location, value,
                 )
-                # Clear any stale LOW hazard so a resolved bump doesn't linger.
+                # SAFETY-HAZARD-NEVER-CLEARS-1 §4-I (NEW-H1): no immediate pop.
+                # At/below the clear line → recovery (held); inside the
+                # hysteresis band → still contributing (relapse).
                 key = f"{hazard_type}:{location}"
-                self._active_hazards.pop(key, None)
+                now_rec = dt_util.utcnow()
+                if value <= co2_medium - CO2_CLEAR_OFFSET_PPM:
+                    self._record_sensor_recovery(key, entity_id, now_rec)
+                    self._try_clear_if_quiet(key, now_rec)
+                else:
+                    self._record_sensor_relapse(key, entity_id)
                 return None
         # NM Cycle A A5: TVOC sustained-30min-or-1500 gating.
         if hazard_type == HazardType.HIGH_TVOC:
@@ -1940,11 +2034,15 @@ class SafetyCoordinator(BaseCoordinator):
                 self._tvoc_above_since.pop(entity_id, None)
         severity = self._classify_severity(hazard_type, value)
         if severity is None:
-            # Below all thresholds — clear any active hazard
+            # Below all raising thresholds. SAFETY-HAZARD-NEVER-CLEARS-1 §4-I:
+            # recovery only at/below the clear line (lowest raise − offset);
+            # inside the hysteresis band → no change to the clear machinery.
             location = self._sensor_locations.get(entity_id, "unknown")
             key = f"{hazard_type}:{location}"
-            self._active_hazards.pop(key, None)
-            self._hazard_occurrences.pop(key, None)
+            if value <= lowest_raise - clear_offset:
+                now_rec = dt_util.utcnow()
+                self._record_sensor_recovery(key, entity_id, now_rec)
+                self._try_clear_if_quiet(key, now_rec)
             # v3.6.0.3: Push entity updates on hazard clear
             self._notify_entity_update()
             return None
@@ -2081,6 +2179,27 @@ class SafetyCoordinator(BaseCoordinator):
                     message=f"Overheat warning: {value}F in {location}",
                 )
             )
+
+        # SAFETY-HAZARD-NEVER-CLEARS-1 §4-A: clear-on-recovery, anchored to the
+        # LOW (least-strict) raise rung regardless of the severity that raised.
+        freeze_key = f"{HazardType.FREEZE_RISK.value}:{location}"
+        if freeze_severity is not None:
+            self._record_sensor_relapse(freeze_key, entity_id)
+        elif value >= (
+            NUMERIC_THRESHOLDS[HazardType.FREEZE_RISK][Severity.LOW]
+            + FREEZE_CLEAR_OFFSET_F
+        ):
+            self._record_sensor_recovery(freeze_key, entity_id, now)
+            self._try_clear_if_quiet(freeze_key, now)
+        overheat_key = f"{HazardType.OVERHEAT.value}:{location}"
+        if overheat_severity is not None:
+            self._record_sensor_relapse(overheat_key, entity_id)
+        elif value <= (
+            NUMERIC_THRESHOLDS[HazardType.OVERHEAT][Severity.LOW]
+            - OVERHEAT_CLEAR_OFFSET_F
+        ):
+            self._record_sensor_recovery(overheat_key, entity_id, now)
+            self._try_clear_if_quiet(overheat_key, now)
 
         return hazards
 
@@ -2227,7 +2346,10 @@ class SafetyCoordinator(BaseCoordinator):
             _LOGGER.debug("humidity swing check failed", exc_info=True)
 
         # High humidity check with sustained window enforcement
+        high_key = f"{HazardType.HIGH_HUMIDITY.value}:{location}"
         if value >= thresholds["low"]:
+            # SAFETY-HAZARD-NEVER-CLEARS-1 §4-B: still contributing.
+            self._record_sensor_relapse(high_key, entity_id)
             # Above at least the LOW threshold — start or continue tracking
             if entity_id not in self._humidity_above_since:
                 self._humidity_above_since[entity_id] = now
@@ -2283,6 +2405,11 @@ class SafetyCoordinator(BaseCoordinator):
             # Below all thresholds — clear sustained tracking and one-shot flag
             self._humidity_above_since.pop(entity_id, None)
             self._humidity_hazard_fired.discard(entity_id)
+            # SAFETY-HAZARD-NEVER-CLEARS-1 §4-B: recovery only below the
+            # resolved per-room "low" minus offset (sustained + swing share key).
+            if value <= thresholds["low"] - HIGH_HUMIDITY_CLEAR_OFFSET_PCT:
+                self._record_sensor_recovery(high_key, entity_id, now)
+                self._try_clear_if_quiet(high_key, now)
 
         # Low humidity check (universal thresholds, fires immediately)
         low_severity = None
@@ -2290,6 +2417,16 @@ class SafetyCoordinator(BaseCoordinator):
             if sev in LOW_HUMIDITY_THRESHOLDS and value <= LOW_HUMIDITY_THRESHOLDS[sev]:
                 low_severity = sev
                 break
+
+        # SAFETY-HAZARD-NEVER-CLEARS-1 §4-C.
+        low_key = f"{HazardType.LOW_HUMIDITY.value}:{location}"
+        if low_severity is not None:
+            self._record_sensor_relapse(low_key, entity_id)
+        elif value >= (
+            LOW_HUMIDITY_THRESHOLDS[Severity.LOW] + LOW_HUMIDITY_CLEAR_OFFSET_PCT
+        ):
+            self._record_sensor_recovery(low_key, entity_id, now)
+            self._try_clear_if_quiet(low_key, now)
 
         if low_severity is not None:
             hazards.append(
@@ -2321,9 +2458,25 @@ class SafetyCoordinator(BaseCoordinator):
         re-fire signals, activity logs, or response actions.
         """
         # Track the hazard — detect transitions vs repeated evaluations
-        key = f"{hazard.type.value}:{hazard.location}"
+        # SAFETY-HAZARD-NEVER-CLEARS-1 §2a: rate-raised hazards get their own
+        # ":roc" key so type-wise clears never pop them (and vice versa).
+        key = f"{hazard.type.value}:{hazard.location}" + (
+            ":roc" if hazard.from_roc else ""
+        )
+        # §4-0-rev3: register the contributor + cancel any pending clear
+        # BEFORE the not-is_new early return (else a second raiser is lost).
+        self._hazard_raising_sensors.setdefault(key, set()).add(hazard.sensor_id)
+        self._sensor_unavailable_since.pop(hazard.sensor_id, None)
+        had_pending_clear = key in self._hazard_clear_pending
+        self._hazard_clear_pending.pop(key, None)
         existing = self._active_hazards.get(key)
         is_new = existing is None or existing.severity != hazard.severity
+        # §4-0-rev4 / invariant I2 — life-safety priority: a re-wet / relapse
+        # during the pending-clear window re-runs the full response (valve
+        # close, lights, HIGH page). AlertDeduplicator.should_alert governs
+        # notification cadence; no second throttle here.
+        if had_pending_clear and hazard.type.value in _LIFE_SAFETY_REARM_TYPES:
+            is_new = True
         self._active_hazards[key] = hazard
 
         if not is_new:
@@ -2687,6 +2840,106 @@ class SafetyCoordinator(BaseCoordinator):
         return []  # LOW = log only
 
     # =========================================================================
+    # Clear-on-recovery machinery (SAFETY-HAZARD-NEVER-CLEARS-1)
+    # =========================================================================
+
+    def _record_sensor_recovery(
+        self, key: str, sensor_id: str, now: datetime
+    ) -> None:
+        """A contributor reads on the clear side: drop it; arm the hold if empty."""
+        self._sensor_unavailable_since.pop(sensor_id, None)
+        if key not in self._active_hazards:
+            return
+        sensors = self._hazard_raising_sensors.setdefault(key, set())
+        sensors.discard(sensor_id)
+        if not sensors:
+            # Set-if-absent: the hold runs from the FIRST all-clear moment.
+            self._hazard_clear_pending.setdefault(key, now)
+
+    def _record_sensor_relapse(self, key: str, sensor_id: str) -> None:
+        """A contributor reads on the hazard side again: re-add, cancel hold."""
+        self._sensor_unavailable_since.pop(sensor_id, None)
+        if key not in self._active_hazards:
+            return
+        self._hazard_raising_sensors.setdefault(key, set()).add(sensor_id)
+        self._hazard_clear_pending.pop(key, None)
+
+    def _pop_hazard_key(self, key: str) -> None:
+        """Remove a key from every hazard dict and push entity updates."""
+        self._active_hazards.pop(key, None)
+        self._hazard_occurrences.pop(key, None)
+        self._hazard_raising_sensors.pop(key, None)
+        self._hazard_clear_pending.pop(key, None)
+        self._notify_entity_update()
+
+    def _try_clear_if_quiet(self, key: str, now: datetime) -> bool:
+        """Pop ``key`` iff no contributor remains and the hold has elapsed."""
+        pending = self._hazard_clear_pending.get(key)
+        if pending is None or self._hazard_raising_sensors.get(key):
+            return False
+        if (now - pending).total_seconds() < HAZARD_MIN_HOLD_S:
+            return False
+        self._pop_hazard_key(key)
+        return True
+
+    def _roc_sensor_recovered(
+        self, hazard: Hazard, sensor_id: str, now: datetime
+    ) -> bool:
+        """§4-H-rev4: has this ROC contributor stopped evidencing the hazard?"""
+        detector = self._rate_detector
+        rate = detector.get_rate(sensor_id, now)
+        if rate is None:
+            # No full window of samples → no evidence of an ongoing rate.
+            return True
+        keep = 1.0 - ROC_CLEAR_OFFSET_FRAC
+        if hazard.raise_rate is not None and abs(rate) < abs(hazard.raise_rate) * keep:
+            return True
+        if hazard.raise_z is not None:
+            current_z = detector._get_rate_baseline(sensor_id).z_score(rate)
+            if abs(current_z) < abs(hazard.raise_z) * keep:
+                return True
+        history = detector._history.get(sensor_id)
+        if not history:
+            return True
+        last_ts = history[-1][0]
+        return (now - last_ts).total_seconds() >= ROC_STALE_SAMPLE_S
+
+    def _sweep_hazard_clears(self, now: datetime) -> None:
+        """Periodic clear sweep (§4-H / §4-J): runs every tick, any leak state."""
+        for key in list(self._hazard_raising_sensors):
+            sensors = self._hazard_raising_sensors[key]
+            if key not in self._active_hazards:
+                # Orphan bookkeeping (key popped elsewhere) — drop it.
+                self._hazard_raising_sensors.pop(key, None)
+                self._hazard_clear_pending.pop(key, None)
+                continue
+            key_type = key.split(":", 1)[0]
+            for sensor_id in list(sensors):
+                state = self.hass.states.get(sensor_id)
+                if state is None or state.state in _UNAVAILABLE_STATES:
+                    # §4-J writer 2 (backstop for removed entities).
+                    since = self._sensor_unavailable_since.setdefault(
+                        sensor_id, now
+                    )
+                    if (
+                        key_type in _UNAVAILABLE_DROP_TYPES
+                        and (now - since).total_seconds()
+                        >= SENSOR_UNAVAILABLE_WINDOW_S
+                    ):
+                        sensors.discard(sensor_id)
+                        if not sensors:
+                            self._hazard_clear_pending.setdefault(key, now)
+                    continue
+                self._sensor_unavailable_since.pop(sensor_id, None)
+            if key.endswith(":roc"):
+                hazard = self._active_hazards[key]
+                for sensor_id in list(sensors):
+                    if self._roc_sensor_recovered(hazard, sensor_id, now):
+                        self._record_sensor_recovery(key, sensor_id, now)
+        for key in list(self._hazard_clear_pending):
+            self._try_clear_if_quiet(key, now)
+
+    # =========================================================================
     # Periodic checks
     # =========================================================================
 
@@ -2714,6 +2967,10 @@ class SafetyCoordinator(BaseCoordinator):
                             coordinator_id=self.COORDINATOR_ID,
                         )
                         manager.queue_intent(intent)
+
+        # SAFETY-HAZARD-NEVER-CLEARS-1 §4-H: deliberately OUTSIDE the
+        # `if self._active_leak_sensors:` flooding guard.
+        self._sweep_hazard_clears(now)
 
     # =========================================================================
     # Test hazard service
@@ -2769,8 +3026,16 @@ class SafetyCoordinator(BaseCoordinator):
 
     def clear_hazard(self, hazard_type: HazardType, location: str) -> None:
         """Clear an active hazard."""
-        key = f"{hazard_type.value}:{location}"
-        self._active_hazards.pop(key, None)
+        # SAFETY-HAZARD-NEVER-CLEARS-1 §4-K: clear both the type-wise and the
+        # ":roc" key and every per-key bookkeeping dict.
+        base = f"{hazard_type.value}:{location}"
+        for key in (base, f"{base}:roc"):
+            for sensor_id in self._hazard_raising_sensors.get(key, ()):
+                self._sensor_unavailable_since.pop(sensor_id, None)
+            self._active_hazards.pop(key, None)
+            self._hazard_occurrences.pop(key, None)
+            self._hazard_raising_sensors.pop(key, None)
+            self._hazard_clear_pending.pop(key, None)
         # v3.6.0.3: Push entity updates on hazard clear
         self._notify_entity_update()
 
@@ -2778,6 +3043,9 @@ class SafetyCoordinator(BaseCoordinator):
         """Clear all active hazards."""
         self._active_hazards.clear()
         self._hazard_occurrences.clear()
+        self._hazard_raising_sensors.clear()
+        self._hazard_clear_pending.clear()
+        self._sensor_unavailable_since.clear()
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
         self._humidity_hazard_fired.clear()
@@ -3115,16 +3383,18 @@ class SafetyCoordinator(BaseCoordinator):
     # =========================================================================
 
     def is_hazard_active(self, hazard_type: str, location: str) -> bool:
-        """Check if a specific hazard is still active (for NM re-fire logic)."""
-        key = f"{hazard_type}:{location}"
-        # Also check without enum prefix
+        """Check if a specific hazard is still active (for NM re-fire logic).
+
+        SAFETY-HAZARD-NEVER-CLEARS-1 §4-G: exact type:location match, with a
+        trailing ":roc" stripped (no substring match — "co" must not match
+        "co2").
+        """
+        exact = f"{hazard_type}:{location}"
         for active_key in self._active_hazards:
-            if key == active_key or active_key.endswith(f":{location}"):
-                # Match by location and partial type
-                active_type = active_key.split(":")[0]
-                if hazard_type in active_type or active_type in hazard_type:
-                    return True
-        return key in self._active_hazards
+            base = active_key[:-4] if active_key.endswith(":roc") else active_key
+            if base == exact:
+                return True
+        return False
 
     async def async_teardown(self) -> None:
         """Tear down the Safety Coordinator."""
@@ -3154,6 +3424,9 @@ class SafetyCoordinator(BaseCoordinator):
         self._cancel_listeners()
         self._active_hazards.clear()
         self._hazard_occurrences.clear()
+        self._hazard_raising_sensors.clear()
+        self._hazard_clear_pending.clear()
+        self._sensor_unavailable_since.clear()
         self._deduplicator.clear()
         self._rate_detector.clear()
         self._leak_start_times.clear()

@@ -532,10 +532,19 @@ class TestSafetyCoordinator:
             detected_at=datetime.utcnow(), message="test",
         )
 
-        hazard = coord._handle_binary_hazard(
-            "binary_sensor.kitchen_smoke", "off", HazardType.SMOKE
+        # SAFETY-HAZARD-NEVER-CLEARS-1: 'off' arms the clear hold (300 s);
+        # the key pops once the hold elapses (periodic sweep).
+        from custom_components.universal_room_automation.domain_coordinators import (
+            safety as _safety_mod,
         )
+        t0 = _safety_mod.dt_util.utcnow()
+        with patch.object(_safety_mod.dt_util, "utcnow", return_value=t0):
+            hazard = coord._handle_binary_hazard(
+                "binary_sensor.kitchen_smoke", "off", HazardType.SMOKE
+            )
         assert hazard is None
+        assert "smoke:Kitchen" in coord._active_hazards
+        coord._sweep_hazard_clears(t0 + timedelta(seconds=301))
         assert "smoke:Kitchen" not in coord._active_hazards
 
     def test_binary_hazard_leak(self):
@@ -801,8 +810,13 @@ class TestSafetyCoordinator:
         assert hazard is None, "A5: first above-MEDIUM TVOC must start sustained window"
 
         # Pre-age the tracker past the sustained window; next call fires HIGH.
+        # D6 (MED-5): seed with the same clock production uses (aware
+        # dt_util.utcnow at safety.py _handle_numeric_hazard), not naive utcnow.
+        from custom_components.universal_room_automation.domain_coordinators import (
+            safety as _safety_mod,
+        )
         coord._tvoc_above_since["sensor.tvoc"] = (
-            datetime.utcnow() - timedelta(minutes=45)
+            _safety_mod.dt_util.utcnow() - timedelta(minutes=45)
         )
         hazard = coord._handle_numeric_hazard(
             "sensor.tvoc", 600.0, HazardType.HIGH_TVOC
