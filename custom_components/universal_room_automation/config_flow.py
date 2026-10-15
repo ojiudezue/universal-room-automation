@@ -575,6 +575,9 @@ from .const import (
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
     DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED,
+    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+    DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
@@ -3457,6 +3460,15 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(
                 CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, default=wet_default,
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED, default=wet_default,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+                default=DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=20, max=300, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
             vol.Optional(
                 CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
                 default=DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
@@ -14248,6 +14260,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED, wet_default,
                 ),
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED, wet_default,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+                default=self._get_current(
+                    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+                    DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=20, max=300, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
             vol.Optional(
                 CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
                 default=self._get_current(

@@ -27,10 +27,7 @@ Contract (Option-2, operator-decided):
 from __future__ import annotations
 
 
-def humidity_venting_enabled(
-    skip_first_this_tick: bool,
-    automation_enabled: bool,
-) -> bool:
+def humidity_venting_enabled(skip_first_this_tick: bool) -> bool:
     """Return True iff humidity VENTING may run this tick.
 
     Args:
@@ -39,13 +36,13 @@ def humidity_venting_enabled(
             branch consumes (clears) the underlying flag. True means
             this is the first post-reload tick — anchors are being
             seeded and venting must be suppressed.
-        automation_enabled: The master-automation predicate
-            (``RoomCoordinator._is_automation_enabled()``). False means
-            the room is in ManualMode or has master automation off.
 
     Returns:
-        True only when BOTH gates are satisfied. The safety cap path
-        in the handler bypasses this function entirely and must remain
-        bypassable — do NOT inline it here.
+        True iff this is not the skip-first-tick. D1 (bathroom-exhaust
+        occupancy-and-resend cycle): humidity venting is decoupled from
+        the room master-automation switch — it is governed only by the
+        per-room CONF_HUMIDITY_FAN_CONTROL_ENABLED toggle (checked inside
+        the handler) and the skip-first gate. The max-runtime SAFETY CAP
+        bypasses this function entirely and must remain bypassable.
     """
-    return (not skip_first_this_tick) and automation_enabled
+    return not skip_first_this_tick

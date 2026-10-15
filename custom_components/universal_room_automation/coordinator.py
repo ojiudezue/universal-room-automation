@@ -5421,9 +5421,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             await self.automation.handle_humidity_based_fan_control(
                 data.get(STATE_HUMIDITY),
                 room_occupied=data.get(STATE_OCCUPIED),
+                # D1 (bathroom-exhaust occupancy-and-resend): humidity
+                # venting is decoupled from the master-automation switch.
+                # The `automation_enabled` kw here now carries ONLY the
+                # skip-first gate; the handler itself consults toggle #3
+                # for the venting path, and the safety cap runs regardless.
                 automation_enabled=humidity_venting_enabled(
                     _skip_first_this_tick,
-                    self._is_automation_enabled(),
                 ),
             )
         except Exception as e:
