@@ -9387,6 +9387,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_SILENCE_DURATION,
             DEFAULT_NM_SILENCE_DURATION,
             CONF_NM_SECURITY_ACK_PERSONS,
+            CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+            DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+            NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+            NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+            NM_LIFE_SAFETY_SCHEDULE_URGENT,
         )
 
         if user_input is not None:
@@ -9408,6 +9413,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_QUIET_MANUAL_END,
                 default=self._get_current(CONF_NM_QUIET_MANUAL_END, "07:00"),
             ): selector.TimeSelector(),
+            # SAFETY-NM-REFIRE-UNWIRED-1 D7: unacked life-safety repeat
+            # schedule (named buckets, plain-English labels; stored values
+            # are the NM_LIFE_SAFETY_SCHEDULE_* keys).
+            vol.Optional(
+                CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                default=self._get_current(
+                    CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                    DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {
+                            "label": "Standard (recommended) — every 5 min for the first hour, then every 30 min, then daily",
+                            "value": NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+                        },
+                        {
+                            "label": "Fast start — every minute for the first 10 minutes, then Standard",
+                            "value": NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+                        },
+                        {
+                            "label": "Urgent — every 30 seconds until acknowledged",
+                            "value": NM_LIFE_SAFETY_SCHEDULE_URGENT,
+                        },
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(
                 CONF_NM_SAFE_WORD,
                 default=self._get_current(CONF_NM_SAFE_WORD, ""),

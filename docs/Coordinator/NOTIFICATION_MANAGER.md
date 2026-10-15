@@ -905,6 +905,19 @@ async def update_config(self, channel: str, config: dict) -> None:
         self._channels["imessage"] = IMessageChannel(self.hass, config)
 ```
 
+### Life-safety repeat schedule (shipped with SAFETY-NM-REFIRE-UNWIRED-1, D7)
+
+The code supersedes the `repeat_interval: 30s` sketch above. Unacked CRITICAL alerts repeat on a schedule picked by hazard class (`notification_manager.py` `_repeat_interval_for_active_alert`):
+
+- **Non-life-safety:** decay ladder. Every 5 min (`NM_REPEAT_PHASE1_S`) for the first hour (`NM_REPEAT_PHASE1_WINDOW_S`), then every 30 min (`NM_REPEAT_PHASE2_S`), then daily after 24 h (`NM_REPEAT_DAILY_AFTER_S`).
+- **Life-safety** (`NM_LIFE_SAFETY_HAZARDS` = smoke, fire, carbon_monoxide, water_leak, flooding, intruder, freeze_risk, plus the operator extras knob): follows the options-flow select `nm_life_safety_repeat_schedule` (Quiet Hours step, rung 2):
+  - `standard` (default): the same ladder as non-life-safety.
+  - `fast_start`: every 60 s (`NM_REPEAT_FAST_START_S`) for the first 600 s (`NM_REPEAT_FAST_START_WINDOW_S`), then the ladder.
+  - `urgent`: every 30 s (`NM_REPEAT_INTERVAL_LIFE_SAFETY`) until acknowledged.
+  - Unknown or missing value: `standard`.
+- The value is read through `_refresh_config` on every notify and repeat tick, so a change applies at the next repeat with no reload. The `repeat_phase` attribute reports `life_safety` (urgent), `fast_start`, `phase1`, `phase2`, `daily` or `legacy`.
+- Life-safety classification still drives DND, mute and token-bucket bypass, the boot-settle exemption and per-hazard cooldowns. The setting changes only the repeat cadence.
+
 ---
 
 ## 10. DIAGNOSTICS

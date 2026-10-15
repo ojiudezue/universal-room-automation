@@ -156,7 +156,13 @@ class TestB1SubtypeCadence:
     """`_schedule_repeat` picks cadence from the active hazard."""
 
     def _nm(self):
-        return NotificationManager(_make_hass(), _make_config())
+        # D7 (SAFETY-NM-REFIRE-UNWIRED-1): the 30 s life-safety cadence is
+        # now the "urgent" schedule; these tests pin that the life-safety
+        # CLASSIFICATION selects it, so configure "urgent" explicitly.
+        return NotificationManager(
+            _make_hass(),
+            _make_config(nm_life_safety_repeat_schedule="urgent"),
+        )
 
     def test_life_safety_selects_30s(self):
         nm = self._nm()
@@ -517,7 +523,10 @@ class TestB1IntruderCadence:
     bypass the token bucket AND NOT be boot-collapsed."""
 
     def test_intruder_selects_life_safety_cadence(self):
-        nm = NotificationManager(_make_hass(), _make_config())
+        # D7: 30 s is the "urgent" life-safety schedule (default is standard).
+        nm = NotificationManager(
+            _make_hass(), _make_config(nm_life_safety_repeat_schedule="urgent")
+        )
         nm._active_alert_data = {"hazard_type": "intruder"}
         assert nm._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
 

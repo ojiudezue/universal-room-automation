@@ -292,15 +292,17 @@ async def test_safety_is_hazard_active_true_on_relapse_during_hold(clock):
 
 @pytest.mark.asyncio
 async def test_safety_smoke_repeat_phase_is_life_safety(rig):
+    """D1 blast-radius anchor. Rev 4.2 (D7): with the default "standard"
+    schedule a Safety smoke CRITICAL stays on the decaying ladder (300 s
+    first); the 30 s cadence needs "urgent" (see the D7 end-to-end test)."""
     await rig.raise_smoke()
     nm = rig.nm
     assert nm.alert_state == AlertState.REPEATING
     assert nm._active_alert_data["hazard_type"] == "smoke"
     assert nm._active_alert_data["location"] == "Garage"
-    assert nm._repeat_phase() == "life_safety"
-    assert nm._repeat_interval_for_active_alert() == 30
-    # The scheduled repeat timer actually uses the 30 s cadence.
-    assert rig.later and rig.later[-1][0] == 30
+    assert nm._repeat_phase() == "phase1"
+    assert nm._repeat_interval_for_active_alert() == 300
+    assert rig.later and rig.later[-1][0] == 300
 
 
 # ---------------------------------------------------------------------------
@@ -397,3 +399,181 @@ def test_safety_flooding_location_is_deterministic():
     for location, message in outs:
         assert location == "Garage, Kitchen"
         assert message.endswith("Garage, Kitchen!")
+
+
+# ---------------------------------------------------------------------------
+# D7 (plan Rev 4.2) — life-safety repeat schedule setting
+# ---------------------------------------------------------------------------
+# Oracles are literals: standard ladder 300 s (<3600 s age) / 1800 s (<24 h) /
+# 86400 s; fast_start 60 s for the first 600 s; urgent 30 s.
+
+_SCHED_KEY = "nm_life_safety_repeat_schedule"
+
+
+class _NMRig:
+    """A real NotificationManager with a CM config entry it re-reads live."""
+
+    def __init__(self, monkeypatch, clock, schedule=None, hazard="smoke"):
+        self.clock = clock
+        hass = _tnm._make_hass()
+        hass.data[_tnm.DOMAIN]["database"] = AsyncMock()
+        opts = {} if schedule is None else {_SCHED_KEY: schedule}
+        self.entry = SimpleNamespace(
+            data={"entry_type": "coordinator_manager", **_tnm._make_config()},
+            options=opts,
+        )
+        hass.config_entries.async_entries = lambda domain=None: [self.entry]
+        self.nm = nm_mod.NotificationManager(hass, _tnm._make_config(**opts))
+        self.later: list = []
+        monkeypatch.setattr(
+            nm_mod, "async_call_later",
+            lambda _h, delay, cb: (self.later.append(delay), lambda: None)[1],
+        )
+        monkeypatch.setattr(nm_mod, "async_dispatcher_send", lambda *a, **k: None)
+        self.hazard = hazard
+
+    async def alert(self):
+        await self.nm._enter_alerting(
+            "safety", "CRITICAL", "Smoke", "Smoke!", self.hazard, "Garage"
+        )
+
+    def at_age(self, seconds):
+        self.clock.now = T0 + timedelta(seconds=seconds)
+        return (self.nm._repeat_interval_for_active_alert(), self.nm._repeat_phase())
+
+
+@pytest.mark.asyncio
+async def test_d7_default_schedule_is_standard_ladder_for_smoke(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule=None)
+    await r.alert()
+    assert r.later[-1] == 300  # first scheduled repeat at age 0
+    assert r.at_age(0) == (300, "phase1")
+    assert r.at_age(3599) == (300, "phase1")
+    assert r.at_age(3601) == (1800, "phase2")
+    assert r.at_age(86401) == (86400, "daily")
+
+
+@pytest.mark.asyncio
+async def test_d7_explicit_standard_matches_default(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule="standard")
+    await r.alert()
+    assert r.at_age(0) == (300, "phase1")
+    assert r.at_age(3601) == (1800, "phase2")
+
+
+@pytest.mark.asyncio
+async def test_d7_fast_start_then_standard(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule="fast_start")
+    await r.alert()
+    assert r.later[-1] == 60
+    assert r.at_age(0) == (60, "fast_start")
+    assert r.at_age(599) == (60, "fast_start")
+    assert r.at_age(600) == (300, "phase1")
+    assert r.at_age(601) == (300, "phase1")
+    assert r.at_age(3601) == (1800, "phase2")
+
+
+@pytest.mark.asyncio
+async def test_d7_urgent_is_30s_flat(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule="urgent")
+    await r.alert()
+    assert r.later[-1] == 30
+    assert r.at_age(0) == (30, "life_safety")
+    assert r.at_age(86401) == (30, "life_safety")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["", "URGENTISH", "bogus", None, 7])
+async def test_d7_unknown_value_falls_back_to_standard(monkeypatch, clock, bad):
+    r = _NMRig(monkeypatch, clock, schedule=bad)
+    await r.alert()
+    assert r.at_age(0) == (300, "phase1")
+
+
+@pytest.mark.asyncio
+async def test_d7_urgent_value_is_case_insensitive(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule="URGENT")
+    await r.alert()
+    assert r.at_age(0) == (30, "life_safety")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schedule", ["standard", "fast_start", "urgent"])
+async def test_d7_schedule_never_changes_non_life_safety(monkeypatch, clock, schedule):
+    r = _NMRig(monkeypatch, clock, schedule=schedule, hazard="reserve_soc")
+    await r.alert()
+    assert r.at_age(0) == (300, "phase1")
+    assert r.at_age(3601) == (1800, "phase2")
+
+
+@pytest.mark.asyncio
+async def test_d7_change_takes_effect_on_next_repeat_without_reload(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule=None)
+    await r.alert()
+    assert r.later[-1] == 300
+    # Operator saves "urgent" in the options flow; same NM instance.
+    r.entry.options = {_SCHED_KEY: "urgent"}
+    r.later.clear()
+    await r.nm._repeat_alert()  # repeat tick re-reads config, reschedules
+    assert r.later and r.later[-1] == 30
+    assert r.nm._repeat_phase() == "life_safety"
+
+
+@pytest.mark.asyncio
+async def test_d7_safety_smoke_end_to_end_urgent(monkeypatch, clock):
+    """D1 + D7 through the real Safety -> manager -> NM path."""
+    rig = Rig(monkeypatch, clock)
+    monkeypatch.setattr(rig.nm, "_refresh_config", lambda: None)
+    rig.nm._config[_SCHED_KEY] = "urgent"
+    await rig.raise_smoke()
+    assert rig.nm._repeat_phase() == "life_safety"
+    assert rig.later[-1][0] == 30
+
+
+# Options round trip: CM options flow "Quiet Hours" step.
+
+def _options_flow(options):
+    import test_cycle_b_config_flow as cbcf
+    return cbcf._make_options_flow(data={}, options=options)
+
+
+def _field_default(result, key):
+    for k in result["data_schema"].schema:
+        if str(k) == key:
+            return k.default() if callable(k.default) else k.default
+    raise AssertionError(f"{key} not in schema")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored,shown", [(None, "standard"), ("fast_start", "fast_start"), ("urgent", "urgent")]
+)
+async def test_d7_options_flow_shows_stored_selection(stored, shown):
+    opts = {} if stored is None else {_SCHED_KEY: stored}
+    flow = _options_flow(opts)
+    res = await flow.async_step_coordinator_notifications_quiet()
+    assert res["type"] == "form"
+    assert _field_default(res, _SCHED_KEY) == shown
+    sel = [v for k, v in res["data_schema"].schema.items() if str(k) == _SCHED_KEY][0]
+    cfg = sel.config
+    opts = cfg["options"] if isinstance(cfg, dict) else cfg.options
+    values = [o["value"] for o in opts]
+    assert values == ["standard", "fast_start", "urgent"]
+
+
+@pytest.mark.asyncio
+async def test_d7_options_flow_round_trip_saves_selection(monkeypatch, clock):
+    flow = _options_flow({})
+    res = await flow.async_step_coordinator_notifications_quiet({_SCHED_KEY: "fast_start"})
+    assert res["type"] == "form"  # advanced to cooldowns
+    res = await flow.async_step_coordinator_notifications_cooldowns({})
+    assert res["type"] == "create_entry"
+    assert res["data"][_SCHED_KEY] == "fast_start"
+    # Re-open: the saved value is pre-selected.
+    flow2 = _options_flow(res["data"])
+    res2 = await flow2.async_step_coordinator_notifications_quiet()
+    assert _field_default(res2, _SCHED_KEY) == "fast_start"
+    # And NM consumes the saved value.
+    r = _NMRig(monkeypatch, clock, schedule=res["data"][_SCHED_KEY])
+    await r.alert()
+    assert r.at_age(0) == (60, "fast_start")
