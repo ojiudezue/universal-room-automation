@@ -808,3 +808,111 @@ async def test_safety_clear_all_and_teardown_clear_new_dicts(clock):
     await c.async_teardown()
     assert not (c._hazard_raising_sensors or c._hazard_clear_pending
                 or c._sensor_unavailable_since)
+
+
+# ---------------------------------------------------------------------------
+# Per-site anchors (drill-driven)
+# ---------------------------------------------------------------------------
+
+def _return_from_unavailable(c, eid, value):
+    """Recovery-event path: handler runs via _evaluate_sensor_on_recovery
+    with NO _respond_to_hazard (no manager in hass.data)."""
+    c._test_states[eid] = SimpleNamespace(state=str(value), attributes={})
+    c._async_sensor_state_changed(SimpleNamespace(data={
+        "entity_id": eid,
+        "new_state": SimpleNamespace(state=str(value)),
+        "old_state": SimpleNamespace(state="unavailable"),
+    }))
+
+
+@pytest.mark.asyncio
+async def test_safety_co2_band_reading_cancels_pending_clear(clock):
+    c = _coord({"sensor.co2": "co2"})
+    await _feed(c, "sensor.co2", 1510.0)
+    await _feed(c, "sensor.co2", 1390.0)
+    assert "high_co2:Garage" in c._hazard_clear_pending
+    clock.advance(100)
+    await _feed(c, "sensor.co2", 1450.0)  # log-only rung, inside band
+    assert "high_co2:Garage" not in c._hazard_clear_pending
+    _tick(c, clock, 300)
+    assert "high_co2:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_co2_below_log_only_ceiling_clears_via_medium_anchor(clock):
+    c = _coord({"sensor.co2": "co2"})
+    await _feed(c, "sensor.co2", 1510.0)
+    await _feed(c, "sensor.co2", 1150.0)  # < co2_low 1200 → severity None
+    _tick(c, clock, 300)
+    assert "high_co2:Garage" not in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_freeze_relapse_on_recovery_event_cancels_pending(clock):
+    c = _coord({"sensor.t": "temperature"})
+    await _feed(c, "sensor.t", 44.0)
+    await _feed(c, "sensor.t", 48.5)
+    clock.advance(100)
+    _return_from_unavailable(c, "sensor.t", 44.0)
+    assert "freeze_risk:Garage" not in c._hazard_clear_pending
+    _tick(c, clock, 300)
+    assert "freeze_risk:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_low_humidity_relapse_on_recovery_event_cancels_pending(clock):
+    c = _coord({"sensor.h": "humidity"})
+    await _feed(c, "sensor.h", 29.0)
+    await _feed(c, "sensor.h", 35.0)
+    clock.advance(100)
+    _return_from_unavailable(c, "sensor.h", 28.0)
+    _tick(c, clock, 300)
+    assert "low_humidity:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_high_humidity_back_above_low_cancels_pending(clock):
+    c = _coord({"sensor.h": "humidity"})
+    await _feed(c, "sensor.h", 86.0)
+    clock.advance(2 * 3600 + 1)
+    await _feed(c, "sensor.h", 86.0)
+    await _feed(c, "sensor.h", 75.0)
+    clock.advance(100)
+    await _feed(c, "sensor.h", 80.0)  # >= low 78, no hazard returned
+    _tick(c, clock, 300)
+    assert "high_humidity:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_leak_rewet_keeps_key_after_hold(clock):
+    c = _coord({}, binary={"binary_sensor.leak": HazardType.WATER_LEAK.value})
+    await _feed(c, "binary_sensor.leak", "on")
+    await _feed(c, "binary_sensor.leak", "off")
+    clock.advance(60)
+    await _feed(c, "binary_sensor.leak", "on")
+    _tick(c, clock, 600)
+    assert "water_leak:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_repeated_clear_readings_do_not_restart_hold(clock):
+    c = _coord({"sensor.t": "temperature"})
+    await _feed(c, "sensor.t", 44.0)
+    for v in (48.5, 49.0, 49.5, 50.0, 50.5, 51.0):
+        await _feed(c, "sensor.t", v)
+        _tick(c, clock, 60)
+    assert "freeze_risk:Garage" not in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_in_band_return_from_unavailable_is_not_dropped(clock):
+    c = _coord({"sensor.t": "temperature"})
+    await _feed(c, "sensor.t", 44.0)
+    c._test_states["sensor.t"] = SimpleNamespace(state="unavailable")
+    c._async_sensor_state_changed(_unavail_event("sensor.t"))
+    clock.advance(60)
+    _return_from_unavailable(c, "sensor.t", 46.0)  # band: no recovery/relapse
+    for _ in range(25):
+        _tick(c, clock, 60)
+    assert c._hazard_raising_sensors["freeze_risk:Garage"] == {"sensor.t"}
+    assert "freeze_risk:Garage" in c._active_hazards
