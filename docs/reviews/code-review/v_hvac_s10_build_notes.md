@@ -55,6 +55,50 @@ Final `git status` (after all drills restored) shows ONLY the intentional
 build diff on the three source files + the state-of-play edit + the new
 test file. No stray mutations.
 
+## Review A fix-up (commit 2)
+
+Review file: `docs/reviews/code-review/v_hvac_s10_review_A.md` on branch
+`review/hvac-s10-A`. Verdict FIX-REQUIRED (1 MEDIUM + 4 LOWs). All five
+fixes shipped in the same follow-up commit on `feature/hvac-s10-settle`:
+
+- **A-M1 (`get_s10_diagnostics`):** `s10_settle_held_s` now returns None
+  once the last stamp is older than `S10_POST_PRESET_CHANGE_SETTLE_S`
+  (mirrors `_s10_check_settle_held`). Prevents forever-growing display
+  that would false-fire the live acceptance criterion.
+- **A-L1 (`_s10_check_settle_held`):** latch keys on `dt_util.now().date()`
+  (local calendar day) instead of UTC day; a continuous evening episode
+  no longer fires twice in one local day.
+- **A-L2 (`_s10_check_settle_held`):** entries for zones no longer in the
+  rollout are pruned at the top of the check; a same-day re-add can warn
+  fresh.
+- **A-L3 (observer, `update_zone_climate_state`):** Carrier
+  `hold_activity = None` ("no hold") is treated as READABLE value
+  `"none"` so Bryant-schedule preset changes on unheld Carrier zones
+  (zones 1/2 rollout) are stamped. Attribute ABSENT (ecobee / Generic)
+  still unreadable → gate inert on those platforms (plan non-goal
+  preserved). State-of-play §4.2 wording corrected.
+- **A-L4 (`get_s10_diagnostics`):** field is an `int` (whole seconds), not
+  a growing float — prevents recorder churn.
+
+New tests (each FAILS without its fix): `test_RA_M1_diagnostic_none_after_release`,
+`test_RA_L4_diagnostic_is_int`, `test_RA_L1_latch_uses_local_calendar_day`,
+`test_RA_L2_latch_pruned_on_rollout_removal`, `test_RA_L3_carrier_none_hold_is_readable`,
+`test_RA_L3_absent_hold_still_inert`. T18 extended with a post-release
+`None`-diagnostic assertion.
+
+Suite now at **25 passed** on `test_s10_post_preset_change_settle.py`.
+CPR regression check (`test_hvac_cpr_batch_c.py`): **155 passed**.
+
+Per-site drills (A-M1 + A-L3):
+
+| Site | File | Mutation | Target test | Result |
+|---|---|---|---|---|
+| Diagnostics "released -> None" branch | `hvac.py` `get_s10_diagnostics` | `if last_age >= settle: settle_held[...] = None; continue` → `pass` | `RA_M1_diagnostic_none_after_release` | RED ✓ |
+| Observer Carrier-None hold rule | `hvac_zones.py` `update_zone_climate_state` | restore pre-fix `new_hold = state.attributes.get("hold_activity", "") or ""` (so None → "" → unreadable) | `RA_L3_carrier_none_hold_is_readable` | RED ✓ |
+
+Source restored after each drill; `__pycache__` cleared; `git status`
+clean against the committed tree.
+
 ## Deferred
 
 None vs. plan. T12 was DROPPED by Rev 3 R6 (hollow-anchor risk; the two

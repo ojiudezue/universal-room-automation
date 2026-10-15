@@ -4238,10 +4238,22 @@ class HVACCoordinator(BaseCoordinator):
         future episode can re-fire. Never raises."""
         try:
             rollout = self._s10_rollout_zone_ids()
+            # Review A A-L2: drop latch entries for zones no longer in
+            # the rollout, so a zone re-added later the same local day
+            # does NOT silently suppress a fresh warn.
+            for stale_zid in [
+                z for z in list(self._s10_settle_held_fired_on)
+                if z not in rollout
+            ]:
+                self._s10_settle_held_fired_on.pop(stale_zid, None)
             if not rollout:
                 return
             now = dt_util.utcnow()
-            today = now.date()
+            # Review A A-L1: use the LOCAL calendar day for the once-
+            # per-day latch (dt_util.now() returns HA's configured TZ).
+            # UTC day rolls at 19:00 CDT so a continuous evening episode
+            # could fire twice in one local day under the old wording.
+            today = dt_util.now().date()
             for zone_id in rollout:
                 zone = self._zone_manager.zones.get(zone_id)
                 if zone is None:
@@ -5076,12 +5088,16 @@ class HVACCoordinator(BaseCoordinator):
             zid: {p: dict(v) for p, v in d.items()}
             for zid, d in self._s10_snapshots.items() if d
         }
-        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4: expose per-zone
-        # continuous-settle-episode duration (seconds) for rollout zones
-        # whose stamp is non-None. None where the zone has no armed
-        # stamp. Age is from the EPISODE start (not the last re-stamp)
-        # so the trip-wire threshold is observable from diagnostics.
-        settle_held: dict[str, float | None] = {}
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4 (Review A A-M1 +
+        # A-L4): per-zone continuous-settle-episode duration (whole
+        # seconds, int) for rollout zones whose settle episode is STILL
+        # ARMED. "Armed" means the last stamp is still fresh (age <
+        # S10_POST_PRESET_CHANGE_SETTLE_S) - once a full tick elapses
+        # without a re-stamp the episode is RELEASED and the field is
+        # None, mirroring `_s10_check_settle_held`. A stamp that is
+        # never cleared would otherwise grow forever and trip the live
+        # criterion long after the gate actually released.
+        settle_held: dict[str, int | None] = {}
         try:
             now = dt_util.utcnow()
             for zone_id in self._s10_rollout_zone_ids():
@@ -5093,10 +5109,16 @@ class HVACCoordinator(BaseCoordinator):
                 episode_start = getattr(zone, "settle_episode_started_at", None)
                 if stamp is None or episode_start is None:
                     settle_held[zone_id] = None
-                else:
-                    settle_held[zone_id] = max(
-                        0.0, (now - episode_start).total_seconds(),
-                    )
+                    continue
+                last_age = (now - stamp).total_seconds()
+                if last_age >= S10_POST_PRESET_CHANGE_SETTLE_S:
+                    # Episode released - diagnostic reports None, not
+                    # a stale (growing-forever) age.
+                    settle_held[zone_id] = None
+                    continue
+                settle_held[zone_id] = int(
+                    max(0.0, (now - episode_start).total_seconds())
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("S10: settle_held diagnostics failed", exc_info=True)
         return {

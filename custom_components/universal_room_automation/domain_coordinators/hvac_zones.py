@@ -685,16 +685,33 @@ class ZoneManager:
         zone.target_temp_low = state.attributes.get("target_temp_low")
         # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 (R1 + R3): observer.
         # `preset_mode` is already W1-C P2 projected; `hold_activity` is
-        # the raw Carrier attribute (Generic/ecobee return "" and are
-        # sentinel-skipped). "" / "unknown" on either = unreadable: do
-        # NOT update prev, do NOT stamp. First readable observation
-        # seeds without stamping. Boot does not hold S10; a single
-        # unknown flap does not stamp; a real transition stamps exactly
-        # once. The settle-episode start is kept across continuous
-        # re-stamps so the R4 trip-wire measures the episode duration.
+        # the RAW Carrier attribute. Readability rules (Review A A-L3):
+        #   - attribute ABSENT (ecobee / Generic have no such attribute):
+        #     treat as unreadable "" -> gate inert on those platforms
+        #     (preserves the plan's "no ecobee adapter change" non-goal
+        #     and keeps the gate scoped to Carrier zones where the
+        #     observer actually sees the two-feed transition).
+        #   - attribute PRESENT and None (Carrier publishes None for
+        #     "no hold"): READABLE as "none" so Bryant-schedule preset
+        #     changes on unheld Carrier zones (zones 1/2 rollout
+        #     depends on it) are stamped.
+        #   - attribute "" / "unknown": unreadable (transient).
+        # "" / "unknown" on either side = unreadable: do NOT update
+        # prev, do NOT stamp. First readable observation seeds without
+        # stamping. Boot does not hold S10; a single unknown flap does
+        # not stamp; a real transition stamps exactly once. The settle-
+        # episode start is kept across continuous re-stamps so the R4
+        # trip-wire measures the episode duration.
         try:
             new_preset = zone.preset_mode
-            new_hold = state.attributes.get("hold_activity", "") or ""
+            if "hold_activity" in state.attributes:
+                raw_hold = state.attributes["hold_activity"]
+                if raw_hold is None:
+                    new_hold = "none"  # Carrier: no-hold is a readable value
+                else:
+                    new_hold = str(raw_hold) if raw_hold != "" else ""
+            else:
+                new_hold = ""  # ecobee / Generic: attribute absent -> inert
             _UNREADABLE = ("", "unknown")
             if new_preset not in _UNREADABLE and new_hold not in _UNREADABLE:
                 if zone.prev_preset_mode == "" and zone.prev_hold_activity == "":

@@ -521,6 +521,12 @@ async def test_T18_trip_wire_fires_once_per_day(mods, monkeypatch):
     r.clock.advance(601)
     r.coord._s10_check_settle_held()
     assert Z1 not in r.coord._s10_settle_held_fired_on
+    # Review A A-M1: diagnostic field is None once the stamp is stale
+    # (the display must NOT keep growing forever after the gate
+    # released; otherwise the live acceptance criterion `no rollout
+    # zone reports s10_settle_held_s >= 14_400` false-fires forever).
+    diag2 = r.coord.get_s10_diagnostics()
+    assert diag2["s10_settle_held_s"][Z1] is None
 
 
 # ==========================================================================
@@ -544,3 +550,151 @@ def test_T19_settle_dominates_s1_same_tick(mods, monkeypatch):
     r.coord._zones_written_this_cycle.add(Z1)  # s1_same_tick armed
     reason = r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1])
     assert reason == "post_preset_change_settle"
+
+
+# ==========================================================================
+# Review A fix-ups
+# ==========================================================================
+
+
+def test_RA_M1_diagnostic_none_after_release(mods, monkeypatch):
+    """A-M1: `s10_settle_held_s` returns None once the last stamp is
+    older than the settle window. Standalone from T18 so a regression
+    turns red with a tiny repro."""
+    r = Rig(mods, monkeypatch)
+    r.set_stamp(Z1, 60)
+    diag = r.coord.get_s10_diagnostics()
+    # Fresh stamp -> armed episode, int seconds.
+    assert isinstance(diag["s10_settle_held_s"][Z1], int)
+    assert diag["s10_settle_held_s"][Z1] >= 0
+    # Advance past settle without re-stamping -> diagnostic reports None.
+    r.clock.advance(601)
+    diag2 = r.coord.get_s10_diagnostics()
+    assert diag2["s10_settle_held_s"][Z1] is None
+
+
+def test_RA_L4_diagnostic_is_int(mods, monkeypatch):
+    """A-L4: the field is an int (whole seconds). A growing float
+    would differ on every sensor update and churn the recorder."""
+    r = Rig(mods, monkeypatch)
+    r.set_stamp(Z1, 90)
+    diag = r.coord.get_s10_diagnostics()
+    val = diag["s10_settle_held_s"][Z1]
+    assert isinstance(val, int)
+    assert not isinstance(val, bool)
+
+
+def test_RA_L1_latch_uses_local_calendar_day(mods, monkeypatch):
+    """A-L1: once-per-day latch keys on the LOCAL calendar day
+    (`dt_util.now().date()`), not UTC. Patch `dt_util.now` to return a
+    local date that differs from `dt_util.utcnow().date()` and assert
+    the latch entry equals the LOCAL date."""
+    r = Rig(mods, monkeypatch)
+    # Clock utcnow() -> 2026-10-16 02:00 UTC; local -> 2026-10-15 21:00
+    # (CDT, UTC-5). The local date is Oct 15; the UTC date is Oct 16.
+    from datetime import timezone as _tz
+    r.clock.now = datetime(2026, 10, 16, 2, 0, 0, tzinfo=_tz.utc)
+    local_now = datetime(
+        2026, 10, 15, 21, 0, 0,
+        tzinfo=timezone(timedelta(hours=-5)),
+    )
+    local_date = local_now.date()
+
+    class _DtLocal:
+        def __getattr__(self, name):
+            if name == "utcnow":
+                return lambda: r.clock.now
+            if name == "now":
+                return lambda: local_now
+            real_dt = mods["hvac"].__dict__["dt_util"]
+            # Fall through to whatever real_dt wraps.
+            import homeassistant.util.dt as _real
+            return getattr(_real, name)
+
+    monkeypatch.setattr(mods["hvac"], "dt_util", _DtLocal())
+    z = r.coord.zone_manager.zones[Z1]
+    z.settle_episode_started_at = r.clock.now - timedelta(seconds=14_500)
+    z.last_observed_preset_change = r.clock.now - timedelta(seconds=60)
+    r.coord._s10_check_settle_held()
+    stored = r.coord._s10_settle_held_fired_on.get(Z1)
+    assert stored == local_date
+    # UTC date would have been Oct 16; sanity-check the discriminator.
+    assert stored != r.clock.now.date()
+
+
+def test_RA_L2_latch_pruned_on_rollout_removal(mods, monkeypatch):
+    """A-L2: a zone removed from the rollout has its stale latch
+    pruned at the top of the check, so a same-day re-add can warn
+    fresh."""
+    r = Rig(mods, monkeypatch, rollout=(Z1, Z2))
+    r.coord._s10_settle_held_fired_on[Z2] = r.clock.now.date()
+    # Remove Z2 from the rollout.
+    r.cm.options = {**(r.cm.options or {}), ROLLOUT_KEY: [Z1]}
+    r.coord._s10_check_settle_held()
+    assert Z2 not in r.coord._s10_settle_held_fired_on
+    assert Z1 not in r.coord._s10_settle_held_fired_on  # Z1 has no stamp
+
+
+def test_RA_L3_carrier_none_hold_is_readable(mods, monkeypatch):
+    """A-L3: a Carrier zone with `hold_activity = None` (no hold) is
+    READABLE. Driving a real `hass.states.async_set` with
+    `hold_activity` explicitly None then changing `preset_mode` must
+    stamp the observer (Bryant-schedule preset change on an unheld
+    Carrier zone — the zones 1/2 rollout depends on this)."""
+    r = Rig(mods, monkeypatch)
+    # First readable observation seeds the prev fields.
+    r.hass.states.async_set(E1, "heat_cool", {
+        "preset_mode": "home",
+        "preset_modes": ["away", "home", "manual", "sleep", "resume"],
+        "hold_activity": None,  # Carrier "no hold" sentinel
+        "target_temp_high": 76.0, "target_temp_low": 68.0,
+        "hvac_modes": ["off", "heat_cool", "cool", "heat"],
+        "current_temperature": 74.0,
+    })
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+    z = r.coord.zone_manager.zones[Z1]
+    # Seed stored "none" (readable), no stamp yet.
+    assert z.last_observed_preset_change is None
+    assert z.prev_hold_activity == "none"
+    assert z.prev_preset_mode == "home"
+    # Bryant schedule flips preset_mode while the zone remains unheld.
+    r.hass.states.async_set(E1, "heat_cool", {
+        "preset_mode": "away",
+        "preset_modes": ["away", "home", "manual", "sleep", "resume"],
+        "hold_activity": None,
+        "target_temp_high": 80.0, "target_temp_low": 66.0,
+        "hvac_modes": ["off", "heat_cool", "cool", "heat"],
+        "current_temperature": 74.0,
+    })
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+    assert z.last_observed_preset_change is not None
+    assert z.settle_episode_started_at is not None
+    assert (
+        r.coord._s10_zone_skip_reason(Z1, z) == "post_preset_change_settle"
+    )
+
+
+def test_RA_L3_absent_hold_still_inert(mods, monkeypatch):
+    """A-L3 corollary: on an ecobee / Generic entity (hold_activity
+    attribute ABSENT), the observer stays inert — preserving the
+    plan's `no ecobee adapter change` non-goal."""
+    r = Rig(mods, monkeypatch)
+    # No `hold_activity` key at all.
+    r.hass.states.async_set(E1, "heat_cool", {
+        "preset_mode": "home",
+        "preset_modes": ["away", "home"],
+        "target_temp_high": 76.0, "target_temp_low": 68.0,
+        "hvac_modes": ["off", "heat_cool"],
+        "current_temperature": 74.0,
+    })
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+    r.hass.states.async_set(E1, "heat_cool", {
+        "preset_mode": "away",
+        "preset_modes": ["away", "home"],
+        "target_temp_high": 80.0, "target_temp_low": 66.0,
+        "hvac_modes": ["off", "heat_cool"],
+        "current_temperature": 74.0,
+    })
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+    z = r.coord.zone_manager.zones[Z1]
+    assert z.last_observed_preset_change is None  # unreadable - no stamp
