@@ -285,6 +285,17 @@ class RateOfChangeDetector:
 
 ---
 
+### 5.x Clearing hazards (v5.103.61, SAFETY-HAZARD-NEVER-CLEARS-1)
+
+Before v5.103.61 several hazard types were raised but never cleared (humidity, temperature, rate-of-change), and binary/numeric clears were immediate, so a reading wobbling on a threshold flapped the alert. Now (`domain_coordinators/safety.py`):
+
+- **Clear line = raise line of the least-strict raising rung, with an offset** (all rung-1 module constants): freeze clears at >= 48 F, overheat <= 97 F, high humidity <= the room's resolved "low" - 3 %, low humidity >= 33 %, CO2 <= 1400 ppm, TVOC <= 200 ppb, CO <= 23 ppm. Rate hazards clear when the recomputed rate is None (no samples in the window) or below half the raise-time magnitude (z-score compared with z-score).
+- **Hold:** every contributing sensor must stay on the clear side for `HAZARD_MIN_HOLD_S` = 300 s before the key pops (set 0 to restore immediate clear). The per-minute sweep pops it, outside the flooding guard. An alert entity can therefore stay on up to ~6 min after recovery; nothing actuates on clear.
+- **Multi-sensor:** a key tracks its contributing sensors; it never clears while any of them is still past its clear line.
+- **Invariant I2 (life safety):** a SMOKE, CARBON_MONOXIDE or WATER_LEAK raise that arrives while a clear is pending is treated as NEW, so valve close, lights and the HIGH page re-run; page cadence stays governed by the alert deduplicator. A leak re-wet that escalates to FLOODING also keeps its water_leak key held.
+- **Unavailable sensors:** comfort types drop a contributor that stays unavailable for `SENSOR_UNAVAILABLE_WINDOW_S` = 900 s; smoke, CO, leak and flooding never clear because a sensor went offline.
+- Known gap (separate card SAFETY-NM-REFIRE-UNWIRED-1): NM re-fire never sees safety hazards; when wired, `is_hazard_active` must respect the hold.
+
 ## 6. RESPONSE ACTIONS
 
 ### Action Matrix
