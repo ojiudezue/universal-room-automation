@@ -916,3 +916,113 @@ async def test_safety_in_band_return_from_unavailable_is_not_dropped(clock):
         _tick(c, clock, 60)
     assert c._hazard_raising_sensors["freeze_risk:Garage"] == {"sensor.t"}
     assert "freeze_risk:Garage" in c._active_hazards
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up (A MED + C must/should-fix)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_safety_flooding_escalation_on_rewet_keeps_water_leak_key(clock):
+    """Review A repro: B dry→pending, A wet, B re-wets in hold → FLOODING."""
+    c = _coord({}, binary={"binary_sensor.b": HazardType.WATER_LEAK.value,
+                           "binary_sensor.a": HazardType.WATER_LEAK.value})
+    c._sensor_locations["binary_sensor.b"] = "laundry"
+    c._sensor_locations["binary_sensor.a"] = "kitchen"
+    await _feed(c, "binary_sensor.b", "on")
+    await _feed(c, "binary_sensor.b", "off")
+    assert "water_leak:laundry" in c._hazard_clear_pending
+    await _feed(c, "binary_sensor.a", "on")
+    clock.advance(60)
+    await _feed(c, "binary_sensor.b", "on")  # escalates to FLOODING
+    assert any(k.startswith("flooding:") for k in c._active_hazards)
+    assert "water_leak:laundry" not in c._hazard_clear_pending
+    _tick(c, clock, 600)
+    assert "water_leak:laundry" in c._active_hazards
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("htype", [HazardType.SMOKE, HazardType.WATER_LEAK])
+async def test_safety_binary_two_sensors_first_dry_keeps_key(clock, htype):
+    c = _coord({}, binary={"binary_sensor.x": htype.value,
+                           "binary_sensor.y": htype.value})
+    key = f"{htype.value}:Garage"
+    await _feed(c, "binary_sensor.x", "on")
+    await _feed(c, "binary_sensor.y", "on")  # same severity / flooding
+    await _feed(c, "binary_sensor.x", "off")
+    _tick(c, clock, 600)
+    assert key in c._active_hazards
+    assert c._hazard_raising_sensors[key] == {"binary_sensor.y"}
+
+
+@pytest.mark.asyncio
+async def test_safety_rewet_then_dry_holds_full_window_from_second_dry(clock):
+    c = _coord({}, binary={"binary_sensor.leak": HazardType.WATER_LEAK.value})
+    await _feed(c, "binary_sensor.leak", "on")
+    await _feed(c, "binary_sensor.leak", "off")
+    clock.advance(200)
+    await _feed(c, "binary_sensor.leak", "on")
+    clock.advance(50)
+    await _feed(c, "binary_sensor.leak", "off")
+    _tick(c, clock, 299)
+    assert "water_leak:Garage" in c._active_hazards
+    _tick(c, clock, 1)
+    assert "water_leak:Garage" not in c._active_hazards
+
+
+@pytest.mark.asyncio
+async def test_safety_life_safety_repeat_raise_without_pending_does_not_rerun(clock, signals):
+    c = _coord({"sensor.co": "co"},
+               binary={"binary_sensor.leak": HazardType.WATER_LEAK.value})
+    assert len(_valve_closes(await _feed(c, "binary_sensor.leak", "on"))) == 1
+    clock.advance(30)
+    assert _valve_closes(await _feed(c, "binary_sensor.leak", "on")) == []
+    await _feed(c, "sensor.co", 60.0)
+    await _feed(c, "sensor.co", 61.0)  # same severity, no pending
+    assert len(signals) == 2  # leak once + CO once
+    s = SafetyCoordinator(make_hass(), emergency_lights=["light.hall"])
+    s._binary_sensors["binary_sensor.smoke"] = HazardType.SMOKE.value
+    s._sensor_locations["binary_sensor.smoke"] = LOC
+    lights = []
+    for _ in range(2):
+        acts = await s.evaluate([Intent(source="state_change",
+                                        entity_id="binary_sensor.smoke",
+                                        data={"state": "on"})], {})
+        lights += [a for a in acts if getattr(a, "service", None) == "light.turn_on"]
+    assert len(lights) == 1
+
+
+@pytest.mark.asyncio
+async def test_safety_overheat_relapse_on_recovery_event_cancels_pending(clock):
+    c = _coord({"sensor.t": "temperature"})
+    await _feed(c, "sensor.t", 101.0)
+    await _feed(c, "sensor.t", 96.0)
+    assert "overheat:Garage" in c._hazard_clear_pending
+    clock.advance(100)
+    _return_from_unavailable(c, "sensor.t", 101.0)
+    _tick(c, clock, 300)
+    assert "overheat:Garage" in c._active_hazards
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("type_value,drops", [
+    ("high_humidity", True), ("low_humidity", True), ("freeze_risk", True),
+    ("overheat", True), ("high_co2", True), ("high_tvoc", True),
+    ("hvac_failure", True), ("smoke", False), ("carbon_monoxide", False),
+    ("water_leak", False), ("flooding", False),
+])
+async def test_safety_unavailable_drop_policy_per_type(clock, type_value, drops):
+    c = _coord({})
+    key = f"{type_value}:Garage"
+    c._active_hazards[key] = Hazard(
+        type=HazardType(type_value), severity=Severity.MEDIUM, confidence=1,
+        location=LOC, sensor_id="sensor.gone", value=1, threshold=1,
+        detected_at=T0, message="m")
+    c._hazard_raising_sensors[key] = {"sensor.gone"}  # not in state machine
+    _tick(c, clock, 0)
+    _tick(c, clock, 899)
+    assert c._hazard_raising_sensors[key] == {"sensor.gone"}
+    _tick(c, clock, 1)
+    assert (c._hazard_raising_sensors[key] == set()) is drops
+    _tick(c, clock, 300)
+    assert (key not in c._active_hazards) is drops

@@ -1602,6 +1602,9 @@ class SafetyCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if old_state is not None and old_state.state in _UNAVAILABLE_STATES:
             self._rate_detector.clear(entity_id)
+            # Review A LOW (accepted): clearing rate history makes get_rate None,
+            # so a ":roc" contributor counts as recovered at the next sweep.
+            # ROC keys are comfort/HVAC_FAILURE (or humidity-rise leak) only.
             # v3.21.0 D3: Re-evaluate hazard state on recovery transition.
             # If the sensor was in a hazard state before going unavailable,
             # the hazard stays in _active_hazards. Check current reading
@@ -1872,6 +1875,12 @@ class SafetyCoordinator(BaseCoordinator):
             # Check flooding escalation
             flooding = self._check_flooding_escalation(now)
             if flooding is not None:
+                # Review A MED: the FLOODING return skips _respond_to_hazard for
+                # the water_leak key, so re-register this wet sensor there and
+                # cancel any pending clear (else water_leak:<loc> pops while wet).
+                self._record_sensor_relapse(
+                    f"{HazardType.WATER_LEAK.value}:{location}", entity_id
+                )
                 return flooding
         else:
             severity = Severity.HIGH
@@ -2037,6 +2046,10 @@ class SafetyCoordinator(BaseCoordinator):
             # Below all raising thresholds. SAFETY-HAZARD-NEVER-CLEARS-1 §4-I:
             # recovery only at/below the clear line (lowest raise − offset);
             # inside the hysteresis band → no change to the clear machinery.
+            # Review A LOW (deliberate): this is one-way hysteresis — once a
+            # sensor has recovered, an in-band reading (e.g. CO 23-25) does NOT
+            # cancel the hold, so the key can clear with CO at 24.9 (below the
+            # 25 raise line). The CO2 log-only rung differs: it relapses in-band.
             location = self._sensor_locations.get(entity_id, "unknown")
             key = f"{hazard_type}:{location}"
             if value <= lowest_raise - clear_offset:
