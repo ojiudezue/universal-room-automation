@@ -264,10 +264,8 @@ async def test_safety_leak_rewet_during_hold_reissues_response(clock, signals):
     assert len(_valve_closes(second)) == 1
     assert len(signals) == 2
     # NM page cadence still governed by AlertDeduplicator (HIGH = 5 min):
-    from custom_components.universal_room_automation.domain_coordinators.manager import (  # noqa: E501
-        NotificationAction,
-    )
-    assert any(isinstance(a, NotificationAction) for a in first)
+    assert any(type(a).__name__ == "NotificationAction" for a in first)
+    assert not any(type(a).__name__ == "NotificationAction" for a in second)
 
 
 @pytest.mark.asyncio
