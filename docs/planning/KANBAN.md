@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T02:14:03-05:00_ - _Data commit: `b6f7b2313a08`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-15T02:16:44-05:00_ - _Data commit: `4ab1c8831b92`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -747,16 +747,17 @@ _created 2026-10-14 02:10 · updated 2026-10-14 04:06 · refined_
 
 ### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#25 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-27 02:50 · updated 2026-10-15 02:16 · refined ×2_
+_created 2026-09-27 02:50 · updated 2026-10-15 02:17 · refined ×2_
 - **Problem / Solution:**
   - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
 - **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
 - **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
-- **Next:** PICK: (A) ACCEPT and close the fleet part (my recommendation: the 10-13 Wi-Fi changes cut Shelly dropouts from ~75 devices to 12 and Sonoff by ~90%), and DO a narrow check of the 5 Dining/Receiving Shellys below (move/reseat, AP placemen...
+- **Next:** PICK: (A) ACCEPT and close the fleet part (my recommendation: the 10-13 Wi-Fi changes cut Shelly dropouts from ~75 devices to 12 and Sonoff by ~90%), and DO one thing for the 5 Dining/Receiving Shellys: give them a wired-backhaul AP inst...
 - **Tags:** measure-before-build, audit-first, no-fabrication-verify
 - **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
 - **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `unifi_2026_10_15_overnight`: Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (f...
   - `INSTANCE_2026_10_15_dining_receiving_cluster`: Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:...
   - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
   - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
@@ -994,10 +995,11 @@ _I owe something_
 
 ### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#1 · WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **health_monitor** - status: **waiting_me**
-_created 2026-10-14 02:10 · updated 2026-10-15 02:09 · refined_
+_created 2026-10-14 02:10 · updated 2026-10-15 02:17 · refined_
 - **Why:** v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or a...
-- **Next:** Me, next session after 17:30 10-15 (24 h of uptime since the 17:26 10-14 restart): W13 final read of diagnostics self_timing, then chase the W9 anomaly below (read the overflow/cap path live: is matter_node_down held in overflow with no ...
-- **Forensic keys (2):**
+- **Next:** Me, next session after 17:30 10-15 (24 h uptime since the 17:26 10-14 restart): W13 final self_timing read, then dispose. W9 is resolved (see correction). Operator-action checks W3/W10/W14/W15/W17 stay yours.
+- **Forensic keys (3):**
+  - `correction_2026_10_15_overnight`: WRONG earlier tonight (measured_2026_10_15_overnight 'W9 ANOMALY ... overflow' hypothesis). Refuted: sensor.hahm_active_problems = 12 with held_back = 0 (nothing in overflow), and diagnostics 'problems' is problems.rows(), which returns ...
   - `measured_2026_10_15_overnight`: Read-only, 02:1x CDT 10-15 (config-entry diagnostics API + .storage/repairs.issue_registry + HA MCP; HA up since 17:30 10-14, 8.7 h). W11 PASS: markers.export days_stored 1, stat_groups 107, last_statistics_written 203; self_timing.expor...
   - `measured_2026_10_14_overnight`: W1 PASS, W2 PASS (6 problems, 3 setup repairs), W4 PASS (1,302 devices; the README estimate of ~2,600 was wrong), W5 PARTIAL (only Z2M Bridge2 gets a row; Bridge1/Bridge3 missing), W6 as expected, W7 PASS, W8 PASS, W12 PASS, W13 interim ...
 
@@ -1067,12 +1069,12 @@ _created 2026-10-10 22:00 · updated 2026-10-14 02:20_
 
 ### `HM-V22-NEXT-SLICE-1` - Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **health-monitor** - status: **shipped_organic** - approval: **explicit**
-_created 2026-10-14 03:43 · updated 2026-10-15 02:13 · refined ×2_
+_created 2026-10-14 03:43 · updated 2026-10-15 02:17 · refined ×2_
 - **Problem / Solution:**
   - Problem: the Health Monitor v2.1 is live but two of its readings are wrong (the "per hour" garbage-collection counts are really per-30-seconds, and two of the three Zigbee bridges have no radio row), and it can say a device is offline no...
 - **Origin:** 2026-10-14 - operator wants the next HM plan slice built, pushed and finished quickly
 - **Why:** scope cut by marginal benefit against measured house problems (docs/PLAN_v2.md R8 in ~/Code/ha-health-monitor)
-- **Next:** Me, after 17:30 10-15 (24 h uptime): L-P final self_timing read, L-B5d (Matter reboot signals once a node reboots), L-D signal: rows on a day with a signal, L-GC3 RSS trend; then the Matter overflow question (see HM-V21-LIVE-VALIDATION-1...
+- **Next:** Me, after 17:30 10-15 (24 h uptime): L-P final self_timing read, L-B5d (Matter reboot signals once a node reboots), L-D signal: rows on a day with a signal, L-GC3 RSS trend; then merge v2.2-slice per the HM release flow. Operator: mark t...
 - **Tags:** tier-2, sibling-repo
 - **Parsimony:** [SIMPLIFY] HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping
 - **Refs:** ~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309); ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14

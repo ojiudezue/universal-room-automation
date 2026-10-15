@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "WIFI-ACTUATOR-FLEET-FLAP-1@2026-10-15T02:17:45"
+    at: "2026-10-15T02:17:45"
+    outcome: "measured"
+    headline: "Most of the Wi-Fi fleet is fixed, but 5 Shelly lights in the Dining and Receiving rooms still drop out of HA about 9 times an hour each. They never actually leave Wi-Fi. All 5 sit on the U6-Extender-EA mesh access point, which is the busiest and least healthy one (68% channel use, 14% retries), so HA's connection to them keeps timing out. URA doesn't control these lights, so it's manual and app control that fails. Your choice on the card: accept the fleet result and give those 5 a wired access point."
+    acknowledged: false
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "done"
@@ -17,7 +22,7 @@ meta:
   - fid: "HM-V22-NEXT-SLICE-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "measured"
-    headline: "Health Monitor v2.2 was already built, reviewed and installed on 10-14 (the board still said 'planned'; fixed). I ran its live checks read-only: most pass, including the GC hourly counters (now 54,646 an hour, not capped at 512), all three Zigbee bridges, per-AP Wi-Fi retries and battery signals. Two open items: Matter's 17-node outage isn't showing as a problem (probably hidden by the problem cap), and the 24-hour checks finish this evening. Results are in its README, pushed to both remotes."
+    headline: "Health Monitor v2.2 was already built, reviewed and installed on 10-14 (the board still said 'planned'; fixed). I ran its live checks read-only: most pass, including the GC hourly counters (now 54,646 an hour, not capped at 512), all three Zigbee bridges, per-AP Wi-Fi retries and battery signals. One thing I got wrong and corrected: I first thought Matter's 17-node outage was hidden by the problem cap, but it's only cut from a 10-row diagnostics view, and the repair is there. The 24-hour checks finish this evening. Results are in its README, pushed to both remotes."
     acknowledged: false
   - fid: "HA-TRUSTED-PROXIES-UI-MIGRATION-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
@@ -525,6 +530,7 @@ cards:
     context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
+  unifi_2026_10_15_overnight: "Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (fine). They have been associated continuously for 34-42 h, and the system log for 10-14 00:00 -> 10-15 02:30 has no connect/disconnect/roam event for any of them. So HA's ~9 drops an hour each (median 25 s) are NOT Wi-Fi drops: the devices stay on Wi-Fi while HA's connection to them times out. The shared factor is the AP: U6-Extender-EA is a wireless-mesh AP backhauling to Ziris Room AP on channel 104 at -66 dBm, with channel utilisation 68, tx retries 14.1%, satisfaction 93 and the lowest client satisfaction of any normally loaded AP (96.6 vs 98.3-100). Leading explanation (not proven): latency/loss on the mesh backhaul breaks the Shelly integration's persistent connection. Naming caveat: UniFi's names for the two Dining 2PMs and the two Receiving dimmers are swapped relative to HA's. cc:ba:97:de:38:c4 is the only one without a fixed IP (unrelated to drops as far as the data shows)."
   INSTANCE_2026_10_15_dining_receiving_cluster: "Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:00-17:36 74 devices (792; the change was ~08:00 but the Shelly fleet lagged), 10-14 09:10-17:20 12 devices (674), 10-14 17:40-10-15 02:16 12 devices (691). The post-fix remainder is almost entirely FIVE physical devices, each dropping ~70-82 times per 8.6 h (~9 an hour): Dining2 2PM Gen4 (98a3166d2844, sub-devices Recessed/Divide), Dining1 2PM Gen4 (ccba97de38c4, Overhead/PoolTable), Receiving1 and Receiving2 Plus dimmers (048308dec120, 048308dec1a4), Receiving Room 1PM mini Gen4 (a085e3bfaf30). This is what Health Monitor v2.2 reports as 'shelly 9 of 84 flapping, 692 flaps, median outage 25 s'. URA impact: none of these is in any URA room's light lists (checked core.config_entries), so URA is not failing to actuate them; manual and app control does fail during each ~25 s gap. A read-only UniFi lookup of their AP/RSSI is running and will be added here."
   title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
   thread: presence
@@ -564,8 +570,8 @@ cards:
   - docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30)
   - custom_components/universal_room_automation/sensor.py:1983
   adjacency_sweep_2026_09_27: 'Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA''s own selects. BACKLOG: "Offline-actuator visibility + recovery" is ADJACENT: that item was one outage event plus its D1 visibility / D2 reconcile mitigations, and D1 looks shipped (sensor.py:1983). B-2026-08-04-2 fleet rot covers SENSORS, not actuators. No PLANNING/AUDIT doc found on Wi-Fi fleet availability. Verdict: NEW, linked.'
-  next: "PICK: (A) ACCEPT and close the fleet part (my recommendation: the 10-13 Wi-Fi changes cut Shelly dropouts from ~75 devices to 12 and Sonoff by ~90%), and DO a narrow check of the 5 Dining/Receiving Shellys below (move/reseat, AP placement or their AP's settings; AP details on this card); or (B) keep the whole fleet card open. -> On A I close the fleet half and keep a small card for the 5-device cluster."
-  updated: "2026-10-15 02:16"
+  next: "PICK: (A) ACCEPT and close the fleet part (my recommendation: the 10-13 Wi-Fi changes cut Shelly dropouts from ~75 devices to 12 and Sonoff by ~90%), and DO one thing for the 5 Dining/Receiving Shellys: give them a wired-backhaul AP instead of the U6-Extender-EA mesh (or move that extender closer to its uplink) -> I re-count their HA drops the next night; or (B) keep the whole fleet card open."
+  updated: "2026-10-15 02:17"
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
   disposition_2026_09_26_groom: 'SOAK EXIT DONE. v5.103.8 shipped the knob (CONF_HVAC_VACANCY_HOLD[_NIGHT], room options Climate Backstop) + retreat_reason + coast dwell attrs, live-validated 09-18. Discriminator met: retreat reasons flow on real episodes since 09-18: house_state_transition 224, vacant_past_grace 202, energy_shed_cap_deferred_occupied 6, runtime_exceeded 4, energy_shed_cap_reached 3, stale_occupancy 2. Residual (D5 entry-dwell tombstone removal) is a 1-line cleanup — folded into the next HVAC build brief, no card.'
   workstream: HVAC-W4-ARC-CLOSURE
@@ -4852,8 +4858,8 @@ cards:
     context: 'Part A1 IS the GC ring-window card''s fix; live-validation card holds the remaining v2.1 checks (W9/W11/W13); B1/B2 feed the Sonoff R4M and Wi-Fi flap investigations.'
   refs: ['~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309)', '~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14']
   status: "shipped_organic"
-  next: "Me, after 17:30 10-15 (24 h uptime): L-P final self_timing read, L-B5d (Matter reboot signals once a node reboots), L-D signal: rows on a day with a signal, L-GC3 RSS trend; then the Matter overflow question (see HM-V21-LIVE-VALIDATION-1). Operator: mark the spotlights off if you want them out of the Matter count (L-C1)."
-  updated: "2026-10-15 02:13"
+  next: "Me, after 17:30 10-15 (24 h uptime): L-P final self_timing read, L-B5d (Matter reboot signals once a node reboots), L-D signal: rows on a day with a signal, L-GC3 RSS trend; then merge v2.2-slice per the HM release flow. Operator: mark the spotlights off if you want them out of the Matter count (L-C1). (The Matter 'overflow' question is settled: diagnostics shows only 10 rows; README corrected in commit after 851c221.)"
+  updated: "2026-10-15 02:17"
 - id: ARC-CLOSE-GATE-1
   title: Shipping part of an arc left sibling cards open -> deploy.sh refuses until siblings ship, park, or are cut with a reason
   thread: board
@@ -31808,6 +31814,7 @@ cards:
   - ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
   updated: "2026-10-15 02:13"
 - id: HM-V21-LIVE-VALIDATION-1
+  correction_2026_10_15_overnight: "WRONG earlier tonight (measured_2026_10_15_overnight 'W9 ANOMALY ... overflow' hypothesis). Refuted: sensor.hahm_active_problems = 12 with held_back = 0 (nothing in overflow), and diagnostics 'problems' is problems.rows(), which returns at most 10 rows sorted newest first (problems.py:300-306). The Matter problem (since 10-14 06:20Z, the oldest) is simply cut from that 10-row view; it is still active and its repair matter_node_down:matter is in the issue registry. W9 PASS: one grouped repair, no integration_degraded:matter."
   measured_2026_10_15_overnight: "Read-only, 02:1x CDT 10-15 (config-entry diagnostics API + .storage/repairs.issue_registry + HA MCP; HA up since 17:30 10-14, 8.7 h). W11 PASS: markers.export days_stored 1, stat_groups 107, last_statistics_written 203; self_timing.export daily_close ran once (0.03 ms), statistics 2.2 ms. So the 00:05 daily close ran and wrote rows. The export service itself was not called (it writes statistics; overnight passes do not write to HA). W13 INTERIM (8.7 h, not 24 h): backoff 1 and auto_disabled false on every marker; every job max_ms < 10 except loop_lag gc_freeze 318 ms (count 1, the boot-time gc.freeze call, a one-shot by design, which the <10 ms rule should probably exempt; flag for the README). No self_cost problem active this boot (the self_cost:loop_lag repair in the registry dates from the previous boot, 10-14 11:58Z). W9 ANOMALY: the first boot did raise exactly one grouped matter_node_down:matter repair (10-14 11:59Z, and no integration_degraded:matter), which is the grouping PASS. But in THIS boot sensor.hahm_matter_nodes_down = 17 with down_since 10-14 06:20Z (far past the 1 h raise threshold), yet matter_node_down is NOT among the 10 active problems in diagnostics, there is no snooze, and the issue registry has no overflow-summary issue. Leading hypothesis (unverified): the problem cap (problems.py:206-211, one slot reserved for the overflow summary) parks it in overflow and the summary is not being published. If true, a real Matter outage is hidden whenever 10 other warnings are open."
   measured_2026_10_14_overnight: "W1 PASS, W2 PASS (6 problems, 3 setup repairs), W4 PASS (1,302 devices; the README estimate of ~2,600 was wrong), W5 PARTIAL (only Z2M Bridge2 gets a row; Bridge1/Bridge3 missing), W6 as expected, W7 PASS, W8 PASS, W12 PASS, W13 interim PASS (max job 7.16 ms), W9 pending. W16 GC: PROVED. 59 gen-2 collections in ~50 min, mean 1,804 ms, max 2,137 ms; 44 of 50 stall samples are gen-2 GC. The house-wide ~2 s pauses are garbage collection, not URA. Bug found: gc_gen2_1h / gc_collections_1h are computed over the 512-slot ring (gctrace.py:22, :95-104), so they read 1 / 512 instead of ~60 / ~60,000 (carded HM-GC-1H-COUNTERS-RING-WINDOW-1). README_v5.103.56 validated table filled (all 3 PASS)."
   refinement_status: "refined"
@@ -31817,8 +31824,8 @@ cards:
   created: '2026-10-14 02:10'
   rank: {value: 7, time_criticality: 6, effort: 2}
   why: 'v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or another-thread GIL hold.'
-  next: "Me, next session after 17:30 10-15 (24 h of uptime since the 17:26 10-14 restart): W13 final read of diagnostics self_timing, then chase the W9 anomaly below (read the overflow/cap path live: is matter_node_down held in overflow with no summary repair, or not raised at all?). Then dispose. Operator-action checks W3/W10/W14/W15/W17 stay yours."
-  updated: "2026-10-15 02:09"
+  next: "Me, next session after 17:30 10-15 (24 h uptime since the 17:26 10-14 restart): W13 final self_timing read, then dispose. W9 is resolved (see correction). Operator-action checks W3/W10/W14/W15/W17 stay yours."
+  updated: "2026-10-15 02:17"
 - id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
   title: Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline
   thread: lighting
