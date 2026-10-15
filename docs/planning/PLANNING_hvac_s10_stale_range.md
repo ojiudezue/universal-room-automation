@@ -3,12 +3,14 @@
 **Card:** `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1`
 **Thread:** hvac
 **Status:** pre_planning
-**Rev:** **2** (2026-10-15) — fully revises Rev 1 against plan review
-`docs/reviews/code-review/plan_hvac_s10_review.md` (F1-F8 FIX-REQUIRED) and against
-the 2026-10-15 read-only recorder probe (below). Rev 1 shape (SUPPRESS_TTL_SECONDS_PRESET
-cooldown anchored on `_zone_last_s1_write` only) is **withdrawn** — it duplicates the
-existing same-tick gate at `hvac.py:2259` / `:4393` / `:4664` and is too short to cover
-the observed staleness window.
+**Rev:** **3** (2026-10-15) — fully revises Rev 2 against the Rev 2 re-review
+appended to `docs/reviews/code-review/plan_hvac_s10_review.md` (R1-R7 FIX-REQUIRED).
+Rev 2's observer-on-the-coordinator wiring is withdrawn (R1): the stamp lives on
+`ZoneState` and `_s10_zone_skip_reason` reads it off the zone, removing the back-
+reference the plan did not specify. Rev 2's D2 as written (reset on APPLIED via
+`_s10_success`) is unreachable (R2): APPLIED never calls `_s10_success`; D2 is
+re-stated as "reset on CONFIRMED success" (option (i), SKIPPED_ALREADY_CORRECT or
+a matching view at the limit) and INV-S10-LATCH-RESET + T9 track that.
 **Tier:** **Tier 2-DB (operator-elevated)** — see §"Tier + framings".
 **Date:** 2026-10-15
 **Branch (intended):** `plan/hvac-s10` on worktree `.claude/worktrees/hvac-s10-plan`.
@@ -44,226 +46,187 @@ build" gate; the result reshapes the plan. (Standing rule
   `last_write_iso` on an APPLIED write — the counter does NOT clear on success
   (**F4**). Snapshots for `away` are the correct 66/80 defaults (not poisoned).
 
-**What the probe refutes.**
+**What the probe refutes** (unchanged from Rev 2 — see Rev 2 for the ha_carrier
+chain + the Rev 1 cooldown refutation).
 
-- **Rev 1's mechanism "stale status-feed read; write lands correctly".** The failure
-  was a local raise in 0.3 ms, not a landed write. (**F3**.) `carrier_api/climate.py:
-  222-230` reads `_current_activity()` (the CONFIG activity named by status); it falls
-  back to `_status_zone` (stale status setpoints) only when `_current_activity()`
-  returns None. `_current_activity()` returns None when `current_status_activity()`
-  returns None (`carrier_api/config.py:197-218`: no matching config entry, or an
-  `api_id` mismatch between status and config), and
-  `async_set_activity_setpoint` raises `HomeAssistantError("Current activity
-  unavailable")` at `climate.py:551-553` under the same condition.
-- **The 120 s cooldown.** The actual stale window was **~422 s**. 120 s ends at the
-  next S10 tick (300 s) which is exactly when the failure occurred. Rev 1 would NOT
-  have prevented this write. (**F2**.) The existing cycle-entry seed at `hvac.py:2259`
-  already enforces a 120 s gate on `_zone_last_s1_write`; Rev 1 was a duplicate.
-  (**F1**.)
-
-**What the probe does NOT establish (uncertainty called out, per `No Fabrication`).**
-Mechanism is **PARTIAL / UNVERIFIED (n=1)**. A single HomeAssistantError without the
-error text recorded is consistent with "unresolvable activity" (the plausible
-mechanism), but also with any other local raise under
-`async_set_activity_setpoint`. The acceptance tests below are written to
-*discriminate* between "stale legs, landed write" and "unresolvable activity,
-rejected write" (per F6 / `feedback_falsify_before_asserting.md`).
+**What the probe does NOT establish.** Mechanism is **PARTIAL / UNVERIFIED (n=1)**.
+A single HomeAssistantError consistent with "unresolvable activity" but also with
+any other local raise under `async_set_activity_setpoint`. The acceptance tests
+below discriminate "stale legs, landed write" from "unresolvable activity, rejected
+write" (per F6 / `feedback_falsify_before_asserting.md`).
 
 ---
 
 ## Review resolution table
 
-Each finding in `docs/reviews/code-review/plan_hvac_s10_review.md` and this Rev 2's response.
+Rev 1 findings F1-F8 were resolved in Rev 2 (see Rev 2's resolution table + the
+re-review verdict `F1 F2 F3 F7 F8 RESOLVED; F4 F5 F6 PARTIAL`). Rev 3 addresses the
+Rev 2 re-review R1-R7. Every row below cites the exact code line verified against
+`develop @ 05314a3c4` before writing — not inherited from Rev 2.
 
-| # | Finding (short) | How Rev 2 resolves it |
+| # | Finding (short) | How Rev 3 resolves it |
 |---|---|---|
-| F1 | D1 duplicates existing same-tick gate (`hvac.py:2259` seed + `:4393` + `:4664`). Prior-art table missed consumers at `:2259` and `:5594`. | Rev 1 gate withdrawn. New gate anchors on OBSERVED preset-change timestamp (not `_zone_last_s1_write`), with a settle window **longer** than the 120 s already enforced by the cycle seed. Prior-art table rewritten (§Prior-art) to list every `_zone_last_s1_write` consumer: `:2259` (cycle seed), `:3929-3933` (writer), `:5304` (docstring), `:5594` (away-edge key). |
-| F2 | 120 s cannot cover the measured 422 s staleness; the write landed on the next 300 s tick. | Window is now sized from the measurement (§Measurement), default **`S10_POST_PRESET_CHANGE_SETTLE_S = 600 s`** — covers the observed 422 s + a full ~1 tick of jitter / cloud lag. Named as its OWN constant, not coupled to `SUPPRESS_TTL_SECONDS_PRESET` (F7). "Effect" paragraph rewritten so it no longer contradicts itself. |
-| F3 | Mechanism contradicts `ha_carrier` source + the evidence (local raise under 1 ms, not a landed write). | Mechanism re-stated as PARTIAL: during the Carrier post-write transition `current_status_activity()` can return None → both legs fall back to stale `_status_zone` AND `async_set_activity_setpoint` locally raises (`climate.py:551-553`). Marked **UNVERIFIED (n=1)** throughout. Acceptance tests discriminate "stale legs" from "unresolvable activity" (§Acceptance). §4.2 state-of-play residual note is edited to mark the mechanism UNVERIFIED. |
-| F4 | Harm understated: failure-counter latch (3 strikes → `call_failed` + NM, S10 stops managing away) AND snapshot poisoning on zones 1/2 rollout. | Both named explicitly in §Harm. Both covered by D1 **and D2** (D2 is the correctness fix for the latch itself, operator shape (a)). Acceptance criterion added for each harm. |
-| F5 | Anchor is S1-only; other writers (S4 arrester, S7 restore, AC-reset `_restore_after_reset`, egress resume, excursion `_auto_return`, S11/S13, human, Bryant schedule) all change the preset without stamping `_zone_last_s1_write`. | Anchor is now the OBSERVED `preset_mode` / `hold_activity` transition on the climate state, maintained in `hvac_zones.update_zone_climate_state` (RAM-only `_zone_last_observed_preset_change[zone_id]`). Any writer that changes the preset — URA or external — arms the settle window. D2 (shape (a)) is the orthogonal safety net for any residual local-raise path the window misses. |
-| F6 | Invariant already holds (hollow, Bug Class #62); acceptance tests would pass against a no-op. | Invariant restated over the OBSERVED-transition window AND the latch counter AND the snapshot capture (not the "same-tick" window the existing seed already covers). Each acceptance test is written to FAIL on today's `develop` — see §Acceptance "Discriminating assertions". |
-| F7 | Rung-1 OK, but `S10_POST_PRESET_CHANGE_COOLDOWN_S = SUPPRESS_TTL_SECONDS_PRESET` couples two concepts (Bug Class #63). | **New constant** `S10_POST_PRESET_CHANGE_SETTLE_S` is its own named rung-1 value (default 600 s), NOT aliased to `SUPPRESS_TTL_SECONDS_PRESET`. Separate semantic: "Carrier read-staleness window after an observed preset transition" vs. arrester echo-suppression. |
-| F8 | Baseline SQL groups by `zone` but `zone_id` lives in `details_json`; §3.3 / §4.1 of state-of-play still carry stale "not deployed" wording; code comments `~3938` / `~5593` still reference `§9.7` (now §9.9). | Baseline SQL rewritten in §Acceptance (`json_extract(details_json,'$.zone_id')`). §Doc corrections includes: audit of the 5 "not deployed" rows (shipped versions filled per commit `1480811ba`), the §9.7→§9.9 comment fix in `hvac.py` ~3938 and ~5593, and marking the §4.2 S10-row residual mechanism UNVERIFIED. |
-
-The 2026-10-15 state-of-play commit `1480811ba` already filled 5 stale "not deployed" labels with ship versions and marked the S10 residual mechanism unverified. §Doc corrections below is now limited to the two remaining stale `§9.7` code comments.
+| R1 | Observer site cannot do what Rev 2 said: `hvac_zones.update_zone_climate_state` at `hvac_zones.py:651-670` sets `preset_mode` via `preset_of_for` (:666) and reads NOTHING about `hold_activity` (verified: `grep hold_activity hvac_zones.py` = 0 hits). `ZoneManager.__init__` at `:279` holds no coordinator reference, so the Rev 2 `coordinator._note_observed_preset_change(...)` call needs unspecified back-wiring. | **Stamp lives on `ZoneState`, not on the coordinator.** Add three fields to the `ZoneState` dataclass at `hvac_zones.py:127-143` (right after `preset_mode: str = ""` at :137 / the current/target block ending :143): `prev_preset_mode: str = ""`, `prev_hold_activity: str = ""`, `last_observed_preset_change: datetime | None = None`. In `update_zone_climate_state` (`hvac_zones.py:651-670`), after the existing `zone.preset_mode = preset_of_for(...)` at :666, read `hold_activity` as the **raw climate attribute**: `new_hold = state.attributes.get("hold_activity", "") or ""`. Both reads are the inputs to the stamp decision (see R3 for sentinel handling). The stamp fires when EITHER the readable `preset_mode` or the readable `hold_activity` differs from its stored prev. `_s10_zone_skip_reason` reads `zone.last_observed_preset_change` directly — no coordinator back-reference, no map on the coordinator. Both signals are read because the Carrier post-write transition can land `preset_mode` first and `hold_activity` later (or vice versa); either edge opens the staleness window and both must arm it. The W1-C P2 `preset_of_for` indirection for `preset_mode` is PRESERVED (brand-adapter projection); `hold_activity` is read as the raw Carrier attribute (Generic/ecobee return `""` for it, which is sentinel-skipped, so this does not alter their path). |
+| R2 | D2 as written in Rev 2 is unreachable: `_s10_write_one` step 12 at `hvac.py:4686-4704` increments `writes` on APPLIED and never calls `_s10_success`; `_s10_success` runs ONLY on `SKIPPED_ALREADY_CORRECT` at `:4707` and on a matching view at the limit (near :4596). So the Rev 2 text "APPLIED ... ALSO resets failures" is false; the 2026-10-14 record (`failures=1, writes=2`) would keep `failures=1` until a later SKIPPED_ALREADY_CORRECT. | **Option (i): reset failures only on CONFIRMED success.** The APPLIED path is a wire return, not a confirmation (operator ruling A4 2026-10-05, cited in the `_s10_success` docstring at `hvac.py:4770-4778`). D2's single new line goes in `_s10_success` at `hvac.py:4779` (`rec["writes"] = 0`): add `rec["failures"] = 0` on the next line. That reset runs on BOTH confirmation paths — the SKIPPED_ALREADY_CORRECT branch at :4707 AND the limit-matching view call near :4596 — and nowhere else. **INV-S10-LATCH-RESET restated** (see Falsifiable invariant §) to name `WriteStatus.SKIPPED_ALREADY_CORRECT` + the limit-matching-view path as the only reset triggers. **T9 fixed** (see Acceptance): the record setup has `failures=2, writes=0`, the adapter returns `SKIPPED_ALREADY_CORRECT`, and the assertion is `failures=0, writes=0` after `_s10_success`. Alternating-raise/APPLIED defeat case (Rev 2 re-review §"D2 reachable defeat case") is accepted: `call_failed` is defeated but `writes` still reaches 3 and the limit-view path at :4590 latches `not_sticking` if the writes don't stick — operator ruling A4 is preserved. |
+| R3 | Boot/first-read is unspecified. `ZoneState.preset_mode` defaults to `""` at `hvac_zones.py:137` (verified); the boot refresh at `hvac.py:1555` moves it from `""` to the live value. A literal "differs from previous RAM copy" rule stamps every zone at every boot and holds S10 for 600 s (2-3 ticks) after each restart. The `unavailable` early return at `hvac_zones.py:658` keeps the copy, but `unknown` is NOT handled there — it falls through to `preset_of_for(..., "")` and becomes `""`, producing TWO stamps across one unknown flap. | **Rule (explicit).** Treat `""` and `"unknown"` as **unreadable** on BOTH `preset_mode` and `hold_activity`. In `update_zone_climate_state` immediately after the attribute reads: compute `new_preset = zone.preset_mode` and `new_hold = state.attributes.get("hold_activity", "") or ""`. If either `new_preset` is in `{"", "unknown"}` OR `new_hold` is in `{"", "unknown"}` → treat the whole observation as unreadable: DO NOT update `prev_preset_mode` / `prev_hold_activity`, DO NOT stamp. Then: if `prev_preset_mode == ""` AND `prev_hold_activity == ""` (first-ever readable observation after boot or reload) → **seed** the prev fields with the readable `(new_preset, new_hold)` WITHOUT stamping (`last_observed_preset_change` stays None). On every subsequent readable observation, stamp iff `new_preset != prev_preset_mode OR new_hold != prev_hold_activity`, then update both prev fields. Net: boot does not hold S10; a single unknown flap does not stamp; a real preset transition stamps exactly once. Chosen over "stamp on boot and accept 600 s delay" because the boot-refresh is a UI/attribute read, not a Carrier post-write transition — the staleness window is scoped to real writer-induced transitions. If a boot read ever lands inside a real Carrier transition, the first NEXT readable observation whose preset/hold differs from the seed will stamp correctly. |
+| R4 | On a flapping feed (zone_1 §9.9 — ~46 status home/away flips in 4 h; nudge cadence ~25 min with 2 transitions each) the settle re-arms continuously, 600 s never elapses, and S10 is permanently held on that zone. During the §9.9 split S10's `_confirmed_on` already rejects (both feeds must name the preset) and the only both-away windows are ha_carrier optimistic-guard windows — the exact source of poisoned snapshots. Starving S10 there is **intended**; the hazard is that it is silent. | **Intended, with a trip-wire.** Stated behavior: a zone subject to a flapping `preset_mode` / `hold_activity` feed will have `last_observed_preset_change` continuously re-stamped and will not run S10 while the flap persists. This is correct (the stale-read window exists irrespective of writer; S10 would also be rejected by `_confirmed_on` under the split). The **discharge** is a code trip-wire (not a soak-watch, per `feedback_no_soak.md`): add a diagnostic attribute `s10_settle_held_s` on the existing per-zone HVAC diagnostics surface (`get_s10_diagnostics()`) carrying `now - zone.last_observed_preset_change` for every rollout zone whose stamp is non-None, AND fire ONE anomaly (existing anomaly dispatcher, not a new NM channel) when any rollout zone's `s10_settle_held_s` has exceeded **`S10_SETTLE_HELD_WARN_S = 14_400`** (4 h) continuously (i.e. the stamp has advanced but never released beyond the threshold for 4 h). The anomaly fires at most once per zone per calendar day, re-arms when the zone goes a full S10 tick without re-arming the stamp. **N = 4 h** justification: covers a full nudge cycle (~25 min × ~9 = ~225 min = ~3.75 h) and two Bryant schedule transitions on zones 2/3 (hourly block) without false-firing on legitimate flap periods, but surfaces a stuck zone before a full operator-day elapses. Rung-1 constant, grep-able, revised in a separate card if post-ship evidence shows ≥10% of rollout days firing it. Within-pass A→B→A flips (one `_async_apply_preset_overrides` tick) are invisible to the observer by construction — the observer runs once per pass. State this plainly in §Problem. Bryant schedule chatter (Q2) is low-rate under `infinite_holds` (observed §5 of state-of-play) and is not expected to trip the warn threshold. |
+| R5 | Rev 2 said the fix delays S10 "about 10 min". That understates: S1 writes AFTER `update_all_zones` in the same cycle so an S1 preset change is first OBSERVED on the next tick (+300 s); settle then runs 600 s from the observed timestamp; the `<` comparison against a 300 s interval can need one more tick to clear. | **Stated real latency: ~15-20 min** (900-1200 s). An S10 wire for a preset change at T lands no earlier than `T + 300 s (next-tick observe) + 600 s (settle) ≈ T + 900 s`, and if `T + 900 s` falls between ticks the next S10 opportunity is `T + 1200 s`. This is conservative against the measured 422 s stale window and is the acceptance behavior, not a bug. Live criterion + §Effect updated to say so. |
+| R6 | T12 exercises ha_carrier internals (`current_status_activity`) URA tests cannot drive — the test would assert its own mock setup (hollow anchor, Bug Class #62). Oracle left open. Would pass on `develop`. Missing tests: (a) observer wire-in on a live `hass.states` change for both `preset_mode` AND `hold_activity`; (b) R3 boot + unknown flap; (c) R4 trip-wire; (d) mutation anchor for skip-step ORDER (settle before `s1_same_tick`). | **T12 dropped.** The two-path mechanism discrimination moves to the falsifier runbook / post-ship probe (recorder evidence, not a mock). **T15 (observer wire-in — NEW):** build a real `MockHVACZone` whose climate entity is a `hass.states.async_set` target; change the entity's `preset_mode` from `home` → `away` and assert `zone.last_observed_preset_change` advanced AND `_s10_zone_skip_reason` returns `"post_preset_change_settle"`. Repeat with `hold_activity` changing while `preset_mode` is unchanged — the stamp must still fire (R1). **T16 (boot seed — NEW):** fresh `ZoneState` (prev fields = `""`), first readable observation with `preset_mode="home"`, `hold_activity="home"` → `last_observed_preset_change is None`, prev fields = `("home","home")`. Second observation with same values → still None. Third observation flipping to `away` → stamp set. **FAIL on `develop`:** fields don't exist. **T17 (unknown flap — NEW):** prev = `("home","home")`; observation with `preset_mode="unknown"` → prev fields unchanged, no stamp. Next observation `preset_mode="home"` → still no stamp (same as prev). **T18 (trip-wire — NEW):** stamp advanced 10 times across 4 h 1 min, each time 23 min apart → `get_s10_diagnostics()` surfaces `s10_settle_held_s >= 14_400` AND the anomaly dispatcher saw exactly one call for the zone (gate the second call by the once-per-day latch). **FAIL on `develop`:** no diagnostics attribute, no anomaly. **T19 (ordering mutation — NEW):** per-site source mutation — comment out ONLY the `s1_same_tick` check in `_s10_zone_skip_reason`, leave the new settle check in place. Set up BOTH a `_zone_last_s1_write` 60 s ago AND a `last_observed_preset_change` 60 s ago. Assert `_s10_zone_skip_reason` returns `"post_preset_change_settle"` (not None). Restore the file. This proves the settle check is strictly ahead of `s1_same_tick`. **FAIL on `develop`:** neither check exists. **T9 fixed (R2):** record `failures=2, writes=0`, adapter returns `SKIPPED_ALREADY_CORRECT`, after `_s10_success` → `failures=0, writes=0`. **FAIL on `develop`:** `failures` stays 2. T1-T8, T10, T11, T13, T14 unchanged — the Rev 2 re-review confirmed those fail on `develop`. |
+| R7 | Rev 2 called the ecobee path a "harmless no-op skip". An option-C select hold flips `preset_of` to `manual` when its settled legs drift; that stamps and DELAYS ecobee S10 storage by the full 15-20 min window. No ecobee zone runs a coordinator today, so impact LOW, but the wording is wrong. | §Non-goals and §Open-questions Q1 updated: on ecobee zones the gate **delays** S10 by `S10_POST_PRESET_CHANGE_SETTLE_S` on any observed preset-of transition (including the option-C select-hold → `manual` flip when its settled legs drift). No ecobee zone is in `hvac_s10_rollout_zone_ids` today so impact is LOW; a future ecobee rollout should re-evaluate the delay against ecobee's own setpoint-settle latency. "Harmless no-op" wording struck. |
 
 ---
 
-## Falsifiable invariant (what Rev 2 guarantees)
+## Falsifiable invariant (what Rev 3 guarantees)
 
-> **INV-S10-SETTLE:** For any zone `Z` whose OBSERVED preset
-> (`preset_mode` or `hold_activity`) transitioned within
-> `S10_POST_PRESET_CHANGE_SETTLE_S` of the current cycle time, S10 performs
+> **INV-S10-SETTLE:** For any zone `Z` whose readable `(preset_mode, hold_activity)`
+> observation transitioned within `S10_POST_PRESET_CHANGE_SETTLE_S` of the current
+> cycle time (as recorded on `ZoneState.last_observed_preset_change`), S10 performs
 > **zero** of each of: (i) a `strategy.set_preset_range` emission (`site ∈
 > {S10_preset_range, S10_preset_range_restore}`); (ii) a `_s10_snapshots[Z][preset]`
 > capture; (iii) an increment of `_s10_records[Z][preset|mode].failures`. The next
 > S10 wire opportunity is the first full tick ≥ (observed-transition-ts + settle).
 
-> **INV-S10-LATCH-RESET:** For any (Z, preset, mode), a `WriteStatus.APPLIED` or
-> `WriteStatus.SKIPPED_ALREADY_CORRECT` on the record ALSO resets
-> `rec["failures"] = 0`, so a rare transient local-raise (e.g. unresolvable
-> activity during a Carrier transition) can never accumulate across preset
-> segments to the `S10_PRESET_RANGE_UNCONFIRMED_LIMIT` latch.
+> **INV-S10-LATCH-RESET (R2 restated):** For any (Z, preset, mode), a call to
+> `_s10_success` — which runs on **`WriteStatus.SKIPPED_ALREADY_CORRECT`** at
+> `hvac.py:4707` AND on the limit-matching view path near `hvac.py:4596` — ALSO
+> resets `rec["failures"] = 0`. APPLIED (`hvac.py:4686-4704`) is a wire return and
+> does NOT reset failures (operator ruling A4 preserved). A rare transient local-raise
+> can therefore accumulate across preset segments only if it never alternates with a
+> confirmed success; the alternating-raise/APPLIED defeat path is accepted and
+> covered by the limit-view not_sticking latch at :4590.
+
+> **INV-S10-SETTLE-OBSERVABLE (R4 discharge):** For any rollout zone `Z` whose
+> `last_observed_preset_change` has been continuously < `S10_POST_PRESET_CHANGE_SETTLE_S`
+> stale (re-armed before expiring) for ≥ `S10_SETTLE_HELD_WARN_S`, exactly one
+> anomaly fires per calendar day with `type="s10_settle_held", zone_id=Z`.
 
 Falsifiers (any reachable path):
 1. A `set_activity_setpoint` call at site `S10_*` for Z whose
-   `ts_issued − _zone_last_observed_preset_change[Z].ts <
+   `ts_issued − zone.last_observed_preset_change <
    S10_POST_PRESET_CHANGE_SETTLE_S`.
 2. A snapshot capture at `hvac.py:4541-4544` for (Z, preset) under the same window.
 3. A failure increment at `hvac.py:4714` under the same window.
-4. A record with `failures > 0` after `_s10_success` ran.
+4. A record with `failures > 0` after `_s10_success` has run on it.
+5. A rollout zone held in settle > 4 h without an anomaly.
 
 ---
 
-## Chosen fix shape — operator shape **(a) + (b)**, with (b) using an OBSERVED anchor
+## Chosen fix shape — operator shape **(a) + (b)**, with (b) using an OBSERVED anchor on `ZoneState`
 
-**Marginal-benefit decomposition** (`feedback_marginal_benefit_pushback.md`):
+Rev 2's decomposition stands (simplest-only (a) does not cover snapshot poisoning;
+simplest-only (b) does not cover the alternating-raise latch creep; (a) + (b)
+together close both for one extra assignment + one observer + one constant + one
+skip-step + one trip-wire). The only shape change in Rev 3 is R1: the observed
+anchor lives on `ZoneState`, not on the coordinator — one dataclass extension and
+two new field reads in `update_zone_climate_state`, no coordinator back-reference.
 
-- **Simplest-only (a) — reset failures on success.** Benefit: closes the slow march
-  to the 3-strike `call_failed` latch on zone_3 (today's observable harm). Risk:
-  trivial (one write-site, same scope). Does **not** address snapshot poisoning
-  for zones 1 + 2 rollout — the first visit to a preset *during* the staleness
-  window can still persist a wrong "original" into
-  `_s10_snapshots[Z][preset]` (`hvac.py:4541`), and that snapshot is **never
-  overwritten** on later visits (step 9 captures only if the key is absent).
-  Later restore (switch OFF, or ruling A6 removal) would write the wrong range
-  into the device profile. Insufficient on its own.
-- **Simplest-only (b) — observed-transition settle gate.** Benefit: prevents the
-  stale read AND the snapshot capture AND (because no wire call fires) the
-  failure increment. Covers ALL writers via the OBSERVED anchor, not just S1
-  (F5). Risk: one new RAM-only observer in `hvac_zones.update_zone_climate_state`
-  — small, well-contained, uses the already-read `preset_mode`/`hold_activity`
-  values. Does **not** address the rare path where a local raise still happens
-  AFTER the window expires (e.g. a longer-than-measured transition, or an
-  unrelated transient during a periodic tick) — a single such raise is harmless,
-  but three in a row across preset segments still latches because failures never
-  clear.
-- **(a) + (b) together.** Benefit: both the slow latch creep AND the stale read
-  AND the snapshot poisoning risk are closed. The marginal cost of adding (a) on
-  top of (b) is ONE additional assignment in `_s10_success` (`rec["failures"] =
-  0` next to the existing `rec["writes"] = 0`). The marginal cost of adding (b)
-  on top of (a) is one observer + one constant + one skip-matrix step. Both are
-  additive, Rung-1, no new signal, no new NM, no new persisted state. **Chosen:
-  (a) + (b).** The two-piece defence buys the invariant pair above with no
-  measurable ingredient-risk escalation.
-
-### Why (b)'s anchor is OBSERVED, not S1 (resolving F5)
-
-The failure site is the Carrier post-transition read-staleness window. It opens
-on *any* preset-change wire call that completes against the thermostat —
-URA-originated (S1, S4 arrester revert, S7 restore, excursion `_auto_return`,
-AC-reset `_restore_after_reset`, egress resume, S11/S13), or external (human in
-the app, wall-mounted change, Bryant schedule — zones 2/3 still run schedules
-per state-of-play §5). Anchoring on `_zone_last_s1_write` would silently exclude
-every non-S1 writer; the observer approach keys off the fact itself.
-
-The observer is a one-liner in `hvac_zones.update_zone_climate_state` (the
-existing per-tick zone-climate-state refresh): when the newly-read
-`preset_mode` or `hold_activity` differs from the previous RAM copy, stamp
-`self._zone_last_observed_preset_change[zone_id] = (prev, new, utcnow())`.
-The map lives on the coordinator (next to `_zone_last_s1_write`). Reload /
-boot: empty map (correct — no settle needed until a transition is observed).
-
-### Why **600 s**, not 120 s and not 300 s (resolving F2/Q3)
+### Why **600 s** (unchanged from Rev 2)
 
 - Observed staleness in the one measured incident: **422 s**.
-- A single full periodic tick is 300 s; the first observable "retry would run"
-  tick after a preset change can land at 300 s + jitter, so a window shorter
-  than 300 s is useless by construction.
+- A single full periodic tick is 300 s; a window < 300 s is useless by construction.
 - `SUPPRESS_TTL_SECONDS_PRESET` (120 s) is unrelated semantics (arrester echo
-  suppression on OUR writes against the climate entity). Coupling them was
-  Rev 1's F7 error.
-- 600 s = 422 s observed + a ~180 s margin to cover the next tick's jitter and
-  Carrier's own 42-79 s status-refresh variance observed in §5 of the
-  state-of-play. If future measurements show the stale window reaching 500+ s
-  routinely, raise to 900 s; if it never exceeds 300 s across a representative
-  sample post-ship, drop to 450 s. The constant is the knob.
-- Numbers-get-knobs: Rung 1 (module constant), per
-  `feedback_marginal_benefit_pushback.md` — this governs a Carrier API-rate /
-  read-staleness bound, not a user policy. Operator tuning requires a code
-  review by design.
+  suppression); coupling them was Rev 1's F7 error.
+- 600 s = 422 s observed + ~180 s margin for next-tick jitter + Carrier's
+  status-refresh variance (§5 state-of-play).
+- Q3 revisit criteria unchanged.
+- Numbers-get-knobs: Rung 1 (module constant). Carrier API read-staleness bound;
+  change requires review.
+
+### Why N = **4 h** for the trip-wire (R4 justification)
+
+- Covers one full nudge cycle (~25 min × ~9 transitions ≈ 3.75 h) + two Bryant
+  schedule block transitions (hourly) without false-firing on legitimate flapping
+  windows (zones with nudges + a working schedule).
+- Shorter (e.g. 1 h) would fire routinely on healthy nudge chatter; longer (e.g.
+  12 h) would let a silent zone-held-all-day go unobserved.
+- Rung 1 (module constant, `S10_SETTLE_HELD_WARN_S = 14_400`), grep-able; revisit
+  by card after one week of post-ship observation if ≥10% of rollout days fire
+  the anomaly.
 
 ---
 
-## Institutional context verified (Rev 2)
+## Institutional context verified (Rev 3)
 
-### Code locations surveyed (end-to-end)
+### Code locations surveyed (end-to-end, re-verified against `develop @ 05314a3c4`)
 
 - `custom_components/universal_room_automation/domain_coordinators/hvac.py`
-  - S10 surface (unchanged from Rev 1): `_async_apply_preset_overrides`
-    (`:4173`), `_s10_pass` (`:4439`), `_s10_zone_skip_reason` (`:4364`),
-    `_s10_desired` (`:4409`), `_s10_write_one` (`:4521`),
-    `_s10_original_differs` (`:4738`), state wiring (`:750-767`).
+  - S10 surface: `_async_apply_preset_overrides` (`:4173`), `_s10_pass` (`:4439`),
+    `_s10_zone_skip_reason` (`:4364`), `_s10_desired` (`:4409`),
+    `_s10_write_one` (`:4521`), `_s10_original_differs` (`:4738`),
+    `_s10_success` (`:4766-4794`), APPLIED record step at `:4686-4704`,
+    SKIPPED_ALREADY_CORRECT branch at `:4707`, limit-view success near `:4596`,
+    FAILED/`emit_raised` increment at `:4713-4722`, latch at `:4719`.
   - `_zone_last_s1_write` surface: declared `:631`; writer `:3929-3933`; cycle
-    seed consumer `:2258-2261` (**ADDED** per F1); away-edge consumer `:5594`
-    (**ADDED** per F1).
-  - **Observer-site target:** `hvac_zones.py`
-    `ZoneManager.update_zone_climate_state` is where `preset_mode` /
-    `hold_activity` are refreshed each tick; the per-zone RAM dict the gate
-    reads is written adjacent to that refresh.
-  - **§9.7 → §9.9 stale comment references in code:** `hvac.py` ~3938 and
-    ~5593 (both say "§9.7" in a docstring/comment; §9.7 is now the CPR
-    blockers section and §9.9 is the Zone 1 away feed-split).
+    seed consumer `:2258-2261`; away-edge consumer `:5594`.
+  - Boot refresh of zone climate states: `:1555` (moves `preset_mode` off `""`).
+  - **§9.7 → §9.9 stale code-comment references:** `hvac.py` ~3938 and ~5593.
+- `custom_components/universal_room_automation/domain_coordinators/hvac_zones.py`
+  - `ZoneState` dataclass: `:127-179` (fields target: three new fields immediately
+    after the current/target block ending `:143`).
+  - `ZoneManager.__init__`: `:279` (NO coordinator reference — this is why Rev 3
+    keeps the stamp on `ZoneState`, R1).
+  - `update_zone_climate_state`: `:651-670` (observer target; `hold_activity`
+    is NOT read today — verified `grep hold_activity hvac_zones.py` = 0).
+  - `unavailable` early return: `:658` (preserves prev copy — correct under R3).
 - `custom_components/universal_room_automation/domain_coordinators/hvac_strategy.py`
   — `GenericStrategy.set_preset_range` (`:543`); `CarrierStrategy._confirmed_on`
-  (`:654`); `preset_range_original` (`:666`); `set_preset_range` (`:692`).
+  (`:654`); `preset_range_original` (`:666`); `set_preset_range` (`:692`);
+  `preset_of_for` (adapter projection used at `hvac_zones.py:666`).
 - `custom_components/universal_room_automation/domain_coordinators/hvac_const.py`
-  — S10 constants `:1566`-`:1594`.
+  — S10 constants `:1566`-`:1594`; `S10_PRESET_RANGE_UNCONFIRMED_LIMIT` for the
+  latch at `_s10_latch`.
 - **Upstream (ha_carrier) referenced for mechanism only, not modified:**
-  `carrier_api/climate.py:222-240` (setpoint source `_current_activity()`
-  → `_status_zone` fallback); `climate.py:551-553` ("Current activity
-  unavailable" local raise); `carrier_api/config.py:197-218`
-  (`current_status_activity` returns None on status-type / `api_id`
-  mismatch).
+  `carrier_api/climate.py:222-240`, `climate.py:551-553`, `carrier_api/config.py:197-218`.
 
 ### Design docs read COMPLETELY
 
 - `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` — mandatory, re-read
-  after commit `1480811ba`. §4.2 S10 row carries the Rev 2 residual with the
-  UNVERIFIED mechanism marker; §5 Carrier status-vs-config feed is the
-  mechanism anchor; §10 corrections ledger C37 is the Rev 1 → Rev 2 record.
-- `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` — not applicable (no
-  identity surface).
+  after commit `1480811ba`. §4.2 S10 row carries the UNVERIFIED mechanism marker;
+  §5 Carrier status-vs-config feed is the mechanism anchor; §9.9 is the Zone 1
+  away feed-split (R4 context); §10 corrections ledger C37 is the Rev 1 → Rev 2
+  record. Rev 3 does not require a state-of-play edit — the Rev 2 wording
+  (UNVERIFIED mechanism, two reachable paths) still describes the deployed
+  surface correctly.
+- `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` — not applicable.
 
-### Prior-art scan (REUSE vs NEW) — Rev 2 additions
+### Prior-art scan (REUSE vs NEW) — Rev 3 revisions
 
 | Proposal | Verdict | Where / why |
 |---|---|---|
-| Per-zone **observed-preset-change** timestamp | **NEW (minimal)** | No existing map keys off `preset_mode` / `hold_activity` transitions. `_zone_last_s1_write` (`hvac.py:631`, writer `:3929-3933`, consumers `:2258-2261`, `:5304`, `:5594`) is S1-only and would miss every non-S1 writer (F5). The new map is RAM-only, written in `hvac_zones.update_zone_climate_state` next to the existing per-tick refresh. |
-| Settle window constant `S10_POST_PRESET_CHANGE_SETTLE_S` | **NEW** | Rung 1 in `hvac_const.py`, default **600 s**, NOT aliased to `SUPPRESS_TTL_SECONDS_PRESET` (F7). Named so a future tuning is grep-able. |
-| Skip-matrix step `post_preset_change_settle` | **NEW** | Returned by `_s10_zone_skip_reason` (first check after step 0.5 `climate_unreadable`, BEFORE step 3 `s1_same_tick` — so the OBSERVED gate strictly dominates the shorter S1-only gate). New `_s10_last_outcome` row with `status="skipped"`, `reason="post_preset_change_settle"`. |
-| Reset `rec["failures"] = 0` on `_s10_success` | **NEW (shape (a))** | `_s10_success` (`hvac.py:4766-4779`) currently resets only `writes`. One additional line. |
-| Snapshot-capture gate under settle | **REUSE (D1 covers it)** | The new skip-matrix step short-circuits `_s10_pass` for the whole tick, so step 9 (`:4536-4544`) is unreachable while settle is armed. No separate gate needed. |
-| Operator-tunable knob | **NEW — rejected** | Carrier read-staleness bound; change requires review per Numbers-Get-Knobs. |
-| Ledger / NM channel | **REUSE** | Debug via existing `_LOGGER.debug("S10 %s: zone %s skipped (%s)", …)`; no new NM. |
+| Per-zone **observed-preset-change** timestamp on `ZoneState` | **NEW (minimal)** | Three fields added to the existing `ZoneState` dataclass at `hvac_zones.py:127-143` — no coordinator map, no back-reference (R1). Written in `update_zone_climate_state` next to the existing `preset_mode` read. `hold_activity` is read as the raw climate attribute (brand-neutral, Generic/ecobee return `""` and are sentinel-skipped). |
+| Settle window constant `S10_POST_PRESET_CHANGE_SETTLE_S` | **NEW** | Rung 1 in `hvac_const.py`, default **600 s**, NOT aliased to `SUPPRESS_TTL_SECONDS_PRESET` (F7). |
+| Trip-wire constant `S10_SETTLE_HELD_WARN_S` | **NEW (R4)** | Rung 1 in `hvac_const.py`, default **14_400 s (4 h)**. Discharges the suppression per `feedback_suppression_needs_discharge.md`. |
+| Skip-matrix step `post_preset_change_settle` | **NEW** | Returned by `_s10_zone_skip_reason`, inserted **after step 0.5 `climate_unreadable` and BEFORE step 3 `s1_same_tick`** so the OBSERVED gate strictly dominates the shorter S1-only gate. T19 proves the ordering by source mutation (R6). |
+| Reset `rec["failures"] = 0` on `_s10_success` | **NEW (shape (a), R2)** | ONE additional line at `hvac.py:4779` next to `rec["writes"] = 0`. Runs on `SKIPPED_ALREADY_CORRECT` (:4707) AND limit-matching view (near :4596) — NOT on APPLIED. Operator ruling A4 preserved. |
+| Diagnostic surface `s10_settle_held_s` + once-per-day anomaly | **REUSE (R4)** | Extend existing `get_s10_diagnostics()` with the field; dispatch through the existing anomaly bus (new `type="s10_settle_held"`), no new NM channel. |
+| Snapshot-capture gate under settle | **REUSE (D1 covers it)** | Skip-matrix short-circuits `_s10_pass` for the whole tick; step 9 (`:4536-4544`) unreachable while settle is armed. |
+| Operator-tunable knob | **REJECTED** | Rung-1 per Numbers-Get-Knobs; change requires review. |
 
 ### Prior planning docs consulted
 
-- `docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md` REV 5 (parent CPR
-  plan): §3.2 skip matrix (steps 0.5-5) and §6.2 rate/latch model are the
-  moving parts Rev 2 extends.
-- `docs/planning/PLANNING_hvac_w1c_p2_ecobee.md`: the ecobee adapter stores
-  URA-side ranges (`effective_range` is the oracle); the Rev 2 gate is a
-  no-op harmless skip for ecobee zones. No adapter branch required.
+- `docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md` REV 5: §3.2 skip
+  matrix (steps 0.5-5) and §6.2 rate/latch model.
+- `docs/planning/PLANNING_hvac_w1c_p2_ecobee.md`: ecobee stores URA-side ranges;
+  Rev 3 gate **delays** (not "no-ops") an ecobee S10 pass on an option-C select
+  hold → `manual` flip (R7). No ecobee zone is in rollout.
 
 ### Memory bodies pulled
 
-- `feedback_measure_before_build.md` — gated this entire Rev 2.
-- `feedback_marginal_benefit_pushback.md` — (a) vs (b) vs (a)+(b) decomposition.
+- `feedback_measure_before_build.md` — gated this whole arc.
+- `feedback_marginal_benefit_pushback.md` — (a) + (b) decomposition stands.
+- `feedback_suppression_needs_discharge.md` — forces the R4 trip-wire.
+- `feedback_hollow_test_anchors.md` — forces T19 source-mutation, forces T12 drop.
+- `feedback_wire_in_anchor_mandatory.md` — forces T15 (observer wire-in).
 - `feedback_tier2plus_prior_art_scan.md`, `feedback_config_first_before_code.md`,
-  `feedback_falsify_before_asserting.md`, `feedback_hollow_test_anchors.md`,
-  `feedback_coincidental_equality_masks_concept_split.md` (F7) all applied.
-- `project_v5_5_0_inclement_weather_shipped.md`,
-  `project_envoy_boot_incident_2026_06_12.md` — unrelated, consulted for completeness.
+  `feedback_falsify_before_asserting.md`,
+  `feedback_coincidental_equality_masks_concept_split.md` (F7),
+  `feedback_no_soak.md` (R4 trip-wire not soak watch) all applied.
 
 ### Config-first ruling (unchanged)
 
-No live knob fixes this. The relevant tunables (`S10_PRESET_RANGE_MIN_SPACING_S`
-= 600 s, `S10_PRESET_RANGE_MIN_INTERVAL_S` = 7800 s, `SUPPRESS_TTL_SECONDS_PRESET`
-= 120 s) are rung-1 constants and address a different concern (rate / latch /
-echo). The defect is a per-zone, per-observed-preset-change read-staleness
-window, which no existing knob gates.
+No live knob fixes this. `S10_PRESET_RANGE_MIN_SPACING_S` = 600 s and
+`S10_PRESET_RANGE_MIN_INTERVAL_S` = 7800 s address rate / latch, not post-write
+read-staleness.
 
 ---
 
@@ -272,64 +235,47 @@ window, which no existing knob gates.
 **Producer.** `CarrierStrategy.preset_range_original` (`hvac_strategy.py:666-680`)
 reads `obs.target_low` / `obs.target_high` off the climate entity. Per §5 of the
 state-of-play, HA's `target_temp_{low,high}` come from `_current_activity()`
-(`ha_carrier/climate.py:222-230`), the CONFIG activity named by the status feed;
-when `_current_activity()` returns None, HA falls back to `_status_zone` (the
-stale status setpoints). `async_set_activity_setpoint` (`ha_carrier/climate.py:
-551-553`) raises `HomeAssistantError("Current activity unavailable")` under the
-same None condition. `current_status_activity()` (`carrier_api/config.py:
-197-218`) returns None when the status activity type has no matching config
-entry or when `api_id` mismatches between status and config.
+(`ha_carrier/climate.py:222-230`); when `_current_activity()` returns None, HA
+falls back to `_status_zone`. `async_set_activity_setpoint`
+(`ha_carrier/climate.py:551-553`) raises `HomeAssistantError("Current activity
+unavailable")` under the same None condition. `current_status_activity()`
+(`carrier_api/config.py:197-218`) returns None on type / `api_id` mismatch
+between status and config.
 
 **Consumer.** `_s10_write_one` (`hvac.py:4521`) calls
 `strategy.preset_range_original` at step 9 (`:4537`) to capture a snapshot, and
 again just before the wire call (`:4637`) as a no-await re-check. Both reads
-pass through `_current_activity()`. The `_confirmed_on` gate
-(`hvac_strategy.py:654-664`) requires both `preset_mode == preset` AND
-`hold_activity == preset`; it does NOT measure setpoint-leg freshness.
+pass through `_current_activity()`.
 
-**Effect (revised per probe).** On the first *full periodic* tick after a
-preset change (300 s + jitter), S10 reaches `_s10_write_one`. If the Carrier
-post-transition window has not closed, two reachable outcomes:
+**Effect (revised per probe).** On the first *full periodic* tick after a preset
+change (300 s + jitter), S10 reaches `_s10_write_one`. If the Carrier
+post-transition window has not closed, two reachable outcomes (both UNVERIFIED):
 
-1. **Stale legs + landed write** (NOT observed in the probe — hypothesised, not
-   demonstrated). `_current_activity()` returns the CONFIG activity whose
-   setpoints match the new preset, but HA's cache for `target_temp_{low,high}`
-   has not refreshed on the ATTRIBUTE side yet. P4 compare mismatches, S10
-   emits, write LANDS. Mechanism UNVERIFIED.
+1. **Stale legs + landed write** (hypothesised, not demonstrated).
 2. **Unresolvable activity + rejected write** (observed on 2026-10-14; n=1).
-   `current_status_activity()` returns None → `_current_activity()` is None →
-   HA attribute setpoints fall back to the stale `_status_zone` values AND
-   `async_set_activity_setpoint` locally raises
-   `HomeAssistantError("Current activity unavailable")` in ~0.3 ms. S10 records
-   a FAILED/`emit_raised` → `rec["failures"] += 1`. The next successful
-   APPLIED on the same (zone, preset, mode) resets `writes` but NOT
-   `failures` (`hvac.py:4766-4779`), so the counter persists until the value
-   changes.
 
 **Harm (expanded per F4).**
 
-1. **Failure-counter latch.** `_s10_success` resets `writes` only. Three
-   consecutive transient local-raises *across preset segments* (not within one)
-   accumulate to `S10_PRESET_RANGE_UNCONFIRMED_LIMIT = 3` and trigger a
-   `call_failed` latch + NM; S10 stops managing that (zone, preset) until the
-   value changes or operator intervention. Live store at probe time:
-   `zone_3 away|apply failures: 1`. 2 more rare transients + no value change
-   latches it.
-2. **Snapshot poisoning.** `_s10_write_one` step 9 (`hvac.py:4536-4544`)
-   captures the "original" range only once per (zone, preset) and never
-   overwrites it. If the *first-ever* visit to a (zone, preset) happens while
-   the legs are stale, the PREVIOUS preset's range is persisted as that
-   preset's device original. Later restore (switch OFF or ruling A6 rollout
-   removal) then writes the wrong range into the Carrier profile. Zone_3
-   snapshots are correct (dated 2026-10-13, pre-stale-event). This harm is
-   reachable on **zones 1 + 2 at CPR rollout** — exactly when the fix matters.
-3. **False drift signal.** Every FAILED/`emit_raised` row is a
-   `climate_write` anomaly carrying `wire_ok=false` in `details_json`;
-   dashboards and anomaly detectors see this as adapter drift.
+1. **Failure-counter latch.** Three consecutive transient local-raises *across
+   preset segments* accumulate to `S10_PRESET_RANGE_UNCONFIRMED_LIMIT = 3`
+   → `call_failed` + NM; S10 stops managing. Live store at probe:
+   `zone_3 away|apply failures: 1`. Under Rev 3, failures reset only on a
+   CONFIRMED success (SKIPPED_ALREADY_CORRECT or limit-matching view) —
+   operator ruling A4 preserved.
+2. **Snapshot poisoning.** First-ever visit to a (zone, preset) during the
+   staleness window persists the PREVIOUS preset's range as this preset's device
+   original (`hvac.py:4536-4544`, no overwrite). Reachable on zones 1 + 2 at
+   CPR rollout.
+3. **False drift signal.** FAILED/`emit_raised` rows carry `wire_ok=false`,
+   dashboards see adapter drift.
 
-Base-rate: **1 / 544** zone_3 preset segments since 2026-10-01 exhibited this
-pattern. Rare, but a 3-strike cumulative latch does not need frequency — it
-needs persistence.
+**Within-pass invisibility (R4).** The observer runs once per
+`_async_apply_preset_overrides` tick; an A→B→A flip inside one pass is invisible.
+Accepted — S10 only runs on full ticks, and the staleness window is scoped to
+*observed* transitions.
+
+**Base rate: 1 / 544** zone_3 preset segments since 2026-10-01. Rare, but the
+3-strike cumulative latch does not need frequency — it needs persistence.
 
 ---
 
@@ -337,82 +283,115 @@ needs persistence.
 
 ### D1 — Per-zone post-observed-preset-change S10 settle (shape (b))
 
-**Change 1 (observer, new RAM map).** In
-`hvac_zones.ZoneManager.update_zone_climate_state`, when the newly-read
-`preset_mode` or `hold_activity` differs from the previous RAM copy, call the
-coordinator with the transition: `coordinator._note_observed_preset_change(
-zone_id, prev_preset, new_preset, utcnow())`. The coordinator-side method
-writes `self._zone_last_observed_preset_change[zone_id] = (prev, new, ts)`.
-RAM-only; boot/reload = empty (correct; no settle until a transition is
-observed).
+**Change 1 (ZoneState fields, NEW).** In `hvac_zones.py:127-143`, add to the
+`ZoneState` dataclass immediately after the current/target block (:143):
 
-**Change 2 (skip-matrix step, additive).** Extend `_s10_zone_skip_reason`
-(`hvac.py:4364`) with a NEW check inserted **after step 0.5
-`climate_unreadable` and BEFORE step 3 `s1_same_tick`**: return
-`"post_preset_change_settle"` when
-`_zone_last_observed_preset_change.get(zone_id)` exists AND `(now - ts) <
-S10_POST_PRESET_CHANGE_SETTLE_S`. Fail-closed on exception (treat as settle).
-The pre-call re-check at `_s10_write_one:4664` already re-runs the full skip
-matrix, so the gate also catches a settle that armed during the write-ahead
-save await.
+```python
+# S10 observed-preset-change observer (R1):
+# brand-neutral prev copies for the stamp decision. "" and "unknown"
+# are treated as unreadable (R3): neither updates the prev copy nor
+# stamps. First readable observation seeds without stamping.
+prev_preset_mode: str = ""
+prev_hold_activity: str = ""
+last_observed_preset_change: datetime | None = None
+```
 
-**New constant** `hvac_const.py`:
+**Change 2 (observer wire-in, in `update_zone_climate_state`).** At
+`hvac_zones.py:651-670`, after the existing `zone.preset_mode = preset_of_for(...)`
+at :666, add the raw `hold_activity` read and the stamp decision:
+
+```python
+new_preset = zone.preset_mode  # already W1-C P2 projected
+new_hold = state.attributes.get("hold_activity", "") or ""
+_UNREADABLE = ("", "unknown")
+if new_preset not in _UNREADABLE and new_hold not in _UNREADABLE:
+    if zone.prev_preset_mode == "" and zone.prev_hold_activity == "":
+        # First readable observation — seed, do not stamp (R3).
+        zone.prev_preset_mode = new_preset
+        zone.prev_hold_activity = new_hold
+    elif (new_preset != zone.prev_preset_mode
+          or new_hold != zone.prev_hold_activity):
+        zone.last_observed_preset_change = dt_util.utcnow()
+        zone.prev_preset_mode = new_preset
+        zone.prev_hold_activity = new_hold
+# else: unreadable observation — leave prev / stamp untouched (R3).
+```
+
+RAM-only; survives config-entry reload only because `ZoneManager` is re-created
+(same lifecycle as `_hvac_armed`). Boot/reload = fields at dataclass defaults
+(correct: no settle until a readable transition).
+
+**Change 3 (skip-matrix step, additive).** Extend `_s10_zone_skip_reason`
+(`hvac.py:4364`) with a NEW check inserted **after step 0.5 `climate_unreadable`
+and BEFORE step 3 `s1_same_tick`**: return `"post_preset_change_settle"` when
+`zone.last_observed_preset_change is not None` AND `(now - zone.last_observed_preset_change)
+< timedelta(seconds=S10_POST_PRESET_CHANGE_SETTLE_S)`. Fail-closed on exception
+(treat as settle). The pre-call re-check at `_s10_write_one:4664` already re-runs
+the full skip matrix, so the gate catches a settle armed during the write-ahead
+save await. T19 (source mutation) is the regression anchor for the ordering vs.
+`s1_same_tick`.
+
+**Change 4 (new constants) in `hvac_const.py`:**
 
 ```python
 # S10 defers for one Carrier post-write staleness window after any
-# OBSERVED preset transition on the zone (any writer: S1, arrester,
-# S7 restore, AC-reset, egress, excursion, S11/S13, human, Bryant
-# schedule). Prevents a stale status-feed read of target_low/high
-# AND the matching unresolvable-activity local raise from driving a
-# redundant or doomed set_preset_range AND from poisoning a first-visit
-# snapshot. NOT the same semantic as SUPPRESS_TTL_SECONDS_PRESET
-# (arrester echo on URA's own writes); do not couple them. Rung 1 —
-# measured against the 2026-10-14 incident (422 s stale window).
+# OBSERVED (preset_mode | hold_activity) transition on the zone
+# (any writer: S1, arrester, S7 restore, AC-reset, egress, excursion,
+# S11/S13, human, Bryant schedule). Prevents a stale status-feed read
+# of target_low/high AND the matching unresolvable-activity local
+# raise from driving a redundant or doomed set_preset_range AND from
+# poisoning a first-visit snapshot. NOT the same semantic as
+# SUPPRESS_TTL_SECONDS_PRESET (arrester echo on URA's own writes);
+# do not couple them. Rung 1 — measured against the 2026-10-14
+# incident (422 s stale window).
 S10_POST_PRESET_CHANGE_SETTLE_S: Final = 600  # seconds
+
+# R4 discharge: a rollout zone whose observed-preset-change stamp has
+# been continuously < S10_POST_PRESET_CHANGE_SETTLE_S stale for this
+# long trips an anomaly (type="s10_settle_held"), at most once per
+# zone per calendar day. Covers a full nudge cycle + two Bryant
+# schedule block transitions without false-firing on legitimate flap.
+S10_SETTLE_HELD_WARN_S: Final = 14_400  # 4 h
 ```
 
-**No new knob, no new NM, no new persisted state.**
+**Change 5 (trip-wire).** Extend the existing per-tick `get_s10_diagnostics()`
+surface with `s10_settle_held_s` per rollout zone. Add a once-per-day latch
+(`_s10_settle_held_fired_on: dict[str, date]` on the coordinator) and dispatch
+one anomaly via the existing anomaly bus when a rollout zone exceeds the warn
+threshold. The latch clears when the zone goes a full S10 tick without
+`last_observed_preset_change` being advanced.
 
-### D2 — Reset `rec["failures"] = 0` on `_s10_success` (shape (a))
+**No new NM channel, no new persisted state.**
 
-**Change.** In `_s10_success` (`hvac.py:4766`), add `rec["failures"] = 0`
-next to the existing `rec["writes"] = 0`. A legitimate successful outcome
-(APPLIED on current value, or SKIPPED_ALREADY_CORRECT, or a confirming view
-at the limit) discharges the whole retry budget, not just the writes
-counter. Rare transient raises (the one observed on 2026-10-14) cannot
-accumulate across preset segments.
+### D2 — Reset `rec["failures"] = 0` on CONFIRMED success (shape (a), R2)
 
-### D3 — Doc / comment corrections
+**Change.** In `_s10_success` at `hvac.py:4779`, add `rec["failures"] = 0`
+immediately after the existing `rec["writes"] = 0`. This path is called ONLY
+from (i) the `SKIPPED_ALREADY_CORRECT` branch at `hvac.py:4707` and (ii) the
+limit-matching view success path near `hvac.py:4596` — the two sites that
+constitute a CONFIRMED success per operator ruling A4. APPLIED at
+`hvac.py:4686-4704` does NOT call `_s10_success` and does NOT reset failures
+(by design). The record discharges its entire retry budget on confirmation.
 
-Code-side only this cycle (state-of-play was corrected in `1480811ba`):
+### D3 — Code-comment corrections
 
-- `hvac.py` line **~3938**: change the comment "§9.7 re-issue loop must not
-  re-anchor" to "§9.9 re-issue loop must not re-anchor" (the Zone 1 away
-  feed-split is now §9.9).
-- `hvac.py` line **~5593**: change the docstring "the §9.7 status feed can
-  misreport it" to "the §9.9 status feed can misreport it".
+- `hvac.py` line **~3938**: `§9.7` → `§9.9`.
+- `hvac.py` line **~5593**: `§9.7` → `§9.9`.
 
-If the state-of-play §4.2 S10 residual bullet or §10 C37 ledger text requires
-any adjustment post-review to align with Rev 2 (chiefly: "mechanism
-UNVERIFIED, n=1; latch creep + snapshot poisoning are the real harms"),
-apply it in the same commit as the build.
+If Review A/B/C identify a residual wording issue in state-of-play §4.2 or §10
+C37 that misaligns with Rev 3, patch it in the same build commit.
 
 ### Non-goals (explicit)
 
-- No change to adapter verbs (`set_preset_range`, `preset_range_original`,
-  `preset_range_would_write`).
-- No change to `_zone_last_s1_write` shape, writer, or any of its consumers
-  (`:2258-2261`, `:5304`, `:5594`).
-- No change to `_zones_written_this_cycle` seeding at `hvac.py:2258-2261`
-  (120 s S1 same-tick gate stays — it is a strict subset of the new gate's
-  dominance region).
-- No change to the ecobee adapter (D1 is a harmless upstream skip for ecobee
-  zones).
+- No change to adapter verbs.
+- No change to `_zone_last_s1_write` or any of its consumers.
+- No change to `_zones_written_this_cycle` seeding at `hvac.py:2258-2261`.
+- **No ecobee adapter change** — gate **delays** S10 on an ecobee option-C
+  select-hold flip; no ecobee zone is in rollout today (R7).
 - No persistence-schema change (`_s10_snapshots`, `_s10_records`,
   `.storage/universal_room_automation.hvac_zone_state` all untouched).
-- No restore-pass semantics change beyond the settle gate.
-- No new NM.
-- No fast-path change (fast_entry / fast_exit do not call S10).
+- No new NM channel; the anomaly rides the existing bus.
+- No fast-path change.
 
 ---
 
@@ -420,292 +399,267 @@ apply it in the same commit as the build.
 
 ### Discriminating assertions (per F6)
 
-Each unit test is written to produce a clearly different observation under
-"stale legs + landed write" vs. "unresolvable activity + rejected write" vs.
-"gate active". A test whose assertions pass under the no-op baseline is a
-hollow anchor and MUST be rewritten.
+Each unit test is written so its assertions distinguish the fix from the no-op
+baseline. A test whose assertions pass on `develop` is a hollow anchor and MUST
+be rewritten.
 
 ### Unit (`quality/tests/hvac/test_s10_post_preset_change_settle.py`, NEW)
 
-- **T1 (D1 — gate active):** with
-  `_zone_last_observed_preset_change[zone_id] = (prev, new, now - 300 s)`,
-  `_s10_zone_skip_reason(zone_id, zone)` returns
-  `"post_preset_change_settle"`. **FAIL on `develop`:** method has no such
-  branch.
-- **T2 (D1 — gate expired):** with the same stamp set to `now - 601 s`,
-  `_s10_zone_skip_reason` returns None (or whatever other step fires, but
-  NOT `"post_preset_change_settle"`).
-- **T3 (D1 — zero wire + zero capture):** gate active; `_s10_pass(mode=
-  "apply")` emits zero `strategy.set_preset_range` calls, writes zero
-  `climate_write` rows, AND makes no entry in `_s10_snapshots` for the
-  (zone, preset). Also assert no entry in `_s10_records[zone_id]
-  [preset|apply]`. **FAIL on `develop`:** today the apply pass can call
-  through step 9 and capture.
-- **T4 (D1 — restore mode):** gate active, snapshot exists; `_s10_pass(
-  mode="restore")` emits zero `strategy.set_preset_range` calls.
-- **T5 (D1 — pre-call re-check):** stamp armed between skip-matrix check
-  (`_s10_pass:4467`) and pre-call re-check (`_s10_write_one:4664`); the
-  pre-call `_stand_down` is `"post_preset_change_settle"` and no wire call
-  fires.
-- **T6 (D1 — sibling zone unaffected):** gate active on zone_3; zone_1
-  (no stamp) proceeds normally through `_s10_pass`.
-- **T7 (D1 — boot with empty map):** no entries in
-  `_zone_last_observed_preset_change`; `_s10_zone_skip_reason` behaves
-  identically to today for every zone (NOT a global skip).
+- **T1 (D1 — gate active):** `zone.last_observed_preset_change = now - 300 s`;
+  `_s10_zone_skip_reason` returns `"post_preset_change_settle"`. **FAIL on
+  `develop`:** no such branch.
+- **T2 (D1 — gate expired):** `zone.last_observed_preset_change = now - 601 s`;
+  returns None or any other reason, NOT `"post_preset_change_settle"`.
+- **T3 (D1 — zero wire + zero capture):** gate active; `_s10_pass(mode="apply")`
+  emits zero `strategy.set_preset_range` calls, writes zero `climate_write`
+  rows, no `_s10_snapshots[zone_id][preset]` entry, no
+  `_s10_records[zone_id][preset|apply]` entry. **FAIL on `develop`:** apply pass
+  reaches step 9 + captures.
+- **T4 (D1 — restore mode):** gate active, snapshot exists; `_s10_pass(mode=
+  "restore")` emits zero `strategy.set_preset_range` calls.
+- **T5 (D1 — pre-call re-check):** stamp armed between pass-level skip check
+  (:4467) and pre-call re-check (:4664); pre-call `_stand_down` is
+  `"post_preset_change_settle"`.
+- **T6 (D1 — sibling zone unaffected):** gate active on zone_3; zone_1 (no
+  stamp) proceeds normally.
+- **T7 (D1 — boot with no stamp):** `zone.last_observed_preset_change is None`;
+  `_s10_zone_skip_reason` behaves identically to today for every zone.
 - **T8 (D1 — observed anchor covers non-S1 writer):** stamp written by
-  the arrester's revert path (simulate: write to the observed map directly
-  via the ZoneManager observer, without touching `_zone_last_s1_write`);
-  the gate still fires. **FAIL on `develop`:** no map, no gate.
-- **T9 (D2 — failure reset on APPLIED):** record has
-  `failures=2, writes=0, value=V1`; value stays V1; adapter returns
-  `APPLIED`; after `_s10_success` the record has `failures=0, writes=0`
-  (REV 2 INV-S10-LATCH-RESET; writes reset is operator ruling A4 and
-  stays). **FAIL on `develop`:** `failures` stays 2.
-- **T10 (D2 — failure reset on SKIPPED_ALREADY_CORRECT):** same shape,
-  adapter returns `SKIPPED_ALREADY_CORRECT`; `failures=0` after.
-- **T11 (D2 — three transient raises WITHOUT D2 would latch):** on
-  `develop`-with-D1-only (D2 disabled), simulate three
-  FAILED/`emit_raised` across three preset segments with APPLIED writes
-  between them; the record reaches `latched=True / call_failed`. With D2
-  enabled, the record never latches: `failures=0` after each APPLIED.
-  **FAIL on `develop`:** latch triggers at the third raise.
-- **T12 (mechanism discrimination):** harness the Carrier adapter with
-  (i) `current_status_activity() = None` → set attempt raises
-  HomeAssistantError in-process + legs read falls back to `_status_zone`;
-  (ii) `current_status_activity() != None` + stale cached
-  `target_temp_{low,high}` → set attempt succeeds + legs still mismatched.
-  Assert `_s10_last_outcome` distinguishes the two: (i) =
-  `status="failed", reason="emit_raised"`; (ii) =
-  `status="applied", reason="possible_wrong_profile"` (if adapter sets
-  that) or similar. Documents the two reachable paths; both are gated
-  under settle.
-
-### Integration
-
-- **T13:** full `_async_apply_preset_overrides` cycle with a simulated
-  observed preset transition at `now - 60 s`; no `climate_write` row at
-  site `S10_preset_range` for the zone; next cycle at `now + 540 s`
-  (after settle expires) emits normally.
-- **T14:** switch OFF → restore pass; gate active → zero restore wire
-  calls; gate expired → restore proceeds (snapshot still correct).
+  simulating the arrester's revert path (set the stamp via a direct
+  `update_zone_climate_state` run with the preset flipped in `hass.states`);
+  gate fires without `_zone_last_s1_write` being set. **FAIL on `develop`:**
+  no field, no gate.
+- **T9 (D2 — failure reset on SKIPPED_ALREADY_CORRECT, R2):** record
+  `failures=2, writes=0`, value stays V1, adapter returns
+  `SKIPPED_ALREADY_CORRECT`; after `_s10_success` → `failures=0, writes=0`.
+  **FAIL on `develop`:** `failures` stays 2.
+- **T10 (D2 — failure reset on limit-matching view, R2):** limit-view path
+  near `:4596` matches the device value; `_s10_success` runs; `failures=0`
+  after. **FAIL on `develop`:** `failures` unchanged.
+- **T11 (D2 — three transient raises WITHOUT D2 would latch, APPLIED between
+  does NOT reset):** on `develop`-with-D1-only, three FAILED/`emit_raised` with
+  APPLIED between (NOT SKIPPED_ALREADY_CORRECT, per R2) → record latches.
+  With D1 + D2 enabled AND the APPLIED is a wire return, failures still
+  accumulate (A4 preserved); only a SKIPPED_ALREADY_CORRECT or limit-view match
+  resets. **FAIL on `develop`:** no settle gate on the raises — the three
+  raises happen on consecutive ticks and latch.
+- (Rev 2 T12 DROPPED per R6 — ha_carrier internals cannot be driven from URA
+  tests; mechanism discrimination moves to the falsifier runbook as a recorder
+  probe.)
+- **T13 (integration, unchanged):** full `_async_apply_preset_overrides` with a
+  simulated observed preset transition at `now - 60 s`; no `climate_write` row
+  at `site=S10_preset_range` for the zone; next cycle at `now + 540 s` emits
+  normally.
+- **T14 (integration, unchanged):** switch OFF → restore pass; gate active →
+  zero restore wire calls; gate expired → restore proceeds (snapshot still
+  correct).
+- **T15 (observer wire-in, NEW R6a):** `MockHVACZone` with a `hass.states.async_set`
+  target entity. Change `preset_mode` from `home` → `away` with `hold_activity`
+  constant; call `update_zone_climate_state(zone_id)`; assert
+  `zone.last_observed_preset_change` advanced AND `_s10_zone_skip_reason` returns
+  `"post_preset_change_settle"`. Then test the mirror: `preset_mode` constant,
+  `hold_activity` changing; stamp must still fire (R1). **FAIL on `develop`:**
+  fields do not exist.
+- **T16 (boot seed, NEW R6b / R3):** fresh `ZoneState`; first readable observation
+  `(preset_mode="home", hold_activity="home")` → `last_observed_preset_change is
+  None`, prev fields = `("home", "home")`. Second observation same → still None.
+  Third observation `(preset_mode="away", hold_activity="away")` → stamp set.
+  **FAIL on `develop`:** fields do not exist.
+- **T17 (unknown flap, NEW R6b / R3):** prev = `("home", "home")`; observation
+  with `preset_mode="unknown"` → prev unchanged, no stamp. Follow-up observation
+  `preset_mode="home"` → still no stamp. **FAIL on `develop`:** fields do not
+  exist.
+- **T18 (trip-wire, NEW R6c / R4):** advance `zone.last_observed_preset_change`
+  10 times at 23-min intervals across 4 h 1 min (each re-stamp within 600 s of
+  the previous); `get_s10_diagnostics()` surfaces `s10_settle_held_s >=
+  14_400`; the anomaly dispatcher recorded exactly one call with
+  `type="s10_settle_held"` for the zone; a second cross of the threshold on the
+  same calendar day does NOT fire. **FAIL on `develop`:** no diagnostics field,
+  no anomaly.
+- **T19 (skip-step ordering mutation, NEW R6d):** per-site source mutation —
+  comment out ONLY the `s1_same_tick` check in `_s10_zone_skip_reason`, leave
+  the settle check in place. Set up BOTH a `_zone_last_s1_write = now - 60 s`
+  AND `zone.last_observed_preset_change = now - 60 s`. Assert
+  `_s10_zone_skip_reason` returns `"post_preset_change_settle"`. Restore the
+  file. **FAIL on `develop`:** neither check exists.
 
 ### Sensor / outcome map
 
-- `get_s10_diagnostics()` outcome map carries `{status: "skipped",
-  reason: "post_preset_change_settle"}` for a settled tick on an eligible
-  zone.
+- `get_s10_diagnostics()` outcome map carries
+  `{status: "skipped", reason: "post_preset_change_settle"}` for a settled tick
+  on an eligible zone, AND an `s10_settle_held_s` per rollout zone whose stamp
+  is non-None.
 
-### Baseline + post-ship probe (SQL corrected per F8)
+### Baseline + post-ship probe
 
-**Pre-ship baseline (run on `develop` BEFORE deploy):**
-
-```sql
-SELECT
-  json_extract(details_json, '$.zone_id') AS zone,
-  json_extract(details_json, '$.site')    AS site,
-  COUNT(*) AS n,
-  SUM(CASE WHEN json_extract(details_json, '$.wire_ok') = 0 THEN 1 ELSE 0 END) AS failed
-FROM ura_activity_log
-WHERE action = 'climate_write'
-  AND json_extract(details_json, '$.site') IN
-      ('S10_preset_range', 'S10_preset_range_restore')
-  AND timestamp > datetime('now', '-14 days')
-GROUP BY zone, site;
-```
-
-Correlate to preset-change rows per zone in the same window:
-
-```sql
-SELECT
-  json_extract(details_json, '$.zone_id') AS zone,
-  COUNT(*) AS preset_changes
-FROM ura_activity_log
-WHERE action = 'preset_change'
-  AND timestamp > datetime('now', '-14 days')
-GROUP BY zone;
-```
-
-**Post-ship (same queries 7 and 14 days post-restart):** on zone_3 the ratio
-(S10 writes / preset changes) should drop meaningfully (the one 2026-10-14
-pattern should not recur), AND the count of S10 FAILED/`emit_raised` rows
-should be zero. On zones 1 + 2 (if rolled out in the same window), the ratio
-should start at ≤ 1 and no FAILED rows should appear.
+Pre-ship baseline SQL unchanged from Rev 2 (F8 corrected). On zone_3 post-ship
+the ratio (S10 writes / preset changes) should drop; S10 FAILED/`emit_raised`
+rows should be zero. On zones 1 + 2 (if rolled out in the same window), the
+ratio should be ≤ 1 and no FAILED rows.
 
 ### Live
 
 - On `develop` restart, within one full S1 cycle a preset change on zone_3
-  does NOT produce a `climate_write` with `site="S10_preset_range"` for the
-  following ≥ 600 s. Expect the next S10 wire attempt (if still needed) on
-  the first full tick ≥ `(observed_preset_change_ts +
-  S10_POST_PRESET_CHANGE_SETTLE_S)`.
-- Latch store: after any APPLIED write on an existing record with
-  `failures > 0`, the next persist shows `failures=0`.
+  produces NO `climate_write` with `site="S10_preset_range"` for ≥ 600 s
+  measured from the OBSERVED transition timestamp. **The effective delay from
+  the S1 write to the next S10 wire opportunity is ~15-20 min** (R5):
+  `+300 s next-tick observe + 600 s settle + up to 300 s to next tick`.
+- Latch store: after any CONFIRMED success (SKIPPED_ALREADY_CORRECT or
+  limit-matching view) on a record with `failures > 0`, next persist shows
+  `failures=0`. An APPLIED alone does NOT reset `failures` (A4).
+- Trip-wire: no rollout zone reports `s10_settle_held_s >= 14_400` under
+  normal operation; if one does, exactly one anomaly surfaces per zone per day.
 
 ### Falsifier runbook (per `feedback_falsify_before_asserting.md`)
 
 The acceptance observation that would REFUTE the fix: any `climate_write` row
-within `[preset_change_ts, preset_change_ts + S10_POST_PRESET_CHANGE_SETTLE_S]`
-for the same zone with `site LIKE 'S10_%'`. The post-ship probe above surfaces
-it directly.
+within `[observed_transition_ts, observed_transition_ts + S10_POST_PRESET_CHANGE_SETTLE_S]`
+for the same zone with `site LIKE 'S10_%'`. The post-ship probe surfaces it
+directly. Mechanism discrimination between "stale legs + landed write" and
+"unresolvable activity + rejected write" is harvested from
+`ha_carrier`-side logs post-restart (not from a URA test mock) — Review C
+decides whether a second occurrence is required before sign-off.
 
 ---
 
 ## Review tier + framings
 
-**Tier 2-DB (operator-elevated per CLAUDE.md "Operator-elevated Tier 2-DB" +
-standing policy on regression-prone work).** Trust-hierarchy ripple:
+**Tier 2-DB (operator-elevated).** Per the Rev 2 re-review R7, placing the
+stamp on `ZoneState` (R1) reduces the ripple vs. a coordinator back-reference,
+but D1 still introduces: a new per-tick observer in a shared primitive
+(`update_zone_climate_state`), a new skip-step inserted ahead of the pre-existing
+S1 same-tick gate, a new diagnostics attribute, and a new anomaly type.
+D2 changes failure-counter semantics on the confirmed-success path only.
+Mechanism remains PARTIAL (n=1).
 
-- D1 introduces a new RAM observer in `hvac_zones.update_zone_climate_state`
-  — a shared primitive consumed by every HVAC coordinator caller — and a new
-  skip-matrix step that sits *ahead* of the existing S1 same-tick gate. A
-  gate ordering mistake could silently prevent legitimate S10 restore after
-  an external preset flip.
-- D2 changes failure-counter semantics on `_s10_success`, which interacts
-  with the §6.2 rate/latch model AND with `_s10_last_outcome` consumers in
-  diagnostics.
-- Mechanism is still PARTIAL (n=1); the plan is right to be conservative.
+Three framing-disjoint reviews **in parallel**:
 
-Three framing-disjoint reviews **in parallel**, each with a distinct focus
-area (no overlap in blind spots):
-
-- **Review A — correctness + edge cases.** The settle predicate; skip-matrix
-  ordering (settle vs. the pre-existing `s1_same_tick`, `egress_paused`,
-  `person_protected`, `borrow_live`, `ac_reset`); observer behaviour when
-  `preset_mode` and `hold_activity` disagree mid-transition; pre-call
-  re-check path; the `failures` reset in `_s10_success` not clobbering
-  anything downstream (`_s10_latch`, `_s10_note_outcome` consumers,
-  diagnostics / NM); ecobee no-op path; D-LOW-2 generation guard still
-  correct.
-- **Review B — cross-coordinator + lifecycle + migration integrity.**
-  Boot/reload with empty observed map; a transition observed mid-await; a
-  user toggle of switch 01 during settle; interaction with the arrester's
-  own `SUPPRESS_TTL_SECONDS_PRESET` (climate-entity side, 120 s —
-  deliberately not shared); interaction with the Bryant schedule flipping a
-  preset on zones 2/3; migration: no persisted state changes, but confirm
-  the latch store rows with `failures > 0` get discharged correctly on the
-  first APPLIED post-upgrade (not retroactively latched); verify no
-  double-dispatch of a `preset_change` ledger row.
+- **Review A — correctness + edge cases.** Settle predicate; sentinel handling
+  (`""`, `"unknown"`, `"unavailable"` early return); skip-matrix ordering (T19
+  mutation anchor is the oracle); observer behaviour when `preset_mode` and
+  `hold_activity` disagree mid-transition; pre-call re-check path; D2 reset on
+  SKIPPED_ALREADY_CORRECT + limit-matching view ONLY (NOT APPLIED) — including
+  no clobber of `_s10_latch` / `_s10_note_outcome` / diagnostics consumers;
+  ecobee delay path (R7); D-LOW-2 generation guard still correct;
+  `_s10_settle_held_fired_on` latch clear criterion is correct.
+- **Review B — cross-coordinator + lifecycle + migration integrity.** Boot
+  with default fields (no stamp, no S10 hold); seed-vs-stamp rule on first
+  readable observation (R3); a transition observed mid-await (settle arms,
+  pre-call re-check at :4664 catches it); user toggle of switch 01 during
+  settle; interaction with the arrester's own `SUPPRESS_TTL_SECONDS_PRESET`
+  (deliberately not shared); Bryant schedule flipping a preset on zones 2/3
+  (should NOT trip the warn threshold under `infinite_holds`); migration: no
+  persisted state change — existing latch-store rows with `failures > 0`
+  discharge correctly on the first post-upgrade CONFIRMED success (not
+  retroactively latched); no double-dispatch of `preset_change` ledger rows;
+  anomaly bus wiring (type routing, once-per-day latch, latch clear).
 - **Review C — new surfaces + test fixture authority + adversarial
-  completeness (per F6).** Verify every acceptance test above actually
-  fails on `develop` (via per-site source mutation, not aggregate monkeypatch
-  — `feedback_hollow_test_anchors.md`); re-enumerate every S10 wire site AND
-  every writer that mutates `preset_mode` / `hold_activity` on a Carrier
-  zone (independent of the plan's list); state the falsifiable invariant in
-  its own words and attempt to break INV-S10-SETTLE and INV-S10-LATCH-RESET
-  from any reachable path including pre-existing code (not just the diff);
-  verify `get_s10_diagnostics()` round-trips the new outcome row.
+  completeness.** Verify every acceptance test fails on `develop` (per-site
+  source mutation, not aggregate monkeypatch); verify T15 drives
+  `update_zone_climate_state` via real `hass.states` changes (wire-in anchor);
+  verify T19 restores the file; re-enumerate every S10 wire site AND every
+  writer that mutates `preset_mode` / `hold_activity` on a Carrier zone
+  (independent of the plan's list); state the falsifiable invariants in own
+  words and attempt to break INV-S10-SETTLE, INV-S10-LATCH-RESET,
+  INV-S10-SETTLE-OBSERVABLE from any reachable path including pre-existing
+  code; verify `get_s10_diagnostics()` round-trips the new outcome row AND
+  `s10_settle_held_s`.
 
-**Plan review:** per CLAUDE.md Tier-2+ plan-review protocol, ONE adversarial
-plan review before build dispatch (Rev 2 itself is the response to the Rev 1
-plan review; another plan-review pass of Rev 2 is required before build).
+**Plan review (per CLAUDE.md Tier-2+ plan-review protocol).** Rev 3 is the
+response to the Rev 2 plan re-review; ONE adversarial plan review of Rev 3 is
+required before build dispatch.
 
 ---
 
 ## Doc corrections required (apply in same commit as build)
 
-The state-of-play corrections from Rev 1 shipped in commit `1480811ba`
-(C37, §4.2 UNVERIFIED marker, 5 "not deployed" labels filled, duplicate
-§9.7 renumbered to §9.9). Remaining items for this cycle:
+The state-of-play corrections from Rev 1 shipped in commit `1480811ba`.
+Remaining items for this cycle:
 
 1. **`hvac.py` ~line 3938 comment:** `§9.7` → `§9.9`.
 2. **`hvac.py` ~line 5593 docstring:** `§9.7` → `§9.9`.
-3. If Review B/C find a wording residual in state-of-play §4.2 or §10 C37
-   after Rev 2 is approved, patch it in the same build commit.
+3. If Review A/B/C find a wording residual in state-of-play §4.2 or §10 C37
+   after Rev 3 approval, patch in the same build commit.
 
 ---
 
 ## Open questions
 
-- **Q1 — ecobee interaction.** The ecobee adapter stores URA-side ranges
-  (`effective_range` is the oracle; W1-C P2 build note); the gate is a
-  harmless upstream skip. No adapter branch needed, but Review A verifies
-  no observable behaviour change on ecobee zones.
-- **Q2 — Bryant schedule-driven transitions on zones 2/3.** The observer
-  anchors on the OBSERVED preset-mode / hold-activity transition, so a
-  Bryant schedule flip arms the settle just like a URA write. This is
-  correct (the stale-read window exists irrespective of writer), but
-  Review B confirms no runaway re-arming on schedule chatter.
-- **Q3 — Window length revisit.** 600 s is the measured upper bound + a
-  ~180 s jitter margin, n=1. If post-ship probe shows p99 stale-window ≥
-  500 s across ≥ 10 preset changes, raise to 900 s. If p99 < 300 s across
-  ≥ 50 preset changes, drop to 450 s. Document the decision in the Rev 3
-  of this plan or in a follow-up card; do not change silently.
-- **Q4 — AC-reset preset writes.** `_restore_after_reset` /
-  `_verify_restore` can flip the preset via the arrester, not S1. Rev 1
-  scoped this out; Rev 2's observer anchor **covers it** by construction
-  (any observed `preset_mode` change arms the window). No further action.
+- **Q1 — ecobee interaction (R7).** The ecobee adapter stores URA-side ranges;
+  Rev 3's gate **delays** (not "no-ops") an ecobee S10 pass on an option-C
+  select-hold flip (`preset_of` → `manual` on settled-leg drift). No ecobee
+  zone is in rollout today. If an ecobee rollout is scheduled, re-evaluate
+  600 s vs. ecobee's own setpoint-settle latency.
+- **Q2 — Bryant schedule-driven transitions on zones 2/3.** Observer arms the
+  settle on any observed transition. Under `infinite_holds` (§5 state-of-play)
+  schedule chatter is low-rate and is NOT expected to trip the 4 h warn.
+  Review B confirms.
+- **Q3 — Window length revisit.** 600 s is n=1 + jitter margin. Post-ship
+  probe criteria unchanged from Rev 2: raise to 900 s if p99 stale-window ≥
+  500 s across ≥ 10 preset changes; drop to 450 s if p99 < 300 s across ≥ 50.
+- **Q4 — AC-reset preset writes.** Covered by the observed anchor (any observed
+  `preset_mode` / `hold_activity` change arms).
+- **Q5 — Trip-wire threshold revisit (R4).** `S10_SETTLE_HELD_WARN_S = 14_400`
+  (4 h) is first-pass; revisit by card after one week post-ship if ≥10% of
+  rollout days fire the anomaly.
 
 ---
 
 ## Build sequence (for the builder, not this cycle)
 
-1. Add `S10_POST_PRESET_CHANGE_SETTLE_S = 600` to `hvac_const.py` with the
-   comment block above.
-2. Add `_zone_last_observed_preset_change: dict[str, tuple[str | None,
-   str | None, datetime]]` to `HVACCoordinator` (init in `__init__` next
-   to `_zone_last_s1_write`) and `_note_observed_preset_change(zone_id,
-   prev, new, ts)` helper.
-3. In `hvac_zones.ZoneManager.update_zone_climate_state`, immediately
-   after the `preset_mode` / `hold_activity` refresh, if either changed
-   from the previous RAM copy call `coordinator._note_observed_preset_change(
-   zone_id, prev_preset, new_preset, utcnow())`.
-4. Extend `_s10_zone_skip_reason` with the `post_preset_change_settle`
-   check inserted between step 0.5 and step 1.
-5. In `_s10_success`, add `rec["failures"] = 0` next to `rec["writes"]
-   = 0`.
-6. Patch the two §9.7 → §9.9 comment references in `hvac.py` (~3938,
-   ~5593).
-7. Add unit tests in `quality/tests/hvac/test_s10_post_preset_change_settle.py`
-   (T1-T12 above).
-8. Run `.venv-ha/bin/python -m pytest quality/tests/hvac/ -k "s10 or
-   preset_range or preset_change" -v`.
-9. Run the baseline probe SQL on `develop` immediately before deploy; stash
-   the result in the README. Re-run 7 and 14 days post-restart; record both
-   in the README validation table.
+1. Add `S10_POST_PRESET_CHANGE_SETTLE_S = 600` and `S10_SETTLE_HELD_WARN_S =
+   14_400` to `hvac_const.py` with the comment blocks above.
+2. Add three new fields to the `ZoneState` dataclass at `hvac_zones.py:127-143`:
+   `prev_preset_mode: str = ""`, `prev_hold_activity: str = ""`,
+   `last_observed_preset_change: datetime | None = None`.
+3. In `hvac_zones.ZoneManager.update_zone_climate_state` (`:651-670`),
+   immediately after the existing `preset_mode` read at :666, add the
+   `hold_activity` read and the sentinel-aware seed/stamp block (Change 2 above).
+4. Extend `_s10_zone_skip_reason` with `post_preset_change_settle` inserted
+   between step 0.5 and step 3 (`s1_same_tick`); fail-closed on exception.
+5. In `_s10_success` (`hvac.py:4779`), add `rec["failures"] = 0` next to
+   `rec["writes"] = 0`.
+6. Add `_s10_settle_held_fired_on: dict[str, date] = {}` to `HVACCoordinator`
+   init; extend `get_s10_diagnostics()` with `s10_settle_held_s`; dispatch one
+   anomaly `type="s10_settle_held"` on cross of `S10_SETTLE_HELD_WARN_S` with
+   once-per-day latch and clear-on-release.
+7. Patch the two §9.7 → §9.9 code-comment references.
+8. Add unit tests in `quality/tests/hvac/test_s10_post_preset_change_settle.py`
+   (T1-T11, T13-T19; T12 dropped).
+9. Run `.venv-ha/bin/python -m pytest quality/tests/hvac/ -k "s10 or
+   preset_range or preset_change or settle" -v`.
+10. Run the baseline probe SQL on `develop` immediately before deploy; stash
+    the result in the README. Re-run 7 and 14 days post-restart; record both
+    in the README validation table.
 
 ---
 
 ## Report (for the parent orchestrator)
 
-- **Chosen shape:** operator shape **(a) + (b)**. (b) is the primary fix
-  (D1 observed-preset-change settle gate, 600 s, OWN constant); (a) is the
-  orthogonal correctness fix (D2 reset `failures` on
-  `_s10_success`). Marginal cost of adding (a) on top of (b) is one line;
-  the pair closes BOTH the latch creep AND the snapshot-poisoning risk on
-  zones 1+2 rollout, which (b) alone does not fully close against a
-  longer-than-measured transition.
-- **Tier:** **Tier 2-DB (operator-elevated)** — trust-hierarchy ripple into
-  the zone-state observer + the failure-counter / latch semantics + the
-  snapshot-capture path; mechanism is PARTIAL (n=1). Three framing-disjoint
-  reviews (A=correctness, B=cross-coordinator+lifecycle+migration,
-  C=new-surfaces+test-authority+adversarial-completeness) in parallel + a
-  plan-review of Rev 2 before build dispatch.
-- **Invariant:** **INV-S10-SETTLE** (zero wire call, zero snapshot capture,
-  zero failure increment for Z while an observed preset transition is less
-  than `S10_POST_PRESET_CHANGE_SETTLE_S` old) PLUS **INV-S10-LATCH-RESET**
-  (every APPLIED / SKIPPED_ALREADY_CORRECT resets `rec["failures"] = 0`).
-- **Mechanism marker:** PARTIAL / UNVERIFIED (n=1). Both reachable paths —
-  stale legs + landed write (hypothesised) and unresolvable activity +
-  rejected write (observed once) — are gated by D1. Acceptance tests T12
-  discriminate the two.
-- **Measurement completed before plan:** yes (2026-10-15 probe, 3 S10
-  writes since 10-13; 1 failure; 422 s stale window; 1/544 base rate; no
-  snapshot poisoning yet; latch store `failures=1`).
+- **Chosen shape:** operator shape **(a) + (b)**. (b) D1 observed-preset-change
+  settle gate (600 s, OWN constant, stamp on `ZoneState`, R1); (a) D2 reset
+  `failures` on CONFIRMED success (R2, option (i) — operator ruling A4
+  preserved).
+- **Tier:** **Tier 2-DB (operator-elevated)** — ripple into zone-state observer
+  + confirmed-success semantics + diagnostics + anomaly bus; mechanism PARTIAL
+  (n=1). Three framing-disjoint reviews (A=correctness, B=cross-coord+
+  lifecycle+migration, C=new-surfaces+test-authority+adversarial-completeness)
+  in parallel + a Rev-3 plan review before build dispatch.
+- **Invariants:** **INV-S10-SETTLE** + **INV-S10-LATCH-RESET** (R2 restated:
+  SKIPPED_ALREADY_CORRECT or limit-matching view ONLY) + **INV-S10-SETTLE-OBSERVABLE**
+  (R4 trip-wire).
+- **Effective delay:** **~15-20 min** from S1 write to next S10 opportunity
+  (R5), by design.
+- **Mechanism marker:** PARTIAL / UNVERIFIED (n=1). Both reachable paths gated
+  by D1. Mechanism discrimination moves to the falsifier runbook (recorder
+  probe), T12 dropped (R6).
+- **Measurement completed before plan:** yes (2026-10-15 probe).
 - **Unresolved / deferred:**
-  - **Q3 window-length tuning** post-ship. Convert to a code trip-wire if
-    p99 stale-window ever exceeds the configured value (anomaly in
-    `_s10_zone_skip_reason` ↔ settle-expired-but-still-stale), rather than
-    scheduling a soak watch (`feedback_no_soak.md`).
-  - **Rev 1 withdrawal** carried a potential ambiguity in the state-of-play
-    §4.2 S10 residual bullet (Rev 1's "stale status-feed read; redundant
-    wire call per preset change" wording). Commit `1480811ba` already marked
-    this UNVERIFIED; if Review B/C request further wording adjustments to
-    align with Rev 2's two-path mechanism, patch in the same build commit.
-  - **Mechanism remains n=1.** This plan does not wait for a second
-    occurrence (the latch creep + the zones 1+2 snapshot-poisoning risk are
-    sufficient justification), but a Review C adversarial pass may elect to
-    harvest additional recorder evidence from the ha_carrier logbook before
-    final sign-off.
+  - **Q3** window-length tuning; **Q5** trip-wire threshold tuning —
+    both post-ship, by card.
+  - Mechanism remains n=1; Review C may elect to harvest additional
+    `ha_carrier` logbook evidence before sign-off.
 - **Not changed in this cycle (explicit non-goals):** adapter verbs;
   `_zone_last_s1_write` surface; `_zones_written_this_cycle` seed;
-  persistence schema; ecobee adapter; NM channels; fast-path.
+  persistence schema; ecobee adapter (delay only, no code change); NM channel
+  surface (anomaly rides existing bus); fast-path.
