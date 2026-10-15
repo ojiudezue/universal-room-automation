@@ -1916,14 +1916,15 @@ class SafetyCoordinator(BaseCoordinator):
                 type=HazardType.FLOODING,
                 severity=Severity.CRITICAL,
                 confidence=0.95,
-                location=", ".join(set(locations)),
+                # SAFETY-NM-REFIRE-UNWIRED-1 D6: sorted -> deterministic key.
+                location=", ".join(sorted(set(locations))),
                 sensor_id=",".join(self._active_leak_sensors),
                 value="multiple_sensors",
                 threshold="2+ sensors",
                 detected_at=now,
                 message=(
                     f"FLOODING: Multiple water leak sensors active in "
-                    f"{', '.join(set(locations))}!"
+                    f"{', '.join(sorted(set(locations)))}!"
                 ),
             )
 
@@ -2583,6 +2584,10 @@ class SafetyCoordinator(BaseCoordinator):
                         description=f"Safety alert: {hazard.message}",
                         message=hazard.message,
                         channels=self._get_notification_channels(hazard.severity),
+                        # SAFETY-NM-REFIRE-UNWIRED-1 D1: key NM's post-ACK
+                        # re-fire gate + life-safety classification.
+                        hazard_type=hazard.type.value,
+                        location=hazard.location,
                     )
                 )
 
@@ -3401,12 +3406,32 @@ class SafetyCoordinator(BaseCoordinator):
         SAFETY-HAZARD-NEVER-CLEARS-1 §4-G: exact type:location match, with a
         trailing ":roc" stripped (no substring match — "co" must not match
         "co2").
+
+        SAFETY-NM-REFIRE-UNWIRED-1 D2: hold-aware — a key whose clear hold
+        is pending (all contributors recovered, HAZARD_MIN_HOLD_S not yet
+        elapsed, no raising sensors) is reported INACTIVE so NM's post-ACK
+        re-fire gate does not re-page a detector that has already
+        recovered. A relapse cancels the hold (``_record_sensor_relapse`` /
+        ``_respond_to_hazard`` with ``had_pending_clear``), which re-exposes
+        the key here.
+
+        Scope: consumed ONLY by NM's post-ACK re-fire gate
+        (``_re_evaluate_hazard``). The unacked REPEATING loop does NOT
+        consult Safety-side state — life-safety doctrine is latch-until-ack
+        (PLANNING_safety_nm_refire.md §0, D5 withdrawn).
         """
         exact = f"{hazard_type}:{location}"
         for active_key in self._active_hazards:
             base = active_key[:-4] if active_key.endswith(":roc") else active_key
-            if base == exact:
-                return True
+            if base != exact:
+                continue
+            # Hold-aware: a pending clear with no raising contributors == inactive.
+            if (
+                active_key in self._hazard_clear_pending
+                and not self._hazard_raising_sensors.get(active_key)
+            ):
+                continue
+            return True
         return False
 
     async def async_teardown(self) -> None:
