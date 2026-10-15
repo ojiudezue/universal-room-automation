@@ -54,3 +54,75 @@ Rung 1 is fine. But `S10_POST_PRESET_CHANGE_COOLDOWN_S = SUPPRESS_TTL_SECONDS_PR
 
 ## Must-fix before build
 F1, F2, F3, F4, F5, F6. F7 and F8 should be fixed in the same pass.
+
+---
+
+## Rev 2 re-review (2026-10-15, `develop` @ `7668ebe0c`)
+
+**Reviewer:** ura-reviewer (plan re-review). Read `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely first (§0-§12, ledger C1-C37); no ledger claim re-asserted.
+**Verdict: FIX-REQUIRED.** The direction is right: an observed-change anchor, its own constant, and the failure reset. But D1's observer site cannot do what the plan says, and D2 is placed where it misses the case it is meant to fix. Both are plan-text fixes, about 30 minutes of work, with no redesign.
+
+### Prior findings: status
+| # | Status | Note |
+|---|---|---|
+| F1 | RESOLVED | Rev 1 gate withdrawn; consumers :2258-2261 / :5594 listed. |
+| F2 | RESOLVED (n=1 caveat) | 600 s own constant; Q3 revisit criteria stated. See R5 for the effective delay. |
+| F3 | RESOLVED | Mechanism marked PARTIAL/UNVERIFIED (n=1); matches `ha_carrier/climate.py:551-553`. |
+| F4 | RESOLVED in text, PARTIAL in fix | Both harms named. D2's placement does not cover the observed APPLIED case (R2). |
+| F5 | PARTIAL | Anchor is now observed, but the observer as specified cannot see `hold_activity` (R1). |
+| F6 | PARTIAL | Invariants falsifiable; T9 and T12 are defective (R6). |
+| F7 | RESOLVED | `S10_POST_PRESET_CHANGE_SETTLE_S` uncoupled. |
+| F8 | RESOLVED | SQL uses `json_extract(details_json,'$.zone_id')`; doc labels fixed in `1480811ba`; two code comments carried to D3. |
+
+### New findings
+
+**R1 HIGH: the observer site does not read `hold_activity`, and ZoneManager has no route to the coordinator.**
+- `hvac_zones.py:651-670` `update_zone_climate_state` sets `zone.preset_mode` (`preset_of_for`, :666) and nothing about `hold_activity`. `grep hold_activity hvac_zones.py` returns 0 hits.
+- `ZoneManager.__init__(self, hass)` (:279) holds no coordinator reference, so the plan's `coordinator._note_observed_preset_change(...)` call needs new wiring the plan does not specify.
+- Fix in the plan: read `hold_activity` at :666 (raw attribute, Carrier only), keep the prior values and the stamp on `ZoneState` (or ZoneManager), and have `_s10_zone_skip_reason` read `zone.<stamp>`. That keeps the map off the coordinator and removes the back-reference.
+
+**R2 HIGH: D2 in `_s10_success` never runs on APPLIED, so INV-S10-LATCH-RESET and T9 cannot hold as written.**
+- `_s10_write_one` step 12 (`hvac.py:~4688-4706`): APPLIED increments `writes` and never calls `_s10_success`.
+- `_s10_success` runs only on SKIPPED_ALREADY_CORRECT (:~4707) and on a matching view at the limit (:~4596).
+- So "APPLIED ... ALSO resets failures" (the INV text, D2 text, T9) is false for the proposed one-line change. The incident record (failure, then APPLIED, store `failures:1 writes:2`) would keep `failures=1` until a later SKIPPED_ALREADY_CORRECT.
+- Pick one and say it explicitly:
+  - (i) reset only on confirmed success. This matches the A4 semantics, where APPLIED is a wire return and not a confirmation. Restate the INV and T9 to match.
+  - (ii) also reset on APPLIED. Justify it: alternating raise/APPLIED then never latches `call_failed`, but `writes` still reaches 3 and the limit path latches `not_sticking` (:4590), so the latch is not defeated.
+- I recommend (i).
+
+**R3 MEDIUM: the first observation after a restart is unspecified, and the default makes it stamp.**
+- `ZoneState.preset_mode` defaults to `""` (`hvac_zones.py:137`), and the boot read (`hvac.py:1555`) changes it from `""` to the live preset. A literal "differs from previous RAM copy" therefore stamps every zone at every boot, and S10 is held for 600 s (2-3 ticks) after each restart.
+- The plan's "boot/reload = empty map (correct)" implies no stamp but does not say how to prevent one.
+- State the rule: the first readable observation seeds the copy without stamping, or it stamps on purpose. A boot read can land inside a real Carrier transition, which argues for stamping and accepting the 600 s delay. Either is acceptable if stated.
+- The `unavailable` early return (:658) keeps the copy across outages. `unknown` does NOT return early (it falls to `preset_of_for(...,"")` and becomes `""`), so an unknown flap produces two stamps. Specify this too, for example by treating `unknown` and `""` as unreadable and not updating the copy.
+
+**R4 MEDIUM: on a flapping feed the settle re-arms continuously (suppression with no discharge).**
+- §9.9 measured zone_1 at about 46 status home/away flips in 4 h (about every 5 min). Every flip re-stamps, so 600 s never elapses and S10 never runs on that zone while the split persists. The nudge cadence (about 25 min, two transitions each) also eats about 10 of every 25 min on zones with nudges.
+- During the §9.9 split, S10's `_confirmed_on` already fails (it needs both feeds to name the preset). And the only both-away windows are the ha_carrier optimistic-guard windows, the exact source of poisoned snapshots. So starving S10 there is arguably correct.
+- But the plan must state this outcome and give the suppression a discharge or trip-wire: a counter or `_s10_last_outcome` age, or an anomaly or NM when a rollout zone has been in `post_preset_change_settle` for more than N hours. That way a permanently blocked zone (the likely zone_1 rollout case) is visible and not silent.
+- Bryant schedule chatter (Q2) is low-rate under `infinite_holds` and is not a concern.
+- Sampling is per pass (full tick :2308, fast runs :5765, pre-arrival :7179), so an A to B to A flip inside one pass is invisible. That is acceptable, but state it.
+
+**R5 LOW: the effective delay is up to 15 min, not about 10, and the observed timestamp lags the real transition.**
+- S1 writes after `update_all_zones` in the same cycle, so an S1 change is first observed on the NEXT tick (+300 s). Settle then runs 600 s from that observation, and the `<` comparison against a fixed 300 s interval can need one more tick.
+- S10 after an S1 change therefore lands at about 900-1200 s. That is fine (conservative against the 422 s measurement), but the Live criterion and Effect paragraph should say so.
+
+**R6 MEDIUM: test defects.**
+- **T9** asserts a reset on APPLIED via `_s10_success`, which is unreachable (R2). Rewrite it to match the chosen option.
+- **T12** exercises ha_carrier internals (`current_status_activity`) that URA tests cannot drive. The test would be a mock asserting its own setup, a hollow anchor (Bug Class #62). Its oracle is also left open ("possible_wrong_profile ... or similar"), and it would pass on `develop`, which contradicts the section header. Drop it, or turn it into a recorder probe in the falsifier runbook.
+- Missing tests:
+  - (a) the observer itself: a real `hass.states` change in `preset_mode` and in `hold_activity` → `update_zone_climate_state` stamps. T8 writes the map directly, so it does not prove the observer is wired (wire-in anchor rule).
+  - (b) R3 boot and unknown behaviour.
+  - (c) an R4 repeated-flip test showing the trip-wire fires.
+  - (d) a mutation anchor for the skip-step ORDER: settle before `s1_same_tick`.
+- T1-T8, T10 and T11 do fail on `develop`, because the step and the map do not exist.
+
+**R7 LOW: tier and ecobee.**
+- Tier 2-DB (operator-elevated) is appropriate. Once R1 puts the stamp in `ZoneState` and not on the coordinator, the ripple is smaller.
+- The plan calls the ecobee path a "harmless no-op skip", which is not accurate. An option-C select hold flips `preset_of` to `manual` when its settled legs drift, and that stamps and delays ecobee S10 storage. No ecobee zone runs a coordinator today, so this is LOW. Say "delays" rather than "no-op".
+
+### D2 reachable defeat case (question 3)
+Under option (i), the latch is defeated only if raises alternate with a SKIPPED_ALREADY_CORRECT whose view is itself wrong. That happens when, during an unresolvable-activity window, the `_status_zone` fallback legs happen to equal the desired range. The 7800 s retry spacing after a wire attempt (:4587) makes that pairing very unlikely, and in that case the device view matches, so the harm is nil. A persistently failing preset, one that raises on every attempt, never reaches a success, so it still latches at 3. Accept.
+
+### Must-fix before build
+R1, R2, R3, R4, R6. R5 and R7 should be fixed in the same pass.
