@@ -317,6 +317,18 @@ cards:
     related: [ENVOY-FLAKINESS-181243-1, ENVOY-DRAIN-ARM-STALE-CT-1, EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1]
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
+- id: SAFETY-NM-REFIRE-UNWIRED-1
+  title: "Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False"
+  thread: safety
+  status: inbox
+  created: 2026-10-14 19:30
+  updated: 2026-10-14 19:30
+  refinement_status: initial
+  approval: unreviewed
+  origin: {date: '2026-10-14', gist: 'plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map'}
+  why: "Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active('', ''), always False, so the NM re-fire for an active hazard never happens. Pre-existing; out of scope of the clear-on-recovery cycle."
+  next: "Wire hazard_type/location into the safety NotificationAction and verify NM round-trip (Tier 2: NM routing is regression-prone)."
+  links: {related: [SAFETY-HAZARD-NEVER-CLEARS-1]}
 - id: SAFETY-HAZARD-NEVER-CLEARS-1
   plan_rev3_2026_10_01: 'PLAN AT REV 3 (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md). Two adversarial plan reviews ran: rev 1 FIX-PLAN (3 HIGH), rev 2 FIX-PLAN (2 new HIGH: a second instant CO2 clear at the log-only rung safety.py ~1895-1906, and rate hazards that never clear when a sensor goes quiet). Rev 3 addresses both plus: sensor registration before the not-new early return, a per-type dead-sensor policy (smoke/CO/leak stay latched fail-safe; humidity/temperature/CO2/TVOC/HVAC drop a dead contributor after 15 min), an invariant restated against the clear threshold, a full table of every hazard pop/clear site, and the 1-min sweep placed outside the flooding guard. Rev 3 has NOT had its own re-review yet. SCOPE GREW: the card was humidity/temperature never clearing; the plan now also changes how CO2/TVOC/CO hazards clear (adds hysteresis + a 5-min hold to stop the live 09-29 CO2 flap storm), adds rate-hazard expiry (ROC_STALE_SAMPLE_S=900) and dead-sensor expiry (SENSOR_UNAVAILABLE_WINDOW_S=900), and changes is_hazard_active to an exact match. Build tier: 2-DB (3 framing-disjoint reviews).'
   refinement:

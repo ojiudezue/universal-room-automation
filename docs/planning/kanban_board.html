@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-14T19:43:22-05:00</b></span>
-<span>data <b>bfbfb53f763e</b></span>
+<span>generated <b>2026-10-14T19:46:06-05:00</b></span>
+<span>data <b>141095b62bb9</b></span>
 <span>reconciled <b>2026-10-14</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">11<span class="den"> / 160</span></span>
+<span class="metric">11<span class="den"> / 161</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 14 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -325,7 +325,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>1</b></span>
+<span>Inbox <b>2</b></span>
 <span>Investigating <b>1</b></span>
 <span>Pre-planning <b>6</b></span>
 <span>Planned <b>8</b></span>
@@ -339,9 +339,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card" data-id="CM-SHUTDOWN-JOB-SETUP-FAIL-LEAK-1" draggable="true"><summary><span class="id">CM-SHUTDOWN-JOB-SETUP-FAIL-LEAK-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 5.0 · v2 tc1 u2 /e1</span><span class="title">Coordinator Manager setup failure leaves its stop-save shutdown job registered</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-14 08:25</div><dt>Next</dt><dd>Tier 1: unregister the shutdown job on the setup-failure path; one test that fails setup after registration and asserts the job is gone.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>arc_cut_v5_103_57</code>: pre-existing review B B-LOW-2 (setup-failure path), separate Tier-1 card, not part of this cycle&#x27;s deliverables</li><li><code>problem</code>: If manager setup fails after the shutdown job is registered (manager.py ~:566), the job is not removed, so HA stop calls a stop-save on a half-built manager. Pre-existing (the old stop-event listener had the same gap). Review B B-LOW-2, ...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card ap-unreviewed" data-id="SAFETY-NM-REFIRE-UNWIRED-1" draggable="true"><summary><span class="id">SAFETY-NM-REFIRE-UNWIRED-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="apl">unreviewed</span><span class="title">Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM&#x27;s re-evaluate sees is_hazard_active(&#x27;&#x27;, &#x27;&#x27;) = False</span><div class="tagline">safety</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-14 19:30 · initial</div><dt>Origin</dt><dd>2026-10-14 - plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map</dd><dt>Why</dt><dd>Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active(&#x27;&#x27;, &#x27;&#x27;), always False, so the NM re-fire for an active hazard never happens. ...</dd><dt>Next</dt><dd>Wire hazard_type/location into the safety NotificationAction and verify NM round-trip (Tier 2: NM routing is regression-prone).</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -892,7 +893,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>bfbfb53f763e</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>141095b62bb9</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
