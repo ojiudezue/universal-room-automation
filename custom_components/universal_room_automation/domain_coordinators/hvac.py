@@ -4321,7 +4321,12 @@ class HVACCoordinator(BaseCoordinator):
                         f"Check the thermostat for a schedule or "
                         f"status/config split."
                     ),
-                    hazard_type="s10_settle_held", severity="LOW",
+                    # Review C C-H1: severity HIGH so the companion
+                    # channel (threshold HIGH under live config) delivers
+                    # the warn to the operator. Once per zone per LOCAL
+                    # day prevents flood. LOW/MEDIUM would land in an
+                    # audit-only row that `get_pending_digest` excludes.
+                    hazard_type="s10_settle_held", severity="HIGH",
                 )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("S10: settle-held trip-wire failed", exc_info=True)

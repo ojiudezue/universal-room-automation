@@ -140,6 +140,81 @@ Per-site drills (B-M1 + B-M2):
 Source restored; `__pycache__` cleared; `git status` clean against the
 committed tree.
 
+## Review C fix-up (commit 4)
+
+Review file: `docs/reviews/code-review/v_hvac_s10_review_C.md` on branch
+`review/hvac-s10-C`. Verdict FIX-REQUIRED (1 HIGH + 4 MEDIUM + 4 LOW).
+
+Code fix:
+- **C-H1 (`_s10_check_settle_held` severity):** `_s10_notify(hazard_type=
+  "s10_settle_held", severity="HIGH")` so the companion channel
+  (threshold HIGH under live NM config) delivers the warn. LOW/MEDIUM
+  landed only in an audit-only row that `get_pending_digest` excludes.
+  Once-per-zone-per-local-day latch prevents flood. (The pre-existing
+  MEDIUM/LOW S10 NMs — `s10_restore_not_taking`, `s10_preset_range_
+  call_failed`, `s10_preset_range_not_sticking`, `s10_restore_pending`,
+  `s10_restart_default_off_restore_pending` — are undeliverable under
+  the live config too; carded separately per operator ruling.)
+
+Test fixes (each targets a Review-C green mutation):
+- **C-M1 (T4, T5, T14):** T4 now stages a snapshot that DIFFERS from
+  the live view, runs a control (no stamp → wire fires) before the
+  gated run; T14 drives the full `_async_apply_preset_overrides`
+  restore pass with a differing snapshot, control+gated, AND checks
+  `_zone_state_store.saves` is unchanged (discriminates pass-level
+  gate from pre-call gate so M13 alone turns it red); T5 drives the
+  real pre-call site by monkey-patching `_s10_save_strict` to arm the
+  stamp mid-await.
+- **C-M2 (RC_M2):** real observer flips through `hass.states.async_set`
+  every ~300s (< settle) for WARN+1 min; asserts `settle_episode_
+  started_at` unchanged and the trip-wire fires; also asserts a gap >
+  settle opens a NEW episode.
+- **C-M3 (RC_M3):** behavioural wire-in — arm a 4 h+ episode and await
+  `_async_apply_preset_overrides`; assert exactly one `s10_settle_held`
+  ledger row (anchors `self._s10_check_settle_held()` call site).
+- **C-M4 (T11):** rewritten to drive REAL APPLIED through `_s10_write_one`
+  with a monkey-patched Carrier `set_preset_range` returning APPLIED;
+  asserts `failures=2` unchanged after APPLIED.
+- **C-L1:** `RC_L1_boundary_600s_not_settle` (age == settle → NOT settle,
+  strict `<`); `RC_L1_fail_closed_on_bad_stamp` (non-datetime stamp →
+  `post_preset_change_settle` via the except branch).
+- **C-L2:** `RC_L2_episode_below_warn_does_not_fire` (fixed 1 h episode;
+  no ledger row + no NM delivery).
+- **C-L3:** `RC_L3_limit_matching_view_calls_success` — drives
+  `_s10_write_one` with `writes=LIMIT` + matching view (patched
+  `CarrierStrategy.preset_range_original`) and asserts
+  `writes/failures=0` after.
+- **C-L4:** every oracle (`SETTLE_S`, `WARN_S`, `LIMIT`, `S10_STATE_SIDE_KEY`)
+  imported from `hvac_const` so a retune propagates.
+
+Routing-aware NM stub (`RoutingNM`) in the test module models the live
+companion gate: severity < HIGH → audit-only (`notes` only, not
+`delivered`); severity ≥ HIGH → `delivered` entry. `test_RB_M1_tripwire
+_dispatches_nm` now asserts BOTH severity == HIGH AND `delivered`
+non-empty, so a drill back to LOW turns it red (M33).
+
+Suite now **34 passed**; CPR Batch C **155 passed** (189 total).
+
+### Review C greens re-drill (all 11 greens now RED)
+
+| # | Mutation | File | Target test | Result |
+|---|---|---|---|---|
+| M07 | Observer reopens episode on every re-stamp | `hvac_zones.py` | `RC_M2_episode_start_preserved_across_restamps` | RED ✓ |
+| M09 | Step 0.6 strict `<` → `<=` | `hvac.py` | `RC_L1_boundary_600s_not_settle` | RED ✓ |
+| M10 | Step 0.6 except → fail-OPEN (`return None`) | `hvac.py` | `RC_L1_fail_closed_on_bad_stamp` | RED ✓ |
+| M13 | Restore pass bypasses settle (pass level) | `hvac.py` | `T14_restore_pass_gates_then_releases` | RED ✓ |
+| M14 | Pre-call re-check bypasses settle | `hvac.py` | `T5_pre_call_recheck_catches_settle` | RED ✓ |
+| M17 | Limit-matching-view bypasses `_s10_success` | `hvac.py` | `RC_L3_limit_matching_view_calls_success` | RED ✓ |
+| M19 | Trip-wire threshold → 0 | `hvac_const.py` | `RC_L2_episode_below_warn_does_not_fire` | RED ✓ |
+| M31 | `_s10_check_settle_held()` call removed | `hvac.py` | `RC_M3_apply_overrides_calls_tripwire` | RED ✓ |
+| M33 | Severity HIGH → LOW | `hvac.py` | `RB_M1_tripwire_dispatches_nm` | RED ✓ |
+| M34 | M13+M14 together (both gates stripped) | `hvac.py` | `T14` ∪ `T5` | RED ✓ |
+| M35 | APPLIED branch also resets `failures` | `hvac.py` | `T11_applied_does_not_reset_failures` | RED ✓ |
+
+Source restored after each drill; `__pycache__` cleared between drills;
+`PYTHONDONTWRITEBYTECODE=1` set per Review C's methodology; `git status`
+clean against committed tree.
+
 ## Deferred
 
 None vs. plan. T12 was DROPPED by Rev 3 R6 (hollow-anchor risk; the two

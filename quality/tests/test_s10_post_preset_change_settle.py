@@ -38,6 +38,14 @@ if _HERE not in sys.path:
 
 import _w1b_harness as H  # noqa: E402
 
+# Review C C-L4: import the constants so retunes propagate.
+from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
+    S10_POST_PRESET_CHANGE_SETTLE_S as SETTLE_S,
+    S10_SETTLE_HELD_WARN_S as WARN_S,
+    S10_PRESET_RANGE_UNCONFIRMED_LIMIT as LIMIT,
+    S10_STATE_SIDE_KEY,
+)
+
 Z1, Z2, Z3 = "zone_1", "zone_2", "zone_3"
 E1, E2, E3 = "climate.test_zone_1", "climate.test_zone_2", "climate.test_zone_3"
 T0 = datetime(2026, 10, 15, 12, 0, 0, tzinfo=timezone.utc)
@@ -71,10 +79,38 @@ class Clock:
         self.now = self.now + timedelta(seconds=seconds)
 
 
+class RoutingNM:
+    """Routing-aware NM stub (Review C C-H1): mirrors the live config
+    gate — companion channel threshold HIGH. severity < HIGH yields an
+    AUDIT-ONLY entry (not routed to any human channel); severity >= HIGH
+    produces a `delivered` entry on the companion channel.
+
+    The real NotificationManager's per-channel routing is complex; the
+    one invariant Review C requires is that LOW/MEDIUM traffic for
+    `s10_settle_held` lands only in audit rows (which get_pending_digest
+    excludes), while HIGH/CRITICAL reaches a real channel. This stub
+    captures exactly that discriminator."""
+
+    _COMPANION_THRESHOLD = 3  # LOW=1 WARNING=2 HIGH=3 CRITICAL=4
+
+    def __init__(self):
+        self.notes: list[dict] = []       # every call (audit-equivalent)
+        self.delivered: list[dict] = []   # non-audit, actually routed
+
+    async def async_notify(self, **kw):
+        self.notes.append(dict(kw))
+        sev = kw.get("severity")
+        sev_rank = getattr(sev, "value", None)
+        # Severity enum members have an int value in URA's base module.
+        if isinstance(sev_rank, int) and sev_rank >= self._COMPANION_THRESHOLD:
+            self.delivered.append(dict(kw))
+
+
 class Rig:
     """Minimum rig for the settle gate + confirmed-success reset tests."""
 
-    def __init__(self, mods, monkeypatch, *, rollout=(Z1,), flag=True):
+    def __init__(self, mods, monkeypatch, *, rollout=(Z1,), flag=True,
+                 routing_nm=False):
         self.mods = mods
         self.mp = monkeypatch
         coord, hass = H.make_coord(mods)
@@ -124,6 +160,18 @@ class Rig:
         monkeypatch.setattr(mods["hvac_zones"], "dt_util", _Dt())
         coord._zone_state_store = H.FakeStore()
         coord._house_state = "home_day"
+        if routing_nm:
+            hass.data[self.DOMAIN]["notification_manager"] = RoutingNM()
+        self.nm = hass.data[self.DOMAIN]["notification_manager"]
+        # Capture service calls (for pre-call / APPLIED drills).
+        self._svc_calls: list = []
+        orig_call = hass.services.async_call
+
+        async def _svc(domain, service, service_data=None, blocking=False, **kw):
+            self._svc_calls.append((domain, service, dict(service_data or {})))
+            return await orig_call(domain, service, service_data, blocking=blocking, **kw)
+
+        hass.services.async_call = _svc
 
     def set_stamp(self, zone_id, age_s):
         """Arm an observed-preset-change stamp (and an episode start of
@@ -192,16 +240,38 @@ async def test_T3_apply_pass_zero_wire_zero_capture(mods, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_T4_restore_pass_zero_wire(mods, monkeypatch):
+    """Review C C-M1: the staged snapshot must DIFFER from the live
+    range so a restore WOULD write without the gate. Control run (no
+    stamp) proves a wire row happens; the gated run proves the settle
+    skip blocks it."""
     r = Rig(mods, monkeypatch)
-    # Pre-stage a snapshot so the restore pass has work to do.
-    r.coord._s10_snapshots[Z1] = {
-        "home": {"low": 68.0, "high": 76.0, "captured_iso": r.clock.now.isoformat()},
-    }
     r.coord._guest_mode_actuation_enabled = False
+    # Snapshot differs from the live view (live = 68/76 from Rig init).
+    r.coord._s10_snapshots[Z1] = {
+        "home": {"low": 66.0, "high": 78.0, "captured_iso": r.clock.now.isoformat()},
+    }
+    # Control: no stamp -> restore WOULD proceed. The rig doesn't record
+    # services.calls into r.rows() unless we probe wire calls directly.
+    await r.coord._s10_pass(mode="restore")
+    await H.drain(r.hass)
+    control_calls = [
+        c for c in r._svc_calls
+        if c[0] == "ha_carrier" and c[1] == "set_activity_setpoint"
+    ]
+    assert control_calls, "control: without stamp a wire call must fire"
+    # Reset: fresh snapshot (restore cleared it on confirm), re-stage.
+    r.coord._s10_snapshots[Z1] = {
+        "home": {"low": 66.0, "high": 78.0, "captured_iso": r.clock.now.isoformat()},
+    }
+    r._svc_calls.clear()
     r.set_stamp(Z1, 60)
     await r.coord._s10_pass(mode="restore")
     await H.drain(r.hass)
-    assert r.rows("S10_preset_range_restore") == []
+    gated_calls = [
+        c for c in r._svc_calls
+        if c[0] == "ha_carrier" and c[1] == "set_activity_setpoint"
+    ]
+    assert gated_calls == []
 
 
 # ==========================================================================
@@ -209,18 +279,33 @@ async def test_T4_restore_pass_zero_wire(mods, monkeypatch):
 # ==========================================================================
 
 
-def test_T5_pre_call_recheck_catches_settle(mods, monkeypatch):
-    """`_s10_zone_skip_reason` is the same function used by the pass-level
-    skip check (:4467) AND the pre-call re-check (:4664). Arming the
-    stamp AFTER the pass-level check means the pre-call re-check must
-    stand down with `post_preset_change_settle`."""
+@pytest.mark.asyncio
+async def test_T5_pre_call_recheck_catches_settle(mods, monkeypatch):
+    """Review C C-M1: drive the pre-call re-check site for real. The
+    pass-level skip is clean at entry; the stamp is armed INSIDE the
+    write-ahead save (`_s10_save_strict`), so the only gate that can
+    stand the write down is the pre-call re-check at hvac.py ~4748.
+    Without that gate the wire would fire. With it, zero wire + the
+    attempt stamp is restored."""
     r = Rig(mods, monkeypatch)
-    assert r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1]) is None
-    r.set_stamp(Z1, 60)
-    assert (
-        r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1])
-        == "post_preset_change_settle"
-    )
+    # Change live view so S10 has a diff to write.
+    H.set_climate(r.hass, "climate.test_zone_1", preset_mode="home",
+                  hold_activity="home", low=68.0, high=76.0)
+    orig_save = r.coord._s10_save_strict
+
+    async def _save_then_arm():
+        await orig_save()
+        r.set_stamp(Z1, 60)  # arm after pass-level skip, before pre-call
+
+    r.coord._s10_save_strict = _save_then_arm
+    r._svc_calls.clear()
+    await r.coord._s10_pass(mode="apply")
+    await H.drain(r.hass)
+    wire = [
+        c for c in r._svc_calls
+        if c[0] == "ha_carrier" and c[1] == "set_activity_setpoint"
+    ]
+    assert wire == []
 
 
 # ==========================================================================
@@ -316,32 +401,44 @@ async def test_T10_failures_reset_on_limit_matching_view(mods, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_T11_applied_does_not_reset_failures(mods, monkeypatch):
-    """APPLIED is a wire return (operator ruling A4): neither `writes`
-    nor `failures` is reset. _s10_write_one updates APPLIED inline and
-    does NOT call _s10_success - this test asserts the invariant by
-    checking that calling the APPLIED branch's record update preserves
-    the failures counter."""
+    """Review C C-M4: drive the REAL APPLIED branch in `_s10_write_one`
+    (not a hand-copy of its body) and assert `failures` is NOT reset
+    (ruling A4). Mutating the APPLIED branch to also zero failures
+    (M35 in Review C's drill) must turn this test red."""
+    strategy_mod = mods["hvac_strategy"]
     r = Rig(mods, monkeypatch)
+    # Pre-stage failures=2, snapshot captured (skip step 9), and the
+    # last attempt long enough ago to clear the rate gate.
+    r.coord._s10_snapshots[Z1] = {
+        "home": {"low": 68.0, "high": 76.0, "captured_iso": r.clock.now.isoformat()},
+    }
     r.coord._s10_set_record(
         Z1, "home", "apply",
         {
-            "value": [70.0, 74.0], "writes": 1, "failures": 2,
+            "value": [70.0, 74.0], "writes": 0, "failures": 2,
             "latched": False, "latch_reason": None,
-            "last_attempt_iso": r.clock.now.isoformat(),
-            "last_write_iso": None,
+            "last_attempt_iso": None, "last_write_iso": None,
         },
     )
-    # Simulate the APPLIED branch in _s10_write_one hvac.py ~4687.
-    rec = dict(r.coord._s10_record(Z1, "home", "apply"))
-    rec["writes"] = int(rec.get("writes") or 0) + 1
-    rec["last_write_iso"] = r.clock.now.isoformat()
-    r.coord._s10_set_record(Z1, "home", "apply", rec)
+
+    # Patch the Carrier adapter's set_preset_range to return APPLIED.
+    async def _spr(self, hass, entity_id, preset, low, high, **kw):
+        return strategy_mod.WriteResult(
+            status=strategy_mod.WriteStatus.APPLIED, reason="emitted",
+        )
+    monkeypatch.setattr(
+        strategy_mod.CarrierStrategy, "set_preset_range", _spr,
+    )
+    zone = r.coord.zone_manager.zones[Z1]
+    await r.coord._s10_write_one(
+        Z1, zone, "home", (70.0, 74.0),
+        "preset_range_dpm", "S10_preset_range", "apply",
+    )
+    await H.drain(r.hass)
     out = r.coord._s10_record(Z1, "home", "apply")
-    # failures is UNCHANGED under APPLIED (A4): the discharge is only
-    # via _s10_success. The build adds the failures=0 line INSIDE
-    # _s10_success - APPLIED must not touch it.
+    # APPLIED increments writes but must NOT touch failures (ruling A4).
+    assert out["writes"] == 1
     assert out["failures"] == 2
-    assert out["writes"] == 2
 
 
 # ==========================================================================
@@ -369,20 +466,37 @@ async def test_T13_apply_overrides_gated_then_runs_next_tick(mods, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_T14_restore_pass_gates_then_releases(mods, monkeypatch):
+    """Review C C-M1: use a snapshot that DIFFERS from the live view so
+    a restore would write without the gate; prove zero wire while gated
+    and a wire after release."""
     r = Rig(mods, monkeypatch)
     r.coord._guest_mode_actuation_enabled = False
     r.coord._s10_snapshots[Z1] = {
-        "home": {"low": 68.0, "high": 76.0, "captured_iso": r.clock.now.isoformat()},
+        "home": {"low": 66.0, "high": 78.0, "captured_iso": r.clock.now.isoformat()},
     }
     r.set_stamp(Z1, 60)
+    r._svc_calls.clear()
+    saves_before = len(r.coord._zone_state_store.saves)
     await r.coord._async_apply_preset_overrides()
     await H.drain(r.hass)
-    assert r.rows("S10_preset_range_restore") == []
-    r.clock.advance(600)
-    assert (
-        r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1])
-        != "post_preset_change_settle"
-    )
+    wire_gated = [c for c in r._svc_calls
+                  if c[0] == "ha_carrier" and c[1] == "set_activity_setpoint"]
+    assert wire_gated == []
+    # Review C M13 discriminator: the pass-level settle gate must
+    # short-circuit BEFORE the write-ahead save. If a drill bypasses
+    # only the pass-level gate (M13), the pre-call re-check would
+    # still prevent the wire, but the write-ahead save fires first -
+    # so `saves` would grow. Pass-level gate working => zero new saves.
+    saves_after = len(r.coord._zone_state_store.saves)
+    assert saves_after == saves_before
+    # Advance past settle; the restore should now proceed.
+    r.clock.advance(SETTLE_S + 1)
+    r._svc_calls.clear()
+    await r.coord._async_apply_preset_overrides()
+    await H.drain(r.hass)
+    wire_released = [c for c in r._svc_calls
+                     if c[0] == "ha_carrier" and c[1] == "set_activity_setpoint"]
+    assert wire_released, "after release the restore should fire"
 
 
 # ==========================================================================
@@ -714,27 +828,29 @@ def _arm_episode(r, zone_id, episode_s=14_500):
 
 @pytest.mark.asyncio
 async def test_RB_M1_tripwire_dispatches_nm(mods, monkeypatch):
-    """B-M1: the 4 h settle-held warn goes through the EXISTING S10 NM
-    path (`_s10_notify` -> notification_manager.async_notify) so the
-    operator is paged, in addition to the ledger row. Hazard type
-    s10_settle_held, severity LOW, once per zone per local day."""
-    r = Rig(mods, monkeypatch)
+    """Review B B-M1 + Review C C-H1: the settle-held warn reaches a
+    human channel under a realistic routing config. The RoutingNM stub
+    mirrors the live gate (companion threshold HIGH); LOW/MEDIUM lands
+    in audit-only and `delivered` stays empty. HIGH clears the gate and
+    lands in `delivered`."""
+    r = Rig(mods, monkeypatch, routing_nm=True)
     _arm_episode(r, Z1)
     r.coord._s10_check_settle_held()
     await H.drain(r.hass)
-    nm = r.hass.data[r.DOMAIN]["notification_manager"]
-    held_notes = [n for n in nm.notes if n.get("hazard_type") == "s10_settle_held"]
-    assert len(held_notes) == 1
-    assert held_notes[0]["severity"].name == "LOW"
+    held = [n for n in r.nm.notes if n.get("hazard_type") == "s10_settle_held"]
+    assert len(held) == 1
+    assert held[0]["severity"].name == "HIGH"  # C-H1: reaches companion
+    delivered = [n for n in r.nm.delivered
+                 if n.get("hazard_type") == "s10_settle_held"]
+    assert len(delivered) == 1  # not audit-only
     # Second check same day does NOT fire again (once-per-day latch).
     r.clock.advance(300)
     r.coord.zone_manager.zones[Z1].last_observed_preset_change = r.clock.now
     r.coord._s10_check_settle_held()
     await H.drain(r.hass)
-    held_notes2 = [n for n in nm.notes if n.get("hazard_type") == "s10_settle_held"]
-    assert len(held_notes2) == 1
-    # Ledger row still present.
-    assert len(r.ledger("s10_settle_held")) == 1
+    held2 = [n for n in r.nm.notes if n.get("hazard_type") == "s10_settle_held"]
+    assert len(held2) == 1
+    assert len(r.ledger("s10_settle_held")) == 1  # ledger still written
 
 
 @pytest.mark.asyncio
@@ -790,3 +906,143 @@ async def test_RB_L2_confirmed_success_persists_apply(mods, monkeypatch):
     s10_blob = last.get(S10_STATE_SIDE_KEY) or {}
     recs = s10_blob.get("records", {}).get(Z1, {})
     assert recs.get("home|apply", {}).get("failures") == 0
+
+
+# ==========================================================================
+# Review C fix-ups
+# ==========================================================================
+
+
+def _flip_live(r, preset):
+    """Drive a real preset flip through hass.states and run the observer."""
+    H.set_climate(r.hass, "climate.test_zone_1", preset_mode=preset,
+                  hold_activity=preset, low=68.0, high=76.0)
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+
+
+@pytest.mark.asyncio
+async def test_RC_M2_episode_start_preserved_across_restamps(mods, monkeypatch):
+    """Review C C-M2: a chain of real observer flips < SETTLE_S apart
+    must NOT reset `settle_episode_started_at`. Drive the real observer
+    over time and prove the 4 h trip-wire fires on continuous flap."""
+    r = Rig(mods, monkeypatch, routing_nm=True)
+    # Seed observer with current view.
+    r.coord.zone_manager.update_zone_climate_state(Z1)
+    # First flip: opens the episode.
+    r.clock.advance(60)
+    _flip_live(r, "away")
+    z = r.coord.zone_manager.zones[Z1]
+    episode_start_initial = z.settle_episode_started_at
+    assert episode_start_initial is not None
+    # Chain real flips every 300 s (< SETTLE_S=600) for WARN_S + 1 min.
+    step_s = max(60, SETTLE_S // 2)
+    n = (WARN_S + 60) // step_s + 1
+    presets = ["home", "away"]
+    for i in range(n):
+        r.clock.advance(step_s)
+        _flip_live(r, presets[i % 2])
+    # The episode start MUST be unchanged (continuous episode).
+    assert z.settle_episode_started_at == episode_start_initial
+    # Trip-wire fires on this real continuous episode.
+    r.coord._s10_check_settle_held()
+    await H.drain(r.hass)
+    assert len(r.ledger("s10_settle_held")) == 1
+    # Now simulate a gap > SETTLE_S: next flip opens a NEW episode.
+    last_preset = z.prev_preset_mode
+    other_preset = "away" if last_preset == "home" else "home"
+    r.clock.advance(SETTLE_S + 60)
+    _flip_live(r, other_preset)
+    assert z.settle_episode_started_at != episode_start_initial
+
+
+@pytest.mark.asyncio
+async def test_RC_M3_apply_overrides_calls_tripwire(mods, monkeypatch):
+    """Review C C-M3: the production wire-in. A full S10 tick runs
+    `_s10_check_settle_held`; arming a 4 h+ episode and awaiting
+    `_async_apply_preset_overrides` produces exactly one ledger row."""
+    r = Rig(mods, monkeypatch, routing_nm=True)
+    _arm_episode(r, Z1)
+    await r.coord._async_apply_preset_overrides()
+    await H.drain(r.hass)
+    rows = r.ledger("s10_settle_held")
+    assert len(rows) == 1
+
+
+def test_RC_L1_boundary_600s_not_settle(mods, monkeypatch):
+    """Review C C-L1: step 0.6 uses strict `<`. age == SETTLE_S is NOT
+    `post_preset_change_settle`."""
+    r = Rig(mods, monkeypatch)
+    r.set_stamp(Z1, SETTLE_S)  # exactly at the boundary
+    assert (
+        r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1])
+        != "post_preset_change_settle"
+    )
+
+
+def test_RC_L1_fail_closed_on_bad_stamp(mods, monkeypatch):
+    """Review C C-L1: step 0.6 fails CLOSED (treat as settle) on any
+    exception reading the stamp."""
+    r = Rig(mods, monkeypatch)
+    r.coord.zone_manager.zones[Z1].last_observed_preset_change = "not-a-datetime"
+    assert (
+        r.coord._s10_zone_skip_reason(Z1, r.coord.zone_manager.zones[Z1])
+        == "post_preset_change_settle"
+    )
+
+
+@pytest.mark.asyncio
+async def test_RC_L2_episode_below_warn_does_not_fire(mods, monkeypatch):
+    """Review C C-L2: an armed episode shorter than WARN_S must not
+    fire the trip-wire. Threshold at 0 (M19) would turn this red.
+    Uses a FIXED positive episode length (not `WARN_S - 60`) so a
+    drill that moves WARN_S to 0 does not also move the probe."""
+    r = Rig(mods, monkeypatch, routing_nm=True)
+    _arm_episode(r, Z1, episode_s=3_600)  # 1 h, well under the 4 h warn
+    r.coord._s10_check_settle_held()
+    await H.drain(r.hass)
+    assert r.ledger("s10_settle_held") == []
+    delivered = [n for n in r.nm.delivered
+                 if n.get("hazard_type") == "s10_settle_held"]
+    assert delivered == []
+
+
+@pytest.mark.asyncio
+async def test_RC_L3_limit_matching_view_calls_success(mods, monkeypatch):
+    """Review C C-L3: the limit-matching-view path in `_s10_write_one`
+    (~hvac.py:4681) calls `_s10_success`, which discharges `failures`.
+    Pre-stage writes==LIMIT + matching view -> failures reset to 0."""
+    strategy_mod = mods["hvac_strategy"]
+    r = Rig(mods, monkeypatch)
+    # Snapshot captured; record at the write limit with a stamp old
+    # enough to clear the rate gate.
+    r.coord._s10_snapshots[Z1] = {
+        "home": {"low": 68.0, "high": 76.0, "captured_iso": r.clock.now.isoformat()},
+    }
+    r.coord._s10_set_record(
+        Z1, "home", "apply",
+        {
+            "value": [68.0, 76.0], "writes": LIMIT, "failures": 2,
+            "latched": False, "latch_reason": None,
+            "last_attempt_iso": (
+                r.clock.now - timedelta(seconds=10_000)
+            ).isoformat(),
+            "last_write_iso": None,
+        },
+    )
+    # Make the strategy's `preset_range_original` return the matching
+    # view (same values) so the limit path matches and calls success.
+    def _orig(self, hass, entity_id, preset):
+        return (68.0, 76.0)
+    monkeypatch.setattr(
+        strategy_mod.CarrierStrategy, "preset_range_original", _orig,
+    )
+    zone = r.coord.zone_manager.zones[Z1]
+    await r.coord._s10_write_one(
+        Z1, zone, "home", (68.0, 76.0),
+        "preset_range_dpm", "S10_preset_range", "apply",
+    )
+    await H.drain(r.hass)
+    out = r.coord._s10_record(Z1, "home", "apply")
+    assert out is not None
+    assert out["writes"] == 0
+    assert out["failures"] == 0
