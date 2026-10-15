@@ -120,7 +120,8 @@ cards:
   reply_2026_10_14: 'Yes — exactly a yo-yo at the 80% boundary, with no hysteresis. Fill-priority pauses the car when battery SOC < 80% and resumes it at SOC >= 80%, same number both ways. When it resumes, the car draws ~11.7 kW, which is enough to pull the battery from 80% back down to 79% within one tick, so the car gets paused again almost immediately, then resumes again once solar/battery climbs back to 80-81%. Measured twice in 7 logged days (10-09, 10-11), each episode short-lived. Fix if you want it: give the resume a few points of headroom (e.g. once resumed, do not re-pause until SOC drops below 77%) so one resume does not immediately trigger its own pause.'
   title: The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line
   thread: energy
-  status: waiting_operator
+  status: investigating
+  update_2026_10_15: "Operator 2026-10-15: \"see if config fixes these first\". Checked: only one knob, energy_fill_priority_soc (energy_const.py:1077-1079); pause and resume use the same number (energy_pool.py determine_fill_priority_actions), so moving it only moves the chatter point. No config fix; needs a resume/re-pause band (option A). Awaiting operator go on A."
   created: '2026-10-12 02:06'
   updated: '2026-10-12 02:06'
   refinement_status: initial
@@ -169,6 +170,7 @@ cards:
   title: Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits)
   thread: energy
   status: "pre_planning"
+  update_2026_10_15: "Operator 2026-10-15: \"drops have fallen. Wonder if related to stalls. Measure first.\" Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within 60 s vs 27.8% base rate (weak, n=17). Stalls >=1 s fell 593/378 -> 9 on 10-15 after the GC freeze. Verdict INCONCLUSIVE; confounded by Wi-Fi (10-13), GC freeze and SPAN (10-14). Re-measure one-shot after 3 clean days (10-18) before planning phase 2; if dropouts stay ~0 the resilience scope shrinks. Script scratchpad p.py."
   created: '2026-10-04 01:00'
   updated: "2026-10-14 02:20"
   next: 'PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225; verify nothing assumes it; (2) cloud write-path health: detect failed/rate-limited (retry-after) commands, NM alert; (3) production.json-independent reads (stream / /ivp/meters / failover map TelemetryPair; ha-enphase-realtime trial option); (4) token expiry/auth-failure alert.'
@@ -357,6 +359,7 @@ cards:
   title: "With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets"
   thread: presence
   status: waiting_operator
+  update_2026_10_15: "Operator 2026-10-15: \"so we can see the guest but do nothing about it?\" Answer: AWAY entry already requires census_count==0 AND no zone occupied (house_state.py:130, presence.py:6641). The flap happens when the interior camera count decays to 0 while the guest is out of view/still, so the house does act on a seen guest; the gap is hysteresis after the count drops. Still awaiting A (override to guest for the trip) / B."
   created: '2026-10-15 02:05'
   refinement_status: initial
   problem_solution:
@@ -432,7 +435,8 @@ cards:
 - id: SAFETY-RATE-DETECTOR-DEAD-WINDOW-1
   title: The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant
   thread: safety
-  status: waiting_operator
+  status: planned
+  update_2026_10_15: "Operator 2026-10-15: \"rapid change isn't that a heat thing for fire? If so it's a fix.\" Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repair the 30-min window so it actually runs, gate HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, keep OVERHEAT rate-of-rise; re-run the replay to prove quiet. Tier 2 plan next."
   created: '2026-09-27 02:40'
   updated: '2026-09-27 02:40'
   measured_2026_09_27_replay: 'REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes deduped to 1 per hour per sensor). LEARNING MODE (fixed thresholds: temperature rise >= 10 F/30 min in cooling season, >= 20 extreme; humidity rise >= 40 pts outside bathrooms): 0 episodes in 7 days. So fixing the window alone would change nothing at first. Z-SCORE MODE (reached after 60 rate samples per sensor, within about a day once rates flow; z >= 3 by per-sensor mean/std, with the classify rules for September): 51 humidity (would be labelled WATER_LEAK) + 36 temperature (HVAC_FAILURE) = about 12.4 alerts a day. CONCLUSION: the broken window is accidentally shielding the house from a MEDIUM+ alert flood. A naive "fix the window" is harmful. Hence PICK A (retire, documented) vs B (redesign with corroboration). The 12.4/day is an estimate: it uses a population std, not HAs running Welford at each moment, so treat it as order-of-magnitude.'
@@ -535,7 +539,8 @@ cards:
   INSTANCE_2026_10_15_dining_receiving_cluster: "Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:00-17:36 74 devices (792; the change was ~08:00 but the Shelly fleet lagged), 10-14 09:10-17:20 12 devices (674), 10-14 17:40-10-15 02:16 12 devices (691). The post-fix remainder is almost entirely FIVE physical devices, each dropping ~70-82 times per 8.6 h (~9 an hour): Dining2 2PM Gen4 (98a3166d2844, sub-devices Recessed/Divide), Dining1 2PM Gen4 (ccba97de38c4, Overhead/PoolTable), Receiving1 and Receiving2 Plus dimmers (048308dec120, 048308dec1a4), Receiving Room 1PM mini Gen4 (a085e3bfaf30). This is what Health Monitor v2.2 reports as 'shelly 9 of 84 flapping, 692 flaps, median outage 25 s'. URA impact: none of these is in any URA room's light lists (checked core.config_entries), so URA is not failing to actuate them; manual and app control does fail during each ~25 s gap. A read-only UniFi lookup of their AP/RSSI is running and will be added here."
   title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
   thread: presence
-  status: waiting_operator
+  status: done
+  update_2026_10_15: "Operator 2026-10-15: \"close\". Fleet part accepted after the 10-13 Wi-Fi changes cut Shelly dropouts."
   created: '2026-09-27 02:50'
   measured_2026_09_27_mechanism: 'OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-Fi association for 8-10 days: GarageB Plug2 (client uptime 904k s, 410 HA dropouts in 3 days) and the StudyB dimmers (-55 dBm, up to 719k s). So the device stays on Wi-Fi while HA loses its connection to it. EXCEPTION: the Garage B cluster (3 devices at -78/-79/-82 dBm on Garage B U6-Mesh-EA, which had restarted ~17 h before the read) is a real weak-signal cohort. 7 listed devices (4 LIFX, WiiM, Hampton Bay) are not visible to the controller at all. The controller event log returned 404, so roam/disconnect counts are unavailable. (2) Synchrony (recorder, 3 clean days, one representative entity per device): 84 flapping actuator devices, 9,757 dropouts. Shelly co-occurrence is almost all sub-devices of the SAME physical Shelly (Dining2 x3, Dining1 x3) plus the Garage B trio, so there is no house-wide simultaneous drop and no sign of an HA-side stall. (3) Dropout length: Shelly median 9 s (p90 98 s), Tuya 38 s (p90 361 s), LIFX 47 s, Bond 5 s. At 20-60 dropouts a day that is about 0.6-2% of the time unavailable per device. That bounds the URA harm as small. (4) DISCRIMINATOR, and a hypothesis only, not proven: Shelly devices with a Bluetooth-proxy entity (*_aioshelly_ble_integration) median 71 dropouts in 3 days (14 of 19 flap), versus 3 for Shellys without one (15 of 39 flap, 13 never). Possible confounds: model generation, location, load. ble_scanner_mode is auto on 36 entries, passive on 4, unset on 9, so the mode alone does not separate them. Only a controlled A/B test would prove it (option B). Config-first: every lever here is configuration or physical; no URA code is proposed. Moved to waiting_operator because the options trade off Bluetooth presence coverage, which is the operators call.'
   refinement_status: refined
@@ -24538,7 +24543,8 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log
     floods
   thread: platform
-  status: waiting_operator
+  status: done
+  update_2026_10_15: "Done 2026-10-14: logger pywattbox/custom_components.wattbox = error in configuration.yaml (operator approved), active since 17:26 restart."
   groom_2026_09_29: 'next normalised to an operator DO (was "Cheapest first ..."). MEASURED: /config/home-assistant_v2.db is 18.3 GB now (ssh ha du, 2026-09-29 ~00:50), down from the 31 GB in the title. HA-CPU-LOAD-REVIEW-1 also landed recorder changes on 09-28 (UniFi bandwidth sensors off; recorder excludes for Bermuda unfiltered distance and two envoy_stream sensors, effective at the next restart). NOT VERIFIED: whether the Sonoff and pantry log floods still fire. ha core logs over ssh returned 401 this session. Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 2}
   shipready_2026_09_13: 'SHIP-READY @ 39b2a525d (feature/recorder-attr-churn). A/B=SHIP (no must-fix; no consumers anywhere incl all 20 dashboards; last_reported validated as live-freshness substitute, historical-tick trace intentionally traded away = the 675k rows bought back). Cleanups done: test truth-in-labeling rename + doc-drift struck (4 docs). Suite baseline unchanged. -> bundled deploy v5.101.1 pending operator checkpoint. Additional 6-9 churn sites carded RECORDER-CHURN-SWEEP-URASENSORS-1.'
@@ -28325,6 +28331,7 @@ cards:
   thread: security
   rank: {value: 6, time_criticality: 5, effort: 3}  # v/tc cut 2026-09-20: lever A falsified, volume 22-63/day not 155
   status: waiting_operator
+  update_2026_10_15: "Operator 2026-10-15: \"what controls can be deployed. Also when do these matter? I'd say at night. But also I thought we had road masks and these should fire when people are actually close to the property vs walking on the street. Ask homelab agent.\" Asked the Homelab session for per-camera masks/zones/required_zones. URA side: person alerts have no time-of-day gate (vehicle-hours only; burst-demote night window is a module constant 23-05)."
   created: '2026-09-12 20:45'
   updated: "2026-10-04 03:40"
   refinement_status: refined
@@ -29959,6 +29966,7 @@ cards:
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
   status: waiting_operator
+  update_2026_10_15: "Draft done 2026-10-14: docs/planning/DRAFT_envoy_upstream_issue.md (comment on core #181243). DO: add firmware, pyenphase version and a debug log, then post. Measured 2026-10-15: 0 dropouts on 10-15 to 16:51 vs 4-13/day; inconclusive whether stall-related (53% of 17 dropouts had a >=1 s stall within 60 s vs 28% base rate; confounded by Wi-Fi 10-13, GC freeze 10-14, SPAN 10-14)."
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
   updated: "2026-10-03 02:05"
@@ -30578,7 +30586,8 @@ cards:
   applied_2026_10_14: "Operator approved (a) and (b). (a) APPLIED 18:5x: both SPAN entries snapshot_update_interval 5 -> 15 s (verified in core.config_entries). Consumer check first: EC decides every 5 min with staleness gates 120-300 s; HVAC AC-load reads are minute-scale; solar-follow reads the Vue meter; room power is display. (b) WITHDRAWN: the Frigate bridge feeds face sub_label + track keep-alive via update messages, and measured load today is ~10/min avg, 26/min peak, 1-4 ms/run (the 115/min figure was stale). Remaining: re-measure recorder rows/s after next restart."
   title: HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions
   thread: platform
-  status: waiting_operator
+  status: done
+  update_2026_10_15: "Done 2026-10-14: SPAN snapshot_update_interval 5->15 s on both entries (operator approved option a). Recorder rows/s re-measure folds into HA-CPU follow-up."
   created: '2026-09-28 19:10'
   updated: '2026-09-29 02:55'
   tags: [ha-cpu, recorder, config]
