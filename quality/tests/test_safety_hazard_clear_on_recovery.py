@@ -52,13 +52,22 @@ class Clock:
         self.now = self.now + timedelta(seconds=seconds)
 
 
+def _knob_mod():
+    """The _nm_cycle_a module safety's lazy import resolves NOW.
+
+    An earlier test may re-import it, leaving the module-level import stale.
+    """
+    import importlib
+    return importlib.import_module(_nm_cycle_a.__name__)
+
+
 @pytest.fixture
 def clock(monkeypatch):
     c = Clock()
     monkeypatch.setattr(safety_mod.dt_util, "utcnow", c)
-    _nm_cycle_a.invalidate_knob_cache()
+    _knob_mod().invalidate_knob_cache()
     yield c
-    _nm_cycle_a.invalidate_knob_cache()
+    _knob_mod().invalidate_knob_cache()
 
 
 @pytest.fixture
@@ -359,7 +368,7 @@ async def test_safety_high_humidity_clear_uses_resolved_normal_thresholds(clock,
 async def test_safety_high_humidity_clear_follows_operator_override(clock):
     c = _coord({"sensor.h": "humidity"})
     from custom_components.universal_room_automation import const
-    _nm_cycle_a._KNOB_CACHE[const.CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT] = 70.0
+    _knob_mod()._KNOB_CACHE[const.CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT] = 70.0
     await _feed(c, "sensor.h", 86.0)
     clock.advance(2 * 3600 + 1)
     await _feed(c, "sensor.h", 86.0)
