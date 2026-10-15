@@ -15223,7 +15223,8 @@ cards:
   measured_housewide_2026_10_14: "7-day recorder count of homeassistant.turn_on per configured humidity fan (6 rooms): Master Bathroom 3,806 (peak 652/h); Guest Bedroom 1 Bathroom, Ziri Bathroom, Laundry, Master Bath Toilet, Powder all 0. So the flood is one room today. The other rooms either never crossed their threshold this week or use a different path. The plan must check which, so the fix is not tested only on the room that happens to be humid."
   title: "The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on"
   thread: fans
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.103.60
   created: '2026-10-14 02:16'
   updated: "2026-10-14 02:17"
   refinement_status: initial

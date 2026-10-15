@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "209",
+  "author": "ojiudezue",
+  "session_id": "claude_20261015_004322_ship_v5_103_60",
+  "timestamp": "2026-10-15T00:43:22Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.60 shipped: Bathroom exhaust: smell rule, venting independent of room switch, no resend spam",
+  "summary": "Bathroom exhaust: smell rule, venting independent of room switch, no resend spam",
+  "why": "Master Bathroom fan got 3,806 redundant turn_on calls in 7 days; Ziri Bathroom never vented because its room switch was off; the 2026-08 cycle copied only the run-on half of the operator's toilet automation, so no smell-driven fan existed. Measured raw-sensor visit lengths (median 34-40 s) to set a 60 s dwell on the raw sensor, not URA's 5-min room timer. Reviews caught a non-callback listener running off the event loop, a stuck-sensor cap bypass, sleep-off fighting a hand-on fan, and 17 untested sites, all fixed with drills.",
+  "implications": "Shipped HUMIDITY-FAN-ON-RESEND-SPAM-1 at v5.103.60; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.60.md (Live criteria).",
+  "revisit_trigger": "recorder: Master Bathroom fan homeassistant.turn_on calls per humid hour <= 3, and a Powder or Master Toilet raw-sensor ON-run over 90 s followed by a fan ON within 30 s",
+  "refs": {
+    "cards": [
+      "HUMIDITY-FAN-ON-RESEND-SPAM-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.60.md"
+    ],
+    "release_notes": "Occupancy-dwell (60 s raw sensor) turns exhaust on for long visits incl. rooms without a humidity sensor; humidity venting gated only by the humidity-fan switch; transition-gated writes with 180 s re-assert and 30 min manual-off respect. Tier 2-DB, three reviews, name-diff clean."
+  }
+}
