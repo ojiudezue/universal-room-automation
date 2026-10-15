@@ -980,6 +980,11 @@ def test_d4_wet_room_exempts_sleep_off_policy():
 
 
 def test_d4_non_wet_room_sleep_off_still_forces_off():
+    """Non-wet-room + sleep + FAN_SLEEP_OFF — URA MUST turn off a fan it
+    believes it owns (anchor set), AND must NOT re-emit ``turn_off`` on
+    the next tick once anchors are cleared. Fix-up (Review B MED #3):
+    sleep-off is anchor-gated so it does not fight a human-set fan.
+    """
     t0 = datetime(2026, 6, 22, 3, 0, 0, tzinfo=timezone.utc)
     auto, log = _make_automation(
         threshold=65.0,
@@ -989,10 +994,22 @@ def test_d4_non_wet_room_sleep_off_still_forces_off():
             CONF_FAN_SLEEP_POLICY: FAN_SLEEP_OFF,
         },
     )
+    # URA believes the fan is ON (anchor set) — a venting cycle in progress.
+    auto._humidity_fan_triggered_time = t0
+    auto._humidity_on_since = t0
     _set_now(t0)
     _run(auto.handle_humidity_based_fan_control(80.0))
     turn_offs = [s for _, s, _ in log if s == "turn_off"]
-    assert turn_offs, "Non-wet-room must still honor FAN_SLEEP_OFF"
+    assert turn_offs, "Non-wet-room must still honor FAN_SLEEP_OFF on URA-owned fan"
+    # Next tick — anchor is cleared; sleep-off must NOT re-emit.
+    log.clear()
+    _set_now(t0 + timedelta(seconds=30))
+    _run(auto.handle_humidity_based_fan_control(80.0))
+    turn_offs2 = [s for _, s, _ in log if s == "turn_off"]
+    assert turn_offs2 == [], (
+        "Sleep-off must not re-emit turn_off once anchors are cleared "
+        f"(would fight a hand-on fan); got {log}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1281,28 +1298,31 @@ def test_FIXD_coordinator_has_exactly_one_humidity_call_site():
 
 
 def test_FIXD_coordinator_call_site_passes_automation_enabled_expr():
-    """Structural assertion that the hoisted call passes the full gate
-    expression (skip-first AND master-automation) as `automation_enabled`.
-    Neutering to a hard-coded `automation_enabled=True` (or removing the
-    kwarg entirely so it defaults True) breaks the Option-2 contract and
+    """Structural assertion that the hoisted call passes the skip-first
+    gate through ``humidity_venting_enabled`` as ``automation_enabled``.
+
+    D1 (bathroom-exhaust occupancy-and-resend): the master-automation
+    predicate was intentionally dropped (humidity venting is decoupled
+    from the room master switch — toggle #3 is the sole venting gate
+    inside the handler; the safety cap remains universal). Neutering to a
+    hard-coded ``automation_enabled=True`` (or removing the kwarg
+    entirely so it defaults True) breaks the skip-first contract and
     fails THIS test.
     """
     src = _read(_COORDINATOR_PATH)
-    # The single call site must contain the exact expression. Tolerate
-    # whitespace by collapsing within a search-window starting at the call.
     idx = src.find("handle_humidity_based_fan_control(")
     assert idx > 0
     window = src[idx: idx + 1200]
     # Required kwargs.
     assert "room_occupied=" in window, "must forward room_occupied"
     assert "automation_enabled=" in window, "must forward automation_enabled"
-    # The gate expression: both the skip-first capture AND the master
-    # enable predicate must appear inside the call's argument list.
+    # Skip-first capture must flow into the gate helper.
     assert "_skip_first_this_tick" in window, (
         "automation_enabled must consult the per-tick skip-first capture"
     )
-    assert "_is_automation_enabled()" in window, (
-        "automation_enabled must consult master-automation predicate"
+    assert "humidity_venting_enabled(" in window, (
+        "automation_enabled must route through the humidity_venting_enabled "
+        "helper so a mutation of the venting predicate is falsifiable"
     )
 
 
@@ -1757,32 +1777,22 @@ from custom_components.universal_room_automation._humidity_gate import (  # noqa
 )
 
 
-def test_FIXF_humidity_gate_skipfalse_autotrue_allows_venting():
-    """Non-skip-first tick under master-automation ON → venting allowed.
-    This is the ONLY combination that returns True. An `and`->`or`
-    mutation still passes this case (both sides True), so the other
-    three cases below carry the mutation-falsification weight."""
-    assert humidity_venting_enabled(False, True) is True
+def test_FIXF_humidity_gate_skipfalse_allows_venting():
+    """Non-skip-first tick → venting allowed. D1 (bathroom-exhaust
+    occupancy-and-resend): the master-automation gate was removed from
+    this helper; the sole input is the skip-first capture."""
+    assert humidity_venting_enabled(False) is True
 
 
-def test_FIXF_humidity_gate_skiptrue_autotrue_blocks_venting():
-    """Skip-first tick (anchors just seeded) → venting MUST be suppressed
-    even with master ON. Mutation: `and`->`or` returns True here →
-    venting would run on the first post-reload tick, violating the
-    skip-first contract. This test fails under that mutation."""
-    assert humidity_venting_enabled(True, True) is False
+def test_FIXF_humidity_gate_skiptrue_blocks_venting():
+    """Skip-first tick (anchors just seeded) → venting MUST be
+    suppressed. Mutation: ``return not skip_first_this_tick`` → ``return
+    True`` makes this red."""
+    assert humidity_venting_enabled(True) is False
 
 
-def test_FIXF_humidity_gate_skipfalse_autofalse_blocks_venting():
-    """Master-automation OFF (ManualMode) → venting MUST be suppressed.
-    Mutation: `and`->`or` returns True here → humidity VENTING would
-    run under ManualMode, violating the operator's Option-2 decision
-    (only the safety cap may transcend the gates). This test fails
-    under that mutation."""
-    assert humidity_venting_enabled(False, False) is False
-
-
-def test_FIXF_humidity_gate_skiptrue_autofalse_blocks_venting():
-    """Both gates off → trivially False. Backstop: catches mutations
-    that hard-code the return to True / 1 / a non-empty constant."""
-    assert humidity_venting_enabled(True, False) is False
+def test_FIXF_humidity_gate_signature_is_one_arg():
+    """D1 finding #10 — the ``automation_enabled`` kw was dropped."""
+    import pytest
+    with pytest.raises(TypeError):
+        humidity_venting_enabled(False, True)  # type: ignore[call-arg]

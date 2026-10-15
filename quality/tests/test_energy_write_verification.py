@@ -148,7 +148,40 @@ from conftest import MockHass, MockState
 def hass():
     h = MockHass()
     h.data["universal_room_automation"] = {}
-    return h
+    # TEST-SUITE-ORDER-INDEP-PRODSTUBS-1: when this file runs alone (or in an
+    # order where real homeassistant.helpers.event got bound before this
+    # module's sys.modules stubs installed), `async_call_later(hass, ...)`
+    # dereferences `hass.loop.call_later`. MockHass has no loop, the
+    # AttributeError is swallowed inside WriteVerifier.schedule(), and
+    # `_pending_by_surface` stays empty — causing
+    # test_v5172_revival_new_schedule_replaces_stale to fail its assertion
+    # when run alone. Give the mock the minimum loop surface the production
+    # code touches so schedule() progresses regardless of binding order.
+    # Patch async_call_later in the production module to return a cancelable
+    # stub handle without actually scheduling an asyncio timer. The test only
+    # needs `_pending_by_surface[surface]` to be truthy after schedule() —
+    # not a real timer firing. This keeps the test runnable in isolation
+    # (no real loop) AND does not leak a lingering timer.
+    try:
+        from custom_components.universal_room_automation.domain_coordinators import (
+            energy_write_verify as _ewv,
+        )
+        _orig_acl = getattr(_ewv, "async_call_later", None)
+
+        def _stub_async_call_later(_hass, _delay, _cb):
+            def _cancel():
+                return None
+            return _cancel
+
+        _ewv.async_call_later = _stub_async_call_later
+    except Exception:
+        _ewv = None
+        _orig_acl = None
+    try:
+        yield h
+    finally:
+        if _ewv is not None and _orig_acl is not None:
+            _ewv.async_call_later = _orig_acl
 
 
 class _FakeCoord:

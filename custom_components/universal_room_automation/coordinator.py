@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.59
+# Universal Room Automation vv5.103.60
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -5421,9 +5421,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             await self.automation.handle_humidity_based_fan_control(
                 data.get(STATE_HUMIDITY),
                 room_occupied=data.get(STATE_OCCUPIED),
+                # D1 (bathroom-exhaust occupancy-and-resend): humidity
+                # venting is decoupled from the master-automation switch.
+                # The `automation_enabled` kw here now carries ONLY the
+                # skip-first gate; the handler itself consults toggle #3
+                # for the venting path, and the safety cap runs regardless.
                 automation_enabled=humidity_venting_enabled(
                     _skip_first_this_tick,
-                    self._is_automation_enabled(),
                 ),
             )
         except Exception as e:

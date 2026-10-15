@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.59
+# Universal Room Automation vv5.103.60
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.59"
+VERSION: Final = "v5.103.60"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1393,6 +1393,18 @@ CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: Final = "humidity_fan_presence_runtime
 DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S: Final = 60
 DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S: Final = 30
 DEFAULT_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S: Final = 600
+
+# Bathroom-exhaust occupancy-dwell + resend-fix cycle (D2/D3) ---
+# D2: transition-gated re-assert + manual-OFF respect (module constants —
+# rung 1: changing these requires code review, not an operator knob).
+HUMIDITY_FAN_REASSERT_INTERVAL_S: Final = 180  # 3 min between relay-drop re-asserts
+HUMIDITY_FAN_MANUAL_OFF_RESPECT_S: Final = 1800  # 30 min silence after human OFF
+# D3: occupancy-dwell "number-2" trigger (per-room knobs — rung 2:
+# config/options flow). Default enabled for wet rooms; dwell default 60 s
+# (measured basis — see PLANNING_bathroom_exhaust_occupancy_and_resend.md).
+CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED: Final = "humidity_fan_occupancy_dwell_enabled"
+CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S: Final = "humidity_fan_occupancy_dwell_s"
+DEFAULT_HUMIDITY_FAN_OCCUPANCY_DWELL_S: Final = 60
 
 # --- Step 6: Sleep Protection ---
 CONF_SLEEP_PROTECTION_ENABLED: Final = "sleep_protection_enabled"
