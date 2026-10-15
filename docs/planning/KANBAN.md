@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T18:26:08-05:00_ - _Data commit: `e1827366c965`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T18:36:49-05:00_ - _Data commit: `eddba5da42e6`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -218,9 +218,10 @@ _created 2026-10-12 02:06 · initial_
 - **Tags:** tier-2db, measure-before-build, numbers-get-knobs, no-fabrication-verify
 - **Parsimony:** [AMBIGUOUS] With fill-priority at 80%, an 11.7 kW EV resume drops SOC to 79% and re-pauses the EV within one tick (2 of 7 logged days).
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_pool.py:2675; custom_components/universal_room_automation/domain_coordinators/energy_const.py:1069
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `operator_instruction_2026_10_13`: What is the problem exactly. Just a yo yo around the boundary?
   - `reply_2026_10_14`: Yes — exactly a yo-yo at the 80% boundary, with no hysteresis. Fill-priority pauses the car when battery SOC < 80% and resumes it at SOC >= 80%, same number both ways. When it resumes, the car draws ~11.7 kW, which is enough to pull the ...
+  - `tier_2026_10_15`: Elevated to Tier 3 (orchestrator, after operator: "I remember this as sensitive code"). One-missed-site failure mode proven by plan review rev 1 (two unreachable latch clears); multi-owner EV pause arbitration (fill-priority/arbitrage/dr...
   - `operator_2026_10_15b`: Operator: "The buffer is green it." APPROVED option A (resume at 80%, re-pause only below 77%). Tier 2-DB build queued.
   - `update_2026_10_15`: Operator 2026-10-15: "see if config fixes these first". Checked: only one knob, energy_fill_priority_soc (energy_const.py:1077-1079); pause and resume use the same number (energy_pool.py determine_fill_priority_actions), so moving it onl...
   - `adjacency_2026_10_12`: NEW. Swept: board (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 = different owner, arbitrage rung-1/WAIT at night; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 done = arbitrage release vs fill-priority; EVSE-SOLAR-STOP-CONDITIONS-1 parked menti...
