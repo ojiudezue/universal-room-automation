@@ -4238,15 +4238,25 @@ class HVACCoordinator(BaseCoordinator):
         future episode can re-fire. Never raises."""
         try:
             rollout = self._s10_rollout_zone_ids()
+            # Review B B-M2: cover zones with a saved original too
+            # (ruling-A6 restore candidates removed from the rollout).
+            # The settle gate is shared by the restore pass, so a zone
+            # dropped from the rollout mid-flap would otherwise be
+            # restored silently never, with no trip-wire. Union of
+            # rollout + any zone with a non-empty snapshot dict.
+            snapshot_zones = {
+                z for z, d in self._s10_snapshots.items() if d
+            }
+            covered = set(rollout) | snapshot_zones
             # Review A A-L2: drop latch entries for zones no longer in
-            # the rollout, so a zone re-added later the same local day
-            # does NOT silently suppress a fresh warn.
+            # the covered set, so a zone re-added later the same local
+            # day does NOT silently suppress a fresh warn.
             for stale_zid in [
                 z for z in list(self._s10_settle_held_fired_on)
-                if z not in rollout
+                if z not in covered
             ]:
                 self._s10_settle_held_fired_on.pop(stale_zid, None)
-            if not rollout:
+            if not covered:
                 return
             now = dt_util.utcnow()
             # Review A A-L1: use the LOCAL calendar day for the once-
@@ -4254,7 +4264,7 @@ class HVACCoordinator(BaseCoordinator):
             # UTC day rolls at 19:00 CDT so a continuous evening episode
             # could fire twice in one local day under the old wording.
             today = dt_util.now().date()
-            for zone_id in rollout:
+            for zone_id in covered:
                 zone = self._zone_manager.zones.get(zone_id)
                 if zone is None:
                     continue
@@ -4293,6 +4303,25 @@ class HVACCoordinator(BaseCoordinator):
                         "warn_s": S10_SETTLE_HELD_WARN_S,
                         "settle_s": S10_POST_PRESET_CHANGE_SETTLE_S,
                     },
+                )
+                # Review B B-M1: route the trip-wire through the
+                # existing S10 NM path so the operator is actually
+                # paged (plan R4 said "fire ONE anomaly through the
+                # existing anomaly bus"). The ledger row above is the
+                # durable record; this is the human signal. Once per
+                # zone per LOCAL day via `_s10_settle_held_fired_on`.
+                zone_name = getattr(zone, "zone_name", zone_id)
+                hours = int(episode_s // 3600)
+                self._s10_notify(
+                    title=f"HVAC: Custom Preset Ranges held: {zone_name}",
+                    message=(
+                        f"URA has deferred Custom Preset Ranges on "
+                        f"{zone_name} for {hours}h+ because its "
+                        f"preset_mode/hold_activity keeps changing. "
+                        f"Check the thermostat for a schedule or "
+                        f"status/config split."
+                    ),
+                    hazard_type="s10_settle_held", severity="LOW",
                 )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("S10: settle-held trip-wire failed", exc_info=True)
@@ -4882,6 +4911,11 @@ class HVACCoordinator(BaseCoordinator):
         self._s10_set_record(zone_id, preset, mode, rec)
         self._s10_note_outcome(zone_id, preset, status="skipped_already_correct", mode=mode)
         if mode != "restore":
+            # Review B B-L2: persist the apply-mode confirmed-success
+            # reset so a restart doesn't resurrect a stale `failures`
+            # counter (one more `emit_raised` would re-latch + NM
+            # otherwise). Restore has its own persist below.
+            self.schedule_zone_state_save("s10_confirmed")
             return
         snap = (self._s10_snapshots.get(zone_id) or {}).pop(preset, None)
         if not self._s10_snapshots.get(zone_id):
@@ -5100,7 +5134,14 @@ class HVACCoordinator(BaseCoordinator):
         settle_held: dict[str, int | None] = {}
         try:
             now = dt_util.utcnow()
-            for zone_id in self._s10_rollout_zone_ids():
+            # Review B B-M2: diagnose rollout zones AND zones with a
+            # saved original (restore candidates removed from the
+            # rollout, ruling A6). Otherwise a zone dropped from the
+            # rollout mid-flap disappears from diagnostics silently.
+            snapshot_zones = {
+                z for z, d in self._s10_snapshots.items() if d
+            }
+            for zone_id in set(self._s10_rollout_zone_ids()) | snapshot_zones:
                 zone = self._zone_manager.zones.get(zone_id)
                 if zone is None:
                     settle_held[zone_id] = None

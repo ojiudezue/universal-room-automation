@@ -698,3 +698,95 @@ def test_RA_L3_absent_hold_still_inert(mods, monkeypatch):
     r.coord.zone_manager.update_zone_climate_state(Z1)
     z = r.coord.zone_manager.zones[Z1]
     assert z.last_observed_preset_change is None  # unreadable - no stamp
+
+
+# ==========================================================================
+# Review B fix-ups
+# ==========================================================================
+
+
+def _arm_episode(r, zone_id, episode_s=14_500):
+    """Open a settle episode of ~episode_s with a fresh last stamp."""
+    z = r.coord.zone_manager.zones[zone_id]
+    z.settle_episode_started_at = r.clock.now - timedelta(seconds=episode_s)
+    z.last_observed_preset_change = r.clock.now - timedelta(seconds=60)
+
+
+@pytest.mark.asyncio
+async def test_RB_M1_tripwire_dispatches_nm(mods, monkeypatch):
+    """B-M1: the 4 h settle-held warn goes through the EXISTING S10 NM
+    path (`_s10_notify` -> notification_manager.async_notify) so the
+    operator is paged, in addition to the ledger row. Hazard type
+    s10_settle_held, severity LOW, once per zone per local day."""
+    r = Rig(mods, monkeypatch)
+    _arm_episode(r, Z1)
+    r.coord._s10_check_settle_held()
+    await H.drain(r.hass)
+    nm = r.hass.data[r.DOMAIN]["notification_manager"]
+    held_notes = [n for n in nm.notes if n.get("hazard_type") == "s10_settle_held"]
+    assert len(held_notes) == 1
+    assert held_notes[0]["severity"].name == "LOW"
+    # Second check same day does NOT fire again (once-per-day latch).
+    r.clock.advance(300)
+    r.coord.zone_manager.zones[Z1].last_observed_preset_change = r.clock.now
+    r.coord._s10_check_settle_held()
+    await H.drain(r.hass)
+    held_notes2 = [n for n in nm.notes if n.get("hazard_type") == "s10_settle_held"]
+    assert len(held_notes2) == 1
+    # Ledger row still present.
+    assert len(r.ledger("s10_settle_held")) == 1
+
+
+@pytest.mark.asyncio
+async def test_RB_M2_restore_candidate_included(mods, monkeypatch):
+    """B-M2: a zone REMOVED from the rollout but still carrying a
+    saved original (ruling-A6 restore candidate) is covered by BOTH
+    the trip-wire and `get_s10_diagnostics()['s10_settle_held_s']`."""
+    r = Rig(mods, monkeypatch, rollout=())  # empty rollout
+    # Pre-stage a saved original for Z1 (restore candidate).
+    r.coord._s10_snapshots[Z1] = {
+        "home": {"low": 68.0, "high": 76.0, "captured_iso": r.clock.now.isoformat()},
+    }
+    _arm_episode(r, Z1)
+    # Trip-wire fires on the restore candidate even with empty rollout.
+    r.coord._s10_check_settle_held()
+    await H.drain(r.hass)
+    nm = r.hass.data[r.DOMAIN]["notification_manager"]
+    held_notes = [n for n in nm.notes if n.get("hazard_type") == "s10_settle_held"]
+    assert len(held_notes) == 1
+    assert len(r.ledger("s10_settle_held")) == 1
+    # Diagnostic surfaces the zone's held_s even though it's not in the
+    # rollout.
+    diag = r.coord.get_s10_diagnostics()
+    assert Z1 in diag["s10_settle_held_s"]
+    assert isinstance(diag["s10_settle_held_s"][Z1], int)
+    assert diag["s10_settle_held_s"][Z1] >= 14_400
+
+
+@pytest.mark.asyncio
+async def test_RB_L2_confirmed_success_persists_apply(mods, monkeypatch):
+    """B-L2: apply-mode confirmed success schedules a persist so the
+    `failures = 0` reset survives a restart."""
+    r = Rig(mods, monkeypatch)
+    r.coord._s10_set_record(
+        Z1, "home", "apply",
+        {
+            "value": [70.0, 74.0], "writes": 0, "failures": 2,
+            "latched": False, "latch_reason": None,
+            "last_attempt_iso": None, "last_write_iso": None,
+        },
+    )
+    saves_before = len(r.coord._zone_state_store.saves)
+    rec = r.coord._s10_record(Z1, "home", "apply")
+    await r.coord._s10_success(Z1, "home", "apply", rec, r.clock.now)
+    await H.drain(r.hass)
+    saves_after = len(r.coord._zone_state_store.saves)
+    assert saves_after > saves_before
+    # The persisted snapshot carries failures=0 under the S10 side-key.
+    from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
+        S10_STATE_SIDE_KEY,
+    )
+    last = r.coord._zone_state_store.saves[-1]
+    s10_blob = last.get(S10_STATE_SIDE_KEY) or {}
+    recs = s10_blob.get("records", {}).get(Z1, {})
+    assert recs.get("home|apply", {}).get("failures") == 0

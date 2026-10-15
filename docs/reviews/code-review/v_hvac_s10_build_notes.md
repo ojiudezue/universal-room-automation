@@ -99,6 +99,47 @@ Per-site drills (A-M1 + A-L3):
 Source restored after each drill; `__pycache__` cleared; `git status`
 clean against the committed tree.
 
+## Review B fix-up (commit 3)
+
+Review file: `docs/reviews/code-review/v_hvac_s10_review_B.md` on branch
+`review/hvac-s10-B`. Verdict FIX-REQUIRED (2 MEDIUM + 2 LOW):
+
+- **B-M1 (NM wiring, `_s10_check_settle_held`):** the trip-wire now ALSO
+  dispatches `_s10_notify(hazard_type="s10_settle_held", severity="LOW")`
+  — the existing S10 NM path used by `s10_restore_not_taking`,
+  `s10_preset_range_call_failed` etc. — in addition to the ledger row.
+  Once per zone per LOCAL calendar day (A-L1 latch unchanged). Plan R4
+  honored: ONE anomaly reaches NM.
+- **B-M2 (restore-candidate coverage, `_s10_check_settle_held` +
+  `get_s10_diagnostics`):** both now iterate `rollout ∪ zones-with-non-
+  empty-snapshot`, so a ruling-A6 restore candidate (zone removed from
+  the rollout but still carrying a saved original) is not silently
+  stranded under a Carrier flap. A-L2 latch pruning widened to the same
+  covered set.
+- **B-L2 (persist, `_s10_success` apply branch):** `self.schedule_zone_state_save("s10_confirmed")`
+  on the apply-mode CONFIRMED success so `failures = 0` survives a
+  restart. Restore path's own persist unchanged.
+- **B-L1 (documented residual):** stamps are RAM-only; a restart within
+  ~10 min of a preset change can let the first post-boot pass read stale
+  legs (narrow window; seed-without-stamp is intentional per plan R3).
+  Noted here and in state-of-play §4.2 S10 row.
+
+New tests (each FAILS without its fix): `test_RB_M1_tripwire_dispatches_nm`,
+`test_RB_M2_restore_candidate_included`, `test_RB_L2_confirmed_success_persists_apply`.
+
+Suite now at **28 passed**. CPR regression `test_hvac_cpr_batch_c.py`
+**155 passed**.
+
+Per-site drills (B-M1 + B-M2):
+
+| Site | File | Mutation | Target test | Result |
+|---|---|---|---|---|
+| Trip-wire NM dispatch | `hvac.py` `_s10_check_settle_held` | `_s10_notify(...)` → `if False: _s10_notify(...)` | `RB_M1_tripwire_dispatches_nm` | RED ✓ |
+| Covered-set union with snapshots | `hvac.py` `_s10_check_settle_held` | `covered = set(rollout) \| snapshot_zones` → `covered = set(rollout)` | `RB_M2_restore_candidate_included` | RED ✓ |
+
+Source restored; `__pycache__` cleared; `git status` clean against the
+committed tree.
+
 ## Deferred
 
 None vs. plan. T12 was DROPPED by Rev 3 R6 (hollow-anchor risk; the two
