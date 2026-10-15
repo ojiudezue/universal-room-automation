@@ -130,3 +130,79 @@ Holds as specified. The gate is `coord_id == "safety"` (`COORDINATOR_ID` is `"sa
 
 ### Must-fix before build
 R1, R2, R4 (D5 design), R3 and R5 (plan text and test list). R6 and R7 are cheap; fold them in.
+
+---
+
+## Rev 3 re-review (2026-10-15, ura-reviewer)
+
+Read first: `SAFETY_COORDINATOR.md` §5.x. Verified against develop HEAD source by grep/read; T9 seed behaviour run empirically in `.venv-ha`.
+
+### Verdict: **FIX-REQUIRED**. R1 is fixed. D5 can still silence a live smoke/CO page through two new reachable paths (N1, N2), and the tests and live checks for D5 rely on DB rows that are never written (N3).
+
+### R1-R7 resolution check
+
+| # | Status | Evidence |
+|---|---|---|
+| R1 | **Resolved.** `is_hazard_key_present` ignores the hold. The key stays in `_active_hazards` through the hold. Relapse re-adds it inline at `safety.py:2481-2493` (`had_pending_clear`). Walked t=0/5/30/40: paging never stops, so the 60 s dedup window (`safety.py:935,961`) no longer matters. | |
+| R2 | **Partly resolved.** Guards (i)-(iii) are sound. Guard (iv) does not check what its name says (see N1). | |
+| R3 | **Resolved.** B9 at `notification_manager.py:2700` (`is_life_safety_hazard`) feeds the DND/router gates at `:2711-2720`. | |
+| R4 | **Resolved in shape.** The teardown matches the ack path at `:2886-2900`, but there is an await race (N4). | |
+| R5 | **Not resolved.** T7-neg, T10 and T11a pass on develop (N5). | |
+| R6 | **Not resolved.** The timing is off and the observable does not exist (N3, N6). | |
+| R7 | **Resolved.** Under seeds 0 and 1, `", ".join(set(["Kitchen","Garage"]))` gives `"Kitchen, Garage"`, so T9 is RED on develop under both seeds. pytest can spawn subprocesses (`sys.executable`). See N7. | |
+
+### Findings
+
+**N1 — HIGH (CRITICAL-adjacent) — `_initial_evaluation_complete` does not mean sensors were evaluated. D5 then silences a still-ON smoke alert after restart or reload.**
+`_async_periodic_check` (`safety.py:2960-2986`) evaluates no sensors. It only checks flooding escalation and runs `_sweep_hazard_clears`. Safety does not seed itself from current states anywhere: `async_setup` (`:1214-1290`) only subscribes via `async_track_state_change_event` (`:1571`), and nothing in setup loops over `hass.states.get`. `_active_hazards` is populated only by state-change *events*.
+Repro (legal): smoke detector ON, CRITICAL REPEATING, then an HA restart or URA reload. A CM reload is the clearest case because entity states don't change. NM `_recover_state_from_db` restores REPEATING with `hazard_type="smoke"`, `location="Kitchen"` (a post-D1 row, so guard (i) passes). Safety's detector stays ON and emits no event, so `_active_hazards` stays `{}`. The first periodic tick (≤60 s) sets the flag True. The next repeat tick sees `is_hazard_key_present=False`, and D5 tears down, marks the row `acknowledged=1`, and goes IDLE. A still-active life-safety alert stops repeating, and because it is acked it will not resurrect at the next restart. On develop it keeps paging. This breaks clause 5(iv).
+Fix (pick one, then record it): (a) add a real initial evaluation at the end of `async_setup` that feeds each discovered sensor's current state through the same evaluation path as `_async_sensor_state_changed`, and set the flag only after that; or (b) better, and robust to (c) below: let D5 auto-clear only after a **seen-present → absent** transition. Latch `safety_key_seen=True` the first time `is_hazard_key_present` returns True, scoped to the coordinator instance (store `id(coord)` and reset the latch if it changes). Before that, fail open. Note separately: Safety not re-raising an ON detector after reload is a pre-existing gap and should be carded.
+Also answering Q3: the flag is reset on reload, because reload builds a new instance and `__init__` sets it False. It is not reset on teardown (N1c below). It never flips if `async_setup` raises before `:1273`: discovery is wrapped in try/except, so an exception in `_build_room_mappings`/`_discover_sensors` skips scheduling the periodic. D5 then fails open forever, which matches develop and is acceptable, but state it in the plan.
+**N1c — MEDIUM — teardown window.** `async_teardown` (`safety.py:3412+`) clears `_active_hazards` but leaves the flag True. The coordinator stays in `cm.coordinators` while the manager tears down the other coordinators (`manager.py:870-880`, each awaiting DB saves), and NM is torn down last (`:904`). A 30 s repeat tick in that window makes D5 auto-clear and DB-ack a live alert, so it does not resurrect after restart. Fix: set the flag False at the top of `async_teardown`, and treat `not coord.enabled` as fail-open. Fix (b) above also covers this if the latch checks the instance and `enabled`.
+
+**N2 — HIGH — NM has a single alert slot. D5 checks only the *latest* CRITICAL, so it silences an earlier still-active one.**
+`async_notify` → `_enter_alerting` (`notification_manager.py:2001, 2520`) overwrites `_active_alert_data` on every CRITICAL. Repro (legal: combo smoke/CO detector, or two rooms): smoke:Kitchen CRITICAL t=0 (REPEATING); smoke:Garage (or carbon_monoxide:Kitchen) CRITICAL t=10 overwrites the slot; Garage recovers t=20; sweep pops `smoke:Garage` at ~t=320-380. D5 sees the key absent and goes IDLE + acks. Kitchen is still ON and emits no new event, so nothing re-pages. On develop the loop keeps paging until a human acks. This falsifies "an unacked life-safety alert is never silenced while its hazard is retained". Fix: D5's stop condition must be "Safety retains **no** CRITICAL life-safety key", for example `coord.has_active_critical_life_safety()` over `_active_hazards` with severity CRITICAL. Do not key it to the slot's single key. Add a test (two smoke keys, the later one clears, repeats continue). The post-ACK `_re_evaluate_hazard` has the same single-slot blind spot, but that predates this plan: card it, don't fix it here.
+
+**N3 — HIGH (plan/test authority) — repeat ticks write no `notification_log` row.**
+`_repeat_alert` (`:2645-2780`) calls only `_send_pushover/_companion/_whatsapp/_imessage/_tts` (`:2110-2300`). None of those call `log_notification` or `_emit_audit_row`, and `_repeat_alert` has no DB write. So:
+- T8 step 2/4/8 and T10 step 8 ("re-page row", "≥4 re-page rows") can never pass as written. They must count `_send_*` calls (or `_schedule_repeat` re-arms).
+- §1's falsification bullets 4-5 and 7 ("gap >30 s between re-page rows", "rows past recovery+360 s") and §8 D5 live SQL ("cluster of repeats at ~30 s cadence") check for something that is never written. They would PASS a regression vacuously.
+Fix: use the observable that actually exists. Live, that is the terminal `[AUTO-CLEAR]` audit row (`route_reason='auto_cleared:safety_hazard_absent'`), its timestamp relative to the sensor's recorder `off` time, and the original row flipping to `acknowledged=1`. For "kept paging during the hold", either use a channel-side signal or add a DEBUG/INFO log assertion (`"Repeating CRITICAL alert"`, `:2656`) checked in journald.
+
+**N4 — MEDIUM — D5 teardown awaits before it changes state (capture-before-await).**
+D5 sets `_alert_state=IDLE` only after awaiting `_restore_alert_lights`, `acknowledge_notification` and `_emit_audit_row`. A human ack in that window passes `async_acknowledge`'s guard (`:2859` — still REPEATING) and runs a second teardown and a second `acknowledge_notification()`. That call (`database.py:4628-4652`, "latest unacked CRITICAL") then acks a *different* row, such as an overwritten earlier alert's row (see N2). `_start_cooldown` arms a timer, and D5 then nulls `_active_alert_data` underneath it. Fix: snapshot the data, set `_alert_state = IDLE` (or a RESOLVING sentinel) and cancel the repeat unsub synchronously *before* the first await. Also place the D5 block before the `os.path.exists` executor await at `:2668`; the plan's "before the fan-out at :2696" is ambiguous.
+
+**N5 — MEDIUM — RED-on-develop classification is still wrong (R5 recurrence).**
+- **T7-neg** passes on develop. Without D1, `_re_evaluate_hazard` calls `is_hazard_active("","")`, which returns False, so there are zero re-fires and the state is IDLE. It is RED only on a D1-without-D2 intermediate. Reclassify it as R / intermediate anchor.
+- **T10** passes on develop, because the develop loop pages unconditionally. It is a post-build mutation anchor (hold-aware swap), not F.
+- **T11a** passes on develop for the same reason. It is a post-build anchor.
+- T11b is RED, through its second half only (the IDLE assert). T1, T4, T6, T7, T8 and T9 are confirmed RED.
+The correct subset is RED = T1, T4, T6, T7, T8, T9, T11b (7). Post-build anchors = T7-neg, T8-fail-open, T10, T11a. R = T2, T3, T5.
+Minor: T10 step 5 says relapse goes through `_record_sensor_relapse`. For smoke it goes inline in `_respond_to_hazard` (`safety.py:2481-2493`). `_record_sensor_relapse` is the leak→flooding path (`:1881`).
+
+**N6 — LOW — §8 timing and SQL errors.**
+(a) The sweep runs every 60 s, so the pop lands between recovery+300 s and recovery+360 s. Add up to 30 s for the next repeat tick, and the terminal transition can legitimately arrive at **recovery+390 s**. The 360 s regression threshold would false-alarm; use 390 s, or measure from the pop. (b) The §8 SQL filters `severity='critical'`, but rows store `severity.name` = `'CRITICAL'` (`notification_manager.py:1633`; `database.py:4647` filters `'CRITICAL'`). SQLite `=` is case-sensitive, so the query returns zero rows.
+
+**N7 — LOW — T9 mechanics are under-specified.**
+The subprocess must call the production `_check_flooding_escalation`, for example via `SafetyCoordinator.__new__` with `_active_leak_sensors` / `_sensor_locations` / `_leak_start_times` set. Running a copy of the expression would be a hollow anchor (#62). Note also that both seeds 0 and 1 give Kitchen-first, so the plan's "at least one seed" wording is right but understates it.
+
+### Q4 — `acknowledged=1` consumers (auto-clear reuse): CLEAN, with one note
+Readers of `notification_log.acknowledged`: `get_active_critical` (`database.py:4671`, `=0`) and `get_active_cooldown` (`:4695`, `=1 AND cooldown_expires IS NOT NULL`). D5 sets no cooldown, so it is never surfaced as a cooldown. No ack-rate metric, digest, NM-REPAGE logic or dashboard reads `acknowledged`/`ack_time` (repo grep, excluding the anomaly_log namesake). Note: `ack_time` on the real row will look like a human ack to any external analytics. The `[AUTO-CLEAR]` audit row disambiguates it, so say so in D4. `acknowledge_notification` acks the "latest unacked CRITICAL", not the episode's row. Combined with N2 (and N4) it can ack the wrong row; fixing N2/N4 bounds this.
+
+### Scenario walk (Rev 3 D5)
+| Scenario | Result |
+|---|---|
+| No ack: ON t=0, OFF t=5, relapse t=40 | OK, paging continuous (R1 fixed) |
+| No ack: ON, OFF final at r, no chatter | OK, stops at r+300..390 s |
+| ROC suffix (`carbon_monoxide:Loc:roc` retained after threshold key clears) | Keeps paging (conservative, OK) |
+| Flooding: composite key; §4-D pops all flooding keys only when every leak sensor is dry (`safety.py:1850-1856`, no hold) | OK, stops ≤30 s after all dry. D6 makes the composite deterministic |
+| Ack paths (cooldown / pending / relapse) | Unchanged from Rev 2 walk, OK |
+| Restart or reload with detector still ON | **VIOLATION** (N1) |
+| Safety teardown before NM teardown | **VIOLATION**, narrow window (N1c) |
+| Two concurrent Safety CRITICALs, the later one clears | **VIOLATION** (N2) |
+| Pre-D1 NULL row restored | OK, fail-open (i) |
+
+**Can a still-active life-safety alert ever stop repeating?** Yes, through N1, N1c and N2. **Does D5 stop in the normal recovered case?** Yes, at about recovery+300 to 390 s.
+
+### Must-fix before build
+N1 (+N1c), N2, N3, N4, N5. Fold in N6 and N7.
