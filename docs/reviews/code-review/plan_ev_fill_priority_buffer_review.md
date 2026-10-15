@@ -61,3 +61,72 @@
 ## Must-fix before build
 
 Findings 1, 2, 3, 4, 5, 6, 7. 8-10 are recommended.
+
+---
+
+## Tier 3 plan review 1 (completeness)
+
+- Reviewer: ura-reviewer, framing = completeness / independent re-enumeration. Base: develop HEAD (after a9e45da38 / 92f324f43), plan Rev 2 plus the "Tier elevation" section.
+- Method: I enumerated from code first (`grep _paused_by_fill_priority|_fill_priority_would_hold` across `domain_coordinators/`, `energy_pool_owners.py`, `energy.py`, `sensor.py`), then compared against D1-D5, §5.4, §5.5 and §8. HVAC/presence docs don't apply (energy only).
+
+### Independent enumeration (ground truth)
+- **EV FP-set writers (`energy_pool.py`):** 2764 (inert), 2787 (force), 2819 (manual override), 2851 (pause add), 2880 (peer steal, inside FP guard), 2916 (terminal), 3156 (arbitrage hand-off add), 3497 (release_all discard), 3525 (release_all re-add on untrusted SOC). **Plug:** 4444, 4460, 4486, 4501, 4523, 4558, plus `release_all` 4034 / 4054 (untrusted re-add).
+- **Persistence:** the EV FP set is **KV-persisted**. `energy_pool_owners.py:312` has `persistence_key="evse_fill_priority_paused"`, and it is restored with a 10h staleness guard (`energy.py:1565-1577`, saved at `:2166`). The plug FP set has no persistence key (`:394`).
+- **Readers outside energy_pool:** `energy.py:1814, 5669, 5811, 7834, 8801, 8914, 10728, 11348`, `sensor.py:10506`. None of these are affected by an additive latch.
+- **Call gating:** both FP calls sit under `if not self._observation_mode:` (`energy.py:6582`) and `if self._excess_solar_enabled:` (`:6776`, `:6942`). The else branch calls `release_all` (`:6842`, `:6968`).
+- **EV pause owners (registry):** tou, grid_cap, battery_drain, dp, arbitrage, load_shed, fill_priority, proactive_offpeak, blind_window (`energy_pool_owners.py:234-339`). **Plug:** tou, battery_drain, fill_priority, load_shed, proactive_offpeak.
+
+### Rev-1 finding re-check
+| # | Resolved at a reachable site? |
+|---|---|
+| 1 inert | YES. The D1 sites EV `:2763` / plug `:4443` run every inert tick before `return`. **But** see F2 below (observation mode bypasses D1). |
+| 2 steal | YES. The top-of-loop placement (`:2780`/`:4453`) is reachable for unlatched-member ids. The peer list is incomplete (F4). |
+| 3 force | YES. Unconditional pop under `if force_charge_active:` (`:2785`/`:4458`). |
+| 4 forecast | YES. `resume_soc_met` is in scope at `:2916`/`:4558`. |
+| 5 arbitrage | Resolved, but the chosen global `any()` creates a new sibling regression (F1). The §8 list now has 3156. **The 3525 label is wrong** (F6). |
+| 6 below-floor | YES (D5 at function head, after inert return; `soc is None` → no-op). |
+| 7 live | YES (L2 positive control). |
+| 8-10 | YES. |
+
+### Findings
+
+1. **MEDIUM — The §5.4 global `any()` regresses the NON-latched sibling EVSE (contradicts clause (2) of the Tier invariant).** `energy_pool.py:3150-3160`: when the hand-off is suppressed, release falls through to `switch.turn_on` (`:3168-3172`, off_peak only). FP's next tick then pauses it again (unlatched, ON, SOC<80).
+   - Legal repro: off_peak daylight (non-inert), fill_priority_soc=80, two EVSEs.
+     - garage_a resumed SOC-reached earlier, so it is latched. Its car is now full and the charger OFF, so D2 never fires and D5 doesn't either (SOC 78 ≥ 77).
+     - garage_b is arbitrage-paused. Arbitrage releases at SOC 78 → `would_hold=False` because of garage_a → garage_b is turned ON → paused next tick.
+     - That is one 11.6 kW toggle develop would not make (develop hands it off).
+   - Also: given D2 pops the latch whenever arbitrage owns an id, a *latched* id can almost never reach the hand-off. The global `any()` therefore mostly affects siblings, which is the wrong population.
+   - Fix: keep `_fill_priority_would_hold` global and add `and evse_id not in self._recently_released_by_fill_priority` at the per-id gate `:3153`. That is one token, per-id, and byte-identical with no latch. A13 should assert sibling behavior.
+2. **MEDIUM — Observation mode bypasses every discharge (D1/D5 never run), so a stale latch survives the mode exit (suppression-without-discharge, #observation-mode gating).** `energy.py:6582` gates the whole FP block.
+   - Repro: latch set at 13:00, then the operator enables observation mode for 2 days and disables it at 09:00 in off_peak daylight with SOC 79 and the EV ON → no pause until 77. Develop pauses at 79.
+   - Q2's "no TTL" grounding ("D1 is the daily discharge") is false whenever FP isn't called.
+   - Fix: clear both latches on the observation-mode → active edge (or in the observation-mode branch), or store the set-date and pop on a date change. Add a test.
+3. **MEDIUM — §5.6 / §1 factual error: the EV FP set is NOT RAM-only.** It is KV-persisted (`energy_pool_owners.py:312`, restore at `energy.py:1565-1577`). After a restart the FP set comes back and the latch doesn't. Outcome:
+   - A latched, resumed EV in the band at boot hits the first-pause edge → one extra toggle per restart (acceptable).
+   - A restored FP member resumes normally.
+   - The plan must state this truthfully and decide explicitly: persist the latch (registry `persistence_kind="list"`), or accept. Framing C's "reload-wipes-latch is tested" test must not assume the FP set is also wiped. Also forbid the builder from registering the latch as an `OwnerDeclaration` with `peer_holds_member=True`: it is not a pause owner, and it would leak into `_stronger_peer_holds` and the classifier.
+4. **LOW — The D2 peer set omits `_paused_by_dp` and `_proactive_offpeak_holds` (EV) and `_proactive_offpeak_holds` (plug).** It mirrors the existing resume guard (`:2871-2879`), which also omits them, but the D2 rationale is "a steal = a new session".
+   - Repro: latched EV at SOC 79, DP pauses it, then DP releases at 78 → latch still live → no pause until 77.
+   - Rule explicitly whether these count as steals, and test whichever is chosen.
+5. **LOW — The plug D4 placement must come BEFORE the `grid_charge_on` early return** (`energy_pool.py:4028-4032`). "At the top" is right, but say it, or a builder will put the clear next to the loop.
+6. **LOW — Label errors in §5.4 / §5.5 / §8 / §1.** `:3525` is the EV `release_all` untrusted-SOC **re-add**, not the "plug mirror writer". The plug `release_all` is `:4018-4060` (writers `:4034`, `:4054`). The FP-reader list also omits the `energy.py` / `sensor.py` readers enumerated above (additive latch, no behavior impact, but the map is presented as complete).
+7. **LOW — The latch is not pruned on EVSE removal** (`_prune_removed_evses`, `energy_pool.py:1221`). This is harmless because `any()` / the gate iterate `self._evse`, but state it (or pop in prune) so framing D doesn't relitigate it.
+8. **LOW (semantics, operator-visible) — No car-session discharge.** A latch set at 08:30 for an EVSE that goes OFF (car leaves) survives to a 15:00 replug at SOC 78 (D5 only fires below 77). The cost is bounded (≤3% SOC), but say it is intended.
+
+### Tier invariant: testable and complete?
+**Not as written.**
+- Clause (1) ("never left paused by fill_priority while SOC ≥ threshold and forecast healthy") is **falsified by pre-existing legal paths**:
+  - untrusted-SOC refusal keeps the FP claim (`:2893-2896`, `:4536-4539`);
+  - plug grid_charge_on M1 hold (`:4529-4535`);
+  - the onset funnel deferral;
+  - the arbitrage hand-off membership that persists until FP's next tick.
+
+  Framing D will either report develop's behavior as leaks or have to hand-wave. Enumerate the exceptions (or scope the clause to "the cycle introduces no new path..."). "Forecast healthy" is irrelevant to resume and should be dropped from (1).
+- Clause (2) says "after a fill-priority resume". It must say **SOC-reached** resume with no intervening discharge event (D1-D5, observation-mode exit, restart). Otherwise it contradicts §5.3.1 and D2/D3.
+- Clause (2) should also cover non-latched siblings explicitly: "a non-latched id behaves exactly as develop on every path, including arbitrage hand-off". That would have made F1 a direct falsification target.
+
+### Parked-plan triggers
+`EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` (KANBAN.md:895-906) is parked with revival trigger "EV toggle alarm fires / >2 strategy toggles/hr". The 10-11 firing was already attributed to fill_priority, not rung-1 (`trigger_check_2026_10_12_overnight`). This cycle does not fire it. L3 (tripwire=0) and L1 should attribute any toggle row by `pause_owners` so a rung-1 recurrence isn't misread as an FP regression. No other parked plan in `docs/planning` has a fill_priority revival trigger (grep of the 30 files mentioning fill_priority).
+
+### Verdict: **FIX-REQUIRED (plan edits only)**
+Must-fix before build: F1, F2, F3, plus the invariant rewrite (clauses 1-2). F4-F8 are recommended and fit in the same edit.
