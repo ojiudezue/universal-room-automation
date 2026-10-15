@@ -130,3 +130,64 @@ Findings 1, 2, 3, 4, 5, 6, 7. 8-10 are recommended.
 
 ### Verdict: **FIX-REQUIRED (plan edits only)**
 Must-fix before build: F1, F2, F3, plus the invariant rewrite (clauses 1-2). F4-F8 are recommended and fit in the same edit.
+
+## Tier 3 plan review 2 (build-prediction)
+
+- Reviewer: ura-reviewer, framing "what will the builder get wrong reading Rev 2"
+- Base: develop HEAD (92f324f43 lineage). Code read: `domain_coordinators/energy_pool.py` 2668-2921, 3110-3165, 3491-3540, 4018-4060, 4384-4560; `energy_pool_owners.py` 295-320, 393-400; `energy.py` 1845-1905, 6810-6830, 7860-7895; `number.py` ~1840-1885.
+- Note: the files live under `domain_coordinators/`. The plan's bare `energy_pool.py` paths are fine as shorthand.
+
+### Verdict: FIX-REQUIRED (plan text only; the design holds)
+
+### Findings
+
+1. **HIGH — §7 says "SOC exactly 77 (floor) pauses". That contradicts §5.3.2 and INV-1.** The gate is `soc < effective_floor` (= `< 77`), and INV-1's band `[77, 80)` includes 77 as a no-transition value. Likely wrong build: the builder writes the §7 test first, sees it fail, and "fixes" the gate to `<=`, which shrinks the band to 78-79 and breaks INV-1 at 77. Fix: SOC 77.0 with a latch does NOT pause; SOC 76.9 pauses (INV-3).
+
+2. **HIGH — The global `any()` in the §5.4 `_fill_priority_would_hold` brings back the arbitrage-release flap for a second, unlatched EVSE.** The house has two chargers (garage_a/garage_b), so this is a legal config.
+   Repro: garage_a has the latch (SOC-resumed at 80, now 78, ON). garage_b is OFF under an arbitrage hold, SOC is 78, it is off_peak daylight, and arbitrage releases. `would_hold` is False because of garage_a, so `:3151-3155` does not hand garage_b to FP, and `:3165` turns it ON. On the next FP tick garage_b takes a first pause (no latch, `soc < 80`, is_on) and goes OFF. That on/off pair is the exact flap EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 fixed. "Byte-identical on the no-latch path" is true but beside the point: the mixed path regresses.
+   The stated reason for rejecting per-EVSE handling ("two new publications") does not apply to the cheap version. Leave `:2776-2778` unchanged and add one per-id peer term at the hand-off: `and evse_id not in self._recently_released_by_fill_priority` at `:3151-3155`. Add the two-EVSE case to A13.
+
+3. **HIGH — The D4 plug anchor is wrong, and the real plug site has an early return.** `:3525` is the EV `release_all_fill_priority` untrusted-SOC re-add (`self._paused_by_fill_priority.add(evse_id)`), not the plug mirror. The plug sibling is `PlugPool.release_all_fill_priority` at `:4019-4060`, and it `return`s early at `:4027-4032` when `grid_charge_on`.
+   Likely wrong builds: (a) the plug D4 is skipped entirely, because the "plug sibling (:3525)" is just another line inside the EV function; (b) the clear goes after the early return, so the plug latch survives a toggle-OFF while grid-charge is on and suppresses the first pause at the next toggle-ON. Fix: name `:4019`, require the `.clear()` BEFORE the `grid_charge_on` return, and correct §5.4/§5.5/§8, which call `:3525` "plug mirror".
+
+4. **MEDIUM — §5.6 "Both the FP set and the latch are RAM-only" is false for the EVSE set.**
+   - `energy_pool_owners.py:310-312` declares `persistence_key="evse_fill_priority_paused", persistence_kind="list"`. It is saved and restored via `energy.py:1845-1905` (`_restore_registry_owner_lists`). The plug FP set (`:393-400`) has no persistence key, so it is RAM-only.
+   - The restore is therefore an FP-set writer missing from the §5.5/§8 producer lists.
+   - Likely wrong builds: a framing-C "reload wipes latch AND set" test that fails, or a builder who "restores symmetry" by persisting the latch, which is out of scope and adds a stale-latch-across-days path.
+   Fix: state that the EVSE FP set is persisted and restored, the plug FP set and both latches are RAM-only, and that post-restart behavior is at most one first-pause toggle (acceptable). The restart test must assert exactly that.
+
+5. **MEDIUM — The D5 position contradicts itself ("HEAD of the function" vs "`:2780`-ish").** `:2780` is AFTER the `_fill_priority_would_hold` publish at `:2776`. If the builder takes the line anchor, the publish reads a latch that D5 is about to pop, and with the §5.4 `any()` that is a wrong value one tick later. Fix: D5 runs once per tick immediately after the inert `return` (after `:2766` / `:4446`) and BEFORE `pause_conditions_global` and the `would_hold` publish. Placing it before the inert check is harmless, because D1 clears everything anyway. Pin a single location.
+
+6. **MEDIUM — D5 and the latched-consumer floor test are redundant, so framing C's mutation drill comes back GREEN by design.** After D5, a latched id always has `soc >= effective_floor` (or `soc is None`), so `soc < effective_floor` in §5.3.2 is dead code. Neutering either one alone leaves A3/A11 green, and C will report an untested site. Fix: make D5 the single authority and write the consumer as `pause_this_tick = False if is_latched else pause_conditions_global`. Or drop D5's pop for ON chargers and keep the consumer test. Either way, the plan must name which site the A3/A11 drills target.
+
+7. **MEDIUM — Invariant (1) in the Tier-elevation section is false on develop.** FP deliberately keeps a pause at SOC >= threshold in these cases:
+   - untrusted-SOC refusal (`:2889-2892`, plug `:4537-4540`);
+   - plug `grid_charge_on` hold (`:4529-4535`);
+   - the peer-held clear path, where FP drops its claim but the device stays OFF.
+
+   Reviewer D will "falsify" pre-existing behavior, or a builder will "fix" these holds. Fix: list them as explicit exemptions to (1).
+
+8. **MEDIUM — A4 contradicts itself and can be satisfied by a hollow test.**
+   - Option (a), a kwarg defaulting to the module constant, needs the constant bound in `energy_pool`'s namespace via the bare `from .energy_const import (` block (`:21-26`, exactly how `safety_margin_kwh` is defaulted at `:2675`). That is the binding A4 "forbids".
+   - A test that passes `repause_band_pct=0` explicitly says nothing about production wiring: `energy.py:6817` passes kwargs explicitly and would silently run band 3 or band 0 depending on what the builder does.
+
+   Fix: allow the bare import for the default. Require A1 and A9 to call WITHOUT the kwarg (so they exercise the shipped default of 3). Require at least one test to drive through the `energy.py` call site, or assert that the call site passes `DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT`.
+
+9. **MEDIUM — L1 and L2 cannot be executed as written.** No `fill_priority_pause` / `fill_priority_release` row type exists (grep: zero hits). `_log_charger_actuation` (`energy.py:~7880-7893`) writes `coordinator="energy_pool"`, `action=<service>`, `entity_id=<switch>`, and a description `kind=… pause_owners=…`, with no SOC. The validator will improvise, or report a vacuous PASS. Fix: specify the query as `coordinator='energy_pool'` + `entity_id` + `description LIKE '%fill_priority%'`, joined to recorder history of the named SOC entity for the `[77, 80)` band test.
+
+10. **LOW — Anchors.**
+    - `resume_soc_met` is computed at `:2773` / `:4451`; `:2866` / `:4516` are only where it is read.
+    - The plug variable is `pause_conditions`, not `pause_conditions_global`.
+    - The plug has no `_fill_priority_would_hold`, and the builder must not add one.
+    - Plug force-charge is a kwarg (`:4392`), not `_is_force_charge_active()`.
+
+    Say so, so the mirror is not built as a literal copy of the EV path.
+
+11. **LOW — §5.3.2 should limit `pause_this_tick` to the `:2844` / `:4493` pause gate.** The excess-solar deferral (`:2836`) and the `would_hold` publish keep the global value. Otherwise a builder may swap the name everywhere.
+
+12. **LOW — A13 says "mock arbitrage release path".** That is a hollow-anchor risk (#62). The test must drive the real release leg in `determine_arbitrage_actions` (`:2951`, hand-off `:3151`) and include the two-EVSE case from finding 2.
+
+13. **LOW — The config extremes have no expected values.** `fill_priority_soc` has a minimum of 50 (number entity, `number.py` ~1857), so the floor is 47 at band 3, with the same pass/fail table as at 80. Say that band ≥ threshold and negative band are reachable only through the kwarg, and give the expected result for each (floor 0: no re-pause while latched above 0; negative band: floor = threshold, legacy behavior).
+
+### Must-fix before build
+Findings 1-9. Fold 10-13 into the same plan revision.
