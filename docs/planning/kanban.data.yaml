@@ -115,6 +115,14 @@ meta:
     headline: "Parked as you suggested. The 5-minute ordering gap has no measured cost. The overlaps I found were a local Envoy switch reading on while URA's real grid-charge switch was off and the battery wasn't charging. Site load never went above 16 kW, about a third of the 200 A mains."
     acknowledged: false
 cards:
+- id: HVAC-S10-NOTIFY-UNDELIVERED-1
+  title: "Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config"
+  status: planned
+  tier: 1
+  origin: "HVAC S10 review C (C-H1), 2026-10-15. Swept board: no existing card."
+  why: "Live NM: one recipient (person.oji_udezue, digest delivery, no routing matrix); pushover/imessage/whatsapp CRITICAL only, companion HIGH, lights/TTS disabled; digest rows are written only for qualifying channels. So LOW/MEDIUM S10 notifications (s10_restore_not_taking, s10_preset_range_call_failed, s10_preset_range_not_sticking, s10_restore_pending, the switch backstop) produce only an [audit] row that get_pending_digest (database.py:4572) excludes: nobody is told. Pre-existing; the new settle-held alert is fixed to HIGH in feature/hvac-s10-settle."
+  next: "Me: decide per notification which deserve HIGH (operator-actionable: call_failed latch, restore_not_taking) vs digest; also check whether digest should include non-qualifying LOW rows at all. Tier 1."
+  related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
   title: "After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on"
   status: pre_planning
@@ -133,7 +141,8 @@ cards:
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
 - id: SAFETY-UNACKED-REPEAT-CADENCE-KNOB-1
   title: "Optional: slower repeat for unacknowledged smoke/CO/flood alerts (now a fixed 30 s until ack)"
-  status: parked
+  status: done
+  operator_2026_10_15: "Operator: 30 s is \"aggressive for this young code\"; pick A (today's decaying ladder) \"but should this be a setting ie timing ... with a default\". Absorbed into SAFETY-NM-REFIRE-UNWIRED-1 as D7 (plan rev 4.2): options select standard (default) / fast_start / urgent."
   tier: 1
   origin: "Safety re-page plan rev 3 re-review (N1/N2) and rev 4 (D5 withdrawn), 2026-10-15. Swept board + BACKLOG: no existing card."
   why: "After SAFETY-NM-REFIRE-UNWIRED-1, unacked life-safety CRITICALs repeat every 30 s until acknowledged (latch-until-ack, chosen over auto-stop-on-clear). A rung-2 cadence knob is the minimal relief if this proves fatiguing."
@@ -426,7 +435,8 @@ cards:
   approval: unreviewed
   origin: {date: '2026-10-14', gist: 'plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map'}
   why: "Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active('', ''), always False, so the NM re-fire for an active hazard never happens. Pre-existing; out of scope of the clear-on-recovery cycle."
-  status: "pre_planning"
+  status: in_progress
+  operator_2026_10_15: "Operator: repeat schedule = A (today's ladder) as a setting with a default (D7, plan rev 4.2); deploy held until Sunday 10-18."
   next: "Me, after you APPROVE the safety clear-on-recovery plan rev 4 (SAFETY-HAZARD-NEVER-CLEARS-1): fold this into that cycle's plan as a deliverable (set hazard_type + location on the safety NotificationAction at safety.py:2413-2420, make is_hazard_active hold-aware per the 10-14 constraint, test the NM re-fire round trip). Not built alone: it changes when life-safety alerts re-page."
   updated: "2026-10-15 02:10"
   links:

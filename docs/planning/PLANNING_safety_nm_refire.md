@@ -407,3 +407,19 @@ Real `notification_log` columns (`database.py:4440-4490`): `id, timestamp, coord
 - **S2:** the `notification_log` row source corrected throughout (rows are per delivered channel at `notification_manager.py:1678-1899`; `:551` is dry-run-only). T7 uses a pass-through spy and enables a channel.
 - **S1:** blast-radius rows B10 (alert-light patterns) and B11 (TTS overnight DND bypass) added, both intended.
 - **Deploy timing (reviewer advisory, adopted):** after D1 an unacked smoke/CO/flood alert pages every 30 s through DND/mute with speakers and lights until acked (develop: 300 s decaying). Correct for a real event but much louder on a false trip. Build and review now; **hold deploy until the operator is home (Sun 10-18)** or until Jaya has been shown how to acknowledge, whichever the operator picks.
+
+## Rev 4.2 (2026-10-15, operator rulings) — life-safety repeat schedule becomes a setting
+Operator: "A. but should this be a setting ie timing. it feels like it should with a default." and deploy "Sunday" (hold until 10-18).
+
+**D7 (NEW deliverable, absorbs card SAFETY-UNACKED-REPEAT-CADENCE-KNOB-1):** a Coordinator-Manager options-flow select `CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE` (rung 2: operator-settable, persistent, infrequent), on the NM step next to the quiet-hours fields, as a named-bucket dropdown per the label style guide:
+- `standard` (**default**): "Standard: every 5 min for the first hour, then every 30 min, then daily". Same ladder as non-life-safety CRITICALs (`NM_REPEAT_PHASE1_S` / `PHASE1_WINDOW_S` / `PHASE2_S` / `DAILY_AFTER_S`). This is today's effective behaviour for Safety alerts.
+- `fast_start`: "Fast start: every minute for the first 10 minutes, then Standard".
+- `urgent`: "Urgent: every 30 s until acknowledged" (the old `NM_REPEAT_INTERVAL_LIFE_SAFETY`).
+
+Single consumer site: `notification_manager.py:_repeat_interval_for_active_alert` (~2562-2588), life-safety branch; plus `_repeat_phase` (~2621) diagnostics labels must reflect the chosen schedule. New fast-start numbers are rung-1 constants (`NM_REPEAT_FAST_START_S = 60`, `NM_REPEAT_FAST_START_WINDOW_S = 600`). Unknown/missing value -> `standard` (default). Read through the existing `_refresh_config()` path, so a change takes effect on the next repeat tick without a reload.
+
+**Builder must first enumerate every hazard type that is life-safety today** (base `NM_LIFE_SAFETY_HAZARDS` + extras knob) and every producer currently emitting one (Security? leak paths?). Changing the default from 30 s to Standard changes those producers' repeat cadence too. Record the list; if any non-Safety producer relies on 30 s today, report it to the orchestrator before shipping (operator decision).
+
+Tests (F = fail on develop): the default schedule yields 300 s at age 0, 1800 s at age 3601 s, 86400 s after 24 h for a smoke alert; fast_start yields 60 s at age 0 and 300 s at age 601 s; urgent yields 30 s; unknown value -> standard; options round-trip (save/reload shows the selection); `_repeat_phase` labels. Mutation anchors on the life-safety branch.
+
+Blast radius row B1 is updated: the unacked repeat for smoke/CO/flooding stays on today's decaying ladder by default (NOT 30 s flat). Deploy is held until Sun 10-18 regardless.
