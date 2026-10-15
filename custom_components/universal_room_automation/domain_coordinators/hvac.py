@@ -14,7 +14,7 @@ import asyncio
 import time
 import logging
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any
 
@@ -90,8 +90,10 @@ from .hvac_const import (
     S10_DEFAULT_OFF_NM_GUARD_S,
     S10_PRESET_RANGE_MIN_INTERVAL_S,
     S10_PRESET_RANGE_MIN_SPACING_S,
+    S10_POST_PRESET_CHANGE_SETTLE_S,
     S10_PRESET_RANGE_PRESETS,
     S10_PRESET_RANGE_UNCONFIRMED_LIMIT,
+    S10_SETTLE_HELD_WARN_S,
     S10_STATE_SIDE_KEY,
     S10_SWITCH_RESOLUTION_TIMEOUT_S,
     W1C_ADAPTER_SIDE_KEY,
@@ -763,6 +765,11 @@ class HVACCoordinator(BaseCoordinator):
         # record, so an in-flight `_s10_write_one` never writes a record
         # back over the cleared map after an await.
         self._s10_records_gen: int = 0
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4 trip-wire:
+        # once-per-day latch keyed by zone_id -> date the warn fired.
+        # Cleared when the zone's settle episode releases (a full S10
+        # tick without `last_observed_preset_change` re-advancing).
+        self._s10_settle_held_fired_on: dict[str, date] = {}
         # Fix-up (B2): the source the switch last resolved from.
         self._s10_resolved_source: str | None = None
         # REV 3.2 R2 / REV 5 F8: the unresolved-switch backstop timer.
@@ -3934,7 +3941,7 @@ class HVACCoordinator(BaseCoordinator):
                 if effective_preset == "away":
                     self._zone_last_away_reason[zone_id] = preset_change_reason
                     # Only an APPLIED `vacant_past_grace` away that is a REAL
-                    # transition (previous applied write not away — the §9.7
+                    # transition (previous applied write not away — the §9.9
                     # re-issue loop must not re-anchor) anchors the
                     # quick-return alarm (plan §5.2 / §5.7; fix-up 1 D-M3).
                     if (
@@ -4182,6 +4189,10 @@ class HVACCoordinator(BaseCoordinator):
         if self._guest_mode_actuation_enabled is None:
             _LOGGER.debug("S10: switch unresolved; deferring")
             return
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4: once-per-tick
+        # settle-held trip-wire check (runs regardless of switch state;
+        # the warn is cheap and the gate applies to apply and restore).
+        self._s10_check_settle_held()
         try:
             if self._guest_mode_actuation_enabled is False:
                 await self._s10_pass(mode="restore")
@@ -4214,6 +4225,65 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("S10: rollout zone read failed", exc_info=True)
         return frozenset(DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS)
+
+    def _s10_check_settle_held(self) -> None:
+        """HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4 trip-wire.
+
+        Fire one `s10_settle_held` ledger row per rollout zone per
+        calendar day when a zone's continuous settle episode has been
+        armed for at least `S10_SETTLE_HELD_WARN_S` AND the stamp is
+        still fresh (< `S10_POST_PRESET_CHANGE_SETTLE_S`): the zone is
+        held, not just mid-cooldown. When the stamp has expired past
+        the settle window the episode released - clear the latch so a
+        future episode can re-fire. Never raises."""
+        try:
+            rollout = self._s10_rollout_zone_ids()
+            if not rollout:
+                return
+            now = dt_util.utcnow()
+            today = now.date()
+            for zone_id in rollout:
+                zone = self._zone_manager.zones.get(zone_id)
+                if zone is None:
+                    continue
+                stamp = getattr(zone, "last_observed_preset_change", None)
+                episode_start = getattr(zone, "settle_episode_started_at", None)
+                if stamp is None or episode_start is None:
+                    # No armed stamp - episode is not open.
+                    self._s10_settle_held_fired_on.pop(zone_id, None)
+                    continue
+                last_age = (now - stamp).total_seconds()
+                if last_age >= S10_POST_PRESET_CHANGE_SETTLE_S:
+                    # Full tick elapsed without re-arming - episode released.
+                    self._s10_settle_held_fired_on.pop(zone_id, None)
+                    continue
+                episode_s = (now - episode_start).total_seconds()
+                if episode_s < S10_SETTLE_HELD_WARN_S:
+                    continue
+                if self._s10_settle_held_fired_on.get(zone_id) == today:
+                    continue
+                self._s10_settle_held_fired_on[zone_id] = today
+                _LOGGER.warning(
+                    "HVAC S10: zone %s held in post-preset-change settle "
+                    "for %.0fs (warn >= %ds)",
+                    zone_id, episode_s, S10_SETTLE_HELD_WARN_S,
+                )
+                self._s10_ledger(
+                    "s10_settle_held", zone_id,
+                    getattr(zone, "climate_entity", None),
+                    (
+                        f"s10_settle_held zone={zone_id} "
+                        f"held_s={int(episode_s)} warn_s={S10_SETTLE_HELD_WARN_S}"
+                    ),
+                    {
+                        "zone_id": zone_id,
+                        "held_s": int(episode_s),
+                        "warn_s": S10_SETTLE_HELD_WARN_S,
+                        "settle_s": S10_POST_PRESET_CHANGE_SETTLE_S,
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10: settle-held trip-wire failed", exc_info=True)
 
     def _export_s10_state(self) -> dict[str, Any]:
         return {
@@ -4372,6 +4442,20 @@ class HVACCoordinator(BaseCoordinator):
                 return "climate_unreadable"
         except Exception:  # noqa: BLE001
             return "climate_unreadable_error"
+        # 0.6 — HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 D1 (R1 + R6
+        # ordering): a Carrier post-write staleness window after an
+        # OBSERVED (preset_mode | hold_activity) transition. Fail-closed
+        # (treat as settle) on any exception reading the stamp.
+        # Strictly ahead of step 3 (s1_same_tick): the OBSERVED gate
+        # dominates the S1-only gate (T19 mutation anchor).
+        try:
+            stamp = getattr(zone, "last_observed_preset_change", None)
+            if stamp is not None:
+                age = (dt_util.utcnow() - stamp).total_seconds()
+                if age < S10_POST_PRESET_CHANGE_SETTLE_S:
+                    return "post_preset_change_settle"
+        except Exception:  # noqa: BLE001
+            return "post_preset_change_settle"
         # 1 — egress pause.
         try:
             if self._egress_manager is not None and self._egress_manager.is_paused(zone_id):
@@ -4777,6 +4861,12 @@ class HVACCoordinator(BaseCoordinator):
         again for S10_PRESET_RANGE_MIN_INTERVAL_S), so a confirming view is
         never the guard-masked optimistic copy of our own write."""
         rec["writes"] = 0
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 D2 (R2): a CONFIRMED
+        # success (SKIPPED_ALREADY_CORRECT or a matching view at the
+        # limit) also discharges the failure budget. APPLIED does NOT
+        # reset failures (operator ruling A4, 2026-10-05) and does NOT
+        # call _s10_success.
+        rec["failures"] = 0
         self._s10_set_record(zone_id, preset, mode, rec)
         self._s10_note_outcome(zone_id, preset, status="skipped_already_correct", mode=mode)
         if mode != "restore":
@@ -4986,7 +5076,34 @@ class HVACCoordinator(BaseCoordinator):
             zid: {p: dict(v) for p, v in d.items()}
             for zid, d in self._s10_snapshots.items() if d
         }
-        return {"preset_range_by_zone": by_zone, "originals_pending_restore": pending}
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4: expose per-zone
+        # continuous-settle-episode duration (seconds) for rollout zones
+        # whose stamp is non-None. None where the zone has no armed
+        # stamp. Age is from the EPISODE start (not the last re-stamp)
+        # so the trip-wire threshold is observable from diagnostics.
+        settle_held: dict[str, float | None] = {}
+        try:
+            now = dt_util.utcnow()
+            for zone_id in self._s10_rollout_zone_ids():
+                zone = self._zone_manager.zones.get(zone_id)
+                if zone is None:
+                    settle_held[zone_id] = None
+                    continue
+                stamp = getattr(zone, "last_observed_preset_change", None)
+                episode_start = getattr(zone, "settle_episode_started_at", None)
+                if stamp is None or episode_start is None:
+                    settle_held[zone_id] = None
+                else:
+                    settle_held[zone_id] = max(
+                        0.0, (now - episode_start).total_seconds(),
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10: settle_held diagnostics failed", exc_info=True)
+        return {
+            "preset_range_by_zone": by_zone,
+            "originals_pending_restore": pending,
+            "s10_settle_held_s": settle_held,
+        }
 
     @callback
     def _handle_house_state_changed(self, payload: Any) -> None:
@@ -5590,7 +5707,7 @@ class HVACCoordinator(BaseCoordinator):
     def _zone_last_write_is_away(self, zone: Any) -> bool:
         """Limiter-exemption / exit-timer key (plan §5.4, REV 3): the S1 write
         stamp FIRST; on a miss, the strategy's `last_sent`; NEVER
-        `zone.preset_mode` (the §9.7 status feed can misreport it)."""
+        `zone.preset_mode` (the §9.9 status feed can misreport it)."""
         rec = self._zone_last_s1_write.get(getattr(zone, "zone_id", ""))
         if rec is not None:
             return rec[0] == "away"
