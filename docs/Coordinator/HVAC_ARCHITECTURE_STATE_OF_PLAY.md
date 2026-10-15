@@ -130,8 +130,9 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 - **Occupancy:** HVAC has its **own** occupancy (`RoomCondition.hvac_occupied`, v5.103.7) with per-room-type tail-holds,
   hallway circulation exclusion, zone rollup `any_room_hvac_occupied`, and a shared retreat gate
   `conditioning_retreat_ok` = *established AND fused-empty* (reset-only backstop). Night retreat of empty zones at the
-  **preset** layer is LIVE; the **setpoint** layer (D9 compose-away / Custom Preset Ranges) is DORMANT
-  (`switch.ura_hvac_coordinator_guest_mode_actuation` = off).
+  **preset** layer is LIVE; the **setpoint** layer (Custom Preset Ranges, formerly D9 compose-away) is **LIVE on zone_3 since 2026-10-13**
+  via `hvac_s10_rollout_zone_ids` (`switch.ura_hvac_coordinator_guest_mode_actuation` on since 2026-10-02, re-read live
+  2026-10-15; parent card HVAC-CUSTOM-PRESET-RANGES-1 closed 2026-10-14). See C37.
 - **Biggest live defect (measured §9.1, corrected C20):** after a URA borrow returns, a genuine manual hold appears on the
   Carrier side (both status and config feeds read manual) at URA's own values; URA books it as a human override at zero
   delta, the arrester declines, S1 locks itself out, and `infinite_holds` keeps it — 1.5–11 h strands. Most likely
@@ -220,7 +221,7 @@ Consequences:
 |---|---|---|---|
 | S1 house-state/occupancy preset `hvac.py:2674` | preset (+hidden resume) | yes | **`ura_activity_log` `preset_change`** (`hvac.py:2716-2748`), lockout `preset_change_locked_out` (`:2504-2519`) once per episode. **v5.103.24:** held while the zone's climate entity reads `unavailable`/`unknown` (`_climate_unreadable`, `hvac.py` ~3552; live state, not the cached `ZoneState`) |
 | heat_cool enforcer `hvac.py:1926-1938` (B1, funnelled since W1-A) | hvac_mode | **no** | INFO only. **v5.103.24:** held while the climate entity reads `unavailable`/`unknown` (`hvac.py` ~2578; `HVAC_CLIMATE_UNREADABLE_STATES`, `hvac_const.py` ~513). One INFO + one `ura_activity_log` `climate_write_held_unreadable` row per outage EPISODE (opened on the first unreadable read, closed on the first readable one); the next readable tick writes as normal. Guard at the two sites, NOT in the funnels (W1-B constraint) |
-| S10 Custom Preset Ranges `_async_apply_preset_overrides` (HVAC Batch C, built 2026-10-05) | preset PROFILE range (`set_preset_range` → `set_activity_setpoint`), sites `S10_preset_range` / `S10_preset_range_restore` | yes (`emit_set_activity_setpoint`) | `climate_write` rows + ledger `s10_switch_resolved` / `s10_original_restored` / `s10_possible_wrong_profile` / `s10_default_off_after_restart` / `s10_original_dropped_zone_removed`. Full ticks only; skips: rollout, unreadable, egress, a/b, same-tick S1, live borrow (`PresetManager.borrow_live` = gate (e)), AC reset, preset ∉ {home,sleep,away,vacation}. Rate: 600 s spacing per (zone, preset, mode), 7800 s same-value retry, 3 consecutive unconfirmed writes / 3 failures → latch + NM (a confirmed success resets the write count, ruling A4). Restore: switch OFF (all zones with an original), or switch ON for zones removed from the rollout (ruling A6). HISTORICAL: raw `set_temperature` `S10_dpm_apply` (dormant) |
+| S10 Custom Preset Ranges `_async_apply_preset_overrides` (HVAC Batch C, SHIPPED v5.103.39) | preset PROFILE range (`set_preset_range` → `set_activity_setpoint`), sites `S10_preset_range` / `S10_preset_range_restore` | yes (`emit_set_activity_setpoint`) | `climate_write` rows + ledger `s10_switch_resolved` / `s10_original_restored` / `s10_possible_wrong_profile` / `s10_default_off_after_restart` / `s10_original_dropped_zone_removed`. Full ticks only; skips: rollout, unreadable, egress, a/b, same-tick S1, live borrow (`PresetManager.borrow_live` = gate (e)), AC reset, preset ∉ {home,sleep,away,vacation}. Rate: 600 s spacing per (zone, preset, mode), 7800 s same-value retry, 3 consecutive unconfirmed writes / 3 failures → latch + NM (a confirmed success resets the write count, ruling A4). Restore: switch OFF (all zones with an original), or switch ON for zones removed from the rollout (ruling A6). HISTORICAL: raw `set_temperature` `S10_dpm_apply` (dormant) Known residual (2026-10-15): a preset change can cause one redundant S10 write on the first tick after it, because `preset_range_original` (`hvac_strategy.py:666-680`) reads status-feed setpoints that lag inside the Carrier post-write guard (C21); fix planned in `docs/planning/PLANNING_hvac_s10_stale_range.md`. |
 | S3 arrester compromise `hvac_override.py:3393` | setpoints | yes | `hvac_excursion_events` |
 | S4 arrester revert `_revert_override` (B4 mode + S4 preset) | mode + preset | yes (W1-A) | `hvac_excursion_events`. **v5.103.23 D2d:** the preset is the compromise snapshot only when it is NAMED, else the episode's `original_preset`; neither named → S4 skipped (`revert_no_named_preset`, restore_ok None). A task whose episode a person superseded stands down (generation check at start and before S4) |
 | AC hard reset off/restore/retry/preset `hvac_override.py:3888/4006/4041/4113` | mode + preset | mode **no** | `ac_ramp_events` |
@@ -365,11 +366,13 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 
 ## 8. Live switches & knob values (recorder latest non-unavailable, 2026-09-26 ~02:00)
 
+Values dated 2026-09-26 unless the row says otherwise.
+
 | Entity / option | Value |
 |---|---|
 | `switch.ura_hvac_coordinator_enabled` / `_zone_intelligence` / `_zone_sweep` / `_override_arrester` | on / on / on / on |
 | `switch.ura_hvac_coordinator_hvac_observation_mode` | off |
-| `switch.ura_hvac_coordinator_guest_mode_actuation` (D9 / Custom Preset Ranges) | **off** |
+| `switch.ura_hvac_coordinator_guest_mode_actuation` (Custom Preset Ranges) | **on** since 2026-10-02 21:28:45Z (re-read live 2026-10-15); zone_3 in `hvac_s10_rollout_zone_ids` since 2026-10-13 |
 | `switch.ura_hvac_coordinator_26_ac_nudge` / `_ac_reset` / `_ac_ramp_down_energy_aware`; option `hvac_ac_ramp_master_enabled` | on / on / on; True |
 | `switch.ura_hvac_coordinator_temp_arrester_override` | off |
 | `switch.ura_hvac_coordinator_hvac_d5_duty_cycle_enable`; D5 coast / shed / window | on; 75 % / 50 % / 20 min |
@@ -445,7 +448,7 @@ v5.103.14 main criteria unexercised; zone rooms frozen at discovery (added-room 
 
 ---
 
-**9.7 Zone 1 away never confirmed by the status feed — URA re-writes away every 10 min** (found 2026-09-26 during
+**9.9 Zone 1 away never confirmed by the status feed — URA re-writes away every 10 min** (found 2026-09-26 during
 v5.103.15 validation; pre-existing on v5.103.14). 08:54–12:49 CDT: ~46 home↔away flips on
 `climate.thermostat_bryant_wifi_studyb_zone_1`. `decision_log` shows only URA `away` writes (`vacant_past_grace`, house
 away) on the tick; `hold_activity` (CONFIG feed) = `away` continuously; `preset_mode` (STATUS feed) = `home` with home
@@ -638,6 +641,8 @@ cause does not. Evidence: HA recorder state history for both entities, 09-23→0
 **C35 (2026-10-05, W1-C P2 build) — WRONG: "S1 calls `hold_preset` when the zone already reads its target, so a no-op clause comparing the live range with the effective range makes a season rollover / baseline edit land on the next tick" (P2 plan §4.2a / INV-R).** S1 skips a zone that reads its target preset BEFORE the strategy call (`should_change_preset` returns False when current == target; the vacancy path skips `Already away`). Built instead: `strategy.hold_needs_reassert` consulted at those two skips (Carrier/Generic always False).
 
 **C36 (2026-10-05, REV 4.1-A.3) — WRONG: "select unreadable while held, period" (REV 3 §4.3 docstring, REV 4-B single reading).** D0c-P1/P2 showed the select is READABLE in `heat_cool` within 5 s; the 18:45 cool-mode read was mode-specific. Under B1 (the `heat_cool` enforcer) production reads are readable. The adapter still treats `held` as the oracle and does not let the select readback flip its decision (option C build; see plan Builder notes on corroboration).
+
+**C37 (2026-10-15, HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1) — WRONG: "D9 / Custom Preset Ranges is DORMANT (switch off)" (§1 summary; §8 switch row).** The switch has been on since 2026-10-02 21:28:45Z; zone_3 was added to `hvac_s10_rollout_zone_ids` 2026-10-13 and held through live validation; the parent card closed 2026-10-14. The §3.3 LIVE-STATE NOTE 2026-10-03 had it right; §1 and §8 were never updated. Also: the second §9 "9.7" (Zone 1 away feed-split) is renumbered 9.9 so section numbers are unique.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 

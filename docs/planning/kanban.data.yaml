@@ -30419,7 +30419,8 @@ cards:
 - id: HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1
   title: "Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range"
   thread: hvac
-  status: pre_planning
+  status: planned
+  update_2026_10_15: "CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant set_activity_setpoint per preset change per zone. Fix = REUSE _zone_last_s1_write (hvac.py:631, 3929-3933) + new rung-1 S10_POST_PRESET_CHANGE_COOLDOWN_S (=120 s, SUPPRESS_TTL_SECONDS_PRESET) skip step. Tier 2. Plan docs/planning/PLANNING_hvac_s10_stale_range.md. State-of-play doc corrected (C37: CPR is LIVE on zone_3, not dormant; \u00a78 row; \u00a79.9 renumber; S10 row residual). Next: one plan review, then build."
   created: '2026-10-14 02:35'
   updated: '2026-10-14 02:35'
   refinement_status: initial
