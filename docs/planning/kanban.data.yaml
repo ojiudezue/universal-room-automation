@@ -141,7 +141,8 @@ cards:
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
 - id: SAFETY-UNACKED-REPEAT-CADENCE-KNOB-1
   title: "Optional: slower repeat for unacknowledged smoke/CO/flood alerts (now a fixed 30 s until ack)"
-  status: parked
+  status: done
+  operator_2026_10_15: "Operator: 30 s is \"aggressive for this young code\"; pick A (today's decaying ladder) \"but should this be a setting ie timing ... with a default\". Absorbed into SAFETY-NM-REFIRE-UNWIRED-1 as D7 (plan rev 4.2): options select standard (default) / fast_start / urgent."
   tier: 1
   origin: "Safety re-page plan rev 3 re-review (N1/N2) and rev 4 (D5 withdrawn), 2026-10-15. Swept board + BACKLOG: no existing card."
   why: "After SAFETY-NM-REFIRE-UNWIRED-1, unacked life-safety CRITICALs repeat every 30 s until acknowledged (latch-until-ack, chosen over auto-stop-on-clear). A rung-2 cadence knob is the minimal relief if this proves fatiguing."
@@ -434,7 +435,8 @@ cards:
   approval: unreviewed
   origin: {date: '2026-10-14', gist: 'plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map'}
   why: "Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active('', ''), always False, so the NM re-fire for an active hazard never happens. Pre-existing; out of scope of the clear-on-recovery cycle."
-  status: "pre_planning"
+  status: in_progress
+  operator_2026_10_15: "Operator: repeat schedule = A (today's ladder) as a setting with a default (D7, plan rev 4.2); deploy held until Sunday 10-18."
   next: "Me, after you APPROVE the safety clear-on-recovery plan rev 4 (SAFETY-HAZARD-NEVER-CLEARS-1): fold this into that cycle's plan as a deliverable (set hazard_type + location on the safety NotificationAction at safety.py:2413-2420, make is_hazard_active hold-aware per the 10-14 constraint, test the NM re-fire round trip). Not built alone: it changes when life-safety alerts re-page."
   updated: "2026-10-15 02:10"
   links:
