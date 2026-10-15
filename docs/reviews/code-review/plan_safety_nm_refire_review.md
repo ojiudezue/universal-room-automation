@@ -206,3 +206,34 @@ Readers of `notification_log.acknowledged`: `get_active_critical` (`database.py:
 
 ### Must-fix before build
 N1 (+N1c), N2, N3, N4, N5. Fold in N6 and N7.
+
+---
+
+## Rev 4 re-review (2026-10-15, ura-reviewer)
+
+Verified against develop HEAD by grep and read. No HVAC or presence surface is touched.
+
+### Verdict: **FIX-REQUIRED (plan text only, small).** D5's withdrawal is clean, and D1+D2+D6 are sound. Two citation/test-observable errors need fixing before build, because one of them makes T7's DB assertion possibly vacuous (the same class as N3). The blast-radius table is missing one visible behaviour.
+
+### (1) D5 residue and N/R dispositions
+- No change to `_repeat_alert` is proposed anywhere (§5 D5, §6). The only Safety↔NM predicate consumer stays `notification_manager.py:3039` (repo grep: `is_hazard_active` defined at base:237, safety:3398, security:825; called only at NM:3039). Byte-identical holds by construction. Reviewer B should confirm it with `git diff develop -- notification_manager.py` = empty at build.
+- R1, R2, N1, N1c, N2 and N4 all depended on D5 and are moot now. N3/N5/N6/N7 are addressed in the text. All three cards exist (`kanban.data.yaml:118,126,134`). The dispositions are honest.
+
+### (2) §0b non-regression after restart — CONFIRMED
+`_recover_state_from_db` (NM:4925-4941) restores COOLDOWN with `hazard_type`/`location` from the row and re-arms `_cooldown_expired`. On develop the row carries NULL, so `is_hazard_active(None, None)` matches `"None:None"` and returns False. (Nit: the plan says `("","")`; on this path it is actually `None`. The outcome is the same.) After D1, the key is right, but Safety's `_active_hazards` is `{}` unless a boot-time state event repopulates it, so the result is also False. When a boot event does fire, D1+D2 re-fires and develop does not. That is a strict improvement and never a regression.
+
+### (3) D1 blast radius
+The B-sites match the full `is_life_safety_hazard` call set in NM (1480, 1508, 2578, 2634, 2700, 3891, 3925, 4028, 4184, 4235), plus the bucket key at 658 and COOLDOWN_CONFIG. **Missing:**
+- **S1 MEDIUM — B10 alert-light pattern.** `_trigger_alert_lights(hazard_type or "warning", …)` (NM:1688) feeds `LIGHT_PATTERNS.get(hazard_type)` (NM:2345, table at :179). Today every Safety CRITICAL flashes as the **yellow "warning" pulse at 1000 ms**. After D1, smoke/CO become an **orange flash at 250/500 ms** and flooding becomes a **blue pulse at 500 ms**. This is the most visible change for people in the house. It is intended, but it must be listed. Also say explicitly that TTS gets the life-safety DND bypass (NM:1668 `_recipient_bypasses_dnd(None, …)` and the `_channel_ready("tts", …)` call at :1672→3891), so house speakers will announce smoke/CO at night. That is covered by B3/B5 in spirit, but neither row names the TTS channel.
+- Operator-away week (Jaya and a guest are home): after D1, an unacked smoke/CO/flooding CRITICAL pages **every 30 s, through DND and mute, with speakers and lights, until acked** (develop: a 300 s decay ladder). That is the right contract for a real event. For a false smoke trip it is a 10x jump in noise for people who may not know how to ack. Not a plan defect, but it should be a **deploy-risk note**: rank it MEDIUM under the travel rule, and either tell Jaya where to ack or hold the deploy until the operator is back.
+- `episode_id` (NM:2518) changes from `safety:::ts` to `safety:smoke:Kitchen:ts`. Cosmetic, no reader impact.
+
+### (4) Invariant and tests
+INV-REFIRE clauses 1-3 are falsifiable on real observables. Clause 4 is an explicit non-check, which is fine. The F/R classification is correct: T1, T6 (develop `_repeat_phase` → "phase1" since hazard "" at NM:2633-2639), T4 (develop has no hold branch, safety:3406-3410), T7 and T9 are RED. T2, T3, T5 and T7-neg are GREEN. T9 drives the real `_check_flooding_escalation` (safety:1912-1926 still uses bare `set`).
+- **S2 HIGH (test authority) — wrong `notification_log` producer citation.** §0a N3, §4, T7 step 6 and §9C all say `async_notify` writes the row "at `:551`". **NM:546-557 is `_log_dry_run`**, a dry-run-only helper (defined at :523). `async_notify` is at **NM:1326**. Real rows are written **per channel** at NM:1678 (tts), 1691 (lights), and 1816-1899 (pushover/companion/whatsapp/imessage). Consequences for T7: (a) if step 4 "patches the call site" by *replacing* `async_notify`, step 6's row can never be written. Use a pass-through spy (`wraps=`). (b) The fixture must enable at least one channel (lights or a person with pushover) or zero rows are written and step 6 becomes vacuous or contradictory. Fix the citations everywhere and state these two fixture requirements in T7.
+
+### (5) Live checks
+Columns match the `log_notification` schema list, and `severity='CRITICAL'` is uppercase. OK. Note for §8 D1: the "zero NULL `hazard_type`" query will now also catch any non-NotificationAction Safety rows. Acceptable.
+
+### Must-fix before build
+S2 (citations and T7 spy/channel fixture), S1 (add B10 lights and name the TTS DND bypass). Advisory: deploy-risk note for the operator-away week.
