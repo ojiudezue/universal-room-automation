@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T02:07:15-05:00_ - _Data commit: `03b2a091284f`_ - _last_reconciled: 2026-10-14_
+_Generated: 2026-10-15T02:14:03-05:00_ - _Data commit: `b6f7b2313a08`_ - _last_reconciled: 2026-10-14_
 
 
 ## Columns
@@ -16,10 +16,10 @@ _Generated: 2026-10-15T02:07:15-05:00_ - _Data commit: `03b2a091284f`_ - _last_r
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 39 |
-| ⏳ Waiting on me (Claude) | 3 |
+| ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 6 |
 | 🅿️ Parked | 90 |
-| ✅ Done | 332 |
+| ✅ Done | 333 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -182,26 +182,7 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#3 · WSJF 1.6 · v7 tc4 u2 /e8_
-thread: **platform** - status: **planned** - approval: **needs_operator**
-_updated 2026-09-29 01:05_
-- **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
-- **Next:** BUILD, not more analysis. Order within the cycle: the declaration tag + CI check FIRST (it is the thing that stops recurrence and it forces every subsequent edit to declare), then F1/F2, then the arrester trio, then DailyCounter. READ-ON...
-- **Tags:** measure-before-build, suppression-needs-discharge
-- **Forensic keys (11):**
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 7, time_criticality 4, effort 8 - cross-cutting restart safety; several detectors never reach threshold.
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: F2 persist + DailyCounter primitive shipped. STILL LIVE: F5 (hvac_override.py:397 _immune_holds not persisted), F8 (hvac_zones.py:631 snapshot omits override_c...
-  - `verified_2026_09_11`: The read-only audit this card demanded IS done: docs/planning/AUDIT_restart_safety_classification.md (2026-08-21, 22 findings). Current delta vs that audit: F1 (safety.py) + F2 (manager.py) _baselines now PERSIST (save_baselines called a...
-  - `relane_2026_09_10`: Not a soak -> PLANNED. BUILD: declaration tag + CI check FIRST (stops recurrence + forces declaration), then F1/F2, then arrest wiring.
-  - `instances_found_without_looking`: All four surfaced incidentally in ONE session, which is the argument that this is systemic rather than a handful of bugs: (1) HVAC-ANOMALY-BLIND-1 — AnomalyDetector._baselines is an in-memory dict reset to {} every restart, so minimum_sa...
-  - `what_is_already_right`: IMPORTANT — this is not a greenfield problem, and the fix should generalise the existing good work rather than replace it. URA already does restart-safety correctly in several places, each built after someone got burned: ac_reset_state p...
-  - `the_doctrine`: THE GENERALISATION IS A DECLARATION REQUIREMENT, NOT A PERSISTENCE LIBRARY — and getting that distinction right matters, because "persist everything" would be actively wrong. Evidence it would be wrong: the Temp Arrester Override switch ...
-  - `AUDIT_COMPLETE_2026_08_21`: AUDIT DONE — docs/planning/AUDIT_restart_safety_classification.md. Findings: 9 core ACCUMULATOR defects (+ ~6 declared-correct-but-undeclared), 4 PENDING RETURN, 1 LIVE SUPPRESSION/LOCK, plus a representative sweep standing in for ~60 as...
-  - `DENOMINATOR_MEASURED_2026_08_21`: THE NUMBER THE AUDIT COULD NOT GET (no shell from that environment) — I ran it from the HA recorder: homeassistant_start events, last 14 days. 20 RESTARTS IN 6.9 DAYS = 2.9/day. Interval stats over 19 gaps: min 0.18h, p25 1.52h, MEDIAN 5...
-  - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
-  - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
-
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#4 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#3 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -217,6 +198,26 @@ _updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No 'reinforce' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT r...
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#4 · WSJF 1.6 · v7 tc4 u2 /e8_
+thread: **platform** - status: **planned** - approval: **needs_operator**
+_updated 2026-10-15 02:14_
+- **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
+- **Next:** Remaining BUILD (HVAC surfaces, so an attended session that first reads HVAC_ARCHITECTURE_STATE_OF_PLAY.md in full): F8 add override_count_today / ac_reset_count_today / camera_face_arrivals_today to hvac_zones.py get_state_snapshot (:12...
+- **Tags:** measure-before-build, suppression-needs-discharge
+- **Forensic keys (12):**
+  - `verified_2026_10_15_overnight`: Re-verified against develop. F5 ALREADY-DONE: hvac_override.py:979-983 says the immune hold now persists across a restart via _zone_state_store.__immune_holds (HVAC W1-B D-P1, ruling 17) with a durable ura_activity_log ledger row. F8 STI...
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 7, time_criticality 4, effort 8 - cross-cutting restart safety; several detectors never reach threshold.
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: F2 persist + DailyCounter primitive shipped. STILL LIVE: F5 (hvac_override.py:397 _immune_holds not persisted), F8 (hvac_zones.py:631 snapshot omits override_c...
+  - `verified_2026_09_11`: The read-only audit this card demanded IS done: docs/planning/AUDIT_restart_safety_classification.md (2026-08-21, 22 findings). Current delta vs that audit: F1 (safety.py) + F2 (manager.py) _baselines now PERSIST (save_baselines called a...
+  - `relane_2026_09_10`: Not a soak -> PLANNED. BUILD: declaration tag + CI check FIRST (stops recurrence + forces declaration), then F1/F2, then arrest wiring.
+  - `instances_found_without_looking`: All four surfaced incidentally in ONE session, which is the argument that this is systemic rather than a handful of bugs: (1) HVAC-ANOMALY-BLIND-1 — AnomalyDetector._baselines is an in-memory dict reset to {} every restart, so minimum_sa...
+  - `what_is_already_right`: IMPORTANT — this is not a greenfield problem, and the fix should generalise the existing good work rather than replace it. URA already does restart-safety correctly in several places, each built after someone got burned: ac_reset_state p...
+  - `the_doctrine`: THE GENERALISATION IS A DECLARATION REQUIREMENT, NOT A PERSISTENCE LIBRARY — and getting that distinction right matters, because "persist everything" would be actively wrong. Evidence it would be wrong: the Temp Arrester Override switch ...
+  - `AUDIT_COMPLETE_2026_08_21`: AUDIT DONE — docs/planning/AUDIT_restart_safety_classification.md. Findings: 9 core ACCUMULATOR defects (+ ~6 declared-correct-but-undeclared), 4 PENDING RETURN, 1 LIVE SUPPRESSION/LOCK, plus a representative sweep standing in for ~60 as...
+  - `DENOMINATOR_MEASURED_2026_08_21`: THE NUMBER THE AUDIT COULD NOT GET (no shell from that environment) — I ran it from the HA recorder: homeassistant_start events, last 14 days. 20 RESTARTS IN 6.9 DAYS = 2.9/day. Interval stats over 19 gaps: min 0.18h, p25 1.52h, MEDIAN 5...
+  - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
+  - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#5 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -481,7 +482,7 @@ _created 2026-08-20 14:15 · updated 2026-10-14 03:05 · initial_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#10 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-15 02:06 · initial_
+_created 2026-09-29 04:20 · updated 2026-10-15 02:15 · initial_
 - **Problem / Solution:**
   - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
 - **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
@@ -489,7 +490,8 @@ _created 2026-09-29 04:20 · updated 2026-10-15 02:06 · initial_
 - **Next:** PICK what 'the minimum is turning things off, with healthy timeouts' should mean for a room whose Automation switch is off: (A) the room still turns its lights OFF after a vacancy timeout but never turns anything ON (a 'fail-off' paused ...
 - **Tags:** tier-1, found-during-probe, config-first
 - **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `paged_2026_10_15_overnight`: Included in the 2026-10-15 02:15 CDT quiet Pushover page.
   - `regroomed_2026_10_15_overnight`: The ANSWER asked here was already given (operator_instruction_2026_10_13: rooms off on purpose where automation is unwanted or not dialed in), so the old next was stale. The 10-14 reply read 'healthy timeouts' as a reminder, but the inst...
   - `verified_2026_10_14`: Verified 2026-10-14 ~02:10 CDT (live): switch.exercise_room_automation still off. Moved pre_planning -> waiting_operator: the next step is your ANSWER, so the card belongs in your lane.
   - `operator_instruction_2026_10_13`: Room automations off in places where people in the house do not want automation or its not yet dialed in. I do think the minimum is turning things off not on. But some of those need healthy timeouts (bundled onto FRONT-DOOR-LOCK-OFFLINE-...
@@ -697,23 +699,7 @@ _created 2026-10-05 · updated 2026-10-14 02:23_
   - `wigton_log_2026_10_05`: WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; remov...
   - `sweep_2026_10_05`: ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.
 
-### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#22 · WSJF 3.5 · v3 tc2 u2 /e2_
-thread: **presence** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-27 02:50 · updated 2026-09-27 02:40 · refined ×2_
-- **Problem / Solution:**
-  - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
-- **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
-- **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
-- **Next:** PICK (operator): (A) ACCEPT and close. Each dropout is short (Shelly median 9 s, Tuya 38 s, LIFX 47 s), so a device is unavailable roughly 0.6-2% of the time and a URA command rarely lands in a gap. URAs actuator reconciler covers the re...
-- **Tags:** measure-before-build, audit-first, no-fabrication-verify
-- **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
-- **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
-- **Forensic keys (3):**
-  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
-  - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
-  - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
-
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#23 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#22 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **waiting_operator** - approval: **implied**
 _updated 2026-10-01 04:45 · refined ×3_
 - **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
@@ -731,7 +717,7 @@ _updated 2026-10-01 04:45 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1` - Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room — _#24 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1` - Night lights already on when the house goes to Sleep stay warm white until someone re-enters the room — _#23 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **lighting** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-11 05:10 · initial_
 - **Problem / Solution:**
@@ -743,7 +729,7 @@ _created 2026-10-11 05:10 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_11`: Board + BACKLOG grep for sleep onset / night light already on: no card (only humidity-fan and HVAC sleep-onset items). NEW.
 
-### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#25 · WSJF 3.5 · v6 tc6 u2 /e4_
+### `ELK-M1-HA-USABILITY-1` - Make ELK M1 usable in HA — only 1 of 15 wired zones (Front Door) is live; 12 read a static short, so the panel can't arm without bypassing them — _#24 · WSJF 3.5 · v6 tc6 u2 /e4_
 thread: **security** - status: **waiting_operator**
 _created 2026-10-14 02:10 · updated 2026-10-14 04:06 · refined_
 - **Origin:** 2026-10-14 - Homelab session hand-off (operator-approved): keep ELK, fix HA side, no Konnected
@@ -758,6 +744,23 @@ _created 2026-10-14 02:10 · updated 2026-10-14 04:06 · refined_
   - `operator_answer_2026_10_14`: "It is [the real alarm] but never used. It's awkward in HA and it doesn't have regular entities. I'm trying to get it into a shape I can actually use. I chose it for the HA integration, but turns out it's shit. I was thinking of using th...
   - `correction_2026_10_14`: CARD-WAS-WRONG (operator pushback + live read 03:34). I claimed zone 7 Kitchen Heat Det 'short' was THE fire fault. Wrong framing: 12 of 15 wired zones read physical_status=short (Family Room M, Kitchen Motion, Garage A/B, all hallway mo...
   - `verified_2026_10_14`: Verified 2026-10-14 ~02:10 CDT (live): sensor.elkm1_kitchen_heat_det = Violated, physical_status short. The zone 7 fault is still present, so nothing changes until you inspect or reset it.
+
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#25 · WSJF 3.5 · v3 tc2 u2 /e2_
+thread: **presence** - status: **waiting_operator** - approval: **implied**
+_created 2026-09-27 02:50 · updated 2026-10-15 02:16 · refined ×2_
+- **Problem / Solution:**
+  - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
+- **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
+- **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
+- **Next:** PICK: (A) ACCEPT and close the fleet part (my recommendation: the 10-13 Wi-Fi changes cut Shelly dropouts from ~75 devices to 12 and Sonoff by ~90%), and DO a narrow check of the 5 Dining/Receiving Shellys below (move/reseat, AP placemen...
+- **Tags:** measure-before-build, audit-first, no-fabrication-verify
+- **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
+- **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
+- **Forensic keys (4):**
+  - `INSTANCE_2026_10_15_dining_receiving_cluster`: Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:...
+  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
+  - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
+  - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#26 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
@@ -928,7 +931,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 
 ### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#36 · WSJF 1.3 · v7 tc8 u2 /e13_
 thread: **presence** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-15 02:05 · initial_
+_created 2026-10-15 02:05 · updated 2026-10-15 02:15 · initial_
 - **Problem / Solution:**
   - Problem: since the family left on 10-14, all four phone-tracked people read away during the day, but someone without a tracked phone (the guest) is home. URA decides the house is empty whenever no camera currently sees that person and no...
 - **Origin:** 2026-10-15 - Overnight pass 10-15: found while checking whether a Home->Away edge had exercised Kitchen's leave-on sweep (ROOM-LIGHTING-SETUP-REDESIGN-1).
@@ -937,7 +940,8 @@ _created 2026-10-15 02:05 · initial_
 - **Tags:** tier-3, measure-before-build, found-during-probe, no-fabrication-verify
 - **Parsimony:** [BUILD (plan first; Tier 3 - house-state machine is a shared primitive consumed by HVAC, lighting, security, EVSE, battery)] With every tracker away and an untracked occupant home, path alpha toggles AWAY on single census drops (33/day on 10-14).
 - **Refs:** docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `paged_2026_10_15_overnight`: Paged 2026-10-15 02:15 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly rather than through URA NM routing so it wakes nobody), together with the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 PICK.
   - `measured_2026_10_15_overnight`: URA DB house_state_log (read-only): AWAY entries per UTC day 09-25..10-13 = 0-13 (median 2); 10-14 = 33, with 33 arriving and 0 guest. Transitions 10-14 12:30-23:50Z: away->arriving via census_update 30; arriving->home_day via deferred_r...
   - `config_first_2026_10_15_overnight`: Settings that could stop it today without code: select.ura_coordinator_manager_house_state_override (options auto/away/arriving/home_day/home_evening/home_night/sleep/waking/guest/vacation, currently auto). Setting it to guest or a home ...
 
@@ -985,22 +989,10 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ⏳ Waiting on me (Claude) (3)
+## ⏳ Waiting on me (Claude) (2)
 _I owe something_
 
-### `OVERNIGHT-PASS-FUTURE-TIMESTAMPS-1` - The nightly board pass writes clock times that have not happened yet -> stamp every time from `date` — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
-thread: **board** - status: **waiting_me** - approval: **implied**
-_created 2026-10-14 03:25 · initial_
-- **Problem / Solution:**
-  - Problem: the unattended nightly pass guesses the time instead of reading the clock, so it stamps board entries hours in the future (feed entries at 02:20-03:05 written while the clock read 02:10; a "measured ~07:46" note on the Sonoff ca...
-- **Origin:** 2026-10-14 - attended session found 10-14 overnight feed entries timestamped after the wall clock
-- **Why:** invented times corrupt the 24h autonomy counter, staleness ordering and the anti-starvation tiebreak
-- **Next:** After the 10-15 02:00 run: compare every new autonomy_feed `at` and card `updated` to its git commit time; all <= commit time -> done; otherwise add the date rule to homelab-automation/scripts/overnight/ura_overnight_pass.sh prompt.
-- **Tags:** tier-1, found-during-probe
-- **Parsimony:** [BUILD] overnight feed/card timestamps exceed wall-clock time at write
-- **Refs:** .claude/skills/ura-kanban/SKILL.md; commit 11318af1b (03:05 feed entry committed at 02:10)
-
-### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#2 · WSJF 7.5 · v7 tc6 u2 /e2_
+### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#1 · WSJF 7.5 · v7 tc6 u2 /e2_
 thread: **health_monitor** - status: **waiting_me**
 _created 2026-10-14 02:10 · updated 2026-10-15 02:09 · refined_
 - **Why:** v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or a...
@@ -1009,7 +1001,7 @@ _created 2026-10-14 02:10 · updated 2026-10-15 02:09 · refined_
   - `measured_2026_10_15_overnight`: Read-only, 02:1x CDT 10-15 (config-entry diagnostics API + .storage/repairs.issue_registry + HA MCP; HA up since 17:30 10-14, 8.7 h). W11 PASS: markers.export days_stored 1, stat_groups 107, last_statistics_written 203; self_timing.expor...
   - `measured_2026_10_14_overnight`: W1 PASS, W2 PASS (6 problems, 3 setup repairs), W4 PASS (1,302 devices; the README estimate of ~2,600 was wrong), W5 PARTIAL (only Z2M Bridge2 gets a row; Bridge1/Bridge3 missing), W6 as expected, W7 PASS, W8 PASS, W12 PASS, W13 interim ...
 
-### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
+### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **lighting** - status: **waiting_me**
 _created 2026-10-14 02:10_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
@@ -2359,8 +2351,22 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (332)
+## ✅ Done (333)
 _closed, evidence in refs_
+
+### `OVERNIGHT-PASS-FUTURE-TIMESTAMPS-1` - The nightly board pass writes clock times that have not happened yet -> stamp every time from `date` — _WSJF 9.0 · v4 tc3 u2 /e1_
+thread: **board** - status: **done** - approval: **implied**
+_created 2026-10-14 03:25 · updated 2026-10-15 02:15 · initial_
+- **Problem / Solution:**
+  - Problem: the unattended nightly pass guesses the time instead of reading the clock, so it stamps board entries hours in the future (feed entries at 02:20-03:05 written while the clock read 02:10; a "measured ~07:46" note on the Sonoff ca...
+- **Origin:** 2026-10-14 - attended session found 10-14 overnight feed entries timestamped after the wall clock
+- **Why:** invented times corrupt the 24h autonomy counter, staleness ordering and the anti-starvation tiebreak
+- **Next:** None. Reopen if a later run's feed `at` or card `updated` is later than its commit time.
+- **Tags:** tier-1, found-during-probe
+- **Parsimony:** [BUILD] overnight feed/card timestamps exceed wall-clock time at write
+- **Refs:** .claude/skills/ura-kanban/SKILL.md; commit 11318af1b (03:05 feed entry committed at 02:10)
+- **Forensic keys (1):**
+  - `disposition_2026_10_15_overnight`: DONE: the 10-15 02:00 run kept every stamp at or before its commit. Feed `at` 02:07:07 (x4) <= commit 03b2a0912 at 02:07:15; 02:13:59 (x3) <= b6f7b2313 at 02:14:03; card `updated` values 02:04-02:14 likewise, and later ones go in the fin...
 
 ### `HM-GC-1H-COUNTERS-RING-WINDOW-1` - Health Monitor's 'last hour' garbage-collection counts only cover the last few seconds, so they hide the real problem — _WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **health_monitor** - status: **done** - approval: **unreviewed**
