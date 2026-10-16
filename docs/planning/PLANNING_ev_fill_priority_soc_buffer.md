@@ -467,7 +467,7 @@ Defaults: `fill_priority_soc=80`, `repause_band_pct=3`, so `effective_floor=77`.
 | soc=80, band=3 (defaults) | 77 | pause (A2) | pause | n/a | n/a | **no transition (A3)** | **pause (A3)** |
 | soc=80, band=0 (kill switch) | 80 | pause | pause | n/a | n/a | pause (legacy) | pause (legacy) |
 | soc=80, band=100 (clamped to 0 → floor 0) | 0 | pause (A5) | pause | — | — | n/a (latched below floor impossible unless SOC<0) | — |
-| soc=80, band=−5 (clamped to 0 — defensive) | 0 | pause | pause | — | — | — | — |
+| soc=80, band=−5 (`max(0, 80 − (−5))` = 85 — legacy behaviour; corrected post-build per Review A) | 85 | pause | pause | — | — | pause (legacy) | pause (legacy) |
 | soc=50 (slider min), band=3 | 47 | pause | pause (first-pause edge below threshold) | **no transition** | **pause** | n/a | n/a |
 | soc=50, band=0 | 50 | first-pause edge | pause | pause (legacy) | pause (legacy) | n/a | n/a |
 

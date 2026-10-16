@@ -1078,6 +1078,18 @@ DEFAULT_FILL_PRIORITY_SOC: Final = 80
 DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH: Final = 1.0
 CONF_ENERGY_FILL_PRIORITY_SOC: Final = "energy_fill_priority_soc"
 
+# EV-FILL-PRIORITY-SOC-CHATTER-1: resume → re-pause SOC hysteresis.
+# After a fill-priority RESUME on the SOC-reached edge, suppress re-pause
+# until SOC falls below (fill_priority_soc - DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT).
+# The FIRST pause below fill_priority_soc (no live latch) is unchanged.
+# Forecast-decay resumes do NOT set the latch; the forecast side has its
+# own band (DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH).
+# 0 disables (legacy single-threshold behaviour). Rung 1 (module constant):
+# a stability margin, not per-deployment policy — change requires review.
+# Read at CALL time by energy_pool (module-attribute access), never bound
+# at import.
+DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT: Final = 3
+
 # evse-offpeak-fill-release D2: minimum TIME-windowed expected solar surplus
 # (in %SOC, from `BatteryStrategy.expected_solar_surplus_now_pct`) for the EV
 # battery-drain high-SOC release (`soc_recovered`) to be considered "solar is
