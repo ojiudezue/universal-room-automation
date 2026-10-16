@@ -2940,6 +2940,13 @@ BLE_EXIT_CLAIM_MAX_ATTEMPTS: Final = 6
 # own attribution window.
 BLE_EXIT_PER_SLUG_COOLDOWN_S: Final = BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
 
+# R1 (2026-10-16, rung 1): when LastPersonExitSensor re-reads the DB after
+# an exit backfill, it reads exit rows from (displayed exit time - slack).
+# The slack absorbs the gap between the bus-event timestamp and the DB
+# INSERT timestamp (utcnow at INSERT, ~crossing + ENTRY_WINDOW_SECONDS).
+# Only the lower bound of the read; the newest row always wins.
+LAST_EXIT_BACKFILL_REREAD_SLACK_S: Final = 300
+
 # TTL of the BLE-transition leg cache. Derived from the FACE_MATCH_*
 # window FAMILY (C4). Max face window today = 300s + 30s slack.
 # Also >= BLE_EGRESS_ENTRY_LEAD_S + 30 (rev5): the entry-only BLE

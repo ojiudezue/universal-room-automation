@@ -21,5 +21,15 @@ Hardened across reviews:
 ## Non-goals
 Precise person↔door row-binding under simultaneous different-door co-departure (best-effort; set-correct). True face-vs-BLE provenance discrimination on the disagreement counter (follow-up). No confirmation-matrix branching.
 
-## Live Validation — post-restart (to record as `Validated <date>`)
-- A real co-departure names both/all residents (not one-null); flap-while-home never names a departure.
+## Live Validation — Validated 2026-10-16
+
+Source: `docs/planning/AUDIT_exit_backfill_d0.md` (read-only D0, 2026-10-16). Recorder covers 2026-10-08 09:12 UTC onward (~7.5 days); counters reset on restart, so the figures are **lower bounds**. journald was not reachable, so per-row log lines were not read.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Backfill path alive after the retry-claim change | **PASS** | `ble_exit_backfilled_count` ≥11 in 7.5 days on `sensor.universal_room_automation_persons_in_house`. `ble_exit_error_count` 0, `ble_exit_backfill_noop_count` 0 (retry budget never exhausted). |
+| A real co-departure names both residents | **as-expected (inferred)** | Two backfill increments in the same recorder minute, 2026-10-12 15:36 UTC, consistent with two residents leaving together and both being named. Not confirmed row-by-row (no log access, no spot check). |
+| Concurrent writer never overwritten | **as-expected** | `ble_exit_row_lost_count` = 2: two edges found their row already named and left it alone (keep-face rule). |
+| Flap while home never names a departure (300 s settle) | **as-expected** | `ble_exit_flap_aborted_count` ≥15. No row-level wrong-WHO check was run (the 5-row spot check is still open). |
+
+Named exits by person (14 d): oji_udezue 21, jaya 19, ezinne 15, ojini 4; 154 null.

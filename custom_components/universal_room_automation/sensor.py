@@ -54,6 +54,7 @@ from .domain_coordinators.signals import SIGNAL_HOUSE_POLICY_UPDATE
 
 from .const import (
     DOMAIN,
+    LAST_EXIT_BACKFILL_REREAD_SLACK_S,
     ICON_TEMPERATURE,
     ICON_HUMIDITY,
     ICON_ILLUMINANCE,
@@ -3918,6 +3919,10 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["ble_exit_row_lost_count"] = int(
                         getattr(census, "_ble_exit_row_lost_count", 0) or 0
                     )
+                    # R1 (2026-10-16): skips due to the name-people switch.
+                    attrs["ble_exit_identity_disabled_skip_count"] = int(
+                        getattr(census, "_ble_exit_identity_disabled_skip_count", 0) or 0
+                    )
                     attrs["ble_crossing_trackers_derived"] = sorted(
                         (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()
                     )
@@ -4893,9 +4898,74 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
         self._last_egress_camera: str | None = None
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to egress events."""
+        """Subscribe to egress events and exit-backfill signals."""
         await super().async_added_to_hass()
-        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                "ura_person_egress_event", self._handle_egress_event
+            )
+        )
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 R1 (2026-10-16): the BLE backfill
+        # names an exit row ~5-11 min after the crossing. Re-read the
+        # newest exit row so this display follows the name. Display only:
+        # no re-notify, no census change.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_EGRESS_EXIT_BACKFILLED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_EGRESS_EXIT_BACKFILLED,
+                self._handle_exit_backfilled,
+            )
+        )
+
+    @callback
+    def _handle_exit_backfilled(self, payload) -> None:
+        """A backfill named an exit row — re-read the newest exit row."""
+        self.hass.async_create_task(self._async_reread_last_exit())
+
+    async def _async_reread_last_exit(self) -> None:
+        """Adopt the newest exit row's person_id if it is now named.
+
+        Only the NEWEST exit row is consulted: if the backfill named an
+        older row while a newer unnamed exit exists, the display (which
+        shows the newest exit) correctly stays "unidentified". The
+        timestamp (native_value) is never changed here.
+        """
+        try:
+            if self._last_exit is None or self._last_person_id not in (
+                None, "unidentified",
+            ):
+                return
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if not database:
+                return
+            last = self._last_exit
+            if last.tzinfo is not None:
+                # DB column is naive-UTC (EGRESS-SENSOR-READER-TZ-OVERCOUNT-1).
+                last = last.astimezone(timezone.utc).replace(tzinfo=None)
+            since = last - timedelta(seconds=LAST_EXIT_BACKFILL_REREAD_SLACK_S)
+            events = await database.get_entry_exit_events_since(
+                since, direction="exit"
+            )
+            if not events:
+                return
+            newest = events[-1]
+            person_id = newest.get("person_id")
+            if not person_id:
+                return
+            if (
+                self._last_egress_camera
+                and newest.get("egress_camera")
+                and newest.get("egress_camera") != self._last_egress_camera
+            ):
+                return
+            self._last_person_id = person_id
+            self.async_write_ha_state()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "LastPersonExit: re-read after backfill failed", exc_info=True
+            )
 
     @callback
     def _handle_egress_event(self, event) -> None:

@@ -27,6 +27,19 @@ Plan-review caught 2 CRITs pre-build (DB access from a @callback sync context; t
 ## Known scope (deliberate)
 Co-departures (a couple leaving together) stay `null` by design (accuracy-first) — naming them needs edge↔crossing pairing, a carded future refinement. Pre-restart crossings whose edge fired during downtime are not backfilled (fail-safe null). Sensor-reader TZ over-count + exit-list display-not-re-read after backfill: pre-existing, carded separately.
 
-## Live Validation — post-restart (to record as `Validated <date>`)
-- A real solo departure fills its exit-row person_id within ~10 min; counters move.
-- A flap / co-departure does NOT produce a wrong name.
+## Live Validation — Validated 2026-10-16
+
+Source: `docs/planning/AUDIT_exit_backfill_d0.md` (read-only D0, run 2026-10-16 ~00:20 CDT against the live URA DB and the HA recorder). The recorder only covers 2026-10-08 09:12 UTC onward (~7.5 days), so the counter rows are for that window. Counters reset on every restart (14 resets in the window) and increments between the last sample and a reset are lost, so every counter figure is a **lower bound**. journald was not reachable from the `ssh ha` shell, so the `exit-backfill: row_id=` INFO lines could not be read; the counters are the evidence used.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| A real departure fills its exit row's `person_id` (~5-11 min later); counters move | **PASS** | `ble_exit_backfilled_count` attribute on `sensor.universal_room_automation_persons_in_house` (the census sensor; the plan's `sensor.ura_census_persons_in_house` name was wrong): **≥11 backfills** in 7.5 days, increments at 10-08 19:57, 10-09 12:33, 10-09 21:46, 10-11 14:42, 10-12 15:36 (x2), 10-13 00:33, 10-13 12:14, 10-14 10:21, 10-14 12:35, 10-15 12:37 UTC. In the window, 25 of 78 exit rows are named; ≥11 of those (44%) came from the backfill. |
+| Backfill not regressed: edges land in the window | **PASS** | 65 home→not_home edges on 6 `bluetooth_le` trackers. Signed edge-minus-row lag: <0 s: 8, 0-600 s: 33, 600-900 s: 1, 900-1800 s: 3, no row within ±1800 s: 20. 73% of edges with a nearby row are in-window. |
+| Exit attach rate at parity with entry (14 d, URA DB) | **as-expected** | entry 75/279 = 26.9%, exit 59/213 = 27.7%. |
+| A flap does NOT produce a wrong name | **as-expected** | `ble_exit_flap_aborted_count` ≥15: the settle re-read is aborting flaps. `ble_exit_error_count` 0, `ble_exit_backfill_noop_count` 0. Departures to `unavailable`/`unknown` (miss C): 0 measured. |
+| Multi-tracker resident → at most one backfill | **as-expected** | `ble_exit_per_slug_cooldown_skipped_count` ≥29. |
+| No row-level wrong-WHO | **NOT RUN** | The 5-row spot check of backfilled rows against BLE history was not done in D0. The flap guard counter is the only evidence. Open item on the card. |
+
+Not provable from the DB alone: which named exits came from face vs backfill before 10-08 (recorder gap). Of the 12 null exit rows in the window with an edge nearby, 7 sit at 600-1800 s (the R2 window-widening question; parked per D0).
+
+**Follow-up shipped on branch `fix/exit-backfill-r1` (2026-10-16):** the backfill now honours `switch.ura_name_people_at_doors` (it did not before), and `sensor.universal_room_automation_last_person_exit` picks up the name when a backfill names the newest exit row.

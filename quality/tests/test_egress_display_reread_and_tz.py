@@ -441,3 +441,114 @@ def test_persons_entered_today_initial_restore_uses_naive_utc_boundary():
         f"{s._entries[0]['person_id']!r}"
     )
     assert set(s._entries[0].keys()) == {"person_id", "time", "egress_camera"}
+
+
+# ---------------------------------------------------------------------------
+# R1 (EGRESS-EXIT-IDENTITY-BACKFILL-1, 2026-10-16): LastPersonExitSensor
+# follows a backfill. Drives the REAL async_added_to_hass subscription (the
+# dispatcher connect is captured, not faked away) and the REAL handler.
+# ---------------------------------------------------------------------------
+
+def _make_last_exit_sensor(hass):
+    from custom_components.universal_room_automation.sensor import (
+        LastPersonExitSensor,
+    )
+    s = object.__new__(LastPersonExitSensor)
+    s.hass = hass
+    s._last_exit = None
+    s._last_person_id = None
+    s._last_egress_camera = None
+    s.async_write_ha_state = lambda: None
+    s.async_schedule_update_ha_state = lambda *a, **kw: None
+    s.async_on_remove = lambda unsub: None
+    return s
+
+
+def _subscribe_last_exit(s, hass):
+    """Run the production async_added_to_hass with the dispatcher connect
+    captured. Returns {signal: callback}. Restores the patched module attr."""
+    from homeassistant.helpers import dispatcher as _hd_mod
+    captured: dict = {}
+    orig_connect = _hd_mod.async_dispatcher_connect
+
+    def _capture(_hass, signal, target):
+        captured[signal] = target
+        return lambda: None
+
+    _hd_mod.async_dispatcher_connect = _capture
+    _agg, _orig = _install_agg_noop()
+    try:
+        _run(s.async_added_to_hass())
+    finally:
+        _hd_mod.async_dispatcher_connect = orig_connect
+        _restore_agg(_agg, _orig)
+    return captured
+
+
+def _fire_backfill(captured, hass, payload):
+    loop = _asyncio.get_event_loop()
+    tasks: list = []
+    hass.async_create_task = lambda coro: tasks.append(loop.create_task(coro)) or tasks[-1]
+    assert SIGNAL_EGRESS_EXIT_BACKFILLED in captured, (
+        "LastPersonExitSensor did not subscribe to SIGNAL_EGRESS_EXIT_BACKFILLED"
+    )
+    captured[SIGNAL_EGRESS_EXIT_BACKFILLED](payload)
+
+    async def _drain():
+        for t in tasks:
+            await t
+    _run(_drain())
+
+
+def _exit_event(ts_aware, person_id=None, cam="garage_a"):
+    ev = MagicMock()
+    ev.data = {
+        "direction": "exit",
+        "timestamp": ts_aware.isoformat(),
+        "person_id": person_id,
+        "egress_camera": cam,
+    }
+    return ev
+
+
+def test_last_exit_sensor_updates_on_backfill_signal():
+    _ensure_loop()
+    hass = make_hass()
+    db = _StubDatabase()
+    hass.data[ura_const.DOMAIN] = {"database": db}
+    s = _make_last_exit_sensor(hass)
+    captured = _subscribe_last_exit(s, hass)
+
+    t_cross = datetime(2026, 10, 15, 12, 30, 0, tzinfo=UTC)
+    # DB INSERT timestamp is naive UTC ~45 s after the crossing.
+    db.add("2026-10-15T12:30:45", "exit", None, cam="garage_a")
+    s._handle_egress_event(_exit_event(t_cross))
+    assert s.extra_state_attributes["person_id"] == "unidentified"
+    ts_before = s.native_value
+
+    # Backfill names the row, then dispatches the signal.
+    db.rows[0]["person_id"] = "oji_udezue"
+    _fire_backfill(captured, hass, {"row_id": 1, "person_id": "oji_udezue"})
+
+    assert s.extra_state_attributes["person_id"] == "oji_udezue"
+    assert s.native_value == ts_before  # timestamp untouched
+
+
+def test_last_exit_sensor_ignores_backfill_of_older_row():
+    _ensure_loop()
+    hass = make_hass()
+    db = _StubDatabase()
+    hass.data[ura_const.DOMAIN] = {"database": db}
+    s = _make_last_exit_sensor(hass)
+    captured = _subscribe_last_exit(s, hass)
+
+    # Older exit (already displayed then superseded) and a newer unnamed one.
+    db.add("2026-10-15T12:27:00", "exit", None, cam="garage_a")
+    db.add("2026-10-15T12:30:45", "exit", None, cam="garage_a")
+    s._handle_egress_event(_exit_event(datetime(2026, 10, 15, 12, 30, 0, tzinfo=UTC)))
+
+    # Backfill names the OLDER row.
+    db.rows[0]["person_id"] = "jaya"
+    _fire_backfill(captured, hass, {"row_id": 1, "person_id": "jaya"})
+
+    assert s.extra_state_attributes["person_id"] == "unidentified"
