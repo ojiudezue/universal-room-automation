@@ -6969,6 +6969,14 @@ class EnergyCoordinator(BaseCoordinator):
                         grid_charge_on=bool(grid_charge_intent),
                     ):
                         await self._execute_service_action(action_spec)
+            else:
+                # EV-FILL-PRIORITY-SOC-CHATTER-1 D6: observation mode skips
+                # the whole FP block, so the inert (D1) and below-floor (D5)
+                # discharges never run. Clear both re-pause latches every
+                # observation tick so none survives the mode exit (the first
+                # post-exit pause is the legacy edge). No dispatch here.
+                self._ev._recently_released_by_fill_priority.clear()
+                self._smart_plugs._recently_released_by_fill_priority.clear()
 
             # E3: Circuit anomaly checks
             circuit_anomalies = self._circuits.check_anomalies()
