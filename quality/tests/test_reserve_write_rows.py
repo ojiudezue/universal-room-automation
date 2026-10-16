@@ -713,3 +713,155 @@ async def test_reserve_row_never_awaited_on_dispatch_path(clock):
     assert c.db.rows == []  # not run yet: nothing awaited it
     await scheduled[0]
     assert len(rows(c)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Review C gaps #1-#8 (test authority)
+# ---------------------------------------------------------------------------
+WS = hvac_strategy.WriteStatus
+
+
+def _direct(c, *, status=None, path="timer", value=42, pre_state=None, reason="x"):
+    c._record_reserve_dispatch(
+        status=status or WS.APPLIED, path=path, target=RESERVE_WRITE_EID,
+        value=value, reason=reason, pre_state=pre_state,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reserve_row_pre_state_is_read_before_the_service_call(clock):
+    """C#1: the hardware state FLIPS to the written value during the service
+    call (as the real cloud leg can). The row's pre_state must be the
+    PRE-write value. Mutation: move the pre_state read after
+    `_execute_service_action` → pre_state 45.0 → RED."""
+    now = clock.t.astimezone(_CDT)
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    rec = c.hass.services.async_call
+
+    async def _flip(domain, svc, data, blocking=False, **kw):
+        await rec(domain, svc, data, blocking=blocking, **kw)
+        _st(c.hass, data["entity_id"], str(data["value"]), unit="%", lu=clock.t)
+    c.hass.services.async_call = _flip
+    await timer_tick(c, s, "mid_peak", now)
+    assert c.hass.states.get(RESERVE_WRITE_EID).state == "45"
+    rs = rows(c)
+    assert len(rs) == 1 and rs[0]["pre_state"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_force_redispatch_failed_leg_recorder_raise_is_swallowed(clock):
+    """C#2: on the FAILED leg a raising recorder must not escape
+    `force_redispatch` and `record_dispatch_failed` still runs exactly once.
+    Mutation: FAILED own-guard swallow → raise → RED."""
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    _redispatch_ready(c, s, clock)
+    failed: list = []
+
+    async def _rec(*a, **k):
+        failed.append(a)
+    c._write_verifier.record_dispatch_failed = _rec
+
+    async def _boom(domain, svc, data, blocking=False, **kw):
+        raise RuntimeError("cloud down")
+    c.hass.services.async_call = _boom
+
+    def _raise(**kw):
+        raise RuntimeError("row writer exploded")
+    s._coord = SimpleNamespace(_record_reserve_dispatch=_raise)
+    await s.force_redispatch("reserve_soc")  # must not raise
+    assert len(failed) == 1
+    assert s._last_reserve_level == 80  # unchanged on failure
+
+
+@pytest.mark.asyncio
+async def test_reserve_row_helper_internal_raise_never_poisons_dispatch(clock):
+    """C#3: poison a read inside the helper (`int(battery.reserve_soc)` with
+    reserve_soc='abc' under partial_hold) — C1 (timer) and C2 (evaluate, which
+    has NO caller try) both complete, dispatch/actions intact, no row.
+    Mutation: narrow the helper's outer `except Exception` → RED."""
+    now = clock.t.astimezone(_CDT)
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    seed_inclement(s, now, "partial_hold", 10)
+    d = s.determine_mode("mid_peak", "summer", now=now)
+    s.reserve_soc = "abc"  # poison AFTER determine_mode, BEFORE the row read
+    await c._execute_breaker_safe_dispatch(d, "mid_peak")
+    await _settle()
+    assert [x[:2] for x in c.calls] == [["number", "set_value"]]
+    assert s._last_reserve_level == 45
+    assert rows(c) == []
+    # C2 path (no caller try/except around the helper call).
+    c._tou = SimpleNamespace(
+        get_current_period=lambda *a: "mid_peak", get_season=lambda *a: "summer",
+    )
+    s.determine_mode = lambda *a, **k: d
+    acts = await c._evaluate_battery()
+    await _settle()
+    assert [a.service for a in acts] == ["number.set_value"]
+    assert rows(c) == []
+
+
+@pytest.mark.asyncio
+async def test_reserve_row_three_identical_sends_one_row(clock):
+    """C#4: a SKIPPED send must not clear/clobber the memo — x3 identical
+    with pre_state == value → exactly one row."""
+    c, s = make_shell(clock, soc="45", reserve_state="42")
+    s._last_reserve_level_desired = 42
+    for _ in range(3):
+        _direct(c, value=42, pre_state=42.0)
+    await _settle()
+    assert len(rows(c)) == 1
+
+
+@pytest.mark.asyncio
+async def test_reserve_row_failed_with_equal_key_and_pre_state_is_ungated(clock):
+    """C#5 / R3-01: FAILED bypasses the gate even with an identical memo key
+    and pre_state == value. Mutation: add FAILED to the gated set → RED."""
+    c, s = make_shell(clock, soc="45", reserve_state="42")
+    s._last_reserve_level_desired = 42
+    _direct(c, status=WS.APPLIED, value=42, pre_state=42.0)  # arms the memo
+    _direct(c, status=WS.FAILED, value=42, pre_state=42.0)
+    await _settle()
+    assert [r["status"] for r in rows(c)] == ["applied", "failed"]
+
+
+@pytest.mark.asyncio
+async def test_reserve_row_evaluate_non_reserve_number_target_no_row(clock):
+    """C#6: with the reserve role CONFIGURED, a `number.set_value` to another
+    number in the evaluate actions gets no reserve_write row.
+    Mutation: C2 drops `target == _res_eid` → RED."""
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    c._tou = SimpleNamespace(
+        get_current_period=lambda *a: "mid_peak", get_season=lambda *a: "summer",
+    )
+    s.determine_mode = lambda *a, **k: {
+        "reason": "pool", "charge_from_grid": False, "soc": 45.0,
+        "actions": [{"service": "number.set_value", "target": "number.pool_speed",
+                     "data": {"value": 2}}],
+    }
+    acts = await c._evaluate_battery()
+    await _settle()
+    assert len(acts) == 1
+    assert rows(c) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw,expected", [(150, 100), (-5, 0), (100, 100), (0, 0), ("61", 61)])
+async def test_reserve_row_value_clamped_0_100(clock, raw, expected):
+    """C#7: row `value` is clamped to 0..100 (same clamp as the tap stamp)."""
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    _direct(c, value=raw, pre_state=0.0)
+    await _settle()
+    assert [r["value"] for r in rows(c)] == [expected]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pre,gated", [(59.6, True), (60.4, True), (59.4, False), (60.6, False)])
+async def test_reserve_row_gate_rounds_pre_state(clock, pre, gated):
+    """C#8: the gate compares round(pre_state), not trunc — 59.6 gates a
+    re-send of 60; 59.4 does not. Mutation: round → int() trunc → RED."""
+    c, s = make_shell(clock, soc="45", reserve_state="0")
+    s._last_reserve_level_desired = 60
+    _direct(c, value=60, pre_state=0.0)  # arms the memo
+    _direct(c, value=60, pre_state=pre)
+    await _settle()
+    assert len(rows(c)) == (1 if gated else 2)
