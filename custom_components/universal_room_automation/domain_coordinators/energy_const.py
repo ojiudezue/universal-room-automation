@@ -2279,3 +2279,40 @@ EC_CONSTRUCTION_ENTITY_KEYS: Final[frozenset[str]] = EC_ROLE_KEY_SET | frozenset
     CONF_ENERGY_WEATHER_FALLBACK_1,
     CONF_ENERGY_WEATHER_FALLBACK_2,
 })
+
+
+# ============================================================================
+# EC-RESERVE-WRITE-GOVERNOR-1 — reserve write governor (Rev 3.2)
+# ============================================================================
+#
+# Rung 1 (module constant — change requires review): importance of the
+# per-dispatch `reserve_write` activity row. Same value as
+# `hvac_const.CLIMATE_WRITE_LOG_IMPORTANCE` (parity with the HVAC write
+# row; `notable` = 30 d retention, database.py:5827-5834).
+RESERVE_WRITE_LOG_IMPORTANCE: Final = "notable"
+
+# Rung 1: production allowlist of every statically visible `number` /
+# `set_value` writer in the package, enforced by the AST lint
+# `quality/tests/test_reserve_write_chokepoint_lint.py` (INV-G1).
+# (module, enclosing function, kind, pinned occurrence count).
+#   kind: "reserve"     — a reserve-entity write (dispatch covered by C1/C3)
+#         "reader"      — a `"number.set_value"` comparison, not a write
+#         "non_reserve" — writes to a non-reserve number (pool, EVSE amps,
+#                         load-shed, radar device numbers)
+# Counting rule (lint §4): +1 per Call whose first two positional args are
+# ("number", "set_value") or whose keywords are domain="number",
+# service="set_value"; +1 per ast.Constant == "number.set_value". The
+# constant args of a counted Call are not counted again. A topology change
+# (new writer, moved writer) MUST update this table in the same commit.
+RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
+    ("energy_battery.py", "_result",                    "reserve",     1),
+    ("energy_battery.py", "determine_mode",             "reserve",     1),  # blind de-escalation
+    ("energy_battery.py", "force_redispatch",           "reserve",     2),  # async_call + failure record
+    ("energy.py",         "_apply_evse_battery_hold",   "reserve",     1),
+    ("energy.py",         "_tap_write_verifier",        "reader",      1),  # svc compare (C1)
+    ("energy.py",         "_evaluate_battery",          "reader",      1),  # svc compare (C2)
+    ("energy.py",         "_execute_shed_action",       "non_reserve", 2),  # pool speed
+    ("energy_pool.py",    "determine_actions",          "non_reserve", 2),  # pool speed
+    ("energy_pool.py",    "_write_amps",                "non_reserve", 1),  # EVSE amps
+    ("radar_tuning.py",   "async_send_radar_settings",  "non_reserve", 1),  # radar device numbers
+)

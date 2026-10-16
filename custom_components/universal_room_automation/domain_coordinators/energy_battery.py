@@ -6841,6 +6841,27 @@ class BatteryStrategy:
                     _LOGGER.debug(
                         "force_redispatch: failure record raised", exc_info=True,
                     )
+            # EC-RESERVE-WRITE-GOVERNOR-1 (C3, FAILED): AFTER the failure
+            # record, in its OWN guard (plan G-1). `_coord` and the method
+            # are reached through getattr ONLY, so a bare test object / coord
+            # stub is a silent no-op and nothing here can re-enter the
+            # service-call `except` above.
+            try:
+                from .hvac_strategy import WriteStatus  # noqa: PLC0415 — stdlib-only
+                _rec = getattr(
+                    getattr(self, "_coord", None), "_record_reserve_dispatch", None,
+                )
+                if _rec is not None:
+                    _rec(
+                        status=WriteStatus.FAILED, path="redispatch",
+                        target=target, value=live_desire,
+                        reason="force_redispatch (pending watchdog retry)",
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "force_redispatch: reserve_write row failed (failed)",
+                    exc_info=True,
+                )
             return
         # (5) stamp commanded ledger with the re-dispatched value so the
         # sweep sees a fresh commanded_at anchor. Mirrors the stamping
@@ -6853,6 +6874,27 @@ class BatteryStrategy:
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "force_redispatch: ledger stamp failed", exc_info=True,
+            )
+        # (6) EC-RESERVE-WRITE-GOVERNOR-1 (C3, APPLIED): AFTER the
+        # try/except AND after step 5's ledger stamp (plan G-1), in its OWN
+        # guard; getattr-only reach, so a missing `_coord` can neither fake
+        # a `dispatch_failed` nor skip the stamp. `WriteStatus` is the
+        # imported hvac_strategy enum — never re-typed.
+        try:
+            from .hvac_strategy import WriteStatus  # noqa: PLC0415 — stdlib-only
+            _rec = getattr(
+                getattr(self, "_coord", None), "_record_reserve_dispatch", None,
+            )
+            if _rec is not None:
+                _rec(
+                    status=WriteStatus.APPLIED, path="redispatch",
+                    target=target, value=live_desire,
+                    reason="force_redispatch (pending watchdog retry)",
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "force_redispatch: reserve_write row failed (applied)",
+                exc_info=True,
             )
 
     def get_status(self) -> dict[str, Any]:
