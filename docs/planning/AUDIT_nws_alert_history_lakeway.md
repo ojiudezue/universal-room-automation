@@ -42,4 +42,4 @@ County TXC453 (354): Flood Advisory 132, **Severe Thunderstorm Warning 131**, Se
 
 **Wind Advisory severity:** live CAP for the 10-15 WIY is `Severity: Moderate`, `Certainty: Likely`; it is an Advisory (Y), below Warning. Whether it should hold depends on local outage evidence — the operator has not observed wind outages; freezes are the observed cause. Do not promote WIY to hold without that evidence.
 
-**Operator confirmation needed:** which dates actually lost power at the house (2021-02 Uri? 2023-02 ice storm? 2026-01?).
+**Operator 2026-10-16:** lived at the house ~2 years; use public Lakeway/PEC outage data plus the Enphase off-grid log (see AUDIT_outage_alert_correlation.md).
