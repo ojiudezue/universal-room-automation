@@ -719,6 +719,16 @@ Each was answerable independently. The plan builds under either answer; the "swi
 3. **Grid-import guard:** the polygon leg honours the existing arbitrage guard only when its toggle is on (live OFF, firmware curtails on breaker size). Confirm OFF is right for a peak-time 10-30 kW charge on top of summer AC, or enable the toggle.
 4. **Storm Guard boot case is log-only** (no NM). Confirm, or accept a DB-read follow-up card for cross-restart dedupe.
 
+**Ruled 2026-10-16: "Defaults ok."** All four Rev 3.3 items take their defaults (60-min per-ID cap; option on after Stage C; import guard off; Storm Guard boot log-only). Prior confirms also stand by default: D-B6 floor 80 / lead 12 h; tropical/hurricane ineligible; Wind Chill + freeze watches eligible (forecast-confirmed buy); 40 kWh capacity.
+
+**Observability — "just enough" (operator 2026-10-16: "make sure we have appropriate observability for these changes. But just enough").** Already in the plan and sufficient; builders add nothing beyond this list:
+- *Why the reserve moved:* `reserve_write` rows (governor v5.103.66) with `reason`, `tick_floor`, `tick_preonset_floor`, `preonset_event`.
+- *What the alert was:* ledger `nws_alert` rows with `ura_class`; `inclement_memory_cleared` / `inclement_code_drift` rows.
+- *Current state at a glance:* strategy-sensor attrs `inclement_preonset`, `storm_guard_state`, `tou_top_rate`, and the three D-B2a diagnostic attrs.
+- *Did an outage happen and what did we decide:* `grid_outage` ledger rows (Stage L).
+- **One addition (the only new surface):** one NM notice per **grid-buy episode start** (pre-onset leg, full-hold zone leg, or polygon leg), severity `low`, naming product, leg, floor/target and (zone products) the forecast confirmation; none per tick, none at episode end, none for floor-only holds. Reuse `_send_nm_alert` (`energy.py:9532`); key the dedupe on the episode latch / alert ID already in the plan (no new state). Why: buying grid power is the one action that costs money and the operator is often away; everything else is visible on demand. Test: `test_grid_buy_episode_notifies_once` (start fires once; repeated ticks and a restart mid-episode with the latch re-seeded do not re-fire, mirroring D-B7's boot rule). Live: the first buy episode after the option turns on produces exactly one NM and matching CFG switch history.
+- Explicitly **not** added: new sensors, dashboards, per-tick logs, end-of-episode summaries, kWh accounting.
+
 ---
 
 ## 15. Changelog
