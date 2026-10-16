@@ -1,0 +1,14 @@
+{"action": "ack", "at": "2026-10-16T03:05:03.769Z", "card_id": "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-13T02:50:00"}
+{"action": "ack", "at": "2026-10-16T03:05:20.703Z", "card_id": "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-14T02:16:00"}
+{"action": "ack", "at": "2026-10-16T03:05:50.653Z", "card_id": "EC-RESERVE-CLOUD-DIVERGENCE-1@2026-10-14T02:20:00"}
+{"action": "ack", "at": "2026-10-16T03:05:57.602Z", "card_id": "EC-HOUSE-ENTITY-DEFAULTS-1@2026-10-14T02:20:00"}
+{"action": "instruct", "at": "2026-10-16T03:06:30.451Z", "card_id": "ZONE-DIALOGS-CLEANUP-1", "text": "OK for now"}
+{"action": "ack", "at": "2026-10-16T03:06:31.151Z", "card_id": "ZONE-DIALOGS-CLEANUP-1@2026-10-14T02:20:00"}
+{"action": "instruct", "at": "2026-10-16T03:07:21.651Z", "card_id": "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1", "text": "I think we upgraded. Please check"}
+{"action": "ack", "at": "2026-10-16T03:07:22.451Z", "card_id": "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1@2026-10-14T02:22:00"}
+{"action": "ack", "at": "2026-10-16T03:07:52.369Z", "card_id": "SONOFF-R4M-MULTICAST-AB-1@2026-10-14T02:25:00"}
+{"action": "instruct", "at": "2026-10-16T03:08:33.967Z", "card_id": "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1", "text": "Can't recal but sounds ood"}
+{"action": "ack", "at": "2026-10-16T03:08:35.751Z", "card_id": "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-10-14T02:30:00"}
+{"action": "ack", "at": "2026-10-16T03:08:49.100Z", "card_id": "EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1@2026-10-14T02:30:00"}
+{"action": "ack", "at": "2026-10-16T03:09:07.703Z", "card_id": "HVAC-CUSTOM-PRESET-RANGES-1@2026-10-14T02:35:00"}
+{"action": "ack", "at": "2026-10-16T03:09:23.855Z", "card_id": "HM-V21-LIVE-VALIDATION-1@2026-10-14T02:50:00"}
