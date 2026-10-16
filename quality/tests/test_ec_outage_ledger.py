@@ -61,6 +61,53 @@ def _purge(name: str, mod) -> bool:
     return not (origin and os.path.exists(str(origin)))
 
 
+_REPAIRED_HA_MODULES = (
+    "homeassistant.core",
+    "homeassistant.helpers.event",
+    "homeassistant.helpers.entity_registry",
+    "homeassistant.util.dt",
+)
+
+
+_MISSING = object()
+
+
+def _repair_real_ha_modules(importlib, repairs):
+    """Append (module, attr, previous_value) to ``repairs`` per repaired attribute.
+
+    "Defined by the module" is read from a PRISTINE copy executed from HA's
+    own source file (registered under a private name; removed on teardown).
+    For each such attribute whose live value is not from the real module, the
+    ORIGINAL object is recovered from any real HA module that imported it
+    before the patch (keeps class identity, e.g. `Event`), else the pristine
+    copy's object is used.
+    """
+    import importlib.util as _iu
+    for modname in _REPAIRED_HA_MODULES:
+        mod = importlib.import_module(modname)
+        spec = _iu.spec_from_file_location(
+            modname.rsplit(".", 1)[0] + "._ledger_pristine_" + modname.rsplit(".", 1)[1],
+            mod.__spec__.origin,
+        )
+        pristine = _iu.module_from_spec(spec)
+        sys.modules[spec.name] = pristine  # dataclasses need it registered
+        spec.loader.exec_module(pristine)
+        for attr, pval in vars(pristine).items():
+            if attr.startswith("__") or getattr(pval, "__module__", None) != spec.name:
+                continue  # not an object this module defines
+            cur = getattr(mod, attr, _MISSING)
+            if getattr(cur, "__module__", None) == modname:
+                continue  # still the real one
+            orig = next((
+                getattr(m, attr) for n, m in list(sys.modules.items())
+                if n.startswith("homeassistant") and n != spec.name
+                and getattr(getattr(m, attr, None), "__module__", None) == modname
+                and getattr(getattr(m, attr, None), "__name__", None) == attr
+            ), None)
+            repairs.append((mod, attr, cur))
+            setattr(mod, attr, orig if orig is not None else pval)
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _real_module_isolation():
     global UniversalRoomDatabase, L, EnergyCoordinator, BatteryStrategy, _CycleShell
@@ -69,47 +116,16 @@ def _real_module_isolation():
         if _purge(name, mod):
             del sys.modules[name]
     import importlib
-    core = importlib.import_module("homeassistant.core")
-    patched_core = {}
-    for attr in ("callback", "is_callback"):
-        cur = getattr(core, attr, None)
-        if getattr(cur, "__module__", None) == "homeassistant.core":
-            continue
-        # An earlier file replaced it on the REAL module (e.g.
-        # `ha_core.callback = lambda f: f`). Recover HA's own original from
-        # any real module that imported it before the patch.
-        orig = next((
-            getattr(m, attr) for n, m in list(sys.modules.items())
-            if n.startswith("homeassistant.")
-            and getattr(getattr(m, attr, None), "__module__", None) == "homeassistant.core"
-            and getattr(getattr(m, attr, None), "__name__", None) == attr
-        ), None)
-        if orig is not None:
-            patched_core[attr] = cur
-            setattr(core, attr, orig)
-    # The timer helpers the ledger arms: an earlier file may have replaced
-    # them on the REAL module with no-ops (e.g. test_arrival_departure_notify
-    # `_ev.async_call_later = lambda *a, **kw: (lambda: None)`). Install
-    # pristine copies, executed from HA's own source file, for this module.
-    ev_mod = importlib.import_module("homeassistant.helpers.event")
-    patched_ev = {}
-    stale = [a for a in ("async_call_later", "async_track_time_interval")
-             if getattr(getattr(ev_mod, a, None), "__module__", None)
-             != "homeassistant.helpers.event"]
-    if stale:
-        import importlib.util as _iu
-        spec = _iu.spec_from_file_location(
-            "homeassistant.helpers._ledger_pristine_event", ev_mod.__spec__.origin,
-        )
-        pristine = _iu.module_from_spec(spec)
-        # Registered for dataclass processing; removed again on teardown
-        # with every other key this fixture added.
-        sys.modules[spec.name] = pristine
-        spec.loader.exec_module(pristine)
-        for a in stale:
-            patched_ev[a] = getattr(ev_mod, a, None)
-            setattr(ev_mod, a, getattr(pristine, a))
+    # Earlier files replace attributes ON the real HA modules and never put
+    # them back (e.g. `ha_core.callback = lambda f: f`, a stub
+    # `homeassistant.core.Event` from `_install_ha_stubs`, no-op timer helpers,
+    # a fake `entity_registry.async_get`, a patched `dt.utcnow`). For every
+    # real HA module this file exercises, restore EVERY attribute that the
+    # module defines but whose current value no longer comes from it, for
+    # the duration of this module, then put back exactly what was there.
+    repairs: list = []
     try:
+        _repair_real_ha_modules(importlib, repairs)
         UniversalRoomDatabase = importlib.import_module(
             "custom_components.universal_room_automation.database",
         ).UniversalRoomDatabase
@@ -132,10 +148,12 @@ def _real_module_isolation():
         _CycleShell = _Cycle
         yield
     finally:
-        for attr, val in patched_core.items():
-            setattr(core, attr, val)  # leave the environment as we found it
-        for attr, val in patched_ev.items():
-            setattr(ev_mod, attr, val)
+        for mod, attr, val in reversed(repairs):
+            # leave the environment exactly as we found it
+            if val is _MISSING:
+                delattr(mod, attr)
+            else:
+                setattr(mod, attr, val)
         for name in [n for n in sys.modules if n not in snapshot]:
             del sys.modules[name]
         sys.modules.update(snapshot)
