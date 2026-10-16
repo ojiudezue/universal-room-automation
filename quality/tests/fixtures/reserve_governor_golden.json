@@ -1,0 +1,254 @@
+{
+  "allow_discharge": {
+    "actions": [
+      {
+        "data": {
+          "value": 45
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 45
+        }
+      ]
+    ],
+    "last_reserve_level": 45,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 45,
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak",
+    "schedules": [
+      [
+        "reserve_soc",
+        45,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "blind": {
+    "actions": [
+      {
+        "data": {},
+        "service": "switch.turn_off",
+        "target": "switch.iq_battery_hacs_charge_battery_from_grid"
+      },
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "switch",
+        "turn_off",
+        {
+          "entity_id": "switch.iq_battery_hacs_charge_battery_from_grid"
+        }
+      ],
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 10
+        }
+      ]
+    ],
+    "last_reserve_level": 10,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": null,
+    "reason": "Blind de-escalation \u2014 never import through peak blind (reserve\u219210, charge_from_grid\u2192off)",
+    "schedules": [
+      [
+        "charge_from_grid",
+        false,
+        "2026-06-15T21:00:00+00:00"
+      ],
+      [
+        "reserve_soc",
+        10,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "dp_fold": {
+    "actions": [
+      {
+        "data": {
+          "value": 70
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 70
+        }
+      ]
+    ],
+    "last_reserve_level": 70,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 20,
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak + EVSE hold",
+    "schedules": [
+      [
+        "reserve_soc",
+        70,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "evaluate": {
+    "actions": [
+      {
+        "data": {
+          "value": 45
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [],
+    "cm_actions": [
+      [
+        "number.set_value",
+        "number.iq_battery_hacs_battery_reserve",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 45
+        }
+      ]
+    ],
+    "last_reserve_level": null,
+    "last_reserve_level_at": null,
+    "last_reserve_level_desired": 45,
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak",
+    "schedules": []
+  },
+  "evse_overlay": {
+    "actions": [
+      {
+        "data": {
+          "value": 60
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 60
+        }
+      ]
+    ],
+    "last_reserve_level": 60,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 20,
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak + EVSE hold",
+    "schedules": [
+      [
+        "reserve_soc",
+        60,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "full_hold": {
+    "actions": [
+      {
+        "data": {
+          "value": 70
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 70
+        }
+      ]
+    ],
+    "last_reserve_level": 70,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 70,
+    "reason": "Inclement (watch_corroborated_recoverable_partial_hold) \u2014 holding charge (SOC 45.0%)",
+    "schedules": [
+      [
+        "reserve_soc",
+        70,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "partial_hold": {
+    "actions": [
+      {
+        "data": {
+          "value": 60
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 60
+        }
+      ]
+    ],
+    "last_reserve_level": 60,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 60,
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak",
+    "schedules": [
+      [
+        "reserve_soc",
+        60,
+        "2026-06-15T21:00:00+00:00"
+      ]
+    ]
+  },
+  "redispatch": {
+    "calls": [
+      [
+        "number",
+        "set_value",
+        {
+          "entity_id": "number.iq_battery_hacs_battery_reserve",
+          "value": 42
+        }
+      ]
+    ],
+    "last_reserve_level": 42,
+    "last_reserve_level_at": "2026-06-15T21:00:00+00:00",
+    "last_reserve_level_desired": 42,
+    "schedules": []
+  }
+}
