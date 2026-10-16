@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:14:21-05:00_ - _Data commit: `11110a6b99cc`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:20:59-05:00_ - _Data commit: `23773c984012`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -169,7 +169,8 @@ _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
 thread: **optimization** - status: **pre_planning**
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_correction_2026_10_16`: OC never acted BY OPERATOR CHOICE: "it never acted because I sensed this" (the noise). Shadow mode was a deliberate trust withhold, not a promotion-pipeline failure. Vision doc must frame it that way: the failure is signal quality; promo...
   - `tier`: 3
   - `related`: OC-SHADOW-SAMPLES-EMPTY-1
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.

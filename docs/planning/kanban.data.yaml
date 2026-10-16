@@ -225,6 +225,7 @@ cards:
   related: [EC-RESERVE-WRITE-GOVERNOR-1]
   next: 'Revisit after governor ships if dispatch rows show ambiguous failures.'
 - id: OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1
+  operator_correction_2026_10_16: 'OC never acted BY OPERATOR CHOICE: "it never acted because I sensed this" (the noise). Shadow mode was a deliberate trust withhold, not a promotion-pipeline failure. Vision doc must frame it that way: the failure is signal quality; promotion to action must be earned by measured precision the operator can see.'
   title: 'Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow)'
   thread: optimization
   status: pre_planning
