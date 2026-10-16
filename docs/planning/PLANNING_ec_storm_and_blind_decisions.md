@@ -162,7 +162,7 @@ energy.py decision cycle, after determine_mode returns (independent of every ear
 
 **P2: NWS feed semantics (gates D-B1 and the D-B3 details).**
 - (a) Recorder history of the alerts sensor for 2026-10-16 03:00–05:00 (the 10-15 WIY, Onset=Expires=04:00, Ends=19:00): did the alert leave the feed at Expires, did an Update arrive and when, was the feed ever without it inside `[Onset, Ends]`? (Informs the memory test fixture; the memory is built regardless, per D-B3.)
-- (b) Is `?point=` polygon-exact for SVW/TOW (Severe Thunderstorm / Tornado Warning)? From the api.weather.gov docs (cite), cross-checked live if an SVR polygon appears. Feeds Q7.
+- (b) Is `?point=` polygon-exact for SVW/TOW (Severe Thunderstorm / Tornado Warning)? From the api.weather.gov docs (cite), cross-checked live if an SVW polygon appears. Feeds Q7.
 - **Rev 2.1 result for (a):** the 10-15 WIY never left the feed inside `[Onset, Ends]` (an Update at 23:50 superseded the Alert with Expires 19:00; 0 unavailable rows 03:00-05:00). The 10-15 missed hold was a **classification miss** (WIY not matched), not feed loss. D-B3 memory is insurance.
 - (c) For watches (WSA, SVA, TOA), is `onset` the hazard start or the issue time? Recorded in the table notes.
 - (d) **Which entity carries the feed timestamp:** confirm the `last_updated` sensor's entity_id on this house, that its value changes on every successful poll (so its `State.last_changed` advances every minute), and whether its value is naive local time (`coordinator.py:126,182`).
