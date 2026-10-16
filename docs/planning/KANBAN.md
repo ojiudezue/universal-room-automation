@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:22:56-05:00_ - _Data commit: `d273f9cfe7d5`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:25:05-05:00_ - _Data commit: `2116316b0dcf`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -13,9 +13,9 @@ _Generated: 2026-10-16T00:22:56-05:00_ - _Data commit: `d273f9cfe7d5`_ - _last_r
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 9 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 32 |
+| ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 4 |
 | 🚀 Shipped (organic open) | 8 |
 | 🅿️ Parked | 91 |
@@ -27,7 +27,8 @@ _raw capture_
 ### `EC-EVALUATE-PATH-LEDGER-GAP-1` - TOU-transition battery path (_evaluate_battery -> CoordinatorManager) never stamps the commanded reserve ledger or calls write-verify, and swallows dispatch failures — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox**
 - **Next:** Measure how often TOU-transition writes happen and whether ledger staleness causes write-verify false alarms; then decide fix vs park.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
 ## 🔬 Investigating (5)
@@ -36,7 +37,8 @@ _measuring; truth not yet known_
 ### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **investigating**
 - **Next:** Confirm by code trace + test with observation mode on; fix gates (likely Tier 2) after the governor so the lint/rows cover it.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `tier`: 2
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
@@ -65,13 +67,15 @@ _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating**
 - **Next:** Measure how often the manager wins the boundary (recorder/activity log), then decide.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-EVALUATE-PATH-LEDGER-GAP-1
 
 ### `EC-SELFHEAL-UNEXPLAINED-RESENDS-1` - Write-verify anomalies 10-14: self-heal re-sent 90 three times while cloud already showed 90; cloud stayed at 6 for 6.5 h while URA sent 10 forty-nine times — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating**
 - **Next:** After governor ships, use dispatch rows to trace; check against EC-RESERVE-CLOUD-DIVERGENCE-1 (Enphase pending-write episode).
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-RESERVE-CLOUD-DIVERGENCE-1
 
 ## 🧭 Pre-planning (9)
@@ -81,7 +85,8 @@ _idea being decomposed_
 thread: **energy** - status: **pre_planning**
 - **Why:** energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE w...
 - **Next:** After governor ships (blind write is in its site table): small plan — derive top-rate period per season from the TOU engine; test shoulder schedule blind at 17:00 with CFG on -> de-escalate.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `operator_2026_10_16`: "boo. it needs more resilience. This text matching is nonsense when there are better candidates." Widened: 35 literal period-name checks (== "peak" / "mid_peak") across energy.py 9, energy_battery.py 13, energy_pool.py 8, energy_tou.py 1...
   - `tier`: 3
   - `related`: EC-INCLEMENT-HARDENING-1
@@ -346,10 +351,21 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
-### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-RESERVE-WRITE-GOVERNOR-1` - Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes — _#1 · WSJF 2.3 · v8 tc4 u2 /e6_
+thread: **energy** - status: **in_progress**
+- **Why:** _result (energy_battery.py:6278) is already the single emit point (holds the CFG cloud-withhold chokepoint); commanded ledger restored on boot (energy.py:1966-1968); EVSE overlay folds reserve after (energy.py:5440-5480). But every floor...
+- **Next:** Prior-art scan (HVAC write governance, presence, EVSE overlay, drain-precedence ledger) then Tier-3 plan; decide sequencing vs EC-INCLEMENT-HARDENING-1 D-blind (governor first makes D-blind a one-line floor registration).
+- **Forensic keys (5):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `operator_2026_10_16`: Fold cheap typed outcomes in (row verb vocabulary = hvac_strategy WriteStatus names: applied / skipped_already_correct / deferred / failed); close EC-RESERVE-WRITE-RESULT-TYPE-1. Extra ground-truth audit of every reserve surface (EV, TOU...
+  - `plan_2026_10_16`: PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint...
+  - `tier`: 3
+  - `related`: EC-INCLEMENT-HARDENING-1
+
+### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **safety** - status: **in_progress** - approval: **unreviewed**
 _created 2026-10-14 19:30 · updated 2026-10-15 02:10 · initial_
 - **Origin:** 2026-10-14 - plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map
@@ -379,7 +395,7 @@ _created 2026-10-14 02:35 · initial_
   - `update_2026_10_15`: CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant ...
   - `evidence_2026_10_14`: zone 3: S1 set preset sleep->away at 05:43:52Z (00:43:52 CDT). Recorder: target_temp_low/high stayed 70/77 (the sleep/home range) until 00:50:54 CDT, then 62/80. S10 ran at 00:48:52 CDT, read away=70/77, and issued set_activity_setpoint ...
 
-## ⏸️ Waiting on operator (32)
+## ⏸️ Waiting on operator (31)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -841,17 +857,7 @@ _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
   - `facts_2026_10_10`: Stall confirmed by operator AND Omonele (not a path problem). Stalls observed from here ~00:00, ~13:40, 14:18-14:45 UTC (14:36 brief up). During 14:29: port 80 refused, observer :4357 up, supervisor healthy. URA was fully DISABLED from ~...
   - `superseded_next_2026_10_10`: Read Wigton system log / CFLOW-TIMING around the stalls; time the devices step; if URA, fix the blocking scan. Operator fallback: disable URA at Wigton if it keeps stalling.
 
-### `EC-RESERVE-WRITE-GOVERNOR-1` - Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes — _#26 · WSJF 2.3 · v8 tc4 u2 /e6_
-thread: **energy** - status: **waiting_operator**
-- **Why:** _result (energy_battery.py:6278) is already the single emit point (holds the CFG cloud-withhold chokepoint); commanded ledger restored on boot (energy.py:1966-1968); EVSE overlay folds reserve after (energy.py:5440-5480). But every floor...
-- **Next:** Prior-art scan (HVAC write governance, presence, EVSE overlay, drain-precedence ledger) then Tier-3 plan; decide sequencing vs EC-INCLEMENT-HARDENING-1 D-blind (governor first makes D-blind a one-line floor registration).
-- **Forensic keys (4):**
-  - `operator_2026_10_16`: Fold cheap typed outcomes in (row verb vocabulary = hvac_strategy WriteStatus names: applied / skipped_already_correct / deferred / failed); close EC-RESERVE-WRITE-RESULT-TYPE-1. Extra ground-truth audit of every reserve surface (EV, TOU...
-  - `plan_2026_10_16`: PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint...
-  - `tier`: 3
-  - `related`: EC-INCLEMENT-HARDENING-1
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#27 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -867,7 +873,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -887,7 +893,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -910,7 +916,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#30 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#29 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -920,7 +926,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#31 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#30 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -935,7 +941,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#32 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#31 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
 - **Problem / Solution:**
@@ -1002,7 +1008,8 @@ _created 2026-09-12 20:45 · updated 2026-10-04 03:40 · refined_
 thread: **energy** - status: **waiting_me**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `correlation_2026_10_16`: AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-...
   - `operator_instruction_2026_10_16`: Model: "get an alert, check the applicability. Also check the local weather for the next x hours that alert applies (or so) and then make an energy decision." Sequence: governor (EC-RESERVE-WRITE-GOVERNOR-1) builds FIRST; revise this pla...
   - `operator_instruction_2026_10_15_c`: Q1: "Should we have a reserve write unified function, much like HVAC writes and presence? 25 places is mad. Force them through a governed slice with history and restart resilience. This is not about alerts at all." Q2: "Are you saying a ...
