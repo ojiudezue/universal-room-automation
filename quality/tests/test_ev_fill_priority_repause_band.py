@@ -350,12 +350,77 @@ def test_a7_plug_force_charge_clears_latch():
 _EV_PEERS = [
     "_paused_by_grid_cap", "_paused_by_battery_drain", "_paused_by_us",
     "_paused_by_arbitrage", "_paused_by_load_shed", "_paused_by_blind_window",
-    "_paused_by_dp", "_proactive_offpeak_holds",
+    "_paused_by_dp",
 ]
+# Review A-HIGH-1: `_proactive_offpeak_holds` is ensure-on's own recurring
+# claim, NOT a steal — deliberately absent (see the ensure-on tests below).
 _PLUG_PEERS = [
     "_paused_by_us", "_paused_by_battery_drain", "_paused_by_load_shed",
-    "_proactive_offpeak_holds",
 ]
+
+
+# --------------------------------------------------------------------------
+# Review A-HIGH-1 — off-peak daylight: ensure-on's own claim must NOT wipe
+# the latch (REAL determine_actions + REAL FP tick, EV and plug)
+# --------------------------------------------------------------------------
+
+def test_a_high_1_ev_offpeak_ensure_on_does_not_discharge_latch():
+    ev, hass = _ev()
+    acts = _fp(ev, 79.0)                      # off_peak daylight, healthy
+    assert len(_offs(acts)) == 1
+    _apply(hass, acts)
+    acts = _fp(ev, 80.0)                      # SOC-reached resume → latch
+    assert len(_ons(acts)) == 1
+    _apply(hass, acts)
+    assert _A in ev._recently_released_by_fill_priority
+    _apply(hass, ev.determine_actions("off_peak", grid_charge_on=False))
+    assert _A in ev._proactive_offpeak_holds  # ensure-on claimed it
+    acts = _fp(ev, 79.0)
+    assert _offs(acts) == [], "ensure-on claim wiped the latch → re-pause"
+    assert _A in ev._recently_released_by_fill_priority
+    _apply(hass, ev.determine_actions("off_peak", grid_charge_on=False))
+    assert len(_offs(_fp(ev, 76.9))) == 1
+
+
+def test_a_high_1_plug_offpeak_ensure_on_does_not_discharge_latch():
+    p, hass = _plug()
+    acts = _pfp(p, 79.0)
+    assert len(_offs(acts, _PLUG)) == 1
+    _apply(hass, acts)
+    acts = _pfp(p, 80.0)
+    assert len(_ons(acts, _PLUG)) == 1
+    _apply(hass, acts)
+    _apply(hass, p.determine_actions("off_peak", grid_charge_on=False))
+    assert _PLUG in p._proactive_offpeak_holds
+    acts = _pfp(p, 79.0)
+    assert _offs(acts, _PLUG) == []
+    _apply(hass, p.determine_actions("off_peak", grid_charge_on=False))
+    assert len(_offs(_pfp(p, 76.9), _PLUG)) == 1
+
+
+# --------------------------------------------------------------------------
+# Review D-L1 — threshold change discharges the latch
+# --------------------------------------------------------------------------
+
+def test_d_l1_threshold_lowered_first_pause_fires():
+    ev, hass = _ev()
+    _latch_ev(ev, hass)                        # latched under 80
+    acts = _fp(ev, 69.0, threshold=70)
+    assert len(_offs(acts)) == 1, "latch from threshold 80 suppressed 70's first pause"
+    assert ev._recently_released_by_fill_priority == {}
+
+
+def test_d_l1_plug_threshold_lowered_first_pause_fires():
+    p, hass = _plug()
+    _latch_plug(p, hass)
+    assert len(_offs(_pfp(p, 69.0, threshold=70), _PLUG)) == 1
+
+
+def test_d_l1_unchanged_threshold_keeps_latch():
+    ev, hass = _ev()
+    _latch_ev(ev, hass)
+    assert _fp(ev, 79.0, threshold=80) == []
+    assert ev._recently_released_by_fill_priority == {_A: 80}
 
 
 @pytest.mark.parametrize("peer", _EV_PEERS)
@@ -595,17 +660,17 @@ def test_a14_cold_latch_in_band_at_most_one_toggle():
 def test_a16_prune_pops_latch_for_removed_evse():
     ev, _ = _ev()
     ev._recently_released_by_fill_priority["garage_gone"] = 1.0
-    ev._recently_released_by_fill_priority[_A] = 1.0
+    ev._recently_released_by_fill_priority[_A] = 80
     ev._prune_removed_evses()
-    assert ev._recently_released_by_fill_priority == {_A: 1.0}
+    assert ev._recently_released_by_fill_priority == {_A: 80}
 
 
 def test_a16_prune_pops_latch_for_removed_plug():
     p, _ = _plug()
     p._recently_released_by_fill_priority["switch.gone"] = 1.0
-    p._recently_released_by_fill_priority[_PLUG] = 1.0
+    p._recently_released_by_fill_priority[_PLUG] = 80
     p.prune_removed_plugs()
-    assert p._recently_released_by_fill_priority == {_PLUG: 1.0}
+    assert p._recently_released_by_fill_priority == {_PLUG: 80}
 
 
 # --------------------------------------------------------------------------
@@ -677,7 +742,7 @@ async def test_callsite_unlatched_pauses_at_78(clock, mono):
 @pytest.mark.asyncio
 async def test_callsite_latched_no_pause_at_78_default_band(clock, mono):
     c, ev, _, _ = _cycle(clock)
-    ev._recently_released_by_fill_priority[_A] = 1.0
+    ev._recently_released_by_fill_priority[_A] = 80
     await c._decision_cycle_body()
     assert _cycle_offs(c) == []
     assert _A in ev._recently_released_by_fill_priority
@@ -691,7 +756,7 @@ async def test_callsite_band_read_at_call_time(clock, mono, monkeypatch):
         _epool._energy_const, "DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT", 0,
     )
     c, ev, _, _ = _cycle(clock)
-    ev._recently_released_by_fill_priority[_A] = 1.0
+    ev._recently_released_by_fill_priority[_A] = 80
     await c._decision_cycle_body()
     assert len(_cycle_offs(c)) == 1
     assert ev._recently_released_by_fill_priority == {}
@@ -700,8 +765,8 @@ async def test_callsite_band_read_at_call_time(clock, mono, monkeypatch):
 @pytest.mark.asyncio
 async def test_a15_observation_mode_clears_both_latches(clock, mono):
     c, ev, plugs, _ = _cycle(clock)
-    ev._recently_released_by_fill_priority[_A] = 1.0
-    plugs._recently_released_by_fill_priority[_PLUG] = 1.0
+    ev._recently_released_by_fill_priority[_A] = 80
+    plugs._recently_released_by_fill_priority[_PLUG] = 80
     c._observation_mode = True
     for _ in range(3):
         await c._decision_cycle_body()

@@ -589,8 +589,9 @@ class EVChargerController:
         # EV-FILL-PRIORITY-SOC-CHATTER-1: re-pause latch. Set ONLY on a
         # SOC-reached terminal resume; while an id is latched fill-priority
         # does not re-pause it (the below-floor sweep pops it once SOC <
-        # fill_priority_soc - band). Value = monotonic set time (diagnostic;
-        # membership is the gate). RAM-only, NOT persisted, NOT an owner
+        # fill_priority_soc - band). Value = the fill_priority_soc it was
+        # set under (a threshold change discharges it — review D-L1);
+        # membership is the gate. RAM-only, NOT persisted, NOT an owner
         # declaration (never a peer hold, never in the classifier).
         self._recently_released_by_fill_priority: dict[str, float] = {}
 
@@ -2804,6 +2805,12 @@ class EVChargerController:
         for evse_id in list(self._recently_released_by_fill_priority):
             if soc is not None and soc < effective_floor:
                 self._recently_released_by_fill_priority.pop(evse_id, None)
+            # Review D-L1: the latch value is the threshold it was set
+            # under — an operator threshold change discharges it so the new
+            # threshold's first pause is the legacy edge.
+            elif (self._recently_released_by_fill_priority.get(evse_id)
+                  != soc_threshold):
+                self._recently_released_by_fill_priority.pop(evse_id, None)
 
         pause_conditions_global = (
             soc is not None
@@ -2828,7 +2835,9 @@ class EVChargerController:
                 or evse_id in self._paused_by_load_shed
                 or evse_id in self._paused_by_blind_window
                 or evse_id in self._paused_by_dp
-                or evse_id in self._proactive_offpeak_holds
+                # Review A-HIGH-1: `_proactive_offpeak_holds` is NOT a peer
+                # here — it is URA's own idempotent off-peak ensure-on claim
+                # (re-made every off_peak tick), not a session steal.
             ):
                 self._recently_released_by_fill_priority.pop(evse_id, None)
             switch_entity = config.get("switch", "")
@@ -2979,8 +2988,9 @@ class EVChargerController:
                     # EV-FILL-PRIORITY-SOC-CHATTER-1 producer: latch ONLY on
                     # the SOC-reached resume (forecast decay has its own band).
                     if resume_soc_met:
+                        # Value = threshold latched under (Review D-L1).
                         self._recently_released_by_fill_priority[evse_id] = (
-                            _time.monotonic()
+                            soc_threshold
                         )
                     self._paused_by_fill_priority.discard(evse_id)
                     # Terminal resume — release FP's claim. If no other owner
@@ -4546,6 +4556,10 @@ class SmartPlugController:
         for plug_id in list(self._recently_released_by_fill_priority):
             if soc is not None and soc < effective_floor:
                 self._recently_released_by_fill_priority.pop(plug_id, None)
+            # Review D-L1 mirror: threshold change discharges the latch.
+            elif (self._recently_released_by_fill_priority.get(plug_id)
+                  != soc_threshold):
+                self._recently_released_by_fill_priority.pop(plug_id, None)
 
         pause_conditions = (
             soc is not None and soc < soc_threshold and forecast_healthy
@@ -4558,7 +4572,7 @@ class SmartPlugController:
                 entity_id in self._paused_by_us
                 or entity_id in self._paused_by_battery_drain
                 or entity_id in self._paused_by_load_shed
-                or entity_id in self._proactive_offpeak_holds
+                # Review A-HIGH-1: ensure-on's own claim is not a steal.
             ):
                 self._recently_released_by_fill_priority.pop(entity_id, None)
             state = self.hass.states.get(entity_id)
@@ -4674,8 +4688,9 @@ class SmartPlugController:
                         )
                     # EV-FILL-PRIORITY-SOC-CHATTER-1 producer mirror.
                     if resume_soc_met:
+                        # Value = threshold latched under (Review D-L1).
                         self._recently_released_by_fill_priority[entity_id] = (
-                            _time.monotonic()
+                            soc_threshold
                         )
                     self._paused_by_fill_priority.discard(entity_id)
                     self._release_pause_dispatch_owner(entity_id, "fill_priority")

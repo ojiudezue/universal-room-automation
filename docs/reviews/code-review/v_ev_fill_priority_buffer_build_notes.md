@@ -40,7 +40,7 @@ Run: `test_ev_fill_priority_repause_band.py` + `test_energy_pause_release_hygien
 | Producer discriminator plug | 1 fail | `test_a10_plug_forecast_decay_no_latch` |
 | D1 EV inert | 3 fail | `test_a9_inert_night_clears_latch_morning_first_pause_at_79`, `test_a9_other_inert_periods_clear_latch[peak/mid_peak]` |
 | D1 plug inert | 1 fail | `test_a9_plug_inert_clears_latch` |
-| D2 EV, each peer conjunct removed separately (8) | 1 fail each | `test_a8_ev_peer_steal_clears_latch[<that peer>]`, for grid_cap, battery_drain, us, arbitrage, load_shed, blind_window, dp, proactive_offpeak_holds |
+| D2 EV, each peer conjunct removed separately (8 at b1d5b878d; `proactive_offpeak_holds` removed in the fix-up, so 7 now) | 1 fail each | `test_a8_ev_peer_steal_clears_latch[<that peer>]`, for grid_cap, battery_drain, us, arbitrage, load_shed, blind_window, dp, proactive_offpeak_holds |
 | D2 plug, each peer conjunct (4) | 1 fail each | `test_a8_plug_peer_steal_clears_latch[<that peer>]`, for us, battery_drain, load_shed, proactive_offpeak_holds |
 | D3 EV force | 1 fail | `test_a7_force_charge_clears_latch_then_first_pause_at_79` |
 | D3 plug force | 1 fail | `test_a7_plug_force_charge_clears_latch` |
@@ -81,6 +81,26 @@ The new file run against the develop sources gives 55 failed and 7 passed. The 7
 3. **Class names:** the plan says `EVPool`/`PlugPool`; the classes are `EVChargerController`/`SmartPlugController`. The plug prune is the public `prune_removed_plugs`.
 4. **§7 table vs notes on negative band.** The table row "band=−5 → effective_floor 0" contradicts the §7 notes ("floor = threshold → legacy") and §5.3.2 (`max(0, thr − band)` gives 85). I implemented §5.3.2 verbatim. The observable behaviour is legacy (every latched id below threshold is popped by D5), which matches the notes and the row's expected values.
 5. **A14 "restore symmetry" drill:** the restore path needed no code change (the latch is RAM-only), so there is no site to neuter. A14 asserts that the restored FP set is present and the latch is empty.
+
+## Review fix-up (after Tier-3 reviews A/B/D on b1d5b878d)
+- **A-HIGH-1 (= B-HIGH-1), fixed.** Removed `_proactive_offpeak_holds` from the EV and plug D2 peer lists. It is off-peak ensure-on's own idempotent claim, re-made on every off_peak tick, not a steal. Counting it wiped the latch every tick in the off_peak-daylight FP window. The plan's B1 F4 ruling is reversed for this one peer; dp stays a peer. The A8 parametrization drops it.
+  - New tests drive the REAL `determine_actions("off_peak")` between FP ticks: `test_a_high_1_ev_offpeak_ensure_on_does_not_discharge_latch` and `test_a_high_1_plug_offpeak_ensure_on_does_not_discharge_latch`.
+- **D-L1, fixed.** The latch value is now the `fill_priority_soc` it was set under, replacing the monotonic time. D5 pops a latch whose stored threshold differs from the current one, so lowering 80 to 70 lets the first pause fire at 69. Tests: `test_d_l1_threshold_lowered_first_pause_fires`, `test_d_l1_plug_threshold_lowered_first_pause_fires`, `test_d_l1_unchanged_threshold_keeps_latch`.
+- **B-LOW-1, documented, no code.** A different car replugged inside the band charges from the battery until SOC < floor. The cost is bounded by the band (3 SOC points), and the daily inert window discharges the latch.
+- **B-LOW-2, documented, no code.** A restart, reload or observation-mode exit inside the band causes one extra first-pause off/on cycle, because the latch is RAM-only. This matches the plan's A14/D6 intent.
+- **D-L2, documented, no code.** The arbitrage hand-off latch term is effectively unreachable, because D2 pops the latch once arbitrage owns the id. It is kept as defence-in-depth and adds nothing to the unlatched path (INV-4).
+- **Plan §7 negative-band row, corrected.** The floor is 85 and the behaviour is legacy.
+
+Fix-up drills (each site alone; PYTHONDONTWRITEBYTECODE=1; `__pycache__` cleared; the original restored; `git status` clean):
+| Mutation | Result | RED test |
+|---|---|---|
+| Re-add `_proactive_offpeak_holds` to the EV D2 list | 1 fail | `test_a_high_1_ev_offpeak_ensure_on_does_not_discharge_latch` |
+| Re-add `_proactive_offpeak_holds` to the plug D2 list | 1 fail | `test_a_high_1_plug_offpeak_ensure_on_does_not_discharge_latch` |
+| EV threshold-change pop neutered | 1 fail | `test_d_l1_threshold_lowered_first_pause_fires` |
+| Plug threshold-change pop neutered | 1 fail | `test_d_l1_plug_threshold_lowered_first_pause_fires` |
+| EV producer stores 0 instead of the threshold (value detached) | 9 fail | `test_d_l1_unchanged_threshold_keeps_latch`, `test_a1_...`, `test_a3_soc_77_0_...` |
+
+Run against the `b1d5b878d` `energy_pool.py`, the 5 new tests fail (both A-HIGH-1 tests and all three D-L1 tests).
 
 ## Deferrals
 - L1-L3 are live criteria and belong to the post-deploy validator.

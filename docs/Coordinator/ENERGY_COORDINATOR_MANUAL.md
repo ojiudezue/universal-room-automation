@@ -522,9 +522,13 @@ the single threshold. Mechanics (`energy_pool.py`, EV + plug mirror):
   in latch`) so a latched charger is not handed to FP while an unlatched
   sibling still is.
 - Discharges: D1 inert window (daily), D2 peer-owner steal at loop top (EV:
-  grid_cap, battery_drain, TOU, arbitrage, load_shed, blind_window, dp,
-  proactive_offpeak; plug: TOU, battery_drain, load_shed,
-  proactive_offpeak), D3 force-charge (unconditional), D4
+  grid_cap, battery_drain, TOU, arbitrage, load_shed, blind_window, dp;
+  plug: TOU, battery_drain, load_shed — `_proactive_offpeak_holds` is
+  deliberately NOT a steal: it is off-peak ensure-on's own claim, re-made
+  every off_peak tick, and counting it wiped the latch every tick in the
+  off_peak-daylight window, review A-HIGH-1), threshold change (the latch
+  stores the `fill_priority_soc` it was set under; a different threshold
+  pops it, review D-L1), D3 force-charge (unconditional), D4
   `release_all_fill_priority` (plug: before the grid-charge early return),
   D5 below-floor sweep (sole floor authority, every non-inert tick, ON or
   OFF chargers; SOC `None` leaves it), D6 observation mode (`energy.py`
@@ -534,6 +538,13 @@ the single threshold. Mechanics (`energy_pool.py`, EV + plug mirror):
   single threshold (kill switch). The FIRST pause (no latch) is unchanged.
   After a restart the latch is cold → at most one extra first-pause toggle.
   A latch survives a car-session gap (cost ≤ band SOC) — intended.
+- Accepted residuals (reviews B/D): a different car replugged inside the
+  band is not paused until SOC < floor (≤ band SOC of battery; B-LOW-1); a
+  restart/reload/observation exit inside the band costs one extra
+  first-pause off/on cycle because the latch is RAM-only (B-LOW-2); the
+  arbitrage hand-off latch term is effectively unreachable (D2 pops the
+  latch once arbitrage owns the id) and is kept as harmless
+  defence-in-depth (D-L2).
 
 **⚠️ Two knobs share the value 80 — do not conflate.**
 `fill_priority_soc` (when morning cars wait for the battery) and
