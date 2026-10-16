@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:00:34-05:00_ - _Data commit: `f7c2775b3a37`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:09:12-05:00_ - _Data commit: `4bdcc79faea5`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-16T00:00:34-05:00_ - _Data commit: `f7c2775b3a37`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
@@ -30,10 +30,14 @@ thread: **energy** - status: **inbox**
 - **Forensic keys (1):**
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 2.6 · v7 tc4 u2 /e5_
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#1 · WSJF 2.8 · v6 tc3 u2 /e4_
+thread: **optimization** - status: **investigating**
+- **Next:** Trace the optimizer_shadow_samples producer (why 0 rows) and the tier-1 finding noise; result decides whether "OC leaves shadow" is the next milestone.
+
+### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 2.6 · v7 tc4 u2 /e5_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:35:13.421Z)
 thread: **health_monitor** - status: **investigating** - approval: **unreviewed**
 _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_

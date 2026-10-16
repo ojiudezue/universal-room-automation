@@ -224,6 +224,13 @@ cards:
   origin: 'Reserve-governor plan review 1 R1-12 (2026-10-16): fits the dispatch tap, not _result; deferred out of governor cycle.'
   related: [EC-RESERVE-WRITE-GOVERNOR-1]
   next: 'Revisit after governor ships if dispatch rows show ambiguous failures.'
+- id: OC-SHADOW-SAMPLES-EMPTY-1
+  title: 'Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met'
+  thread: optimization
+  status: investigating
+  origin: 'Found 2026-10-16 by v6 milestone scan (AUDIT_v6_milestone_candidates.md); operator floated "making OC actually work better" as a milestone.'
+  next: 'Trace the optimizer_shadow_samples producer (why 0 rows) and the tier-1 finding noise; result decides whether "OC leaves shadow" is the next milestone.'
+  rank: {value: 6, time_criticality: 3, effort: 4}
 - id: EC-RESERVE-WRITE-GOVERNOR-1
   operator_2026_10_16: 'Fold cheap typed outcomes in (row verb vocabulary = hvac_strategy WriteStatus names: applied / skipped_already_correct / deferred / failed); close EC-RESERVE-WRITE-RESULT-TYPE-1. Extra ground-truth audit of every reserve surface (EV, TOU, day/night boundaries, solar follow, attain) before build: "We cannot fuck this up". Builder: Fable (operator asked for a recommendation; Fable weekly 18% used, resets Fri 20:00).'
   plan_2026_10_16: 'PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint before deploy.'
