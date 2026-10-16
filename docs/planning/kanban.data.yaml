@@ -21087,6 +21087,7 @@ cards:
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: "planned"
+  finding_2026_10_15: "Order-dependent (pre-existing, already in the develop failure set): test_nm_cycle_c2_fixup.py::test_boot_settle_extras_promoted_never_collapses and ::test_bucket_bypass_extras_promoted[gate_dry_run] fail when test_census_device_switches / test_optimization_coordinator / test_evse_drain_precedence_session_b1 run earlier. Cause = stale _nm_cycle_a module after re-import; fix pattern = flush both the sys.modules copy and the copy production calls via __globals__ (as in test_safety_nm_refire.py _invalidate_knobs, f883a62a5). Root cause to attack: those three files re-import production modules."
   shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
