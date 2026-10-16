@@ -209,10 +209,25 @@ cards:
   updated: "2026-10-07 03:30"
   next: "SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arbitrage_chunk_latch) show updated_at later than the deploy; today they are frozen at 2026-07-23 22:09Z. The draft README :127 only names battery_soc_lkg - widen it to all five at write-back."
   why: 'Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan''s LKG-persistence reuse assumption.'
+- id: EC-EVALUATE-PATH-LEDGER-GAP-1
+  title: 'TOU-transition battery path (_evaluate_battery -> CoordinatorManager) never stamps the commanded reserve ledger or calls write-verify, and swallows dispatch failures'
+  thread: energy
+  status: inbox
+  origin: 'Found 2026-10-16 by reserve-governor plan review 3 (R3-07); pre-existing, out of governor scope.'
+  related: [EC-RESERVE-WRITE-GOVERNOR-1]
+  next: 'Measure how often TOU-transition writes happen and whether ledger staleness causes write-verify false alarms; then decide fix vs park.'
+- id: EC-RESERVE-WRITE-RESULT-TYPE-1
+  title: 'Typed write outcomes (APPLIED/SKIPPED/DEFERRED/FAILED, hvac_strategy.py WriteResult) for battery reserve dispatch tap and force_redispatch'
+  thread: energy
+  status: parked
+  origin: 'Reserve-governor plan review 1 R1-12 (2026-10-16): fits the dispatch tap, not _result; deferred out of governor cycle.'
+  related: [EC-RESERVE-WRITE-GOVERNOR-1]
+  next: 'Revisit after governor ships if dispatch rows show ambiguous failures.'
 - id: EC-RESERVE-WRITE-GOVERNOR-1
+  plan_2026_10_16: 'PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint before deploy.'
   title: 'Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes'
   thread: energy
-  status: pre_planning
+  status: waiting_operator
   tier: 3
   origin: 'operator 2026-10-15: "Should we have a reserve write unified function, much like HVAC writes and presence? 25 places is mad. This way we can force them through a governed slice with history and restart resilience? This is not about alerts at all"'
   why: '_result (energy_battery.py:6278) is already the single emit point (holds the CFG cloud-withhold chokepoint); commanded ledger restored on boot (energy.py:1966-1968); EVSE overlay folds reserve after (energy.py:5440-5480). But every floor (inclement, attain, arbitrage WAIT v5.5.3, drain park, EVSE) is applied per-branch, so each new floor means re-auditing ~25 sites (v5.5.3 D-HIGH-1, EC-INCLEMENT-HARDENING review P1-01/P2-11 all this bug class). Governor = all floors declared once, clamped at the chokepoint, with a per-write reason/history ring and persisted state.'
