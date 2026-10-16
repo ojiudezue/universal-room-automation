@@ -122,6 +122,11 @@ from .energy_const import (
     LOAD_SHEDDING_PRIORITY,
 )
 from .energy_tou import TOURateEngine
+# EC-RESERVE-WRITE-GOVERNOR-1: the reserve_write row's `status` vocabulary
+# is the HVAC typed outcome (stdlib-only module, no import cycle). Imported,
+# never re-typed — `test_reserve_row_status_uses_hvac_writestatus` pins
+# identity.
+from .hvac_strategy import WriteStatus
 from .signals import (
     SIGNAL_OPTIMIZER_INTENT,
     SIGNAL_OPTIMIZER_INTENT_VETO,
@@ -318,6 +323,10 @@ class EnergyCoordinator(BaseCoordinator):
         # failure cannot silently kill the D2 NM path again. Test wiring:
         # assign `strat._coord = fake_coord` directly.
         self._battery._coord = self
+        # EC-RESERVE-WRITE-GOVERNOR-1: change-gate memo for the reserve_write
+        # row — (path, value, hold_owner) of the last WRITTEN row. RAM-only
+        # on purpose: the first reserve write after boot always gets a row.
+        self._last_reserve_row_key: tuple[str, int, str | None] | None = None
         try:
             from .energy_write_verify import WriteVerifier
             self._write_verifier = WriteVerifier(hass, self)
@@ -7190,6 +7199,17 @@ class EnergyCoordinator(BaseCoordinator):
             )
         except Exception:  # noqa: BLE001
             _cfg_eid = None
+        # EC-RESERVE-WRITE-GOVERNOR-1 (C2): this path hands the reserve
+        # write to CoordinatorManager and never reaches `_tap_write_verifier`,
+        # so the reserve_write row is written here with status DEFERRED (the
+        # CM executes later; its outcome is unseen — plan §2 known limits).
+        from .energy_const import DEFAULT_RESERVE_SOC_ENTITY as _res_def
+        try:
+            _res_eid = self._battery._get_entity(  # noqa: SLF001
+                "reserve_soc_number", _res_def, role="write",
+            )
+        except Exception:  # noqa: BLE001
+            _res_eid = None
         for action_spec in decision.get("actions", []):
             target = action_spec.get("target", "")
             service = action_spec.get("service", "")
@@ -7201,6 +7221,20 @@ class EnergyCoordinator(BaseCoordinator):
             ):
                 self._stamp_cfg_ledger(
                     service == "switch.turn_on", dt_util.utcnow(),
+                )
+            if (
+                _res_eid
+                and target == _res_eid
+                and service == "number.set_value"
+            ):
+                try:
+                    _pre_state = self._battery._get_state_float(target)  # noqa: SLF001
+                except Exception:  # noqa: BLE001
+                    _pre_state = None
+                self._record_reserve_dispatch(
+                    status=WriteStatus.DEFERRED, path="evaluate",
+                    target=target, value=data.get("value"),
+                    reason=decision.get("reason"), pre_state=_pre_state,
                 )
 
             if "entity_id" not in data and target:
@@ -7384,7 +7418,25 @@ class EnergyCoordinator(BaseCoordinator):
         # Now dispatch the battery decision actions (may turn ON the
         # charge_from_grid switch — safe because EVs are already
         # commanded paused above).
+        # EC-RESERVE-WRITE-GOVERNOR-1 (C1 pre_state): resolve the reserve
+        # write-leg entity ONCE so the pre-write hardware state can be read
+        # BEFORE each reserve dispatch (the tap runs after the service call,
+        # when the state may already reflect the write). Pure read; any
+        # failure degrades to `None` = "write the row".
+        try:
+            from .energy_const import DEFAULT_RESERVE_SOC_ENTITY as _res_def
+            _res_eid = self._battery._get_entity(  # noqa: SLF001
+                "reserve_soc_number", _res_def, role="write",
+            )
+        except Exception:  # noqa: BLE001
+            _res_eid = None
         for action_spec in decision.get("actions", []):
+            _pre_state: float | None = None
+            if _res_eid and action_spec.get("target") == _res_eid:
+                try:
+                    _pre_state = self._battery._get_state_float(_res_eid)  # noqa: SLF001
+                except Exception:  # noqa: BLE001
+                    _pre_state = None
             _dispatch_result = await self._execute_service_action(action_spec)
             # v5.15.x D1.3 — write-verification tap. READ-ONLY (W-6).
             # B2: the dispatch outcome is threaded so a RAISED write is
@@ -7393,6 +7445,7 @@ class EnergyCoordinator(BaseCoordinator):
             try:
                 await self._tap_write_verifier(
                     action_spec, decision, dispatch_result=_dispatch_result,
+                    pre_state=_pre_state,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("write_verifier tap failed (swallowed)", exc_info=True)
@@ -9038,11 +9091,145 @@ class EnergyCoordinator(BaseCoordinator):
                 return self._learned_threshold_kw
         return self._load_shedding_threshold_kw
 
+    def _record_reserve_dispatch(
+        self,
+        *,
+        status: WriteStatus,
+        path: str,
+        target: str,
+        value: Any,
+        reason: str | None,
+        pre_state: float | None = None,
+    ) -> None:
+        """EC-RESERVE-WRITE-GOVERNOR-1 — ONE `reserve_write` activity row per
+        REAL reserve dispatch (INV-G2). Never raises; never awaited.
+
+        Called from exactly three sites: C1 `_tap_write_verifier` reserve
+        leg (path="timer"), C2 `_evaluate_battery` (path="evaluate",
+        DEFERRED) and C3 `BatteryStrategy.force_redispatch`
+        (path="redispatch"). Nothing here feeds back into dispatch
+        (INV-G3): every read is pure, the DB write is fire-and-forget
+        (`hass.async_create_task`, same contract as
+        `hvac_setpoint._schedule_climate_write_row`).
+
+        Row semantics:
+          * `status` — imported `hvac_strategy.WriteStatus`, stored as
+            `.value` (`applied` / `failed` / `deferred`). A gated no-op
+            re-send means `SKIPPED_ALREADY_CORRECT` and is NOT written.
+          * `value` — the DISPATCHED value (post-overlay), never the desire.
+          * `desire` — pre-overlay `_last_reserve_level_desired`.
+          * `hold_owner` — `WriteVerifier._resolve_hold_owner(battery)`
+            verbatim: the highest-precedence ACTIVE subsystem, not the
+            value's source (G-7). `evse_hold_soc` is carried so
+            provenance can be derived (compare desire/value/evse_hold_soc).
+          * `inclement_floor` — `max(reserve_soc, dec.reserve_floor)` iff
+            the cached inclement decision is `partial_hold`, else None.
+            Same expression as the `_floor_reserve` wraps + narration.
+          * `floor_ok` — `value >= inclement_floor` (None when no floor).
+            OBSERVED, not enforced: the wraps enforce the floor.
+          * Change gate (R3-01 / G-5): for APPLIED/DEFERRED rows on a
+            non-redispatch path, the row is skipped only when
+            `(path, value, hold_owner)` equals the memo AND the pre-write
+            hardware state (numeric, rounded) already equals `value`.
+            Drift corrections (cloud reverted, URA re-sends) and cloud-lag
+            re-sends therefore always log; steady overlay re-sends at a
+            value the hardware already holds are gated. FAILED and every
+            redispatch row bypass the gate. Every WRITTEN row updates the
+            memo (RAM-only: first post-boot write always logs).
+        """
+        try:
+            battery = getattr(self, "_battery", None)
+            value_i = int(max(0, min(100, int(value))))
+            desire = getattr(battery, "_last_reserve_level_desired", None)
+            hold_owner: str | None = None
+            verifier = getattr(self, "_write_verifier", None)
+            if verifier is not None and battery is not None:
+                try:
+                    hold_owner = verifier._resolve_hold_owner(battery)  # noqa: SLF001
+                except Exception:  # noqa: BLE001
+                    hold_owner = None
+            inclement_floor: int | None = None
+            dec = getattr(battery, "_last_inclement_decision", None)
+            if (
+                dec is not None
+                and getattr(dec, "hold_depth", None) == "partial_hold"
+            ):
+                inclement_floor = max(
+                    int(battery.reserve_soc), int(dec.reserve_floor),
+                )
+            floor_ok: bool | None = (
+                value_i >= inclement_floor if inclement_floor is not None else None
+            )
+            key = (path, value_i, hold_owner)
+            gated = (
+                status in (WriteStatus.APPLIED, WriteStatus.DEFERRED)
+                and path != "redispatch"
+            )
+            if (
+                gated
+                and key == getattr(self, "_last_reserve_row_key", None)
+                and pre_state is not None
+                and int(round(float(pre_state))) == value_i
+            ):
+                return  # SKIPPED_ALREADY_CORRECT — not written
+            db = None
+            try:
+                db = self.hass.data.get(_DOMAIN, {}).get("database")
+            except Exception:  # noqa: BLE001
+                db = None
+            if db is None:
+                _LOGGER.debug(
+                    "reserve_write row skipped (no database) status=%s path=%s "
+                    "value=%s", status.value, path, value_i,
+                )
+                return
+            import inspect  # local — cheap, avoids top-level churn
+            import json
+            from homeassistant.util import dt as dt_util
+            payload = {
+                "status": status.value,
+                "path": path,
+                "value": value_i,
+                "desire": desire,
+                "evse_hold_soc": getattr(self, "_evse_hold_soc", None),
+                "hold_owner": hold_owner,
+                "inclement_floor": inclement_floor,
+                "floor_ok": floor_ok,
+                "pre_state": pre_state,
+                "reason": reason,
+            }
+            from .energy_const import RESERVE_WRITE_LOG_IMPORTANCE
+            _coro = db.log_activity(
+                timestamp=dt_util.utcnow().isoformat(),
+                coordinator="energy",
+                action="reserve_write",
+                room=None,
+                zone=None,
+                importance=RESERVE_WRITE_LOG_IMPORTANCE,
+                description=(
+                    f"reserve_write {status.value} path={path} value={value_i} "
+                    f"desire={desire} owner={hold_owner}"
+                ),
+                details_json=json.dumps(payload, default=str),
+                entity_id=target,
+            )
+            # Duck-check: MagicMock-shaped doubles return non-coroutines.
+            if inspect.iscoroutine(_coro):
+                self.hass.async_create_task(_coro)
+            self._last_reserve_row_key = key
+        except Exception:  # noqa: BLE001 — defensive; the row never poisons dispatch
+            _LOGGER.debug(
+                "reserve_write row failed status=%s path=%s",
+                getattr(status, "value", status), path, exc_info=True,
+            )
+
     async def _tap_write_verifier(
         self,
         action_spec: Any,
         decision: dict[str, Any],
         dispatch_result: ServiceDispatchResult | None = None,
+        *,
+        pre_state: float | None = None,
     ) -> None:
         """v5.15.x D1.3 — post-dispatch tap; schedules a delayed
         oracle-vs-commanded compare. READ-ONLY (W-6).
@@ -9108,6 +9295,21 @@ class EnergyCoordinator(BaseCoordinator):
                     battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError):
                     pass
+            # EC-RESERVE-WRITE-GOVERNOR-1 (C1): one reserve_write row per
+            # real timer-path dispatch. Row ONLY when the write-leg reserve
+            # entity is configured AND is this action's target (G-6) — the
+            # tap's own filter above is left untouched.
+            if reserve_eid and target == reserve_eid and value is not None:
+                self._record_reserve_dispatch(
+                    status=(
+                        WriteStatus.FAILED
+                        if dispatch_result is not None and not dispatch_result.ok
+                        else WriteStatus.APPLIED
+                    ),
+                    path="timer", target=target, value=value,
+                    reason=decision.get("reason") if decision else None,
+                    pre_state=pre_state,
+                )
             await self._note_battery_dispatch_outcome(
                 verifier, "reserve_soc", value, svc, dispatch_result, _now,
             )
