@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.63
+# Universal Room Automation vv5.103.64
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.63"
+VERSION: Final = "v5.103.64"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2939,6 +2939,13 @@ BLE_EXIT_CLAIM_MAX_ATTEMPTS: Final = 6
 # Reuses the window length — a departing slug is single-use within its
 # own attribution window.
 BLE_EXIT_PER_SLUG_COOLDOWN_S: Final = BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+
+# R1 (2026-10-16, rung 1): when LastPersonExitSensor re-reads the DB after
+# an exit backfill, it reads exit rows from (displayed exit time - slack).
+# The slack absorbs the gap between the bus-event timestamp and the DB
+# INSERT timestamp (utcnow at INSERT, ~crossing + ENTRY_WINDOW_SECONDS).
+# Only the lower bound of the read; the newest row always wins.
+LAST_EXIT_BACKFILL_REREAD_SLACK_S: Final = 300
 
 # TTL of the BLE-transition leg cache. Derived from the FACE_MATCH_*
 # window FAMILY (C4). Max face window today = 300s + 30s slack.

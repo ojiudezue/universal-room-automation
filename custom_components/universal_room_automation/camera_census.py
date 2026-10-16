@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.103.63
+# Universal Room Automation vv5.103.64
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1587,6 +1587,11 @@ class PersonCensus:
         # Keep-face+flag+measure: we never overwrite a claimed row.
         self._ble_exit_row_contention_retry_count: int = 0
         self._ble_exit_row_lost_count: int = 0
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 R1 (2026-10-16): departing
+        # edges / backfill UPDATEs skipped because
+        # `switch.ura_name_people_at_doors` (CONF_EGRESS_IDENTITY_ENABLED)
+        # was OFF. Counted at both gate sites (edge handler + pre-UPDATE).
+        self._ble_exit_identity_disabled_skip_count: int = 0
         # Per-slug cooldown timestamps (naive-UTC) — set when a slug
         # processes a departing edge (backfill OR abstain), read on
         # subsequent same-slug edges.
@@ -4463,6 +4468,13 @@ class PersonCensus:
                 "rev5 BLE departing edge: person=%s tracker=%s old=%s new=%s",
                 slug, tracker_id, old_s, new_s,
             )
+            # R1 (2026-10-16): honour the "name people at doors" kill
+            # switch — fresh-read, no cache. Checked BEFORE the cooldown
+            # stamp so an edge seen while OFF does not suppress a later
+            # edge once the operator turns naming back on.
+            if not self._is_egress_identity_enabled():
+                self._ble_exit_identity_disabled_skip_count += 1
+                return
             # naive-UTC form for cooldown + competing-edge bookkeeping.
             try:
                 t_edge_naive = ts.astimezone(timezone.utc).replace(
@@ -4645,6 +4657,13 @@ class PersonCensus:
                         "row_id=%s slug=%s — treating as DB error",
                         row_id, slug,
                     )
+                    return
+                # R1 (2026-10-16): fresh-read the kill switch right
+                # before the write — the operator may have turned
+                # naming off during the settle sleep. OFF → row stays
+                # NULL (INV-EXIT-BACKFILL).
+                if not self._is_egress_identity_enabled():
+                    self._ble_exit_identity_disabled_skip_count += 1
                     return
                 try:
                     ok = await database.backfill_entry_exit_person_id(

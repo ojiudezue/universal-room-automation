@@ -1,7 +1,7 @@
 ---
 name: ura-shipwatch
 description: DEPRECATED — moved to global agent. Use `shipwatch` (at ~/.claude/agents/shipwatch.md). Canonical repo lives at ~/Code/shipwatch/. This stub exists for backward-compatibility with old invocations.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 ---
 
 # Moved

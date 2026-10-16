@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "213",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_inclement_governor",
+  "timestamp": "2026-10-16T05:30:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Battery reserve gets a single governor before any inclement-weather hardening; inclement doctrine = alert -> local applicability -> local forecast over the alert window -> energy decision",
+  "summary": "A 10-15 night storm (Wind Advisory + 43% thunderstorms) with the Envoy offline exposed that URA's storm hold never fired. Three plan revisions and three plan reviews (5, 9, 6 HIGH) kept finding reserve-floor leaks across ~25 decision branches in energy_battery.py. Operator ruled: build a governed reserve-write slice first (floors declared once, clamped at the existing _result chokepoint, write history, restart resilience), then revise and build the narrowed inclement fixes on top.",
+  "why": "Every reserve floor (inclement, attain, arbitrage WAIT, drain park, EVSE overlay) is applied per-branch; each new floor means re-auditing ~25 sites, the same bug class as v5.5.3 D-HIGH-1 and review findings P1-01, P2-11, P3-01..04. A governor turns the inclement blind fix into one floor registration. Envoy-blind must gate COMMANDS, not DECISIONS (operator: 'why stop reasoning when you clearly can?'). Forecast was omitted, not rejected, in the v5.5.0 plan (0 grep hits); operator rejected parking it: peeking ahead is clearly valuable, esp. pre-charge before storms.",
+  "implications": "Sequence: EC-RESERVE-WRITE-GOVERNOR-1 (Tier 3, tight plan, no scope creep) -> revise PLANNING_inclement_hardening.md against the built governor -> build. Inclement must be point-local, not county-wide (Travis is large; SVR/TOR are county-keyed polygons). Evidence base: AUDIT_nws_alert_history_lakeway.md (IEM 2021-2026): 'High Wind' never fired, Wind Advisory ~6/yr, county SVR ~22/yr. Operator's observed outage cause is freezes, not wind: severity of Wind Advisory and freeze events must be verified, not assumed. Enphase Storm Guard stays off (URA is the measured replacement).",
+  "revisit_trigger": "Governor shipped and live-validated (every reserve write in its history ring carries a reason, no branch writes around it) -> unblock inclement revision.",
+  "supersedes": [],
+  "refs": {
+    "cards": ["EC-RESERVE-WRITE-GOVERNOR-1", "EC-INCLEMENT-HARDENING-1"],
+    "docs": ["docs/planning/PLANNING_inclement_hardening.md", "docs/planning/AUDIT_nws_alert_history_lakeway.md", "docs/reviews/code-review/plan_inclement_hardening_review_1.md", "docs/reviews/code-review/plan_inclement_hardening_review_2.md", "docs/reviews/code-review/plan_inclement_hardening_review_3.md"]
+  }
+}

@@ -782,3 +782,104 @@ def test_exit_backfill_flap_within_settle_aborts_under_positive_settle():
     assert db.rows[0]["person_id"] is None
     assert census._ble_exit_flap_aborted_count == 1
     assert db.backfill_calls == []
+
+
+# ---------------------------------------------------------------------------
+# R1 (2026-10-16) — "name people at doors" kill switch gates the exit
+# backfill at BOTH sites: the departing-edge handler and the pre-UPDATE
+# fresh read inside _backfill_exit_identity.
+# ---------------------------------------------------------------------------
+
+
+def _switch_off(hass):
+    (entry,) = hass.config_entries.async_entries.return_value
+    entry.options = {**entry.options, ura_const.CONF_EGRESS_IDENTITY_ENABLED: False}
+
+
+def _departing_event(tracker_id, t_edge_aware, new="not_home"):
+    ns = MagicMock(); ns.state = new; ns.last_changed = t_edge_aware
+    ns.entity_id = tracker_id; ns.attributes = {}
+    os = MagicMock(); os.state = "home"
+    os.last_changed = t_edge_aware - timedelta(seconds=60)
+    os.entity_id = tracker_id; os.attributes = {}
+    ev = MagicMock(); ev.data = {"new_state": ns, "old_state": os}
+    return ev
+
+
+def test_exit_backfill_honours_name_people_kill_switch():
+    """Switch OFF + qualifying home->not_home edge through the REAL edge
+    handler -> no backfill task scheduled, row stays NULL, DAO never
+    called. Anchors the handler-site gate (the pre-UPDATE gate cannot
+    make `scheduled` empty)."""
+    census, hass, db = _make_census()
+    _switch_off(hass)
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_id = "device_tracker.oji_ble"
+    census._ble_tracker_slug_map = {tracker_id: "oji_udezue"}
+    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    census._exit_settle_s = 0
+    _live = MagicMock(); _live.state = "not_home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
+    scheduled: list = []
+    loop = _asyncio.get_event_loop()
+    hass.async_create_task = lambda coro: scheduled.append(loop.create_task(coro)) or scheduled[-1]
+
+    census._on_crossing_tracker_state_change(
+        _departing_event(tracker_id, t_crossing + timedelta(seconds=200))
+    )
+
+    async def _drain():
+        for t in scheduled:
+            await t
+    _run(_drain())
+
+    assert scheduled == []
+    assert db.rows[0]["person_id"] is None
+    assert db.backfill_calls == []
+    assert census._ble_exit_identity_disabled_skip_count == 1
+    # An OFF edge must not stamp the per-slug cooldown.
+    assert "oji_udezue" not in census._ble_exit_last_edge_by_slug
+
+
+def test_exit_backfill_kill_switch_fresh_read_before_update():
+    """Switch turned OFF after the edge was admitted (e.g. during the
+    settle sleep): the pre-UPDATE fresh read must stop the write. Drives
+    `_backfill_exit_identity` directly, so the handler gate is not in
+    play."""
+    census, hass, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    _switch_off(hass)
+    _run(census._backfill_exit_identity("oji_udezue", t_crossing + timedelta(seconds=200)))
+    assert db.rows[0]["person_id"] is None
+    assert db.backfill_calls == []
+    assert census._ble_exit_backfilled_count == 0
+    assert census._ble_exit_identity_disabled_skip_count == 1
+
+
+def test_exit_backfill_switch_on_still_names_via_handler():
+    """Control: same drive as the kill-switch test with the switch ON names
+    the row (the gate must not over-block)."""
+    census, hass, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_id = "device_tracker.oji_ble"
+    census._ble_tracker_slug_map = {tracker_id: "oji_udezue"}
+    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    census._exit_settle_s = 0
+    _live = MagicMock(); _live.state = "not_home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
+    loop = _asyncio.get_event_loop()
+    scheduled: list = []
+    hass.async_create_task = lambda coro: scheduled.append(loop.create_task(coro)) or scheduled[-1]
+    census._on_crossing_tracker_state_change(
+        _departing_event(tracker_id, t_crossing + timedelta(seconds=200))
+    )
+
+    async def _drain():
+        for t in scheduled:
+            await t
+    _run(_drain())
+    assert db.rows[0]["person_id"] == "oji_udezue"
+    assert census._ble_exit_identity_disabled_skip_count == 0
