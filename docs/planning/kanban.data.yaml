@@ -231,6 +231,29 @@ cards:
   origin: 'Found 2026-10-16 by v6 milestone scan (AUDIT_v6_milestone_candidates.md); operator floated "making OC actually work better" as a milestone.'
   next: 'Trace the optimizer_shadow_samples producer (why 0 rows) and the tier-1 finding noise; result decides whether "OC leaves shadow" is the next milestone.'
   rank: {value: 6, time_criticality: 3, effort: 4}
+- id: EC-OBSERVATION-MODE-RESERVE-BYPASS-1
+  title: 'Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode'
+  thread: energy
+  status: investigating
+  tier: 2
+  origin: 'Ground-truth audit 2026-10-16 (audit_reserve_surface_ground_truth.md); Bug Class #23 observation-mode gating.'
+  related: [EC-RESERVE-WRITE-GOVERNOR-1, EC-EVALUATE-PATH-LEDGER-GAP-1]
+  next: 'Confirm by code trace + test with observation mode on; fix gates (likely Tier 2) after the governor so the lint/rows cover it.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
+- id: EC-TOU-TRANSITION-DOUBLE-CONSUME-1
+  title: 'Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary'
+  thread: energy
+  status: investigating
+  origin: 'Ground-truth audit 2026-10-16.'
+  related: [EC-EVALUATE-PATH-LEDGER-GAP-1]
+  next: 'Measure how often the manager wins the boundary (recorder/activity log), then decide.'
+- id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  title: 'Write-verify anomalies 10-14: self-heal re-sent 90 three times while cloud already showed 90; cloud stayed at 6 for 6.5 h while URA sent 10 forty-nine times'
+  thread: energy
+  status: investigating
+  origin: 'Ground-truth audit 2026-10-16.'
+  related: [EC-RESERVE-CLOUD-DIVERGENCE-1]
+  next: 'After governor ships, use dispatch rows to trace; check against EC-RESERVE-CLOUD-DIVERGENCE-1 (Enphase pending-write episode).'
 - id: EC-RESERVE-WRITE-GOVERNOR-1
   operator_2026_10_16: 'Fold cheap typed outcomes in (row verb vocabulary = hvac_strategy WriteStatus names: applied / skipped_already_correct / deferred / failed); close EC-RESERVE-WRITE-RESULT-TYPE-1. Extra ground-truth audit of every reserve surface (EV, TOU, day/night boundaries, solar follow, attain) before build: "We cannot fuck this up". Builder: Fable (operator asked for a recommendation; Fable weekly 18% used, resets Fri 20:00).'
   plan_2026_10_16: 'PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint before deploy.'

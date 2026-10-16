@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:09:12-05:00_ - _Data commit: `4bdcc79faea5`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:12:17-05:00_ - _Data commit: `cf3a143ff02c`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-16T00:09:12-05:00_ - _Data commit: `4bdcc79faea5`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
@@ -30,14 +30,21 @@ thread: **energy** - status: **inbox**
 - **Forensic keys (1):**
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (5)
 _measuring; truth not yet known_
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#1 · WSJF 2.8 · v6 tc3 u2 /e4_
+### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
+thread: **energy** - status: **investigating**
+- **Next:** Confirm by code trace + test with observation mode on; fix gates (likely Tier 2) after the governor so the lint/rows cover it.
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `related`: EC-RESERVE-WRITE-GOVERNOR-1
+
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#2 · WSJF 2.8 · v6 tc3 u2 /e4_
 thread: **optimization** - status: **investigating**
 - **Next:** Trace the optimizer_shadow_samples producer (why 0 rows) and the tier-1 finding noise; result decides whether "OC leaves shadow" is the next milestone.
 
-### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 2.6 · v7 tc4 u2 /e5_
+### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#3 · WSJF 2.6 · v7 tc4 u2 /e5_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:35:13.421Z)
 thread: **health_monitor** - status: **investigating** - approval: **unreviewed**
 _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_
@@ -54,6 +61,18 @@ _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_
   - `correction_2026_10_14`: CORRECTION (operator challenged 'how did you confirm this'): the 3.14.5 incremental-GC revert is REAL but CONTEXT ONLY - the two collectors were never compared on this house, and a widespread regression would show in forum chatter. Confi...
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
+
+### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **investigating**
+- **Next:** Measure how often the manager wins the boundary (recorder/activity log), then decide.
+- **Forensic keys (1):**
+  - `related`: EC-EVALUATE-PATH-LEDGER-GAP-1
+
+### `EC-SELFHEAL-UNEXPLAINED-RESENDS-1` - Write-verify anomalies 10-14: self-heal re-sent 90 three times while cloud already showed 90; cloud stayed at 6 for 6.5 h while URA sent 10 forty-nine times — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **investigating**
+- **Next:** After governor ships, use dispatch rows to trace; check against EC-RESERVE-CLOUD-DIVERGENCE-1 (Enphase pending-write episode).
+- **Forensic keys (1):**
+  - `related`: EC-RESERVE-CLOUD-DIVERGENCE-1
 
 ## 🧭 Pre-planning (7)
 _idea being decomposed_
