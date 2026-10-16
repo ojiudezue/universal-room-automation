@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T23:35:15-05:00_ - _Data commit: `562aec9cb92d`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T23:53:30-05:00_ - _Data commit: `e8a390d44998`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -1049,7 +1049,8 @@ _created 2026-10-14 03:43 · updated 2026-10-15 02:17 · refined ×2_
 - **Tags:** tier-2, sibling-repo
 - **Parsimony:** [SIMPLIFY] HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping
 - **Refs:** ~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309); ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `v23_ready_2026_10_16`: HM v2.3.0 (branch v2.3-stalls 68400ed, worktree ~/Code/ha-health-monitor/.claude/worktrees/v2.3-stalls): freeze-pause excluded from 1h GC stats + stall breakdown by culprit class. Review SHIP, LOWs fixed, suite 233/233. Perf A/B 10 alter...
   - `stale_2026_10_15`: Audit: v2.2 slice already built+installed+validated (README_v2.2.0 Validated 2026-10-15, branch v2.2-slice bce74ed). Next: v2.3-stalls build dispatched 10-15 (freeze-pause 1h-max exclusion + stall culprit attribution + OTBR row + shelly ...
   - `verified_2026_10_15_overnight`: CARD-WAS-WRONG (said 'planned, dispatch a builder'). The slice was built (A1 9c4fa6d gc minute buckets, A2 0443a19 Z2M per-bridge rows, C1 shares, B1 flaps, B2 AP retries, B3 Z-Wave stats, B4 automations, B5 device signals), reviewed thr...
 
