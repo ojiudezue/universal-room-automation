@@ -83,3 +83,6 @@ Winter-family hit rate is crude: ~3 of 9 Winter Storm Warnings (33%) saw a docum
 - PEC July 4 2025: https://mypec.com/pedernales-electric-cooperative-responds-to-july-4-storms-and-flooding/
 - City of Lakeway PEC notice (undated): https://nextdoor.com/agency-post/tx/lakeway/city-of-lakeway/power-outage-234189675/
 - Iowa Environmental Mesonet alert archives (VTEC, SBW) - local files in session scratchpad.
+
+## Addendum 2026-10-16: utility confirmed
+Operator: the house is served by **Pedernales Electric Cooperative (PEC)**, so the Jun 2026 Austin Energy transmission fault likely did not affect the house. Address-level outage history needs the operator's PEC member account (SmartHub usage/outage history) — public data has no per-address record. Until then, the off-grid ledger (planned in the inclement revision) is the local source of truth.
