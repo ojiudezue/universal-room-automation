@@ -1,12 +1,32 @@
-# PLANNING — Reserve Write Governor (Rev 3: writer lint + truthful dispatch ledger)
+# PLANNING — Reserve Write Governor (Rev 3.2: writer lint + truthful dispatch ledger)
 
 **Card:** `EC-RESERVE-WRITE-GOVERNOR-1`
 **Tier:** 3. This is the single battery-reserve write surface, used by arbitrage, attain, drain, inclement, the EVSE/DP overlay, blind de-escalation and the write-verify self-heal. It has cost and safety ripple.
-**Status:** `pre_planning`. It becomes BUILD-READY once the Rev-3 plan review passes.
+**Status:** BUILD-READY (Rev 3.2). Builder: **ura-fable-builder**.
 **Branch target:** `develop`.
 **Operator (2026-10-15):** *"25 places is mad. Force them through a governed slice with history and restart resilience. This is not about alerts at all."* *"Tough build → tight plan. Don't scope creep."*
 
 **What the governor is (Rev 3, in one line):** a production allowlist of every reserve writer, enforced by an AST lint, plus one durable `ura_activity_log` row for each reserve value actually dispatched. It is not a floor engine. The one cross-cutting floor (inclement `partial_hold`) stays enforced where it is today, by the 8 `_floor_reserve` wraps. The governor records whether each real write honoured that floor.
+
+---
+
+## Rev-3.2 changelog (ground-truth audit `audit_reserve_surface_ground_truth.md` + operator decision)
+
+| ID | Sev | Change |
+|---|---|---|
+| G-1 | MED | C3 rows moved **outside** the `force_redispatch` service-call `try`: the success row goes after step 5's ledger stamp, and the failure row goes after `record_dispatch_failed`. Each is reached through `getattr(self, "_coord")` → `getattr(coord, "_record_reserve_dispatch")` inside its own `try/except: debug`. New mutation/test: `test_force_redispatch_row_call_cannot_fake_failure`. |
+| G-2 | MED | Live AC rewritten. Entity is `sensor.ura_energy_coordinator_battery_strategy`. Compare against the **cloud write-leg** `number.iq_battery_hacs_battery_reserve` with about 90 s cloud lag. The local Envoy entity is a witness, not a write target. |
+| G-3 | MED | `("radar_tuning.py", "async_send_radar_settings", "non_reserve", 1)` added. The "radar uses a variable domain" claim (Rev 3.1 / R3-02) was false and is removed. |
+| G-4 | LOW | Write-queue text corrected: `log_activity` → `_db()` = the single-worker write queue, one item per row (fixes the R2-08 text). |
+| G-5 | LOW | `pre_state = battery._get_state_float(target)`, compared as `int(round(pre_state)) == int(value)`. None means the row is written. |
+| G-6 | LOW | C1 and C2 write a row only when the configured write-leg reserve entity is truthy and equals the target. The existing tap filter is untouched. |
+| G-7 | LOW | `hold_owner` is documented as the highest-precedence active subsystem, not the value's source. `evse_hold_soc` is added to the row so provenance can be derived. |
+| G-8 | LOW | Timer/CM interleaving is documented as a row-data-only limitation (§2 Known limitations); §Ordering is qualified. |
+| G-9 | LOW | The `floor_ok` AC requires investigating any hit against the inclement-hardening site table before calling it a governor defect. |
+| D-6 / audit | LOW | Inline off-peak partial_hold clamps `:6224` / `:6262` are added to the prior-art floor inventory and the non-goals. Edge case 9c covers the legitimate below-`reserve_soc` off-peak hold. Edge case 4 notes blind de-escalation is provable only in-suite until the June peak. |
+| Earlier-review errors | — | R1-03's `sensor.ura_battery_strategy` was **wrong** (the entity does not exist); corrected throughout. R2-08's "no write queue" was **wrong**. R3-02's "radar variable domain" was **wrong**. |
+| Operator | — | **Typed outcomes folded:** the row's `verb` is replaced by `status` (imported `hvac_strategy.WriteStatus`: `applied` / `failed` / `deferred`; `skipped_already_correct` is the meaning of a gated, unwritten no-op) plus `path` (`timer` / `evaluate` / `redispatch`). There is no `WriteResult` plumbing and no change to the dispatch return contract. Earlier changelog rows that mention `verb`, `dispatch_queued` or `redispatch_failed` map as follows: `dispatch` → `applied`/timer, `dispatch_failed` → `failed`/timer, `dispatch_queued` → `deferred`/evaluate, `redispatch` → `applied`/redispatch, `redispatch_failed` → `failed`/redispatch. |
+| Builder | — | **ura-fable-builder.** |
 
 ---
 
@@ -37,12 +57,12 @@
 | R2-05 | HIGH | Lint re-specified: every `ast.Constant == "number.set_value"` in `domain_coordinators/energy*.py`, plus every call whose first two positional args are `"number", "set_value"`, must sit lexically inside a `(module, function)` pair in the production tuple `RESERVE_SET_VALUE_WRITERS` (`energy_const.py`), with a **pinned occurrence count**. Pool and EVSE-amp writers are listed as `non_reserve`. Role resolution and sentinel comments are dropped. The second assertion is deleted (R2-09). |
 | R2-06 | HIGH | The floor-fold AC is removed as governor coverage, because the governor does no fold. Floor-fold stays covered by the existing tests that monkeypatch `_floor_reserve` (`test_battery_inclement_arbitrage_floor.py:595, 720, 758, 785`), unchanged. Byte-identical is now an **A/B** with a committed golden capture made before any governor code exists (§Acceptance). |
 | R2-07 | MED | `proposed`/`final`/`winning_floor` are gone. The row records `value` (dispatched), `desire` (pre-overlay `_last_reserve_level_desired`), `hold_owner`, `inclement_floor` and `floor_ok`, so the floor's effect is visible honestly (`desire` vs `value` vs `inclement_floor`). |
-| R2-08 | MED | Mechanism stated: `database.log_activity` (`database.py:6233`) runs one direct `INSERT` per row. It does not use the write queue. The row is scheduled fire-and-forget through `hass.async_create_task`, the same pattern as `_schedule_climate_write_row` (`hvac_setpoint.py:213-312`). Rate bound in §Row. |
+| R2-08 | MED | Rate bound in §3. *(Rev 3.2 correction: the Rev-3 text claimed `log_activity` bypasses the write queue. That was false: `_db()` is the queue submitter. See §3.)* |
 | R2-09 | MED | The second lint assertion is deleted. |
 | R2-10 | MED | The ordering test is made concrete (§Ordering). |
 | R2-11 | LOW | Anchors fixed: `_resolve_hold_owner` `:1738`, `force_redispatch` `async_call` `:6816-6820`. Trailer fixed. |
 | R2-12 | LOW | Moot. **No sensor attribute is added**, because the DB holds the history (operator: "cut the 20-row attribute unless needed"). `sensor.py` is not touched. |
-| R1 carry-over | — | One floor only; wraps kept; DP floor stays in the overlay; no RestoreEntity; restart uses the existing `wv_commanded_ledger` (`energy.py:1940-1968, 2290-2330`); the strategy entity is `sensor.ura_battery_strategy`. All unchanged from Rev 2. |
+| R1 carry-over | — | One floor only; wraps kept; DP floor stays in the overlay; no RestoreEntity; restart uses the existing `wv_commanded_ledger` (`energy.py:1940-1968, 2290-2330`); the strategy entity is `sensor.ura_energy_coordinator_battery_strategy` (corrected in Rev 3.2; `sensor.ura_battery_strategy` does not exist). All unchanged from Rev 2. |
 
 ---
 
@@ -57,10 +77,10 @@
 | TOU-transition dispatch | `energy.py:_evaluate_battery :7150-7221` (bypasses the tap; it already special-cases CFG writes at `:7184-7205`) | **EXTEND with one call** in the same loop, mirroring the CFG special-case. |
 | Self-heal re-send | `energy_battery.py:force_redispatch :6713-6852`; caller `energy_write_verify.py:_pending_fire_retry :2331-2360` | **EXTEND with one call** after the success log (`:6822`). |
 | Owner vocabulary | `energy_write_verify.py:_resolve_hold_owner :1738` | **REUSE verbatim** (call it; store its string). |
-| Floor enforcement | `energy_battery.py:_floor_reserve :3855` + 8 wraps + narration `:6687` | **UNCHANGED.** Not part of this build. |
+| Floor enforcement | `energy_battery.py:_floor_reserve :3855` + 8 wraps + narration `:6687` + **inline off-peak partial_hold clamps `:6224` (drain) / `:6262` (hold)** | **UNCHANGED.** Not part of this build. |
 | Restart | `wv_commanded_ledger` restore/save `energy.py:1940-1968, 2290-2330`; rows are durable in the DB | **REUSE unchanged.** Nothing to add. |
 | Activity log write | `database.py:log_activity :6233` | **REUSE.** No schema change, no new table. |
-| Typed `WriteResult` | `hvac_strategy.py:236-256` | **CARD follow-up** `EC-RESERVE-WRITE-RESULT-TYPE-1` (dispatch tap + `force_redispatch`). Not this cycle. |
+| Typed outcome vocabulary | `hvac_strategy.py:WriteStatus :238-242` (stdlib-only module) | **FOLDED IN (operator, Rev 3.2).** Row `status` is an imported `WriteStatus` member. **No `WriteResult` plumbing**: the dispatch return contract (`ServiceDispatchResult`) is unchanged. `EC-RESERVE-WRITE-RESULT-TYPE-1` shrinks to "typed dispatch return contract", if ever. |
 | Borrow lease `ExcursionToken`, `PresetManager.borrow_live`, arrester borrow gate | `hvac_excursion.py:131`, `hvac_preset.py:73/234/253`, `hvac_override.py:4266-4315` | **Does not transfer.** The reserve floor has no owner, duration or begin/return lifecycle; it is recomputed every tick from the cached inclement decision. A lease would add stale-row reap + NM machinery and protect nothing. |
 | Presence fusion, `perimeter_alert.py` | — | **Does not transfer.** These are fusion and alerting, not write governance. |
 
@@ -70,7 +90,7 @@ Docs read: plan reviews `plan_inclement_hardening_review_{1,2,3}.md`, `plan_rese
 
 ## Falsifiable invariants
 
-> **INV-G1 (writer allowlist):** every **statically visible** `number`/`set_value` writer anywhere in `custom_components/universal_room_automation/` lies inside a `(module, function)` entry of `RESERVE_SET_VALUE_WRITERS`, with exactly the pinned count. That means a `"number.set_value"` constant, a positional `async_call("number","set_value",…)`, or the keyword form `async_call(domain="number", service="set_value",…)`. Known limits the AST cannot see: a domain or service passed in a variable (`radar_tuning.py:276` already does this with a variable domain), the HA constant `SERVICE_SET_VALUE`, and strings built at runtime. Review D covers those by grep.
+> **INV-G1 (writer allowlist):** every **statically visible** `number`/`set_value` writer anywhere in `custom_components/universal_room_automation/` lies inside a `(module, function)` entry of `RESERVE_SET_VALUE_WRITERS`, with exactly the pinned count. That means a `"number.set_value"` constant, a positional `async_call("number","set_value",…)`, or the keyword form `async_call(domain="number", service="set_value",…)`. Known limits the AST cannot see: a domain or service passed in a variable, the HA constant `SERVICE_SET_VALUE`, strings built at runtime, and in-place mutation of an existing action dict (the EVSE overlay update leg). Review D covers those by grep. `radar_tuning.py:274-279` is a literal writer (not a variable-domain one, as Rev 3.1 wrongly said) and is listed `non_reserve`.
 
 > **INV-G2 (truthful ledger):** every reserve-entity `number.set_value` that URA dispatches produces exactly one `ura_activity_log` row with `action="reserve_write"` whose `value` equals the dispatched value, subject only to the change gate (§Row). No row is written for a value that was not dispatched (deadband-suppressed desires produce no row).
 
@@ -87,37 +107,47 @@ Floor sub-invariant (enforced by the existing wraps, **observed** by the governo
 ### 1. `_record_reserve_dispatch` (new, `energy.py`, next to `_tap_write_verifier`)
 
 ```python
-def _record_reserve_dispatch(self, *, verb: str, path: str, target: str,
-                             value: int, reason: str | None) -> None:
+from .hvac_strategy import WriteStatus   # stdlib-only module; no cycle. Imported, never re-typed.
+
+def _record_reserve_dispatch(self, *, status: WriteStatus, path: str, target: str,
+                             value: int, reason: str | None,
+                             pre_state: float | None = None) -> None:
     """One `reserve_write` activity row per REAL reserve dispatch. Never raises."""
 ```
-- It computes `desire = battery._last_reserve_level_desired` and `hold_owner = self._write_verifier._resolve_hold_owner(battery)` (`None` if the verifier is absent).
+- **Status vocabulary (Rev 3.2, operator decision):** `status` is a `hvac_strategy.WriteStatus` member (`hvac_strategy.py:238-242`), stored as `status.value`:
+  - `APPLIED`: timer dispatch or redispatch, `dispatch_result` ok.
+  - `FAILED`: dispatch or redispatch raised or was reported failed.
+  - `DEFERRED`: the evaluate path handed the action to `CoordinatorManager` (it is executed later, outcome unseen).
+  - `SKIPPED_ALREADY_CORRECT`: the meaning of a gated no-op re-send. It is **not written** (the gate suppresses the row), but tests reference the member by name.
+  `path ∈ {"timer", "evaluate", "redispatch"}` says where the write came from. There is **no `WriteResult` plumbing**: `_execute_service_action` / `ServiceDispatchResult` and the tap's return contract are unchanged. Only the row's vocabulary is typed.
+- It computes `desire = battery._last_reserve_level_desired` and `hold_owner = self._write_verifier._resolve_hold_owner(battery)` (`None` if the verifier is absent). **`hold_owner` means the highest-precedence active subsystem, not the value's source** (G-7). Example: arbitrage HOLD 80 plus EVSE hold 45 gives value 80 labelled `evse_battery_hold`. To derive provenance, the row also carries `evse_hold_soc` (`self._evse_hold_soc`); compare `desire`, `value` and `evse_hold_soc`. `_resolve_hold_owner` is not changed.
 - `inclement_floor = max(int(battery.reserve_soc), int(dec.reserve_floor))` iff `dec = battery._last_inclement_decision` is not None and `dec.hold_depth == "partial_hold"`; otherwise `None`. This is the same expression as the wraps and the narration (`:6689`).
 - `floor_ok = value >= inclement_floor` if `inclement_floor` is not None, else `None`.
-- **Change gate (Rev 3.1):** the helper takes `pre_state: int | None`, the target's hardware value **before** the write. For `verb in ("dispatch", "dispatch_queued")` the row is skipped only when `(verb, value, hold_owner) == self._last_reserve_row_key` **and** `pre_state == value`, i.e. hardware already holds it and this is a true no-op re-send. If hardware differs (drift correction) or `pre_state` is None, the row is written. `dispatch_failed`, `redispatch` and `redispatch_failed` are never gated. **Every written row updates the memo.** The memo is RAM-only, so the first write after boot is always recorded.
-- **Where `pre_state` comes from:** C1 reads it in the timer dispatch loop (`energy.py:~7389`) **before** `_execute_service_action`, only for reserve-target `number.set_value` actions, and passes it to `_tap_write_verifier` as a new keyword-only arg `pre_state=None`. The default keeps every other caller unchanged. C2 reads it in place, because the CM has not executed yet. C3 does not gate, so it needs none.
-- The payload goes into `details_json`: `{verb, path, value, desire, hold_owner, inclement_floor, floor_ok, reason}`. Columns: `coordinator="energy"`, `action="reserve_write"`, `entity_id=target`, `importance=RESERVE_WRITE_LOG_IMPORTANCE`.
-- `db = hass.data[DOMAIN]["database"]`; call `db.log_activity(...)`; `hass.async_create_task(coro)` only if `inspect.iscoroutine`. All of it sits inside `try/except Exception → _LOGGER.debug`, a byte-for-byte copy of the climate-row guard.
+- **Change gate:** `pre_state` is the target's numeric value before the write, read as `battery._get_state_float(target)` (`energy_battery.py:881`). HA state is the string `"10.0"`, so a raw compare would never match (G-5). For `status in (APPLIED, DEFERRED)` and `path != "redispatch"`, the row is skipped only when `(path, value, hold_owner) == self._last_reserve_row_key` **and** `pre_state is not None and int(round(pre_state)) == int(value)`. `FAILED` and every `redispatch` row are never gated. Every written row updates the memo. The memo is RAM-only, so the first write after boot always gets a row.
+- **Where `pre_state` comes from:** C1 reads it in the timer dispatch loop (`energy.py:~7389`) **before** `_execute_service_action`, only for reserve-target `number.set_value` actions, and passes it to `_tap_write_verifier` as a new keyword-only `pre_state=None` (the default leaves other callers unchanged). C2 reads it in place, because the CM has not executed yet. C3 does not gate.
+- The payload goes into `details_json`: `{status, path, value, desire, evse_hold_soc, hold_owner, inclement_floor, floor_ok, pre_state, reason}`. Columns: `coordinator="energy"`, `action="reserve_write"`, `entity_id=target` (the **write-leg** entity, e.g. `number.iq_battery_hacs_battery_reserve` under cloud-first), `importance=RESERVE_WRITE_LOG_IMPORTANCE`.
+- `db = hass.data[DOMAIN]["database"]`; call `db.log_activity(...)`; `hass.async_create_task(coro)` only if `inspect.iscoroutine`. Everything sits inside `try/except Exception → _LOGGER.debug`, the same guard as the climate row.
 
 ### 2. Call sites (exactly three; no other edits)
 
-| # | Where | verb / path | Value source |
+| # | Where | status / path | Value source |
 |---|---|---|---|
-| C1 | `_tap_write_verifier` reserve leg, after the target filter (`energy.py:~9097`), before `_note_battery_dispatch_outcome`. Pass `verb="dispatch_failed"` when `dispatch_result` reports failure, else `"dispatch"`. Also pass `reason=decision.get("reason")` and `pre_state` | `path="timer"` | `data["value"]` (post-overlay, actual) |
-| C2 | `_evaluate_battery` action loop (`energy.py:~7190-7219`), when `service == "number.set_value"` and the target equals the configured reserve entity (resolved like `_cfg_eid` at `:7186-7191`). Pass `reason=decision.get("reason")` and the in-place `pre_state` | `verb="dispatch_queued"`, `path="evaluate"` | `data["value"]` |
-| C3 | `force_redispatch` after the successful `async_call` (`energy_battery.py:~6822`) via `self._coord._record_reserve_dispatch(...)`; in the `except` branch (`:6826-6839`) with `verb="redispatch_failed"` | `path="redispatch"` | `live_desire` |
+| C1 | `_tap_write_verifier` reserve leg, after the existing target filter (`energy.py:~9097`), before `_note_battery_dispatch_outcome`. **Row only when the resolved `reserve_eid` is truthy and `target == reserve_eid`** (G-6). The tap's own filter behaviour is left untouched. `FAILED` if `dispatch_result` reports failure, else `APPLIED`. Pass `reason=decision.get("reason")` and `pre_state`. | `path="timer"` | `data["value"]` (post-overlay, actual) |
+| C2 | `_evaluate_battery` action loop (`energy.py:~7190-7219`), when `service == "number.set_value"` and a truthy configured write-leg reserve entity equals `target` (resolved like `_cfg_eid` at `:7186-7191`). Pass `reason=decision.get("reason")` and the in-place `pre_state`. | `DEFERRED`, `path="evaluate"` | `data["value"]` |
+| C3 | `force_redispatch` (G-1). **Success row goes AFTER the try/except AND after step 5's ledger stamp** (`energy_battery.py:~6845-6852`). **Failure row goes AFTER `record_dispatch_failed`** in the except branch (`:6826-6839`), before its `return`. Both use `coord = getattr(self, "_coord", None); fn = getattr(coord, "_record_reserve_dispatch", None)` inside their **own** `try/except Exception: _LOGGER.debug`. The row call can never land in the service-call `except`, so it can never cause a false `dispatch_failed` or skip the ledger stamp. | `APPLIED` / `FAILED`, `path="redispatch"` | `live_desire` |
 
 **Known limitations (documented, not fixed):**
-- **`dispatch_queued` failures:** the C2 row is written before the CM executes (`manager.py:1035-1070`). An execution failure there is swallowed by the CM's try/except and leaves no failure row.
+- **`DEFERRED` outcome:** the C2 row is written before the CM executes (`manager.py:1035-1070`). An execution failure there is swallowed by the CM's try/except and leaves no `FAILED` row.
 - **Evaluate-path ledger gap (pre-existing):** the evaluate path never stamps `_last_reserve_level` and never calls the verifier. Carded `EC-EVALUATE-PATH-LEDGER-GAP-1`; not fixed here.
-- **No verifier:** the tap returns at its top when `_write_verifier is None`. That happens only when `WriteVerifier` init raised (`energy.py:321-327`), which is a separate fault. In that state C1 writes no row. The A/B test pins that this config is otherwise unchanged.
+- **No verifier:** the tap returns at its top when `_write_verifier is None`, which happens only when `WriteVerifier` init raised (`energy.py:321-327`), a separate fault. In that state C1 writes no row.
+- **Timer/CM interleaving (G-8, row data only):** `_evaluate_battery` is not guarded by `_cycle_in_flight` (`energy.py:6326-6336`). If a CM evaluate re-runs `determine_mode` while a timer tick is suspended between `determine_mode` (`:6390`) and dispatch, the timer's C1 row can read the evaluate run's `desire` / `_last_inclement_decision`. The **dispatch is unaffected**; only the row's `desire` / `inclement_floor` / `hold_owner` can be off. This is rare (it needs a CM evaluate inside the seconds a boundary tick is in flight). Accepted rather than threading captured values through the awaits (scope).
 
 ### 3. Row rate bound
 
 - Timer path: at most 1 reserve action per 5-min tick, so ≤288 rows/day worst case (desire or owner changing every tick). The `_result` deadband (`energy_battery.py:6390-6398`) plus the gate make the typical count tens per day.
 - Evaluate path: TOU transitions only (a few per day).
 - Redispatch: bounded by the WriteVerifier pending-watchdog (one retry per pending record, `energy_write_verify.py:2331-2360`).
-- The 2026-06-09 write-flood lesson is answered by the gate and this bound, not by a queue.
+- **Mechanism (corrected, G-4/D-2):** `log_activity` (`database.py:6233`) uses `async with self._db()`, and `_db()` **is** the single-worker write-queue submitter (`database.py:523-541`). Each row is one queue item. During a VACUUM or worker restart, rows buffer (`:530-541`). At shutdown they fast-fail (`:543-548`). Neither path back-pressures dispatch, because the helper is fire-and-forget. The audit measured about 67 dispatch rows/day (430 dispatches + 40 redispatches in 7 days). The 2026-06-09 write-flood lesson is answered by the gate plus this bound.
 
 ### 4. Lint `quality/tests/test_reserve_write_chokepoint_lint.py`
 
@@ -134,10 +164,11 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
     ("energy.py",         "_execute_shed_action",     "non_reserve", 2),  # :8710, :8734
     ("energy_pool.py",    "determine_actions",        "non_reserve", 2),  # :411, :429 pool speed
     ("energy_pool.py",    "_write_amps",              "non_reserve", 1),  # :4964 EVSE amps
+    ("radar_tuning.py",   "async_send_radar_settings","non_reserve", 1),  # :274-279 radar device numbers (G-3)
 )
 ```
   The builder **re-greps and corrects counts at build time**. The test imports this tuple; it is never hand-copied.
-- **Scope:** every `.py` under `custom_components/universal_room_automation/`, not just `energy*.py`. Any statically visible writer outside energy gets its own row (none expected today; `radar_tuning.py:276` uses a variable domain, so it does not match and is a known limit).
+- **Scope:** every `.py` under `custom_components/universal_room_automation/`, not just `energy*.py`. Writers outside energy get their own row. The audit's package-wide AST walk found 12 matches: the 11 above plus `radar_tuning.async_send_radar_settings` (a literal `async_call("number","set_value")`, now listed as `non_reserve`). Known limits, which no example in the repo shows today: a domain or service passed in a variable, the HA constant `SERVICE_SET_VALUE`, runtime-built strings, and the EVSE overlay's **update-in-place** leg, which rewrites an existing action dict with no new literal. C1 still sees that leg's value at dispatch.
 - **Counting rule:** +1 per qualifying `Call` node. A Call qualifies when its positional args are `("number", "set_value", …)` or its keywords are `domain="number", service="set_value"`. +1 per `ast.Constant == "number.set_value"`. Constant args of a Call that already qualified are **not** counted again. A bare `"set_value"` counts only through its qualifying Call. This gives `force_redispatch = 2` (Call `:6817` + const `:6836`).
 - The walker attributes each match to its innermost enclosing `FunctionDef/AsyncFunctionDef`. It fails on any match outside the tuple and on any count mismatch. A docstring containing the substring does not match, because equality is exact.
 - Count-pinning is what makes allowlisting the huge `determine_mode` safe: a second writer in it changes the count.
@@ -146,7 +177,7 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
 
 ## Ordering (R2-10)
 
-`_last_inclement_decision` is set by `_cache_inclement` inside `_inclement_decision` (`energy_battery.py:2734`), during `determine_mode`. C1 and C2 run after `determine_mode` returns in the same coroutine, so they read the current call's decision. C3 reads the cache at redispatch time, which is the documented intent.
+`_last_inclement_decision` is set by `_cache_inclement` inside `_inclement_decision` (`energy_battery.py:2734`), during `determine_mode`. C1 and C2 run after `determine_mode` returns in the same coroutine, so they normally read the current call's decision. The exception is the timer/CM interleaving limitation in §2 (G-8), which affects row fields only. C3 reads the cache at redispatch time, which is the documented intent.
 **Test `test_reserve_row_reads_current_tick_decision`:** tick 1 with partial_hold floor 30 dispatches 30 and the row has `inclement_floor=30`. Tick 2 with the decision at allow_discharge, desire 20, current 30 dispatches 20 and the row has `inclement_floor=None, floor_ok=None`. **Mutant:** `_record_reserve_dispatch` reads a decision frozen on first call. Tick 2 then has `inclement_floor=30` and the test goes RED.
 
 ---
@@ -156,12 +187,14 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
 1. Deadband (current 20, desire 21): no action and **no row** (INV-G2 falsifier 2).
 2. EVSE overlay (desire 20, hold 60): row `value=60, desire=20, hold_owner="evse_battery_hold"`.
 3. DP fold raises the overlay value: row `hold_owner="dp_transition"`, value is the folded max.
-4. Blind de-escalation: row via C1 with `reason` starting "Blind de-escalation", `value=reserve_soc`, `inclement_floor` per the cached decision. `desire` is the **previous tick's** value, because blind bypasses `_result`. `floor_ok` may be False under partial_hold. That is correct and expected: it is the known unfloored site that `EC-INCLEMENT-HARDENING-1` D-blind will fix, and the row makes it visible.
+4. Blind de-escalation: row via C1 with `reason` starting "Blind de-escalation", `value=reserve_soc`, `inclement_floor` per the cached decision. `desire` is the **previous tick's** value, because blind bypasses `_result`. `floor_ok` may be False under partial_hold. That is correct and expected: it is the known unfloored site that `EC-INCLEMENT-HARDENING-1` D-blind will fix, and the row makes it visible. **This case can only be proven in-suite until the June peak season**: blind de-escalation needs peak-or-into-peak, and shoulder/winter TOU has no `peak`. The audit confirmed it is unreachable live now.
 5. Floor > target (`reserve_floor=80, peak_buffer_target=40`, partial_hold): wraps raise to 80; row `value=80, floor_ok=True`.
 6. `reserve_soc=20, reserve_floor=10`, partial_hold: `inclement_floor=20` (R1-02 expression).
 7. No decision yet (boot): `inclement_floor=None`.
 8. DB missing: the row is skipped with a debug log; the dispatch proceeds.
 9. Same value re-sent by the overlay every tick while hardware already holds it: the first row is written, the rest are gated.
+9c. Off-peak hold writing below `reserve_soc` (e.g. "Off-peak hold — SOC 9.0% <= target 10%" → dispatched 8, audit 10-15 04:27) is **legitimate**: `hold_reserve = int(SOC)` with no partial_hold. The row shows `value=8, inclement_floor=None, floor_ok=None`. It is not a defect.
+9d. Cloud lag: a re-send of the same value while the cloud still reads the old one (`pre_state` ≠ value) gives two rows. This is correct (audit: 17:00:05 and 17:01:07, cloud reflected at 17:01:33).
 9b. Drift correction (row at 30; cloud reverts to 20; URA re-sends 30 with the same owner): `pre_state=20 != 30`, so a **row is written**.
 10. Redispatch of an unchanged desire: always a row.
 
@@ -174,6 +207,10 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
 | Delete C1 call | `test_reserve_row_on_timer_dispatch` |
 | Delete C2 call | `test_reserve_row_on_evaluate_path` |
 | Delete C3 success call | `test_reserve_row_on_force_redispatch` |
+| Move C3 back inside the service-call `try`, with `_coord` absent (standard test wiring) | `test_force_redispatch_row_call_cannot_fake_failure` (asserts the ledger is stamped and `record_dispatch_failed` is NOT called) |
+| Compare raw `pre_state` string to int (drop `_get_state_float`/round) | `test_reserve_row_gate_suppresses_identical_dispatch` (steady overlay at `"60.0"` must gate) |
+| C1 drops the truthy-`reserve_eid` guard | `test_reserve_row_requires_configured_reserve_entity` |
+| Status re-typed as a local string or enum instead of the imported `WriteStatus` | `test_reserve_row_status_uses_hvac_writestatus` (identity check `status_enum is hvac_strategy.WriteStatus`) |
 | C1 passes the pre-overlay desire instead of `data["value"]` | `test_reserve_row_records_overlay_value_not_desire` (Repro-2) |
 | Remove the change gate | `test_reserve_row_gate_suppresses_identical_dispatch` |
 | Apply the gate to redispatch | `test_reserve_row_redispatch_bypasses_gate` |
@@ -194,20 +231,22 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
 - **Rows:** the tests named in the mutation table pass. Repro-1 produces no row; Repro-2 produces the row values above.
 - **Existing floor coverage:** `test_battery_inclement_arbitrage_floor.py` passes unchanged. It is a regression guard, not governor coverage.
 - **Suite:** the full-suite name-diff vs `pre-review-v<version>` shows zero new failures.
-- **Live (one-shot, at validation, no soak):** after restart, once at least one reserve write has occurred, run
-  `SELECT timestamp, entity_id, json_extract(details_json,'$.verb'), json_extract(details_json,'$.value'), json_extract(details_json,'$.hold_owner'), json_extract(details_json,'$.floor_ok') FROM ura_activity_log WHERE action='reserve_write' ORDER BY timestamp DESC LIMIT 10;`
-  **PASS** when the newest row's `value` equals the live state of the configured reserve number entity, or its `commanded` value in write-verify's `command_trail` on `sensor.ura_battery_strategy`. Also run `SELECT COUNT(*) FROM ura_activity_log WHERE action='reserve_write' AND json_extract(details_json,'$.floor_ok')=0 AND json_extract(details_json,'$.reason') NOT LIKE 'Blind de-escalation%';` and expect 0. **Discriminator:** a desire-only recorder (the Rev-2 bug) would show rows with no matching hardware change, and an overlay-blind recorder would show `value != commanded` during EVSE charging.
+- **Live (one-shot, at validation, no soak; G-2):** the write target is the **cloud write-leg** entity `number.iq_battery_hacs_battery_reserve` (`_get_entity("reserve_soc_number", role="write")`, cloud-first `energy_const.py:518`). The local Envoy entity `number.enpower_482348004678_reserve_battery_level` is a witness only, often `unavailable`, and never a URA write target. After restart, once at least one reserve write has occurred, run
+  `SELECT timestamp, entity_id, json_extract(details_json,'$.status'), json_extract(details_json,'$.path'), json_extract(details_json,'$.value'), json_extract(details_json,'$.pre_state'), json_extract(details_json,'$.hold_owner'), json_extract(details_json,'$.floor_ok') FROM ura_activity_log WHERE action='reserve_write' ORDER BY timestamp DESC LIMIT 10;`
+  **PASS** when (a) the newest row's `entity_id` is `number.iq_battery_hacs_battery_reserve`; (b) its `value` equals `command_trail.reserve_soc.commanded.value` on `sensor.ura_energy_coordinator_battery_strategy`; and (c) the cloud entity reads that `value` **within about 90 s** of the row timestamp. Ground truth: the 10-15 17:00:05 send was reflected at 17:01:33. A second row at the same value with `pre_state` still at the old value inside that lag window is **correct**, not a dup. Status values are only `applied` / `failed` / `deferred`.
+  **floor_ok:** `SELECT COUNT(*) FROM ura_activity_log WHERE action='reserve_write' AND json_extract(details_json,'$.floor_ok')=0 AND json_extract(details_json,'$.reason') NOT LIKE 'Blind de-escalation%';` should return 0. **Any hit is investigated against the `EC-INCLEMENT-HARDENING-1` site table before it is called a governor defect** (G-9; the governor only observes the floor). No partial_hold occurred in the audit's 7-day window, so this is expected to be vacuous at validation, and the in-suite tests are the proof.
+  **Discriminator:** a desire-only recorder (the Rev-2 bug) shows rows with no matching cloud change; an overlay-blind recorder shows `value != commanded` during EVSE charging.
 - **Live log check (one-shot):** grep the journald window since restart for `reserve_write` debug failures and tracebacks mentioning `_record_reserve_dispatch`. Zero expected.
 
 ---
 
 ## Non-goals
 
-1. No floor registry, no fold in `_result`, no edit to the 8 wraps or the narration.
+1. No floor registry, no fold in `_result`, no edit to the 8 wraps, the inline off-peak clamps (`:6224`, `:6262`) or the narration.
 2. No inclement logic change. The blind write stays unfloored until `EC-INCLEMENT-HARDENING-1`, and the row makes it visible.
 3. No edit to the EVSE overlay internals, DP placement, write-verify contract or `_resolve_hold_owner`.
 4. No sensor attribute, no RestoreEntity, no schema/table, no new signal, no config field.
-5. No `WriteResult` (carded), no leases, no presence/perimeter pattern.
+5. No `WriteResult` / dispatch-return-contract change (only the `WriteStatus` names are reused for row status), no leases, no presence/perimeter pattern.
 
 ## Knobs
 
@@ -235,7 +274,7 @@ There are no rung-2 or rung-3 knobs.
 
 ## Tier-3 reviews (parallel, disjoint)
 
-- **A (local correctness):** row payload, gate key, the `inclement_floor` expression, verb selection.
+- **A (local correctness):** row payload, gate rule (numeric `pre_state`), the `inclement_floor` expression, `WriteStatus` selection.
 - **B (integration/lifecycle):** C1/C2/C3 placement; no change to tap ledger stamping or CFG handling; fire-and-forget safety; evaluate-path target resolution.
 - **C (test authority):** the mutation table above, with real edits.
 - **D (adversarial completeness):** independently enumerate every reserve write reachable in HA (including through `CoordinatorManager`) and every `number.set_value` in the package. Confirm each has a row path and an allowlist entry, and try to produce a reserve write with no row.
@@ -249,7 +288,7 @@ Ship this first. `EC-INCLEMENT-HARDENING-1` D-blind then routes blind through `_
 ## Files touched
 
 - `domain_coordinators/energy.py`: `_record_reserve_dispatch`, `_last_reserve_row_key`, calls C1 and C2, the `pre_state` read in the timer dispatch loop, and a keyword-only `pre_state=None` on `_tap_write_verifier`. About +85 LoC.
-- `domain_coordinators/energy_battery.py`: call C3 (two lines inside `force_redispatch`).
+- `domain_coordinators/energy_battery.py`: C3, two guarded calls in `force_redispatch`, both outside the service-call `try` (G-1).
 - `domain_coordinators/energy_const.py`: `RESERVE_SET_VALUE_WRITERS`, `RESERVE_WRITE_LOG_IMPORTANCE`.
 - `quality/tests/test_reserve_write_chokepoint_lint.py`, `test_reserve_write_rows.py`, `test_reserve_governor_ab.py`, `fixtures/reserve_governor_golden.json`: NEW.
 - `docs/readmes/README_v<version>.md`: written before deploy; post-restart validation written back.
