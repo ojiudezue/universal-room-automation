@@ -19,6 +19,12 @@ design):
 
 Every DB write is fire-and-forget through ``hass.async_create_task`` on the
 existing ``log_activity`` DAO (same contract as ``_record_reserve_dispatch``).
+Path, verified in code: ``log_activity`` -> ``async with self._db()``, which
+enqueues the statement on the single-writer ``_write_queue``
+(``database.py`` ``_db`` -> ``self._write_queue.put``; the worker holds the one
+persistent connection). Each row is ONE queued item with its own commit; rows
+are NOT batched. Volume is small (alerts: a handful per tick at most; outage
+rows: tens per year; local rows: gap-limited), so per-row items are accepted.
 Nothing here raises into the caller.
 """
 from __future__ import annotations
