@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T02:15:11-05:00_ - _Data commit: `53b24d8dc369`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-16T02:16:11-05:00_ - _Data commit: `226c1c1c3da6`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -1296,12 +1296,12 @@ _created 2026-09-13 01:30 · updated 2026-09-19 04:35 · initial_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#6 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **quality** - status: **parked** - approval: **unreviewed**
-_created 2026-09-07 00:30 · updated 2026-09-22 02:30 · refined_
+_created 2026-09-07 00:30 · updated 2026-10-16 02:16 · refined_
 - **Problem / Solution:**
   - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
 - **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
 - **Why:** A suppressed reload that leaves an occupancy-decision map stale is a silent correctness regression; it predates the current cycle but the cycle's review surfaced it and it should not ride indefinitely.
-- **Next:** PICK one — my measurement is done (see measured_2026_09_22) and the remaining call is a risk-appetite judgement I should not make for you at 2am on the live occupancy path. (A) WIRE THE MISSING SUBSCRIBER (my recommendation): have Camera...
+- **Next:** PARKED (call made 09-26: option B, workaround = restart HA after adding or removing an interior camera). Revive when an interior camera is added/removed and the workaround is missed, or when config subentries land. (Stale PICK replaced o...
 - **Tags:** no-fabrication-verify, tier-2db
 - **Parsimony:** [SIMPLIFY-OR-PARK] Adding/removing an interior camera does not update room occupancy until an HA restart (map _cameras_by_area never rebuilds on the suppressed reload).
 - **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
@@ -1463,26 +1463,7 @@ _created 2026-09-25 18:00 · updated 2026-09-30 02:40 · refined ×2_
   - `unblocked_2026_09_27`: OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native)...
   - `binding_constraint_3_8_2026_09_27`: BINDING CONSTRAINT from Run 2 criterion 3.8, observed live 09-26 23:14:11: when the Envoy re-enumerates (reboot), the stream publishes SOC=0 and backup_reserve 0 then 30 for ~36 s before true values (SOC 36, reserve 10). The plan MUST ga...
 
-### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#17 · WSJF 2.4 · v7 tc3 u2 /e5_
-thread: **analytics** - status: **parked**
-_created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
-- **Problem / Solution:**
-  - Problem: URA watches where each person spends time and flags when someone's routine changes. It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED, the old name stops appearing and the new one starts ...
-- **Origin:** 2026-09-14 - fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
-- **Why:** This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename would immediately manufacture a fresh pile.
-- **Next:** PICK one — (A) BUILD the narrow rename-pair suppressor (option (c) above: suppress a cell only when a zero-baseline gainer near-name-matches a same-event loser; measured 82/82 precision on this corpus, Tier 1-2, contained to the detector...
-- **Tags:** measure-before-build, no-fabrication-verify
-- **Parsimony:** [BUILD] A room rename is indistinguishable from a behaviour change in the routine baseline.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/regime_detector.py
-- **Forensic keys (6):**
-  - `disposition_2026_09_26_groom`: CALL MADE: option (B) PARK. The visible symptom (fake routine-drift anomalies) was cleared today (445 open routine-shift rows acknowledged, ROUTINE-DETECTOR-NO-DISCHARGE-1) and the rename artifact ages out of the 2-month baseline on its ...
-  - `evidence_2026_09_14`: The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0: "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom...
-  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over all 462 routine_shift rows in the live URA DB (parsed each row's context_json top_movers). MECHANISM CONFIRMED — but the scale is far NARROWER than this card assumed, and the measurement kills one of the two...
-  - `claim_narrowed_2026_09_14`: The card's `evidence_2026_09_14` speculated "August was the largest month at 206 of 462 rows. A substantial fraction is plausibly this artifact." MEASURED: of August's 206 rows, 57 (28%) are rename-paired — real, but not the bulk of them...
-  - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
-  - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
-
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#18 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#17 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **config-flow** - status: **parked** - approval: **explicit**
 _created 2026-09-13 01:00 · updated 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -1508,6 +1489,25 @@ _created 2026-09-13 01:00 · updated 2026-09-29 01:05 · initial_
   - `live_diag_armed_2026_09_13`: Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via ...
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
+
+### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#18 · WSJF 2.4 · v7 tc3 u2 /e5_
+thread: **analytics** - status: **parked**
+_created 2026-09-14 00:45 · updated 2026-10-16 02:16 · refined_
+- **Problem / Solution:**
+  - Problem: URA watches where each person spends time and flags when someone's routine changes. It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED, the old name stops appearing and the new one starts ...
+- **Origin:** 2026-09-14 - fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
+- **Why:** This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename would immediately manufacture a fresh pile.
+- **Next:** PARKED (call made 09-26: option B). Revive on the next room rename (build the narrow rename-pair suppressor then). (Stale PICK replaced overnight 10-16.)
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] A room rename is indistinguishable from a behaviour change in the routine baseline.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/regime_detector.py
+- **Forensic keys (6):**
+  - `disposition_2026_09_26_groom`: CALL MADE: option (B) PARK. The visible symptom (fake routine-drift anomalies) was cleared today (445 open routine-shift rows acknowledged, ROUTINE-DETECTOR-NO-DISCHARGE-1) and the rename artifact ages out of the 2-month baseline on its ...
+  - `evidence_2026_09_14`: The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0: "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom...
+  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over all 462 routine_shift rows in the live URA DB (parsed each row's context_json top_movers). MECHANISM CONFIRMED — but the scale is far NARROWER than this card assumed, and the measurement kills one of the two...
+  - `claim_narrowed_2026_09_14`: The card's `evidence_2026_09_14` speculated "August was the largest month at 206 of 462 rows. A substantial fraction is plausibly this artifact." MEASURED: of August's 206 rows, 57 (28%) are rename-paired — real, but not the bulk of them...
+  - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
+  - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor) — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **parked** - approval: **explicit**
