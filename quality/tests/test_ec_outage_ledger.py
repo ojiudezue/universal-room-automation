@@ -18,21 +18,129 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import sys
+
 import pytest
 import pytest_asyncio
 
-from custom_components.universal_room_automation.database import (
-    UniversalRoomDatabase,
-)
-from custom_components.universal_room_automation.domain_coordinators import (
-    energy_outage_ledger as L,
-)
-from custom_components.universal_room_automation.domain_coordinators.energy import (
-    EnergyCoordinator,
-)
-from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
-    BatteryStrategy,
-)
+# ---------------------------------------------------------------------------
+# Import isolation (round 4). This file drives the REAL homeassistant +
+# aiosqlite + URA modules. Many sibling files install stubs for those names
+# in sys.modules (often with setdefault, never restored), so:
+#   * importing real modules at collection time would leak them into every
+#     file collected after this one (their setdefault stubs become no-ops);
+#   * a stub installed by an earlier file would replace e.g.
+#     `homeassistant.core.callback` with an identity function here.
+# Therefore nothing real is imported at module top level. A module-scoped
+# autouse fixture purges the affected namespaces, imports the real modules,
+# binds the names below, and on teardown restores sys.modules EXACTLY
+# (removes every key it added, puts back every key it replaced or purged).
+# ---------------------------------------------------------------------------
+_ISOLATED_PREFIXES = ("homeassistant", "custom_components", "aiosqlite")
+UniversalRoomDatabase = None
+L = None
+EnergyCoordinator = None
+BatteryStrategy = None
+_CycleShell = None
+
+
+def _purge(name: str, mod) -> bool:
+    """Purge every URA module (an earlier file may have imported it against
+    stubs) and every NON-REAL homeassistant/aiosqlite entry (a stub has no
+    real file-backed spec). Real HA modules stay, so identities are shared
+    with the pytest-homeassistant plugin (re-importing it breaks freezegun).
+    """
+    if not any(name == p or name.startswith(p + ".") for p in _ISOLATED_PREFIXES):
+        return False
+    if name == "custom_components" or name.startswith("custom_components."):
+        return True
+    if not isinstance(mod, types.ModuleType):
+        return True
+    spec = getattr(mod, "__spec__", None)
+    origin = getattr(spec, "origin", None) if spec is not None else None
+    return not (origin and os.path.exists(str(origin)))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _real_module_isolation():
+    global UniversalRoomDatabase, L, EnergyCoordinator, BatteryStrategy, _CycleShell
+    snapshot = dict(sys.modules)
+    for name, mod in list(sys.modules.items()):
+        if _purge(name, mod):
+            del sys.modules[name]
+    import importlib
+    core = importlib.import_module("homeassistant.core")
+    patched_core = {}
+    for attr in ("callback", "is_callback"):
+        cur = getattr(core, attr, None)
+        if getattr(cur, "__module__", None) == "homeassistant.core":
+            continue
+        # An earlier file replaced it on the REAL module (e.g.
+        # `ha_core.callback = lambda f: f`). Recover HA's own original from
+        # any real module that imported it before the patch.
+        orig = next((
+            getattr(m, attr) for n, m in list(sys.modules.items())
+            if n.startswith("homeassistant.")
+            and getattr(getattr(m, attr, None), "__module__", None) == "homeassistant.core"
+            and getattr(getattr(m, attr, None), "__name__", None) == attr
+        ), None)
+        if orig is not None:
+            patched_core[attr] = cur
+            setattr(core, attr, orig)
+    # The timer helpers the ledger arms: an earlier file may have replaced
+    # them on the REAL module with no-ops (e.g. test_arrival_departure_notify
+    # `_ev.async_call_later = lambda *a, **kw: (lambda: None)`). Install
+    # pristine copies, executed from HA's own source file, for this module.
+    ev_mod = importlib.import_module("homeassistant.helpers.event")
+    patched_ev = {}
+    stale = [a for a in ("async_call_later", "async_track_time_interval")
+             if getattr(getattr(ev_mod, a, None), "__module__", None)
+             != "homeassistant.helpers.event"]
+    if stale:
+        import importlib.util as _iu
+        spec = _iu.spec_from_file_location(
+            "homeassistant.helpers._ledger_pristine_event", ev_mod.__spec__.origin,
+        )
+        pristine = _iu.module_from_spec(spec)
+        # Registered for dataclass processing; removed again on teardown
+        # with every other key this fixture added.
+        sys.modules[spec.name] = pristine
+        spec.loader.exec_module(pristine)
+        for a in stale:
+            patched_ev[a] = getattr(ev_mod, a, None)
+            setattr(ev_mod, a, getattr(pristine, a))
+    try:
+        UniversalRoomDatabase = importlib.import_module(
+            "custom_components.universal_room_automation.database",
+        ).UniversalRoomDatabase
+        L = importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators."
+            "energy_outage_ledger",
+        )
+        EnergyCoordinator = importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators.energy",
+        ).EnergyCoordinator
+        BatteryStrategy = importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators."
+            "energy_battery",
+        ).BatteryStrategy
+
+        class _Cycle(EnergyCoordinator):
+            def __init__(self):  # bypass heavy init
+                pass
+
+        _CycleShell = _Cycle
+        yield
+    finally:
+        for attr, val in patched_core.items():
+            setattr(core, attr, val)  # leave the environment as we found it
+        for attr, val in patched_ev.items():
+            setattr(ev_mod, attr, val)
+        for name in [n for n in sys.modules if n not in snapshot]:
+            del sys.modules[name]
+        sys.modules.update(snapshot)
+        UniversalRoomDatabase = L = EnergyCoordinator = BatteryStrategy = None
+        _CycleShell = None
 
 DOMAIN = "universal_room_automation"
 CDT = timezone(timedelta(hours=-5))
@@ -153,8 +261,17 @@ async def real_db(tmp_path):
         await db.stop_write_worker()
 
 
+def _db_now():
+    """The clock prune_activity_log reads (database.py's dt_util.utcnow).
+
+    Seeds are aged against the SAME clock, so the test does not depend on
+    whether an earlier file replaced `homeassistant.util.dt.utcnow`.
+    """
+    return sys.modules[UniversalRoomDatabase.__module__].dt_util.utcnow()
+
+
 def _seed(db_file, action, importance, days_old):
-    ts = (datetime.now(timezone.utc) - timedelta(days=days_old)).isoformat()
+    ts = (_db_now() - timedelta(days=days_old)).isoformat()
     conn = sqlite3.connect(db_file)
     try:
         conn.execute(
@@ -704,11 +821,6 @@ async def test_async_setup_arms_outage_ledger():
 # --------------------------------------------------------------------------
 # Hook placement: the REAL _decision_cycle_body (enclosing-method anchor)
 # --------------------------------------------------------------------------
-class _CycleShell(EnergyCoordinator):
-    def __init__(self):  # bypass heavy init
-        pass
-
-
 class _Stop(Exception):
     pass
 
@@ -781,7 +893,9 @@ async def test_ledger_logs_alerts_while_fully_blind():
     db = _FakeDB()
     hass = _Hass(db)
     hass.states.d[NWS] = _State("2", {"Alerts": [_alert("A"), _alert("B")]})
-    stale = datetime.now(timezone.utc) - timedelta(hours=3)
+    # Aged against the clock _outage_ledger_tick reads (energy's dt_util).
+    from homeassistant.util import dt as _ha_dt
+    stale = _ha_dt.now() - timedelta(hours=3)
     b = _battery_stub(
         hass, {"mode": "blind", "reason": "fully blind", "actions": [], "soc": None},
         inc_dec=SimpleNamespace(tier="watch", hold_depth="partial_hold", reserve_floor=50),
@@ -853,9 +967,11 @@ async def test_real_timers_run_the_sweep_on_the_loop():
         async_fire_time_changed,
         async_test_home_assistant,
     )
-    from homeassistant.util import dt as dt_util
 
-    async with async_test_home_assistant() as hass:
+    # load_registries=False: the registries are not under test, and an
+    # earlier file may have replaced entity_registry.async_get on the real
+    # module with a fake that has no async_load.
+    async with async_test_home_assistant(load_registries=False) as hass:
         led = await _seeded(hass)
         ran = []
         loop_thread = threading.get_ident()
@@ -866,11 +982,13 @@ async def test_real_timers_run_the_sweep_on_the_loop():
         led.sweep = _rec
         assert led.arm() is True
         try:
-            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+            # Wall clock, not dt_util.utcnow: an earlier file may have replaced
+            # utcnow on the real module; phcc compares against time.time().
+            async_fire_time_changed(hass, datetime.now(timezone.utc) + timedelta(seconds=301))
             await hass.async_block_till_done()
             assert ran == [loop_thread]
             async_fire_time_changed(
-                hass, dt_util.utcnow() + timedelta(hours=24, seconds=5))
+                hass, datetime.now(timezone.utc) + timedelta(hours=24, seconds=5))
             await hass.async_block_till_done()
             assert ran == [loop_thread, loop_thread]
         finally:
