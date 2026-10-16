@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "211",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_001502_ship_v5_103_62",
+  "timestamp": "2026-10-16T00:15:02Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.62 shipped: Custom Preset Ranges settle gate + failure reset",
+  "summary": "Custom Preset Ranges settle gate + failure reset",
+  "why": "The card's premise (redundant write) was refuted: a 120 s gate already existed. The real risk, measured: a rare (1/544) local rejection while setpoints lag a preset change, and rejections never reset, marching zone_3 toward the 3-strike latch; a first visit in that window could also save a wrong original, reachable when zones 1/2 roll out, which the operator wants soon. Anchoring on the observed change covers every writer; the trip-wire keeps a feed-split hold from being silent.",
+  "implications": "Shipped HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 at v5.103.62; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.62.md (Live criteria).",
+  "revisit_trigger": "If a zone_3 S10 write lands within 600 s of a preset change, if s10_settle_held fires on zone_3, or if apply failures rise after rollout of zones 1/2.",
+  "refs": {
+    "cards": [
+      "HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.62.md"
+    ],
+    "release_notes": "S10 waits 600 s after any observed preset change before writing or capturing originals; confirmed success resets the apply-failure count; 4 h held trip-wire notifies. See docs/readmes/README_v5.103.62.md"
+  }
+}
