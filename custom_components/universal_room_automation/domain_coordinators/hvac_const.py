@@ -1583,6 +1583,26 @@ S10_SWITCH_RESOLUTION_TIMEOUT_S: Final = 300
 # Rung 1 (§3.2 step 6): the named presets S10 edits. `wake` is excluded (§12).
 S10_PRESET_RANGE_PRESETS: Final = frozenset({"home", "sleep", "away", "vacation"})
 
+# Rung 1 (HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1, 2026-10-15): S10 defers
+# for one Carrier post-write staleness window after any OBSERVED
+# (preset_mode | hold_activity) transition on the zone (any writer: S1,
+# arrester, S7 restore, AC-reset, egress, excursion, S11/S13, human, Bryant
+# schedule). Prevents a stale status-feed read of target_low/high AND the
+# matching unresolvable-activity local raise from driving a redundant or
+# doomed set_preset_range AND from poisoning a first-visit snapshot. NOT the
+# same semantic as SUPPRESS_TTL_SECONDS_PRESET (arrester echo on URA's own
+# writes); do not couple them. Measured against the 2026-10-14 incident
+# (422 s stale window) + ~180 s margin.
+S10_POST_PRESET_CHANGE_SETTLE_S: Final = 600  # seconds
+
+# Rung 1 (HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 R4 discharge): a
+# rollout zone whose observed-preset-change settle episode has been
+# continuously armed (re-stamped before expiring) for this long trips an
+# anomaly ledger row (action="s10_settle_held"), at most once per zone per
+# calendar day. Covers a full nudge cycle (~25 min x 9 = ~3.75 h) + two
+# Bryant schedule block transitions without false-firing on legitimate flap.
+S10_SETTLE_HELD_WARN_S: Final = 14_400  # 4 h
+
 # Rung 2 (REV 5 F6, options-flow field on the coordinator-manager entry):
 # zones whose presets Custom Preset Ranges may edit. Default EMPTY — a fresh
 # install edits nothing until the operator opts a zone in by id; there is no

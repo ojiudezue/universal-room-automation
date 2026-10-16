@@ -20,3 +20,11 @@ Knobs (rung 1, `safety.py` ~251-276): `FREEZE_/OVERHEAT_CLEAR_OFFSET_F` 3, `HIGH
 - **Live:** a humidity/temperature hazard active before the restart clears within ~6 min of its sensor recovering (safety active-hazard count falls).
 - **Live:** no smoke/CO/leak entity clears while its sensor is on/wet/unavailable.
 - **Live:** 0 URA ERRORs from the safety coordinator.
+
+## Validated 2026-10-15 (HA restart 12:44 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Hazard clears ~6 min after recovery | Not observable yet | `sensor.ura_safety_coordinator_safety_active_hazards` = 0 at boot (12:46:12); no hazard raised since. Proven in-suite (75 tests). |
+| 0 URA ERRORs | **PASS** | system_log ERROR filter `universal_room_automation`: 0. |
+| Envoy healthy after restart | **PASS** | `sensor.envoy_482543015950_battery` fresh 12:46:27 (~2 min), 0 unavailable through 15:06. |

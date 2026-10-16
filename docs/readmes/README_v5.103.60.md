@@ -30,3 +30,13 @@ Card: HUMIDITY-FAN-ON-RESEND-SPAM-1. Plan: `docs/planning/PLANNING_bathroom_exha
 - **Live:** Powder or Master Toilet visit > ~90 s turns its fan on; a < 40 s visit does not. Fan off after the post-vacancy window.
 - **Live:** Ziri Bathroom vents on a shower while `switch.ziri_bathroom_automation` stays off.
 - **Live:** 0 URA ERRORs; `automation.guest_toilet_automation2` off.
+
+## Validated 2026-10-15 (HA restart 12:44 CDT, URA up 12:46)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Master Bathroom turn_on spam gone | **PASS** | Recorder `call_service` events naming `masterbathfan` 12:46–15:06: 4 in total for one humid episode (fan on 13:01:38, off 14:02:07, humidity 64–72). Before: up to 652/h. |
+| Powder / Master Toilet visit > ~90 s turns fan on | Pending organic | No fan transition on either room since restart; proven in-suite (`test_bathroom_exhaust_occupancy_and_resend.py`). |
+| Ziri vents with room switch off | Pending organic | No Ziri humidity crossing since restart; proven in-suite. |
+| 0 URA ERRORs; `automation.guest_toilet_automation2` off | **PASS** | system_log ERROR filter: 0. Automation `off` since 12:46:17. |
+| Laundry smell rule off | **PASS** | Options flow: `humidity_fan_occupancy_dwell_enabled` = False, threshold 62 unchanged. |
