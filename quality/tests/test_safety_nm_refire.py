@@ -69,14 +69,26 @@ def _knob_mod():
     )
 
 
+def _invalidate_knobs():
+    """Flush the knob cache of EVERY _nm_cycle_a module object in play.
+
+    An earlier test file may re-exec _nm_cycle_a, so sys.modules can hold a
+    different module object from the one NM's ``is_life_safety_hazard`` was
+    bound to at NM import time. Flush both: the current sys.modules entry
+    and the one production code actually calls (the function's globals).
+    """
+    _knob_mod().invalidate_knob_cache()
+    nm_mod.is_life_safety_hazard.__globals__["invalidate_knob_cache"]()
+
+
 @pytest.fixture
 def clock(monkeypatch):
     c = Clock()
     monkeypatch.setattr(safety_mod.dt_util, "utcnow", c)
     monkeypatch.setattr(nm_mod.dt_util, "utcnow", c)
-    _knob_mod().invalidate_knob_cache()
+    _invalidate_knobs()
     yield c
-    _knob_mod().invalidate_knob_cache()
+    _invalidate_knobs()
 
 
 def _safety() -> "safety_mod.SafetyCoordinator":
@@ -609,7 +621,7 @@ async def test_d7_extras_token_repeats_30s_under_every_schedule(
     """R: an operator-promoted extras token keeps 30 s."""
     r = _NMRig(monkeypatch, clock, schedule=schedule, hazard="overheat")
     r.entry.options = {**r.entry.options, "nm_extra_life_safety_hazards": ["overheat"]}
-    _knob_mod().invalidate_knob_cache()
+    _invalidate_knobs()
     await r.alert()
     assert r.at_age(0) == (30, "life_safety")
     assert r.at_age(86401) == (30, "life_safety")
