@@ -50,8 +50,11 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 | Planning doc / architecture | `ura-planner` | Writing PLANNING_v*.md, critiquing scope, tier classification |
 | Implementation | `ura-builder` | Code changes to `custom_components/universal_room_automation/`, tests |
 | Implementation — **Tier 3** | `ura-super-builder` (opus-5-5; Fable retired 2026-09-28, out of tokens) | Tier-3 / delicate shared-primitive / invariant-critical builds (operator 2026-09-27). Same rules as ura-builder + Tier-3 build discipline |
-| Test execution + baseline-diff | `ura-validator` | After build, before review. Runs pytest, compares against `pre-review-vX.Y.Z`. Never edits code. |
-| Code review | `ura-reviewer` | Tier 1 = one pass; Tier 2 = TWO parallel passes with different framings; Tier 2-DB = THREE parallel passes per Tier 2-DB protocol below |
+| Implementation — **Tier 3, Fable** | `ura-fable-builder` (claude-fable-5-1) | PARKED: uncork only when Fable tokens are available (operator 2026-10-16); otherwise `ura-super-builder` |
+| Test execution + baseline-diff | `ura-validator` (haiku-5-5) | After build, before review. Runs pytest, compares against `pre-review-vX.Y.Z`. Never edits code. |
+| Code review | `ura-reviewer` (opus) | Tier 1 = one pass; Tier 2 = TWO parallel passes with different framings; Tier 2-DB = THREE parallel passes per Tier 2-DB protocol below. Framings A/B/D. |
+| Code review — framing C (mutation) | `ura-reviewer-mutation` (sonnet-5-5) | Per-site source-mutation test-authority pass only |
+| Read-only investigation | `ura-prober` (sonnet-5-5) | Live-state checks, recorder/DB queries, log mining, history and public-data pulls. Never edits. Use instead of general-purpose/Opus for probes |
 | Deploy | `/deploy` skill OR `./scripts/deploy.sh` directly | `ura-deployer` is redundant — slated for deletion |
 
 **Tier 2 review framings** — when dispatching two reviewers, give them DIFFERENT explicit focus areas so blind spots don't overlap. Example: Reviewer A = "correctness + edge cases", Reviewer B = "async + lifecycle + race conditions".

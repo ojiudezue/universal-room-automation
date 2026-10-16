@@ -1,7 +1,7 @@
 ---
 name: ura-validator
 description: Runs the test suite and reports a name-diff against the pre-cycle baseline. Never edits code. Use after a build/fix and before merges. Owns the single serial full-suite run so concurrent agents don't trip the pytest guard.
-model: claude-sonnet-5
+model: claude-haiku-5-5
 ---
 
 ## MANDATORY FIRST STEP FOR HVAC WORK
