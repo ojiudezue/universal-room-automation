@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EC-EVALUATE-PATH-LEDGER-GAP-1@2026-10-16T02:15:05"
+    at: "2026-10-16T02:15:05"
+    outcome: "measured"
+    headline: "The reserve path that skips the write ledger never ran in 10 days (0 of 20 rate changes). Fixing its sibling may make it dead code, so the cheapest fix could be deleting the call. Folded into the energy arc's joint plan."
+    acknowledged: false
+  - fid: "NM-MULTI-ALERT-TRACKING-1@2026-10-16T02:15:03"
+    at: "2026-10-16T02:15:03"
+    outcome: "measured"
+    headline: "Measured the one-alert-slot issue: in 30 days a different CRITICAL arrived while an earlier one was still open 92 times, but never involving a smoke/CO/leak alert. The real risk: perimeter alerts (~23 a day) could knock a repeating smoke alarm down to the slow repeat. Simple fix planned: life-safety alerts keep the slot. Sequenced after the safety re-page cycle (same file)."
+    acknowledged: false
+  - fid: "HVAC-S10-NOTIFY-UNDELIVERED-1@2026-10-16T02:15:02"
+    at: "2026-10-16T02:15:02"
+    outcome: "built"
+    headline: "Built (not deployed): when Custom Preset Ranges gives up on a thermostat, its notification is now HIGH so it reaches your phone; before it was MEDIUM and went nowhere. Reviewed SHIP, tests pass. Waiting in review for the next attended deploy."
+    acknowledged: false
   - fid: "HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1@2026-10-16T02:08:33"
     at: "2026-10-16T02:08:33"
     outcome: "measured"
@@ -61,16 +76,17 @@ meta:
     acknowledged: false
 cards:
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
-  updated: "2026-10-16 02:14"
+  review_2026_10_16_overnight: "Tier-1 review (ura-reviewer, framing A + blast radius): SHIP, no findings. HIGH never enters the CRITICAL alert/repeat slot (notification_manager.py:1999-2001 only CRITICAL calls _enter_alerting); one NM per latch (latched flag persisted, early return hvac.py:4710, reset only on value change :4702-4709); nothing else depends on MEDIUM for these hazards; tests drive the real rig. test_hvac_cpr_batch_c.py + test_s10_post_preset_change_settle.py 192 passed. Branch pushed to origin (fix/s10-latch-nm-high); NOT merged, NOT deployed."
+  updated: "2026-10-16 02:15"
   release_notes: "Custom Preset Ranges: when URA gives up on a thermostat range (thermostat unreachable, range not taking, original not restored) the notification is now HIGH so it reaches your phone; before it was MEDIUM and went nowhere."
   built_2026_10_16_overnight: "Built on branch fix/s10-latch-nm-high (worktree .claude/worktrees/overnight-s10-nm-high): 3 literals MEDIUM->HIGH + docstring; 3 tests (test_s10_latch_nm_*_is_high) in test_hvac_cpr_batch_c.py; HVAC state-of-play bullet. test_hvac_cpr_batch_c.py 158 passed. Mutation drill: reverting each literal turns exactly its own test red (3/3), restored. Tier-1 review running. NOT merged to develop, NOT deployed."
   gate_2026_10_16_overnight: "FOUR-STEP GATE (2026-10-16 02:14 CDT). (1) Validity: still real - hvac.py _s10_latch sends all three latch NMs at MEDIUM; notification_log shows 0 s10_* rows in 14 days and MEDIUM HVAC rows carry no channel (e.g. 24 'HVAC Override' MEDIUM rows, channel empty). (1b) Config-first: routing MEDIUM to the phone would also push every MEDIUM HVAC override (~24 per 14 days), so a channel change is the wrong lever. (2) Prior art: REUSE the existing severity argument of _s10_notify (hvac.py:4451); nothing new. (3) Parsimony: SIMPLIFY - the three latch NMs (each means 'URA stopped trying, act now', one per latch) go HIGH; s10_restore_pending stays LOW; the 'should the digest include LOW rows' question is NM-wide and NOT part of this card. (4) Cost/benefit: three literals + three tests, Tier 1, no risky ingredient."
   title: "Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config"
-  status: "in_progress"
+  status: "review"
   tier: 1
   origin: "HVAC S10 review C (C-H1), 2026-10-15. Swept board: no existing card."
   why: "Live NM: one recipient (person.oji_udezue, digest delivery, no routing matrix); pushover/imessage/whatsapp CRITICAL only, companion HIGH, lights/TTS disabled; digest rows are written only for qualifying channels. So LOW/MEDIUM S10 notifications (s10_restore_not_taking, s10_preset_range_call_failed, s10_preset_range_not_sticking, s10_restore_pending, the switch backstop) produce only an [audit] row that get_pending_digest (database.py:4572) excludes: nobody is told. Pre-existing; the new settle-held alert is fixed to HIGH in feature/hvac-s10-settle."
-  next: "Me: fold the Tier-1 review; on SHIP leave the branch in review for the next attended deploy (merge to develop + README at deploy)."
+  next: "APPROVE at the next attended deploy: merge fix/s10-latch-nm-high into develop and ship with the next batch (README written at deploy; release_notes on this card). Takes effect only after an HA restart."
   related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
   approval: explicit
