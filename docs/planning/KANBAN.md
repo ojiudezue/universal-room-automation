@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:12:17-05:00_ - _Data commit: `cf3a143ff02c`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:14:21-05:00_ - _Data commit: `11110a6b99cc`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-10-16T00:12:17-05:00_ - _Data commit: `cf3a143ff02c`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 5 |
-| 🧭 Pre-planning | 7 |
+| 🧭 Pre-planning | 9 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
@@ -74,10 +74,18 @@ thread: **energy** - status: **investigating**
 - **Forensic keys (1):**
   - `related`: EC-RESERVE-CLOUD-DIVERGENCE-1
 
-## 🧭 Pre-planning (7)
+## 🧭 Pre-planning (9)
 _idea being decomposed_
 
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `EC-BLIND-DEESCALATE-TOP-RATE-1` - Envoy-blind de-escalation (never import through peak) keys on tou_period == "peak" only; in shoulder/winter seasons with no peak, mid_peak is the top rate and a blind grid charge can run through it — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
+thread: **energy** - status: **pre_planning**
+- **Why:** energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE w...
+- **Next:** After governor ships (blind write is in its site table): small plan — derive top-rate period per season from the TOU engine; test shoulder schedule blind at 17:00 with CFG on -> de-escalate.
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `related`: EC-INCLEMENT-HARDENING-1
+
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:31:31.488Z)
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-29 01:05_
@@ -108,7 +116,7 @@ _updated 2026-09-29 01:05_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#2 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#3 · WSJF 2.0 · v7 tc3 u6 /e8_
 > **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:34:01.236Z)
 thread: **census** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-11 02:15 · initial_
@@ -123,7 +131,7 @@ _created 2026-10-11 02:15 · initial_
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:34:23.387Z)
 status: **pre_planning** - approval: **explicit**
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
@@ -132,7 +140,7 @@ status: **pre_planning** - approval: **explicit**
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
 
-### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:31:52.539Z)
 status: **pre_planning** - approval: **explicit**
 - **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
@@ -141,7 +149,7 @@ status: **pre_planning** - approval: **explicit**
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 > **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:32:49.372Z)
 thread: **energy** - status: **pre_planning**
 _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
@@ -157,7 +165,16 @@ _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
   - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#6 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#7 · WSJF 1.8 · v9 tc3 u2 /e8_
+thread: **optimization** - status: **pre_planning**
+- **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
+- **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
+- **Forensic keys (3):**
+  - `tier`: 3
+  - `related`: OC-SHADOW-SAMPLES-EMPTY-1
+  - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
+
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -168,7 +185,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#9 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -803,7 +820,8 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
 - **Next:** ANSWER: is the room-to-room agentic layer a near-term priority? YES -> I scope a VISION/epic doc. NO -> I close this card, because the roadmap refresh half is already done.
 - **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `operator_answer_2026_10_16`: YES: "bingo. Draft one for me to review" -> drafting the room-to-room agentic layer vision doc.
   - `evidence_2026_10_08_overnight`: Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_tr...
   - `groom_2026_09_29`: PARTIALLY-DONE. The "refresh ROADMAP_v11 -> v12" half is done: docs/ROADMAP_v12.md exists (DRAFT, 2026-08-28, supersedes v11, current production v5.91.x). Its section "The unshipped operator vision: room-to-room AGENTIC layer" (line ~133...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: roadmap-refresh half discharged (docs/ROADMAP_v12.md 2026-08-28). Narrowed: only the operator scope/priority call on the room-to-room AGENTIC layer remains (mu...

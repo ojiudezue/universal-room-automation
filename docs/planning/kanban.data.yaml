@@ -224,6 +224,17 @@ cards:
   origin: 'Reserve-governor plan review 1 R1-12 (2026-10-16): fits the dispatch tap, not _result; deferred out of governor cycle.'
   related: [EC-RESERVE-WRITE-GOVERNOR-1]
   next: 'Revisit after governor ships if dispatch rows show ambiguous failures.'
+- id: OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1
+  title: 'Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow)'
+  thread: optimization
+  status: pre_planning
+  tier: 3
+  origin: 'Operator 2026-10-16: "Redesign this to work better and close to intent. I feel this is a failed coordinator. What would move the needle? I want a self optimizing house. Else I am stuck chatting all the time. There has to be a way to give it goals and tools, have it use logs to spot real problems and use loops to optimize."'
+  why: 'AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the operator chatting.'
+  related: [OC-SHADOW-SAMPLES-EMPTY-1, ROADMAP-STALE-AGENTIC-LAYER-1]
+  adjacency_2026_10_16: 'ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.'
+  next: 'Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.'
+  rank: {value: 9, time_criticality: 3, effort: 8}
 - id: OC-SHADOW-SAMPLES-EMPTY-1
   title: 'Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met'
   thread: optimization
@@ -266,6 +277,16 @@ cards:
   related: [EC-INCLEMENT-HARDENING-1]
   next: 'Prior-art scan (HVAC write governance, presence, EVSE overlay, drain-precedence ledger) then Tier-3 plan; decide sequencing vs EC-INCLEMENT-HARDENING-1 D-blind (governor first makes D-blind a one-line floor registration).'
   rank: {value: 8, time_criticality: 4, effort: 6}
+- id: EC-BLIND-DEESCALATE-TOP-RATE-1
+  title: 'Envoy-blind de-escalation (never import through peak) keys on tou_period == "peak" only; in shoulder/winter seasons with no peak, mid_peak is the top rate and a blind grid charge can run through it'
+  thread: energy
+  status: pre_planning
+  tier: 2
+  origin: 'Operator 2026-10-16: "What does this do? Should we treat mid peak as peak in this case since its the highest of 2 rates vs 3?"'
+  why: 'energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE window 14:30-17) imports through the most expensive window. Fix: key on "highest-priced period in the active season schedule" (derive from tou_rates.json), not the literal name.'
+  related: [EC-INCLEMENT-HARDENING-1, EC-RESERVE-WRITE-GOVERNOR-1]
+  next: 'After governor ships (blind write is in its site table): small plan — derive top-rate period per season from the TOU engine; test shoulder schedule blind at 17:00 with CFG on -> de-escalate.'
+  rank: {value: 6, time_criticality: 4, effort: 2}
 - id: EC-INCLEMENT-HARDENING-1
   correlation_2026_10_16: 'AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-covering 32 / 0; Winter Storm 9/3, Ice Storm 1/1, Hard Freeze 5/1, Extreme Cold 2/1. Enphase calendar only ~47 days deep, 0 real outages. Verdict: keep Wind Advisory medium (no hold); freeze/ice products carry the outage signal; add an off-grid outage ledger (log each real off-grid event + alerts active) as a revision deliverable since Enphase keeps ~7 weeks. Utility serving the house unverified (PEC vs Austin Energy).'
   operator_instruction_2026_10_16: 'Model: "get an alert, check the applicability. Also check the local weather for the next x hours that alert applies (or so) and then make an energy decision." Sequence: governor (EC-RESERVE-WRITE-GOVERNOR-1) builds FIRST; revise this plan against the built governor before building. "Unclear if Wind advisory is still not medium. The only thing I have seen down power is actually freezes, do check. Lets not be sloppy. All of these have to be local to our location and not necessarily county wide. Its a big county." Evidence added to AUDIT_nws_alert_history_lakeway.md addendum: 32 SVR polygons covered the house vs 131 county events (~4x over-count), 0 tornado polygons; winter/freeze/wind are zone-keyed only; trigger list misses Hard Freeze / Wind Chill / Extreme Cold (2021 load-shed products); WIY is Moderate/Advisory.'
@@ -9355,6 +9376,7 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT DEAD (gate expired). RETIRED -> done, folded into CHATTER-OBSERVE-CONTROL-D7-1.'
 - id: ROADMAP-STALE-AGENTIC-LAYER-1
+  operator_answer_2026_10_16: 'YES: "bingo. Draft one for me to review" -> drafting the room-to-room agentic layer vision doc.'
   evidence_2026_10_08_overnight: "Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_transitions history (362k per-person room moves, the same data the memory facade's room-neighbour view is meant to expose, memory_facade.py:_compose_locality, still unpopulated) can vouch for residents at the garage door (60% of unnamed garage crossings vs 10% by chance). If that counts as a near-term priority, populating the facade's neighbour view is a natural first slice of the room-to-room layer."
   thread: planning
   rank: {value: 4, time_criticality: 2, effort: 3}
