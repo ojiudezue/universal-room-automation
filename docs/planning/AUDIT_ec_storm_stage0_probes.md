@@ -94,3 +94,6 @@ Entities: alerts `sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts`, time
 ## Unknowns left
 
 OWM/Open-Meteo/NWS forecast cadence and Open-Meteo/NWS hourly horizon; live hourly forecast payloads; codes for 18 winter/watch/tropical products; whether grid_enabled/grid_status flip in a real islanding; exact generator-off / on-grid calendar summaries; live 48 h calendar call latency.
+
+## P1 addendum: live hourly forecast call (orchestrator, 2026-10-16 ~11:50 CDT)
+`weather.get_forecasts(type=hourly)` on `weather.phalanxmadrone` returned 48 hourly rows (16:00Z 10-16 through 15:00Z 10-18). Every row carries `condition`, `precipitation_probability`, `precipitation`, `wind_gust_speed`, `wind_speed`, `temperature` and `apparent_temperature`. Today's values: gusts 31-37 mph, matching the Wind Advisory window, with 0% precipitation. **P1 → GO** for Stage C on this provider. `FORECAST_PRECIP_CONFIRM_PCT` is still to be set by the Stage C plan from history, not from this one sample.
