@@ -142,6 +142,21 @@ class ZoneState:
     target_temp_high: float | None = None
     target_temp_low: float | None = None
 
+    # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 (R1 + R3): per-zone
+    # observed-preset-change observer. Brand-neutral prev copies for the
+    # stamp decision; "" and "unknown" are treated as unreadable (R3):
+    # neither updates the prev copy nor stamps. First readable observation
+    # seeds without stamping. `last_observed_preset_change` is the stamp
+    # `_s10_zone_skip_reason` reads for the settle gate.
+    # `settle_episode_started_at` marks the START of a continuous settle
+    # episode (one unbroken chain of re-stamps < S10_POST_PRESET_CHANGE_SETTLE_S
+    # apart) so the R4 trip-wire can measure the EPISODE length, not just
+    # the last stamp age.
+    prev_preset_mode: str = ""
+    prev_hold_activity: str = ""
+    last_observed_preset_change: datetime | None = None
+    settle_episode_started_at: datetime | None = None
+
     # Aggregated room conditions
     room_conditions: list[RoomCondition] = field(default_factory=list)
 
@@ -668,6 +683,66 @@ class ZoneManager:
         zone.current_humidity = state.attributes.get("current_humidity")
         zone.target_temp_high = state.attributes.get("target_temp_high")
         zone.target_temp_low = state.attributes.get("target_temp_low")
+        # HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1 (R1 + R3): observer.
+        # `preset_mode` is already W1-C P2 projected; `hold_activity` is
+        # the RAW Carrier attribute. Readability rules (Review A A-L3):
+        #   - attribute ABSENT (ecobee / Generic have no such attribute):
+        #     treat as unreadable "" -> gate inert on those platforms
+        #     (preserves the plan's "no ecobee adapter change" non-goal
+        #     and keeps the gate scoped to Carrier zones where the
+        #     observer actually sees the two-feed transition).
+        #   - attribute PRESENT and None (Carrier publishes None for
+        #     "no hold"): READABLE as "none" so Bryant-schedule preset
+        #     changes on unheld Carrier zones (zones 1/2 rollout
+        #     depends on it) are stamped.
+        #   - attribute "" / "unknown": unreadable (transient).
+        # "" / "unknown" on either side = unreadable: do NOT update
+        # prev, do NOT stamp. First readable observation seeds without
+        # stamping. Boot does not hold S10; a single unknown flap does
+        # not stamp; a real transition stamps exactly once. The settle-
+        # episode start is kept across continuous re-stamps so the R4
+        # trip-wire measures the episode duration.
+        try:
+            new_preset = zone.preset_mode
+            if "hold_activity" in state.attributes:
+                raw_hold = state.attributes["hold_activity"]
+                if raw_hold is None:
+                    new_hold = "none"  # Carrier: no-hold is a readable value
+                else:
+                    new_hold = str(raw_hold) if raw_hold != "" else ""
+            else:
+                new_hold = ""  # ecobee / Generic: attribute absent -> inert
+            _UNREADABLE = ("", "unknown")
+            if new_preset not in _UNREADABLE and new_hold not in _UNREADABLE:
+                if zone.prev_preset_mode == "" and zone.prev_hold_activity == "":
+                    # First readable observation after boot/reload -
+                    # seed without stamping.
+                    zone.prev_preset_mode = new_preset
+                    zone.prev_hold_activity = new_hold
+                elif (new_preset != zone.prev_preset_mode
+                      or new_hold != zone.prev_hold_activity):
+                    now = dt_util.utcnow()
+                    # Open or extend a continuous settle episode: if the
+                    # prior stamp expired past the settle window the
+                    # episode is new; otherwise this re-stamp extends it.
+                    from .hvac_const import (  # noqa: PLC0415
+                        S10_POST_PRESET_CHANGE_SETTLE_S,
+                    )
+                    prev_stamp = zone.last_observed_preset_change
+                    if (
+                        prev_stamp is None
+                        or (now - prev_stamp).total_seconds()
+                        >= S10_POST_PRESET_CHANGE_SETTLE_S
+                    ):
+                        zone.settle_episode_started_at = now
+                    zone.last_observed_preset_change = now
+                    zone.prev_preset_mode = new_preset
+                    zone.prev_hold_activity = new_hold
+            # else: unreadable observation - leave prev / stamp untouched.
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC: S10 observer failed for %s", zone_id, exc_info=True,
+            )
 
     def update_all_zones(self) -> None:
         """Update climate state for all zones."""
