@@ -12,3 +12,7 @@
 {"action": "ack", "at": "2026-10-16T03:08:49.100Z", "card_id": "EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1@2026-10-14T02:30:00"}
 {"action": "ack", "at": "2026-10-16T03:09:07.703Z", "card_id": "HVAC-CUSTOM-PRESET-RANGES-1@2026-10-14T02:35:00"}
 {"action": "ack", "at": "2026-10-16T03:09:23.855Z", "card_id": "HM-V21-LIVE-VALIDATION-1@2026-10-14T02:50:00"}
+{"action": "instruct", "at": "2026-10-16T03:11:13.081Z", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1", "text": "Paused means inert. Some are paused because theyre not dialed in and not yet configured to just turns things off with a healthy timeout. We know how to do that and I havent. You can maybe make a tbale and I can tell you what we need for each room and you can do it"}
+{"action": "ack", "at": "2026-10-16T03:11:14.383Z", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-15T02:07:07"}
+{"action": "ack", "at": "2026-10-16T03:12:30.369Z", "card_id": "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-15T02:07:07"}
+{"action": "ack", "at": "2026-10-16T03:12:42.386Z", "card_id": "URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1@2026-10-15T02:07:07"}
