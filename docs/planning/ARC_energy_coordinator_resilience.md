@@ -4,6 +4,13 @@ Operator: "Setup an EC arc so we can prosecute it to the end." Origin: the 10-15
 
 **Rule for this arc:** each step ships through its own tier gate and live validation before the next step is planned in detail. The steps are ordered, but an approved step keeps going without waiting on later ones. Every step's README carries a Validated table. The arc closes only when every row below is `done` or deliberately `parked` with a trigger.
 
+## Planning rule (operator 2026-10-16)
+"Keep them together and plan them together so they fit like jigsaw and not discordant." Steps 2–7 get **one integrated plan** (`PLANNING_ec_storm_and_blind_decisions.md`), written after step 1 ships and against the built governor. It has one decision model end to end:
+
+alert arrives → local applicability (code + point/zone) → local forecast over the alert window → hold depth → floor registered with the governor → command (or, while the Envoy is offline, the governor's blind rules) → outage ledger records the outcome.
+
+The top-rate primitive (step 7) is the single definition of "expensive period" that the blind de-escalation and the hold logic both use. The plan can ship as staged builds, but the design, invariants, knobs and acceptance criteria are written once, so the pieces can't contradict each other. Steps 8–11 are the same TOU-transition and self-heal paths, so they get their own joint plan.
+
 ## Steps
 
 | # | Step | Card(s) | Tier | Status | Gate to start |

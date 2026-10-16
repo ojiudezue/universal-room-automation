@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:25:05-05:00_ - _Data commit: `2116316b0dcf`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:31:03-05:00_ - _Data commit: `ce87e5fe2310`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -85,7 +85,8 @@ _idea being decomposed_
 thread: **energy** - status: **pre_planning**
 - **Why:** energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE w...
 - **Next:** After governor ships (blind write is in its site table): small plan — derive top-rate period per season from the TOU engine; test shoulder schedule blind at 17:00 with CFG on -> de-escalate.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `operator_2026_10_16_joint`: "Keep them together and plan them together so they fit like jigsaw and not discordant" -> steps 2-7 of ARC_energy_coordinator_resilience.md get ONE integrated plan (PLANNING_ec_storm_and_blind_decisions.md) after the governor ships.
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `operator_2026_10_16`: "boo. it needs more resilience. This text matching is nonsense when there are better candidates." Widened: 35 literal period-name checks (== "peak" / "mid_peak") across energy.py 9, energy_battery.py 13, energy_pool.py 8, energy_tou.py 1...
   - `tier`: 3
@@ -1008,7 +1009,8 @@ _created 2026-09-12 20:45 · updated 2026-10-04 03:40 · refined_
 thread: **energy** - status: **waiting_me**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `operator_2026_10_16_joint`: "Keep them together and plan them together so they fit like jigsaw and not discordant" -> steps 2-7 of ARC_energy_coordinator_resilience.md get ONE integrated plan (PLANNING_ec_storm_and_blind_decisions.md) after the governor ships.
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `correlation_2026_10_16`: AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-...
   - `operator_instruction_2026_10_16`: Model: "get an alert, check the applicability. Also check the local weather for the next x hours that alert applies (or so) and then make an energy decision." Sequence: governor (EC-RESERVE-WRITE-GOVERNOR-1) builds FIRST; revise this pla...
