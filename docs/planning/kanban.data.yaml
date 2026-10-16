@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-15'
+  last_reconciled: '2026-10-16'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -6739,10 +6739,10 @@ cards:
   title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the
     door crossing)
   thread: identity
-  status: parked
+  status: shipped_organic
   relane_2026_09_10: 'Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates.
     Revival: v1 validated.'
-  shipped_version: v5.96.1
+  shipped_version: v5.103.64
   created: 2026-09-05 17:35
   updated: 2026-09-05 17:35
   refinement_status: initial

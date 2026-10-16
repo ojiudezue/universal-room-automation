@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "214",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_054251_ship_v5_103_64",
+  "timestamp": "2026-10-16T05:42:51Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.64 shipped: Exit naming respects the door-naming switch; Last Person Exit shows late names",
+  "summary": "Exit naming respects the door-naming switch; Last Person Exit shows late names",
+  "why": "Operator asked for exit naming first. The plan found the backfill already shipped (v5.96.1/v5.97.1) and D0 confirmed it works (exits 27.7% named vs entries 26.9%; >=11 backfills in 7.5 days). Residuals: the door-naming kill switch did not gate the backfill (privacy/consent bug), and Last Person Exit never showed a backfilled name. R2 window widening parked on its own go/no-go rule (12 recoverable, no pattern >=50%). Tier 1, review SHIP, drills 6/6, name-diff clean.",
+  "implications": "Shipped EGRESS-EXIT-IDENTITY-BACKFILL-1 at v5.103.64; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.64.md (Live criteria).",
+  "revisit_trigger": "an organic exit with a resident BLE not_home edge in 0-600s: person_entry_exit_events row gains person_id and sensor Last Person Exit shows the name; and with the switch off, ble_exit_identity_disabled_skip_count increments and the row stays null",
+  "refs": {
+    "cards": [
+      "EGRESS-EXIT-IDENTITY-BACKFILL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.64.md"
+    ],
+    "release_notes": "The door-naming switch now also stops the BLE exit backfill, and Last Person Exit updates when a backfill names the row."
+  }
+}
