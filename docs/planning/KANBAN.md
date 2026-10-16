@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T02:17:17-05:00_ - _Data commit: `737971eeeac2`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-16T02:21:43-05:00_ - _Data commit: `51ab91ef7c31`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 9 |
@@ -21,10 +21,18 @@ _Generated: 2026-10-16T02:17:17-05:00_ - _Data commit: `737971eeeac2`_ - _last_r
 | 🅿️ Parked | 87 |
 | ✅ Done | 339 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1` - A fast detector event during startup can reach the Notification Manager before it has restored its saved state — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
+thread: **safety** - status: **inbox** - approval: **unreviewed**
+_created 2026-10-16 02:25 · initial_
+- **Problem / Solution:**
+  - Problem: Safety starts listening to detectors during its own setup, seconds before the Notification Manager has finished loading its saved alert state, and some detectors (the Shelly flood sensor is valid 16-23 s after start) can fire in...
+- **Origin:** 2026-10-16 - Plan review P-03 of PLANNING_safety_initial_sensor_pass.md (overnight 10-16): pre-existing, reachable; out of that cycle scope.
+- **Why:** Life-safety paging correctness at boot; pre-existing, not caused by the initial-pass cycle.
+- **Next:** Me: measure over the last 20 restarts whether any safety sensor changed state between Safety subscribing and NM async_setup completing (recorder timestamps vs URA startup log), then decide queue-until-ready vs accept.
+- **Tags:** found-during-probe, measure-before-build, no-fabrication-verify
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
@@ -455,7 +463,8 @@ _created 2026-10-16 02:20 · initial_
 - **Why:** Life-safety coverage gap while the family is away and a guest is home. Config/device actions, no code needed first (config-first).
 - **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: Live 02:20 CDT (HA MCP): binary_sensor.smoke_sensor_s1_smoke ('Smoke_Heiman_Matter_Kitchen Smoke') = unavailable since 2026-10-15 12:46:00. Planner's recorder read over the last 20 restarts (docs/planning/PLANNING_safety_initial_sensor_p...
 
 ### `HM-V21-LIVE-VALIDATION-1` - HA Health Monitor v2.1 live checks W1-W20 + GC-vs-house-pause verdict — _#4 · WSJF 7.5 · v7 tc6 u2 /e2_
@@ -888,7 +897,8 @@ _created 2026-10-14 02:50 · updated 2026-10-16 02:05 · refined_
 - **Next:** APPROVE (default I take next attended session if not vetoed, Tier 1, reversible): set Health Monitor option gc_refreeze_h 0 -> 4 h -> I re-read gc_gen2_1h / loop_stalls 8-12 h later and close this card if pauses stay near the post-freeze...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: Read-only, 2026-10-16 02:05 CDT. The freeze effect DECAYS with uptime. sensor.hahm_loop_lag_p95: gc_frozen true, 4.29M objects frozen at 2026-10-15 17:49Z (one freeze, 13.3 h ago, took 1.6 s), gc_gen2_1h 178, gc_gen2_max_ms_1h 597; senso...
   - `measured_2026_10_15_overnight`: Read-only, 02:10 10-15 (HM v2.2.0 with gc_freeze ON since 10-14 06:58; HA up since 17:30). The freeze shortened the full collections but did not remove the stalls: sensor.hahm_loop_lag_p95 gc_gen2_max_ms_1h 529.91 ms (was ~1,800 before t...
   - `root_cause_2026_10_14`: ROOT CAUSE 04:57: house runs Python 3.14.6; Python 3.14.5 REVERTED 3.14's incremental GC (whose point was cutting max pauses 10x+ on large heaps) back to the 3.13 generational GC (docs.python.org/3.14/whatsnew/3.14.html). Profiler object...
@@ -909,10 +919,12 @@ _created 2026-10-10 13:55 · updated 2026-10-11 02:50_
 
 ### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **waiting_operator** - approval: **explicit**
-_updated 2026-10-16 02:21_
+_updated 2026-10-16 02:25_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
-- **Next:** REVIEW plan §11 and PICK (defaults recommended: 1a re-page once at boot, 2a actuators same as a live event, 3a build the duplicate-row guard). -> After feature/safety-nm-refire merges (Sun 10-18), I build to review (Tier 2-DB, three revi...
-- **Forensic keys (3):**
+- **Next:** PICK (recommended defaults: 1c wait out a recovered cooldown, page once if NM has no state; 2a actuators same as a live event, with the D5 stuck-sensor trip-wire; 3 D5 threshold 24 h). -> After feature/safety-nm-refire merges (Sun 10-18)...
+- **Forensic keys (5):**
+  - `plan_rev2_2026_10_16_overnight`: Tier-2 plan review (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md): FIX-PLAN (light), no CRITICAL/HIGH; ordering and double-page claims verified (second raise of the same key returns early, safety.py:2487-2499). Rev ...
+  - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `plan_2026_10_16_overnight`: Plan drafted: docs/planning/PLANNING_safety_initial_sensor_pass.md (Tier 2-DB, written against feature/safety-nm-refire; build starts after that branch merges, deploy held to Sun 10-18). Design: after the Coordinator Manager has set up e...
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
@@ -983,7 +995,8 @@ _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
   - Problem: the Optimization Coordinator is supposed to build a track record of whether its suggestions would have been right before it is allowed to act on its own, but that record is empty: the checker only looks at suggestions made in th...
 - **Next:** PICK: (A) fold the validator fix + finding dedup into the FIRST SLICE of the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), because what gets scored (each re-emitted finding vs each deduped problem) is a redesign decision (my recomme...
 - **Parsimony:** [BUILD, but where is a PICK: standalone Tier 2-DB now vs first slice of the OC redesign] The OC shadow validator never scores a finding because it only looks at the current 5-minute cycle's findings and requires them to be 15 minutes old, so 0 samples exist and OC can never qualify to leave shadow.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
 
 ### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#35 · WSJF 1.3 · v7 tc8 u2 /e13_
@@ -997,7 +1010,8 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Tags:** tier-3, measure-before-build, found-during-probe, no-fabrication-verify
 - **Parsimony:** [BUILD (plan first; Tier 3 - house-state machine is a shared primitive consumed by HVAC, lighting, security, EVSE, battery)] With every tracker away and an untracked occupant home, path alpha toggles AWAY on single census drops (33/day on 10-14).
 - **Refs:** docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `plan_rev2_2026_10_16_overnight`: Two Tier-3 plan reviews ran (2026-10-16 02:17 CDT): R1 completeness FIX-PLAN (1 HIGH: the reused deferred-retry timer shares one slot with the hysteresis retry and can drop the AWAY), R2 build-prediction FIX-PLAN (2 HIGH: stamping on cen...
   - `plan_2026_10_16_overnight`: Per the operator instruction ('Tell me what the plan is. I want careful plans... context and prior art aware'), Tier-3 plan drafted: docs/planning/PLANNING_house_away_flap_untracked_occupant.md (ura-planner, after reading the presence, s...
   - `operator_instruction_2026_10_15`: Tell me what the plan is. I want careful plans. But make sure it context and prior art aware

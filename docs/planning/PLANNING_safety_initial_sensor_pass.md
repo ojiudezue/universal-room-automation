@@ -2,7 +2,20 @@
 
 Card: `SAFETY-NO-INITIAL-SENSOR-PASS-1` ("After a restart or URA reload, Safety does not know
 about a smoke/CO/leak detector that is still on"). Approved by the operator 2026-10-15 (board).
-Status: **draft, not yet plan-reviewed.** Written 2026-10-16 (overnight pass).
+Status: **Rev 2**, folding the Tier-2 plan review `docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md` (verdict FIX-PLAN light; no CRITICAL or HIGH). Rev 1 was written 2026-10-16 (overnight pass).
+
+## Rev 2: review disposition
+
+| ID | Sev | Finding | Disposition | Where |
+|---|---|---|---|---|
+| P-01 | MED | D3 gate resolvable now: `acknowledge_notification` acks only the latest unacked CRITICAL (`database.py:4628-4651`, `ORDER BY timestamp DESC LIMIT 1`). | **Accepted, verified.** D3 code is REQUIRED; the "collapse to a test" branch is deleted. | §5 Q4, §7 D3 |
+| P-02 | MED | A dominating PICK 1 option: honour a recovered unexpired cooldown. | **Accepted, verified** on branch: COOLDOWN recovery `notification_manager.py:4990-5014` sets `_alert_state=COOLDOWN` and `_active_alert_data{hazard_type,location}` and arms `_cooldown_expired` (`:3074-3085`), which calls `_re_evaluate_hazard` → `is_hazard_active` (`:3106`). New PICK 1(c) is the recommended default; the D3 accessor covers COOLDOWN. | §5 Q3, §7 D3, §11 |
+| P-03 | MED | The pre-NM ordering hazard is reachable. | **Accepted.** Restated as reachable and pre-existing; proposed as a separate follow-up card. The pass is unaffected. | §9, §12 |
+| P-04 | MED | A stuck-ON detector would unlock egress on every reload/restart once the toggle is ON. | **Accepted.** PICK 2(a) is kept with the risk named; new trip-wire deliverable D5 with a rung-1 knob. | §3, §7 D5, §8, §11 |
+| P-05 | LOW | Invariant wording when a batch is in flight. | **Accepted.** INV-SEED(a) reworded. | §6 |
+| P-06 | LOW | `seeded=0` does not discriminate. | **Accepted.** Log line gains `checked=N`; Live criterion requires N = discovered binary + CO fleet minus unavailable/unknown. | §7 D1 |
+| P-07 | LOW | D3 needs a discharge statement. | **Accepted.** Discharge stated. | §7 D3 |
+
 
 **Sequencing:** this plan is written against `feature/safety-nm-refire` (the
 SAFETY-NM-REFIRE-UNWIRED-1 cycle, deploy held to Sun 10-18, ships as v5.103.65). All `file:line`
@@ -144,16 +157,20 @@ All discovered **binary** sensors (`_binary_sensors`: smoke-list + leak) whose c
 **Q2. Unavailable / unknown at boot?**
 Skip them. Do not seed, do not stamp `_sensor_unavailable_since`, and do not restore a hazard from memory. That matches the event handler (`:1589`). When the sensor recovers, `:1603-1633` handles it (`_evaluate_sensor_on_recovery` plus intent). An `unknown → on` transition is covered because `unknown` is in `_UNAVAILABLE_STATES`. **Not seeding from a persisted hazard** is deliberate: the detector's current state is ground truth, and restoring a stale "smoke" key for a now-dead sensor would create a hazard nobody can clear except by the sweep backstop.
 
-**Q3. Detector ON and acked before the restart: re-page or not?**
-Re-page once at boot (recommended; see the PICK in §11). Reasons:
+**Q3. Detector ON and acked before the restart: re-page or not?** (Rev 2, P-02)
+Recommended (PICK 1(c)): **honour NM's recovered state, page otherwise.**
+- If NM recovered an **unexpired COOLDOWN** for the same `(hazard_type, location)` (`notification_manager.py:4990-5014`), the seed registers the hazard **silently** (entity, actuators, `is_hazard_active`=True, no NotificationAction). At expiry, `_cooldown_expired` (`:3074-3085`) → `_re_evaluate_hazard` → `is_hazard_active` (`:3106`) returns True and re-fires. There is no early re-page.
+- If there is no NM state for the key (the cooldown expired during downtime, or the hazard began while HA was down), the seed **pages once**. There is no permanent silence.
+
+Rev 1 reasoning, kept for (a):
 - NM drops COOLDOWN on entity restore (`notification_manager.py:965-971`) and recovers it from the DB only if it is unexpired (`:4990-5014`). If the cooldown expired while HA was down, nothing would ever re-page. That is precisely the operator-visible defect.
 - Without a restart, the same still-ON acked hazard **does** re-page at cooldown expiry (refire D2). One page at boot keeps restart behaviour consistent with that.
-- Cost: if HA restarts inside the 2-5 min cooldown, the operator gets the re-page a few minutes early. A new CRITICAL pre-empts cooldown (`_enter_alerting` cancels it, `:2513-2520`).
+- Cost of (a) alone: if HA restarts inside the 2-5 min cooldown, the operator gets the re-page a few minutes early, because a new CRITICAL pre-empts the cooldown (`_enter_alerting` cancels it, `:2513-2520`). Option (c) removes that cost.
 
 **Q4. One page vs none at boot? Double-page risk.**
-One page per seeded hazard, with one exception (D3): if NM already holds the **same** `(hazard_type, location)` in ALERTING/REPEATING (recovered unacked CRITICAL, `:4964-4983`), the seeded hazard registers in Safety (entity, `is_hazard_active`, actuators) but **does not emit a NotificationAction**.
+One page per seeded hazard, with one exception (D3): if NM already holds the **same** `(hazard_type, location)` in ALERTING/REPEATING/COOLDOWN (recovered unacked CRITICAL, `:4964-4983`), the seeded hazard registers in Safety (entity, `is_hazard_active`, actuators) but **does not emit a NotificationAction**.
 - Reason: otherwise `_enter_alerting` writes a second unacked `notification_log` row and overwrites the slot. A later ack targets "latest unacked CRITICAL" (refire plan N4).
-- That leaves the older row unacked, so the next restart within 24 h would recover it and repeat a hazard that may already be cleared. **Not verified:** whether ack marks all rows of an episode. The builder must check `acknowledge_notification` in `database.py` first. If ack already covers the duplicate, D3 collapses to a test asserting one page.
+- That leaves the older row unacked, so the next restart within 24 h would recover it and repeat a hazard that may already be cleared. **Verified (P-01):** `acknowledge_notification` (`database.py:4628-4651`) acks only the single latest unacked CRITICAL row (`ORDER BY timestamp DESC LIMIT 1`). Ack does not cover the duplicate, so D3 code is required.
 - NM boot-settle does not dedupe this case, because life-safety bypasses it (`:1516-1517`).
 - Every seeded type (smoke, water_leak, flooding, carbon_monoxide) is in `NM_LIFE_SAFETY_HAZARDS` (`const.py:3391-3399`), so NM's boot-settle never collapses a seeded page.
 
@@ -168,9 +185,9 @@ Both paths queue intents into the same batch queue. The second `_respond_to_haza
 ## 6. Falsifiable invariant
 
 > **INV-SEED:** After Safety setup completes on any path (HA start, URA/CM reload, Safety re-enable) and NM is set up:
-> (a) for every discovered binary sensor whose current state is `on`, and every discovered numeric sensor of a type in `SAFETY_INITIAL_PASS_NUMERIC_TYPES` whose current reading classifies as a hazard, the corresponding hazard key is present in `_active_hazards`, and `is_hazard_active(type, location)` is True, by the end of the first intent batch after the pass;
+> (a) for every discovered binary sensor whose current state is `on`, and every discovered numeric sensor of a type in `SAFETY_INITIAL_PASS_NUMERIC_TYPES` whose current reading classifies as a hazard, the corresponding hazard key is present in `_active_hazards`, and `is_hazard_active(type, location)` is True, by the end of the first intent batch **that drains the pass intents** (if a batch is in flight, the pass intents are rescheduled into the next one, `manager.py:1011-1019`);
 > (b) **no** hazard key is ever created from a sensor whose current state is `off`, `unavailable`, or `unknown`, or that is not discovered;
-> (c) each seeded life-safety hazard produces **at most one** NotificationAction from the pass, and **zero** if NM already holds the same `(hazard_type, location)` in ALERTING/REPEATING;
+> (c) each seeded life-safety hazard produces **at most one** NotificationAction from the pass, and **zero** if NM already holds the same `(hazard_type, location)` in ALERTING/REPEATING/COOLDOWN;
 > (d) with no discovered sensor in a hazard state, the pass produces no intent, no action, and no log row (byte-identical to today).
 >
 > Falsified by any reachable path, including the re-enable path and observation mode, where (a)-(d) fails. Example: a reload with `binary_sensor.waterleak_hob_zigbee_kitchen_water_leak = on` that leaves `water_leak:Kitchen` absent after the first batch, or a recovered REPEATING `smoke:<loc>` row plus a second unacked `smoke:<loc>` row written by the pass.
@@ -184,7 +201,7 @@ Both paths queue intents into the same batch queue. The second `_respond_to_haza
 - Read `hass.states.get(eid)`. Skip `None` and `_UNAVAILABLE_STATES`. For binary, skip anything other than `"on"`. For numeric, skip unparseable values.
 - Queue `Intent(source="initial_pass", entity_id=eid, data={"state": s, "old_state": None}, coordinator_id="safety")` via `manager.queue_intent`, exactly like `:1621-1633`.
 - No-op when `not self._enabled` or `SAFETY_INITIAL_SENSOR_PASS_ENABLED` is False.
-- Log one INFO line with counts (`seeded=N skipped_unavailable=M`). This is the live discriminator.
+- Log one INFO line with counts (`checked=N seeded=S skipped_unavailable=M`), where `checked` = discovered binary sensors + `SAFETY_INITIAL_PASS_NUMERIC_TYPES` sensors whose state was readable and not unavailable/unknown. This is the live discriminator (P-06).
 
 **Wire-in anchors (mandatory, per `feedback_wire_in_anchor_mandatory`):**
 - (i) `manager.async_start`, immediately after the NM setup block (`manager.py:505-514`), guarded so that NM failure does not block the pass. If NM setup failed, still seed: the entity state matters even without paging.
@@ -199,7 +216,9 @@ Both calls go through a single helper so there are no two hand-rolled paths.
 - **Test:** `test_initial_pass_seeds_on_binary_without_event`, `test_initial_pass_skips_off_unavailable_unknown_missing`, `test_initial_pass_runs_after_nm_setup`, `test_initial_pass_runs_on_safety_reenable`, `test_initial_pass_respects_kill_switch`, `test_initial_pass_observation_mode_registers_no_actions`, `test_initial_pass_two_leaks_escalate_flooding`, `test_initial_pass_co_numeric_seeded_temperature_not`.
   - Tests must drive the **real** `CoordinatorManager.async_start` and the real `_async_process_batch`, not a fake coordinator (v5.8.0 incident lesson).
 - **Mutation anchors (C):** delete call site (i) and `test_initial_pass_seeds_on_binary_without_event` goes RED; delete call site (ii) and `..._on_safety_reenable` goes RED; drop the `_UNAVAILABLE_STATES` skip and `..._skips_...` goes RED.
-- **Live:** After the deploy restart, the HA log has one `Safety initial sensor pass: seeded=0 ...` line (all detectors off today), and `binary_sensor.ura_safety_coordinator_safety_alert` is `off`. If the line were missing or showed `seeded>0` with no detector on, the build would be wrong.
+- **Live:** After the deploy restart, the HA log has one `Safety initial sensor pass: checked=N seeded=0 ...` line. N must equal the count of discovered binary + CO sensors that are not unavailable/unknown at that moment, cross-checked by a `hass.states` read at the same time.
+  - A pass that runs but classifies nothing shows `checked=0`. That would be a FAIL, not "all clear".
+  - Also: `binary_sensor.ura_safety_coordinator_safety_alert` is `off`.
 
 ### D2: Post-ACK re-fire survives restart (verification of the §0b discriminator; no new code beyond D1)
 #### Acceptance criteria
@@ -207,17 +226,33 @@ Both calls go through a single helper so there are no two hand-rolled paths.
   - **Contrast:** with D1's call removed, `is_hazard_active` is False and NM goes IDLE (no row). That is the refire plan §0b discriminator, in-suite.
 - **Live:** In-suite only. Inducing a live smoke ON plus a restart in an occupied house is not acceptable. Recorded as in-suite-only in the README.
 
-### D3: No duplicate unacked row when NM already alerts this key
-- Add a read-only NM accessor `is_alerting_for(hazard_type, location) -> bool` (True if `_alert_state` ∈ {ALERTING, REPEATING} and `_active_alert_data` matches).
+### D3: No duplicate unacked row when NM already owns this key (REQUIRED, P-01; widened to COOLDOWN, P-02)
+- Add a read-only NM accessor `owns_hazard_key(hazard_type, location) -> bool` (name provisional). It is True if `_alert_state` ∈ {ALERTING, REPEATING, COOLDOWN} and `_active_alert_data` matches the key.
 - In `_respond_to_hazard`, **only for `source="initial_pass"` hazards**, skip appending the NotificationAction when the accessor is True. Everything else (registration, entities, actuators, signal) is unchanged.
 - Threading the source into `_respond_to_hazard` needs one parameter on the existing call at `:1702`. The builder must keep the state-change path byte-identical: the default is `source=None`, which means today's behaviour.
-- **Gate:** check `database.acknowledge_notification` first. If ack already clears every unacked row for the episode/key, drop D3's code and keep only the test.
+- **Discharge (P-07):** the suppression is discharged by NM's own state machine. REPEATING keeps paging until acked; COOLDOWN re-fires at expiry through `is_hazard_active`, which the seed made True. If NM leaves that state without an ack (for example NM disabled mid-episode), the hazard stays in `_active_hazards`, so the next state-change relapse or the post-ACK re-fire pages normally. The skip is a one-shot at pass time, not a standing mute.
 #### Acceptance criteria
 - **Verify / Test:** `test_initial_pass_does_not_double_page_recovered_repeating`: NM recovered REPEATING `smoke:Kitchen`; the pass seeds `smoke:Kitchen` → zero new `notification_log` rows, `_active_hazards` has the key, the emergency-light action is still emitted.
   - **Contrast:** recovered REPEATING `smoke:Garage` + seeded `smoke:Kitchen` → exactly one new row (a different key is not suppressed).
+- **Test:** `test_initial_pass_honors_recovered_cooldown` (P-02): NM recovered an unexpired COOLDOWN for `smoke:Kitchen`; the smoke sensor is `on` before setup.
+  - Expect zero rows at seed time, then exactly one `_re_evaluate_hazard` re-fire at expiry.
+  - **Contrast:** an expired cooldown (no NM state) gives one row at seed time.
 - **Test:** `test_state_change_path_unaffected_by_d3`: the event path still pages when NM is REPEATING on the same key (today's behaviour preserved).
 - **Mutation (C):** force the accessor to False and the double-page test goes RED.
 - **Live:** none possible without a live hazard (in-suite only).
+
+### D5: Stuck-detector trip-wire (P-04)
+When the pass seeds a **CRITICAL** hazard from a sensor whose `last_changed` predates the pass by more than `SAFETY_INITIAL_PASS_STUCK_SENSOR_H`, Safety emits one additional NotificationAction.
+- Severity HIGH; `hazard_type="safety_sensor_stuck"`, which is not life-safety, so NM boot-settle collapses repeats inside the 60 s window.
+- Text along the lines of "<sensor> has read ON since <time>; check for a stuck detector."
+- It also logs a WARNING.
+- The seeded hazard and its responses are **not** suppressed. This is a signal for the operator, not a gate.
+- Why: once the egress toggle is ON, a stuck smoke/CO detector unlocks the doors on every reload/restart, and reload/restart storms have run ~5×/night. This makes that visible on the first occurrence.
+#### Acceptance criteria
+- **Test:** `test_initial_pass_stuck_sensor_tripwire_fires`: `last_changed` = now − 48 h with the knob at 24 h → one stuck notification plus the normal hazard response.
+- **Contrast tests:** `last_changed` = now − 1 h → no stuck notification. Knob = 0 → no stuck notification.
+- **Mutation (C):** invert the age comparison and the test goes RED.
+- **Live:** in-suite only (no detector is ON).
 
 ### D4: Docs
 - `SAFETY_COORDINATOR.md` §5: replace the "pre-existing gap" clause with the initial-pass description, the consumer table summary (§3), and the measured boot timings (§4).
@@ -232,6 +267,7 @@ Both calls go through a single helper so there are no two hand-rolled paths.
 |---|---|---|---|---|
 | `SAFETY_INITIAL_SENSOR_PASS_ENABLED` | `True` | 1 (module const, `safety.py`) | Life-safety behaviour. Turning it off must require review, and the operator has no legitimate reason to turn it live. | `False` = today's behaviour exactly (no pass). |
 | `SAFETY_INITIAL_PASS_NUMERIC_TYPES` | `frozenset({"co"})` | 1 | Which numeric types to seed. Widening it changes boot paging, so it is reviewed. | Empty set = binary-only. |
+| `SAFETY_INITIAL_PASS_STUCK_SENSOR_H` | `24` | 1 | Age threshold for the D5 stuck-detector trip-wire. Safety-adjacent; changing it should be reviewed. | `0` = trip-wire disabled. |
 | (no settle-delay knob) | n/a | n/a | Measured unnecessary (§4): late sensors arrive via recovery events. | n/a |
 
 No new config-flow fields and no entities.
@@ -243,7 +279,7 @@ No new config-flow fields and no entities.
 - Seeding temperature / humidity / CO2 / TVOC.
 - Any change to `_repeat_alert`, the NM boot-settle window, or `is_hazard_active` semantics.
 - A periodic re-poll of sensor state (the sweep backstop already exists for raising contributors).
-- The pre-existing ordering hazard where a state-change event processed during the boot window may reach `NM.async_notify` before `NM.async_setup`. **Not verified** as reachable. Card it if review confirms.
+- The pre-NM-setup ordering hazard (P-03). **It is reachable and pre-existing.** Safety subscribes in its own `async_setup` (`manager.py:497-502`) while later coordinator setups still await (HVAC waits on Presence). The batch window is 100 ms (`manager.py:50`, `:933-945`). So a fast device event (the Shelly flood is valid at 16-23 s, §4) can run `_execute_action` → `NM.async_notify` before `NM.async_setup` (`:505-514`) and its DB recovery, and write a row that recovery then shadows. The pass is unaffected: it runs after NM setup, and a hazard already raised makes the seed `not is_new`. Proposed as a follow-up card (§12).
 
 ## 10. Tier and review framings
 
@@ -271,12 +307,18 @@ Three build reviews, framing-disjoint:
 ## 11. Open questions for the operator (PICKs)
 
 1. **Boot page for an already-acked, still-ON detector.**
-   - (a) Re-page once at boot. **Recommended**: consistent with post-ACK re-fire, and covers an expired cooldown.
+   - (a) Always re-page once at boot. Early re-page inside the cooldown.
    - (b) Seed silently and let only NM recovery page. Leaves an acked hazard with an expired cooldown permanently silent.
+   - (c) **Recommended (P-02):** honour a recovered unexpired cooldown (seed silently; NM re-fires at expiry through `is_hazard_active`), and page once when there is no NM state. No early re-page, no permanent silence.
 2. **Actuators at boot (door unlock, fan stop, emergency lights, valve).**
    - (a) Same as a live event. **Recommended**: doctrine, and both door/fan toggles are OFF here today.
+     - **Named risk (P-04):** if `security_on_hazard_unlock_egress` is turned ON, a stuck-ON smoke/CO detector unlocks every egress door on **every** reload/restart, including while the house is AWAY. A live event does this only once per episode.
+     - Mitigation: the D5 trip-wire pages "possible stuck detector" the first time.
    - (b) Page-only at boot, no actuators. Adds a source-gated branch inside `_respond_to_hazard` (a second path; Bug Class #53 risk).
-3. **D3 duplicate-row guard.**
-   - (a) Build it, gated on the `acknowledge_notification` check. **Recommended**.
-   - (b) Accept the duplicate row.
-4. **Fleet-health cards** (dead smoke detector, 4 never-valid leak pucks, a ghost entity, gas sensor in the smoke list): card them now? **Recommended yes.** Higher value than this cycle.
+3. **D3 duplicate-row guard:** no longer a pick. Required after P-01 verification.
+4. **D5 stuck-detector trip-wire threshold:** 24 h default (rung 1), 0 disables. **Recommended: 24 h.**
+5. **Fleet-health cards** (dead smoke detector, 4 never-valid leak pucks, a ghost entity, gas sensor in the smoke list): card them now? **Recommended yes.** Higher value than this cycle.
+
+## 12. Follow-ups (proposed cards, not minted here)
+- **SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1** (P-03): a state-change NotificationAction can reach `NM.async_notify` before `NM.async_setup` and its DB recovery (`manager.py:497-514`). It is reachable with fast WiFi/ESPHome devices. Fix direction: hold NotificationActions until NM is set up, or set up NM before coordinators. That is a separate cycle.
+- Fleet-health cards listed in §9 (dead smoke detector, never-valid leak pucks, ghost `_ziribathroom_water_leak_2`, gas sensor in the smoke list).
