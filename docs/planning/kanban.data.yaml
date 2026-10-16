@@ -382,7 +382,8 @@ cards:
   operator_instruction_2026_10_15: "(1) Blind pause: I understand being unable to command but why stop reasoning when you clearly can? (2) Fix the matching. Reason from first principles: is it above medium? What would we act on for inclement weather? We built this so we don't react to things that don't matter that come over alerts, for our GPS coord. (3) Forecast never consulted seems dumb; peering into the future is an advantage. Check the original plan: mistake, or what was the reasoning (which can be improved)."
   title: 'Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input'
   thread: energy
-  status: waiting_me
+  status: shipped_organic
+  shipped_version: v5.103.67
   tier: 3
   origin: 'operator 2026-10-15 ~22:40: "why is the storm hold not tripped and is that reasonable. Check code. We may find warts. Its worth inspecting and hardening. Enphase can do its own storm hold. They like to override my settings."'
   why: 'Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_events keyword (inclement.py:141-149, energy_const.py:630-639); Moderate demotes to watch, watch needs corroboration. (3) _alert_expires_at min(Ends,Expires) inclement.py:129-138 + drop at :213; Onset never read -> future alert "active" now, expired at onset. (4) no forecast lookahead / precip probability / gust knob; condition path reads current state only (weather_manager.py:787-838), needs >=2 stormy providers, mid/peak never hold on condition. (5) watch_requires_corroboration CONF unexposed (energy_const.py:620). (6) Enphase Storm Guard not visible to URA.'
