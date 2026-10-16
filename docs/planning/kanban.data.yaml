@@ -279,10 +279,11 @@ cards:
   next: 'Prior-art scan (HVAC write governance, presence, EVSE overlay, drain-precedence ledger) then Tier-3 plan; decide sequencing vs EC-INCLEMENT-HARDENING-1 D-blind (governor first makes D-blind a one-line floor registration).'
   rank: {value: 8, time_criticality: 4, effort: 6}
 - id: EC-BLIND-DEESCALATE-TOP-RATE-1
-  title: 'Envoy-blind de-escalation (never import through peak) keys on tou_period == "peak" only; in shoulder/winter seasons with no peak, mid_peak is the top rate and a blind grid charge can run through it'
+  operator_2026_10_16: '"boo. it needs more resilience. This text matching is nonsense when there are better candidates." Widened: 35 literal period-name checks (== "peak" / "mid_peak") across energy.py 9, energy_battery.py 13, energy_pool.py 8, energy_tou.py 1, hvac_predict.py 2. Better candidates already exist in the TOU engine: get_current_rate / get_effective_import_rate (energy_tou.py:472/:488), get_next_high_rate_transition / get_today_high_rate_transitions (:645/:689). Direction: one TOU primitive (rate rank within the active season, e.g. is_top_rate / rate_tier) and audit all 35 sites — classify each as "means top rate" vs "means the literal named period" before migrating. Tier: likely 3 (shared primitive, cost + safety, many consumers).'
+  title: 'TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21)'
   thread: energy
   status: pre_planning
-  tier: 2
+  tier: 3
   origin: 'Operator 2026-10-16: "What does this do? Should we treat mid peak as peak in this case since its the highest of 2 rates vs 3?"'
   why: 'energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE window 14:30-17) imports through the most expensive window. Fix: key on "highest-priced period in the active season schedule" (derive from tou_rates.json), not the literal name.'
   related: [EC-INCLEMENT-HARDENING-1, EC-RESERVE-WRITE-GOVERNOR-1]

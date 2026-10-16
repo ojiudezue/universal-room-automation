@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T00:20:59-05:00_ - _Data commit: `23773c984012`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-16T00:22:56-05:00_ - _Data commit: `d273f9cfe7d5`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -77,12 +77,13 @@ thread: **energy** - status: **investigating**
 ## 🧭 Pre-planning (9)
 _idea being decomposed_
 
-### `EC-BLIND-DEESCALATE-TOP-RATE-1` - Envoy-blind de-escalation (never import through peak) keys on tou_period == "peak" only; in shoulder/winter seasons with no peak, mid_peak is the top rate and a blind grid charge can run through it — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
+### `EC-BLIND-DEESCALATE-TOP-RATE-1` - TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21) — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
 thread: **energy** - status: **pre_planning**
 - **Why:** energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE w...
 - **Next:** After governor ships (blind write is in its site table): small plan — derive top-rate period per season from the TOU engine; test shoulder schedule blind at 17:00 with CFG on -> de-escalate.
-- **Forensic keys (2):**
-  - `tier`: 2
+- **Forensic keys (3):**
+  - `operator_2026_10_16`: "boo. it needs more resilience. This text matching is nonsense when there are better candidates." Widened: 35 literal period-name checks (== "peak" / "mid_peak") across energy.py 9, energy_battery.py 13, energy_pool.py 8, energy_tou.py 1...
+  - `tier`: 3
   - `related`: EC-INCLEMENT-HARDENING-1
 
 ### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
