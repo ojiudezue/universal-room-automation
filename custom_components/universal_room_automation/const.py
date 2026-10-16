@@ -4714,6 +4714,18 @@ WS_ACTIVITY_COLUMNS: Final = (
     "importance", "description", "details_json", "entity_id",
 )
 
+# EC-OUTAGE-LEDGER D-L0 (rung 1): `ura_activity_log` actions that
+# `prune_activity_log` NEVER deletes (outage/alert evidence ledger; volume
+# budget <= ~1,000 rows/yr, revisit with a dedicated table above 5,000/yr).
+# Rendered to a SQL literal at import by database.py (identifier-checked,
+# never user input). Empty tuple = prune exactly as before.
+ACTIVITY_LEDGER_RETAINED_ACTIONS: Final = (
+    "nws_alert",
+    "grid_outage",
+    "inclement_code_drift",
+    "inclement_memory_cleared",
+)
+
 
 # ---------------------------------------------------------------------------
 # Stuck-Signal Watchdog cycle (v5.35.0) — see
