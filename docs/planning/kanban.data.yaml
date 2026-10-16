@@ -61,12 +61,16 @@ meta:
     acknowledged: false
 cards:
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
+  updated: "2026-10-16 02:14"
+  release_notes: "Custom Preset Ranges: when URA gives up on a thermostat range (thermostat unreachable, range not taking, original not restored) the notification is now HIGH so it reaches your phone; before it was MEDIUM and went nowhere."
+  built_2026_10_16_overnight: "Built on branch fix/s10-latch-nm-high (worktree .claude/worktrees/overnight-s10-nm-high): 3 literals MEDIUM->HIGH + docstring; 3 tests (test_s10_latch_nm_*_is_high) in test_hvac_cpr_batch_c.py; HVAC state-of-play bullet. test_hvac_cpr_batch_c.py 158 passed. Mutation drill: reverting each literal turns exactly its own test red (3/3), restored. Tier-1 review running. NOT merged to develop, NOT deployed."
+  gate_2026_10_16_overnight: "FOUR-STEP GATE (2026-10-16 02:14 CDT). (1) Validity: still real - hvac.py _s10_latch sends all three latch NMs at MEDIUM; notification_log shows 0 s10_* rows in 14 days and MEDIUM HVAC rows carry no channel (e.g. 24 'HVAC Override' MEDIUM rows, channel empty). (1b) Config-first: routing MEDIUM to the phone would also push every MEDIUM HVAC override (~24 per 14 days), so a channel change is the wrong lever. (2) Prior art: REUSE the existing severity argument of _s10_notify (hvac.py:4451); nothing new. (3) Parsimony: SIMPLIFY - the three latch NMs (each means 'URA stopped trying, act now', one per latch) go HIGH; s10_restore_pending stays LOW; the 'should the digest include LOW rows' question is NM-wide and NOT part of this card. (4) Cost/benefit: three literals + three tests, Tier 1, no risky ingredient."
   title: "Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config"
-  status: planned
+  status: "in_progress"
   tier: 1
   origin: "HVAC S10 review C (C-H1), 2026-10-15. Swept board: no existing card."
   why: "Live NM: one recipient (person.oji_udezue, digest delivery, no routing matrix); pushover/imessage/whatsapp CRITICAL only, companion HIGH, lights/TTS disabled; digest rows are written only for qualifying channels. So LOW/MEDIUM S10 notifications (s10_restore_not_taking, s10_preset_range_call_failed, s10_preset_range_not_sticking, s10_restore_pending, the switch backstop) produce only an [audit] row that get_pending_digest (database.py:4572) excludes: nobody is told. Pre-existing; the new settle-held alert is fixed to HIGH in feature/hvac-s10-settle."
-  next: "Me: decide per notification which deserve HIGH (operator-actionable: call_failed latch, restore_not_taking) vs digest; also check whether digest should include non-qualifying LOW rows at all. Tier 1."
+  next: "Me: fold the Tier-1 review; on SHIP leave the branch in review for the next attended deploy (merge to develop + README at deploy)."
   related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
   approval: explicit
@@ -529,6 +533,7 @@ cards:
     context: SAFETY-HAZARD-NEVER-CLEARS-1 (clear-on-recovery, plan rev 4 awaiting approval) adds a 300 s clear hold; the re-page wiring must be hold-aware, so it folds into that cycle.
     related: [SAFETY-HAZARD-NEVER-CLEARS-1]
 - id: SAFETY-HAZARD-NEVER-CLEARS-1
+  organic_evidence_2026_10_16_overnight: "Re-checked read-only (2026-10-16 02:12 CDT): no hazard raised since the 10-15 12:45 restart (sensor.ura_safety_coordinator_safety_active_hazards = 0 throughout; 63 smoke/CO/leak entities never on; only boot and test_kidde_co_alarm unavailable blips). 'Clears ~6 min after recovery' still NOT observable; 'no life-safety entity cleared while on/wet/unavailable' PASS (vacuous). Close done on the in-suite proof (75 tests) if no organic hazard by 10-21."
   plan_rev3_2026_10_01: 'PLAN AT REV 3 (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md). Two adversarial plan reviews ran: rev 1 FIX-PLAN (3 HIGH), rev 2 FIX-PLAN (2 new HIGH: a second instant CO2 clear at the log-only rung safety.py ~1895-1906, and rate hazards that never clear when a sensor goes quiet). Rev 3 addresses both plus: sensor registration before the not-new early return, a per-type dead-sensor policy (smoke/CO/leak stay latched fail-safe; humidity/temperature/CO2/TVOC/HVAC drop a dead contributor after 15 min), an invariant restated against the clear threshold, a full table of every hazard pop/clear site, and the 1-min sweep placed outside the flooding guard. Rev 3 has NOT had its own re-review yet. SCOPE GREW: the card was humidity/temperature never clearing; the plan now also changes how CO2/TVOC/CO hazards clear (adds hysteresis + a 5-min hold to stop the live 09-29 CO2 flap storm), adds rate-hazard expiry (ROC_STALE_SAMPLE_S=900) and dead-sensor expiry (SENSOR_UNAVAILABLE_WINDOW_S=900), and changes is_hazard_active to an exact match. Build tier: 2-DB (3 framing-disjoint reviews).'
   refinement:
   - 'plan review: per-room key vs per-sensor clear + shared rate/absolute keys + event-only hold timer -> rev 2 must key clears by the raising sensor/origin, add a periodic pending-clear sweep, and bring the already-flapping CO2/TVOC/CO numeric path under the same hysteresis'
@@ -538,7 +543,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.61
   created: '2026-09-27 02:40'
-  updated: "2026-10-16 02:09"
+  updated: "2026-10-16 02:12"
   refinement_status: 'refined'
   approval: unreviewed
   tags: [tier-2, no-fabrication-verify, mutation-drill]
@@ -15434,6 +15439,7 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: HUMIDITY-FAN-ON-RESEND-SPAM-1
+  organic_evidence_2026_10_16_overnight: "Re-checked read-only (2026-10-16 02:12 CDT, recorder 10-15 12:46 -> 10-16 02:10; v5.103.60 running since the 12:45 restart). automation.guest_toilet_automation2 already off since 12:46:17 (README Validated table), so the card's 'disable it' step is done. NEGATIVE leg PASS: Powder raw sensor on 23:02:21-23:02:41 and 23:07:39-23:07:59 (20 s each, under the 60 s dwell), fan switch.switch_shelly2pmgen3_wifi_guesttoilet2_sw2 stayed off. Still NOT observable: a > ~90 s Powder/Master Toilet visit (none happened; Master Toilet sensor never on) and a Ziri shower (max humidity 66.8 vs threshold 72; switch.ziri_bathroom_automation off throughout). Both proven in-suite."
   verified_2026_10_15_overnight: "CARD-WAS-WRONG on its next field (still described the pre-plan prior-art scan). Reality: built, three-framing reviewed and shipped as v5.103.60 at 19:43 10-14. update.universal_room_automation_update installed_version = v5.103.60, but system_log's oldest entry is 18:00:49 CDT and no restart followed the 19:43 install, so HA is still running v5.103.59 code. The resend flood therefore continues until the next restart. No restart overnight (house asleep, operator travelling)."
   why_only_master_2026_10_14: "Operator asked why only Master Bathroom. Measured 7d: Guest Bedroom 1 Bathroom + Master Bath Toilet have NO humidity sensor configured (path never runs). Laundry peaked 60.1% vs 60 threshold (2 samples). Ziri Bathroom crossed its 65% threshold 236 samples and Powder 60% 44 samples, but URA sent their fans ZERO turn_on: switch.ziri_bathroom_automation (off since at least 10-08 06:59) and switch.powder_automation (turned off 10-08 11:36 by the Oji account) are OFF, and venting requires room automation_enabled (coordinator.py:~5410 humidity_venting_enabled; handler gate). The humidity_fan_control toggles are ON. 21 room master switches are off house-wide. Decision to operator: turn those two on, or decouple humidity venting from the room master switch (it has its own toggle). The spam fix must be tested on Ziri/Powder paths too."
   measured_housewide_2026_10_14: "7-day recorder count of homeassistant.turn_on per configured humidity fan (6 rooms): Master Bathroom 3,806 (peak 652/h); Guest Bedroom 1 Bathroom, Ziri Bathroom, Laundry, Master Bath Toilet, Powder all 0. So the flood is one room today. The other rooms either never crossed their threshold this week or use a different path. The plan must check which, so the fix is not tested only on the room that happens to be humid."
@@ -15461,8 +15467,8 @@ cards:
     context: "FAN-MANUAL-1 settled manual-on semantics for the temperature fan; this path has the mirror question (manual off while humid). The two dropout cards are bathroom relays with Wi-Fi drops; this command flood could be a contributor, unproven."
   refs:
   - custom_components/universal_room_automation/automation.py (humidity fan control ~3315-3560)
-  next: "Me, at the next attended restart that activates v5.103.60 (HACS has it installed; HA has NOT restarted since 17:30 on 10-14, so it is not running yet): disable automation.guest_toilet_automation2 (still ON at 02:01 10-15) in the same window, then run the README_v5.103.60 Live checks (Master Bathroom turn_on count per humid episode, Powder/Master Toilet >90 s visit vents and <40 s does not, Ziri vents with its room switch off, 0 URA ERRORs), write the Validated table, then the operator sets Laundry humidity_fan_occupancy_dwell_enabled=false."
-  updated: "2026-10-15 02:05"
+  next: "Me, next overnight: re-check README_v5.103.60's two pending organic rows (a > 90 s Powder/Master Toilet visit turns the fan on; Ziri vents with its room switch off). If still unobserved by 10-21, close done on the in-suite proof (bounded window)."
+  updated: "2026-10-16 02:12"
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
   disposition_2026_10_14: "done."
   organic_evidence_2026_10_14: "(a) Boot errors: ha_get_logs system level=ERROR after the 10-14 01:16 CDT restart shows 0 entries from universal_room_automation (no automation / actuator_reconciler / lighting errors). This closes the log-read gap left on 10-09. (b) Bright-day check, recorder 10-09 23:00 -> 10-14 (23 rooms with night lights; only Master Closet has 'Use night lights by day'): 7 off->on transitions of night-light-only entities while the sun was up. 5 were URA (URA's room context parent 0199B0AE...0141, plus Garage Hallway): Master Bathroom switch.sonoff_1002197ef7_1 at 10-10 08:50 (lux 0.4), 10-12 08:38 (8.0), 10-12 09:43 (12.4), 10-13 08:15 (1.9), all below the room's dark threshold 15; Garage Hallway 10-13 07:45 lux 1 (threshold 20). Night light ON in a DARK room by day is the shipped rule. The other 2 had NO HA call_service at all (Study B dimmer 10-10 18:24; Master Bathroom sonoff 10-11 18:51 at lux 31.1), so they were wall-switch or device presses, not URA. Discriminator met: no URA night-light turn-on in a bright room without the by-day checkbox."
@@ -31354,6 +31360,7 @@ cards:
   next: "Closed 10-14 (Phase A). Phase B -> URA-SENSOR-TUNING-PHASE-B-1."
   related: [ROOM-CREATE-AREA-PREFILL-DETRITUS-1, OC-STUCK-SENSOR-GENERALIZE-1]
 - id: NIGHTLIGHT-RED-RECONCILE-PARITY-1
+  organic_evidence_2026_10_16_overnight: "Re-checked read-only (2026-10-16 02:12 CDT): across Sleep nights 10-13, 10-14 and 10-15 (partial) no colour-capable night light was restored by the reconciler during Sleep (the only colour-light room reconcile, Master Toilet 10-14 01:20:36, touched only its main switch). Also the recorder keeps NO colour attributes for these lights (friendly_name only), so this can only be read live, never from history. Per next: park on the in-suite proof on 10-18 unless a live Sleep read catches one."
   review_b_2026_10_11_overnight: "Review B FIX-REQUIRED: B1-1 HIGH (pre-existing, same problem) automation.py ~1553/~1566 night lights turned on with evening/day mode when main lights also qualify - the house-Sleep switch exists only in the night-light-only branch, and room sleep protection is off by default -> evening kelvin at house Sleep; B1-2 MEDIUM reconciler house-Sleep result lacks has_params_to_apply so a bulb returning on at factory warm white is skipped; B1-3 LOW switch.py RoomLightsSwitch builds night-light params by hand. All three sent to the builder (in scope - same red-at-sleep rule). Onset gap (already-lit lights at house Sleep onset) carded separately for the operator: NIGHTLIGHT-SLEEP-ONSET-RECOLOUR-1."
   review_2026_10_11_overnight: "Built fix/nightlight-red-reconcile-parity ce0a96d27 (pushed): resolver owns the red decision via supported_color_modes; automation.py import hoisted, duplicate branch removed, per-entity resolver calls batched; reconciler passes live modes. 9 new tests, 202 pass across 12 lighting files; call-neuter drill on both writers red. Review A dispatched (scrutinising the automation.py batching restructure for byte-identical non-red behaviour)."
   gate_2026_10_11_overnight: "Gate 2026-10-11 overnight: (1) STILL-REAL - lighting/resolver.py:148 night_light_turn_on_params has no rgb/red path; the red decision lives only in automation.py:1877-1892; actuator_reconciler.py:50 imports the resolver. (1b) no knob covers the reconciler path. (2) REUSE the shared resolver. (3) BUILD. (4) Tier 1, lighting only. Built to review overnight, no deploy."
@@ -31363,7 +31370,7 @@ cards:
   shipped_version: v5.103.52
   tier: 1
   created: "2026-10-10 22:00"
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-16 02:12"
   origin: "Master Toilet night-light check 2026-10-10; operator: 'Sleep is red'."
   why: "automation.py:1838-1860 sends rgb red at sleep for FULL-capability colour lights when CONF_NIGHT_LIGHT_SLEEP_HUE=red; actuator_reconciler.py:883 (reconcile-on-return) uses lighting.resolver.night_light_turn_on_params only, which returns color_temp_kelvin (2000 K) -> a colour light reconnecting while occupied at sleep is restored warm white. Two writers, one value (Bug Class #53). The Master Toilet RGBW dropped once at 03:44 UTC 10-10 but the room was vacant, so not hit live yet."
   next: "Me, dispose by 2026-10-18: one-shot check of a colour-capable night light restored by the reconciler during Sleep (hs/rgb = red). Not evaluable on 10-14: the overnight Sleep reconciles were switch-type lights only; Living Room night lights came on via the main controller, not a reconciler return. If no colour light is reconciled during Sleep by 10-18, park with that trigger (proven in-suite)."
