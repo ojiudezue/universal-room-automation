@@ -105,6 +105,20 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: TEST-BAYES-B2-CLOCK-SKEW-1
+  title: "Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC"
+  thread: quality
+  status: inbox
+  created: '2026-10-16 13:30'
+  updated: '2026-10-16 13:30'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [found-during-build, test-infra]
+  rank: {value: 3, time_criticality: 2, effort: 1}
+  problem_solution:
+  - "Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes effect because it uses sys.modules.setdefault. When local and UTC hours fall in different bins, 5 tests fail ('insufficient_data'). Confirmed failing on develop b003a64cd at 13:10 CDT. The file also errors at collection when run after a light file. Solution: compute the expected bin from the same clock the predictor uses, and make the file import its real dependencies itself."
+  origin: {date: '2026-10-16', gist: 'Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.'}
+  why: 'Pollutes every name-diff by time of day, so real regressions hide behind it.'
 - id: SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1
   title: "A fast detector event during startup can reach the Notification Manager before it has restored its saved state"
   thread: safety
