@@ -6,9 +6,9 @@ Every statically visible `number` / `set_value` writer anywhere in
 `energy_const.RESERVE_SET_VALUE_WRITERS`, with exactly the pinned count.
 
 Matched shapes (plan §4 counting rule):
-  * +1 per `Call` whose first two positional args are the constants
-    `("number", "set_value")`, or whose keywords are `domain="number"` and
-    `service="set_value"`;
+  * +1 per `Call` whose domain (1st positional OR `domain=`) is the constant
+    `"number"` AND whose service (2nd positional OR `service=`) is the
+    constant `"set_value"` — positional, keyword and mixed forms;
   * +1 per `ast.Constant == "number.set_value"` (dict-shape action
     `{"service": "number.set_value", ...}` or any other literal use).
   Constant args of a Call that already qualified are NOT counted again, so
@@ -61,19 +61,21 @@ def _enclosing_function(parents: dict, node: ast.AST) -> str:
 
 
 def _call_qualifies(call: ast.Call) -> bool:
-    pos = call.args[:2]
-    if (
-        len(pos) == 2
-        and all(isinstance(a, ast.Constant) for a in pos)
-        and (pos[0].value, pos[1].value) == ("number", "set_value")
-    ):
-        return True
+    """Domain from the 1st positional OR ``domain=``; service from the 2nd
+    positional OR ``service=`` (Review D D-1: the mixed form
+    ``async_call("number", service="set_value", …)`` is a legal all-literal
+    HA call and must be caught)."""
     kws = {
-        kw.arg: kw.value.value
+        kw.arg: kw.value
         for kw in call.keywords
         if kw.arg and isinstance(kw.value, ast.Constant)
     }
-    return kws.get("domain") == "number" and kws.get("service") == "set_value"
+    dom = call.args[0] if len(call.args) >= 1 else kws.get("domain")
+    svc = call.args[1] if len(call.args) >= 2 else kws.get("service")
+    return (
+        isinstance(dom, ast.Constant) and dom.value == "number"
+        and isinstance(svc, ast.Constant) and svc.value == "set_value"
+    )
 
 
 def scan_tree(tree: ast.AST, module: str) -> list[tuple[str, str, str, int]]:
@@ -206,6 +208,24 @@ def test_lint_catches_keyword_call_injection():
     )
     v = violations(scan_source(src, "optimization.py"), ALLOWLIST)
     assert any("optimization.py:rogue: UNLISTED" in s for s in v), v
+
+
+def test_lint_catches_mixed_positional_keyword_call_injection():
+    """Review D D-1 negative control: `async_call("number", service="set_value")`."""
+    src = _BASE + (
+        "async def rogue(hass, eid):\n"
+        "    await hass.services.async_call('number', service='set_value',\n"
+        "                                   service_data={'entity_id': eid})\n"
+    )
+    hits = scan_source(src, "energy.py")
+    assert hits == [("energy.py", "rogue", "call", 4)], hits
+    v = violations(hits, ALLOWLIST)
+    assert any("energy.py:rogue: UNLISTED" in s for s in v), v
+
+
+def test_lint_mixed_form_other_domain_does_not_match():
+    src = "async def w(hass):\n    await hass.services.async_call('input_number', service='set_value', service_data={})\n"
+    assert scan_source(src, "m.py") == []
 
 
 def test_lint_catches_second_writer_in_allowlisted_function():
