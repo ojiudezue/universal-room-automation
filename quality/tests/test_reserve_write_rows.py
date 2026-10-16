@@ -325,33 +325,43 @@ async def test_reserve_row_pre_state_none_writes_row(clock):
 
 
 @pytest.mark.asyncio
-async def test_reserve_row_failed_row_updates_memo(clock):
-    """R3-06: every WRITTEN row updates the memo, failures included — a
-    later success at the same key with hardware already correct is gated."""
+async def test_reserve_row_failed_then_recovered_resend_is_logged(clock):
+    """Review D D-4 (EVSE-hold repro): hold 60, hardware already 60, the
+    overlay appends set_value(60) every tick. Tick T: cloud raises → FAILED
+    row. Tick T+5: the same send succeeds with pre_state 60 → an APPLIED row
+    MUST be written (the ledger's last word must not stay "failed").
+    Mutation: FAILED rows update the memo → RED."""
     now = clock.t.astimezone(_CDT)
-    c, s = make_shell(clock, soc="45", reserve_state="0")
+    c, s = make_shell(clock, soc="20", reserve_state="60")
+    c._evse_hold_soc = 60
+    c._evse_battery_hold_active = True
+    s._last_reserve_level_desired = 20  # standing strategy desire
     good = c.hass.services.async_call
 
     async def _boom(domain, svc, data, blocking=False, **kw):
         raise RuntimeError("cloud down")
     c.hass.services.async_call = _boom
-    await timer_tick(c, s, "mid_peak", now)
+    d1 = c._apply_evse_battery_hold(s.determine_mode("mid_peak", "summer", now=now))
+    assert [a["data"]["value"] for a in d1["actions"] if a["service"] == "number.set_value"] == [60]
+    await timer_tick(c, s, "mid_peak", now, decision=d1)
     assert [r["status"] for r in rows(c)] == ["failed"]
-    assert c._last_reserve_row_key == ("timer", 45, "arbitrage_discharge")
+    assert getattr(c, "_last_reserve_row_key", None) is None  # FAILED did not arm the gate
 
     c.hass.services.async_call = good
-    _st(c.hass, RESERVE_WRITE_EID, "45", unit="%", lu=clock.t)
-    # Force a re-send despite the deadband (same key, hardware correct).
-    decision = {
-        "reason": "x", "charge_from_grid": False, "arbitrage_phase": "n/a",
-        "actions": [{"service": "number.set_value", "target": RESERVE_WRITE_EID,
-                     "data": {"value": 45}}],
-    }
-    await timer_tick(c, s, "mid_peak", now, decision=decision)
-    # The good stub records; the raising stub did not → exactly one record,
-    # proving the SECOND dispatch happened.
-    assert [x[2]["value"] for x in c.calls] == [45]
-    assert [r["status"] for r in rows(c)] == ["failed"]  # success gated
+    clock.t = clock.t + timedelta(minutes=5)
+    now2 = clock.t.astimezone(_CDT)
+    d2 = c._apply_evse_battery_hold(s.determine_mode("mid_peak", "summer", now=now2))
+    await timer_tick(c, s, "mid_peak", now2, decision=d2)
+    assert [x[2]["value"] for x in c.calls] == [60]  # the recovered send
+    assert [r["status"] for r in rows(c)] == ["failed", "applied"]
+    assert rows(c)[1]["pre_state"] == 60.0
+    # And NOW the gate is armed: a third identical send is skipped.
+    clock.t = clock.t + timedelta(minutes=5)
+    now3 = clock.t.astimezone(_CDT)
+    d3 = c._apply_evse_battery_hold(s.determine_mode("mid_peak", "summer", now=now3))
+    await timer_tick(c, s, "mid_peak", now3, decision=d3)
+    assert len(c.calls) == 2
+    assert [r["status"] for r in rows(c)] == ["failed", "applied"]
 
 
 @pytest.mark.asyncio

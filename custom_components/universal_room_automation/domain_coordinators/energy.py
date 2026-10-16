@@ -9134,8 +9134,9 @@ class EnergyCoordinator(BaseCoordinator):
             Drift corrections (cloud reverted, URA re-sends) and cloud-lag
             re-sends therefore always log; steady overlay re-sends at a
             value the hardware already holds are gated. FAILED and every
-            redispatch row bypass the gate. Every WRITTEN row updates the
-            memo (RAM-only: first post-boot write always logs).
+            redispatch row bypass the gate. Every written APPLIED/DEFERRED
+            row updates the memo; a FAILED row never does (D-4: a recovered
+            re-send must log). RAM-only: first post-boot write always logs.
         """
         try:
             battery = getattr(self, "_battery", None)
@@ -9216,7 +9217,13 @@ class EnergyCoordinator(BaseCoordinator):
             # Duck-check: MagicMock-shaped doubles return non-coroutines.
             if inspect.iscoroutine(_coro):
                 self.hass.async_create_task(_coro)
-            self._last_reserve_row_key = key
+            # Review D D-4: a FAILED row must NOT arm the gate — otherwise the
+            # next successful re-send of the same value (hardware already
+            # holding it, e.g. the EVSE overlay's per-tick append) would be
+            # gated and the ledger's last word would stay "failed". Only
+            # APPLIED/DEFERRED rows update the memo.
+            if status is not WriteStatus.FAILED:
+                self._last_reserve_row_key = key
         except Exception:  # noqa: BLE001 — defensive; the row never poisons dispatch
             _LOGGER.debug(
                 "reserve_write row failed status=%s path=%s",
