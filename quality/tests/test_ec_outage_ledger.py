@@ -820,3 +820,50 @@ async def test_outage_local_readings_unknown_states_are_none():
     hass.states.d[GS] = _State("unavailable")
     c = _cycle(hass, _battery_stub(hass, {}))
     assert c._outage_local_readings() == {GS: None}  # no verifier -> grid_enabled leg inert
+
+
+# --------------------------------------------------------------------------
+# B-HIGH-1: timer callbacks must run ON the event loop (real HA timers)
+# --------------------------------------------------------------------------
+def test_sweep_timer_callbacks_are_ha_callbacks():
+    from homeassistant.core import is_callback
+    led = L.OutageLedger(_Hass(_FakeDB()))
+    assert is_callback(led._spawn_sweep)
+    assert is_callback(led._on_initial)
+
+
+@pytest.mark.asyncio
+async def test_real_timers_run_the_sweep_on_the_loop():
+    """Real HomeAssistant + real async_call_later / async_track_time_interval
+    + time travel: the initial timer and the interval timer each spawn a
+    sweep task that runs on the loop thread. Without @callback HA dispatches
+    them to an executor thread and `async_create_task` raises there, so the
+    sweep never runs."""
+    import threading
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+        async_test_home_assistant,
+    )
+    from homeassistant.util import dt as dt_util
+
+    async with async_test_home_assistant() as hass:
+        led = L.OutageLedger(hass)
+        ran = []
+        loop_thread = threading.get_ident()
+
+        async def _rec(now=None):
+            ran.append(threading.get_ident())
+
+        led.sweep = _rec
+        assert led.arm() is True
+        try:
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+            await hass.async_block_till_done()
+            assert ran == [loop_thread]
+            async_fire_time_changed(
+                hass, dt_util.utcnow() + timedelta(hours=24, seconds=5))
+            await hass.async_block_till_done()
+            assert ran == [loop_thread, loop_thread]
+        finally:
+            led.cancel()
+            await hass.async_stop(force=True)

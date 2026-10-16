@@ -31,6 +31,8 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from homeassistant.core import callback
+
 from .energy_const import (
     ACTIVITY_LEDGER_IMPORTANCE,
     OUTAGE_CALENDAR_ENTITY_SUFFIX,
@@ -455,6 +457,10 @@ class OutageLedger:
     # ------------------------------------------------------------------
     # Scheduling (tracked; cancelled on unload)
     # ------------------------------------------------------------------
+    # B-HIGH-1: both are passed to HA timer helpers. Without @callback HA
+    # wraps them as executor jobs, so they would run off the event loop and
+    # `async_create_task` would raise the thread-safety error.
+    @callback
     def _spawn_sweep(self, _now: Any = None) -> None:
         if self._sweep_task is not None and not self._sweep_task.done():
             return  # one sweep at a time
@@ -479,6 +485,7 @@ class OutageLedger:
             )
         return True
 
+    @callback
     def _on_initial(self, _now: Any = None) -> None:
         self._initial_unsub = None
         self._spawn_sweep()
