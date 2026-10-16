@@ -37,4 +37,5 @@ Related, outside this arc: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 (Envoy dropout h
 
 ## Status log
 - 2026-10-16: arc opened. Step 1 building on Fable.
+- 2026-10-16: Stage L outage ledger deployed v5.103.67 (installed; activates at next restart). Plan Rev 2.1 merged.
 - 2026-10-16: step 1 deployed as v5.103.66; the optimizer reserve deny is kept in (operator: "Keep"). After the restart the Envoy setup hangs: `/info` answers, but the authenticated `/ivp/pdm/device_data` probe hangs, so the Envoy needs a gateway reboot. With the Envoy blind, EC holds and writes no reserve, so there are no `reserve_write` rows yet. Next: the integrated plan for steps 2-7.
