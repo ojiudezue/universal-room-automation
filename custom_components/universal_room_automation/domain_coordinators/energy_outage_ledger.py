@@ -41,7 +41,11 @@ from .energy_const import (
     OUTAGE_CALENDAR_ONGRID_SUBSTR,
     OUTAGE_CALENDAR_PLATFORM,
     OUTAGE_DEDUP_TOLERANCE_MIN,
+    OUTAGE_LEDGER_ALERT_SEED_LOOKBACK_H,
     OUTAGE_LEDGER_MAX_SEEN,
+    OUTAGE_LEDGER_SEED_MAX_ATTEMPTS,
+    OUTAGE_LEDGER_SEED_MAX_PAGES,
+    OUTAGE_LOCAL_MIN_GAP_MIN,
     OUTAGE_SWEEP_INITIAL_DELAY_S,
     OUTAGE_SWEEP_INTERVAL_H,
     OUTAGE_SWEEP_LOOKBACK_H,
@@ -133,6 +137,16 @@ class OutageLedger:
         # Cloud off-grid event starts already written (UTC iso keys).
         self._cloud_seen: set[str] = set()
         self._cloud_seeded = False
+        self._cloud_seed_attempts = 0
+        # Cross-boot nws_alert dedup (A-M1): the alert pass waits for the
+        # seed; a failed seed is retried on the next tick, up to
+        # OUTAGE_LEDGER_SEED_MAX_ATTEMPTS, then the ledger proceeds unseeded.
+        self._alerts_seeded = False
+        self._alert_seed_attempts = 0
+        self._alert_seed_task: asyncio.Task | None = None
+        # Per-sensor time of the last local_only row + edges suppressed since.
+        self._local_last_row_at: dict[str, datetime] = {}
+        self._local_suppressed: dict[str, int] = {}
         self._unresolved_warned = False
         # Scheduling handles (Bug Class #38: every timer/task is cancelled).
         self._initial_unsub: Any = None
@@ -189,7 +203,10 @@ class OutageLedger:
     ) -> None:
         """Run the per-tick ledger. Never raises."""
         try:
-            self._record_alerts(now, alerts, nws_entity, decision_age_s)
+            if not self._alerts_seeded:
+                self._ensure_alert_seed()
+            if self._alerts_seeded:
+                self._record_alerts(now, alerts, nws_entity, decision_age_s)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("ledger: nws_alert pass failed", exc_info=True)
         snap = self._decision_snapshot(decision, decision_age_s)
@@ -289,9 +306,21 @@ class OutageLedger:
                         k for k in (alert_key(a) for a in alerts
                                     if isinstance(a, dict)) if k
                     ]
+                self._local_obs.append((now, sensor))
+                last_row = self._local_last_row_at.get(sensor)
+                if (
+                    last_row is not None
+                    and OUTAGE_LOCAL_MIN_GAP_MIN > 0
+                    and now - last_row < timedelta(minutes=OUTAGE_LOCAL_MIN_GAP_MIN)
+                ):
+                    self._local_suppressed[sensor] = (
+                        self._local_suppressed.get(sensor, 0) + 1
+                    )
+                    continue
                 payload = {
                     "witness": "local_only",
                     "sensor": sensor,
+                    "suppressed_since_last": self._local_suppressed.pop(sensor, 0),
                     "tier": snap.get("tier"),
                     "hold_depth": snap.get("hold_depth"),
                     "reserve_floor": snap.get("reserve_floor"),
@@ -307,7 +336,7 @@ class OutageLedger:
                     payload=payload,
                     entity_id=sensor,
                 )
-                self._local_obs.append((now, sensor))
+                self._local_last_row_at[sensor] = now
 
     # ------------------------------------------------------------------
     # Cloud sweep (D-L2(i))
@@ -342,28 +371,105 @@ class OutageLedger:
         events = body.get("events") or []
         return [e for e in events if isinstance(e, dict)]
 
-    async def _seed_cloud_seen(self, now: datetime) -> None:
-        """Cross-boot dedup: load cloud rows already written in the lookback."""
-        self._cloud_seeded = True
+    async def _query_ledger_rows(
+        self, action: str, since: datetime,
+    ) -> list[dict[str, Any]] | None:
+        """Read this action's rows since ``since`` (paginated, bounded).
+
+        Returns None when the read did not succeed (no database, query error),
+        so the caller retries instead of treating it as "nothing written".
+        """
         try:
             db = self.hass.data.get(_DOMAIN, {}).get("database")
-            if db is None or not hasattr(db, "query_activities"):
-                return
-            since = (now - timedelta(hours=OUTAGE_SWEEP_LOOKBACK_H + 24))
-            res = await db.query_activities(
-                since=since.isoformat(), coordinator="energy",
-                action="grid_outage", limit=1000,
-                columns=("details_json",),
-            )
-            for row in (res or {}).get("rows", []):
-                try:
-                    d = json.loads(row.get("details_json") or "{}")
-                except Exception:  # noqa: BLE001
-                    continue
-                if d.get("witness") == "cloud" and d.get("event_start_utc"):
-                    self._cloud_seen.add(str(d["event_start_utc"]))
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("outage sweep: dedup seed failed", exc_info=True)
+            db = None
+        if db is None or not hasattr(db, "query_activities"):
+            return None
+        out: list[dict[str, Any]] = []
+        cursor = None
+        for _page in range(OUTAGE_LEDGER_SEED_MAX_PAGES):
+            res = await db.query_activities(
+                since=since.isoformat(), coordinator="energy", action=action,
+                limit=1000, columns=("id", "details_json"), cursor=cursor,
+            )
+            if not isinstance(res, dict) or res.get("error"):
+                return None
+            rows = res.get("rows") or []
+            out.extend(rows)
+            cursor = res.get("next_cursor")
+            if not rows or cursor is None or len(rows) < int(
+                res.get("page_size") or len(rows) + 1
+            ):
+                break
+        return out
+
+    async def _seed_cloud_seen(self, now: datetime) -> bool:
+        """Cross-boot dedup: load cloud rows already written in the lookback.
+
+        ``_cloud_seeded`` is set only after a successful read (A-L2).
+        """
+        rows = await self._query_ledger_rows(
+            "grid_outage", now - timedelta(hours=OUTAGE_SWEEP_LOOKBACK_H + 24),
+        )
+        if rows is None:
+            self._cloud_seed_attempts += 1
+            return False
+        for row in rows:
+            try:
+                d = json.loads(row.get("details_json") or "{}")
+            except Exception:  # noqa: BLE001
+                continue
+            if d.get("witness") == "cloud" and d.get("event_start_utc"):
+                self._cloud_seen.add(str(d["event_start_utc"]))
+        self._cloud_seeded = True
+        return True
+
+    async def _seed_alerts(self, now: datetime | None = None) -> bool:
+        """Cross-boot dedup for nws_alert rows (A-M1 / B-LOW-1).
+
+        Loads keys (and ends) of nws_alert rows written in the last
+        OUTAGE_LEDGER_ALERT_SEED_LOOKBACK_H. Sets ``_alerts_seeded`` only
+        after a successful read; a failure counts an attempt and, at
+        OUTAGE_LEDGER_SEED_MAX_ATTEMPTS, the ledger proceeds unseeded.
+        """
+        now = now or datetime.now(timezone.utc)
+        try:
+            rows = await self._query_ledger_rows(
+                "nws_alert",
+                now - timedelta(hours=OUTAGE_LEDGER_ALERT_SEED_LOOKBACK_H),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            rows = None
+        if rows is None:
+            self._alert_seed_attempts += 1
+            if self._alert_seed_attempts >= OUTAGE_LEDGER_SEED_MAX_ATTEMPTS:
+                _LOGGER.warning(
+                    "outage ledger: nws_alert dedup seed failed %d times; "
+                    "logging alerts unseeded (a restart may re-log them)",
+                    self._alert_seed_attempts,
+                )
+                self._alerts_seeded = True
+            return False
+        for row in rows:
+            try:
+                d = json.loads(row.get("details_json") or "{}")
+            except Exception:  # noqa: BLE001
+                continue
+            key = d.get("id")
+            if key and key not in self._seen_alerts:
+                self._seen_alerts[str(key)] = _alert_end(d)
+        self._alerts_seeded = True
+        return True
+
+    @callback
+    def _ensure_alert_seed(self) -> None:
+        """Start (or restart after a failure) the alert seed task."""
+        task = self._alert_seed_task
+        if task is not None and not task.done():
+            return
+        self._alert_seed_task = self.hass.async_create_task(self._seed_alerts())
 
     async def sweep(self, now: datetime | None = None) -> int:
         """One cloud sweep. Returns rows written. Never raises."""
@@ -394,7 +500,18 @@ class OutageLedger:
         start = now - timedelta(hours=OUTAGE_SWEEP_LOOKBACK_H)
         events = await self._fetch_events(eid, start, now)
         if not self._cloud_seeded:
-            await self._seed_cloud_seen(now)
+            if not await self._seed_cloud_seen(now):
+                if self._cloud_seed_attempts < OUTAGE_LEDGER_SEED_MAX_ATTEMPTS:
+                    _LOGGER.info(
+                        "outage sweep: dedup seed read failed (attempt %d), "
+                        "retrying next sweep", self._cloud_seed_attempts,
+                    )
+                    return 0
+                _LOGGER.warning(
+                    "outage sweep: dedup seed failed %d times; sweeping "
+                    "unseeded", self._cloud_seed_attempts,
+                )
+                self._cloud_seeded = True
         parsed: list[tuple[datetime, str, str]] = []
         for ev in events:
             cls = classify_calendar_summary(ev.get("summary"))
@@ -478,6 +595,8 @@ class OutageLedger:
             self._initial_unsub = async_call_later(
                 self.hass, OUTAGE_SWEEP_INITIAL_DELAY_S, self._on_initial,
             )
+        if not self._alerts_seeded:
+            self._ensure_alert_seed()
         if self._interval_unsub is None:
             self._interval_unsub = async_track_time_interval(
                 self.hass, self._spawn_sweep,
@@ -500,7 +619,8 @@ class OutageLedger:
                 except Exception:  # noqa: BLE001
                     pass
                 setattr(self, attr, None)
-        task = self._sweep_task
-        if task is not None and not task.done():
-            task.cancel()
-        self._sweep_task = None
+        for attr in ("_sweep_task", "_alert_seed_task"):
+            task = getattr(self, attr)
+            if task is not None and not task.done():
+                task.cancel()
+            setattr(self, attr, None)

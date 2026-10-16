@@ -2356,3 +2356,18 @@ OUTAGE_CALENDAR_ENTITY_SUFFIX: Final = "_system_event_history"
 # Hard ceiling on each RAM seen-set (alert IDs are also pruned to the live
 # feed every tick; this guards a pathological feed).
 OUTAGE_LEDGER_MAX_SEEN: Final = 500
+# Cross-boot dedup seed: lookback for existing nws_alert rows. Covers the
+# 48 h INCLEMENT_ALERT_MAX_HOLD_H cap plus a day of margin.
+OUTAGE_LEDGER_ALERT_SEED_LOOKBACK_H: Final = 72
+# Seed read attempts (one per tick for alerts, one per sweep for cloud rows)
+# before the ledger proceeds UNSEEDED (a restart may then re-log rows). Keeps
+# a persistently failing DB read from silencing the ledger forever.
+OUTAGE_LEDGER_SEED_MAX_ATTEMPTS: Final = 3
+# Pages of query_activities (200 rows each) read per seed; bounds the read.
+OUTAGE_LEDGER_SEED_MAX_PAGES: Final = 10
+# Minimum gap between two local_only rows for the SAME sensor. Why: a real
+# on/off flap of grid_status/grid_enabled could write 288 never-pruned rows
+# a day; the cloud row is the episode record, so one local row per 30 min
+# per sensor keeps the corroboration signal. Suppressed edges are still kept
+# in RAM for corroboration and counted on the next row. 0 = no gap.
+OUTAGE_LOCAL_MIN_GAP_MIN: Final = 30

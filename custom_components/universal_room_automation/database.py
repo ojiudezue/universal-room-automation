@@ -6866,7 +6866,11 @@ class UniversalRoomDatabase:
                 row_dicts = [dict(r) for r in rows]
         except Exception as e:
             _LOGGER.warning("query_activities failed: %s", e)
-            return {"rows": [], "next_cursor": None, "page_size": page_size, "capped": capped}
+            # EC-OUTAGE-LEDGER: additive "error" key so a caller can tell a
+            # failed read from an empty result (seed retry). Existing readers
+            # ignore unknown keys.
+            return {"rows": [], "next_cursor": None, "page_size": page_size,
+                    "capped": capped, "error": str(e)}
 
         next_cursor = None
         if row_dicts and "id" in row_dicts[-1]:

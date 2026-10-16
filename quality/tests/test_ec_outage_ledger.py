@@ -124,6 +124,13 @@ def _tick(ledger, now, alerts=None, local=None, decision=None):
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=CDT)
 
 
+async def _seeded(hass):
+    """A ledger whose cross-boot alert seed has run (production path)."""
+    led = L.OutageLedger(hass)
+    await led._seed_alerts(NOW)
+    return led
+
+
 # --------------------------------------------------------------------------
 # D-L0: prune exemption (real DB, real schema)
 # --------------------------------------------------------------------------
@@ -220,7 +227,7 @@ async def test_ledger_row_round_trips_through_real_db(real_db):
     table through the production log_activity DAO, with its payload."""
     db = real_db
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, alerts=[_alert()])
     await hass.drain()
     res = await db.query_activities(action="nws_alert", columns=("details_json", "importance"))
@@ -238,7 +245,7 @@ async def test_ledger_row_round_trips_through_real_db(real_db):
 async def test_alert_ledger_one_row_per_id():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, alerts=[_alert("A"), _alert("B")])
     _tick(led, NOW + timedelta(minutes=5), alerts=[_alert("A"), _alert("B")])
     await hass.drain()
@@ -250,7 +257,7 @@ async def test_alert_ledger_one_row_per_id():
 async def test_alert_ledger_seen_set_pruned():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, alerts=[_alert("A", ends="2026-10-16T12:30:00-05:00")])
     assert "A" in led._seen_alerts
     # Left the feed but not yet ended: kept (a feed blip must not re-log).
@@ -268,7 +275,7 @@ async def test_alert_ledger_seen_set_pruned():
 async def test_alert_ledger_unavailable_feed_writes_nothing_and_keeps_set():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, alerts=[_alert("A", ends="2026-10-16T12:01:00-05:00")])
     _tick(led, NOW + timedelta(hours=2), alerts=None)
     assert "A" in led._seen_alerts
@@ -279,7 +286,7 @@ async def test_alert_ledger_unavailable_feed_writes_nothing_and_keeps_set():
 @pytest.mark.asyncio
 async def test_alert_ledger_no_database_does_not_mark_seen():
     hass = _Hass(None)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, alerts=[_alert("A")])
     assert led._seen_alerts == {}
 
@@ -291,7 +298,7 @@ async def test_alert_ledger_no_database_does_not_mark_seen():
 async def test_outage_local_only_never_opens_episode():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     dec = SimpleNamespace(tier="watch", hold_depth="partial_hold", reserve_floor=50)
     for i, r in enumerate([False, True, True, None, True, False]):
         _tick(led, NOW + timedelta(minutes=5 * i), alerts=[_alert("A")],
@@ -310,7 +317,7 @@ async def test_outage_local_only_never_opens_episode():
 async def test_outage_witness_none_is_not_a_transition():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     # Baseline True (off-grid); a None between two Trues must not read as a
     # False -> True transition.
     for i, r in enumerate([True, None, True, None, True]):
@@ -324,7 +331,7 @@ async def test_outage_witness_none_is_not_a_transition():
 async def test_outage_witness_boot_sets_baseline_silently():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, local={GE: True})
     _tick(led, NOW + timedelta(minutes=5), local={GE: True})
     await hass.drain()
@@ -335,7 +342,7 @@ async def test_outage_witness_boot_sets_baseline_silently():
 async def test_outage_local_sensors_tracked_independently():
     db = _FakeDB()
     hass = _Hass(db)
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, NOW, local={GE: False, GS: None})
     _tick(led, NOW + timedelta(minutes=5), local={GE: True, GS: False})
     _tick(led, NOW + timedelta(minutes=10), local={GE: True, GS: True})
@@ -393,7 +400,7 @@ async def test_outage_sweep_substring_match(monkeypatch):
     hass, db = _sweep_hass(_calendar_events() + [
         _ev(SEP16 + timedelta(hours=5), "NOTICE: SYSTEM IS NOW OFF GRID (manual)"),
     ])
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     n = await led.sweep(SWEEP_NOW)
     await hass.drain()
     assert n == 2
@@ -433,7 +440,7 @@ async def test_outage_sweep_gateway_reboot_writes_nothing(monkeypatch):
 async def test_outage_sweep_dedups_across_sweeps(monkeypatch):
     _registry(monkeypatch, [(CAL, "enphase_ev")])
     hass, db = _sweep_hass(_calendar_events())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     assert await led.sweep(SWEEP_NOW) == 1
     assert await led.sweep(SWEEP_NOW + timedelta(hours=6)) == 0
     await hass.drain()
@@ -458,7 +465,7 @@ async def test_outage_sweep_dedups_across_boots(monkeypatch):
 async def test_outage_sweep_marks_local_corroboration(monkeypatch):
     _registry(monkeypatch, [(CAL, "enphase_ev")])
     hass, db = _sweep_hass(_calendar_events())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, SEP16 - timedelta(minutes=10), local={GE: False})
     _tick(led, SEP16 + timedelta(minutes=3), local={GE: True})
     await led.sweep(SWEEP_NOW)
@@ -471,7 +478,7 @@ async def test_outage_sweep_marks_local_corroboration(monkeypatch):
 async def test_outage_sweep_local_outside_tolerance_not_corroborated(monkeypatch):
     _registry(monkeypatch, [(CAL, "enphase_ev")])
     hass, db = _sweep_hass(_calendar_events())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, SEP16 - timedelta(minutes=30), local={GE: False})
     _tick(led, SEP16 + timedelta(minutes=11), local={GE: True})
     await led.sweep(SWEEP_NOW)
@@ -484,7 +491,7 @@ async def test_outage_sweep_local_outside_tolerance_not_corroborated(monkeypatch
 async def test_outage_sweep_embeds_nearest_decision(monkeypatch):
     _registry(monkeypatch, [(CAL, "enphase_ev")])
     hass, db = _sweep_hass(_calendar_events())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     _tick(led, SEP16 - timedelta(hours=1),
           decision=SimpleNamespace(tier="warn", hold_depth="full_hold", reserve_floor=80))
     _tick(led, SEP16 + timedelta(hours=1),
@@ -506,7 +513,7 @@ async def test_outage_sweep_embeds_nearest_decision(monkeypatch):
 async def test_outage_sweep_calendar_unresolved(monkeypatch, caplog, entries, count):
     _registry(monkeypatch, entries)
     hass, db = _sweep_hass(_calendar_events())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     with caplog.at_level("WARNING"):
         assert await led.sweep(SWEEP_NOW) == 0
         assert await led.sweep(SWEEP_NOW) == 0
@@ -534,7 +541,7 @@ async def test_outage_sweep_failure_isolated(monkeypatch):
         raise RuntimeError("calendar exploded")
 
     hass.services.async_call = _boom
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     assert await led.sweep(SWEEP_NOW) == 0
     # Timeout path: the call never returns within the timeout.
     monkeypatch.setattr(L, "OUTAGE_SWEEP_TIMEOUT_S", 0.01)
@@ -573,7 +580,7 @@ async def test_outage_sweep_task_cancelled_on_unload(monkeypatch):
     monkeypatch.setattr(ev_mod, "async_call_later", _later)
     monkeypatch.setattr(ev_mod, "async_track_time_interval", _interval)
     hass = _Hass(_FakeDB())
-    led = L.OutageLedger(hass)
+    led = await _seeded(hass)
     assert led.arm() is True
     assert led.arm() is True  # idempotent: no second pair of handles
     assert [(k, d) for k, d, _c, _h in handles] == [
@@ -761,6 +768,7 @@ async def test_ledger_logs_alerts_during_grid_disconnect_return():
     b = _battery_stub(hass, {"mode": "grid_disconnected", "reason": "grid off",
                              "actions": []})
     c = _cycle(hass, b)
+    await c._outage_ledger._seed_alerts(NOW)
     await c._decision_cycle_body()
     await hass.drain()
     rows = _rows(db, "nws_alert")
@@ -780,6 +788,7 @@ async def test_ledger_logs_alerts_while_fully_blind():
         inc_at=stale,
     )
     c = _cycle(hass, b)
+    await c._outage_ledger._seed_alerts(NOW)
     await c._decision_cycle_body()
     await hass.drain()
     rows = _rows(db, "nws_alert")
@@ -847,7 +856,7 @@ async def test_real_timers_run_the_sweep_on_the_loop():
     from homeassistant.util import dt as dt_util
 
     async with async_test_home_assistant() as hass:
-        led = L.OutageLedger(hass)
+        led = await _seeded(hass)
         ran = []
         loop_thread = threading.get_ident()
 
@@ -867,3 +876,182 @@ async def test_real_timers_run_the_sweep_on_the_loop():
         finally:
             led.cancel()
             await hass.async_stop(force=True)
+
+
+# --------------------------------------------------------------------------
+# A-M1 / B-LOW-1 / A-L2: cross-boot alert seed, retry, cloud seed retry
+# --------------------------------------------------------------------------
+class _ScriptedDB(_FakeDB):
+    """query_activities answers from a script (results or futures)."""
+
+    def __init__(self, script):
+        super().__init__()
+        self.script = list(script)
+        self.queries = []
+
+    async def query_activities(self, **kw):
+        self.queries.append(kw)
+        item = self.script.pop(0) if self.script else {"rows": [], "page_size": 200}
+        if isinstance(item, asyncio.Future):
+            return await item
+        return item
+
+
+def _alert_row(aid, ends="2026-10-16T19:00:00-05:00"):
+    return {"id": 1, "details_json": json.dumps(
+        {"id": aid, "Ends": ends, "Expires": ends, "NWSCode": "WIY"})}
+
+
+@pytest.mark.asyncio
+async def test_alert_seed_dedups_across_boots():
+    db = _ScriptedDB([{"rows": [_alert_row("A")], "page_size": 200}])
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    assert db.queries[0]["action"] == "nws_alert"
+    assert db.queries[0]["since"] == (NOW - timedelta(hours=72)).isoformat()
+    _tick(led, NOW, alerts=[_alert("A"), _alert("B")])
+    await hass.drain()
+    assert [json.loads(r["details_json"])["id"] for r in _rows(db, "nws_alert")] == ["B"]
+
+
+@pytest.mark.asyncio
+async def test_alert_pass_waits_for_seed():
+    gate = asyncio.get_running_loop().create_future()
+    db = _ScriptedDB([gate])
+    hass = _Hass(db)
+    led = L.OutageLedger(hass)
+    _tick(led, NOW, alerts=[_alert("A")])  # spawns the seed, writes nothing
+    await asyncio.sleep(0)
+    assert db.rows == [] and led._alerts_seeded is False
+    _tick(led, NOW + timedelta(minutes=5), alerts=[_alert("A")])  # still in flight
+    await asyncio.sleep(0)
+    assert len(db.queries) == 1  # no second seed task while one is in flight
+    gate.set_result({"rows": [], "page_size": 200})
+    await hass.drain()
+    assert led._alerts_seeded is True
+    _tick(led, NOW + timedelta(minutes=10), alerts=[_alert("A")])
+    await hass.drain()
+    assert len(_rows(db, "nws_alert")) == 1
+
+
+@pytest.mark.asyncio
+async def test_alert_seed_failure_is_retried_then_proceeds_unseeded(caplog):
+    err = {"rows": [], "error": "database is locked"}
+    db = _ScriptedDB([err, err, err])
+    hass = _Hass(db)
+    led = L.OutageLedger(hass)
+    _tick(led, NOW, alerts=[_alert("A")])
+    await hass.drain()
+    assert led._alerts_seeded is False and led._alert_seed_attempts == 1
+    _tick(led, NOW + timedelta(minutes=5), alerts=[_alert("A")])
+    await hass.drain()
+    assert led._alerts_seeded is False and led._alert_seed_attempts == 2
+    assert db.rows == []
+    with caplog.at_level("WARNING"):
+        _tick(led, NOW + timedelta(minutes=10), alerts=[_alert("A")])
+        await hass.drain()
+    assert led._alerts_seeded is True and led._alert_seed_attempts == 3
+    assert any("seed failed 3 times" in r.getMessage() for r in caplog.records)
+    _tick(led, NOW + timedelta(minutes=15), alerts=[_alert("A")])
+    await hass.drain()
+    assert len(_rows(db, "nws_alert")) == 1
+
+
+@pytest.mark.asyncio
+async def test_alert_seed_no_database_counts_attempt():
+    led = L.OutageLedger(_Hass(None))
+    assert await led._seed_alerts(NOW) is False
+    assert led._alerts_seeded is False and led._alert_seed_attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_reads_all_pages():
+    db = _ScriptedDB([
+        {"rows": [_alert_row("A")], "page_size": 1, "next_cursor": 9},
+        {"rows": [_alert_row("B")], "page_size": 1, "next_cursor": 8},
+        {"rows": [], "page_size": 1, "next_cursor": None},
+    ])
+    led = await _seeded(_Hass(db))
+    assert set(led._seen_alerts) == {"A", "B"}
+    assert [q["cursor"] for q in db.queries] == [None, 9, 8]
+
+
+@pytest.mark.asyncio
+async def test_arm_starts_alert_seed(monkeypatch):
+    import importlib
+    ev_mod = importlib.import_module("homeassistant.helpers.event")
+    monkeypatch.setattr(ev_mod, "async_call_later", lambda h, d, cb: MagicMock())
+    monkeypatch.setattr(ev_mod, "async_track_time_interval", lambda h, cb, i: MagicMock())
+    db = _ScriptedDB([{"rows": [_alert_row("A")], "page_size": 200}])
+    hass = _Hass(db)
+    led = L.OutageLedger(hass)
+    led.arm()
+    await hass.drain()
+    assert led._alerts_seeded is True and "A" in led._seen_alerts
+    led.cancel()
+
+
+@pytest.mark.asyncio
+async def test_cloud_seed_failure_retried_next_sweep(monkeypatch):
+    _registry(monkeypatch, [(CAL, "enphase_ev")])
+    db = _ScriptedDB([{"rows": [], "error": "locked"}, {"rows": [], "page_size": 200}])
+    hass, _ = _sweep_hass(_calendar_events(), db=db)
+    led = L.OutageLedger(hass)
+    assert await led.sweep(SWEEP_NOW) == 0
+    assert led._cloud_seeded is False and db.rows == []
+    assert await led.sweep(SWEEP_NOW) == 1
+    assert led._cloud_seeded is True
+
+
+@pytest.mark.asyncio
+async def test_query_activities_reports_error(real_db, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _boom():
+        raise RuntimeError("disk I/O error")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(real_db, "_db_read", _boom)
+    res = await real_db.query_activities(action="nws_alert")
+    assert res["rows"] == [] and "disk I/O error" in res["error"]
+    monkeypatch.undo()
+    assert "error" not in await real_db.query_activities(action="nws_alert")
+
+
+# --------------------------------------------------------------------------
+# A-L1: per-sensor minimum gap between local_only rows (30 min, rung 1)
+# --------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_local_only_min_gap_per_sensor():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    # Off-grid edges at +1, +3, +30 (29 min after the +1 row: suppressed)
+    # and +31 (exactly 30 min after: written).
+    seq = [(0, False), (1, True), (2, False), (3, True), (4, False),
+           (30, True), (30.5, False), (31, True)]
+    for m, r in seq:
+        _tick(led, NOW + timedelta(minutes=m), local={GE: r})
+    await hass.drain()
+    rows = _rows(db, "grid_outage", witness="local_only")
+    assert [r["timestamp"] for r in rows] == [
+        (NOW + timedelta(minutes=1)).isoformat(),
+        (NOW + timedelta(minutes=31)).isoformat(),
+    ]
+    assert json.loads(rows[0]["details_json"])["suppressed_since_last"] == 0
+    assert json.loads(rows[1]["details_json"])["suppressed_since_last"] == 2
+    # Suppressed edges still feed cloud corroboration.
+    assert len(led._local_obs) == 4
+
+
+@pytest.mark.asyncio
+async def test_local_only_min_gap_is_per_sensor_not_global():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    _tick(led, NOW, local={GE: False, GS: False})
+    _tick(led, NOW + timedelta(minutes=1), local={GE: True})
+    _tick(led, NOW + timedelta(minutes=2), local={GS: True})
+    await hass.drain()
+    assert [r["entity_id"] for r in _rows(db, "grid_outage")] == [GE, GS]
