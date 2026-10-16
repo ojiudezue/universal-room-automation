@@ -4491,7 +4491,6 @@ class SmartPlugController:
         is_daylight: bool | None = None,
         must_start_by_min: int | None = None,
         grid_charge_on: bool = False,
-        repause_band_pct: float | None = None,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
 
@@ -4547,11 +4546,9 @@ class SmartPlugController:
             return actions
 
         # EV-FILL-PRIORITY-SOC-CHATTER-1 D5 mirror: below-floor sweep (sole
-        # floor authority); band read at CALL time.
-        _band = (
-            _energy_const.DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT
-            if repause_band_pct is None else repause_band_pct
-        )
+        # floor authority); band read at CALL time from the module attribute
+        # (no kwarg on the plug tier — production never overrides it; C-L1).
+        _band = _energy_const.DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT
         effective_floor = max(0, soc_threshold - _band)
         for plug_id in list(self._recently_released_by_fill_priority):
             if soc is not None and soc < effective_floor:

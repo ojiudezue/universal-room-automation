@@ -102,6 +102,15 @@ Fix-up drills (each site alone; PYTHONDONTWRITEBYTECODE=1; `__pycache__` cleared
 
 Run against the `b1d5b878d` `energy_pool.py`, the 5 new tests fail (both A-HIGH-1 tests and all three D-L1 tests).
 
+## Review C fix-up
+- **C-L1, fixed by removing the plug's `repause_band_pct` kwarg.** `energy.py` never passes a band to either tier, and no plug test relied on the kwarg. The plug still reads `_energy_const.DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT` when it is called. The EV kwarg stays, because the EV config-extreme tests use it and those tests don't need the plug to match. The plug extremes are now driven by patching the same module attribute that production reads.
+- **C-L2, fixed.** `test_a3_plug_boundary` is parametrized at threshold 50 (floor 47: 47.0 holds, 46.9 pauses). New plug tests cover the §7 extremes: band 0 at thresholds 80 and 50, band 100, band −5, and slider-min-50 fresh.
+
+| Mutation | Result | RED tests |
+|---|---|---|
+| Plug floor clamp `max(0, …)` changed to `max(50, …)` | 2 fail | `test_a3_plug_boundary_77_0_holds_76_9_pauses[50-47.0-46.9]`, `test_plug_extreme_band_100_fresh_pauses_latched_never` |
+| Plug band hard-coded to 3 (module attribute not read) | 5 fail | `test_plug_extreme_band_zero_legacy[80/50]`, `test_plug_extreme_negative_band_legacy`, `test_plug_extreme_band_100_...`, `test_a4_plug_module_attribute_band_zero` |
+
 ## Deferrals
 - L1-L3 are live criteria and belong to the post-deploy validator.
 - No README/version bump: the orchestrator owns the release.

@@ -183,11 +183,51 @@ def test_a3_soc_76_9_below_floor_pauses_next_tick():
     assert _A not in ev._recently_released_by_fill_priority
 
 
-def test_a3_plug_boundary_77_0_holds_76_9_pauses():
+@pytest.mark.parametrize("thr,hold,pause", [(80, 77.0, 76.9), (50, 47.0, 46.9)])
+def test_a3_plug_boundary_77_0_holds_76_9_pauses(thr, hold, pause):
+    p, hass = _plug()
+    _latch_plug(p, hass, threshold=thr)
+    assert _offs(_pfp(p, hold, threshold=thr), _PLUG) == []
+    assert len(_offs(_pfp(p, pause, threshold=thr), _PLUG)) == 1
+
+
+# Plug config extremes (plan §7) — the plug tier has no kwarg (C-L1), so the
+# band is driven through the SAME module attribute production reads.
+
+def _plug_band(monkeypatch, band):
+    monkeypatch.setattr(
+        _epool._energy_const, "DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT", band,
+    )
+
+
+@pytest.mark.parametrize("thr,soc", [(80, 77.0), (50, 47.0)])
+def test_plug_extreme_band_zero_legacy(monkeypatch, thr, soc):
+    _plug_band(monkeypatch, 0)
+    p, hass = _plug()
+    _latch_plug(p, hass, threshold=thr)
+    assert len(_offs(_pfp(p, soc, threshold=thr), _PLUG)) == 1
+
+
+def test_plug_extreme_band_100_fresh_pauses_latched_never(monkeypatch):
+    _plug_band(monkeypatch, 100)
+    p, hass = _plug()
+    assert len(_offs(_pfp(p, 50.0), _PLUG)) == 1      # fresh first pause
+    p2, hass2 = _plug()
+    _latch_plug(p2, hass2)
+    assert _pfp(p2, 1.0) == []                         # floor 0
+
+
+def test_plug_extreme_negative_band_legacy(monkeypatch):
+    _plug_band(monkeypatch, -5)
     p, hass = _plug()
     _latch_plug(p, hass)
-    assert _offs(_pfp(p, 77.0), _PLUG) == []
-    assert len(_offs(_pfp(p, 76.9), _PLUG)) == 1
+    assert len(_offs(_pfp(p, 79.0), _PLUG)) == 1
+
+
+@pytest.mark.parametrize("soc", [50.0, 49.0])
+def test_plug_extreme_slider_min_50_fresh(soc):
+    p, _ = _plug()
+    assert bool(_offs(_pfp(p, soc, threshold=50), _PLUG)) is (soc == 49.0)
 
 
 # --------------------------------------------------------------------------
