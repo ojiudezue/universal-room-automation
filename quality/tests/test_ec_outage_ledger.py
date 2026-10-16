@@ -1055,3 +1055,285 @@ async def test_local_only_min_gap_is_per_sensor_not_global():
     _tick(led, NOW + timedelta(minutes=2), local={GS: True})
     await hass.drain()
     assert [r["entity_id"] for r in _rows(db, "grid_outage")] == [GE, GS]
+
+
+# --------------------------------------------------------------------------
+# Review C survivors (S1-S16): discriminating tests
+# --------------------------------------------------------------------------
+def _no_end_alert(aid):
+    a = _alert(aid)
+    a.pop("Ends")
+    a.pop("Expires")
+    return a
+
+
+@pytest.mark.asyncio
+async def test_s1_present_alert_without_end_is_not_relogged():
+    """A still-present alert with no end (or a past end) stays in the seen-set."""
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    past = _alert("P", ends="2026-10-16T11:00:00-05:00")  # already ended, still in feed
+    for m in (0, 5, 10):
+        _tick(led, NOW + timedelta(minutes=m), alerts=[_no_end_alert("N"), past])
+    await hass.drain()
+    assert sorted(json.loads(r["details_json"])["id"] for r in _rows(db, "nws_alert")) == ["N", "P"]
+
+
+@pytest.mark.asyncio
+async def test_s2_seen_alert_hard_ceiling(monkeypatch):
+    monkeypatch.setattr(L, "OUTAGE_LEDGER_MAX_SEEN", 2)
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    _tick(led, NOW, alerts=[_alert("A"), _alert("B"), _alert("C")])  # all future-ended
+    _tick(led, NOW + timedelta(minutes=5), alerts=[_alert("C")])
+    assert len(led._seen_alerts) == 2
+    assert "C" in led._seen_alerts  # a present key is never evicted
+    assert "A" not in led._seen_alerts  # oldest-inserted absent key evicted first
+
+
+@pytest.mark.asyncio
+async def test_s3_cloud_seed_attempt_cap_then_sweeps_unseeded(monkeypatch, caplog):
+    _registry(monkeypatch, [(CAL, "enphase_ev")])
+    err = {"rows": [], "error": "locked"}
+    db = _ScriptedDB([err, err, err])
+    hass, _ = _sweep_hass(_calendar_events(), db=db)
+    led = L.OutageLedger(hass)
+    assert await led.sweep(SWEEP_NOW) == 0
+    assert led._cloud_seed_attempts == 1
+    assert await led.sweep(SWEEP_NOW) == 0
+    assert led._cloud_seed_attempts == 2
+    with caplog.at_level("WARNING"):
+        assert await led.sweep(SWEEP_NOW) == 1  # 3rd failure: proceed unseeded
+    assert led._cloud_seed_attempts == 3 and led._cloud_seeded is True
+    assert any("seed failed 3 times" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_s4_cloud_seen_ceiling(monkeypatch):
+    monkeypatch.setattr(L, "OUTAGE_LEDGER_MAX_SEEN", 1)
+    _registry(monkeypatch, [(CAL, "enphase_ev")])
+    later = SEP16 + timedelta(hours=2)
+    hass, db = _sweep_hass(_calendar_events() + [_ev(later, OFFGRID)])
+    led = L.OutageLedger(hass)
+    assert await led.sweep(SWEEP_NOW) == 2
+    assert led._cloud_seen == {later.astimezone(timezone.utc).isoformat()}
+
+
+@pytest.mark.asyncio
+async def test_s5_suppressed_count_resets_after_each_row():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    seq = [(0, False), (1, True), (2, False), (3, True), (4, False),   # 1 suppressed
+           (31, True), (32, False), (61, True)]                       # rows at 31, 61
+    for m, r in seq:
+        _tick(led, NOW + timedelta(minutes=m), local={GE: r})
+    await hass.drain()
+    counts = [json.loads(r["details_json"])["suppressed_since_last"]
+              for r in _rows(db, "grid_outage", witness="local_only")]
+    assert counts == [0, 1, 0]
+
+
+@pytest.mark.asyncio
+async def test_s6_false_none_true_is_one_transition():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    for i, r in enumerate([False, None, True]):
+        _tick(led, NOW + timedelta(minutes=5 * i), local={GE: r})
+    await hass.drain()
+    rows = _rows(db, "grid_outage", witness="local_only")
+    assert len(rows) == 1
+    assert rows[0]["timestamp"] == (NOW + timedelta(minutes=10)).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_s7_ongrid_generator_window_and_sort(monkeypatch):
+    """Unsorted input; an on-grid event BEFORE the outage (must not be picked);
+    a generator event before and one after the window (must be excluded)."""
+    _registry(monkeypatch, [(CAL, "enphase_ev")])
+    t = SEP16
+    events = [
+        _ev(datetime(2026, 9, 16, 12, 57, 59, tzinfo=CDT), ONGRID),
+        _ev(datetime(2026, 9, 16, 12, 52, 3, tzinfo=CDT), GEN_OFF),
+        _ev(t, OFFGRID),
+        _ev(datetime(2026, 9, 16, 15, 0, 0, tzinfo=CDT), GEN_ON),      # after reconnect
+        _ev(datetime(2026, 9, 16, 9, 0, 0, tzinfo=CDT), ONGRID),       # before outage
+        _ev(datetime(2026, 9, 16, 12, 43, 18, tzinfo=CDT), GEN_ON),
+        _ev(datetime(2026, 9, 16, 8, 0, 0, tzinfo=CDT), GEN_OFF),      # before outage
+        _ev(datetime(2026, 9, 16, 18, 0, 0, tzinfo=CDT), ONGRID),      # later reconnect
+    ]
+    hass, db = _sweep_hass(events)
+    await L.OutageLedger(hass).sweep(SWEEP_NOW)
+    await hass.drain()
+    d = json.loads(_rows(db, "grid_outage", witness="cloud")[0]["details_json"])
+    assert d["ongrid_at"] == "2026-09-16T12:57:59-05:00"
+    assert d["generator_events"] == [
+        {"start": "2026-09-16T12:43:18-05:00", "summary": GEN_ON},
+        {"start": "2026-09-16T12:52:03-05:00", "summary": GEN_OFF},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_s8_sweep_timeout_bounds_a_hung_calendar(monkeypatch):
+    _registry(monkeypatch, [(CAL, "enphase_ev")])
+    hass, db = _sweep_hass([])
+    monkeypatch.setattr(L, "OUTAGE_SWEEP_TIMEOUT_S", 0.05)
+    never = asyncio.Event()
+
+    async def _hang(*a, **k):
+        await never.wait()
+
+    hass.services.async_call = _hang
+    led = L.OutageLedger(hass)
+    # Must return on its own via the sweep timeout, well inside 2 s.
+    assert await asyncio.wait_for(led.sweep(SWEEP_NOW), timeout=2) == 0
+
+
+@pytest.mark.asyncio
+async def test_s9_database_gone_after_seed_marks_nothing_seen():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    hass.data[DOMAIN]["database"] = None
+    _tick(led, NOW, alerts=[_alert("A")])
+    assert "A" not in led._seen_alerts
+    hass.data[DOMAIN]["database"] = db
+    _tick(led, NOW + timedelta(minutes=5), alerts=[_alert("A")])
+    await hass.drain()
+    assert len(_rows(db, "nws_alert")) == 1
+
+
+@pytest.mark.asyncio
+async def test_s10_cross_boot_alert_dedup_through_real_db(real_db):
+    """Boot 1 writes through the real DAO; boot 2 seeds from the real table,
+    whose query filters coordinator='energy' AND action='nws_alert'. A decoy
+    row from another coordinator must not suppress alert B."""
+    _seed(real_db.db_file, "nws_alert", "notable", 0)  # coordinator 'energy', no id: ignored
+    conn = sqlite3.connect(real_db.db_file)
+    conn.execute(
+        "INSERT INTO ura_activity_log (timestamp, coordinator, action, importance,"
+        " description, details_json) VALUES (?, 'presence', 'nws_alert', 'notable', 'x', ?)",
+        (datetime.now(timezone.utc).isoformat(), json.dumps({"id": "B"})),
+    )
+    conn.commit()
+    conn.close()
+    now = datetime.now(timezone.utc)
+    hass1 = _Hass(real_db)
+    led1 = L.OutageLedger(hass1)
+    await led1._seed_alerts(now)
+    _tick(led1, now, alerts=[_alert("A")])
+    await hass1.drain()
+    stored = await real_db.query_activities(action="nws_alert", coordinator="energy",
+                                            columns=("coordinator", "details_json"))
+    assert [json.loads(r["details_json"]).get("id") for r in stored["rows"]
+            if r["details_json"]].count("A") == 1
+    hass2 = _Hass(real_db)
+    led2 = L.OutageLedger(hass2)
+    assert await led2._seed_alerts(now) is True
+    _tick(led2, now, alerts=[_alert("A"), _alert("B")])
+    await hass2.drain()
+    after = await real_db.query_activities(action="nws_alert", coordinator="energy",
+                                           columns=("details_json",))
+    ids = sorted(json.loads(r["details_json"]).get("id") for r in after["rows"]
+                 if r["details_json"])
+    assert ids == ["A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_s11_expires_fallback_keeps_unexpired_alert():
+    db = _FakeDB()
+    hass = _Hass(db)
+    led = await _seeded(hass)
+    a = _alert("E")
+    a.pop("Ends")
+    a["Expires"] = "2026-10-16T13:00:00-05:00"
+    _tick(led, NOW, alerts=[a])
+    _tick(led, NOW + timedelta(minutes=5), alerts=[])   # left the feed, not expired
+    assert "E" in led._seen_alerts
+    _tick(led, NOW + timedelta(minutes=10), alerts=[a])
+    await hass.drain()
+    assert len(_rows(db, "nws_alert")) == 1
+
+
+@pytest.mark.asyncio
+async def test_s13_only_one_sweep_in_flight():
+    hass = _Hass(_FakeDB())
+    led = L.OutageLedger(hass)
+    gate = asyncio.Event()
+    calls = []
+
+    async def _slow(now=None):
+        calls.append(1)
+        await gate.wait()
+
+    led.sweep = _slow
+    led._spawn_sweep()
+    first = led._sweep_task
+    led._spawn_sweep()
+    await asyncio.sleep(0)
+    assert led._sweep_task is first and calls == [1]
+    gate.set()
+    await hass.drain()
+
+
+@pytest.mark.asyncio
+async def test_s14_cancel_stops_in_flight_alert_seed(monkeypatch):
+    import importlib
+    ev_mod = importlib.import_module("homeassistant.helpers.event")
+    monkeypatch.setattr(ev_mod, "async_call_later", lambda h, d, cb: MagicMock())
+    monkeypatch.setattr(ev_mod, "async_track_time_interval", lambda h, cb, i: MagicMock())
+    gate = asyncio.get_running_loop().create_future()
+    hass = _Hass(_ScriptedDB([gate]))
+    led = L.OutageLedger(hass)
+    led.arm()
+    await asyncio.sleep(0)
+    seed = led._alert_seed_task
+    assert seed is not None and not seed.done()
+    led.cancel()
+    await asyncio.sleep(0)
+    assert seed.cancelled()
+    assert led._alert_seed_task is None
+
+
+@pytest.mark.asyncio
+async def test_s15_tick_threads_soc_and_decision_into_rows():
+    db = _FakeDB()
+    hass = _Hass(db)
+    b = _battery_stub(
+        hass, {"mode": "x", "reason": "", "actions": []},
+        inc_dec=SimpleNamespace(tier="watch", hold_depth="partial_hold", reserve_floor=50),
+        inc_at=datetime.now(timezone.utc),
+    )
+    b.battery_soc = 55
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    verifier = WriteVerifier.__new__(WriteVerifier)
+    verifier.hass = hass
+    c = _cycle(hass, b, verifier=verifier)
+    await c._outage_ledger._seed_alerts(NOW)
+    hass.states.d[GE] = _State("on")
+    await c._decision_cycle_body()
+    hass.states.d[GE] = _State("off")
+    await c._decision_cycle_body()
+    await hass.drain()
+    rows = _rows(db, "grid_outage", witness="local_only")
+    assert len(rows) == 1
+    d = json.loads(rows[0]["details_json"])
+    assert d["soc"] == 55
+    assert (d["tier"], d["hold_depth"], d["reserve_floor"]) == ("watch", "partial_hold", 50)
+
+
+def test_s16_energy_coordinator_init_builds_the_ledger():
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    hass.config_entries.async_entries = lambda *_a, **_k: []
+    coord = EnergyCoordinator(
+        hass=hass, reserve_soc=20, decision_interval=10,
+        entity_config={}, tou_engine=MagicMock(name="tou_engine"),
+    )
+    assert isinstance(coord._outage_ledger, L.OutageLedger)
+    assert coord._outage_ledger.hass is hass
