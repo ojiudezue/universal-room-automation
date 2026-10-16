@@ -1,4 +1,4 @@
-# v5.103.67: EC outage ledger (arc Stage L)
+# v5.103.67: EC outage ledger (arc Stage L) — EC-INCLEMENT-HARDENING-1 (Stage L)
 
 **Tier 2-DB.** Three framing-disjoint reviews:
 - **A (data integrity):** SHIP, with 1 MEDIUM and 2 LOWs, all fixed.
