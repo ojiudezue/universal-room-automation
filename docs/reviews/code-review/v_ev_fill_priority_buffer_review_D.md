@@ -54,3 +54,31 @@ No HIGH/MED. The INV-4 unlatched path changed only latch-dict operations: the D5
 | (4) latch discharge: day boundary / obs mode / force / steal / release_all / removal | PASS (plus L1 threshold-change gap) |
 
 **Verdict: SHIP.** L1 is optional and can be fixed in-cycle.
+
+## Re-verify after fix-ups (HEAD ccb1c9559)
+
+**What changed:**
+- c22579c70 removed `_proactive_offpeak_holds` from both peer-steal lists, and the latch now stores the threshold it was set under (D-L1).
+- ccb1c9559 removed the plug band kwarg.
+
+I re-ran the enumeration on HEAD and got 16 latch writer/discharge sites. The only new sites are the threshold-change `elif` branches in the EV and plug sweeps.
+
+**Correction to my first pass.** I treated `_proactive_offpeak_holds` as a legitimate steal. That was wrong. It is URA's own ensure-on claim, re-made on every off_peak tick. Counting it as a steal wiped the latch every off-peak-daylight tick, so the band did nothing in that window. A-HIGH-1 is correct.
+
+**Can the latch now survive where it shouldn't?**
+- **Off-peak daylight to peak:** peak is inert, so the latch is cleared at the boundary. Probe: PASS.
+- **Charger held only by the off-peak hold while SOC drops below the floor:** D5 pops the latch whatever the ownership. Because the charger is OFF, FP makes no claim, which matches develop. Probe: PASS.
+- **Ensure-on claim plus a real steal (battery drain):** D2 still drops the latch. Probe: PASS.
+- **Night:** off_peak at night is still inert, so the latch cannot reach the next fill window.
+- **Invariant (1):** the latch and the fill-priority set still never overlap. While latched, the ensure-on hold can only keep the charger ON or OFF under its own claim, never under fill-priority's.
+
+**Does the threshold-change clear add a new path?**
+- **Lowered 80→70:** the first pause now fires at 68, so L1 is closed. Probe: PASS.
+- **SOC None with a changed threshold:** the latch is cleared. That is conservative and leaves legacy behaviour. Probe: PASS.
+- **Same threshold passed as int or float:** 80 == 80.0, so the latch is kept. Probe: PASS.
+- **Plug mirror:** the off-peak hold keeps the latch, and a threshold change clears it. Probe: PASS.
+- The clear can only discharge the latch, never set it. In the worst case it returns legacy behaviour, so it cannot violate INV-1..4.
+
+I added 7 probes. The superseded L1 characterization is disabled. Result: 86 passed in total, counting the cycle tests on HEAD plus the review probes.
+
+**Re-verify verdict: SHIP.** No new findings. L1 is fixed, and L2 (the dead hand-off term) is unchanged and harmless.
