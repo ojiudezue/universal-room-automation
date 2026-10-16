@@ -161,7 +161,8 @@ cards:
   reply_2026_10_14: 'Yes — exactly a yo-yo at the 80% boundary, with no hysteresis. Fill-priority pauses the car when battery SOC < 80% and resumes it at SOC >= 80%, same number both ways. When it resumes, the car draws ~11.7 kW, which is enough to pull the battery from 80% back down to 79% within one tick, so the car gets paused again almost immediately, then resumes again once solar/battery climbs back to 80-81%. Measured twice in 7 logged days (10-09, 10-11), each episode short-lived. Fix if you want it: give the resume a few points of headroom (e.g. once resumed, do not re-pause until SOC drops below 77%) so one resume does not immediately trigger its own pause.'
   title: The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.63
   tier_2026_10_15: "Elevated to Tier 3 (orchestrator, after operator: \"I remember this as sensitive code\"). One-missed-site failure mode proven by plan review rev 1 (two unreachable latch clears); multi-owner EV pause arbitration (fill-priority/arbitrage/drain-precedence/force/grid clamp); silent cost loss (EV drains home battery). Adds: second framing-disjoint plan review (adversarial build-prediction), Review D adversarial completeness, config-extreme tests, orchestrator mutation re-run, operator checkpoint before deploy."
   operator_2026_10_15b: "Operator: \"The buffer is green it.\" APPROVED option A (resume at 80%, re-pause only below 77%). Tier 2-DB build queued."
   update_2026_10_15: "Operator 2026-10-15: \"see if config fixes these first\". Checked: only one knob, energy_fill_priority_soc (energy_const.py:1077-1079); pause and resume use the same number (energy_pool.py determine_fill_priority_actions), so moving it only moves the chatter point. No config fix; needs a resume/re-pause band (option A). Awaiting operator go on A."
