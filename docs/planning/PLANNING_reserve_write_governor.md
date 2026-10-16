@@ -1,242 +1,264 @@
-# PLANNING — Reserve Write Governor (one chokepoint, floor registry, write history, restart-resilient)
+# PLANNING — Reserve Write Governor (Rev 2 — single floor, durable rows, chokepoint lint)
 
 **Card:** `EC-RESERVE-WRITE-GOVERNOR-1`
-**Tier:** 3 (shared primitive — the single battery reserve write path consumed by ~20 emission sites across arbitrage, attain, drain, peak-buffer, inclement, EVSE overlay, and the WAIT narration; cost + safety ripple).
-**Status:** `pre_planning` → BUILD-READY after plan review.
+**Tier:** 3 (shared primitive — the single battery reserve write path consumed across arbitrage, attain, drain, peak-buffer, inclement, EVSE overlay, DP ledger, WAIT narration, and `force_redispatch`; cost + safety ripple).
+**Status:** `pre_planning` → BUILD-READY after Rev-2 plan review.
 **Branch target:** `develop`.
-**Scope posture:** EXTEND existing machinery (`_result`, `_floor_reserve`, `_apply_evse_battery_hold`, the drain-precedence ledger) into one *governed* reserve-write slice. Do not invent a sibling writer. Do not change inclement/EVSE/attain decision logic. Do not add new floors.
+**Scope posture:** EXTEND existing machinery (`_result`, `_floor_reserve`, `_apply_evse_battery_hold`, `wv_commanded_ledger`, `ura_activity_log` via `database.log_activity`) into ONE *governed slice* with (a) ONE registered floor, (b) a durable per-write ledger row, (c) a structural AST chokepoint lint. **Do not invent floors. Do not duplicate ledgers. Do not add RestoreEntity surfaces.**
 
-**Operator posture (2026-10-15):** *"25 places is mad. Force them through a governed slice with history and restart resilience. This is not about alerts at all."* And: *"I anticipate a tough build so it means a tight plan. Don't scope creep."* The governor is pure plumbing; it must be **byte-identical** on every tick where no registered floor binds. The inclement D-blind change (`EC-INCLEMENT-HARDENING-1`) rides on top of this governor in a **separate** revision.
+**Operator posture (2026-10-15):** *"25 places is mad. Force them through a governed slice with history and restart resilience. This is not about alerts at all."* *"Tough build → tight plan. Don't scope creep."*
 
 ---
 
-## Institutional context verified
+## Rev-2 changelog (R1 finding → change)
 
-### Code read end-to-end during scoping
-- `energy_battery.py` — `_floor_reserve` (`:3855-3870`, pure static helper), `_arbitrage_wait_floor` (`:3872-3890`), `_result` (`:6278-6610`), reserve-stamp block (`:6520-6560`), blind-gate (`:5578-5710`), reserve-emission band (`:5820-5994`, `:6098-6271`), ledger restore (`:1966-1968`, `:2318-2320`, `:2422-2446`, `:6850-6852`).
-- `energy.py` — `_apply_evse_battery_hold` def (`:5239`), call sites (`:6459, :7174`), post-overlay commanded stamp band (`:5440-5480` region, verify at build).
-- `energy_write_verify.py` — reserve-desired reader (`:1027, :1604-1720`), `_inclement_partial_hold_floor` (`:1647-1665`), reserve divergence (`:880-905`, `:1756`).
-- `energy_drain_precedence.py` — `DrainPrecedenceState` (`:132`), transition machinery (`:304-394`), restore (`:394-454`).
-
-### Greps run — REUSE / BUILD verdict per piece
-| Proposed piece | Grep | Verdict |
+| ID | Sev | Change in Rev 2 |
 |---|---|---|
-| Chokepoint for reserve writes | `def _result\|reserve_level=` → single def at `energy_battery.py:6278`, all ~20 emits terminate here (A3/A2/A1 of arbitrage plan + :5820/41/57/67/83/90, :5959/79/94, :6114, :6251, :6271, blind pre-emit absent today) | **REUSED + EXTEND** `_result`. Already the CFG cloud-withhold chokepoint (`:6317-6324`) and the single `_last_reserve_level_desired` stamp (`:6532-6534`). |
-| Per-branch floor helper | `def _floor_reserve` → `:3855` pure `max(existing, effective_reserve)` under `partial_hold` only | **REUSED + GENERALIZED**. Collapses into the governor's floor registry evaluator; call sites (6 incl. :3939/62, :4004/725/779, :5018, :6114) migrate 1:1 to `max(active floors)` with `partial_hold` as one registered floor source. |
-| WAIT narration floor | `_arbitrage_wait_floor` `:3872` | **REUSED unchanged** as a *proposer* of the WAIT branch's `reserve_level`; the governor clamps its output, does not replace it. |
-| EVSE post-overlay | `_apply_evse_battery_hold` `energy.py:5239`; called `:6459, :7174` | **REUSED unchanged.** Runs AFTER `_result`. Governor must preserve the overlay's current input shape (dict with `reserve_level` key) and its `max()`-safe semantics. |
-| Drain-precedence ledger | `energy_drain_precedence.py:DrainPrecedenceState` | **REUSED unchanged** as a *floor source* (DP floor is `max()`-folded today at `energy.py` near `:5767`). Governor registers DP floor; consumer at `:5767` unchanged (idempotent). |
-| Restore / commanded ledger | `_last_reserve_level` restore `energy_battery.py:1966-1968, 2318-2320`; stamp dispatch tap `energy.py` (per `:6522-6534` comments) | **REUSED + EXTEND**. Governor's write-history ring piggybacks on the same RestoreEntity blob the strategy sensor already restores — one extra key. No new RestoreEntity. |
-| HVAC-side governed writer | `rg "def _write\|_governed\|_governor\|_arbiter\|command_trail" hvac*.py presence*.py` | **No match.** HVAC and presence do **not** today have a named "write governor" pattern. The closest analog in URA is `_result` itself (reserve) + the EVSE overlay (post-max). The operator's analogy is aspirational; the right structural reuse is to *harden `_result`'s already-chokepoint role into an explicit, inspectable governor*, not to port a nonexistent HVAC pattern. |
-| New floors / knobs | — | **BUILD-NEW:** zero new floors, zero new behavioral knobs. The only new knob is the history-ring size (rung 1 const + optional rung-2 override). |
-
-### Prior planning + review docs consulted
-- `docs/planning/PLANNING_arbitrage_wait_inclement_floor.md` — v5.5.3 clamp cycle; the §A/§B/§C emission table (Bug Class #53) is the ancestor of this plan's site table. D-HIGH-1 history (7th unclamped reserve-emission site missed by three reviewers) is the invariant that justifies Tier 3 here.
-- `docs/planning/PLANNING_inclement_hardening.md` (Rev 3) — the §"Reserve emission site inventory" table and INV-H are the input to the governor's floor registry.
-- `docs/reviews/code-review/plan_inclement_hardening_review_{1,2,3}.md` — P2-05 (blind must emit via `_result`), P2-11 (symbol-anchored sites; drift), P2-12 (write-verify under blind; `_last_reserve_level_desired` stamping is load-bearing), P3-01..04 (adversarial-completeness traps).
-- `docs/planning/PLANNING_inclement_weather_reserve.md` (v5.5.0) — `allow_discharge` byte-identical invariant.
-- `CLAUDE.md` Tier-3 rules: falsifiable invariant up front, mutation-anchored per-site tests (Review C), adversarial completeness (Review D), orchestrator independent verify, operator checkpoint pre-ship.
-
----
-
-## Falsifiable invariant (INV-G)
-
-> **INV-G (governed emission):** for every reachable call to `_result(..., reserve_level=X, ...)` and every reachable post-overlay stamp of commanded reserve, the *dispatched* reserve value `F` satisfies
-> `F == max(X, {floor.value for floor in Governor.active_floors()})`.
-> **Corollaries:**
-> - `F == X` when no registered floor is active in this tick (byte-identical no-op invariant).
-> - A failure to register a known floor source is itself a violation (D-pass enumerates floors).
-
-**Falsification observations (what to go look for):**
-1. Any tick where `F < X` → INV-G broken (floor silently dropped).
-2. Any tick where `F > X` and `Governor.last_write.winning_floor is None` → INV-G broken (unaccounted raise).
-3. Any tick where a reserve write bypasses `_result` (direct `number.set_value` call outside the dispatch tap) → INV-G broken (writer outside the slice).
-4. v5.17.5 blind-tick semantics changed (a new reserve command fires while fully blind + no floor transition) → INV-G broken (blind semantics regression).
+| R1-01 | CRIT | Registry collapses to ONE floor: `inclement_partial_hold`. The old entries `inclement_full_hold / arbitrage_wait / attain_target / drain_park / evse_overlay` are documented as **branch proposals**, not floors; they are NOT registered. The 5-floor registry was scope creep + behaviour change. |
+| R1-02 | CRIT | The one floor's value is **`max(self.reserve_soc, decision.reserve_floor)` when `decision.hold_depth == "partial_hold"`**, mirroring every current `_floor_reserve` call site + narration `:6687-6689` exactly. Named explicitly in the plan. |
+| R1-03 | CRIT | RAM ring + RestoreEntity blob design **dropped.** History is one `ura_activity_log` row per governed emission via `database.log_activity(action="reserve_write")`, modelled on `_schedule_climate_write_row` (`hvac_setpoint.py:213-310`). Restart resilience is handled by the **existing** `wv_commanded_ledger` restore (`energy.py:1940-1968, 2290-2330`); governor adds **nothing** to restore. Entity id corrected: `sensor.ura_battery_strategy`. |
+| R1-04 | HIGH | `BatteryStrategy.force_redispatch` (`energy_battery.py:6713-6852`) added to site table + INV-G corollary 3 allowlist. It re-dispatches the already-governed `_last_reserve_level_desired`, so its value is correct by construction; it writes a `reserve_write` row with `verb="redispatch"`. |
+| R1-05 | HIGH | Site table rebuilt from **wrap lines** (not emit lines). 8 `_floor_reserve` wraps: `:3926, :3949, :3991, :4715, :4769, :5004, :5952, :6098`. Narration caller `:6687` added as 9th consumer (display-only, no `_result`). |
+| R1-06 | HIGH | **The `_floor_reserve` wraps are KEPT.** The `" (partial_hold floor)"` reason suffix stays where it is today (`:4718-4719, :3929-3932`, …). Governor does NOT retire the wraps. Governor's role is the DB row + lint + a shared single-floor evaluator the wraps + narration both call (byte-identical to today's arithmetic). |
+| R1-07 | HIGH | REUSE HVAC's AST completeness lint pattern (`test_hvac_climate_write_funnel_completeness.py`, HVAC doc §4.3). New `test_reserve_write_chokepoint_lint.py` AST-scans `energy*.py` for `number.set_value` targeting the reserve role with an explicit allowlist. This is the structural "no 7th site" guarantee that INV-G needs. |
+| R1-08 | HIGH | No large recorder attr. Sensor exposes `last_reserve_write` (one row only) plus a 20-row rolling attr guarded by `_unrecorded_attributes = frozenset({"reserve_write_history"})` in `sensor.py`. Row rate: per `_result` call that writes reserve; change-gated (skip when `(proposed, final, winning_floor)` matches the previous row) + per-tick dedup for the twice-per-tick `determine_mode` reality (`energy.py:6390` + `_evaluate_battery :7155`). |
+| R1-09 | HIGH | Existing tests `test_battery_inclement_arbitrage_floor.py:595, 720, 758, 785` monkeypatch `_floor_reserve`. Since wraps are KEPT (R1-06), these tests remain anchored and bite. New governor tests ADD to the suite; they do not retire the existing ones. |
+| R1-10 | MED | DP floor stays inside `_apply_evse_battery_hold` (`energy.py:5401, :5497`). **Not registered.** Registry has only `inclement_partial_hold`. Fixed anchors. |
+| R1-11 | MED | Reconciled with `command_trail` / `_resolve_hold_owner` (`energy_write_verify.py:2477-2530, :2525-2529`). `winning_floor` on the row uses the same vocabulary as `_resolve_hold_owner` ("inclement_partial_hold" when the inclement arm wins; "none" otherwise). Rev 2 REUSES `_resolve_hold_owner` as the authoritative labeller (import it; do not duplicate). |
+| R1-12 | HIGH | Prior-art section REWRITTEN with correct REUSE/BUILD verdicts (below). Transfers: AST lint, durable per-write `ura_activity_log` row, `_resolve_hold_owner` as labeller. Does NOT transfer: `ExcursionToken`/lease ownership (floor has no owner/duration; recomputed every tick from cached inclement decision), `PresetManager.borrow_live`, presence fusion, `perimeter_alert.py` (fusion/alerting ≠ write governance). Typed `WriteResult` carded as a follow-up for the dispatch tap, NOT this cycle. |
+| R1-13 | MED | Ordering invariant stated: `_cache_inclement` runs inside `_inclement_decision` which is reached before every emission in `determine_mode` (`:2700-2740`). The one path that returns BEFORE classify is the Envoy-blind early-return (`:5588`), and that path emits one direct reserve write at `:5664-5673` which is explicitly on the lint allowlist (unchanged this cycle). Test `test_governor_never_folds_stale_prior_tick_decision` asserts the invariant. |
+| R1-14 | LOW | Site anchors standardised to `<function_name>:<wrap_line>` throughout. |
+| R1-15 | LOW | 48h soak criterion dropped. Replaced with a **one-shot log query at validation** (R1-15 §Live). |
 
 ---
 
-## Design — the governor is `_result`, hardened
+## Falsifiable invariant (INV-G, Rev 2)
 
-Three co-located pieces inside `energy_battery.py` (one new module file is OPTIONAL and discouraged — keep the slice next to `_result` so the chokepoint stays one grep away):
+> **INV-G (governed emission):** every URA-originated service call that writes the battery reserve role (`number.set_value` on the configured reserve entity) originates from exactly one of the **named allowlisted sites**, and emits exactly one `ura_activity_log` row with `action="reserve_write"` recording `(proposed, final, winning_floor, reason, site)` (modulo change-gate + per-tick dedup).
+>
+> **Floor fold (sub-invariant):** when `self._last_inclement_decision.hold_depth == "partial_hold"`, every emission's `final >= max(self.reserve_soc, decision.reserve_floor)`. When `hold_depth != "partial_hold"` **or** `_last_inclement_decision is None`, `final == proposed` (byte-identical to today).
 
-### 1. `_FLOOR_REGISTRY` (module-level, declared once)
-Each entry: `(name, source_fn, is_active_fn)` where
-- `source_fn(self) -> int | None` returns the proposed floor value (None = inactive).
-- `is_active_fn(self) -> bool` short-circuits before `source_fn` for speed and clarity.
+### Allowlisted writers (INV-G corollary 3)
+1. `_result` reserve action append (`energy_battery.py:_result`, inside the `if reserve_level is not None:` block near `:6353`).
+2. EVSE overlay append (`energy.py:_apply_evse_battery_hold`, append path `:5516`) and the in-place update leg of the same overlay.
+3. Blind de-escalation reserve write at `energy_battery.py:5664-5673` (unchanged this cycle; routed through `_result` only by a later `EC-INCLEMENT-HARDENING-1` D-blind cycle).
+4. `BatteryStrategy.force_redispatch` direct `number.set_value` call at `energy_battery.py:6820-6825` (re-sends the already-governed `_last_reserve_level_desired`; records a row with `verb="redispatch"`).
 
-**Floors registered (existing ONLY, migrated from today's call sites — no new floors):**
+Pool `number.set_value` sites (`energy.py:8710, 8734`, `energy_pool.py:411, 429`) target **pool speed**, NOT the reserve role — the lint discriminates by write-target entity role.
 
-| Name | Current source today | Registry source_fn | Active when |
-|---|---|---|---|
-| `inclement_partial_hold` | `decision.reserve_floor` when `decision.hold_depth == "partial_hold"` (via `_floor_reserve` call sites) | reads cached `self._last_inclement_decision` | `hold_depth == "partial_hold"` |
-| `inclement_full_hold` | `decision.reserve_floor` under `full_hold` (sites `:5820/41/57/67`) | same cache | `hold_depth == "full_hold"` |
-| `arbitrage_wait` | `_arbitrage_wait_floor(soc, now)` (`:3872`) — the drain-floor shelf | same helper | arbitrage gate open AND `_arbitrage_phase == WAIT` |
-| `attain_target` | `_peak_buffer_target` consumed inside attain (`:1997, :2043`) | reads `self._peak_buffer_target` | attain active (`self._attain_active`) |
-| `drain_park` | `_drain_target_for(now)` (per `_arbitrage_wait_floor` body) | same helper | off-peak drain park branch |
-| `evse_overlay` | `_apply_evse_battery_hold` folds AFTER `_result` returns (`energy.py:5239`) | **registered but inert** — the overlay is a POST hook already max()-safe; registry entry is **documentation + an assertion target in INV-G corollary (3)** that no sibling writer exists. Governor does not clamp it inline. | always registered; evaluation deferred to overlay |
+### Falsification observations
+1. A reserve write originates from a site NOT in the allowlist → INV-G broken (lint fails).
+2. Any emission under `partial_hold` with `final < max(reserve_soc, reserve_floor)` → fold broken.
+3. Any emission under NOT-partial_hold where `final != proposed` → byte-identical broken.
+4. v5.17.5 blind semantics changed (new commands fire while fully blind absent a floor transition) → broken.
 
-**No new floors.** The registry is just a *reification* of what every call site already does by inline literal. The move is from "N inline helpers each pulling the right floor" to "every site hands `_result` its proposed value; `_result` folds the registry once; one history row per tick."
+---
 
-### 2. `_result` additions (surgical)
-Insert ONE block near the top of `_result` (just AFTER the CFG-withhold chokepoint at `:6317-6324`, BEFORE the storage-mode action at `:6334`):
+## Design — the governor is `_result` + a shared evaluator + a durable row + an AST lint
+
+### 1. Shared single-floor evaluator (REUSE `_floor_reserve`)
+
+`BatteryStrategy._floor_reserve(existing, effective_reserve, hold_depth)` (`:3855`) remains the one evaluator. **No signature change, no behaviour change.** All current 8 wrap sites + the narration keep calling it. The governor exposes a thin accessor so `_result` and the narration read the SAME value:
 
 ```python
-# Reserve Write Governor — INV-G.
-# Fold the active-floor registry once per emission. Byte-identical to
-# `reserve_level` when no floor is active (every is_active_fn returns False).
-proposed_reserve = reserve_level
-winning_floor = None
-active_floors: list[tuple[str, int]] = []
-if reserve_level is not None:
-    for name, src_fn, active_fn in _FLOOR_REGISTRY:
-        if not active_fn(self):
-            continue
-        v = src_fn(self)
-        if v is None:
-            continue
-        active_floors.append((name, int(v)))
-    if active_floors:
-        floor_max = max(v for _, v in active_floors)
-        if floor_max > reserve_level:
-            reserve_level = floor_max
-            winning_floor = next(n for n, v in active_floors if v == floor_max)
-    self._reserve_write_history.append(
-        _ReserveWriteRow(
-            ts=dt_util.utcnow(),
-            proposed=proposed_reserve,
-            active_floors=tuple(active_floors),
-            final=reserve_level,
-            winning_floor=winning_floor,
-            reason=reason,
-        )
-    )
-# END governor
+def _active_inclement_floor(self) -> tuple[str | None, int | None]:
+    """Return (name, value) of the active registered floor, else (None, None)."""
+    dec = self._last_inclement_decision
+    if dec is None or dec.hold_depth != "partial_hold":
+        return (None, None)
+    return ("inclement_partial_hold",
+            max(int(self.reserve_soc), int(dec.reserve_floor)))
 ```
 
-**Byte-identical guarantee:** when no `is_active_fn` returns True, `active_floors == []`, `reserve_level` is unchanged, and the only side-effect is one history row. The row is per-emission (one `_result` call = one row), *not* per 5-min tick.
+This is the *only* new helper on the hot path. Byte-identical when inactive. The 8 wrap sites + narration continue to call `_floor_reserve(existing, effective_reserve, hold_depth)` directly — the governor does not touch them — so the `" (partial_hold floor)"` reason suffix stays exactly where it is today (R1-06).
 
-### 3. `_reserve_write_history` — bounded ring, restart-resilient
-- Type: `collections.deque[_ReserveWriteRow]`, `maxlen=RESERVE_WRITE_HISTORY_MAX`.
-- Row: frozen `(ts, proposed, active_floors, final, winning_floor, reason)` — tuple-of-tuples for pickle safety.
-- Persist: piggyback on the existing strategy-sensor RestoreEntity blob (same blob that already restores `_last_reserve_level`, `_last_reserve_level_desired`, drain-precedence state — reuses the extend-blob pattern at `energy_battery.py:1966-1968` / `:2318-2320`). ADD one key `reserve_write_history` on save; restore on boot populates the deque (truncated to maxlen). Boot restore is best-effort — a corrupt/absent key yields an empty deque, no raise.
-- Diagnostic surface: `self._reserve_write_history_attrs()` returns the last N rows as a list of dicts, exposed via the existing strategy sensor's `extra_state_attributes` under key `reserve_write_history`. REUSE the attr builder next to the inclement attrs (`:2764-2805` neighbourhood).
+### 2. `_result` additions (surgical: one DB-row scheduler)
 
-### Non-invasive site migration
+Inside `_result`, immediately AFTER the reserve-stamp block (`:6520-6560`), schedule one `ura_activity_log` row. **Byte-identical to today's return value.** No fold inside `_result` — the proposals handed to `_result` are already-floored (the wraps did the fold). `_result` only *records* what passed through:
 
-Every current `reserve_level=` call site keeps its existing *proposal* arithmetic. We retire ONLY the per-branch `_floor_reserve(...)` wrapping — proposals are passed raw to `_result`; `_result` folds the registry. This means:
+```python
+# Reserve Write Governor — durable per-write row (R1-07/R1-08/R1-12).
+# Byte-identical to today's return. Writes zero actions. Fire-and-forget.
+if reserve_level is not None:
+    _schedule_reserve_write_row(
+        hass=self.hass,
+        verb="emit",
+        site=reason,                      # e.g. "arbitrage WAIT ...", "off_peak hold ..."
+        proposed=reserve_level,           # already-floored by caller (today's behaviour)
+        active_floor=self._active_inclement_floor(),   # (name, value) or (None, None)
+        final=_new_res,                   # the stamped desire from the block above
+        reason=reason,
+        change_gate=self._last_reserve_write_row,       # (proposed, final, winning_floor)
+        tick_id=self._tick_id,            # per-determine_mode uuid (NEW, cheap)
+    )
+    # update last-row memo + sensor attr memo (bounded N=20)
+```
 
-- Sites `:3939, :3962, :4004, :4725, :4779, :5018, :6114, :6271` currently pass `floored = _floor_reserve(existing, effective_reserve, hold_depth)`. Migrate to pass `existing` (the pre-floor expression) directly. The governor re-derives the floor from the registry. If any site today has an **additional** inline `max()` beyond `_floor_reserve` (e.g. `:5890/5994 max(int(soc or 0) - 5, effective_reserve)`), that inline `max` stays — the governor runs on top of whatever the branch already proposes.
-- Full-hold emits (`:5820, :5841, :5857, :5867`) today pass `reserve_level=decision.reserve_floor`. Migrate to pass the branch's *intent* (e.g. for full_hold the intent IS `decision.reserve_floor`, so these sites are unchanged — the floor registry re-derives the same number; byte-identical).
-- Drain emit (`:6251`) passes `drain_target`. Unchanged (`drain_park` floor source yields the same `_drain_target_for(now)`; `max(existing, floor) == existing` → byte-identical).
-- EVSE overlay (`energy.py:6459, :7174`) unchanged.
-- Blind branch (`:5578-5710`) today has an **unfloored** reserve write at `:5667-5673` and no pre-emit. **Out of scope for this cycle** — stays exactly as today, including v5.17.5 blind semantics (no new commands while blind; `_last_reserve_level_desired` deliberately not stamped on blind ticks). The governor is BUILT so that `EC-INCLEMENT-HARDENING-1`'s D-blind can land on top in its own revision by routing the blind pre-emit through `_result` (and thus through the governor). Confirmed by this plan: nothing here changes the blind code path.
+- `_schedule_reserve_write_row` lives next to `_result` in `energy_battery.py` (NOT a new module), direct-calls `database.log_activity(action="reserve_write", ...)` the same way `_schedule_climate_write_row` does. Never raises. Never awaited (write queue absorbs it).
+- **Change gate:** skip the row when `(proposed, final, winning_floor) == self._last_reserve_write_row` (dedup identical consecutive emissions).
+- **Per-tick dedup:** `tick_id` is set once at the top of `determine_mode` to a uuid; rows carry it; second emission in the same tick with same payload is suppressed (addresses the twice-per-tick reality at `energy.py:6390` + `_evaluate_battery :7155`).
+- **`winning_floor` label** = `self._active_inclement_floor()[0]` which is `"inclement_partial_hold"` or `None`. Agrees with `_resolve_hold_owner` (`energy_write_verify.py:2525-2529`) vocabulary (R1-11). **Import** `_resolve_hold_owner`'s label constants rather than redefining strings — single source of truth.
+- `force_redispatch` adds a sibling scheduler call with `verb="redispatch"` (`energy_battery.py:6820-6825` region).
 
-### What is deliberately **not** done
-- No new RestoreEntity, no new sensor, no new signal, no new coordinator primitive, no new config field.
-- No change to `_floor_reserve`'s signature *callers*; the helper itself is retired after the migration (dead code → DELETE candidate at ship+1 per supersession rule).
-- No change to `_apply_evse_battery_hold` or its call sites.
-- No change to the drain-precedence ledger's writer; the governor only *reads* its state via a registered `source_fn`.
-- No change to `_last_reserve_level_desired` stamping semantics or the write-verify freshness contract (`energy_write_verify.py:1647-1665, 880-905`).
-- No change to the CFG cloud-withhold chokepoint (`:6317-6324`).
-- No change to blind-gate return semantics.
+### 3. Durable row schema (`ura_activity_log`)
+
+Row shape — JSON payload inside the existing `details_json` column (no schema migration, no new table — avoids Tier 2-DB schema trigger per R1-12):
+
+```json
+{
+  "verb": "emit" | "redispatch",
+  "site": "<_result reason prefix>",
+  "proposed": <int>,
+  "active_floor": {"name": "inclement_partial_hold", "value": <int>} | null,
+  "winning_floor": "inclement_partial_hold" | null,
+  "final": <int>,
+  "reason": "<_result reason, verbatim>",
+  "tick_id": "<uuid>"
+}
+```
+
+Columns outside details_json: `coordinator="energy"`, `action="reserve_write"`, `entity_id=<configured reserve number entity>`, `importance=` existing `CLIMATE_WRITE_LOG_IMPORTANCE` sibling (new `RESERVE_WRITE_LOG_IMPORTANCE = CLIMATE_WRITE_LOG_IMPORTANCE`, rung-1 const).
+
+### 4. Sensor attribute surface (`sensor.ura_battery_strategy`)
+
+- `last_reserve_write`: dict of the last row (small, under 1 KB).
+- `reserve_write_history`: list of last 20 rows (ONLY exposed for operator diagnostics).
+- **Both are recorder-excluded** via `_unrecorded_attributes = frozenset({"reserve_write_history", "last_reserve_write"})` on `EnergyBatteryStrategySensor` (`sensor.py:9052`). This touches `sensor.py` — the Rev-1 "not touched" list is corrected.
+- The HA recorder `MAX_STATE_ATTRS_BYTES = 16384` is now a non-issue (both attrs are unrecorded).
+
+### 5. Restart resilience (REUSE `wv_commanded_ledger`, add NOTHING)
+
+- `_last_reserve_level_desired` / `_last_reserve_level` continue to restore from the DB key `wv_commanded_ledger` via `db.restore_energy_state_with_age` (`energy.py:1940-1968`), 15-min save cadence (`:2290-2330`). **Unchanged.**
+- History ledger is **durable in `ura_activity_log` by construction** — rows are written at emit time, read via DB query. Restart cost = zero reload work on the governor side.
+- First post-boot emission writes a fresh row that includes the (restored) `_last_inclement_decision` floor if active — the restore of that decision is v5.5.0 behaviour, unchanged.
+
+### 6. Structural chokepoint lint (NEW test, modelled on HVAC §4.3)
+
+`quality/tests/test_reserve_write_chokepoint_lint.py` — AST walker over every `.py` under `custom_components/universal_room_automation/`:
+
+- Flags any `hass.services.async_call("number", "set_value", ...)` and any `.async_call("number", "set_value"...)` where the target entity-id (static str OR a traceable attribute read) resolves to the **reserve role**. Role detection: match the write target to `_get_entity("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY, role="write")` (one call-site symbol + one default const).
+- Pool-speed writes (`energy.py:8710, 8734`, `energy_pool.py:411, 429`) are distinguished by their target symbol (`"storage_mode"` / pool speed role); the lint discriminates by role, not domain.
+- **Allowlist** (production-sourced constant, imported — not hand-copied, per HVAC lint pattern):
+  - `energy_battery.py:_result` reserve action append (within `_result` body)
+  - `energy.py:_apply_evse_battery_hold` append path + in-place update leg
+  - `energy_battery.py:5664-5673` blind de-escalation (ships with a `# RESERVE_WRITE_ALLOWED: blind_deescalation` sentinel comment)
+  - `energy_battery.py:6820-6825` `force_redispatch` (sentinel `# RESERVE_WRITE_ALLOWED: force_redispatch`)
+- Second lint assertion: every emission branch in `energy_battery.py` that proposes a reserve floor must either (a) call `_floor_reserve(...)` directly (the 8 wraps + narration) **or** (b) be inside `_result` after the single-floor evaluator ran. **Inline `max(..., effective_reserve)` outside `_floor_reserve` is allowed** (the branch-local `max(int(soc)-5, effective_reserve)` at `:5890, :5994` is defensive, not a floor — flagged in the allowlist by comment sentinel).
+
+**This is the structural "no 7th site" guarantee**: adding a new reserve writer requires either an allowlist entry (reviewed) or the lint fails. INV-G now has teeth beyond "trust the review."
 
 ---
 
-## Reserve emission site table (symbol-anchored; drift-safe)
+## Reserve emission site table (Rev 2, symbol + wrap-line anchored)
 
-| # | Branch | Symbol | Today's proposal | Today's floor mechanism | Governor migration |
+| # | Function / branch | Wrap line | Emit line | What it computes today | Rev-2 change |
 |---|---|---|---|---|---|
-| 1-6 | attain / peak-buffer / drain-park | `_floor_reserve` wrap at `:3939, :3962, :4004, :4725, :4779, :5018` | `floored = _floor_reserve(existing, effective_reserve, hold_depth)` | per-branch helper | pass `existing` to `_result`; registry refolds |
-| 7-10 | inclement full_hold emits | `:5820, :5841, :5857, :5867` | `decision.reserve_floor` | branch literal | **unchanged** (byte-identical) |
-| 11-12 | inclement partial-hold / discharge-with-floor | `:5883, :5890` | `effective_reserve` / `max(int(soc)-5, effective_reserve)` | branch literal | unchanged (registry re-derives same number) |
-| 13-14 | mid_peak hold / discharge-with-floor | `:5959, :5979, :5994` | `hold_reserve` / `effective_reserve` / `max(soc-5, eff)` | branch literal | unchanged |
-| 15 | arbitrage CHARGE/HOLD/WAIT emit (`_floor_reserve` wrap) | `:6114` | `floored` | per-branch helper | retire the wrap |
-| 16 | WAIT narration floor | `_arbitrage_wait_floor` consumer within `_get_arbitrage_decision` | branch literal | unchanged |
-| 17 | off-peak drain | `:6251` | `drain_target` (already max-folded under partial_hold at `:~6223`) | branch max | unchanged |
-| 18 | off-peak hold | `:6271` | `hold_reserve` (already max-folded at `:6263-6264`) | branch max | unchanged |
-| 19 | EVSE overlay (POST `_result`) | `energy.py:_apply_evse_battery_hold` | input dict's `reserve_level` key | overlay max | **unchanged**; registered as documentation |
-| 20 | DP ledger consumer | `energy_drain_precedence.py:68, 98` + `energy.py` near `:5767` | reads `effective_reserve` passed in | caller max | unchanged |
-| 21 | **blind reserve write at `:5667-5673` (unfloored)** | blind-gate | `int(self.reserve_soc)` | NONE | **OUT OF SCOPE** this cycle (inclement D-blind next rev) |
+| 1 | `_get_attainability_decision` (attain CHARGE) | `:3926` | `:3939` | `_floor_reserve(peak_buffer_target, eff, depth)` | **unchanged** (wrap kept; reason suffix kept) |
+| 2 | `_get_attainability_hold_decision` (attain HOLD) | `:3949` | `:3962` | same shape | unchanged |
+| 3 | `_run_attain_branch` `wait_base` leg | `:3991` | `:4004` | `_floor_reserve(wait_base, eff, depth)` | unchanged |
+| 4 | peak-buffer / drain release helper | `:4715` | `:4725` | `_floor_reserve(…)` | unchanged |
+| 5 | drain-park helper | `:4769` | `:4779` | `_floor_reserve(…)` | unchanged |
+| 6 | off-peak hold ladder | `:5004` | `:5018` | `_floor_reserve(…)` | unchanged |
+| 7 | mid-peak summer hold | `:5952` | `:5959` | `_floor_reserve(hold_reserve, eff, depth)` | unchanged |
+| 8 | `_get_arbitrage_decision` emit | `:6098` | `:6114` | `_floor_reserve(phase_proposal, eff, depth)` | unchanged |
+| 9 | `_next_action_estimate` WAIT narration | — | `:6687` | `_floor_reserve(_wait_base, max(reserve_soc, reserve_floor), hold_depth)` | **unchanged** — same evaluator as the emitter (operator invariant kept) |
+| F7-F10 | inclement full_hold emits | — | `:5820, :5841, :5857, :5867` | `decision.reserve_floor` directly | unchanged (full_hold proposal is its own floor by construction) |
+| F11-F14 | inclement/mid-peak branch literals | — | `:5883, :5890, :5959, :5979, :5994` | branch-local `effective_reserve` / `max(soc-5, eff)` | unchanged |
+| D17-D18 | off-peak drain / hold | — | `:6251, :6271` | already max-folded at `:6263-6264` / `:~6223` | unchanged |
+| B21 | blind de-escalation | — | `:5664-5673` | `int(self.reserve_soc)` unfloored | **unchanged this cycle** (lint allowlist entry; EC-INCLEMENT-HARDENING-1 routes it through `_result` next rev) |
+| E22-E23 | EVSE overlay append + in-place update | — | `energy.py:5401, :5497, :5516` | DP floor fold + `max()` of hold | unchanged (lint allowlist) |
+| R24 | `force_redispatch` direct call | — | `energy_battery.py:6820-6825` | re-sends `_last_reserve_level_desired` | records `reserve_write` row with `verb="redispatch"` |
 
-**Only sites 1-6 and 15 see a line edit.** All other sites are byte-identical. The governor fold happens inside `_result`; its correctness is driven by the registry, not by the call sites.
-
----
-
-## Config-extreme + edge cases (Review A/C must cover)
-
-1. **No floor binds (allow_discharge, no attain, arbitrage gate closed):** `active_floors == []`, `final == proposed`. Byte-identical.
-2. **One floor binds, proposed > floor:** `final == proposed` (no raise). `winning_floor is None` (we only name a floor when it actually wins).
-3. **One floor binds, proposed < floor:** `final == floor`, `winning_floor == name`. One row.
-4. **Multiple floors active (inclement partial_hold + attain target):** `final == max(all)`; `winning_floor` is the single max. If tie, the first registry entry at that value wins (deterministic by registry order; document in INV-G note).
-5. **Floor > target (`floor=80, peak_buffer_target=40`):** governor raises `final` to 80. `charge_from_grid` untouched — CHARGE still proceeds. Covered by v5.5.3's charge-intent guarantee; test re-run.
-6. **SOC None (fully blind):** governor runs normally on whatever proposal the sighted branches emit. Blind-branch at `:5667-5673` is out of scope; governor sees no call from the blind branch today (unchanged). Verified by test: `test_governor_no_fold_on_blind_tick`.
-7. **`reserve_level=None`:** governor short-circuits (no fold, no row). Preserves `_result`'s existing semantics (no reserve action appended).
-8. **Floor source raises:** governor catches `Exception` per source_fn, logs at DEBUG, excludes from `active_floors`. Never raises from `_result`. Test: `test_governor_source_raise_is_swallowed`.
-9. **History ring overflow:** deque at `maxlen` drops oldest; attribute reports current depth + maxlen. Test: `test_history_ring_bounded`.
-10. **Restart with corrupt history blob:** restore yields empty deque; no raise. Test: `test_history_restore_corrupt_blob`.
-11. **Restart mid-hold:** on boot, `_last_inclement_decision` is restored (v5.5.0 behaviour, unchanged); governor sees the restored floor on the first tick post-boot; first emission records a history row with `winning_floor` set correctly. Test: `test_governor_restart_recognises_restored_floor`.
+**Zero line edits to the emission arithmetic.** The only code additions are: `_active_inclement_floor` helper, `_schedule_reserve_write_row` scheduler + call in `_result`, sibling call in `force_redispatch`, `_tick_id` field, `_last_reserve_write_row` memo field, two `_unrecorded_attributes` entries in `sensor.py`, the lint test file.
 
 ---
 
-## Per-site mutation plan (Review C — "real source mutation", not aggregate monkeypatch)
+## Prior art — REUSE / BUILD per piece (Rev 2, corrected per R1-12)
 
-For each of the 7 line-edited sites (1-6 + 15), the C-reviewer edits production source to bypass the governor at that site exactly once (e.g. by hardcoding the branch's old `_floor_reserve` wrap to return `existing` unconditionally, OR by direct-writing `number.set_value` outside `_result` for that site's branch), runs the suite, and confirms a SPECIFIC test fails:
-
-| Site # | Mutation | Must-fail test |
+| Piece | Location | Verdict |
 |---|---|---|
-| 1 (`:3939` attain CHARGE) | re-insert pre-governor `_floor_reserve` returning raw `existing` | `test_attain_charge_floors_at_partial_hold_via_governor` |
-| 2 (`:3962` attain HOLD) | same | `test_attain_hold_floors_via_governor` |
-| 3 (`:4004` peak-buffer) | same | `test_peak_buffer_floors_via_governor` |
-| 4 (`:4725`) | same | `test_drain_release_floors_via_governor` |
-| 5 (`:4779`) | same | `test_drain_park_floors_via_governor` |
-| 6 (`:5018`) | same | `test_offpeak_hold_floors_via_governor` |
-| 15 (`:6114` arbitrage emit) | same | `test_arbitrage_wait_floors_via_governor` + `test_arbitrage_charge_intent_preserved` |
-
-**Plus registry completeness mutations (D-pass):**
-- Comment out each `_FLOOR_REGISTRY` entry one at a time → the corresponding `test_floor_<name>_registered_and_wins` fails.
-- Comment out the governor fold block in `_result` → `test_governor_byte_identical_fallback_only_when_no_floor` passes, but `test_governor_folds_registered_floors` fails.
-
-**Pyc staleness guard** (per `feedback_mutation_verification_pycache_staleness`): all mutation drills run with `PYTHONDONTWRITEBYTECODE=1`.
+| AST chokepoint lint | `quality/tests/test_hvac_climate_write_funnel_completeness.py:1-60, :251`; HVAC doc §4.3 | **REUSE pattern.** New `test_reserve_write_chokepoint_lint.py` adapts the walker to the reserve role with a production-sourced allowlist. Strongest fit for INV-G corollary 3. |
+| Durable per-write row | `hvac_setpoint.py:_schedule_climate_write_row :213-310` | **REUSE pattern.** New `_schedule_reserve_write_row` is a near-byte copy adapted to `action="reserve_write"`. Fire-and-forget, DB `_write_queue`-batched, defensive. |
+| Reserve single-floor evaluator | `energy_battery.py:_floor_reserve :3855-3870` | **REUSE as-is.** Governor's `_active_inclement_floor` is a thin accessor on top; wraps + narration keep calling `_floor_reserve` directly. |
+| Chokepoint for reserve writes | `energy_battery.py:_result :6278` | **REUSE + minimal extend.** Already hosts CFG cloud-withhold chokepoint + `_last_reserve_level_desired` stamp. One scheduler call added. |
+| EVSE post-overlay | `energy.py:_apply_evse_battery_hold :5239, :5401, :5497, :5516` | **REUSE unchanged.** Allowlist entry only. |
+| DP floor | `energy_drain_precedence.py` → folded in overlay at `energy.py:5401, :5497` | **REUSE unchanged.** NOT registered in the governor registry (R1-10). |
+| Commanded ledger / restart | `energy.py:1940-1968, 2290-2330` (DB `wv_commanded_ledger` key) | **REUSE unchanged.** Governor adds nothing. |
+| Row-labelling vocabulary | `energy_write_verify.py:_resolve_hold_owner :2525-2529, command_trail :2477-2530` | **REUSE.** `winning_floor` label imports the same constant. No duplicate surface. |
+| Typed `WriteResult` | `hvac_strategy.py:236-256` | **CARD AS FOLLOW-UP, NOT THIS CYCLE.** Fits the dispatch tap (`energy.py` `_tap_write_verifier`) + `force_redispatch`, not `_result`. Separate card `EC-RESERVE-WRITE-RESULT-TYPE-1`. |
+| `ExcursionToken` / `borrow_live` / `PresetManager` | `hvac_excursion.py:131, :307, :597, :635`; `hvac_preset.py:73, :234, :253`; `hvac_override.py:4266-4315` | **DOES NOT TRANSFER.** The one reserve floor (`inclement_partial_hold`) has no owner, no duration, no begin/return lifecycle — it is recomputed every tick from the cached inclement decision. A lease would add stale-row reap + NM machinery with nothing to protect; restore of the floor is already covered by inclement decision restore. |
+| Presence fusion / `perimeter_alert.py` | — | **DOES NOT TRANSFER.** Fusion + alerting are not write governance. No shape fit. |
 
 ---
 
-## Restart test (Tier-3 requirement)
+## Ordering invariant (R1-13)
 
-`test_governor_restart_full_cycle` (in-suite):
-1. Boot URA with a restored strategy-sensor blob containing `_last_inclement_decision = {hold_depth: partial_hold, reserve_floor: 55}` and `reserve_write_history = [<2 rows>]`.
-2. First post-boot `determine_mode` on an off_peak + partial_hold-active tick emits a reserve.
-3. Assert: `reserve_write_history[-1].winning_floor == "inclement_partial_hold"`, `final == 55`, and history deque length == 3.
-4. Secondary assert: `_last_reserve_level_desired == 55` (write-verify stamp intact).
+`_last_inclement_decision` is set by `_cache_inclement` inside `_inclement_decision` (`energy_battery.py:2734`). Every `determine_mode` emission that reaches `_result` has first called `_inclement_decision` (precedence chain `:2740-2766`). The one path that returns BEFORE classify is the Envoy-blind early-return (`:5588`), and its emit (`:5664-5673`) is the lint-allowlisted direct write that this cycle does NOT touch. The `_tick_id` field is set at the top of `determine_mode` BEFORE `_inclement_decision`; rows carrying a `tick_id` are guaranteed to see the fresh (current-tick) decision.
+
+**Test:** `test_governor_never_folds_stale_prior_tick_decision` — monkeypatch `_inclement_decision` to a sentinel that raises if called out-of-order; drive two consecutive `determine_mode` ticks with different `hold_depth` values; assert the second emission's row carries the second tick's floor, not the first.
+
+---
+
+## Config-extreme + edge cases
+
+1. **No floor active (not partial_hold OR `_last_inclement_decision is None`):** `_active_inclement_floor()` returns `(None, None)`; emission `final == proposed`; row written with `active_floor=null, winning_floor=null`.
+2. **Partial_hold active, proposed ≥ floor:** `final == proposed`; `active_floor=<name,value>`, `winning_floor=null` (floor present but did not win).
+3. **Partial_hold active, proposed < floor:** cannot happen for the 8 wrap sites (wrap already folded); CAN happen for site F11 (`:5890 max(soc-5, eff)` is already max-folded), site F12 (`:5979 effective_reserve`) etc. For completeness, when `proposed < floor` is observed, `winning_floor="inclement_partial_hold"` is recorded and INV-G sub-invariant triggers investigation (lint should have caught it, test confirms).
+4. **`reserve_level=None` in `_result`:** scheduler short-circuits; no row.
+5. **Scheduler raises (DB missing):** swallowed per `_schedule_climate_write_row` pattern; row dropped; `_result` returns normally.
+6. **Twice-per-tick `determine_mode`:** second row with same `tick_id` + same payload is dedup'd by the change gate.
+7. **`force_redispatch` loop (hourly):** row every re-dispatch unless change-gate matches → steady state: zero rows per hour on an unchanging desire; one row on each legitimate change.
+8. **Boot with no prior row memo:** `_last_reserve_write_row = None`; first emission is NOT dedup'd (correct — operator wants the first boot emission recorded).
+9. **Recorder bytes:** both new attrs recorder-excluded; `MAX_STATE_ATTRS_BYTES` not approached.
+
+---
+
+## Per-site mutation plan (Review C)
+
+Mutations target the governor + lint, not the wraps (wraps are unchanged and already covered by existing `test_battery_inclement_arbitrage_floor.py` monkeypatch tests at `:595, 720, 758, 785`).
+
+| Mutation | Must-fail test |
+|---|---|
+| Comment out `_schedule_reserve_write_row` call in `_result` | `test_governor_emits_one_row_per_result_call` |
+| Comment out the change-gate | `test_governor_change_gated_steady_state_no_rows` |
+| Comment out per-tick dedup | `test_governor_tick_dedup_second_emit_suppressed` |
+| Replace `_active_inclement_floor` return with `(None, None)` under partial_hold | `test_governor_row_labels_inclement_partial_hold_when_active` |
+| Add a new raw `number.set_value` call to `energy_battery.py` outside allowlist | `test_reserve_write_chokepoint_lint::test_no_unallowlisted_writers` |
+| Remove the `# RESERVE_WRITE_ALLOWED` sentinel from `:5664` | lint fails on blind de-escalation |
+| Replace `_resolve_hold_owner`-sourced label with a hand string | `test_winning_floor_label_matches_hold_owner_vocabulary` |
+
+**`PYTHONDONTWRITEBYTECODE=1`** on every mutation drill (pyc staleness guard).
 
 ---
 
 ## Acceptance criteria
 
-- **Verify:** every `reserve_level=` call site in `energy_battery.py` passes its **pre-floor** proposal to `_result`; `grep -n 'reserve_level=' energy_battery.py` returns exactly the counted set; no site invokes `_floor_reserve` after migration.
-- **Verify:** `_floor_reserve` is deleted (DELETE candidate at ship+1; or inlined into the registry's `inclement_partial_hold` source_fn and removed as a public static method). Operator decision: delete in-cycle vs ship+1 — plan recommends **ship+1** to preserve a one-cycle rollback.
-- **Verify (INV-G):** `test_governor_byte_identical_fallback_only_when_no_floor` — parameterized across every emission site with `allow_discharge` + arbitrage closed + no attain → snapshot of result dict is byte-identical to a saved pre-governor fixture.
-- **Verify:** `sensor.ura_energy_battery_strategy` exposes `reserve_write_history` attribute (list of dicts, each with `ts, proposed, active_floors, final, winning_floor, reason`), bounded to `RESERVE_WRITE_HISTORY_MAX`.
-- **Verify:** restart with corrupt / absent `reserve_write_history` key yields empty deque; no boot errors.
-- **Verify (write-verify silence):** `test_write_verify_unchanged_under_governor` — `_last_reserve_level_desired` stamp semantics identical; `_inclement_partial_hold_floor` reader at `energy_write_verify.py:1647` still works.
-- **Verify (CFG chokepoint):** `test_cfg_withhold_still_fires_after_governor` — cloud-fallback tick still forces `charge_from_grid=False`.
-- **Verify (EVSE overlay):** `test_evse_overlay_folds_on_governor_final` — overlay runs on the governor's `final`, not on `proposed`; both call sites (`energy.py:6459, :7174`) verified.
-- **Verify (blind semantics unchanged):** `test_blind_tick_no_new_reserve_write_v5175` — a fully-blind tick emits zero new reserve commands AND `_last_reserve_level_desired` is unchanged.
-- **Test suite:** `quality/tests/test_reserve_write_governor.py` — ~15 tests covering the edge cases + the per-site mutation parameterization + restart test.
-- **Live:** on first post-ship real-world partial_hold or attain-active tick, `sensor.ura_energy_battery_strategy` attribute `reserve_write_history` grows by exactly one row per `_result` emission with `winning_floor` set correctly; cite the entity snapshot in the README write-back.
-- **Live:** `grep` the HA log for any `_result`-adjacent exception during the first 48h → zero.
+- **Verify (lint):** `test_reserve_write_chokepoint_lint.py` passes on `develop @ HEAD`; any new `number.set_value` on the reserve role outside the allowlist fails.
+- **Verify (byte-identical):** `test_governor_byte_identical_result_dict_under_allow_discharge` — snapshot of `_result` return across every emission branch under `allow_discharge` + arbitrage closed + no attain is unchanged vs a `pre-governor` fixture captured from `develop @ HEAD`.
+- **Verify (floor fold):** `test_governor_partial_hold_floor_folds_to_max_reserve_soc_or_reserve_floor` — with `reserve_soc=20`, `reserve_floor=10`, proposed 15 → `final=20` (today's behaviour via `max(reserve_soc, reserve_floor)`); R1-02 anchor.
+- **Verify (row):** every `_result` reserve emission writes exactly one `reserve_write` row to `ura_activity_log` (modulo change-gate + per-tick dedup); SQL query returns the row with the expected shape.
+- **Verify (change gate):** steady partial_hold ticks produce zero new rows after the first.
+- **Verify (force_redispatch):** `force_redispatch` writes a row with `verb="redispatch"`.
+- **Verify (sensor attrs recorder-excluded):** `EnergyBatteryStrategySensor._unrecorded_attributes` contains `reserve_write_history` and `last_reserve_write`; a recorder-attr-bytes probe confirms the sensor's recorded-attr JSON stays well under `MAX_STATE_ATTRS_BYTES`.
+- **Verify (CFG + stamp preserved):** existing `test_cfg_withhold_*` and write-verify stamp tests pass unchanged.
+- **Verify (ordering):** `test_governor_never_folds_stale_prior_tick_decision`.
+- **Verify (label vocabulary):** `winning_floor` string equals the constant that `_resolve_hold_owner` returns for the inclement-active case.
+- **Live (one-shot, R1-15):** after restart, within 60 min, run ONE SQL query against `ura_activity_log` filtered to `action="reserve_write"` + the last hour; assert ≥1 row exists when any emission has occurred, OR `last_reserve_write` sensor attr is populated. **No 48h soak.** The one-shot query is the acceptance signal; residual anomalies become code trip-wires in a follow-up card, not calendar reminders.
 
 ---
 
-## Non-goals (hold the line)
+## Non-goals (hold the line, Rev 2)
 
-1. No new floor sources. (Inclement forecast, EV smart-charge, grid-import guard — all PARKED or already registered.)
-2. No change to inclement decision logic — this plan is NOT `EC-INCLEMENT-HARDENING-1`.
-3. No change to the EVSE overlay internals.
-4. No change to the drain-precedence state machine.
-5. No change to the write-verify freshness contract or stamp timing.
-6. No change to v5.17.5 blind-tick semantics (blind reserve write at `:5667-5673` is OUT; the inclement D-blind cycle will route it through `_result` on top of this governor).
-7. No new RestoreEntity, no new sensor, no new signal, no new config-flow field.
-8. No port of a nonexistent HVAC "write governor" pattern — grep confirmed none exists; this cycle hardens `_result` and is self-contained in `energy_battery.py`.
+1. No new floor sources. Only `inclement_partial_hold` registered.
+2. No change to inclement decision logic — this cycle is NOT `EC-INCLEMENT-HARDENING-1`.
+3. No change to `_apply_evse_battery_hold` or DP floor placement.
+4. No change to the write-verify freshness contract or stamp timing.
+5. No change to v5.17.5 blind-tick semantics; blind write at `:5664-5673` stays as-is + allowlisted.
+6. No new RestoreEntity. No new DB schema. No new table.
+7. No `_floor_reserve` retirement. The 8 wraps + narration call it unchanged (R1-06).
+8. No typed `WriteResult` in this cycle — carded as `EC-RESERVE-WRITE-RESULT-TYPE-1` follow-up for the dispatch tap + `force_redispatch`.
+9. No leases / `ExcursionToken` for floors (R1-12: nothing to protect; adds reap + NM machinery for zero gain).
+10. No presence-fusion or perimeter-manager pattern transfer (R1-12: fusion/alerting ≠ write governance).
 
 ---
 
@@ -244,54 +266,58 @@ For each of the 7 line-edited sites (1-6 + 15), the C-reviewer edits production 
 
 | Name | Rung | Default | Why |
 |---|---|---|---|
-| `RESERVE_WRITE_HISTORY_MAX` | 1 (const in `energy_const.py`) | 100 | Bounded ring; sized for ~8h of 5-min emissions. Rung-1 because changes alter diagnostic-attr memory footprint; operator doesn't legitimately tune by observation. |
-| `_FLOOR_REGISTRY` | 1 (const, declared once at module load in `energy_battery.py`) | per table above | Rung-1 because adding a floor is a topology change (new INV-G floor source → new review). |
+| `RESERVE_WRITE_HISTORY_MAX` | 1 (const in `energy_const.py`) | 20 | Bounded in-memory list for the recorder-excluded `reserve_write_history` attr; durability lives in DB rows, not RAM. |
+| `RESERVE_WRITE_LOG_IMPORTANCE` | 1 (const) | = `CLIMATE_WRITE_LOG_IMPORTANCE` | Mirrors HVAC `climate_write` row importance. |
+| `_FLOOR_REGISTRY` concept | — | **removed** vs Rev 1 | Rev 2 registers exactly one floor; no table needed. |
 
-**No rung-2 options, no rung-3 Number entities.** The governor is pure plumbing.
+No rung-2 options, no rung-3 Number entities.
 
 ---
 
 ## Build-risk prediction (what a builder will likely get wrong)
 
-1. **Dropping the pre-floor proposal in the migration** — a builder may "clean up" sites 1-6 by *also* removing the branch's defensive `max(int(soc)-5, effective_reserve)` at `:5890/5994`. **Do not.** The governor runs ON TOP of whatever the branch proposes; branch-local defensive maxes stay.
-2. **Collapsing `_floor_reserve` inline too eagerly** — tempting to delete the helper in the same commit as the migration. **Don't** — ship+1 DELETE preserves one-cycle rollback. Mark the helper `# RETIRED — DELETE candidate ship+1` and leave the body intact (unreferenced).
-3. **Writing the history row before the fold** — the row must capture BOTH `proposed` and `final`; writing after the fold is correct. Builders often write it before.
-4. **Over-wiring the EVSE overlay** — `evse_overlay` is a *documented* registry entry, not a clamped one. The overlay still runs post-`_result` as today. Do not add a pre-fold EVSE clamp.
-5. **Breaking `_last_reserve_level_desired` on blind ticks** — the governor must not touch the stamp semantics; the stamp block at `:6520-6560` is unchanged. v5.17.5 blind-tick staleness is load-bearing for write-verify.
-6. **Catching too broadly in source_fn evaluation** — swallow `Exception` only around each `source_fn(self)` call, not around the whole fold. A registry iteration bug must fail loudly in tests.
-7. **Making the registry global-mutable** — `_FLOOR_REGISTRY` is a tuple of tuples at module scope; do not expose a public `register_floor()` API. Future floors are code changes (rung-1 topology), not runtime registrations.
-8. **Restart blob extension getting its own RestoreEntity** — do not add a new RestoreEntity; piggyback on the existing strategy-sensor blob. A new RestoreEntity would double the restore surface and race boot.
-9. **Serializing deque directly** — pickle via tuple-of-tuples; deque pickling across HA versions is fragile.
-10. **Changing arbitrage CHARGE→HOLD transitions** — v5.5.3 proved the transition reads `_peak_buffer_target`, not the clamped reserve. Governor does not touch phase transitions. Builder must not "simplify" the transition to read the governor's `final`.
+1. **Deleting `_floor_reserve` wraps** — tempting given the Rev-1 design. Rev 2 KEEPS them. Reason suffix + narration parity depend on them.
+2. **Awaiting the DB scheduler** — fire-and-forget per `_schedule_climate_write_row`; awaiting back-pressures the dispatch path.
+3. **Omitting the `_unrecorded_attributes` set on `sensor.py`** — exposes the attr to the recorder; attr-bytes blow past 16 KB; recorder drops ALL attrs (R1-08).
+4. **Change gate on the wrong tuple** — must be `(proposed, final, winning_floor)`; using `final` alone misses legit floor-value changes.
+5. **Setting `_tick_id` inside `_evaluate_battery` instead of `determine_mode`** — breaks per-tick dedup for the twice-per-tick case.
+6. **Writing a row inside `_apply_evse_battery_hold`** — the overlay runs AFTER `_result` returns; row is written by `_result`'s scheduler; adding one inside the overlay double-counts.
+7. **Hand-copying `_resolve_hold_owner` strings** — must import the constant (same single-source-of-truth rule as HVAC's `DYNAMIC_DOMAIN_ALLOWLIST`).
+8. **Allowlist drift in the lint** — allowlist must be production-sourced (sentinels or an imported constant), not hand-copied into the test.
+9. **Breaking blind semantics** — do not touch `:5664-5673`; this cycle only adds a sentinel comment there for lint discovery.
+10. **Adding a RestoreEntity** — Rev 2 adds none. Use the existing `wv_commanded_ledger` DB restore path.
 
 ---
 
 ## Tier-3 review framings (four, parallel, disjoint)
 
-- **A — local correctness:** fold arithmetic, registry source_fn correctness, history-row shape, byte-identical no-op.
-- **B — integration / state-machine:** `_result`'s existing responsibilities (CFG withhold, stamp block, arbitrage_phase sync, cloud mapping) preserved; EVSE overlay sees the right input; write-verify stamp semantics unchanged; restart contract.
-- **C — test authority (per-site source mutation):** real production-source mutation per migrated site (table above); each mutation trips a specific named test; `PYTHONDONTWRITEBYTECODE=1`.
-- **D — adversarial completeness / diff-blind:** independently re-enumerate every reserve-write path in `energy_battery.py` AND `energy.py` AND `energy_drain_precedence.py` AND `energy_write_verify.py` dispatch tap. Confirm (a) every path either passes through `_result` or is EVSE-overlay / DP-ledger (documented); (b) no sibling writer exists; (c) INV-G corollary (3) holds. D-reviewer owns the "7th site" prevention — this is the same framing that caught v5.5.3's D-HIGH-1.
+- **A — local correctness:** scheduler payload shape, change-gate tuple, per-tick dedup, `_active_inclement_floor` arithmetic (`max(reserve_soc, reserve_floor)`), byte-identical no-op.
+- **B — integration / state-machine:** `_result` responsibilities preserved (CFG withhold, stamp block, arbitrage_phase sync, cloud mapping); EVSE overlay input/output unchanged; `wv_commanded_ledger` restore unchanged; write-verify `command_trail` / `_resolve_hold_owner` vocabulary agrees.
+- **C — test authority (real source mutation):** per-mutation table above; `PYTHONDONTWRITEBYTECODE=1`.
+- **D — adversarial completeness / diff-blind:** independently enumerate reserve-write paths across `energy_battery.py`, `energy.py`, `energy_pool.py`, `energy_drain_precedence.py`, `energy_write_verify.py` dispatch tap. Confirm the lint fires on any site added outside the allowlist AND agrees with D's enumeration (lint is D's permanent delegate).
 
-Pre-ship: orchestrator independently re-greps `number.set_value` + `reserve_soc` references across `custom_components/universal_room_automation/**/*.py` and confirms every write terminates in `_result` or the overlay/DP ledger. **Operator checkpoint BEFORE deploy.**
+Orchestrator pre-ship: run the lint, independently grep `number.set_value` across `custom_components/universal_room_automation/**/*.py`, confirm every match is in the allowlist. **Operator checkpoint BEFORE deploy.**
 
 ---
 
 ## Sequencing
 
-1. Ship this governor **first**. It is the structural chokepoint `EC-INCLEMENT-HARDENING-1` D-blind will route through.
-2. Then `EC-INCLEMENT-HARDENING-1` lands D-blind as a one-line routing change through `_result` (and therefore the governor).
+1. Ship this governor **first**. It establishes the chokepoint lint + durable row that `EC-INCLEMENT-HARDENING-1` D-blind will register against on its next revision.
+2. Then `EC-INCLEMENT-HARDENING-1` D-blind lands as a one-line routing change through `_result` — automatically governed, automatically a row, automatically within the lint's allowlist (the lint catches it IF it bypasses `_result`).
+3. `EC-RESERVE-WRITE-RESULT-TYPE-1` (follow-up, carded) hardens the dispatch tap + `force_redispatch` with a typed `WriteResult`, modelled on `hvac_strategy.py:236-256`.
 
 ---
 
-## Files touched
+## Files touched (Rev 2)
 
-- `custom_components/universal_room_automation/domain_coordinators/energy_battery.py` — governor block in `_result`, `_FLOOR_REGISTRY` tuple at module scope, history deque init + restore extension, attr builder. Est. +120 / -40 LoC.
-- `custom_components/universal_room_automation/domain_coordinators/energy_const.py` — `RESERVE_WRITE_HISTORY_MAX = 100`. +1 LoC.
-- `quality/tests/test_reserve_write_governor.py` — NEW, ~15 tests. ~400 LoC.
-- `docs/readmes/README_v<version>.md` — NEW pre-deploy, rewritten post-restart with the validation table.
+- `custom_components/universal_room_automation/domain_coordinators/energy_battery.py` — `_active_inclement_floor` helper, `_schedule_reserve_write_row` scheduler, scheduler call in `_result` + `force_redispatch`, `_tick_id` + `_last_reserve_write_row` fields, `_reserve_write_history` bounded list init, lint sentinels at `:5664` + `:6820`. Est. +90 / -0 LoC. **No change** to the 8 wrap sites, the narration, or any emission arithmetic.
+- `custom_components/universal_room_automation/domain_coordinators/energy_const.py` — `RESERVE_WRITE_HISTORY_MAX = 20`, `RESERVE_WRITE_LOG_IMPORTANCE`. +2 LoC.
+- `custom_components/universal_room_automation/sensor.py` — `_unrecorded_attributes` set on `EnergyBatteryStrategySensor` (`:9052`); `last_reserve_write` + `reserve_write_history` attr wiring. Est. +15 LoC.
+- `quality/tests/test_reserve_write_chokepoint_lint.py` — NEW. ~250 LoC.
+- `quality/tests/test_reserve_write_governor.py` — NEW. ~400 LoC (byte-identical snapshot, row-shape, change-gate, dedup, label vocabulary, ordering, force_redispatch).
+- `docs/readmes/README_v<version>.md` — NEW pre-deploy, rewritten post-restart with one-shot DB query evidence.
 
-**Not touched:** `const.py`, `config_flow.py`, `options_flow.py`, `sensor.py` (attr builder reuses the existing strategy sensor's `extra_state_attributes` path), `binary_sensor.py`, `number.py`, `switch.py`, `select.py`, `button.py`, any other coordinator, `energy.py` (overlay unchanged), `energy_write_verify.py` (contract unchanged), `energy_drain_precedence.py` (unchanged).
+**Not touched:** `const.py`, `config_flow.py`, `options_flow.py`, `binary_sensor.py`, `number.py`, `switch.py`, `select.py`, `button.py`, other coordinators, `energy.py` (overlay unchanged), `energy_write_verify.py` (contract unchanged; label vocabulary imported from it), `energy_drain_precedence.py` (unchanged), `database.py` (uses existing `log_activity`).
 
 ---
 
