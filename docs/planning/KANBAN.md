@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T22:39:50-05:00_ - _Data commit: `6c7297db8b70`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T22:41:35-05:00_ - _Data commit: `9104d66692ca`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -54,7 +54,9 @@ _idea being decomposed_
 thread: **energy** - status: **pre_planning**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (3):**
+- **Forensic keys (5):**
+  - `operator_approval_2026_10_15_onset`: Read alert start times. > YEs (operator approved the Onset deliverable). Follow-up: "I believe we do [filter alerts to our GPS]. But check. Also we have to understand how Alerts work and if the data is trustworthy and accurate vs useless...
+  - `operator_instruction_2026_10_15`: (1) Blind pause: I understand being unable to command but why stop reasoning when you clearly can? (2) Fix the matching. Reason from first principles: is it above medium? What would we act on for inclement weather? We built this so we do...
   - `tier`: 3
   - `adjacency_2026_10_15`: Swept board for INCLEMENT: no card. ADJACENT to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 (same Envoy-blind gate, wart 1) -> linked, not merged (different problem statement). Prior art: v5.5.0 inclement hold, v5.5.3 WAIT floor (closed).
   - `related`: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
