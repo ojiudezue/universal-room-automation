@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.66
+# Universal Room Automation vv5.103.67
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.66"
+VERSION: Final = "v5.103.67"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -4712,6 +4712,18 @@ WS_ANOMALY_COLUMNS: Final = (
 WS_ACTIVITY_COLUMNS: Final = (
     "id", "timestamp", "coordinator", "action", "room", "zone",
     "importance", "description", "details_json", "entity_id",
+)
+
+# EC-OUTAGE-LEDGER D-L0 (rung 1): `ura_activity_log` actions that
+# `prune_activity_log` NEVER deletes (outage/alert evidence ledger; volume
+# budget <= ~1,000 rows/yr, revisit with a dedicated table above 5,000/yr).
+# Rendered to a SQL literal at import by database.py (identifier-checked,
+# never user input). Empty tuple = prune exactly as before.
+ACTIVITY_LEDGER_RETAINED_ACTIONS: Final = (
+    "nws_alert",
+    "grid_outage",
+    "inclement_code_drift",
+    "inclement_memory_cleared",
 )
 
 

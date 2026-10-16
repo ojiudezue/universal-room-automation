@@ -105,6 +105,20 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: TEST-BAYES-B2-CLOCK-SKEW-1
+  title: "Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC"
+  thread: quality
+  status: inbox
+  created: '2026-10-16 13:30'
+  updated: '2026-10-16 13:30'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [found-during-build, test-infra]
+  rank: {value: 3, time_criticality: 2, effort: 1}
+  problem_solution:
+  - "Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes effect because it uses sys.modules.setdefault. When local and UTC hours fall in different bins, 5 tests fail ('insufficient_data'). Confirmed failing on develop b003a64cd at 13:10 CDT. The file also errors at collection when run after a light file. Solution: compute the expected bin from the same clock the predictor uses, and make the file import its real dependencies itself."
+  origin: {date: '2026-10-16', gist: 'Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.'}
+  why: 'Pollutes every name-diff by time of day, so real regressions hide behind it.'
 - id: SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1
   title: "A fast detector event during startup can reach the Notification Manager before it has restored its saved state"
   thread: safety
@@ -368,7 +382,8 @@ cards:
   operator_instruction_2026_10_15: "(1) Blind pause: I understand being unable to command but why stop reasoning when you clearly can? (2) Fix the matching. Reason from first principles: is it above medium? What would we act on for inclement weather? We built this so we don't react to things that don't matter that come over alerts, for our GPS coord. (3) Forecast never consulted seems dumb; peering into the future is an advantage. Check the original plan: mistake, or what was the reasoning (which can be improved)."
   title: 'Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input'
   thread: energy
-  status: waiting_me
+  status: shipped_organic
+  shipped_version: v5.103.67
   tier: 3
   origin: 'operator 2026-10-15 ~22:40: "why is the storm hold not tripped and is that reasonable. Check code. We may find warts. Its worth inspecting and hardening. Enphase can do its own storm hold. They like to override my settings."'
   why: 'Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_events keyword (inclement.py:141-149, energy_const.py:630-639); Moderate demotes to watch, watch needs corroboration. (3) _alert_expires_at min(Ends,Expires) inclement.py:129-138 + drop at :213; Onset never read -> future alert "active" now, expired at onset. (4) no forecast lookahead / precip probability / gust knob; condition path reads current state only (weather_manager.py:787-838), needs >=2 stormy providers, mid/peak never hold on condition. (5) watch_requires_corroboration CONF unexposed (energy_const.py:620). (6) Enphase Storm Guard not visible to URA.'

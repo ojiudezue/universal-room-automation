@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.66
+# Universal Room Automation vv5.103.67
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -24,12 +24,35 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ACTIVITY_LEDGER_RETAINED_ACTIONS,
     DATABASE_DIR,
     DATABASE_NAME,
     MIN_DATA_DAYS_PREDICTION,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _render_ledger_exemption(actions: tuple[str, ...]) -> str:
+    """EC-OUTAGE-LEDGER D-L0: render the prune exemption to a SQL literal.
+
+    Built once at import from a rung-1 constant. Each action must be a
+    plain lowercase identifier (no quoting/injection surface); anything
+    else raises at import so a bad constant fails loudly in tests.
+    Empty tuple -> "" (prune exactly as before).
+    """
+    if not actions:
+        return ""
+    for a in actions:
+        if not a or not all(c.islower() or c == "_" for c in a):
+            raise ValueError(f"invalid ledger action identifier: {a!r}")
+    quoted = ",".join(f"'{a}'" for a in actions)
+    return f" AND action NOT IN ({quoted})"
+
+
+_LEDGER_PRUNE_EXEMPTION_SQL = _render_ledger_exemption(
+    tuple(ACTIVITY_LEDGER_RETAINED_ACTIONS)
+)
 
 
 class DBShuttingDown(RuntimeError):
@@ -6271,15 +6294,20 @@ class UniversalRoomDatabase:
 
         Info: 7 days, notable/critical: 30 days.
         v4.2.8: Batched to avoid blocking write queue.
+        EC-OUTAGE-LEDGER D-L0: rows whose action is in
+        ``ACTIVITY_LEDGER_RETAINED_ACTIONS`` are never pruned (both tiers).
         """
         now = dt_util.utcnow()
         info_cutoff = (now - timedelta(days=7)).isoformat()
         notable_cutoff = (now - timedelta(days=30)).isoformat()
         total_deleted = 0
-        # SAFETY: where clauses are hardcoded literals — never from user input
+        # SAFETY: where clauses are hardcoded literals plus the ledger
+        # exemption, which is rendered once at import from a rung-1 constant
+        # tuple of identifier-checked action names — never from user input.
+        _keep = _LEDGER_PRUNE_EXEMPTION_SQL
         for cutoff, where in [
-            (info_cutoff, "importance = 'info' AND timestamp < ?"),
-            (notable_cutoff, "importance != 'info' AND timestamp < ?"),
+            (info_cutoff, "importance = 'info' AND timestamp < ?" + _keep),
+            (notable_cutoff, "importance != 'info' AND timestamp < ?" + _keep),
         ]:
             _batch_count = 0  # Reset per-tier
             while True:
@@ -6758,6 +6786,7 @@ class UniversalRoomDatabase:
         cursor: int | None = None,
         limit: int = 50,
         columns: list[str] | tuple[str, ...] | None = None,
+        action: str | None = None,
     ) -> dict:
         """v5.17.0 — filtered + cursor-paginated read of ``ura_activity_log``.
 
@@ -6809,6 +6838,10 @@ class UniversalRoomDatabase:
         if zone is not None:
             clauses.append("zone = ?")
             params.append(zone)
+        if action is not None:
+            # EC-OUTAGE-LEDGER: parameterized, additive (None = unchanged).
+            clauses.append("action = ?")
+            params.append(action)
         if importance is not None:
             if importance not in WS_ACTIVITY_IMPORTANCE_VALUES:
                 raise ValueError(f"invalid importance: {importance!r}")
@@ -6833,7 +6866,11 @@ class UniversalRoomDatabase:
                 row_dicts = [dict(r) for r in rows]
         except Exception as e:
             _LOGGER.warning("query_activities failed: %s", e)
-            return {"rows": [], "next_cursor": None, "page_size": page_size, "capped": capped}
+            # EC-OUTAGE-LEDGER: additive "error" key so a caller can tell a
+            # failed read from an empty result (seed retry). Existing readers
+            # ignore unknown keys.
+            return {"rows": [], "next_cursor": None, "page_size": page_size,
+                    "capped": capped, "error": str(e)}
 
         next_cursor = None
         if row_dicts and "id" in row_dicts[-1]:

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "216",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_194418_ship_v5_103_67",
+  "timestamp": "2026-10-16T19:44:18Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.67 shipped: EC outage ledger: durable NWS alert + off-grid episode history (arc Stage L)",
+  "summary": "EC outage ledger: durable NWS alert + off-grid episode history (arc Stage L)",
+  "why": "Ledger first, ahead of Stage A/B: Enphase keeps ~7 weeks of history and the storm-hold tiers (Wind Advisory medium, freezes hold) were justified by hand-assembled public data; the ledger makes every future tier decision checkable against our own outages. Cloud calendar chosen as primary witness because the Stage 0 probe showed iq_gateway grid_mode flaps (98 false flips/7d) and grid_enabled/grid_status are unavailable 20% of the time and unproven in a real outage. Prune exemption (not a new table) because volume is <1000 rows/yr. Review B caught that the sweep timer callbacks lacked @callback and would have raised in an executor thread in prod (tests mocked the timers) - fixed with a real-HA-timer test. Review B's 'bypasses the write queue' finding was refuted against database.py:665. Several rounds went to test isolation: the new real-HA tests were polluted by and then polluted other files' HA stubs; final fixture snapshots and restores every touched module/attribute with a leave-no-trace assertion.",
+  "implications": "Shipped EC-INCLEMENT-HARDENING-1 at v5.103.67; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.67.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log: first cloud sweep after restart either writes grid_outage rows or logs 0 events/unresolved calendar; nws_alert rows exist one per alert ID with no duplicates after a second restart; 0 thread RuntimeErrors",
+  "refs": {
+    "cards": [
+      "EC-INCLEMENT-HARDENING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.67.md"
+    ],
+    "release_notes": "Arc Stage L. URA now keeps a permanent ledger: one nws_alert row per alert message (dedup by ID, survives restarts) and grid_outage rows from a daily sweep of the Enphase cloud event calendar (off/on-grid times, generator events, nearest EC decision + SOC), with local grid sensors as rate-limited corroboration only. Ledger rows are exempt from activity-log pruning. No reserve, inclement or decision behaviour change. Tier 2-DB: reviews A SHIP, B FIX (timer thread bug fixed), C FIX (12 test gaps closed)."
+  }
+}

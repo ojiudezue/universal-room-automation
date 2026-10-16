@@ -15,7 +15,7 @@ The top-rate primitive (step 7) is the single definition of "expensive period" t
 
 | # | Step | Card(s) | Tier | Status | Gate to start |
 |---|---|---|---|---|---|
-| 1 | **Reserve write governor**: one floor registry at `_result`, dispatch history rows (WriteStatus vocabulary), reserve-write bypass lint, restart via the existing ledger | EC-RESERVE-WRITE-GOVERNOR-1 | 3 | **Building** (Fable builder, branch `feature/reserve-governor`) | Plan Rev 3.2 + ground-truth audit (done) |
+| 1 | **Reserve write governor**: dispatch history rows with floor_ok (floor observed, NOT enforced — single floor moves to Stage A) (WriteStatus vocabulary), reserve-write bypass lint, restart via the existing ledger | EC-RESERVE-WRITE-GOVERNOR-1 | 3 | **Shipped v5.103.66** (2026-10-16 10:47 restart); live row check waits on the Envoy coming back | Plan Rev 3.2 + ground-truth audit (done) |
 | 2 | **Keep deciding while the Envoy is offline**: inclement decision runs above the blind gate; blind holds and releases go through the governor; the v5.17.5 no-command rule is preserved except the floor write | EC-INCLEMENT-HARDENING-1 (D-blind) | 3 | Waiting on step 1 | Governor live-validated; revise PLANNING_inclement_hardening.md against the built governor (review-3 findings P3-01..04 are the checklist) |
 | 3 | **Storm alert matching** by NWS code, checked locally: add the freeze products the outage record supports (Hard Freeze, Extreme Cold, Wind Chill) alongside Winter Storm / Ice Storm; **Wind Advisory stays medium (no hold)**, per AUDIT_outage_alert_correlation.md (0 of 33 windows had an outage); point-in-polygon for storm warnings where geometry exists | EC-INCLEMENT-HARDENING-1 (D-match) | 3 | Waiting on step 1 | Same revision as step 2 |
 | 4 | **Hold until the hazard ends**: Onset/Ends instead of Expires; alerts that haven't started are not active (operator-approved) | EC-INCLEMENT-HARDENING-1 (D-ends) | 3 | Waiting on step 1 | Same revision as step 2 |
@@ -37,3 +37,4 @@ Related, outside this arc: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 (Envoy dropout h
 
 ## Status log
 - 2026-10-16: arc opened. Step 1 building on Fable.
+- 2026-10-16: step 1 deployed as v5.103.66; the optimizer reserve deny is kept in (operator: "Keep"). After the restart the Envoy setup hangs: `/info` answers, but the authenticated `/ivp/pdm/device_data` probe hangs, so the Envoy needs a gateway reboot. With the Envoy blind, EC holds and writes no reserve, so there are no `reserve_write` rows yet. Next: the integrated plan for steps 2-7.
