@@ -28,7 +28,7 @@ import inspect
 import json
 import logging
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .energy_const import (
@@ -78,10 +78,11 @@ def _parse_dt(value: Any) -> datetime | None:
     if isinstance(value, dict):  # {"dateTime": "..."} shape
         value = value.get("dateTime") or value.get("date")
     try:
-        from homeassistant.util import dt as dt_util
-        return dt_util.parse_datetime(str(value))
-    except Exception:  # noqa: BLE001
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
         return None
+    # Naive values are not comparable with aware ones: treat as UTC.
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _alert_end(alert: dict[str, Any]) -> datetime | None:
@@ -277,8 +278,8 @@ class OutageLedger:
                 continue  # None never transitions, never resets the baseline
             prev = self._local_last.get(sensor)
             self._local_last[sensor] = bool(reading)
-            if prev is None:
-                continue  # boot reading sets the baseline silently
+            # A boot reading (prev None) only sets the baseline: the test
+            # below requires a prior non-None False, so it writes nothing.
             if prev is False and reading is True:
                 alert_ids = []
                 if isinstance(alerts, list):
@@ -373,10 +374,9 @@ class OutageLedger:
             return 0
 
     async def _sweep(self, now: datetime | None) -> int:
-        from homeassistant.util import dt as dt_util
         if not OUTAGE_CALENDAR_OFFGRID_SUBSTR:
             return 0
-        now = now or dt_util.now()
+        now = now or datetime.now(timezone.utc)
         eid, n = self.resolve_calendar()
         if eid is None:
             if not self._unresolved_warned:
@@ -409,7 +409,7 @@ class OutageLedger:
         tol = timedelta(minutes=OUTAGE_DEDUP_TOLERANCE_MIN)
         written = 0
         for t, _cls, summary in offgrid:
-            key = dt_util.as_utc(t).isoformat()
+            key = t.astimezone(timezone.utc).isoformat()
             if key in self._cloud_seen:
                 continue
             ongrid_at = next(
