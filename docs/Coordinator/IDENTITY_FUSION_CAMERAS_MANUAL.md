@@ -307,6 +307,27 @@ Direction gating on the census union feed
   `EGRESS_FACE_UNION_TTL_S`.
 - `ambiguous` → neither register nor evict (matches DB-write gate).
 
+### 4.3a Exit backfill (late-binding identity, v5.96.1 / v5.97.1; R1 2026-10-16)
+
+Exit rows have a second `person_id` writer. When a resident's own
+`bluetooth_le` tracker goes home→away, `camera_census._on_crossing_tracker_state_change`
+schedules `_backfill_exit_identity`. After a 300 s settle and a flap re-read it
+names the nearest NULL exit row in the 600 s before the edge
+(`database.backfill_entry_exit_person_id`, `WHERE id=? AND person_id IS NULL`;
+`confidence` column untouched). So exit identity can arrive ~5-11 min late.
+
+- **Kill switch (R1):** `switch.ura_name_people_at_doors` is fresh-read at the edge
+  handler AND right before the UPDATE. OFF means no backfill write; counted in
+  `ble_exit_identity_disabled_skip_count` on the census sensor.
+- **Displays:** `PersonsExitedTodaySensor` re-reads today's exits and
+  `LastPersonExitSensor` (R1) re-reads the newest exit row on
+  `SIGNAL_EGRESS_EXIT_BACKFILLED`. The last-exit display only takes the name
+  if the newest row is the one named.
+- **Never:** re-notify (backfill confidence 0.72 is below the 0.75 naming bar
+  anyway), census recount/evict, or any actuation.
+- Any future trust consumer of exit `person_id` must read after the backfill
+  window or treat exit identity as late-binding. Validation: `AUDIT_exit_backfill_d0.md`.
+
 ### 4.4 `PersonCoordinator` (`person_coordinator.py`) — interior identity
 
 Per-person GPS/WiFi/BLE fusion, `_log_person_room_change` writes to
