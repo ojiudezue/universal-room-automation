@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T22:41:35-05:00_ - _Data commit: `9104d66692ca`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T22:55:25-05:00_ - _Data commit: `c54c971325e9`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -54,7 +54,8 @@ _idea being decomposed_
 thread: **energy** - status: **pre_planning**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `operator_instruction_2026_10_15_b`: D4b: "just find history" (done: docs/planning/AUDIT_nws_alert_history_lakeway.md). Storm Guard: "Our inclement weather module was built to be a more measured storm guard. Enphase uses the indiscriminate alert system without filtering and...
   - `operator_approval_2026_10_15_onset`: Read alert start times. > YEs (operator approved the Onset deliverable). Follow-up: "I believe we do [filter alerts to our GPS]. But check. Also we have to understand how Alerts work and if the data is trustworthy and accurate vs useless...
   - `operator_instruction_2026_10_15`: (1) Blind pause: I understand being unable to command but why stop reasoning when you clearly can? (2) Fix the matching. Reason from first principles: is it above medium? What would we act on for inclement weather? We built this so we do...
   - `tier`: 3
