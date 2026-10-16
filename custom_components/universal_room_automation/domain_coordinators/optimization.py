@@ -4484,6 +4484,71 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             return OPTIMIZER_OUTCOME_FAILED
 
+    # ------------------------------------------------------------------
+    # EC-RESERVE-WRITE-GOVERNOR-1 Review D D-2 — reserve-role HARD deny
+    # ------------------------------------------------------------------
+    def _reserve_role_entities(self, cm_config: dict | None = None) -> frozenset[str]:
+        """Every configured battery-reserve role entity (local witness AND
+        cloud write leg), read from the CM options. The battery reserve is
+        written ONLY by the Energy Coordinator's governed slice
+        (`energy.py` C1/C2/C3 + `RESERVE_SET_VALUE_WRITERS`); the optimizer
+        is a variable-domain writer the AST lint cannot see, so it is
+        denied here by role, independent of the operator deny list."""
+        try:
+            from .energy_const import (  # noqa: PLC0415
+                CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
+                CONF_ENERGY_RESERVE_SOC_ENTITY,
+            )
+            cfg = cm_config if cm_config is not None else self._read_cm_config()
+            out = set()
+            for key in (CONF_ENERGY_RESERVE_SOC_ENTITY,
+                        CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY):
+                v = cfg.get(key)
+                if isinstance(v, str) and v:
+                    out.add(v)
+            return frozenset(out)
+        except Exception:  # noqa: BLE001 — never crash dispatch
+            _LOGGER.debug("reserve role resolution failed", exc_info=True)
+            return frozenset()
+
+    async def _check_reserve_role_hard_deny(
+        self,
+        finding: OptimizationFinding,
+        action_id: str,
+        level: str,
+        target_entity: str,
+        service: str,
+    ) -> str | None:
+        """Refuse ANY optimizer actuation (device or config class, Tier-1 or
+        LLM) whose target is a battery-reserve role entity. Returns the
+        outcome when refused, else None. Not operator-configurable (rung 1):
+        the reserve has exactly one writer, the energy governed slice."""
+        if not target_entity:
+            return None
+        if target_entity not in self._reserve_role_entities():
+            return None
+        finding.applied_outcome = OPTIMIZER_OUTCOME_DISALLOWED
+        await self._log_activity(
+            action="clamped", importance="notable",
+            description=(
+                f"reserve_role_hard_deny: {target_entity} is the battery "
+                f"reserve — only the energy coordinator writes it ({service})"
+            ),
+            details={
+                "action_id": action_id, "level": level,
+                "reason": "reserve_role_hard_deny",
+                "target_entity": target_entity, "service": service,
+                "created_by": getattr(finding, "created_by", "tier1"),
+            },
+            finding=finding,
+        )
+        _LOGGER.warning(
+            "Optimizer: REFUSED write to battery reserve %s (service=%s, "
+            "created_by=%s) — reserve writes belong to the energy coordinator",
+            target_entity, service, getattr(finding, "created_by", "tier1"),
+        )
+        return OPTIMIZER_OUTCOME_DISALLOWED
+
     async def _dispatch_device_action(
         self,
         finding: OptimizationFinding,
@@ -4494,6 +4559,12 @@ class OptimizationCoordinator(BaseCoordinator):
         level: str,
     ) -> str:
         """L2+ device dispatch — fires intent, awaits veto (L3 only), calls service."""
+        # D-2: battery reserve is never an optimizer target (any class).
+        _deny = await self._check_reserve_role_hard_deny(
+            finding, action_id, level, target_entity, service,
+        )
+        if _deny is not None:
+            return _deny
         # A-CRIT-2: never dispatch a climate action into an egress-paused
         # zone — that defeats the EgressManager's pause and could leave
         # heating/cooling running with a window open.
@@ -4643,6 +4714,12 @@ class OptimizationCoordinator(BaseCoordinator):
         level: str,
     ) -> str:
         """L3+ config-write dispatch — ±20% clamp + veto window for L3."""
+        # D-2: battery reserve is never an optimizer target (any class).
+        _deny = await self._check_reserve_role_hard_deny(
+            finding, action_id, level, target_entity, service,
+        )
+        if _deny is not None:
+            return _deny
         # H5: clamp helper now reports a reject reason for None/zero/unknown.
         clamped_data = dict(service_data)
         clamped = False

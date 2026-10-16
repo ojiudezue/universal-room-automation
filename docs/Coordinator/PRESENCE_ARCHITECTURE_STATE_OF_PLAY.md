@@ -83,8 +83,10 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 **House-state inference engine** (`presence.py:1004-1200+`): priority ladder
 (`presence.py:1007-1013` docstring):
 
-1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `census_count == 0
-   AND all_zones_away AND all_tracked_persons_away AND unidentified_count == 0`. Gated on
+1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded
+   AND all_tracked_persons_away AND unidentified_count == 0 AND face_recognized_count == 0`
+   (`presence.py:1169-1180`, re-read 2026-10-16). It does NOT check `census_count` or zone/room
+   occupancy (corrected 2026-10-16, see §10 #12). Gated on
    `face_recognized_count` to close the forgotten-phone inflation (`presence.py:1042-1052`,
    const `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800 s`, cross-check
    `camera_census.py:3034-3055`).
@@ -487,6 +489,12 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    so the zone dashboard can read "empty" while `zone_N_status.any_room_hvac_occupied` is still
    true — read `hvac_release_at` / `away_due_at` there. Back Hallway stayed in Sleep because a
    guest was sleeping in Guest Bedroom 1 (ZV + MS600 fired together; operator-confirmed).
+
+12. **"Path α requires `census_count == 0` AND all zones away."** WRONG (overnight pass 2026-10-16,
+   orchestrator re-read `presence.py:1169-1180`). Path α is trackers-away + unidentified 0 + face 0 +
+   camera fleet not degraded; a moment with no interior body on camera is enough even if a room
+   sensor holds. This is why an untracked occupant flips the house AWAY (HOUSE-STATE-AWAY-FLAP-
+   UNTRACKED-OCCUPANT-1; plan `docs/planning/PLANNING_house_away_flap_untracked_occupant.md`).
 
 ## 11. Read before you touch — agent checklist
 

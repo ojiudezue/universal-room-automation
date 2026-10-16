@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "215",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_154437_ship_v5_103_66",
+  "timestamp": "2026-10-16T15:44:37Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.66 shipped: Reserve write governor: one floor, truthful reserve_write rows, bypass lint, optimizer reserve deny",
+  "summary": "Reserve write governor: one floor, truthful reserve_write rows, bypass lint, optimizer reserve deny",
+  "why": "Governor first, before inclement hardening: three inclement plan reviews (5/9/6 HIGHs) kept finding floor leaks because the floor was applied per branch across ~25 branches. Fixing branches one by one was whack-a-mole, so we centralised the floor at _result and made writes observable instead of adding more per-branch clamps. Rejected: a new writer class (operator pointed at HVAC WriteStatus/preset writer as prior art; reused WriteStatus and the existing wv_commanded_ledger instead of new persistence). Review D found the optimizer could write the reserve via variable-domain services with no row (not live, OC in shadow); operator chose to keep the hard deny in-cycle. Review C found 8 untested sites; all now mutation-anchored. Built on Fable 5.1.",
+  "implications": "Shipped EC-RESERVE-WRITE-GOVERNOR-1 at v5.103.66; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.66.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log has >=1 reserve_write row with non-null value/path/status per day of reserve changes, and count(reserve_write rows) within ~2x of number.iq_battery_hacs_battery_reserve state changes over 24h",
+  "refs": {
+    "cards": [
+      "EC-RESERVE-WRITE-GOVERNOR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.66.md"
+    ],
+    "release_notes": "Arc step 1 of EC resilience. The battery reserve was written from ~25 branches with little record and floor leaks kept recurring. Now: a single inclement floor at _result, a reserve_write activity row at each real dispatch point (WriteStatus vocabulary, change-gated, FAILED never arms the gate), an AST lint pinning every reserve set_value writer, and an optimizer hard deny on the reserve entities. Decisions are byte-identical (A/B golden). Tier 3: 4 reviews, all fixes mutation-drilled."
+  }
+}
