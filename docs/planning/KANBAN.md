@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T23:22:35-05:00_ - _Data commit: `48185fb63c53`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T23:35:15-05:00_ - _Data commit: `562aec9cb92d`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -953,7 +953,8 @@ _created 2026-09-12 20:45 · updated 2026-10-04 03:40 · refined_
 thread: **energy** - status: **waiting_me**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `correlation_2026_10_16`: AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-...
   - `operator_instruction_2026_10_16`: Model: "get an alert, check the applicability. Also check the local weather for the next x hours that alert applies (or so) and then make an energy decision." Sequence: governor (EC-RESERVE-WRITE-GOVERNOR-1) builds FIRST; revise this pla...
   - `operator_instruction_2026_10_15_c`: Q1: "Should we have a reserve write unified function, much like HVAC writes and presence? 25 places is mad. Force them through a governed slice with history and restart resilience. This is not about alerts at all." Q2: "Are you saying a ...
   - `operator_instruction_2026_10_15_b`: D4b: "just find history" (done: docs/planning/AUDIT_nws_alert_history_lakeway.md). Storm Guard: "Our inclement weather module was built to be a more measured storm guard. Enphase uses the indiscriminate alert system without filtering and...
