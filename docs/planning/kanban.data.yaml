@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "PATHBETA-VESTIGIAL-1@2026-10-16T02:16:08"
+    at: "2026-10-16T02:16:08"
+    outcome: "measured"
+    headline: "Un-parked: its trigger (path alpha shipped) fired long ago. Paired it with the Away-flap plan, since that plan touches the same path-beta code."
+    acknowledged: false
+  - fid: "GAP-A-CENSUS-HOLE-1@2026-10-16T02:16:06"
+    at: "2026-10-16T02:16:06"
+    outcome: "done"
+    headline: "Closed a stale parked card: the forgotten-phone fix for the Away check shipped back in v5.78.0 and is in the code; the card still said 'build later'."
+    acknowledged: false
   - fid: "EC-EVALUATE-PATH-LEDGER-GAP-1@2026-10-16T02:15:05"
     at: "2026-10-16T02:15:05"
     outcome: "measured"
@@ -17702,10 +17712,12 @@ cards:
   live_validation_2026_08_14: 'Shipped v5.76.0. Organic open: L6 next real escalating track -> one HIGH
     page at transition.'
 - id: GAP-A-CENSUS-HOLE-1
+  updated: "2026-10-16 02:15"
+  disposition_2026_10_16_overnight: "ALREADY-DONE (verify-before-work, 2026-10-16 02:15 CDT): the fix is in develop - presence.py:1148-1162 'GAP-A D8 (2026-08-16): gate on face_recognized_count instead of census_count', and path alpha (:1169-1180) has no census_count clause; card carries shipped_version v5.78.0. The 'parked, build after path-alpha D1-D9' lane was stale. Closed. Note: tonight's AWAY-flap plan review (R2-01) relies on this fix and warns the new guard must not reintroduce census_count into path alpha."
   title: Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only
     evidence (face_recognized_count)
   thread: presence
-  status: parked
+  status: "done"
   relane_2026_09_10: Not a soak -> PARKED (gated). Build on feature/path-alpha AFTER its D1-D9 land; covered
     by the same 3 framing-disjoint reviews + one deploy.
   shipped_version: v5.78.0
@@ -17754,10 +17766,12 @@ cards:
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
 - id: PATHBETA-VESTIGIAL-1
+  links: {"related": ["HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1", "GAP-A-CENSUS-HOLE-1"], "context": "The AWAY-flap guard touches all three AWAY branches incl. beta; collapsing beta's vestigial limbs first shrinks that surface."}
+  trigger_check_2026_10_16_overnight: "REVIVAL TRIGGER FIRED: 'after PATH-ALPHA ships and its organic proofs land' - path alpha + GAP-A shipped v5.78.0 (2026-08). READY, promoted parked -> pre_planning. Sequence it with HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, whose plan guards path beta too: decide in that plan's build whether beta's vestigial limbs are deleted first or guarded."
   title: 'Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT
     bundle into PATH-ALPHA)'
   thread: presence
-  status: parked
+  status: "pre_planning"
   gate_2026_09_12: 'PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049
     lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT:
     HYGIENE not a defect (card own why: correctness preserved, beta cannot fire spuriously) AND next
@@ -17766,7 +17780,7 @@ cards:
     migration, unattended overnight, buys only cleanliness at nonzero regression risk to the presence
     inference core (dead != delete). Margin does not pay. REVIVAL TRIGGER: once PATH-ALPHA organic
     proofs have landed, do the scoped delete-or-document cycle (reviewer B: separate, not bundled).'
-  updated: 2026-09-12 10:00
+  updated: "2026-10-16 02:15"
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.'
   approval: unreviewed
   origin:
