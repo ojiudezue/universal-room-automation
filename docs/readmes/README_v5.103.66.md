@@ -10,7 +10,7 @@
 - Nothing stopped a new code path from writing the reserve without being seen.
 
 ## Solution
-- **One floor at `_result`:** the inclement partial-hold floor (`max(reserve_soc, reserve_floor)`) is registered once, at the single exit every decision goes through.
+- **Floor observed, not enforced:** each row records the tick's inclement floor (`max(reserve_soc, reserve_floor)`) and `floor_ok`. The floor is still applied by the existing 8 per-branch wraps, unchanged. Plan non-goal 1 ruled out a floor fold in `_result`; the single-floor writer is arc step 2 Stage A. *Correction 2026-10-16: the first draft of this README wrongly said "one floor registered at `_result`."*
 - **Truthful `reserve_write` activity rows at the real dispatch points:** the timer tap (C1), `_evaluate_battery` (C2) and force_redispatch (C3).
   - Each row carries status (`hvac_strategy.WriteStatus`), path, value, desire, hold owner, inclement floor and floor_ok.
   - Change gate: an identical key plus a hardware value already matching means no duplicate row. Redispatch and FAILED rows are never gated. A FAILED row does not arm the gate, so the recovery that follows is always logged.
