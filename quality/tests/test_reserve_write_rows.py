@@ -585,6 +585,34 @@ async def test_reserve_row_redispatch_bypasses_gate(clock):
 
 
 @pytest.mark.asyncio
+async def test_reserve_row_redispatch_ungated_even_with_equal_pre_state(clock):
+    """The `path != "redispatch"` conjunct on its own: even if a redispatch
+    row arrived WITH a pre_state equal to the value and an identical memo
+    key, it is still written. (C3 passes no pre_state today, so the
+    end-to-end test above cannot see this conjunct — this one can.)
+    Mutation: apply the gate to redispatch → RED."""
+    c, s = make_shell(clock, soc="45", reserve_state="42")
+    s._last_reserve_level_desired = 42
+    for _ in range(2):
+        c._record_reserve_dispatch(
+            status=hvac_strategy.WriteStatus.APPLIED, path="redispatch",
+            target=RESERVE_WRITE_EID, value=42, reason="x", pre_state=42.0,
+        )
+    await _settle()
+    assert [r["path"] for r in rows(c)] == ["redispatch", "redispatch"]
+    # Control: the same call on the timer path IS gated the second time.
+    c2, s2 = make_shell(clock, soc="45", reserve_state="42")
+    s2._last_reserve_level_desired = 42
+    for _ in range(2):
+        c2._record_reserve_dispatch(
+            status=hvac_strategy.WriteStatus.APPLIED, path="timer",
+            target=RESERVE_WRITE_EID, value=42, reason="x", pre_state=42.0,
+        )
+    await _settle()
+    assert len(rows(c2)) == 1
+
+
+@pytest.mark.asyncio
 async def test_force_redispatch_row_call_cannot_fake_failure(clock):
     """G-1: the row call lives OUTSIDE the service-call try. (a) No `_coord`
     at all (standard test wiring) and (b) a coord whose
