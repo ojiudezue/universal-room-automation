@@ -72,6 +72,71 @@ _REPAIRED_HA_MODULES = (
 _MISSING = object()
 
 
+def _package_module_attrs():
+    """{(package name, attr): module} for every module-valued attribute of
+    every isolated-namespace package. Importing `a.b.c` binds `c` on package
+    `a.b`; removing `a.b.c` from sys.modules does NOT unbind it. A stale
+    binding makes `from a.b import c` (and `mock.patch("a.b.c.x")`, which
+    walks attributes) see a different object than `sys.modules["a.b.c"]`.
+    """
+    out = {}
+    for name, mod in list(sys.modules.items()):
+        if not isinstance(mod, types.ModuleType):
+            continue
+        if not any(name == p or name.startswith(p + ".") for p in _ISOLATED_PREFIXES):
+            continue
+        try:
+            items = list(vars(mod).items())
+        except TypeError:
+            continue
+        for attr, val in items:
+            if isinstance(val, types.ModuleType):
+                out[(name, attr)] = val
+    return out
+
+
+def _restore_package_module_attrs(before):
+    after = _package_module_attrs()
+    for key, val in after.items():
+        if before.get(key, _MISSING) is val:
+            continue
+        pkg = sys.modules.get(key[0])
+        if pkg is None:
+            continue
+        if key in before:
+            setattr(pkg, key[1], before[key])
+        else:
+            delattr(pkg, key[1])
+    for key, val in before.items():
+        pkg = sys.modules.get(key[0])
+        if key not in after and pkg is not None:
+            setattr(pkg, key[1], val)
+
+
+def _trace_fingerprint():
+    mods = {}
+    for name in _REPAIRED_HA_MODULES:
+        m = sys.modules.get(name)
+        if m is not None:
+            mods[name] = {a: id(v) for a, v in vars(m).items()}
+    pkg_attrs = {f"{p}.{a}": id(v) for (p, a), v in _package_module_attrs().items()}
+    return {
+        "sys.modules": {k: id(v) for k, v in sys.modules.items()},
+        "package attrs": pkg_attrs,
+        **mods,
+    }
+
+
+def _trace_diff(a, b):
+    out = []
+    for key in sorted(set(a) | set(b)):
+        da, db = a.get(key, {}), b.get(key, {})
+        for k in sorted(set(da) | set(db)):
+            if da.get(k) != db.get(k):
+                out.append(key + ":" + k)
+    return out[:40]
+
+
 def _repair_real_ha_modules(importlib, repairs):
     """Append (module, attr, previous_value) to ``repairs`` per repaired attribute.
 
@@ -112,6 +177,8 @@ def _repair_real_ha_modules(importlib, repairs):
 def _real_module_isolation():
     global UniversalRoomDatabase, L, EnergyCoordinator, BatteryStrategy, _CycleShell
     snapshot = dict(sys.modules)
+    pkg_attrs_before = _package_module_attrs()
+    trace_before = _trace_fingerprint()
     for name, mod in list(sys.modules.items()):
         if _purge(name, mod):
             del sys.modules[name]
@@ -157,8 +224,13 @@ def _real_module_isolation():
         for name in [n for n in sys.modules if n not in snapshot]:
             del sys.modules[name]
         sys.modules.update(snapshot)
+        _restore_package_module_attrs(pkg_attrs_before)
         UniversalRoomDatabase = L = EnergyCoordinator = BatteryStrategy = None
         _CycleShell = None
+    # Leave-no-trace check (round 6): the four HA modules' attribute
+    # identities and the sys.modules key->object map must be exactly as found.
+    diff = _trace_diff(trace_before, _trace_fingerprint())
+    assert not diff, f"outage-ledger fixture left a trace: {diff}"
 
 DOMAIN = "universal_room_automation"
 CDT = timezone(timedelta(hours=-5))
