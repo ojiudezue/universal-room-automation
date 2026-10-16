@@ -13,17 +13,17 @@ meta:
     at: "2026-10-15T02:17:45"
     outcome: "measured"
     headline: "Most of the Wi-Fi fleet is fixed, but 5 Shelly lights in the Dining and Receiving rooms still drop out of HA about 9 times an hour each. They never actually leave Wi-Fi. All 5 sit on the U6-Extender-EA mesh access point, which is the busiest and least healthy one (68% channel use, 14% retries), so HA's connection to them keeps timing out. URA doesn't control these lights, so it's manual and app control that fails. Your choice on the card: accept the fleet result and give those 5 a wired access point."
-    acknowledged: false
+    acknowledged: true
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "done"
     headline: "Closed the Wi-Fi switch dropout cards. The full 24-hour read confirms the fix: Sonoff relays dropped 93% (test group) and 85% (others), and in the last 18 hours almost nothing drops (bathroom Shellys 483 to 27 a day). The network log shows why the test couldn't tell the groups apart: on 10-13 the multicast allowlist was grown to 84 devices 13 minutes after the test edit, and 9 access points restarted. Both bathroom-switch cards are closed too. Side note: `unifi --help` prints your UniFi API key."
-    acknowledged: false
+    acknowledged: true
   - fid: "HM-V22-NEXT-SLICE-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "measured"
     headline: "Health Monitor v2.2 was already built, reviewed and installed on 10-14 (the board still said 'planned'; fixed). I ran its live checks read-only: most pass, including the GC hourly counters (now 54,646 an hour, not capped at 512), all three Zigbee bridges, per-AP Wi-Fi retries and battery signals. One thing I got wrong and corrected: I first thought Matter's 17-node outage was hidden by the problem cap, but it's only cut from a 10-row diagnostics view, and the repair is there. The 24-hour checks finish this evening. Results are in its README, pushed to both remotes."
-    acknowledged: false
+    acknowledged: true
   - fid: "HA-TRUSTED-PROXIES-UI-MIGRATION-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "done"
@@ -33,77 +33,77 @@ meta:
     at: "2026-10-15T02:07:07"
     outcome: "escalated"
     headline: "New problem, needs your call. With the family away and only the guest home (no tracked phone), URA declared the house empty 33 times on 10-14, whenever no camera could see the guest, and 'arrived' again a few minutes later. Each flip moved the zone 2 and zone 3 thermostats between home and away settings, about 20 times each between 07:30 and 18:50. It will repeat every weekday until Sunday. Choose between a temporary house-state override and leaving it alone; the real fix is a careful presence change that I'll plan with you."
-    acknowledged: false
+    acknowledged: true
   - fid: "URA-DEVICES-CONFIG-ENTRIES-BOOT-STALL-1@2026-10-15T02:07:07"
     at: "2026-10-15T02:07:07"
     outcome: "done"
     headline: "Tidied the shipped lane after yesterday's four releases. Closed 4 cards whose live checks passed: the boot-stall fixes, the EV alarm test fix, the shutdown database clean-up, and the Energy settings 'clear field' fix (your fallback-sensor change saved fine). Corrected 2 cards whose next steps were out of date. The bathroom fan fix (v5.103.60) is downloaded but HA hasn't restarted since, so it isn't running yet. The fan spam continues until the next restart."
-    acknowledged: false
+    acknowledged: true
   - fid: "ROOM-LIGHTING-SETUP-REDESIGN-1@2026-10-15T02:07:07"
     at: "2026-10-15T02:07:07"
     outcome: "done"
     headline: "Closed the lighting redesign on its test-suite proof (today was its deadline). The 'turn off leave-on lights when everyone leaves' rule can't be seen working live: Kitchen is the only room using it, and Kitchen's automation is switched off on purpose, so URA correctly leaves it alone."
-    acknowledged: false
+    acknowledged: true
   - fid: "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-15T02:07:07"
     at: "2026-10-15T02:07:07"
     outcome: "escalated"
     headline: "Your 10-13 note ('rooms off on purpose; the minimum is turning things off, with healthy timeouts') answered the old question, so I replaced it with the real choice. A: paused rooms still turn lights off after the room empties, but never on. B: nothing changes in the room, and you get a reminder when a room has been paused too long. 25 room switches are off right now."
-    acknowledged: false
+    acknowledged: true
   - fid: "EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1@2026-10-14T02:30:00"
     at: "2026-10-14T02:30:00"
     outcome: "built"
     headline: "Fixed the three EV charger 'flip-flop alarm' tests that only failed when the whole test suite ran. A reviewer and I each broke the real alarm code on purpose and the tests caught it every time. It's test-only, sitting on a branch ready to merge to develop. Nothing in the house changes."
-    acknowledged: false
+    acknowledged: true
   - fid: "URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1@2026-10-14T02:22:00"
     at: "2026-10-14T02:22:00"
     outcome: "measured"
     headline: "Looked into the Home Assistant device-registry deprecations URA is logging. It's bigger than a rename: HA 2026.10 now ties each device to a single integration entry, and 21 places in URA's device-tree code depend on the old model. The first one breaks in HA 2027.8, so it isn't urgent. Also found that the local test setup runs HA 2026.2, which can't test the new calls. It turned out a card from 10-05 already covers this and is parked until the test setup is upgraded, so I merged the new evidence into it and closed the duplicate. Nothing built."
-    acknowledged: false
+    acknowledged: true
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-14T02:25:00"
     at: "2026-10-14T02:25:00"
     outcome: "measured"
     headline: "Sonoff relay dropouts fell sharply after yesterday morning's Wi-Fi change, by about 90% across the house. But the 14 relays NOT in the test group improved almost as much as the 3 that were (-84% vs -93%), so the per-relay allowlist isn't what fixed it. Most likely the change affected the whole Wi-Fi network. I'll confirm with the full 24-hour read after 7:46; nothing rolled back."
-    acknowledged: false
+    acknowledged: true
   - fid: "ZONE-DIALOGS-CLEANUP-1@2026-10-14T02:20:00"
     at: "2026-10-14T02:20:00"
     outcome: "parked"
     headline: "Parked 4 shipped cards that only you can judge or that need the second home: the zone, house and small-room settings menus (tell me 'menus OK' or what reads wrong) and the second-home onboarding (revives when URA is turned back on at Wigton). Also corrected the test-strategy card: its 'merge this' step was already done weeks ago."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-HOUSE-ENTITY-DEFAULTS-1@2026-10-14T02:20:00"
     at: "2026-10-14T02:20:00"
     outcome: "done"
     headline: "Cleared out the shipped-but-unproven lane: closed 6 cards whose live checks had passed (room-create prefill, sensor form text, room dialogs, Energy role settings, radar tuning Phase A, plus earlier the garage guard and night lights). The 5 Energy repair warnings you may see are real, not false alarms: 4 are from the Envoy outage around midnight, and 1 is a setting still pointing at the retired Envoy stream (clear it once tonight's fix ships). 3 fan-related cards wait on the 10-18 fan re-measure."
-    acknowledged: false
+    acknowledged: true
   - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-14T02:16:00"
     at: "2026-10-14T02:16:00"
     outcome: "done"
     headline: "Closed the night-light rule. By day, URA only turned night lights on in rooms that were actually dark, and nothing night-light related errored after tonight's restart. New find carded: URA tells the Master Bathroom fan to turn on every few seconds while it is humid, up to 650 times an hour, even when it's already on. Wasteful, and it would override you if you switched the fan off. Planning a fix; nothing built yet."
-    acknowledged: false
+    acknowledged: true
   - fid: "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-10-14T02:30:00"
     at: "2026-10-14T02:30:00"
     outcome: "done"
     headline: "Closed the garage-door guard for room covers. Live proof came by chance on 10-11: Garage A was open at sunset, and URA's sunset close moved 30+ shades and left both garage doors alone. Security's lock check then closed Garage A at 7:12 pm, as designed. Side note: Garage B started closing at the exact sunset second with no command from HA, so something outside HA closed it. Worth knowing if that wasn't you."
-    acknowledged: false
+    acknowledged: true
   - fid: "HM-V21-LIVE-VALIDATION-1@2026-10-14T02:50:00"
     at: "2026-10-14T02:50:00"
     outcome: "measured"
     headline: "Answered the house-wide pause question: the ~2-second freezes about once a minute are Python garbage collection (59 full collections in 50 minutes, about 1.8 s each), not URA. The URA stall fix from v5.103.56 is confirmed (URA appears in no stall samples) and that card is closed. Health Monitor v2.1 passed most of its read-only checks. It has one bug: its 'last hour' GC counter only covers seconds, which hid all this. Both are carded. Next step is a profiler run with you awake to find what fills the memory."
-    acknowledged: false
+    acknowledged: true
   - fid: "HVAC-CUSTOM-PRESET-RANGES-1@2026-10-14T02:35:00"
     at: "2026-10-14T02:35:00"
     outcome: "done"
     headline: "Closed Custom Preset Ranges (zone 3). Since you switched it on at 06:37 yesterday, zone 3 has held its own ranges (Away 62-80, Home 70-77) with no write storm (max 7 writes/hour, normal daily volume). One small leftover is carded separately: right after a preset change it re-sent a range it had already set. That write was rejected and did no harm."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-RESERVE-CLOUD-DIVERGENCE-1@2026-10-14T02:20:00"
     at: "2026-10-14T02:20:00"
     outcome: "done"
     headline: "Closed the battery-reserve 'reverted' investigation. Your reserve write was stuck pending at Enphase for about 2 days. The cloud's 14% was the real setting and the battery obeyed it, so URA's alarms were right. It cleared by itself at 11:40 yesterday, with no alarms since. The fix this card floated (trust the local gateway) would have been wrong, so it is not being built. The leftover issue, 5-11 CRITICAL pages a day during such episodes, moved to the Enphase resilience card."
-    acknowledged: false
+    acknowledged: true
   - fid: "OC-STUCK-SENSOR-GENERALIZE-1@2026-10-13T02:50:00"
     at: "2026-10-13T02:50:00"
     outcome: "measured"
     headline: "Saved 2 days of unsaved work. The never-fires stuck-sensor detector's second-review fixes had been left uncommitted in a builder worktree since 10-11. I committed them, a builder finished them (22/22 tests, my own break-test confirms the camera fix is covered), and a re-review is running. Not deployed."
-    acknowledged: false
+    acknowledged: true
   - fid: "HVAC-CUSTOM-PRESET-RANGES-1@2026-10-08T03:00:00"
     at: "2026-10-08T03:00:00"
     outcome: "parked"
@@ -124,6 +124,8 @@ cards:
   next: "Me: decide per notification which deserve HIGH (operator-actionable: call_failed latch, restore_not_taking) vs digest; also check whether digest should include non-qualifying LOW rows at all. Tier 1."
   related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
+  approval: explicit
+  approved_by: 'operator 2026-10-15 (board approve button)'
   title: "After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on"
   status: pre_planning
   tier: 2
@@ -132,6 +134,8 @@ cards:
   next: "Me: plan an initial pass over current sensor states at Safety setup (reusing _process_sensor), with boot-settle respected so it does not double-page; Tier 2-DB (life-safety)."
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
 - id: NM-MULTI-ALERT-TRACKING-1
+  approval: explicit
+  approved_by: 'operator 2026-10-15 (board approve button)'
   title: "Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress"
   status: pre_planning
   tier: 2
@@ -206,6 +210,7 @@ cards:
   next: "SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arbitrage_chunk_latch) show updated_at later than the deploy; today they are frozen at 2026-07-23 22:09Z. The draft README :127 only names battery_soc_lkg - widen it to all five at write-back."
   why: 'Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan''s LKG-persistence reuse assumption.'
 - id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  operator_instruction_2026_10_15_2: "Check for relevance then approve"
   INSTANCE_2026_10_14_reserve_pending_episode: "From EC-RESERVE-CLOUD-DIVERGENCE-1 (closed 10-14): a reserve write sat pending at Enphase for about 2 days (10-11 to 10-13 11:40 CDT; control_change_pending on writes). The battery obeyed the cloud value, and the local gateway number showed the commanded 10 the whole time. LESSON FOR ITEM (2)/(3): the LOCAL reserve number is NOT a valid compliance witness on fw 8.x. Never let a fix 'accept local confirmation'. Item (2) evidence: URA re-sent the same write every ~15 min (battery_write_churn ALERT 13/h on 10-11, 10-12, 10-13) and sent about 5-11 CRITICAL four-channel pages per day (write not applied / reverted / self-heal loop / pending stuck 3/3 / URA STAND-DOWN). That is 6 STAND-DOWN pages in 7 days for an external Enphase hold-up costing ~2-4% of battery. Item (2) scope should include: back off writes while control_change_pending is up, and collapse one Enphase pending episode into ONE page plus a recovery notice. Do not page per surface per attempt. The severity/channel choice is an operator call at plan time."
   links: {"blocked_by": ["EC-DEGRADED-DATA-POLICY-1", "ENVOY-STREAM-AB-48H-1"], "context": "Phase 2 of EC-DEGRADED-DATA-POLICY-1; its read-source item (3) depends on the ENVOY-STREAM-AB-48H-1 verdict."}
   groomed_2026_10_05_overnight: "Inbox -> pre_planning (problem known, solution being shaped; gated). PARTIALLY-DONE already, on the unshipped EC p1 branch: 7f60f137e EC resilience bundle B1-B5 covers part of item (2) (write-failure capture + battery write-churn trip-wire in energy_write_verify.py, offline NM text, fresh cloud CFG off) and fixes the LKG persistence (EC-LKG-NEVER-PERSISTED-1). Items (1) local write-failover retirement, (3) production.json-independent reads, (4) token-expiry alert remain. Not plannable tonight: blocked on the EC p1 ship + the stream A/B readout (ENVOY-STREAM-AB-48H-1, due 10-05 13:05), and battery-command work is Tier 3 -> operator checkpoint."
@@ -400,6 +405,7 @@ cards:
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
 - id: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  operator_instruction_2026_10_15: "Tell me what the plan is. I want careful plans. But make sure it context and prior art aware"
   paged_2026_10_15_overnight: "Paged 2026-10-15 02:15 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly rather than through URA NM routing so it wakes nobody), together with the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 PICK."
   title: "With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets"
   thread: presence
@@ -582,6 +588,7 @@ cards:
     context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
+  operator_instruction_2026_10_15: "A candidate for locking to the pantry access point. Push to homelab agent"
   unifi_2026_10_15_overnight: "Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (fine). They have been associated continuously for 34-42 h, and the system log for 10-14 00:00 -> 10-15 02:30 has no connect/disconnect/roam event for any of them. So HA's ~9 drops an hour each (median 25 s) are NOT Wi-Fi drops: the devices stay on Wi-Fi while HA's connection to them times out. The shared factor is the AP: U6-Extender-EA is a wireless-mesh AP backhauling to Ziris Room AP on channel 104 at -66 dBm, with channel utilisation 68, tx retries 14.1%, satisfaction 93 and the lowest client satisfaction of any normally loaded AP (96.6 vs 98.3-100). Leading explanation (not proven): latency/loss on the mesh backhaul breaks the Shelly integration's persistent connection. Naming caveat: UniFi's names for the two Dining 2PMs and the two Receiving dimmers are swapped relative to HA's. cc:ba:97:de:38:c4 is the only one without a fixed IP (unrelated to drops as far as the data shows)."
   INSTANCE_2026_10_15_dining_receiving_cluster: "Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:00-17:36 74 devices (792; the change was ~08:00 but the Shelly fleet lagged), 10-14 09:10-17:20 12 devices (674), 10-14 17:40-10-15 02:16 12 devices (691). The post-fix remainder is almost entirely FIVE physical devices, each dropping ~70-82 times per 8.6 h (~9 an hour): Dining2 2PM Gen4 (98a3166d2844, sub-devices Recessed/Divide), Dining1 2PM Gen4 (ccba97de38c4, Overhead/PoolTable), Receiving1 and Receiving2 Plus dimmers (048308dec120, 048308dec1a4), Receiving Room 1PM mini Gen4 (a085e3bfaf30). This is what Health Monitor v2.2 reports as 'shelly 9 of 84 flapping, 692 flaps, median outage 25 s'. URA impact: none of these is in any URA room's light lists (checked core.config_entries), so URA is not failing to actuate them; manual and app control does fail during each ~25 s gap. A read-only UniFi lookup of their AP/RSSI is running and will be added here."
   title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
@@ -16307,6 +16314,7 @@ cards:
   - custom_components/universal_room_automation/domain_coordinators/presence.py
   updated: 2026-08-18 02:30
 - id: CENSUS-ACCURACY-1
+  reapproved_2026_10_15: 'operator board approve button (already approved 2026-08-16)'
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
   thread: presence
@@ -19153,6 +19161,7 @@ cards:
     off/0. Battery/EV control path -> Tier 2-DB (3 framing-disjoint reviews). Read EC manual + reference_ec_config_surface first.
   next: "Closed 10-14. Residuals in EC-OPTIONS-CLEAR-FIELD-NOOP-1. Operator config action: clear (or re-point) energy_solar_follow_grid_fallback_entity once that fix ships."
 - id: SONOFF-R4M-MULTICAST-AB-1
+  operator_instruction_2026_10_15_2: "The standard unifi command leaks?"
   disposition_2026_10_15_overnight: "DONE: the fleet is fixed, and the A/B could not isolate why. Read-only UniFi recon (UDM API wlanconf + stat/device + system-log, 02:08 CDT 10-15) found three network changes that morning, not one: 07:33:29 fixed-IP changes on ~10 Sonoff clients; 07:46:22 the 3-MAC Smidg allowlist edit (the A/B); 07:59:47 a second Smidg edit (COUNT 69) that grew the bc_filter allowlist to 84 entries; then 9 of 13 APs restarted ~08:06-08:07 (inferred from uptime; no provision event logged). Smidg now: bc_filter on with 84 entries, mcastenhance off, 2.4 GHz only, optimize_iot_wifi_connectivity on. So the 'control' group most likely joined the allowlist at 07:59 and the AP restarts touched everyone, which is why test and control fell together. Most likely mechanism: the multicast filter was blocking the mDNS the SonoffLAN local mode needs, and the 84-entry allowlist unblocked the fleet (consistent with the original hypothesis, now at fleet scale; not proven per-MAC). AP firmware 8.8.11 is unchanged. Side note for the operator: the recon agent reported that `unifi --help` prints the UniFi API key in its output."
   measured_24h_2026_10_15_overnight: "CONFIRMED with full 24 h windows (recorder, .claude/tmp/sonoff_ab24.py; 10-12 07:46->10-13 07:46 vs 10-13 07:46->10-14 07:46; +-10 min around six HA restarts excluded). TEST 3 relays 437 -> 32 (-93%); CONTROL 14 relays 830 -> 121 (-85%). Most recent window (10-14 07:46 -> 10-15 02:07, 18.3 h, vs the 18.3 h before; restarts 08:33/09:05/17:26 excluded): TEST 18 -> 8, CONTROL 48 -> 1. So the improvement held and deepened, and it is fleet-wide: the per-MAC allowlist is OUT as the explanation. Open question (what changed house-wide on 10-13 morning) handed to a read-only UniFi recon run tonight; result to be written here."
   interim_2026_10_14_0221: "Interim read (recorder, 18.6 h after 10-13 07:46 vs the 18.6 h before; unavailable transitions per relay, +-10 min around the 10-13 11:30 and 10-14 01:16 HA restarts excluded; script .claude/tmp/sonoff_ab.py). TEST (3 relays: Living Room 1002199676, Master Toilet 1002192efa, Master Toilet Fan 100219a10c): 388 -> 28 (-93%). CONTROL (14 R4M relays): 731 -> 115 (-84%). The worst control relays fell just as hard: Master Closet 194 -> 5, Master Closet Storage 203 -> 25, Master Bath LED 189 -> 10, Foyer 84 -> 11. A few control relays rose slightly (Patio 3 -> 15, UpGuest Hallway 7 -> 13). READING: drops collapsed for BOTH groups at the same time, so the per-MAC allowlist does not explain the improvement (no separation between test and control). Something house-wide changed around 10-13 morning. Leading candidate: the WLAN change for the test itself acted on the whole SSID, not just the 3 MACs. Unconfirmed; it needs the homelab/UDM side. Do NOT roll anything back on this reading: the house is better now."
@@ -19204,6 +19213,7 @@ cards:
     will tell). Investigation - docs/planning/INVESTIGATION_hvac_override_loop_stall.md.
   next: "Closed 10-14: discriminator met (tick-aligned URA stalls ~11/h -> 0 in HM samples). README_v5.103.56 carries the Validated table."
 - id: URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1
+  operator_instruction_2026_10_15: "I think we upgraded. Please check"
   links: {"superseded_by": "HA-2027-DEPRECATIONS-URA-1", "context": "Same problem, same fix surface; survivor already gated it on the test-harness HA version."}
   disposition_2026_10_14: "DUPLICATE -> HA-2027-DEPRECATIONS-URA-1. My earlier promotion to pre_planning this pass was wrong; the adjacency sweep found the survivor after the fact."
   verified_2026_10_14: "STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boot) warns for __init__.py:5227 (devices as mapping, breaks 2027.9) and __init__.py:5305 + _devices.py:607 (async_get_device, breaks 2027.8). HA 2026.10.1 source (github raw helpers/device_registry.py, read 10-14): async_get_device(identifiers=, connections=) now report_usage ERROR, breaks_in_ha_version 2027.8.0 (:2039-2066). Replacements are async_get_device_by_identifier(identifier: tuple, config_entry_id: str) (:2091), async_get_device_by_connection(connection, config_entry_id) (:2119) and async_get_devices(*, identifiers=, connections=, config_entry_id=) -> list (:2132). The new lookups REQUIRE a config_entry_id. The `devices` property is now a backwards-compat view (iterate it; mapping use is deprecated, 2027.9). DeviceEntry.config_entries / primary_config_entry are deprecated in favour of a single config_entry_id (2027.10, :393/:433/:625). Old multi-entry devices are split into per-entry \"composite\" devices (:2070-2085). Sites (grep 10-14, 21): __init__.py:1404,1410,1441,5218-5227,5305; entity.py:80; button.py:302; _devices.py:228,238,267,297,319,341,345,438,492,607; config_flow.py:10742,11934. TEST CONSTRAINT: .venv-ha runs HA 2026.2.3 (homeassistant.const.__version__), so the 2026.10 replacement APIs do not exist in the local test environment. The plan must decide between upgrading the venv and version-guarded code + fakes."
@@ -30727,6 +30737,7 @@ cards:
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
+  operator_instruction_2026_10_15_2: "Paused means inert. Some are paused because theyre not dialed in and not yet configured to just turns things off with a healthy timeout. We know how to do that and I havent. You can maybe make a tbale and I can tell you what we need for each room and you can do it"
   paged_2026_10_15_overnight: "Included in the 2026-10-15 02:15 CDT quiet Pushover page."
   regroomed_2026_10_15_overnight: "The ANSWER asked here was already given (operator_instruction_2026_10_13: rooms off on purpose where automation is unwanted or not dialed in), so the old next was stale. The 10-14 reply read 'healthy timeouts' as a reminder, but the instruction also says 'the minimum is turning things off not on', which reads more like paused rooms still doing their turn-OFF. Those are different builds, so this is a PICK rather than me choosing. Live count 02:07 10-15: 25 room/cover Automation switches are off. Instance: Kitchen is one of them, which is why its Away leave-on sweep never fires (ROOM-LIGHTING-SETUP-REDESIGN-1)."
   verified_2026_10_14: "Verified 2026-10-14 ~02:10 CDT (live): switch.exercise_room_automation still off. Moved pre_planning -> waiting_operator: the next step is your ANSWER, so the card belongs in your lane."
@@ -30863,6 +30874,7 @@ cards:
   next: "None. Revive (reopen to shipped_organic) only if Kitchen's automation switch is turned back on and a Home->Away edge then leaves light.dimmer_tapo_wifi_matter_kitchenoverhead on."
   updated: "2026-10-15 02:06"
 - id: ZONE-DIALOGS-CLEANUP-1
+  operator_instruction_2026_10_15: "OK for now"
   updated: "2026-10-14 02:20"
   disposition_2026_10_03: "CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog wording'), and Simple/Advanced (D2) shipped in v5.103.36 (README_v5.103.36.md 'ZONE/HOUSE Simple/Advanced', with HOUSE-DIALOGS-CLEANUP-1). Live table: 'pending operator UI - code live, no exceptions'. Dispose by 2026-10-10: operator opens a zone's options once and the menu reads correctly -> done."
   shipped_version: "5.103.36"
@@ -30902,6 +30914,7 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
+  operator_instruction_2026_10_15: "Can't recal but sounds ood"
   disposition_2026_10_14: "done: discriminator met live."
   organic_evidence_2026_10_14: "Revival trigger FIRED by chance on 2026-10-11 (verified 10-14 overnight, HA recorder events + URA DB). sun.sun below_horizon 19:07:12.141 CDT. Garage A (cover.konnected_f0f5bd523b00_garage_door) was OPEN from 18:36:15 to 19:12:26. Garage B (cover.ratgdov25i_dbfe2a_door) was open from 19:01:30 and started closing at 19:07:12.055, 0.09 s before the sun flip, with NO HA call_service for it anywhere 19:05-19:17, so something outside HA moved it (wall button, remote, or an automation on the opener's own side; I do not know which). Room-tier sunset close: 19:07:12.402-19:08:05 HA recorded close_cover / close_cover_tilt for 30+ shades and blinds (hallway_shade, living_bot_1-4, dining_*, patio_1-5, breakfast_*, media_*, master_bath_*, ...) and NONE for either garage door. ura_activity_log has no room cover action for Garage A/B. Garage A was then closed at 19:12:24.179 by URA SECURITY's periodic lock check (decision_log service_call 'Periodic lock check: closing cover.konnected_f0f5bd523b00_garage_door'; activity_log 'Periodic lock check notification'), which is the designated owner per cover_ownership.py. Discriminator met: the room tier left an open garage door alone at sunset, and Security kept sole control."
   verify_2026_10_03_overnight: "CARD-WAS-WRONG on 'next' (said BUILD): shipped in v5.103.28 (README_v5.103.28.md, per-site drills on _get_available_covers + _send_covers_with_verify). Live proof is the staged test on HVAC-GARAGE-GUARD-STAGED-SUNSET-1 (operator DO); 10-02 had no garage door open at sunset, and 0 garage cover-skip rows since 09-30."
@@ -31512,6 +31525,7 @@ cards:
   refs: [custom_components/universal_room_automation/coordinator.py, custom_components/universal_room_automation/config_flow.py]
   sweep_2026_10_11: 'Board + BACKLOG grep for existence_energy / energy_returned / room energy double count / STATE_ENERGY_TODAY: only an incidental mention of existence_energy inside the HVAC night-hold card (as a radar health signal, not as an energy pick). NEW.'
 - id: CENSUS-OCCUPANCY-ESTIMATOR-1
+  operator_instruction_2026_10_15: "Check the latest census work and approved if not subsumed"
   title: Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed
   thread: census
   status: pre_planning
