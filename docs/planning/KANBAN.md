@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-15T22:00:50-05:00_ - _Data commit: `dfd4d8b369f8`_ - _last_reconciled: 2026-10-15_
+_Generated: 2026-10-15T22:39:50-05:00_ - _Data commit: `6c7297db8b70`_ - _last_reconciled: 2026-10-15_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-10-15T22:00:50-05:00_ - _Data commit: `dfd4d8b369f8`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 7 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
@@ -30,6 +30,7 @@ _(none)_
 _measuring; truth not yet known_
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 2.6 · v7 tc4 u2 /e5_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:35:13.421Z)
 thread: **health_monitor** - status: **investigating** - approval: **unreviewed**
 _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_
 - **Problem / Solution:**
@@ -46,10 +47,20 @@ _created 2026-10-14 02:50 · updated 2026-10-15 02:13 · initial_
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🧭 Pre-planning (7)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `EC-INCLEMENT-HARDENING-1` - Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input — _#1 · WSJF 2.8 · v7 tc5 u2 /e5_
+thread: **energy** - status: **pre_planning**
+- **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
+- **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
+- **Forensic keys (3):**
+  - `tier`: 3
+  - `adjacency_2026_10_15`: Swept board for INCLEMENT: no card. ADJACENT to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 (same Envoy-blind gate, wart 1) -> linked, not merged (different problem statement). Prior art: v5.5.0 inclement hold, v5.5.3 WAIT floor (closed).
+  - `related`: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:31:31.488Z)
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -79,7 +90,8 @@ _updated 2026-09-29 01:05_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#2 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#3 · WSJF 2.0 · v7 tc3 u6 /e8_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:34:01.236Z)
 thread: **census** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-11 02:15 · initial_
 - **Problem / Solution:**
@@ -93,7 +105,8 @@ _created 2026-10-11 02:15 · initial_
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:34:23.387Z)
 status: **pre_planning** - approval: **explicit**
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
 - **Next:** Me: plan an initial pass over current sensor states at Safety setup (reusing _process_sensor), with boot-settle respected so it does not double-page; Tier 2-DB (life-safety).
@@ -101,7 +114,8 @@ status: **pre_planning** - approval: **explicit**
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
 
-### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-10-16T03:31:52.539Z)
 status: **pre_planning** - approval: **explicit**
 - **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
 - **Next:** Me: measure how often two CRITICALs overlap in notification_log (likely rare), then decide build vs park.
@@ -109,7 +123,8 @@ status: **pre_planning** - approval: **explicit**
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:32:49.372Z)
 thread: **energy** - status: **pre_planning**
 _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
@@ -124,7 +139,7 @@ _created 2026-10-04 01:00 · updated 2026-10-14 02:20_
   - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#6 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -135,7 +150,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#8 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -1020,7 +1035,8 @@ _created 2026-10-14 03:43 · updated 2026-10-15 02:17 · refined ×2_
 - **Tags:** tier-2, sibling-repo
 - **Parsimony:** [SIMPLIFY] HM v2.1 misreports GC hourly rate ~60x and drops 2 of 3 Z2M bridge rows; it cannot quantify flapping
 - **Refs:** ~/Code/ha-health-monitor/docs/PLAN_v2.md R8 (commit 20c1309); ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md Live results 2026-10-14
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `stale_2026_10_15`: Audit: v2.2 slice already built+installed+validated (README_v2.2.0 Validated 2026-10-15, branch v2.2-slice bce74ed). Next: v2.3-stalls build dispatched 10-15 (freeze-pause 1h-max exclusion + stall culprit attribution + OTBR row + shelly ...
   - `verified_2026_10_15_overnight`: CARD-WAS-WRONG (said 'planned, dispatch a builder'). The slice was built (A1 9c4fa6d gc minute buckets, A2 0443a19 Z2M per-bridge rows, C1 shares, B1 flaps, B2 AP retries, B3 Z-Wave stats, B4 automations, B5 device signals), reviewed thr...
 
 ### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#7 · WSJF 1.8 · v4 tc3 u2 /e5_
@@ -2122,6 +2138,7 @@ _created 2026-08-31 18:20 · updated 2026-10-14 08:00 · refined ×4_
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#80 · WSJF 1.3 · v7 tc8 u2 /e13_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:26:33.011Z)
 thread: **presence** - status: **parked** - approval: **blocked**
 _created 2026-10-15 02:05 · updated 2026-10-15 02:15 · initial_
 - **Problem / Solution:**
@@ -2338,6 +2355,7 @@ _created 2026-09-05 17:35 · initial_
 _closed, evidence in refs_
 
 ### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _WSJF 3.5 · v3 tc2 u2 /e2_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:30:11.706Z)
 thread: **presence** - status: **done** - approval: **implied**
 _created 2026-09-27 02:50 · updated 2026-10-15 02:17 · refined ×2_
 - **Problem / Solution:**
@@ -2408,6 +2426,7 @@ _created 2026-10-05 · updated 2026-10-15 02:11 · refined_
   - `sweep_2026_10_05`: NEW: no prior card on http/trusted_proxies.
 
 ### `SONOFF-R4M-MULTICAST-AB-1` - Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test — _WSJF 16.0 · v7 tc7 u2 /e1_
+> **⚡ OPERATOR: instruct — pending apply** (at 2026-10-16T03:29:00.773Z)
 thread: **devices** - status: **done**
 _created 2026-10-13 07:46 · updated 2026-10-15 02:09_
 - **Next:** None. Reopen if R4M unavailable transitions climb back above ~50/day house-wide (recorder, .claude/tmp/sonoff_ab.py).
