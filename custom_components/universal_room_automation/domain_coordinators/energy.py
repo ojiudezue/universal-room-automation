@@ -790,6 +790,12 @@ class EnergyCoordinator(BaseCoordinator):
         # Cancelled in `async_teardown`; stored separately from the periodic
         # timer so we don't accidentally double-unsub.
         self._tou_boundary_unsub = None
+        # EC-OUTAGE-LEDGER (Stage L): evidence-only nws_alert / grid_outage
+        # ledger. Per-tick hook in `_decision_cycle_body` via
+        # `_outage_ledger_tick`; cloud sweep armed in `async_setup`,
+        # cancelled in `async_teardown`.
+        from .energy_outage_ledger import OutageLedger
+        self._outage_ledger = OutageLedger(hass)
         # Session B2b-ii: drain-precedence must-start-by fire timer.
         # Set by `_arm_dp_must_start_by_timer` when the state machine
         # enters TRANSITIONED with a live `_dp_carrier.must_start_by_dt`;
@@ -1197,6 +1203,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self._handle_safety_hazard,
             )
         )
+
+        # EC-OUTAGE-LEDGER D-L2(i): arm the cloud-calendar sweep (first run
+        # OUTAGE_SWEEP_INITIAL_DELAY_S after setup, then every
+        # OUTAGE_SWEEP_INTERVAL_H). Idempotent; cancelled in async_teardown.
+        self._arm_outage_ledger()
 
         # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
         # coordinator gets a chance to veto an Optimizer-proposed actuation
@@ -6435,6 +6446,13 @@ class EnergyCoordinator(BaseCoordinator):
             _drain_target = getattr(
                 self._battery, "_offpeak_drain_branch_target", None,
             )
+            # EC-OUTAGE-LEDGER D-L1/D-L2(ii): evidence ledger, AFTER
+            # determine_mode returns (so it runs whatever early return the
+            # decision took: grid disconnect, fully blind) and BEFORE the
+            # first await below (so a later exception in this body cannot
+            # skip it). Synchronous, pure state reads, fire-and-forget DB
+            # writes; never raises.
+            self._outage_ledger_tick()
 
             # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
             # When arbitrage_active and SOC has risen since the previous cycle,
@@ -9091,6 +9109,106 @@ class EnergyCoordinator(BaseCoordinator):
                 return self._learned_threshold_kw
         return self._load_shedding_threshold_kw
 
+    def _arm_outage_ledger(self) -> None:
+        """EC-OUTAGE-LEDGER D-L2(i): arm the cloud sweep; never raises."""
+        ledger = getattr(self, "_outage_ledger", None)
+        if ledger is None:
+            return
+        try:
+            ledger.arm()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("outage ledger arm failed", exc_info=True)
+        if getattr(self, "_write_verifier", None) is None:
+            _LOGGER.debug(
+                "outage ledger: no write verifier, grid_enabled leg inert",
+            )
+
+    def _outage_local_readings(self) -> dict[str, bool | None]:
+        """Local corroboration readings, True = off-grid, None = unknown.
+
+        * grid_enabled switch via `WriteVerifier._grid_outage_active`
+          (inert when the verifier is absent).
+        * Enpower grid_status binary sensor, the sibling of the resolved
+          grid_enabled entity on the same Enpower device
+          (`switch.enpower_<sn>_grid_enabled` ->
+          `binary_sensor.enpower_<sn>_grid_status`); "off" = off-grid.
+        `sensor.iq_gateway_hacs_grid_mode` is deliberately NOT read (P4).
+        """
+        out: dict[str, bool | None] = {}
+        battery = getattr(self, "_battery", None)
+        verifier = getattr(self, "_write_verifier", None)
+        if verifier is not None and battery is not None:
+            try:
+                out["grid_enabled"] = verifier._grid_outage_active(battery)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                out["grid_enabled"] = None
+        try:
+            from .energy_const import DEFAULT_GRID_ENABLED_ENTITY
+            eid = battery._get_entity(  # noqa: SLF001
+                "grid_enabled", DEFAULT_GRID_ENABLED_ENTITY,
+            ) if battery is not None else None
+        except Exception:  # noqa: BLE001
+            eid = None
+        if (
+            isinstance(eid, str)
+            and eid.startswith("switch.")
+            and eid.endswith("_grid_enabled")
+        ):
+            gs = (
+                "binary_sensor." + eid[len("switch."):-len("_grid_enabled")]
+                + "_grid_status"
+            )
+            st = self.hass.states.get(gs)
+            if st is None or st.state not in ("on", "off"):
+                out[gs] = None
+            else:
+                out[gs] = st.state == "off"
+        return out
+
+    def _outage_ledger_tick(self) -> None:
+        """EC-OUTAGE-LEDGER per-tick hook (called from `_decision_cycle_body`
+        right after `determine_mode`). Pure reads; never raises."""
+        ledger = getattr(self, "_outage_ledger", None)
+        battery = getattr(self, "_battery", None)
+        if ledger is None or battery is None:
+            return
+        try:
+            from datetime import datetime
+            from homeassistant.util import dt as dt_util
+            now = dt_util.now()
+            alerts = None
+            nws_entity = None
+            try:
+                nws_entity = battery._inclement_config().get(  # noqa: SLF001
+                    "nws_alerts_entity",
+                ) or None
+                alerts = battery._read_nws_alerts(nws_entity or "")  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                alerts = None
+            dec = getattr(battery, "_last_inclement_decision", None)
+            dec_at = getattr(battery, "_last_inclement_decision_at", None)
+            age_s = None
+            if isinstance(dec_at, datetime):
+                try:
+                    age_s = round((now - dec_at).total_seconds(), 1)
+                except Exception:  # noqa: BLE001
+                    age_s = None
+            try:
+                soc = battery.battery_soc
+            except Exception:  # noqa: BLE001
+                soc = None
+            ledger.record_tick(
+                now=now,
+                alerts=alerts,
+                nws_entity=nws_entity,
+                decision=dec,
+                decision_age_s=age_s,
+                soc=soc,
+                local_readings=self._outage_local_readings(),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("outage ledger tick failed", exc_info=True)
+
     def _record_reserve_dispatch(
         self,
         *,
@@ -10270,6 +10388,13 @@ class EnergyCoordinator(BaseCoordinator):
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+        # EC-OUTAGE-LEDGER: cancel the sweep timers + any in-flight sweep.
+        _ledger = getattr(self, "_outage_ledger", None)
+        if _ledger is not None:
+            try:
+                _ledger.cancel()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("outage ledger cancel raised", exc_info=True)
         # SolarFollowController D1 — cancel the modulation timer + any
         # outstanding async_call_later verify handles (Bug Class #38).
         if self._solar_follow_timer_unsub is not None:

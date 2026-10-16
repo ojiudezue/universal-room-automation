@@ -2316,3 +2316,43 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
     ("energy_pool.py",    "_write_amps",                "non_reserve", 1),  # EVSE amps
     ("radar_tuning.py",   "async_send_radar_settings",  "non_reserve", 1),  # radar device numbers
 )
+
+
+# ============================================================================
+# EC-OUTAGE-LEDGER (PLANNING_ec_storm_and_blind_decisions.md Stage L)
+# ============================================================================
+#
+# All rung 1 (module constants; change requires review). The ledger is
+# evidence-only: no decision path reads these rows. Retention is governed
+# by `const.ACTIVITY_LEDGER_RETAINED_ACTIONS` (the prune exemption), so the
+# importance below is parity only.
+ACTIVITY_LEDGER_IMPORTANCE: Final = RESERVE_WRITE_LOG_IMPORTANCE
+
+# Cloud-calendar sweep (primary outage witness, Rev 2.1 / P4). 0 disables.
+OUTAGE_SWEEP_INTERVAL_H: Final = 24
+# First sweep after setup, off the boot path.
+OUTAGE_SWEEP_INITIAL_DELAY_S: Final = 300
+# Lookback per sweep: overlaps one missed day; well inside the ~7-week
+# calendar retention and the weekly query window that is known to work.
+OUTAGE_SWEEP_LOOKBACK_H: Final = 48
+# A local_only row within this many minutes of a cloud off-grid event start
+# marks the cloud row corroborated_by_local (5-min tick + cloud lag).
+OUTAGE_DEDUP_TOLERANCE_MIN: Final = 10
+# calendar.get_events timeout (long windows time out on this calendar).
+OUTAGE_SWEEP_TIMEOUT_S: Final = 30
+# Case-folded SUBSTRING classifiers, never equality. Live summaries read
+# 2026-10-16 from the calendar for the 2026-09-16 outage:
+#   "Your system is now off grid or disconnected from the grid."
+#   "Your system is now connected to the grid."
+#   "Your generator is now turned on as per Automatic profile" / "...turned off."
+# The off-grid test runs first. Empty off-grid substring = sweep writes nothing.
+OUTAGE_CALENDAR_OFFGRID_SUBSTR: Final = "off grid"
+OUTAGE_CALENDAR_ONGRID_SUBSTR: Final = "connected to the grid"
+OUTAGE_CALENDAR_GENERATOR_SUBSTR: Final = "generator"
+# Registry platform of the Enphase cloud system-event calendar (P4(iv)).
+# Empty = sweep disabled.
+OUTAGE_CALENDAR_PLATFORM: Final = "enphase_ev"
+OUTAGE_CALENDAR_ENTITY_SUFFIX: Final = "_system_event_history"
+# Hard ceiling on each RAM seen-set (alert IDs are also pruned to the live
+# feed every tick; this guards a pathological feed).
+OUTAGE_LEDGER_MAX_SEEN: Final = 500
