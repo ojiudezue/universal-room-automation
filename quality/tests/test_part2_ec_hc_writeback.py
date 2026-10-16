@@ -176,6 +176,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
     # NM Cycle C-2 (2026-07-22, D2): additive-only life-safety extras.
     _extract_conf(CONST_SRC, "CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS"),
+    # SAFETY-NM-REFIRE-UNWIRED-1 D7 (B-MED-2): repeat schedule (in _NM_C_KEYS).
+    _extract_conf(CONST_SRC, "CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE"),
     # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
     # option-persistence key. Added to OPTIONS_RELOAD_SUPPRESS_KEYS to
     # prevent write-through reload loop; the arrester seeds from the
@@ -356,7 +358,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    B-CRIT-2) -> 95
     # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
     # +3 EC-HOUSE-ENTITY-DEFAULTS-1 pin bookkeeping flags -> 101
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 101
+    # +1 nm_life_safety_repeat_schedule (SAFETY-NM-REFIRE-UNWIRED-1 D7,
+    #    Review B-MED-2; via _NM_C_KEYS) -> 102
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 102
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +621,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
+        # SAFETY-NM-REFIRE-UNWIRED-1 D7 (B-MED-2) — repeat schedule in `_NM_C_KEYS`.
+        "_CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE":        "nm_life_safety_repeat_schedule",
         # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13) — both stuck-signal
         # knobs added to `_NM_A2_KEYS`.
         "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",

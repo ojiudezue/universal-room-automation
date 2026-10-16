@@ -284,15 +284,21 @@ def test_dnd_floor_extras_promoted_delivers_in_quiet_hours():
         # Empty bypass set — force the safety floor to be the only path.
         "nm_person_dnd_bypass_severities": [],
     }]
+    # SAFETY-NM-REFIRE-UNWIRED-1 (Review B-MED-1): the floor needs >= HIGH,
+    # so the promoted-vs-baseline discrimination runs at HIGH.
     nm = _make_nm([], **{CONF_NM_PERSONS: persons})
     assert nm._recipient_bypasses_dnd(
-        "person.test", "overheat", Severity.MEDIUM,
+        "person.test", "overheat", Severity.HIGH,
     ) is False
 
     nm2 = _make_nm(["overheat"], **{CONF_NM_PERSONS: persons})
     assert nm2._recipient_bypasses_dnd(
-        "person.test", "overheat", Severity.MEDIUM,
+        "person.test", "overheat", Severity.HIGH,
     ) is True
+    # ... and a MEDIUM promoted reading is held by DND.
+    assert nm2._recipient_bypasses_dnd(
+        "person.test", "overheat", Severity.MEDIUM,
+    ) is False
 
 
 # ============================================================================

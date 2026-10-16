@@ -230,3 +230,89 @@ commit report.
 | D7m scoped set loses `flooding` | `test_d7_safety_tokens_follow_schedule[*-flooding]` ×2 |
 | D7n scoped set gains `intruder` | intruder ×4, `TestB1IntruderCadence`, hygiene, c2 union |
 The full D7a–j and D1/D2/D6 drills were re-run on the scoped code; all still RED.
+
+---
+
+# Review A/B fix-up (orchestrator rulings, plan Rev 4.3)
+
+## B-MED-1 producer enumeration (done BEFORE changing the bypass)
+Grep of every emit of a life-safety token (`NM_LIFE_SAFETY_HAZARDS` = smoke, fire, carbon_monoxide,
+water_leak, flooding, intruder, freeze_risk; extras default `()`), with severity:
+
+| Producer | file:line | Token | Severities emitted | MEDIUM/LOW? |
+|---|---|---|---|---|
+| Safety binary smoke | `safety.py:1864` | smoke | CRITICAL | no |
+| Safety binary leak | `safety.py:1868` | water_leak | HIGH | no |
+| **Safety ROC humidity rise** | `safety.py:1786-1817` (`_z_score_severity` :763, learning-mode default MEDIUM :1792) | water_leak | CRITICAL / HIGH / **MEDIUM** | **yes (Safety)** |
+| **Safety CO numeric** | `NUMERIC_THRESHOLDS` CO (`safety.py:~185-188`: MEDIUM 35, LOW 25 ppm) | carbon_monoxide | CRITICAL / HIGH / **MEDIUM / LOW** | **yes (Safety)** |
+| **Safety freeze numeric** | `NUMERIC_THRESHOLDS` FREEZE_RISK (`safety.py:207-211`: HIGH 35, MEDIUM 40, LOW 45 °F) | freeze_risk | HIGH / **MEDIUM / LOW** | **yes (Safety)** |
+| Safety flooding | `safety.py:1917/1938` | flooding | CRITICAL | no |
+| Safety test service | `__init__.py:6506-6540` → `safety.handle_test_hazard` | any (operator-chosen) | operator-chosen, default medium | operator test only (Safety path) |
+| Security entry / lockdown | `security.py:1561-1592`, `:1046-1053` | intruder | CRITICAL / HIGH (`investigate` at lower verdicts is not life-safety) | no |
+| HVAC / Security consumers of smoke/CO signals | `hvac.py:6366`, `security.py:2068` | read only (signal consumers, not NM emits) | — | — |
+| All other NM emitters (energy, perimeter, zone tripwire, stuck-signal, optimizer, presence, transit, binary_sensor) | grep list | non-life-safety tokens or None | — | no |
+| Extras knob | `_nm_cycle_a.py:200-221` | operator-promoted tokens | any producer's severities | default empty; Review B states the live config has no extras set (my own MCP read could not see options) |
+
+**No non-Safety producer relies on a MEDIUM/LOW life-safety bypass**, so the change went ahead.
+Before D1 every Safety alert reached NM with hazard_type=None, so on develop no MEDIUM/LOW
+life-safety bypass was ever exercised. The only way a non-Safety MEDIUM bypass could exist is an
+operator extras promotion, and that knob's description now says so.
+
+## Changes
+- **B-HIGH-1:** `NM_SCHEDULED_LIFE_SAFETY_HAZARDS` += `water_leak`, `freeze_risk` (`const.py`).
+  Plan §2, R3 and B1 corrected, and Rev 4.3 appended.
+- **B-MED-1:** `_recipient_bypasses_dnd` floor → `severity >= Severity.HIGH and is_life_safety_hazard(...)`.
+  `_route_for_recipient` mute bypass gets the same gate. The token bucket was already CRITICAL-only
+  (`_channel_ready` / `_take_channel_once` / dry-run gate); the boot-settle exemption is unchanged.
+  `_repeat_alert` is still byte-identical (CRITICAL only, so its behaviour is unchanged).
+- **B-MED-2:** key added to `_NM_C_KEYS` (`__init__.py`, which feeds both `OPTIONS_RELOAD_SUPPRESS_KEYS` and
+  `_NO_LIVE_ATTR_KEYS`), plus the import alias. `_apply_in_place` calls the new
+  `NotificationManager.reschedule_repeat_for_config_change()` (refresh config → if REPEATING, `_schedule_repeat()`).
+  Test stubs updated: `test_cm_reload_suppression`, `test_part2_ec_hc_writeback` (expected set + count 101→102),
+  `test_reload_watchdog_hazard`, `test_room_options_reload_suppression`.
+- **B-LOW-1:** the extras-knob description says promoted types also apply to Safety alerts.
+- **A1:** the repo has a translated-select pattern (`translation_key="night_light_sleep_hue"` + strings `selector` block),
+  so the dropdown now uses `translation_key="nm_life_safety_repeat_schedule"` with its labels in `strings.json` /
+  `en.json` `selector`. The stored values are unchanged.
+- **A2:** the `_repeat_phase` docstring lists `fast_start`. **A3:** the help text says intruder and promoted extras stay 30 s.
+- Label: the field keeps the ruled name "Smoke, CO and flood repeat schedule"; its description now names
+  water-leak and freeze.
+
+## Existing tests changed by the rulings
+- `test_nm_cycle_c_routing_matrix.py::TestC3DNDBypass::test_life_safety_always_bypasses`: now asserts the floor
+  at HIGH/CRITICAL and NO bypass at LOW/MEDIUM.
+- `test_nm_cycle_c2_fixup.py::test_dnd_floor_extras_promoted_delivers_in_quiet_hours`: the discrimination runs at
+  HIGH, plus an assertion that a promoted MEDIUM is held.
+
+## New tests (F = red on b503ac576, the branch before this fix-up)
+- F `test_b_high_1_roc_critical_water_leak_repeats_on_standard_ladder`: real ROC path. Learned baseline,
+  +30 %/30 min → CRITICAL `water_leak:Kitchen:roc` → manager → NM → 300 s / phase1.
+- `test_b_high_1_leak_and_freeze_follow_schedule` ×6: F for the default and fast_start rows, R for urgent.
+- F `test_b_med_1_medium_life_safety_held_in_quiet_hours` [water_leak/freeze_risk/carbon_monoxide].
+- R `test_b_med_1_high_and_critical_still_bypass_quiet_hours` ×4.
+- F `test_b_med_1_mute_bypass_requires_high`.
+- F `test_b_med_2_schedule_only_save_does_not_reload_and_rearms_repeat`: real `_async_update_listener`; zero
+  reloads, and the pending repeat is re-armed at 30 s after a standard→urgent save.
+- F `test_b_med_2_rearm_is_noop_when_idle`.
+- F `test_d7_options_flow_shows_stored_selection` (now also pins `translation_key`, A1).
+Run against b503ac576 source: those F tests red, everything else in the file green. Post-fix: 70/70.
+
+## Drills (pyc cleared; restored; tree verified)
+| Mutant | RED tests |
+|---|---|
+| BH1a set loses water_leak | ROC CRITICAL water_leak test, leak schedule [default, fast_start] |
+| BH1b set loses freeze_risk | freeze schedule [default, fast_start] |
+| BM1a DND floor severity conjunct dropped | MEDIUM held ×3, routing-matrix floor test, c2 fixup DND test |
+| BM1b DND floor boundary HIGH→CRITICAL | HIGH still bypasses ×2, routing-matrix floor test, c2 fixup DND test |
+| BM1c mute bypass severity conjunct dropped | mute bypass requires HIGH |
+| BM2a key removed from `_NM_C_KEYS` | no-reload + re-arm test, part2 membership-exact, part2 count |
+| BM2b in-place re-arm call removed | no-reload + re-arm test |
+| BM2c re-arm method does not reschedule | no-reload + re-arm test |
+| BM2d re-arm skips config refresh | no-reload + re-arm test |
+
+## Order note (pre-existing, not introduced here)
+When the reload/config suites that already fail at HEAD (`test_census_device_switches`,
+`test_optimization_coordinator`, `test_evse_drain_precedence_session_b1`) are collected before them, the
+extras-promotion tests fail at HEAD as well: the c2 fixup / c2 union originals and my
+`test_d7_extras_token_*`. The cause is knob-module identity pollution from those files. Without those three
+files, the combined NM / config / reload set passes in one process (1405 at the time of the check).

@@ -2640,6 +2640,20 @@ class NotificationManager:
         except (TypeError, ValueError):
             return 0
 
+    def reschedule_repeat_for_config_change(self) -> bool:
+        """D7 (Review B-MED-2): re-arm the pending repeat after a schedule save.
+
+        Called from the CM in-place options handler. Re-reads config, and if
+        an alert is REPEATING, cancels the pending repeat and schedules the
+        next one with the interval the new schedule gives. Returns True when
+        a repeat was re-armed.
+        """
+        self._refresh_config()
+        if self._alert_state == AlertState.REPEATING and self._active_alert_data:
+            self._schedule_repeat()
+            return True
+        return False
+
     def _life_safety_repeat_schedule(self) -> str:
         """D7: operator-chosen unacked smoke/CO/flood repeat schedule.
 
@@ -2662,7 +2676,9 @@ class NotificationManager:
         """Return the current repeat-phase label for diagnostics.
 
         - "idle"       : no active CRITICAL
-        - "life_safety": 30s cadence (hazard vocabulary)
+        - "life_safety": 30s cadence (intruder / extras, or the "urgent" schedule)
+        - "fast_start" : smoke/CO/flood/leak/freeze "fast_start" schedule,
+                         first NM_REPEAT_FAST_START_WINDOW_S of unacked age
         - "phase1"     : first PHASE1_WINDOW_S of unacked age
         - "phase2"     : until DAILY_AFTER_S
         - "daily"      : one repeat per day
@@ -4232,7 +4248,9 @@ class NotificationManager:
         """
         # 1. Safety floor — hard-coded, not a per-recipient knob.
         # NM Cycle C-2 D2: union helper — extras also bypass DND.
-        if is_life_safety_hazard(self.hass, hazard_type):
+        # SAFETY-NM-REFIRE-UNWIRED-1 (Review B-MED-1): only at HIGH or above;
+        # a MEDIUM/LOW leak/freeze/CO reading is held by quiet hours.
+        if severity >= Severity.HIGH and is_life_safety_hazard(self.hass, hazard_type):
             return True
         # 2. Per-recipient set.
         person_cfg = self._get_person_cfg(recipient_id)
@@ -4283,7 +4301,11 @@ class NotificationManager:
         # intent is authoritative routing, not a snooze). This mirrors
         # `_recipient_bypasses_dnd`'s safety floor.
         # NM Cycle C-2 D2: union helper — extras bypass mute in router.
-        life_safety = is_life_safety_hazard(self.hass, hazard_type)
+        # Review B-MED-1: the mute bypass needs severity >= HIGH.
+        life_safety = (
+            severity >= Severity.HIGH
+            and is_life_safety_hazard(self.hass, hazard_type)
+        )
 
         # D. Legacy fallback — the byte-identical oracle path. For legacy
         # (no matrix/override) *materialized* matrix lookup: prefer the

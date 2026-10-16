@@ -3442,11 +3442,13 @@ NM_REPEAT_DAILY_AFTER_S: Final = 86400
 #               NM_REPEAT_FAST_START_WINDOW_S of unacked age, then standard.
 #   urgent    : NM_REPEAT_INTERVAL_LIFE_SAFETY (30 s) until acknowledged.
 CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE: Final = "nm_life_safety_repeat_schedule"
-# Safety-Coordinator hazard tokens that reach CRITICAL (smoke, CO >=100 ppm,
-# flooding) + "fire": a Safety HazardType token sharing smoke's cooldown key;
-# not emitted today, but if it ever is it must page like smoke.
+# Safety-Coordinator life-safety tokens (smoke, CO, flooding, water_leak,
+# freeze_risk) + "fire": a Safety HazardType token sharing smoke's cooldown
+# key; not emitted today, but if it ever is it must page like smoke.
+# Review B-HIGH-1: plus water_leak + freeze_risk — every life-safety token
+# Safety emits (ROC humidity-rise water_leak reaches CRITICAL at z>=5).
 NM_SCHEDULED_LIFE_SAFETY_HAZARDS: Final = frozenset({
-    "smoke", "carbon_monoxide", "flooding", "fire",
+    "smoke", "carbon_monoxide", "flooding", "fire", "water_leak", "freeze_risk",
 })
 NM_LIFE_SAFETY_SCHEDULE_STANDARD: Final = "standard"
 NM_LIFE_SAFETY_SCHEDULE_FAST_START: Final = "fast_start"

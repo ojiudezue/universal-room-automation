@@ -386,6 +386,8 @@ def _load_init_listener_helpers():
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
+        # SAFETY-NM-REFIRE-UNWIRED-1 D7 (B-MED-2) — repeat schedule in `_NM_C_KEYS`.
+        "_CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE":        "nm_life_safety_repeat_schedule",
         # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13) — both stuck-signal
         # knobs added to `_NM_A2_KEYS`.
         "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",

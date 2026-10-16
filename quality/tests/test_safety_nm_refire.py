@@ -557,8 +557,10 @@ async def test_d7_options_flow_shows_stored_selection(stored, shown):
     sel = [v for k, v in res["data_schema"].schema.items() if str(k) == _SCHED_KEY][0]
     cfg = sel.config
     opts = cfg["options"] if isinstance(cfg, dict) else cfg.options
-    values = [o["value"] for o in opts]
+    tkey = cfg.get("translation_key") if isinstance(cfg, dict) else cfg.translation_key
+    values = [o["value"] if isinstance(o, dict) else o for o in opts]
     assert values == ["standard", "fast_start", "urgent"]
+    assert tkey == "nm_life_safety_repeat_schedule"
 
 
 @pytest.mark.asyncio
@@ -624,3 +626,156 @@ async def test_d7_safety_tokens_follow_schedule(monkeypatch, clock, hazard, sche
     r = _NMRig(monkeypatch, clock, schedule=schedule, hazard=hazard)
     await r.alert()
     assert r.at_age(0) == expected
+
+
+# ---------------------------------------------------------------------------
+# Review B-HIGH-1 — ROC humidity-rise CRITICAL water_leak follows the schedule
+# ---------------------------------------------------------------------------
+
+HUM = "sensor.kitchen_humidity"
+
+
+@pytest.mark.asyncio
+async def test_b_high_1_roc_critical_water_leak_repeats_on_standard_ladder(monkeypatch, clock):
+    """A 5-sigma humidity rise in a normal room -> CRITICAL water_leak via the
+    real rate-of-change path (check_thresholds -> _z_score_severity ->
+    _classify_rate_hazard -> Hazard(from_roc=True)) -> manager -> NM. Under
+    the default schedule it must repeat on the Standard ladder, not 30 s."""
+    rig = Rig(monkeypatch, clock)
+    c = rig.safety
+    c._numeric_sensors[HUM] = "humidity"
+    c._sensor_locations[HUM] = "Kitchen"
+    c._sensor_room_types[HUM] = "normal"
+    c._sensor_units[HUM] = "%"
+    # Learned rate baseline: 100 quiet observations (+-0.5 %/30 min).
+    for i in range(100):
+        c._rate_detector._record_rate_baseline(HUM, 0.5 if i % 2 else -0.5)
+
+    async def feed(v):
+        c._test_states[HUM] = SimpleNamespace(state=str(v), attributes={})
+        return await c.evaluate(
+            [Intent(source="state_change", entity_id=HUM,
+                    data={"state": str(v)}, coordinator_id="safety")], {},
+        )
+
+    await feed(40.0)
+    clock.advance(1800)
+    actions = await feed(70.0)  # +30 %/30 min: far beyond 5 sigma, under 78 %
+    notes = [a for a in _notifications(actions) if a.hazard_type == "water_leak"]
+    assert len(notes) == 1
+    assert notes[0].severity.name == "CRITICAL"
+    assert "water_leak:Kitchen:roc" in c._active_hazards
+    await rig.mgr._execute_action(c, notes[0])
+    assert rig.nm._active_alert_data["hazard_type"] == "water_leak"
+    assert rig.nm._repeat_interval_for_active_alert() == 300
+    assert rig.nm._repeat_phase() == "phase1"
+    assert rig.later[-1][0] == 300
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hazard", ["water_leak", "freeze_risk"])
+@pytest.mark.parametrize(
+    "schedule,expected",
+    [(None, (300, "phase1")), ("fast_start", (60, "fast_start")),
+     ("urgent", (30, "life_safety"))],
+)
+async def test_b_high_1_leak_and_freeze_follow_schedule(monkeypatch, clock, hazard, schedule, expected):
+    r = _NMRig(monkeypatch, clock, schedule=schedule, hazard=hazard)
+    await r.alert()
+    assert r.at_age(0) == expected
+
+
+# ---------------------------------------------------------------------------
+# Review B-MED-1 — life-safety DND / mute bypass requires severity >= HIGH
+# ---------------------------------------------------------------------------
+
+class _QuietRig:
+    def __init__(self, monkeypatch, clock):
+        hass = _tnm._make_hass()
+        hass.data[_tnm.DOMAIN]["database"] = AsyncMock()
+        self.nm = nm_mod.NotificationManager(hass, _tnm._make_config())
+        monkeypatch.setattr(self.nm, "_refresh_config", lambda: None)
+        monkeypatch.setattr(self.nm, "_is_quiet_hours", lambda: True)
+        monkeypatch.setattr(nm_mod, "async_call_later",
+                            lambda *_a, **_k: (lambda: None))
+        monkeypatch.setattr(nm_mod, "async_dispatcher_send", lambda *a, **k: None)
+        self.pushes: list = []
+
+        async def _push(*a, **k):
+            self.pushes.append(a)
+
+        monkeypatch.setattr(self.nm, "_send_pushover", _push)
+
+    async def notify(self, hazard, severity_name):
+        sev = getattr(safety_mod.Severity, severity_name)
+        await self.nm.async_notify(
+            coordinator_id="safety", severity=sev, title=f"t-{hazard}-{severity_name}",
+            message="m", hazard_type=hazard, location="Garage",
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hazard", ["water_leak", "freeze_risk", "carbon_monoxide"])
+async def test_b_med_1_medium_life_safety_held_in_quiet_hours(monkeypatch, clock, hazard):
+    q = _QuietRig(monkeypatch, clock)
+    await q.notify(hazard, "MEDIUM")
+    assert q.pushes == []
+    assert q.nm._recipient_bypasses_dnd(None, hazard, safety_mod.Severity.MEDIUM) is False
+    assert q.nm._recipient_bypasses_dnd(None, hazard, safety_mod.Severity.LOW) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hazard", ["water_leak", "freeze_risk"])
+@pytest.mark.parametrize("sev", ["HIGH", "CRITICAL"])
+async def test_b_med_1_high_and_critical_still_bypass_quiet_hours(monkeypatch, clock, hazard, sev):
+    q = _QuietRig(monkeypatch, clock)
+    await q.notify(hazard, sev)
+    assert len(q.pushes) == 1
+
+
+def test_b_med_1_mute_bypass_requires_high(clock):
+    nm = nm_mod.NotificationManager(_tnm._make_hass(), _tnm._make_config())
+    nm._person_channel_mutes[("person.test", "pushover")] = T0 + timedelta(minutes=30)
+    Sev = safety_mod.Severity
+    assert "pushover" not in nm._route_for_recipient("person.test", "water_leak", Sev.MEDIUM)
+    assert "pushover" in nm._route_for_recipient("person.test", "water_leak", Sev.HIGH)
+
+
+# ---------------------------------------------------------------------------
+# Review B-MED-2 — schedule save applies in place, re-arms the pending repeat
+# ---------------------------------------------------------------------------
+
+def _listener_ns():
+    import importlib
+    return importlib.import_module("test_cm_reload_suppression")
+
+
+@pytest.mark.asyncio
+async def test_b_med_2_schedule_only_save_does_not_reload_and_rearms_repeat(monkeypatch, clock):
+    rs = _listener_ns()
+    ns = rs._load_init_listener_helpers()
+    hass = rs._FakeHass(hvac=rs._FakeHvac())
+    entry = rs._FakeEntry("cm1", {_SCHED_KEY: "standard"})
+    ns["_seed_cm_last_applied_options"](hass, entry)
+
+    r = _NMRig(monkeypatch, clock, schedule="standard")
+    await r.alert()
+    assert r.later[-1] == 300
+    hass.data["universal_room_automation"]["notification_manager"] = r.nm
+
+    # Operator saves only the schedule key.
+    entry.options = {_SCHED_KEY: "urgent"}
+    r.entry.options = {_SCHED_KEY: "urgent"}
+    r.later.clear()
+    await ns["_async_update_listener"](hass, entry)
+
+    assert hass.async_create_task.call_count == 0  # no CM reload
+    assert r.later == [30]  # pending repeat re-armed with the new schedule
+    assert r.nm._repeat_phase() == "life_safety"
+
+
+@pytest.mark.asyncio
+async def test_b_med_2_rearm_is_noop_when_idle(monkeypatch, clock):
+    r = _NMRig(monkeypatch, clock, schedule="urgent")
+    assert r.nm.reschedule_repeat_for_config_change() is False
+    assert r.later == []

@@ -9425,19 +9425,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
-                        {
-                            "label": "Standard (recommended) — every 5 min for the first hour, then every 30 min, then daily",
-                            "value": NM_LIFE_SAFETY_SCHEDULE_STANDARD,
-                        },
-                        {
-                            "label": "Fast start — every minute for the first 10 minutes, then Standard",
-                            "value": NM_LIFE_SAFETY_SCHEDULE_FAST_START,
-                        },
-                        {
-                            "label": "Urgent — every 30 seconds until acknowledged",
-                            "value": NM_LIFE_SAFETY_SCHEDULE_URGENT,
-                        },
+                        NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+                        NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+                        NM_LIFE_SAFETY_SCHEDULE_URGENT,
                     ],
+                    # Review A1: labels translated via strings.json "selector"
+                    # (same pattern as night_light_sleep_hue).
+                    translation_key="nm_life_safety_repeat_schedule",
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),

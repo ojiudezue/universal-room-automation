@@ -911,13 +911,13 @@ The code supersedes the `repeat_interval: 30s` sketch above. Unacked CRITICAL al
 
 - **Non-life-safety:** decay ladder. Every 5 min (`NM_REPEAT_PHASE1_S`) for the first hour (`NM_REPEAT_PHASE1_WINDOW_S`), then every 30 min (`NM_REPEAT_PHASE2_S`), then daily after 24 h (`NM_REPEAT_DAILY_AFTER_S`).
 - **Other life-safety** (`NM_LIFE_SAFETY_HAZARDS` minus the set below, e.g. intruder, plus operator extras): every 30 s (`NM_REPEAT_INTERVAL_LIFE_SAFETY`) until acknowledged, under every setting value.
-- **Smoke / CO / flood** (`NM_SCHEDULED_LIFE_SAFETY_HAZARDS` = smoke, carbon_monoxide, flooding, fire): follow the options-flow select "Smoke, CO and flood repeat schedule" `nm_life_safety_repeat_schedule` (Quiet Hours step, rung 2):
+- **Safety life-safety** (`NM_SCHEDULED_LIFE_SAFETY_HAZARDS` = smoke, carbon_monoxide, flooding, fire, water_leak, freeze_risk): follow the options-flow select "Smoke, CO and flood repeat schedule" `nm_life_safety_repeat_schedule` (Quiet Hours step, rung 2):
   - `standard` (default): the same ladder as non-life-safety.
   - `fast_start`: every 60 s (`NM_REPEAT_FAST_START_S`) for the first 600 s (`NM_REPEAT_FAST_START_WINDOW_S`), then the ladder.
   - `urgent`: every 30 s (`NM_REPEAT_INTERVAL_LIFE_SAFETY`) until acknowledged.
   - Unknown or missing value: `standard`.
-- The value is read through `_refresh_config` on every notify and repeat tick, so a change applies at the next repeat with no reload. The `repeat_phase` attribute reports `life_safety` (urgent), `fast_start`, `phase1`, `phase2`, `daily` or `legacy`.
-- Life-safety classification still drives DND, mute and token-bucket bypass, the boot-settle exemption and per-hazard cooldowns. The setting changes only the repeat cadence.
+- The value is read through `_refresh_config` on every notify and repeat tick. The key is in `_NM_C_KEYS`, so a save applies in place without a CM reload, and `_apply_in_place` calls `reschedule_repeat_for_config_change()` to re-arm an active alert's pending repeat with the new interval. The `repeat_phase` attribute reports `life_safety` (urgent), `fast_start`, `phase1`, `phase2`, `daily` or `legacy`.
+- Life-safety classification still drives the DND and mute bypass (severity HIGH and above only), the token-bucket bypass (CRITICAL only), the boot-settle exemption and per-hazard cooldowns. The setting changes only the repeat cadence.
 
 ---
 
