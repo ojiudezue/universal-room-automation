@@ -78,6 +78,8 @@ def _make_evpool(hass: _FakeHass, evse_ids: list[str]) -> _epool.EVChargerContro
     pool._paused_by_us = set()
     pool._paused_by_grid_cap = set()
     pool._paused_by_fill_priority = set()
+    # EV-FILL-PRIORITY-SOC-CHATTER-1: re-pause latch (mirror real __init__).
+    pool._recently_released_by_fill_priority = {}
     pool._paused_by_battery_drain = set()
     pool._paused_by_arbitrage = set()
     pool._paused_by_load_shed = set()
@@ -119,6 +121,8 @@ def _make_plug_ctrl(hass: _FakeHass, plug_ids: list[str]) -> _epool.SmartPlugCon
     ctrl._paused_by_us = set()
     ctrl._paused_by_battery_drain = set()
     ctrl._paused_by_fill_priority = set()
+    # EV-FILL-PRIORITY-SOC-CHATTER-1: re-pause latch (mirror real __init__).
+    ctrl._recently_released_by_fill_priority = {}
     ctrl._paused_by_load_shed = set()
     ctrl._load_shed_was_on_at_shed = {}
     ctrl._battery_drain_cooldown = {}

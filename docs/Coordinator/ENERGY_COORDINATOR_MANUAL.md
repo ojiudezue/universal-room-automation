@@ -503,6 +503,49 @@ loop. Their non-overlapping shifts across a summer day:
 The 80–95 dead band is asymmetric by design: **pause-until 80, resume-at
 95** — two owners' thresholds, not a single loop.
 
+**Fill-priority re-pause band (EV-FILL-PRIORITY-SOC-CHATTER-1).** Fill
+priority itself is now hysteretic: it resumes at `fill_priority_soc` (80)
+but, after a resume *on the SOC-reached edge*, does not re-pause that
+charger until SOC drops **below** `fill_priority_soc −
+DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT` (module constant, rung 1,
+default 3 → floor 77; SOC exactly 77.0 is inside the band and does NOT
+pause, 76.9 does). Fixes the 79↔80 chatter the ~11.6 kW EV draw caused at
+the single threshold. Mechanics (`energy_pool.py`, EV + plug mirror):
+- Per-pool RAM-only latch `_recently_released_by_fill_priority` (dict id →
+  monotonic). Set ONLY at the terminal FP resume when `resume_soc_met`
+  (forecast-decay resumes do not latch — the forecast side has its own
+  `DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH` band). Not persisted, not an
+  owner declaration (never a peer hold / classifier entry).
+- Consumer: the FP pause gate only — a latched id is not re-paused. The
+  excess-solar deferral and the `_fill_priority_would_hold` publish keep the
+  global verdict. The arbitrage hand-off adds one per-id term (`evse_id not
+  in latch`) so a latched charger is not handed to FP while an unlatched
+  sibling still is.
+- Discharges: D1 inert window (daily), D2 peer-owner steal at loop top (EV:
+  grid_cap, battery_drain, TOU, arbitrage, load_shed, blind_window, dp;
+  plug: TOU, battery_drain, load_shed — `_proactive_offpeak_holds` is
+  deliberately NOT a steal: it is off-peak ensure-on's own claim, re-made
+  every off_peak tick, and counting it wiped the latch every tick in the
+  off_peak-daylight window, review A-HIGH-1), threshold change (the latch
+  stores the `fill_priority_soc` it was set under; a different threshold
+  pops it, review D-L1), D3 force-charge (unconditional), D4
+  `release_all_fill_priority` (plug: before the grid-charge early return),
+  D5 below-floor sweep (sole floor authority, every non-inert tick, ON or
+  OFF chargers; SOC `None` leaves it), D6 observation mode (`energy.py`
+  else-branch of `if not self._observation_mode:` clears both), and prune on
+  EVSE/plug removal.
+- The band is read at call time (`energy_const.` attribute); `0` = legacy
+  single threshold (kill switch). The FIRST pause (no latch) is unchanged.
+  After a restart the latch is cold → at most one extra first-pause toggle.
+  A latch survives a car-session gap (cost ≤ band SOC) — intended.
+- Accepted residuals (reviews B/D): a different car replugged inside the
+  band is not paused until SOC < floor (≤ band SOC of battery; B-LOW-1); a
+  restart/reload/observation exit inside the band costs one extra
+  first-pause off/on cycle because the latch is RAM-only (B-LOW-2); the
+  arbitrage hand-off latch term is effectively unreachable (D2 pops the
+  latch once arbitrage owns the id) and is kept as harmless
+  defence-in-depth (D-L2).
+
 **⚠️ Two knobs share the value 80 — do not conflate.**
 `fill_priority_soc` (when morning cars wait for the battery) and
 `energy_ev_battery_drain_soc` (the blind-window envelope's ride-cut bar,

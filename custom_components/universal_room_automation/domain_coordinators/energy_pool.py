@@ -31,6 +31,9 @@ from .energy_const import (
 # save/restore list-keys, classifier) derive from these declarations.
 # See `energy_pool_owners.py` for the declaration table + design notes.
 from .energy_pool_owners import EV_REGISTRY, PLUG_REGISTRY
+# EV-FILL-PRIORITY-SOC-CHATTER-1: module object (not a bound name) so the
+# re-pause band is read at CALL time via attribute access.
+from . import energy_const as _energy_const
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -583,6 +586,14 @@ class EVChargerController:
         # EVSEs so the home battery fills first. Resume on SOC recovery or
         # forecast decay below safety margin.
         self._paused_by_fill_priority: set[str] = set()
+        # EV-FILL-PRIORITY-SOC-CHATTER-1: re-pause latch. Set ONLY on a
+        # SOC-reached terminal resume; while an id is latched fill-priority
+        # does not re-pause it (the below-floor sweep pops it once SOC <
+        # fill_priority_soc - band). Value = the fill_priority_soc it was
+        # set under (a threshold change discharges it — review D-L1);
+        # membership is the gate. RAM-only, NOT persisted, NOT an owner
+        # declaration (never a peer hold, never in the classifier).
+        self._recently_released_by_fill_priority: dict[str, float] = {}
 
         # v4.7.6 D4: Cache last computed fill-priority forecast-health flag,
         # surfaced as `fill_priority_solar_ok` on the EV status sensor.
@@ -1242,6 +1253,13 @@ class EVChargerController:
             for evse_id in list(tracking_dict.keys()):
                 if evse_id not in known:
                     tracking_dict.pop(evse_id, None)
+        # EV-FILL-PRIORITY-SOC-CHATTER-1: prune the re-pause latch (not an
+        # owner surface — kept inline). Defensive getattr for __new__ paths.
+        _fp_latch = getattr(self, "_recently_released_by_fill_priority", None)
+        if _fp_latch is not None:
+            for evse_id in list(_fp_latch):
+                if evse_id not in known:
+                    _fp_latch.pop(evse_id, None)
         # Non-owner tracking set — kept inline (not an owner-set surface).
         for evse_id in list(self._power_sensor_alerted):
             if evse_id not in known:
@@ -2675,6 +2693,7 @@ class EVChargerController:
         safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
         peak_ahead: bool | None = None,
         is_daylight: bool | None = None,
+        repause_band_pct: float | None = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs so the home battery fills first when solar is healthy.
 
@@ -2763,7 +2782,35 @@ class EVChargerController:
             for evse_id in list(self._paused_by_fill_priority):
                 self._paused_by_fill_priority.discard(evse_id)
                 self._release_pause_dispatch_owner(evse_id, "fill_priority")
+            # EV-FILL-PRIORITY-SOC-CHATTER-1 D1: the inert window (peak /
+            # off_peak-night / post-peak mid_peak) runs daily — it is the
+            # daily discharge of the re-pause latch so the next fill
+            # window's first pause is the legacy edge.
+            for evse_id in list(self._recently_released_by_fill_priority):
+                self._recently_released_by_fill_priority.pop(evse_id, None)
             return actions
+
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 D5: below-floor sweep — the SOLE
+        # authority that releases a latch on SOC drop. Runs for every latched
+        # id (ON or OFF) BEFORE the would-hold publish. Band read at CALL
+        # time from the module attribute unless the kwarg overrides it.
+        # band >= threshold floors at 0; a negative band puts the floor
+        # above the threshold, which pops every latch whenever SOC <
+        # threshold — i.e. legacy behaviour (plan §7).
+        _band = (
+            _energy_const.DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT
+            if repause_band_pct is None else repause_band_pct
+        )
+        effective_floor = max(0, soc_threshold - _band)
+        for evse_id in list(self._recently_released_by_fill_priority):
+            if soc is not None and soc < effective_floor:
+                self._recently_released_by_fill_priority.pop(evse_id, None)
+            # Review D-L1: the latch value is the threshold it was set
+            # under — an operator threshold change discharges it so the new
+            # threshold's first pause is the legacy edge.
+            elif (self._recently_released_by_fill_priority.get(evse_id)
+                  != soc_threshold):
+                self._recently_released_by_fill_priority.pop(evse_id, None)
 
         pause_conditions_global = (
             soc is not None
@@ -2778,11 +2825,29 @@ class EVChargerController:
         )
 
         for evse_id, config in self._evse.items():
+            # EV-FILL-PRIORITY-SOC-CHATTER-1 D2: a peer-owner steal starts a
+            # new session — drop the latch, then process normally.
+            if evse_id in self._recently_released_by_fill_priority and (
+                evse_id in self._paused_by_grid_cap
+                or evse_id in self._paused_by_battery_drain
+                or evse_id in self._paused_by_us
+                or evse_id in self._paused_by_arbitrage
+                or evse_id in self._paused_by_load_shed
+                or evse_id in self._paused_by_blind_window
+                or evse_id in self._paused_by_dp
+                # Review A-HIGH-1: `_proactive_offpeak_holds` is NOT a peer
+                # here — it is URA's own idempotent off-peak ensure-on claim
+                # (re-made every off_peak tick), not a session steal.
+            ):
+                self._recently_released_by_fill_priority.pop(evse_id, None)
             switch_entity = config.get("switch", "")
             if not switch_entity:
                 continue
             # v4.7.6 fix-up A-H1: Force-Charge bypasses fill-priority entirely.
             if force_charge_active:
+                # EV-FILL-PRIORITY-SOC-CHATTER-1 D3: unconditional latch
+                # reset (outside the FP-membership guard).
+                self._recently_released_by_fill_priority.pop(evse_id, None)
                 if evse_id in self._paused_by_fill_priority:
                     self._paused_by_fill_priority.discard(evse_id)
                     self._release_pause_dispatch_owner(evse_id, "fill_priority")
@@ -2841,7 +2906,14 @@ class EVChargerController:
                 )
                 continue
 
-            if pause_conditions_global and state["is_on"]:
+            # EV-FILL-PRIORITY-SOC-CHATTER-1: pause gate ONLY — a latched id
+            # is not re-paused (D5 owns the floor). The deferral above and
+            # the would-hold publish keep the global verdict.
+            if evse_id in self._recently_released_by_fill_priority:
+                pause_this_tick = False
+            else:
+                pause_this_tick = pause_conditions_global
+            if pause_this_tick and state["is_on"]:
                 # v4.7.6 D2: idempotent re-pause every tick.
                 actions.append({
                     "service": "switch.turn_off",
@@ -2912,6 +2984,13 @@ class EVChargerController:
                         )
                         _LOGGER.info(
                             "EV fill-priority: resuming %s (%s)", evse_id, reason,
+                        )
+                    # EV-FILL-PRIORITY-SOC-CHATTER-1 producer: latch ONLY on
+                    # the SOC-reached resume (forecast decay has its own band).
+                    if resume_soc_met:
+                        # Value = threshold latched under (Review D-L1).
+                        self._recently_released_by_fill_priority[evse_id] = (
+                            soc_threshold
                         )
                     self._paused_by_fill_priority.discard(evse_id)
                     # Terminal resume — release FP's claim. If no other owner
@@ -3152,6 +3231,9 @@ class EVChargerController:
                 not state["is_on"]
                 and self._fill_priority_would_hold
                 and not self._is_force_charge_active()
+                # EV-FILL-PRIORITY-SOC-CHATTER-1: per-id latch peer term —
+                # a latched charger is not handed off (siblings unaffected).
+                and evse_id not in self._recently_released_by_fill_priority
             ):
                 self._paused_by_fill_priority.add(evse_id)
                 # Mirror the fill-priority pause bookkeeping so its manual-
@@ -3491,6 +3573,9 @@ class EVChargerController:
     def release_all_fill_priority(self) -> list[dict[str, Any]]:
         """Drain `_paused_by_fill_priority` when the excess-solar toggle is OFF."""
         actions: list[dict[str, Any]] = []
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 D4: FP stops running while the
+        # toggle is OFF — the latch must not survive into the next ON window.
+        self._recently_released_by_fill_priority.clear()
         # Fill-priority is not running → it cannot want a hold.
         self._fill_priority_would_hold = False
         for evse_id in list(self._paused_by_fill_priority):
@@ -3632,6 +3717,9 @@ class SmartPlugController:
         self._dispatch_owners: dict[str, set[str]] = {}
         # v4.7.6 D2 mirror
         self._paused_by_fill_priority: set[str] = set()
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 mirror: per-plug re-pause latch
+        # (see EVChargerController). RAM-only, not an owner declaration.
+        self._recently_released_by_fill_priority: dict[str, float] = {}
         # load-shedding-correctness D1 mirror: dedicated pause-owner for the
         # load-shed smart-plug tier. Same collision shape as the EV side —
         # the load-shed cascade previously mutated `_paused_by_us` (shared
@@ -4024,6 +4112,9 @@ class SmartPlugController:
         ``grid_charge_on`` — L1 cedes on the same signal as L2.
         """
         actions: list[dict[str, Any]] = []
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 D4 mirror: BEFORE the grid-charge
+        # early return so the latch never survives a toggle-OFF.
+        self._recently_released_by_fill_priority.clear()
         if grid_charge_on:
             _LOGGER.debug(
                 "Plug release_all_fill_priority: deferred (breaker-safety: "
@@ -4098,6 +4189,12 @@ class SmartPlugController:
             for eid in list(_od):
                 if eid not in current:
                     _od.discard(eid)
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 mirror: prune the plug re-pause latch.
+        _fp_latch = getattr(self, "_recently_released_by_fill_priority", None)
+        if _fp_latch is not None:
+            for eid in list(_fp_latch):
+                if eid not in current:
+                    _fp_latch.pop(eid, None)
 
     def determine_battery_drain_actions(
         self,
@@ -4443,7 +4540,23 @@ class SmartPlugController:
             for plug_id in list(self._paused_by_fill_priority):
                 self._paused_by_fill_priority.discard(plug_id)
                 self._release_pause_dispatch_owner(plug_id, "fill_priority")
+            # EV-FILL-PRIORITY-SOC-CHATTER-1 D1 mirror: daily latch discharge.
+            for plug_id in list(self._recently_released_by_fill_priority):
+                self._recently_released_by_fill_priority.pop(plug_id, None)
             return actions
+
+        # EV-FILL-PRIORITY-SOC-CHATTER-1 D5 mirror: below-floor sweep (sole
+        # floor authority); band read at CALL time from the module attribute
+        # (no kwarg on the plug tier — production never overrides it; C-L1).
+        _band = _energy_const.DEFAULT_FILL_PRIORITY_REPAUSE_HYSTERESIS_PCT
+        effective_floor = max(0, soc_threshold - _band)
+        for plug_id in list(self._recently_released_by_fill_priority):
+            if soc is not None and soc < effective_floor:
+                self._recently_released_by_fill_priority.pop(plug_id, None)
+            # Review D-L1 mirror: threshold change discharges the latch.
+            elif (self._recently_released_by_fill_priority.get(plug_id)
+                  != soc_threshold):
+                self._recently_released_by_fill_priority.pop(plug_id, None)
 
         pause_conditions = (
             soc is not None and soc < soc_threshold and forecast_healthy
@@ -4451,11 +4564,21 @@ class SmartPlugController:
         resume_soc_met = soc is not None and soc >= soc_threshold
 
         for entity_id in self._plugs:
+            # EV-FILL-PRIORITY-SOC-CHATTER-1 D2 mirror: peer steal → drop latch.
+            if entity_id in self._recently_released_by_fill_priority and (
+                entity_id in self._paused_by_us
+                or entity_id in self._paused_by_battery_drain
+                or entity_id in self._paused_by_load_shed
+                # Review A-HIGH-1: ensure-on's own claim is not a steal.
+            ):
+                self._recently_released_by_fill_priority.pop(entity_id, None)
             state = self.hass.states.get(entity_id)
             if state is None:
                 continue
             # v4.7.6 fix-up A-H1: Force-Charge bypasses plug fill-priority.
             if force_charge_active:
+                # EV-FILL-PRIORITY-SOC-CHATTER-1 D3 mirror: unconditional.
+                self._recently_released_by_fill_priority.pop(entity_id, None)
                 if entity_id in self._paused_by_fill_priority:
                     self._paused_by_fill_priority.discard(entity_id)
                     self._release_pause_dispatch_owner(entity_id, "fill_priority")
@@ -4492,7 +4615,12 @@ class SmartPlugController:
                     )
                     continue
 
-            if pause_conditions and is_on:
+            # EV-FILL-PRIORITY-SOC-CHATTER-1 mirror: pause gate ONLY.
+            if entity_id in self._recently_released_by_fill_priority:
+                pause_this_tick = False
+            else:
+                pause_this_tick = pause_conditions
+            if pause_this_tick and is_on:
                 actions.append({
                     "service": "switch.turn_off",
                     "target": entity_id,
@@ -4554,6 +4682,12 @@ class SmartPlugController:
                         )
                         _LOGGER.info(
                             "Smart plug fill-priority: resuming %s (%s)", entity_id, reason,
+                        )
+                    # EV-FILL-PRIORITY-SOC-CHATTER-1 producer mirror.
+                    if resume_soc_met:
+                        # Value = threshold latched under (Review D-L1).
+                        self._recently_released_by_fill_priority[entity_id] = (
+                            soc_threshold
                         )
                     self._paused_by_fill_priority.discard(entity_id)
                     self._release_pause_dispatch_owner(entity_id, "fill_priority")

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "212",
+  "author": "ojiudezue",
+  "session_id": "claude_20261016_030049_ship_v5_103_63",
+  "timestamp": "2026-10-16T03:00:49Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.63 shipped: EV fill-priority re-pause buffer",
+  "summary": "EV fill-priority re-pause buffer",
+  "why": "Mid-peak SOC hovering at the 80% fill-priority threshold toggled EVSE/plugs by tenths. Chose a 3-point re-pause band held in a RAM latch that stores its threshold, over a time debounce (time x state-machine seams are our worst bug family) and over a persisted latch (one extra pause after restart is harmless). Constant, not a knob: the band is a protocol window. Tier 3 elevated by operator as sensitive code. Review A caught A-HIGH-1: my own plan ruling put proactive off-peak holds in the peer-steal list, which would clear the latch every off-peak tick; B confirmed independently; C mutated 47 sites all red; D found no invariant break. Orchestrator drill re-adding off-peak to the steal list reddened its test. Name-diff clean 119/15013. Operator go 2026-10-15; activates at the 10-16 daytime restart alongside v5.103.62.",
+  "implications": "Shipped EV-FILL-PRIORITY-SOC-CHATTER-1 at v5.103.63; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.63.md (Live criteria).",
+  "revisit_trigger": "recorder history of EVSE/plug fill-priority pause switches during the first mid-peak window with Envoy SOC between 77 and 80 after restart: at most one resume and zero re-pauses while SOC >= 77",
+  "refs": {
+    "cards": [
+      "EV-FILL-PRIORITY-SOC-CHATTER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.63.md"
+    ],
+    "release_notes": "After fill priority resumes an EV charger or plug at the threshold, it is not re-paused until SOC drops 3 points below it, ending mid-peak toggle chatter. Tier 3, four reviews."
+  }
+}
