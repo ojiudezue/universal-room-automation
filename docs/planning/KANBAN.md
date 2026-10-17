@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-16T22:50:12-05:00_ - _Data commit: `ac732201b6bd`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T02:08:18-05:00_ - _Data commit: `6bc9bc877c24`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -12,10 +12,10 @@ _Generated: 2026-10-16T22:50:12-05:00_ - _Data commit: `ac732201b6bd`_ - _last_r
 | 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 10 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 39 |
+| ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 87 |
@@ -189,7 +189,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
@@ -205,7 +205,7 @@ _updated 2026-10-16 02:10 · refined_
 
 ### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **energy** - status: **planned**
-_created 2026-10-16 · updated 2026-10-17 02:08 · refined_
+_created 2026-10-16 · updated 2026-10-17 02:07 · refined_
 - **Problem / Solution:**
   - Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager...
 - **Next:** Me (overnight 10-17): build in a worktree (gate evaluate() battery actions + force_redispatch on observation mode; tests with mode on and off), 2 reviews + validator, leave in review for an attended deploy.
@@ -252,23 +252,7 @@ _created 2026-10-10 16:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
-thread: **safety** - status: **planned** - approval: **unreviewed**
-_created 2026-09-27 02:40 · refined_
-- **Problem / Solution:**
-  - Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30...
-- **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.
-- **Why:** Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.
-- **Next:** PICK (operator): (A) RETIRE ON PURPOSE, my recommendation. Leave the detector off, and mark it in code and in the Safety coordinator doc as "dormant by design, revisit only with a redesign". The accidental off-switch becomes a documented...
-- **Tags:** tier-2, measure-before-build, no-fabrication-verify
-- **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
-- **Forensic keys (4):**
-  - `update_2026_10_15`: Operator 2026-10-15: "rapid change isn't that a heat thing for fire? If so it's a fix." Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repa...
-  - `measured_2026_09_27_replay`: REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes dedu...
-  - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
-  - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
-
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -285,7 +269,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#8 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#7 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -305,7 +289,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#9 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#8 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -336,7 +320,7 @@ _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#10 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#9 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -381,7 +365,7 @@ _updated 2026-10-16 02:15_
   - `tier`: 1
   - `related`: HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1
 
-## ⏸️ Waiting on operator (39)
+## ⏸️ Waiting on operator (40)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -395,7 +379,8 @@ _created 2026-10-07 03:05 · updated 2026-10-16 02:09 · initial_
 - **Tags:** config-only
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
-- **Forensic keys (13):**
+- **Forensic keys (14):**
+  - `reverified_2026_10_17_overnight`: STILL-REAL 02:10 CDT: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed 10-16 10:56 CDT, the restart). Still waits on the battery swap.
   - `verified_2026_10_16_overnight`: STILL-REAL (2026-10-16 02:09 CDT): lock.doorlock_kwikset_zwave_frontentry is unavailable, continuously since 2026-10-15 12:49 CDT (the HA restart). So URA has not been able to lock or read the front door for ~13 h while the family is awa...
   - `reverified_2026_10_15_overnight`: Still unavailable at 02:10 CDT 10-15 (lock.doorlock_kwikset_zwave_frontentry); URA security still logs 'Periodic lock check: 1 device(s) unavailable' (system_log count 6 since the 17:30 boot). Waiting on the battery swap after the trip.
   - `verified_2026_10_14`: Verified 2026-10-14 ~02:10 CDT (live): lock.doorlock_kwikset_zwave_frontentry still unavailable (since the 01:22 restart, and before). Still needs your battery swap.
@@ -461,7 +446,8 @@ _created 2026-10-16 02:20 · initial_
 - **Why:** Life-safety coverage gap while the family is away and a guest is home. Config/device actions, no code needed first (config-first).
 - **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `reverified_2026_10_17_overnight`: STILL-REAL 02:10 CDT: all six binary_sensor.smoke_sensor_s1_* (the Heiman kitchen smoke detector) read unavailable. Still waits on the physical re-pair.
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: Live 02:20 CDT (HA MCP): binary_sensor.smoke_sensor_s1_smoke ('Smoke_Heiman_Matter_Kitchen Smoke') = unavailable since 2026-10-15 12:46:00. Planner's recorder read over the last 20 restarts (docs/planning/PLANNING_safety_initial_sensor_p...
 
@@ -876,7 +862,8 @@ _created 2026-10-16 · updated 2026-10-17 02:06 · refined_
   - Problem: URA double-checks every battery-reserve change against a 'local' reading from the house gateway, but the reading it was set up to use has been stuck at the same number (10%) since early August. So whenever URA sets any reserve o...
 - **Next:** PICK: (A) add a 'reserve witness' entity setting (options flow, blank = today's behaviour) and set it here to sensor.envoy_482543015950_reserve_battery_level (my recommendation: explicit, works for other homes, reversible by blanking); o...
 - **Parsimony:** [BUILD (small), but the witness choice is a PICK] The reserve write checker compares every command against number.enpower_*_reserve_battery_level, which has been frozen at 10.0 since 2026-08-05, so every non-10 reserve triggers 3 redundant re-sends, a stand-down and a CRITICAL page.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `log_evidence_2026_10_17_overnight`: HA system_log (ha_get_logs source=system, 02:11 CDT): 'WriteVerifier: reserve_soc pending watchdog — HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-...
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `tier`: 2
   - `measured_2026_10_17_overnight`: CONFIRMED - mechanism found (read-only, 02:00-02:06 CDT; HA recorder + URA DB anomaly_log + code). (1) The verifier's 'local witness' for the reserve is _local_entity_for -> battery._get_entity('reserve_soc_number', role='read') (energy_...
@@ -999,7 +986,24 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#35 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#35 · WSJF 1.6 · v4 tc2 u2 /e5_
+thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-27 02:40 · updated 2026-10-17 02:10 · refined_
+- **Problem / Solution:**
+  - Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30...
+- **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.
+- **Why:** Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.
+- **Next:** PICK (operator): (A) RETIRE ON PURPOSE, my recommendation. Leave the detector off, and mark it in code and in the Safety coordinator doc as "dormant by design, revisit only with a redesign". The accidental off-switch becomes a documented...
+- **Tags:** tier-2, measure-before-build, no-fabrication-verify
+- **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
+- **Forensic keys (5):**
+  - `lane_fix_2026_10_17_overnight`: Moved planned -> waiting_operator: the next step is your PICK (A retire on purpose / B redesign), not my build.
+  - `update_2026_10_15`: Operator 2026-10-15: "rapid change isn't that a heat thing for fire? If so it's a fix." Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repa...
+  - `measured_2026_09_27_replay`: REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes dedu...
+  - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
+  - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
+
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#36 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **waiting_operator**
 _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
 - **Problem / Solution:**
@@ -1010,7 +1014,7 @@ _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
 
-### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#36 · WSJF 1.3 · v7 tc8 u2 /e13_
+### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#37 · WSJF 1.3 · v7 tc8 u2 /e13_
 thread: **presence** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Problem / Solution:**
@@ -1032,7 +1036,7 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
   - `measured_2026_10_15_overnight`: URA DB house_state_log (read-only): AWAY entries per UTC day 09-25..10-13 = 0-13 (median 2); 10-14 = 33, with 33 arriving and 0 guest. Transitions 10-14 12:30-23:50Z: away->arriving via census_update 30; arriving->home_day via deferred_r...
   - `config_first_2026_10_15_overnight`: Settings that could stop it today without code: select.ura_coordinator_manager_house_state_override (options auto/away/arriving/home_day/home_evening/home_night/sleep/waking/guest/vacation, currently auto). Setting it to guest or a home ...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#37 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#38 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -1042,7 +1046,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#38 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#39 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1057,7 +1061,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#39 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#40 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
 - **Problem / Solution:**

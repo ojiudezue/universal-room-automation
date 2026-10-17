@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-17T02:10:11"
+    at: "2026-10-17T02:10:11"
+    outcome: "escalated"
+    headline: "Housekeeping: the safety 'rapid change' detector card was filed as planned work but is really waiting on your pick (retire it on purpose, recommended, or redesign). Moved it to your lane; no change to the house."
+    acknowledged: false
   - fid: "EC-OBSERVATION-MODE-RESERVE-BYPASS-1@2026-10-17T02:08:10"
     at: "2026-10-17T02:08:10"
     outcome: "measured"
@@ -148,6 +153,7 @@ cards:
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
   next: 'Me: measure over the last 20 restarts whether any safety sensor changed state between Safety subscribing and NM async_setup completing (recorder timestamps vs URA startup log), then decide queue-until-ready vs accept.'
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
+  reverified_2026_10_17_overnight: "STILL-REAL 02:10 CDT: all six binary_sensor.smoke_sensor_s1_* (the Heiman kitchen smoke detector) read unavailable. Still waits on the physical re-pair."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
   title: "The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards"
   thread: safety
@@ -329,7 +335,7 @@ cards:
   status: "planned"
   tier: 2
   created: "2026-10-16"
-  updated: "2026-10-17 02:08"
+  updated: "2026-10-17 02:07"
   refinement_status: "refined"
   problem_solution: ["Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager, and the write checker's automatic re-send. Nobody has turned observation mode on in the last 8 days, so it has not bitten here, but it would on any home that uses it (for example while URA is being rolled out to a new house). Solution: make both paths respect observation mode, the same way the main 5-minute loop already does."]
   measured_2026_10_17_overnight: "CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManager._run_all_evaluations (manager.py:984-1007) -> _execute_action (manager.py:1035-1060), which calls hass.services.async_call with no observation gate. (2) The timer path reversion sweep (energy.py:~7150, NOT inside an observation gate) -> WriteVerifier.reversion_sweep (energy_write_verify.py:726) -> _pending_watchdog_reserve (:755, :2118) -> _pending_fire_retry (:2331) -> BatteryStrategy.force_redispatch (energy_battery.py:6916), a real number.set_value, no observation gate. Contrast: the timer dispatch IS gated (energy.py:6609 'if not self._observation_mode'), load-shed (:7103), hazard handler (:1414). LIVE: switch.ura_energy_coordinator_observation_mode was only ever off/unavailable over the full recorder window (10-09..10-17) -> latent here; matters for multi-home rollout. Gate: validity STILL-REAL; config-first n/a (it is the gate itself that is missing); prior art REUSE the existing 'if not self._observation_mode' pattern (energy.py:6609); parsimony BUILD (two small gates, no new knob); cost/benefit: byte-identical on the live path (mode off), so Tier 2 with 2 reviews, no Tier-3 ingredient."
@@ -353,6 +359,7 @@ cards:
   related: [EC-EVALUATE-PATH-LEDGER-GAP-1]
   next: "Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive alone only if a tou_transition decision goes missing at a boundary."
 - id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  log_evidence_2026_10_17_overnight: "HA system_log (ha_get_logs source=system, 02:11 CDT): 'WriteVerifier: reserve_soc pending watchdog \u2014 HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-driven desire change, or cool-off expiry (3h).' (energy_write_verify.py:2310), once this boot, at 2026-10-16 23:42 CDT. So the false episodes are not only noise: each one makes the _result leg skip same-value re-dispatch of the reserve (energy_battery.py:~6487) until desire changes or 3 h pass. The skip only blocks re-sending a value the battery already has, so harm is bounded, but it is a real behavioural effect, not just pages."
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
   thread: energy
@@ -703,12 +710,13 @@ cards:
     context: The junk-reading fix stops the bogus hazard from being CREATED; this card is why one that does get created never goes away. Siblings are the other safety-coordinator defects found in the same review. SAFETY-NM-REFIRE-UNWIRED-1 (alerts never re-page) folds into this cycle because its wiring must respect the new clear hold.
     related: [SAFETY-HUMIDITY-JUNK-READING-1, SAFETY-RECONNECT-ZERO-SIBLINGS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1]
 - id: SAFETY-RATE-DETECTOR-DEAD-WINDOW-1
+  lane_fix_2026_10_17_overnight: "Moved planned -> waiting_operator: the next step is your PICK (A retire on purpose / B redesign), not my build."
   title: The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant
   thread: safety
-  status: planned
+  status: "waiting_operator"
   update_2026_10_15: "Operator 2026-10-15: \"rapid change isn't that a heat thing for fire? If so it's a fix.\" Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repair the 30-min window so it actually runs, gate HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, keep OVERHEAT rate-of-rise; re-run the replay to prove quiet. Tier 2 plan next."
   created: '2026-09-27 02:40'
-  updated: '2026-09-27 02:40'
+  updated: "2026-10-17 02:10"
   measured_2026_09_27_replay: 'REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes deduped to 1 per hour per sensor). LEARNING MODE (fixed thresholds: temperature rise >= 10 F/30 min in cooling season, >= 20 extreme; humidity rise >= 40 pts outside bathrooms): 0 episodes in 7 days. So fixing the window alone would change nothing at first. Z-SCORE MODE (reached after 60 rate samples per sensor, within about a day once rates flow; z >= 3 by per-sensor mean/std, with the classify rules for September): 51 humidity (would be labelled WATER_LEAK) + 36 temperature (HVAC_FAILURE) = about 12.4 alerts a day. CONCLUSION: the broken window is accidentally shielding the house from a MEDIUM+ alert flood. A naive "fix the window" is harmful. Hence PICK A (retire, documented) vs B (redesign with corroboration). The 12.4/day is an estimate: it uses a population std, not HAs running Welford at each moment, so treat it as order-of-magnitude.'
   refinement_2026_09_27: 'Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.'
   refinement_status: refined
@@ -31934,6 +31942,7 @@ cards:
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
+  reverified_2026_10_17_overnight: "STILL-REAL 02:10 CDT: lock.doorlock_kwikset_zwave_frontentry unavailable (last_changed 10-16 10:56 CDT, the restart). Still waits on the battery swap."
   verified_2026_10_16_overnight: "STILL-REAL (2026-10-16 02:09 CDT): lock.doorlock_kwikset_zwave_frontentry is unavailable, continuously since 2026-10-15 12:49 CDT (the HA restart). So URA has not been able to lock or read the front door for ~13 h while the family is away and a guest is home. Next action unchanged (battery swap at the lock; the guest or Jaya could do it)."
   reverified_2026_10_15_overnight: "Still unavailable at 02:10 CDT 10-15 (lock.doorlock_kwikset_zwave_frontentry); URA security still logs 'Periodic lock check: 1 device(s) unavailable' (system_log count 6 since the 17:30 boot). Waiting on the battery swap after the trip."
   verified_2026_10_14: "Verified 2026-10-14 ~02:10 CDT (live): lock.doorlock_kwikset_zwave_frontentry still unavailable (since the 01:22 restart, and before). Still needs your battery swap."
