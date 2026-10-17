@@ -103,25 +103,51 @@ def test_stale_event_time_replans_after_earlier_alert_onsets(chi_clock):
 
 
 # ---------------------------------------------------------------------------
-# D-MED-2 (operator default): gapped S allowed, floor holds through the gap
+# D-MED-2 -> operator ruling 2026-10-17: ONE contiguous run (no on/off/on)
 # ---------------------------------------------------------------------------
-def test_gapped_schedule_holds_floor_through_gap(chi_clock):
+def test_contiguous_run_starts_earlier_never_splits(chi_clock):
     wsw = _a("Winter Storm Warning", L(2026, 12, 16, 23), "wsw")
     c, s, _ = bshell(chi_clock, L(2026, 12, 16, 12), soc="20", alerts=[wsw],
                      ol=outlook(**WS_OK))
     tick(chi_clock, c, s, L(2026, 12, 16, 12))
     assert s._preonset_buy_schedule["wsw"][0] == _slots(
-        L(2026, 12, 16, 16), L(2026, 12, 16, 21), L(2026, 12, 16, 22))
+        L(2026, 12, 16, 14), L(2026, 12, 16, 15), L(2026, 12, 16, 16))
     seen = {}
-    for h in (16, 17, 18, 19, 20, 21, 22):
+    for h in (13, 14, 15, 16, 17, 18, 20, 21, 22):
         d = tick(chi_clock, c, s, L(2026, 12, 16, h))
         seen[h] = (preonset_emitted(d), s._tick_reserve_floor)
-    assert seen == {16: (True, 80), 17: (False, 80), 18: (False, 80),
-                    19: (False, 80), 20: (False, 80), 21: (True, 80),
-                    22: (True, 80)}
+    assert seen == {13: (False, None), 14: (True, 80), 15: (True, 80),
+                    16: (True, 80), 17: (False, 80), 18: (False, 80),
+                    20: (False, 80), 21: (False, 80), 22: (False, 80)}
 
 
-# ---------------------------------------------------------------------------
+def test_schedule_never_gapped_and_latest_equal_cost_run():
+    """Drills (a)/(b): a set with a gap is never returned; among equal-cost
+    runs the latest wins."""
+    inc = inc_mod()
+
+    class Tou:  # rank 0 everywhere except 05:00-06:59 UTC (rank 1)
+        def get_season(self, d):
+            return "s"
+
+        def get_current_period(self, d):
+            return "hi" if d.hour in (5, 6) else "lo"
+
+        def period_rank(self, season, period):
+            return 1 if period == "hi" else 0
+
+        def get_current_rate(self, d):
+            return 2.0 if d.hour in (5, 6) else 1.0
+    now = datetime(2026, 10, 16, 2, tzinfo=UTC)
+    t = datetime(2026, 10, 16, 9, tzinfo=UTC)  # slots 02..08
+    got = inc.schedule_buy_hours(Tou(), now, t, 3, 12)
+    hrs = [h.hour for h in got]
+    assert hrs == list(range(hrs[0], hrs[0] + len(hrs)))  # contiguous
+    assert hrs == [2, 3, 4]       # the only all-cheap run of 3
+    got = inc.schedule_buy_hours(Tou(), now, t, 2, 12)
+    assert [h.hour for h in got] == [7, 8]  # latest of the equal-cost runs
+
+
 # A-LOW-1 / B3 and B2 (fusion direct, shared schedule store)
 # ---------------------------------------------------------------------------
 def _fusion(option=True):
@@ -253,3 +279,48 @@ def test_partial_submit_keeps_other_list():
 def test_shipped_constants_pinned():
     assert 0 < FORECAST_FETCH_TIMEOUT_S <= 30            # K5
     assert len(NWS_WEATHER_EVENT_NAMES) == 49            # V10
+
+
+# ---------------------------------------------------------------------------
+# (8) Update carry-over; (9) degenerate hazard window
+# ---------------------------------------------------------------------------
+def _engaged_then_reached(clock_):
+    from _ec_stage_e_harness import feed
+    a = _a("Winter Storm Warning", L(2026, 10, 16, 5), "a")
+    c, s, _ = bshell(clock_, L(2026, 10, 16, 3), soc="40", alerts=[a],
+                     ol=outlook(**WS_OK))
+    assert preonset_emitted(tick(clock_, c, s, L(2026, 10, 16, 3)))
+    tick(clock_, c, s, L(2026, 10, 16, 3, 5), soc="85")
+    assert s._preonset_precharge_latch == {"a": "reached"}
+    return c, s, feed
+
+
+def test_update_same_event_carries_latch_and_schedule(chi_clock):
+    c, s, feed = _engaged_then_reached(chi_clock)
+    frozen = s._preonset_buy_schedule["a"][0]
+    feed(c, [_a("Winter Storm Warning", L(2026, 10, 16, 5), "b")])  # the Update
+    d = tick(chi_clock, c, s, L(2026, 10, 16, 3, 10), soc="40")
+    assert s._preonset_precharge_latch == {"b": "reached"}
+    assert s._preonset_buy_schedule["b"][0] == frozen
+    assert not preonset_emitted(d)                       # no re-buy
+
+
+def test_update_different_event_starts_fresh(chi_clock):
+    c, s, feed = _engaged_then_reached(chi_clock)
+    feed(c, [_a("Ice Storm Warning", L(2026, 10, 16, 5), "b")])
+    d = tick(chi_clock, c, s, L(2026, 10, 16, 3, 10), soc="40")
+    assert "a" not in s._preonset_precharge_latch
+    assert preonset_emitted(d)                           # fresh episode
+
+
+def test_hazard_window_end_not_after_start_falls_back():
+    inc = inc_mod()
+    on = "2026-10-16T05:00:00-05:00"
+    start, end = inc._hazard_window({"Onset": on, "Expires": on})
+    assert end - start == timedelta(hours=48)
+    start, end = inc._hazard_window(
+        {"Onset": on, "Expires": "2026-10-16T04:00:00-05:00"})
+    assert end - start == timedelta(hours=48)
+    start, end = inc._hazard_window(
+        {"Onset": on, "Ends": "2026-10-16T09:00:00-05:00"})
+    assert end - start == timedelta(hours=4)             # control

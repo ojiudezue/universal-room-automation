@@ -841,7 +841,10 @@ def test_preonset_precharge_reached_never_reengages(clock):
     d = tick(clock, c, s, T(16, 3, 10), soc="40")
     assert not preonset_emitted(d)
     # A second alert with a different ID is evaluated independently.
-    wsw2 = alert("Winter Storm Warning", onset=T(16, 5), ends=T(17, 3), id_="wsw2")
+    # Stage E fix-up (expected diff): same Event + overlapping window is now an
+    # NWS Update (carry-over keeps "reached"); an independent alert is a
+    # different product.
+    wsw2 = alert("Ice Storm Warning", onset=T(16, 5), ends=T(17, 3), id_="wsw2")
     feed(c, [wsw2])
     d = tick(clock, c, s, T(16, 3, 15), soc="40")
     assert preonset_emitted(d)

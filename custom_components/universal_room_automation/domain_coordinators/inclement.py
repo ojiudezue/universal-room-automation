@@ -264,7 +264,9 @@ def _hazard_window(
     (None, None) = unbounded on both sides (contributes nothing)."""
     start = _parse_dt(alert.get("Onset")) or _parse_dt(alert.get("Sent"))
     end = _parse_dt(alert.get("Ends")) or _parse_dt(alert.get("Expires"))
-    if end is None and start is not None:
+    # Stage E fix-up (AUDIT_nws_alert_fields_and_updates): an end at or
+    # before the start (e.g. Ends null and Onset == Expires) is not a window.
+    if start is not None and (end is None or _dt_le(end, start)):
         end = start + timedelta(hours=INCLEMENT_ALERT_MAX_HOLD_H)
     return start, end
 
@@ -1095,17 +1097,20 @@ def schedule_buy_hours(
     tou: Any, now: datetime, event_time: datetime | None, h_req: int,
     horizon_h: float,
 ) -> tuple[datetime, ...]:
-    """Stage E E2.2 (pure): the ``h_req`` UTC hour slots to buy in.
+    """Stage E E2.2 (pure): ONE CONTIGUOUS run of ``h_req`` UTC hour slots to
+    buy in (operator ruling 2026-10-17: "starting earlier is probably less
+    error prone than start stop" -- never on/off/on).
 
     Candidates: slots ``[H, H+1h)`` with ``H+1h > now``, ``H < T`` and
     ``T - H <= horizon_h`` (the slot containing ``now`` included; stepping is
     on UTC hours, so a DST night neither skips nor repeats a slot). Each slot
-    is ranked by the TOU engine at its LOCAL start (``period_rank`` of
-    ``get_season`` / ``get_current_period``); unranked slots are excluded.
-    Order ``(rank, T - H)``: cheapest first, then closest to the event, so a
-    higher-rate slot is used only when fewer than ``h_req`` bottom-rate slots
-    remain. Engine missing / raising, ``h_req <= 0`` or no ``T`` -> ().
-    Returned sorted ascending."""
+    is ranked / priced by the TOU engine at its LOCAL start (``period_rank``
+    and ``get_current_rate``; no tariff parsing). An unranked slot breaks a
+    run. Among contiguous runs of length ``h_req`` (or the longest that fits
+    when fewer slots remain before T), the run with the lowest total import
+    rate wins; ties go to the run ending closest to T. So a higher-rate slot
+    is used only when no all-cheapest run fits. Engine missing / raising,
+    ``h_req <= 0`` or no ``T`` -> (). Returned sorted ascending."""
     if tou is None or event_time is None or h_req <= 0:
         return ()
     try:
@@ -1113,21 +1118,70 @@ def schedule_buy_hours(
         t_u = dt_util.as_utc(event_time)
         horizon = timedelta(hours=max(0.0, float(horizon_h)))
         slot = now_u.replace(minute=0, second=0, microsecond=0)
-        cands: list[tuple[int, float, datetime]] = []
+        seq: list[tuple[datetime, float | None]] = []
         while slot < t_u:
             if t_u - slot <= horizon:
                 loc = dt_util.as_local(slot)
-                rank = tou.period_rank(
-                    tou.get_season(loc), tou.get_current_period(loc),
-                )
+                period = tou.get_current_period(loc)
+                rank = tou.period_rank(tou.get_season(loc), period)
+                cost: float | None = None
                 if rank is not None:
-                    cands.append((int(rank), (t_u - slot).total_seconds(), slot))
+                    try:
+                        cost = float(tou.get_current_rate(loc))
+                    except Exception:  # noqa: BLE001 — rank as the price
+                        cost = float(rank)
+                seq.append((slot, cost))
             slot = slot + timedelta(hours=1)
-        cands.sort(key=lambda c: (c[0], c[1]))
-        return tuple(sorted(c[2] for c in cands[: int(h_req)]))
+        length = min(int(h_req), len(seq))
+        while length > 0:
+            best: tuple[float, int] | None = None
+            for start in range(0, len(seq) - length + 1):
+                win = seq[start:start + length]
+                if any(c is None for _, c in win):
+                    continue
+                total = sum(c for _, c in win)  # type: ignore[misc]
+                # Lowest total; ties -> the later run (closest to T).
+                if best is None or total <= best[0] + 1e-12:
+                    best = (total, start)
+            if best is not None:
+                return tuple(s for s, _ in seq[best[1]:best[1] + length])
+            length -= 1
+        return ()
     except Exception:  # noqa: BLE001 — engine raising -> no buy
         _LOGGER.debug("inclement: schedule_buy_hours failed", exc_info=True)
         return ()
+
+
+def _carry_over_updates(
+    sched: dict[str, tuple], latch: dict[str, str] | None,
+    prep: tuple[AlertRecord, ...],
+) -> None:
+    """Stage E fix-up (AUDIT_nws_alert_fields_and_updates): an NWS Update
+    arrives as a NEW message ID. When a scheduled key's ID has left the
+    prepare set and a new prepare record with the same Event + NWSCode and
+    an overlapping hazard window appears, move the frozen schedule AND the
+    latch state to the new ID (no fresh start, no re-buy after "reached").
+    A changed T is then re-planned by the stale-T rule."""
+    live = {r.alert_id: r for r in prep if r.alert_id}
+    for old in [k for k in sched if k not in live]:
+        entry = sched[old]
+        meta = entry[3] if len(entry) > 3 else None
+        if not meta:
+            continue
+        ev, code, o_start, o_end = meta
+        for nid, r in live.items():
+            if nid in sched or (latch is not None and nid in latch):
+                continue
+            if r.event.casefold() != ev or r.code != code:
+                continue
+            if r.start is not None and o_end is not None and _dt_lt(o_end, r.start):
+                continue
+            if o_start is not None and _dt_lt(r.end, o_start):
+                continue
+            sched[nid] = sched.pop(old)
+            if latch is not None and old in latch:
+                latch[nid] = latch.pop(old)
+            break
 
 
 class InclementFusion:
@@ -1246,6 +1300,8 @@ class InclementFusion:
         del is_bottom  # INV-9: the schedule replaces the bottom-rate gate
         prep = tuple(getattr(classification, "prepare_alerts", ()) or ())
         live = {r.alert_id for r in prep}
+        if sched is not None:
+            _carry_over_updates(sched, latch, prep)
         if latch is not None:
             for k in list(latch):
                 if k not in live:  # Onset reached or left the prepare set
@@ -1347,7 +1403,10 @@ class InclementFusion:
                         INCLEMENT_PREONSET_LEAD_H,
                     )
                     if hours:  # Review A A-LOW-1 / B B3: never freeze ()
-                        stored = (hours, pstart, target)
+                        stored = (hours, pstart, target, (
+                            key_row.event.casefold(), key_row.code,
+                            key_row.start, key_row.end,
+                        ))
                         sched[key_id] = stored
                 pre = stored is not None and preonset_slot(now) in stored[0]
         # Registered floor -- the ONE rule (§E2.4).
