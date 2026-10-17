@@ -4938,7 +4938,14 @@ class HVACCoordinator(BaseCoordinator):
         self, zone_id: str, zone: Any, preset: str, mode: str, rec: dict[str, Any],
         latch_reason: str, value: list[float], strategy: Any,
     ) -> None:
-        """Latch the (zone, preset, mode) record and send its ONE NM."""
+        """Latch the (zone, preset, mode) record and send its ONE NM.
+
+        HVAC-S10-NOTIFY-UNDELIVERED-1: every latch NM is HIGH. A latch means
+        URA has stopped trying and the operator must act; under the live NM
+        channel config MEDIUM reaches no channel (companion is HIGH+), so a
+        MEDIUM latch was an [audit] row nobody saw. One NM per latch, so no
+        repeat volume. ``s10_restore_pending`` (informational) stays LOW.
+        """
         rec["latched"] = True
         rec["latch_reason"] = latch_reason
         self._s10_set_record(zone_id, preset, mode, rec)
@@ -4954,7 +4961,7 @@ class HVACCoordinator(BaseCoordinator):
                     f"URA tried {times} to put {name} {preset} back to "
                     f"{lo}–{hi}°F. Please set it in {app}."
                 ),
-                hazard_type="s10_restore_not_taking", severity="MEDIUM",
+                hazard_type="s10_restore_not_taking", severity="HIGH",
             )
         elif latch_reason == "call_failed":
             self._s10_notify(
@@ -4965,7 +4972,7 @@ class HVACCoordinator(BaseCoordinator):
                     f"It has stopped trying until the range changes or Custom "
                     f"Preset Ranges is turned off and on."
                 ),
-                hazard_type="s10_preset_range_call_failed", severity="MEDIUM",
+                hazard_type="s10_preset_range_call_failed", severity="HIGH",
             )
         else:
             self._s10_notify(
@@ -4976,7 +4983,7 @@ class HVACCoordinator(BaseCoordinator):
                     f"until the range changes or Custom Preset Ranges is turned "
                     f"off and on. Check that preset in {app}."
                 ),
-                hazard_type="s10_preset_range_not_sticking", severity="MEDIUM",
+                hazard_type="s10_preset_range_not_sticking", severity="HIGH",
             )
         self.schedule_zone_state_save("s10_latched")
 
