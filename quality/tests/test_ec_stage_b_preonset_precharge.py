@@ -205,7 +205,10 @@ def test_precharge_eligible_column_values():
         "Tropical Storm Warning": False, "Tropical Storm Watch": False,
         "Wind Advisory": False, "High Wind Warning": False,
         "High Wind Watch": False, "Winter Weather Advisory": False,
-        "Freeze Warning": False, "Wind Chill Advisory": False,
+        # Stage E E0 (expected diff): Freeze Warning False -> True; Freeze
+        # Watch added (True).
+        "Freeze Warning": True, "Freeze Watch": True,
+        "Wind Chill Advisory": False,
         "Cold Weather Advisory": False,
     }
     got = {row[1]: row[4] for row in INCLEMENT_PRODUCT_TABLE}

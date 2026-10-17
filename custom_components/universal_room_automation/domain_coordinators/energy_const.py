@@ -713,14 +713,95 @@ INCLEMENT_PRODUCT_TABLE: Final[tuple[tuple[str | None, str, str, bool, bool], ..
     (None, "Severe Thunderstorm Watch", "watch", False, False),
     (None, "Hurricane Watch", "watch", False, False),
     (None, "Tropical Storm Watch", "watch", False, False),
+    # EC storm Stage E E0 (NWS vocabulary re-sync, 2026-10-17): the NWS no
+    # longer issues Hard Freeze / Wind Chill products (api.weather.gov
+    # /alerts/types); Freeze Warning now carries the hard-freeze hazard and
+    # Freeze Watch is its precursor. Watch class: partial hold on bottom-rate
+    # frost nights, released at top rate unless the forecast confirms
+    # (<= FORECAST_FREEZE_CONFIRM_F, air temp). Freeze Watch is name-only
+    # (FZA unverified, P3 policy above); drift records the real code.
+    ("FZW", "Freeze Warning", "watch", False, True),
+    (None, "Freeze Watch", "watch", False, True),
     # NOTICE (never a hold)
     ("WIY", "Wind Advisory", "notice", False, False),
     ("HWW", "High Wind Warning", "notice", False, False),
     ("HWA", "High Wind Watch", "notice", False, False),
     ("WWY", "Winter Weather Advisory", "notice", False, False),
-    ("FZW", "Freeze Warning", "notice", False, False),
     (None, "Wind Chill Advisory", "notice", False, False),
     (None, "Cold Weather Advisory", "notice", False, False),
+)
+# Stage E E0 KEEP+DOCUMENT: the Hard Freeze Warning/Watch, Wind Chill
+# Warning/Watch and Wind Chill Advisory rows above are RETIRED NWS names (not
+# in NWS_WEATHER_EVENT_NAMES). Harmless: they still match replays. They are
+# outside the operator selection domain (Stage E §E1.2): table behaviour
+# always, never shown in the form, never an override delta.
+
+# Stage E E1.2 (rung 1): the selectable NWS vocabulary -- the WEATHER subset
+# of `GET https://api.weather.gov/alerts/types` (111 event names, fetched
+# 2026-10-17). Excluded: marine / coastal / Pacific products (Gale, Storm,
+# Storm Surge, Hurricane Force Wind, Typhoon, seas / surf / spray, Small
+# Craft, Special Marine, Brisk Wind, Low Water, Coastal / Lakeshore Flood,
+# Beach Hazards, Rip Current, Tsunami), statements and outlooks (Special /
+# Severe Weather Statement, Hazardous Weather Outlook, Short Term Forecast,
+# Flood / Flash Flood Statement, Hydrologic Outlook, Tropical Cyclone Local
+# Statement, Marine Weather Statement), civil / 911 / test / administrative
+# messages (incl. Earthquake Warning, Fire Warning, Hazardous Materials,
+# Nuclear Power Plant, Radiological Hazard, Shelter In Place, Evacuation
+# Immediate, Law Enforcement, Local Area Emergency, Blue Alert, Child
+# Abduction, Civil Danger / Emergency), and geologic products (Volcano
+# Warning, Ashfall Advisory / Warning). Refreshed only by a reviewed change
+# (no runtime fetch); `test_vocab_snapshot_covers_table` fails loudly when a
+# non-retired table row leaves it.
+NWS_WEATHER_EVENT_NAMES: Final[tuple[str, ...]] = (
+    "Air Quality Alert",
+    "Air Stagnation Advisory",
+    "Avalanche Advisory",
+    "Avalanche Warning",
+    "Avalanche Watch",
+    "Blizzard Warning",
+    "Blowing Dust Advisory",
+    "Blowing Dust Warning",
+    "Cold Weather Advisory",
+    "Dense Fog Advisory",
+    "Dense Smoke Advisory",
+    "Dust Advisory",
+    "Dust Storm Warning",
+    "Extreme Cold Warning",
+    "Extreme Cold Watch",
+    "Extreme Fire Danger",
+    "Extreme Heat Warning",
+    "Extreme Heat Watch",
+    "Extreme Wind Warning",
+    "Fire Weather Watch",
+    "Flash Flood Warning",
+    "Flash Flood Watch",
+    "Flood Advisory",
+    "Flood Warning",
+    "Flood Watch",
+    "Freeze Warning",
+    "Freeze Watch",
+    "Freezing Fog Advisory",
+    "Frost Advisory",
+    "Heat Advisory",
+    "High Wind Warning",
+    "High Wind Watch",
+    "Hurricane Warning",
+    "Hurricane Watch",
+    "Ice Storm Warning",
+    "Lake Effect Snow Warning",
+    "Lake Wind Advisory",
+    "Red Flag Warning",
+    "Severe Thunderstorm Warning",
+    "Severe Thunderstorm Watch",
+    "Snow Squall Warning",
+    "Tornado Warning",
+    "Tornado Watch",
+    "Tropical Storm Warning",
+    "Tropical Storm Watch",
+    "Wind Advisory",
+    "Winter Storm Warning",
+    "Winter Storm Watch",
+    "Winter Weather Advisory",
 )
 # D-B1 / Q7 (ruled "notice"): what a polygon product does when the point
 # feed is NOT polygon-exact. "table" keeps the table tier; "notice" demotes.
@@ -811,10 +892,19 @@ FORECAST_APPARENT_TEMP_PRODUCTS: Final[frozenset[str]] = frozenset({
     "Extreme Cold Watch",
     "Wind Chill Warning",
     "Wind Chill Watch",
+    # Stage E E0: Wind Chill Advisory successor (apparent-temperature hazard).
+    "Cold Weather Advisory",
 })
 INCLEMENT_FORECAST_FAMILY: Final[dict[str, str]] = {
     "Hard Freeze Warning": "freeze",
     "Hard Freeze Watch": "freeze",
+    # Stage E E0: the current NWS freeze products (air temperature) and the
+    # Wind Chill Advisory successor (apparent temperature, notice by default;
+    # the family only matters when the operator widens it to hold, and it
+    # can never buy: INV-7(c)).
+    "Freeze Warning": "freeze",
+    "Freeze Watch": "freeze",
+    "Cold Weather Advisory": "freeze",
     "Extreme Cold Warning": "freeze",
     "Extreme Cold Watch": "freeze",
     "Wind Chill Warning": "freeze",
