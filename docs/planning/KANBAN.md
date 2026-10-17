@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T07:02:43-05:00_ - _Data commit: `823a13e6ee6a`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T07:15:12-05:00_ - _Data commit: `832d154692a0`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-17T07:02:43-05:00_ - _Data commit: `823a13e6ee6a`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 1 |
@@ -19,17 +19,37 @@ _Generated: 2026-10-17T07:02:43-05:00_ - _Data commit: `823a13e6ee6a`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 88 |
-| ✅ Done | 340 |
+| ✅ Done | 339 |
 
 ## 📥 Inbox (0)
 _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
+thread: **presence** - status: **investigating** - approval: **implied**
+_created 2026-09-27 02:50 · updated 2026-10-17 07:25 · refined ×2_
+- **Problem / Solution:**
+  - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
+- **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
+- **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
+- **Next:** Me: (1) after homelab drops OTBR log level to info, run test (c) aioshelly debug capture (useless before: journal holds ~18 min). (2) test (b) stable 2.1.0 on Dining1 cc:ba. (3) after the mDNS change, one-shot recorder count of Shelly un...
+- **Tags:** measure-before-build, audit-first, no-fabrication-verify
+- **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
+- **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
+- **Forensic keys (9):**
+  - `INSTANCE_2026_10_17_homelab_host_findings`: From the homelab session (10-17 ~07:20). Operator approved my tests (b) stable 2.1.0 firmware on one switch (Dining1 cc:ba) and (c) aioshelly debug. Two host-side findings: (1) the OTBR add-on is at debug log level, about 29k journal lin...
+  - `handoff_2026_10_16_overnight`: Operator 10-15: 'A candidate for locking to the pantry access point. Push to homelab agent'. DONE: relayed to the homelab board queue as an instruct on SMIDG-TUNE-1 (the Smidg Wi-Fi tuning card) with the 5 MACs, the UniFi name-swap cavea...
+  - `operator_instruction_2026_10_15`: A candidate for locking to the pantry access point. Push to homelab agent
+  - `unifi_2026_10_15_overnight`: Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (f...
+  - `INSTANCE_2026_10_15_dining_receiving_cluster`: Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:...
+  - `update_2026_10_15`: Operator 2026-10-15: "close". Fleet part accepted after the 10-13 Wi-Fi changes cut Shelly dropouts.
+  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
+  - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
+  - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
 ## 🧭 Pre-planning (11)
 _idea being decomposed_
@@ -2516,7 +2536,7 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (340)
+## ✅ Done (339)
 _closed, evidence in refs_
 
 ### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _WSJF 7.0 · v3 tc2 u2 /e1_
@@ -2548,27 +2568,6 @@ _updated 2026-10-16 02:15_
   - `fix_sketch`: Encoding A (~15-30 LoC, ONE deliverable): extend SIGNAL_CENSUS_UPDATED with face_recognized_count (existing CensusZoneResult.face_recognized_persons, camera_census.py:158/:3116); store on PresenceCoordinator via _handle_census_update (:4...
   - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
-
-### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _WSJF 3.5 · v3 tc2 u2 /e2_
-thread: **presence** - status: **done** - approval: **implied**
-_created 2026-09-27 02:50 · updated 2026-10-16 02:02 · refined ×2_
-- **Problem / Solution:**
-  - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
-- **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
-- **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
-- **Next:** Homelab locks the 5 Dining/Receiving Shellys to the Pantry AP (relayed 10-16). Then me: re-count their HA drops the night after (baseline ~9/hour each).
-- **Tags:** measure-before-build, audit-first, no-fabrication-verify
-- **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
-- **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
-- **Forensic keys (8):**
-  - `handoff_2026_10_16_overnight`: Operator 10-15: 'A candidate for locking to the pantry access point. Push to homelab agent'. DONE: relayed to the homelab board queue as an instruct on SMIDG-TUNE-1 (the Smidg Wi-Fi tuning card) with the 5 MACs, the UniFi name-swap cavea...
-  - `operator_instruction_2026_10_15`: A candidate for locking to the pantry access point. Push to homelab agent
-  - `unifi_2026_10_15_overnight`: Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (f...
-  - `INSTANCE_2026_10_15_dining_receiving_cluster`: Measured overnight 10-15 (recorder, unavailable transitions per Shelly device, one entity per HA device, 8.6 h windows). Fleet before the 10-13 Wi-Fi change: 10-12 09:00-17:36 78 of 85 Shelly devices dropped (798 drops); after: 10-13 09:...
-  - `update_2026_10_15`: Operator 2026-10-15: "close". Fleet part accepted after the 10-13 Wi-Fi changes cut Shelly dropouts.
-  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
-  - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
-  - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
 ### `SONOFF-R4M-MULTICAST-AB-1` - Sonoff MINI R4M fleet drops to cloud / unavailable since 10-06 AP fw 8.8.11 — multicast allowlist A/B test — _WSJF 16.0 · v7 tc7 u2 /e1_
 thread: **devices** - status: **done**
