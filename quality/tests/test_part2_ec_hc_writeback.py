@@ -212,6 +212,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "_ec_defaults_pinned",
     "_ec_defaults_pinned_version",
     "_ec_defaults_pinned_at",
+    # EC storm/blind Stage A D-A5: blind full-hold floor slider (options-
+    # read path; the battery re-reads entry.options every tick).
+    "inclement_blind_full_hold_floor",
 }
 
 
@@ -262,6 +265,8 @@ def _verify_hand_typed_conf_literals() -> None:
         # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13).
         "stuck_signal_nm_enabled": "CONF_STUCK_SIGNAL_NM_ENABLED",
         "stuck_sensor_exclusion_enabled": "CONF_STUCK_SENSOR_EXCLUSION_ENABLED",
+        # EC storm/blind Stage A D-A5 (literal in __init__.py).
+        "inclement_blind_full_hold_floor": "CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR",
     }
     mismatches: list[str] = []
     for hand_value, conf_name in hand_typed_values.items():
@@ -356,7 +361,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    B-CRIT-2) -> 95
     # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
     # +3 EC-HOUSE-ENTITY-DEFAULTS-1 pin bookkeeping flags -> 101
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 101
+    # +1 inclement_blind_full_hold_floor (EC storm/blind Stage A D-A5) -> 102
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 102
 
 
 # ---------------------------------------------------------------------------

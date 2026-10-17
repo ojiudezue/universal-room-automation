@@ -164,8 +164,11 @@ def test_allowlist_pins_the_known_topology():
     """Pin the three REAL reserve producers + the redispatch so a silent
     retyping to `non_reserve`/`reader` is caught."""
     kinds = {(m, f): k for m, f, k, _n in ALLOWLIST}
-    assert kinds[("energy_battery.py", "_result")] == "reserve"
-    assert kinds[("energy_battery.py", "determine_mode")] == "reserve"
+    # EC storm/blind Stage A D-A2: `_reserve_action` is the ONE decision-
+    # side reserve writer; `_result` and `determine_mode` no longer write.
+    assert kinds[("energy_battery.py", "_reserve_action")] == "reserve"
+    assert ("energy_battery.py", "_result") not in kinds
+    assert ("energy_battery.py", "determine_mode") not in kinds
     assert kinds[("energy_battery.py", "force_redispatch")] == "reserve"
     assert kinds[("energy.py", "_apply_evse_battery_hold")] == "reserve"
     assert kinds[("energy.py", "_tap_write_verifier")] == "reader"
@@ -229,14 +232,15 @@ def test_lint_mixed_form_other_domain_does_not_match():
 
 
 def test_lint_catches_second_writer_in_allowlisted_function():
-    """Count-pinning makes allowlisting the huge `determine_mode` safe: a
-    second dict-shape writer injected INTO it is a count mismatch."""
+    """Count-pinning: a second dict-shape writer injected INTO the one
+    allowlisted decision-side writer (`_reserve_action`, Stage A D-A2) is a
+    count mismatch."""
     path = URA_DIR / "domain_coordinators" / "energy_battery.py"
     tree = ast.parse(path.read_text(), filename="energy_battery.py")
     fn = next(
         n for n in ast.walk(tree)
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and n.name == "determine_mode"
+        and n.name == "_reserve_action"
     )
     injected = ast.parse(
         "_rogue = {'service': 'number.set_value', 'target': t, 'data': {}}"
@@ -245,7 +249,7 @@ def test_lint_catches_second_writer_in_allowlisted_function():
     ast.fix_missing_locations(tree)
     v = violations(scan_tree(tree, "energy_battery.py"), ALLOWLIST)
     assert any(
-        "energy_battery.py:determine_mode: count mismatch — pinned 1, found 2" in s
+        "energy_battery.py:_reserve_action: count mismatch — pinned 1, found 2" in s
         for s in v
     ), v
 
