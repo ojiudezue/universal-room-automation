@@ -55,6 +55,7 @@ from .energy_const import (
     DPM_ROLLING_WINDOW_MAX_DAYS,
     DPM_ROLLING_WINDOW_MIN_DAYS,
     DPM_P25_MIN_DAYS,
+    FORECAST_FETCH_TIMEOUT_S,
     FORECAST_REFRESH_MIN,
     FORECAST_STALE_MIN,
 )
@@ -409,13 +410,15 @@ class WeatherProviderManager:
         Bug #19: called inline (awaited), no fire-and-forget.
         """
         try:
-            response = await self.hass.services.async_call(
-                "weather",
-                "get_forecasts",
-                {"entity_id": entity_id, "type": "daily"},
-                blocking=True,
-                return_response=True,
-            )
+            # Stage E E3: bounded (runs under `_refresh_lock`).
+            async with asyncio.timeout(FORECAST_FETCH_TIMEOUT_S):
+                response = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": entity_id, "type": "daily"},
+                    blocking=True,
+                    return_response=True,
+                )
             if not response:
                 return None
             # Response shape: {entity_id: {"forecast": [...]}}
@@ -899,11 +902,13 @@ class WeatherProviderManager:
         normalized from the entity's own attributes: temperature → °F,
         precipitation amount → mm. {} on any error (Bug #19: awaited)."""
         try:
-            response = await self.hass.services.async_call(
-                "weather", "get_forecasts",
-                {"entity_id": entity_id, "type": "hourly"},
-                blocking=True, return_response=True,
-            )
+            # Stage E E3: bounded (runs under `_refresh_lock`).
+            async with asyncio.timeout(FORECAST_FETCH_TIMEOUT_S):
+                response = await self.hass.services.async_call(
+                    "weather", "get_forecasts",
+                    {"entity_id": entity_id, "type": "hourly"},
+                    blocking=True, return_response=True,
+                )
         except Exception:  # noqa: BLE001 — unsupported type raises; skip
             _LOGGER.debug("WPM hourly: get_forecasts failed for %s",
                           entity_id, exc_info=True)

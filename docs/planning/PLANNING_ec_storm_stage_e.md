@@ -651,3 +651,21 @@ R1b = completeness re-check (e7dce3ca4); R2b = build-prediction re-check (f5ed38
 - R2b-F4: chose "engine missing → no buy" over the legacy fallback. It is stated as a byte change.
 
 **Rev 2 rejections:** none. **Partially taken:** R1-F1's alternative `preonset_floor_active: bool`. I used a value split instead (`preonset_target` plus a nullable registered `preonset_floor`), so the six existing registered-floor readers keep their None-means-absent semantics without a second flag to forget.
+
+---
+
+## 13. Build completion tracking (`feature/ec-storm-stage-e`, 2026-10-17)
+
+Commits: golden 2288eb4d2 → E0 42a5f188b → E1 8e094e5f2 → E2 777e9edbd → E3 (this commit). Golden captured on a tree byte-identical to v5.103.69 before any decision code; zero-override compare = E0 products only.
+
+**Built as planned:** E0, E1 (incl. §E1.9 triage, strings/translations, both key sets, sensor allowlist), E2 (scheduler, field split over the 7 readers, INV-8/INV-9, discharge, obs-mode clear), E3 (both fetch timeouts, `number.py` docstring, parent §3/§10/§12/§13 write-backs, arc row). Test-ref classification: `EC_STAGE_E_preonset_test_ref_classification.md`.
+
+**Deviations (with reasons):**
+- `selection` parameters default to `None` = zero-override selection built from the CURRENT table (`TABLE_SELECTION` kept as the import-time constant). Reason: `test_polygon_topup_requires_eligible_row` monkeypatches the table; a precomputed default would silently ignore it. Byte-identical either way.
+- Helper text names the real toggle label ("Charge from grid to fill the battery during holds"), not the plan's "Top up before storms" (no such label exists).
+- The three new error keys live in `options.error` (where HA resolves options-flow errors), not in the step-level `error` dict this step's older keys use.
+- `AlertClassification.active_alerts` (display-only) added: the `inclement_selection` attr must show notice-level alerts, which the classification did not retain.
+- Warn-side `corroborable` conjunct on the prepare `high` floor dropped: every warn record is a table HOLD row (the selection only adds watch-class rows), so it was always true (an undrillable equivalent site).
+- Forecast corroboration leg requires the CONFIRMED record itself to be corroborable (stricter than "ANDed with any(corroborable)"), so a confirmed widened row cannot corroborate a co-active table watch (INV-7(c)).
+
+**Not done / deferred:** E2-P probe and E2b (separate, per plan); README (orchestrator); deploy (orchestrator); inventory rows 8/14/15 dispositions (one-query, orchestrator/session); §9 parks unchanged.

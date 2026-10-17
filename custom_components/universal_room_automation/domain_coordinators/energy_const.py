@@ -875,6 +875,10 @@ STORM_GUARD_UNIQUE_ID_SUFFIX: Final = "_storm_guard"
 FORECAST_REFRESH_MIN: Final = 30
 # Outlook older than this (minutes) = None (no corroboration, no buy).
 FORECAST_STALE_MIN: Final = 120
+# Stage E E3 (rung 1): bound on one `weather.get_forecasts` call (daily and
+# hourly), so a hung provider can never hold the WPM-C1 `_refresh_lock`
+# (parent §16 B-LOW-5). A timeout = that provider's fetch failed this pass.
+FORECAST_FETCH_TIMEOUT_S: Final = 20
 # Bounds the evaluated hazard window for a long Ends.
 FORECAST_WINDOW_MAX_H: Final = 48
 # NWS hard-freeze threshold (deg F): freeze/cold family confirms at min <= this.
