@@ -1256,13 +1256,19 @@ class InclementFusion:
                     del sched[k]
         if not prep:
             return base
-        pclass = prepare_class_of(prep)
-        prows = [r for r in prep if r.cls == pclass]
+        # Stage E fix-up (Review D D-HIGH-1, INV-7(f)): the class, key row
+        # and event time T come from CORROBORABLE (table) records only, so an
+        # unlisted / widened product can never set a table product's T, key,
+        # reason, latch or schedule. With no corroborable record the
+        # non-corroborable set is used (it gets only the lower floor).
+        basis = [r for r in prep if r.corroborable] or list(prep)
+        pclass = prepare_class_of(basis)
+        prows = [r for r in basis if r.cls == pclass]
         key_row = min(
             prows, key=lambda r: (r.start.timestamp() if r.start else 0.0),
         )
         pstart = key_row.start
-        for r in prep:
+        for r in basis:
             if r.start is not None and pstart is not None and _dt_lt(r.start, pstart):
                 pstart = r.start
         key_id = key_row.alert_id
@@ -1298,6 +1304,15 @@ class InclementFusion:
                 del latch[key_id]
             if sched is not None:
                 sched.pop(key_id, None)
+        if sched is not None:
+            # Review B B2: only the current key alert may own a schedule.
+            for k in list(sched):
+                if k != key_id:
+                    del sched[k]
+            # Review D D-MED-1: a frozen S whose T is no longer the current T
+            # (the earlier alert onset, or an Update) is re-planned.
+            if key_id in sched and sched[key_id][1] != pstart:
+                del sched[key_id]
         if base.hold_depth == "full_hold":
             return base  # the active hold governs; prepare fields stay default
         state = latch.get(key_id) if (latch is not None and key_id) else None
@@ -1331,8 +1346,9 @@ class InclementFusion:
                         preonset_h_req(current_soc, target),
                         INCLEMENT_PREONSET_LEAD_H,
                     )
-                    stored = (hours, pstart, target)
-                    sched[key_id] = stored
+                    if hours:  # Review A A-LOW-1 / B B3: never freeze ()
+                        stored = (hours, pstart, target)
+                        sched[key_id] = stored
                 pre = stored is not None and preonset_slot(now) in stored[0]
         # Registered floor -- the ONE rule (§E2.4).
         hours = tuple(stored[0]) if stored else ()
