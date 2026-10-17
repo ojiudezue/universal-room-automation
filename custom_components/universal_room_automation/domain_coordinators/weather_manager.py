@@ -227,8 +227,9 @@ class WeatherProviderManager:
         _track = async_track_time_interval
         if _track is None:
             from homeassistant.helpers.event import (
-                async_track_time_interval as _track,
+                async_track_time_interval as _tti_fallback,
             )
+            _track = _tti_fallback
         self._unsub_handles.append(_track(
             self.hass, self._on_hourly_timer,
             timedelta(minutes=FORECAST_REFRESH_MIN),
