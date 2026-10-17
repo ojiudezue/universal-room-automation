@@ -34,6 +34,7 @@ from typing import Any, Literal
 
 from homeassistant.util import dt as dt_util
 
+from .energy_outage_ledger import alert_key
 from .energy_const import (
     DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
     DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
@@ -127,6 +128,29 @@ def prepare_class_of(records: tuple[AlertRecord, ...] | list[AlertRecord]) -> st
     return "warn" if any(r.cls == "warn" for r in records) else "watch"
 
 
+def polygon_topup_records(
+    hold: list[AlertRecord] | tuple[AlertRecord, ...], now: datetime,
+) -> list[AlertRecord]:
+    """D-B2a polygon immediate leg predicate (ONE definition, shared by the
+    decision flag and the grid-buy stamp): ACTIVE verified-local eligible
+    polygon records inside ``[start, min(end, start + cap)]``. Cap 0 or an
+    unverified point feed → []. May raise (callers guard)."""
+    out: list[AlertRecord] = []
+    cap = int(INCLEMENT_POLYGON_TOPUP_MAX_MIN)
+    if cap <= 0 or not INCLEMENT_POINT_FEED_POLYGON_EXACT:
+        return out
+    for r in hold:
+        if not (r.polygon_local and r.precharge_eligible):
+            continue
+        if r.start is None:
+            continue
+        cap_end = r.start + timedelta(minutes=cap)
+        stop = r.end if _dt_lt(r.end, cap_end) else cap_end
+        if _dt_le(r.start, now) and _dt_le(now, stop):
+            out.append(r)
+    return out
+
+
 def _precharge_flags(
     hold: list[AlertRecord], prepare: list[AlertRecord], now: datetime,
 ) -> tuple[bool, bool, bool]:
@@ -137,19 +161,7 @@ def _precharge_flags(
         eligible = any(
             r.precharge_eligible and not r.polygon_local for r in hold
         )
-        topup = False
-        cap = int(INCLEMENT_POLYGON_TOPUP_MAX_MIN)
-        if cap > 0 and INCLEMENT_POINT_FEED_POLYGON_EXACT:
-            for r in hold:
-                if not (r.polygon_local and r.precharge_eligible):
-                    continue
-                if r.start is None:
-                    continue
-                cap_end = r.start + timedelta(minutes=cap)
-                stop = r.end if _dt_lt(r.end, cap_end) else cap_end
-                if _dt_le(r.start, now) and _dt_le(now, stop):
-                    topup = True
-                    break
+        topup = bool(polygon_topup_records(hold, now))
         pclass = prepare_class_of(prepare)
         prep_eligible = any(
             r.precharge_eligible and r.cls == pclass for r in prepare
@@ -234,20 +246,10 @@ def _event_matches_threat(event: str, threat_events: list[str]) -> str | None:
     return None
 
 
-def alert_id(alert: dict[str, Any]) -> str | None:
-    """Message key of one NWS alert: ``ID``, else ``URL``, else Event|Sent.
-
-    Same rule as ``energy_outage_ledger.alert_key`` (the ledger dedup key),
-    so memory entries and ledger rows name the same message.
-    """
-    for k in ("ID", "URL"):
-        v = alert.get(k)
-        if v:
-            return str(v)
-    ev, sent = alert.get("Event"), alert.get("Sent")
-    if ev or sent:
-        return f"{ev}|{sent}"
-    return None
+# Message key of one NWS alert (``ID``, else ``URL``, else Event|Sent).
+# REUSED from the outage ledger (A-LOW-2): memory entries and ledger rows
+# must name the same message, so there is exactly one implementation.
+alert_id = alert_key
 
 
 def _hazard_window(
@@ -1010,6 +1012,13 @@ class InclementFusion:
             preonset_event=key_row.event,
             preonset_alert_id=key_id,
             preonset_class=pclass,
+            # D-MED-1: the buy attr reports the SAME per-record conjunct the
+            # pre-onset gate used (else a legal pre-onset buy reads "not
+            # confirmed" and fires the §3 INV-6(vii) falsifier).
+            buy_forecast_confirmed=(
+                base.buy_forecast_confirmed
+                or self._zone_buy_confirmed(prows, confirmed)
+            ),
         )
 
     def _decide_hold(
@@ -1270,6 +1279,9 @@ class Outlook:
     max_gust: float | None
     conditions: frozenset[str]
     sources: tuple[tuple[str, str, str], ...] = ()
+    # Min apparent ("feels like") temperature over hours whose provider
+    # carries it; None when no covered hour does (operator 2026-10-17).
+    min_apparent_f: float | None = None
 
 
 def forecast_family(event: str | None) -> str | None:
@@ -1288,7 +1300,9 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
     window the outlook covers? Outlook None (never fetched, stale, provider
     down, no hourly support) → False: no corroboration, no buy.
 
-    freeze/cold: min temp <= FORECAST_FREEZE_CONFIRM_F (any provider).
+    freeze/cold: min temp <= FORECAST_FREEZE_CONFIRM_F (any provider). For
+      FORECAST_APPARENT_TEMP_PRODUCTS (wind chill / extreme cold) the min
+      APPARENT temp is used when the outlook carries one, else air temp.
     winter storm: min temp <= FORECAST_WINTER_STORM_CONFIRM_F AND precip
       (probability >= FORECAST_PRECIP_CONFIRM_PCT where the hour's provider
       has it, else amount >= FORECAST_PRECIP_CONFIRM_MM).
@@ -1300,6 +1314,7 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
     if fam is None:
         return False
     from .energy_const import (
+        FORECAST_APPARENT_TEMP_PRODUCTS,
         FORECAST_FREEZE_CONFIRM_F,
         FORECAST_PRECIP_CONFIRM_MM,
         FORECAST_PRECIP_CONFIRM_PCT,
@@ -1313,6 +1328,12 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
     )
     tmin = outlook.min_temp_f
     if fam == "freeze":
+        ev = str(event).strip().casefold()
+        if (
+            outlook.min_apparent_f is not None
+            and any(p.casefold() == ev for p in FORECAST_APPARENT_TEMP_PRODUCTS)
+        ):
+            tmin = outlook.min_apparent_f
         return tmin is not None and tmin <= FORECAST_FREEZE_CONFIRM_F
     if fam == "winter_storm":
         return (

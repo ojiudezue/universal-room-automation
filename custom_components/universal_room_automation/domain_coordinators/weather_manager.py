@@ -64,6 +64,12 @@ _LOGGER = logging.getLogger(__name__)
 
 # Attribute names to probe for apparent temperature (provider-specific)
 _APPARENT_TEMP_ATTRS = ("apparent_temperature", "temperature_feels_like")
+# Hourly precipitation amount → mm, keyed by the entity's lower-cased
+# `precipitation_unit` (HA UnitOfPrecipitationDepth: mm / cm / in).
+# Unknown unit → passed through unchanged (A-LOW-3).
+_PRECIP_TO_MM = {
+    "mm": 1.0, "cm": 10.0, "in": 25.4, "inch": 25.4, "inches": 25.4,
+}
 
 
 class WeatherProviderHealth(StrEnum):
@@ -835,10 +841,7 @@ class WeatherProviderManager:
         for eid in providers:
             if not eid:
                 continue
-            if self._check_provider_health(eid) not in (
-                WeatherProviderHealth.HEALTHY,
-                WeatherProviderHealth.APPARENT_UNAVAILABLE,
-            ):
+            if not self._hourly_provider_reachable(eid):
                 continue
             rows = await self._fetch_provider_hourly(eid)
             if not rows:
@@ -849,6 +852,16 @@ class WeatherProviderManager:
             self.hourly_fetched_at = now
             ok += 1
         self.hourly_providers_ok = ok
+
+    def _hourly_provider_reachable(self, entity_id: str) -> bool:
+        """Hourly-path health gate (Review A A-MED-1): refuse only an
+        UNAVAILABLE provider. `STALE` (condition `last_changed` older than
+        weather_staleness_max_hours) is NOT a freshness signal for hourly
+        rows: `last_changed` moves only when the condition STRING changes,
+        so a provider steady on `cloudy` all night would be refused exactly
+        in long pre-storm conditions. Hourly freshness is FORECAST_STALE_MIN
+        on each provider's own `fetched_at`."""
+        return self._check_provider_health(entity_id) != WeatherProviderHealth.UNAVAILABLE
 
     async def _fetch_provider_hourly(self, entity_id: str) -> dict[datetime, dict]:
         """``weather.get_forecasts type=hourly`` → {hour_utc: row}. Units
@@ -883,11 +896,15 @@ class WeatherProviderManager:
             temp = _parse_float(f.get("temperature"))
             if temp is not None and "C" in t_unit:
                 temp = temp * 9.0 / 5.0 + 32.0
+            app = _parse_float(f.get("apparent_temperature"))
+            if app is not None and "C" in t_unit:
+                app = app * 9.0 / 5.0 + 32.0
             mm = _parse_float(f.get("precipitation"))
-            if mm is not None and p_unit.strip().lower() in ("in", "inch", "inches"):
-                mm = mm * 25.4
+            if mm is not None:
+                mm = mm * _PRECIP_TO_MM.get(p_unit.strip().lower(), 1.0)
             out[hour] = {
                 "temp_f": temp,
+                "apparent_f": app,
                 "pop": _parse_float(f.get("precipitation_probability")),
                 "mm": mm,
                 "gust": _parse_float(f.get("wind_gust_speed")),
@@ -915,10 +932,7 @@ class WeatherProviderManager:
                 continue
             if (now - data["fetched_at"]).total_seconds() > FORECAST_STALE_MIN * 60:
                 continue
-            if self._check_provider_health(eid) not in (
-                WeatherProviderHealth.HEALTHY,
-                WeatherProviderHealth.APPARENT_UNAVAILABLE,
-            ):
+            if not self._hourly_provider_reachable(eid):
                 continue
             usable.append((eid, data["rows"]))
         if not usable:
@@ -927,6 +941,7 @@ class WeatherProviderManager:
         e_utc = dt_util.as_utc(end)
         slot = s_utc.replace(minute=0, second=0, microsecond=0)
         temps: list[float] = []
+        apps: list[float] = []
         pops: list[float] = []
         mms: list[float] = []
         gusts: list[float] = []
@@ -941,6 +956,8 @@ class WeatherProviderManager:
                 hours += 1
                 if row["temp_f"] is not None:
                     temps.append(row["temp_f"])
+                if row.get("apparent_f") is not None:
+                    apps.append(row["apparent_f"])
                 if row["pop"] is not None:
                     pops.append(row["pop"])
                 elif row["mm"] is not None:
@@ -966,6 +983,7 @@ class WeatherProviderManager:
             max_gust=max(gusts) if gusts else None,
             conditions=frozenset(conds),
             sources=tuple(tuple(x) for x in sources),
+            min_apparent_f=min(apps) if apps else None,
         )
 
     # -------------------------------------------------------------------------

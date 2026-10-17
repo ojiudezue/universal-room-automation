@@ -9327,7 +9327,15 @@ class EnergyCoordinator(BaseCoordinator):
         once found; unresolved → None (trip-wire inert), never raises."""
         cached = getattr(self, "_storm_guard_eid", None)
         if cached:
-            return cached
+            # A-LOW-4: a cached target whose state vanished (renamed /
+            # removed) is re-resolved — cheap, and only while it is missing.
+            # A failed re-resolve keeps the old target (inert until it
+            # returns), never clears it.
+            try:
+                if self.hass.states.get(cached) is not None:
+                    return cached
+            except Exception:  # noqa: BLE001
+                return cached
         try:
             from .energy_const import (
                 STORM_GUARD_PLATFORM,
@@ -9344,9 +9352,9 @@ class EnergyCoordinator(BaseCoordinator):
                 and str(e.unique_id or "").endswith(STORM_GUARD_UNIQUE_ID_SUFFIX)
             ]
         except Exception:  # noqa: BLE001
-            return None
+            return cached or None
         if len(found) != 1:
-            return None
+            return cached or None
         self._storm_guard_eid = found[0]
         return found[0]
 
@@ -9390,6 +9398,18 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             battery = getattr(self, "_battery", None)
             buy = getattr(battery, "_tick_grid_buy", None) if battery else None
+            if getattr(self, "_observation_mode", False):
+                # D-LOW-1 (#23): observation mode dispatches nothing — no
+                # "started grid-charging" notice, and the pre-onset latch
+                # engaged THIS tick is rolled back (later ticks must still
+                # run the solar test).
+                eid_engaged = getattr(battery, "_tick_preonset_engaged_id", None)
+                if eid_engaged:
+                    latch = getattr(battery, "_preonset_precharge_latch", {})
+                    if latch.get(eid_engaged) == "engaged":
+                        del latch[eid_engaged]
+                    battery._tick_preonset_engaged_id = None  # noqa: SLF001
+                return
             notified = self.__dict__.setdefault("_grid_buy_notified", set())
             key = (buy.get("leg"), buy.get("alert_id")) if buy else None
             if not getattr(self, "_grid_buy_seeded", False):

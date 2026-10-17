@@ -482,6 +482,10 @@ class BatteryStrategy:
         # by an inclement CFG-on emission; read by EnergyCoordinator's
         # grid-buy NM hook after determine_mode returns.
         self._tick_grid_buy: dict[str, Any] | None = None
+        # Forecast-confirmed alert IDs of the last inclement evaluation (the
+        # set fusion gated on); the grid-buy stamp names a record from it.
+        self._last_forecast_confirmed: frozenset[str] = frozenset()
+        self._tick_preonset_engaged_id: str | None = None
         # D-B7 Storm Guard state (display attr; set by EnergyCoordinator).
         self._storm_guard_state: str | None = None
         # v5.17.2 — sibling DESIRED fields for the other two surfaces so
@@ -2798,6 +2802,7 @@ class BatteryStrategy:
         )
         self._last_inclement_classification = classification
         confirmed = self._forecast_confirmed_ids(classification, now)
+        self._last_forecast_confirmed = confirmed
         decision = fusion.decide(
             battery=self,
             classification=classification,
@@ -2815,25 +2820,42 @@ class BatteryStrategy:
 
     def _grid_buy_stamp(self, decision: Any, preonset: bool = False) -> dict[str, Any]:
         """Per-tick record of an inclement grid-buy emission (observability:
-        the ONE NM per buy episode). Episode key = (leg, alert ID)."""
-        cls = self._last_inclement_classification
+        the ONE NM per buy episode). Episode key = (leg, alert ID).
+
+        A-LOW-1 / D-LOW-4: the named record satisfies the SAME predicate as
+        the gate that authorised the buy (zone: eligible non-polygon AND
+        forecast-confirmed; polygon: inside its cap window), and the pick is
+        order-independent (lowest alert ID), so the dedup key cannot flip
+        when the feed reorders."""
         if preonset:
             return {
                 "leg": "preonset",
                 "alert_id": getattr(decision, "preonset_alert_id", None),
                 "event": getattr(decision, "preonset_event", None),
                 "target": getattr(decision, "preonset_floor", None),
-                "forecast_confirmed": True,
+                "forecast_confirmed": bool(
+                    getattr(decision, "buy_forecast_confirmed", False)
+                ),
             }
+        cls = self._last_inclement_classification
         leg = getattr(decision, "precharge_leg", None) or "zone"
-        rec = None
-        for r in getattr(cls, "hold_alerts", ()) or ():
-            if leg == "polygon" and r.polygon_local:
-                rec = r
-                break
-            if leg == "zone" and not r.polygon_local and r.precharge_eligible:
-                rec = r
-                break
+        hold = tuple(getattr(cls, "hold_alerts", ()) or ())
+        cands: list[Any] = []
+        try:
+            if leg == "polygon":
+                from homeassistant.util import dt as dt_util
+                from .inclement import polygon_topup_records
+                cands = polygon_topup_records(hold, dt_util.now())
+            else:
+                confirmed = self._last_forecast_confirmed or frozenset()
+                cands = [
+                    r for r in hold
+                    if not r.polygon_local and r.precharge_eligible
+                    and r.alert_id is not None and r.alert_id in confirmed
+                ]
+        except Exception:  # noqa: BLE001 — observability never breaks emission
+            cands = []
+        rec = min(cands, key=lambda r: str(r.alert_id)) if cands else None
         # getattr throughout: observability must never break the emission
         # it annotates (decision doubles may carry only the hold fields).
         return {
@@ -2847,6 +2869,30 @@ class BatteryStrategy:
                 getattr(decision, "buy_forecast_confirmed", False)
             ),
         }
+
+    def _cfg_buy_commanded(self, res: dict[str, Any]) -> bool:
+        """D-LOW-1: does this `_result` actually command a grid charge? True
+        iff it kept ``charge_from_grid`` AND either emits a CFG
+        ``switch.turn_on`` or the CFG already reads on. False when a
+        chokepoint inside `_result` withheld / suppressed it (cloud-only
+        SOC withhold, degraded ON-heal suppression, no write target)."""
+        if not res.get("charge_from_grid"):
+            return False
+        if any(a.get("service") == "switch.turn_on" for a in res.get("actions", ())):
+            return True
+        try:
+            return self._get_state_bool(self._get_entity(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY, role="write",
+            )) is True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _stamp_grid_buy(self, res: dict[str, Any], decision: Any,
+                        preonset: bool = False) -> dict[str, Any]:
+        """Stamp the per-tick grid buy only when `_result` commanded it."""
+        if self._cfg_buy_commanded(res):
+            self._tick_grid_buy = self._grid_buy_stamp(decision, preonset=preonset)
+        return res
 
     def _polygon_import_guard_tripped(self, option_on: bool) -> bool:
         """D-B2a Rev 3.3 M4: REUSE the arbitrage grid-import guard for the
@@ -5865,8 +5911,10 @@ class BatteryStrategy:
         # `_inclement_decision` call below (sighted + fully blind); every
         # early return before those (grid disconnect) leaves it None.
         self._tick_reserve_floor = None
-        # EC storm Stage B ENTRY-RESET: grid-buy stamp is per-tick.
+        # EC storm Stage B ENTRY-RESET: grid-buy stamp is per-tick, as is
+        # the pre-onset latch ID engaged THIS tick (D-LOW-1 rollback key).
         self._tick_grid_buy = None
+        self._tick_preonset_engaged_id = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -6251,7 +6299,6 @@ class BatteryStrategy:
                         f"cost, degraded telemetry)"
                     )
                     self._degraded_telemetry_source = None
-                    self._tick_grid_buy = self._grid_buy_stamp(decision)
                     try:
                         _res = self._result(
                             BATTERY_MODE_SELF_CONSUMPTION,
@@ -6268,9 +6315,8 @@ class BatteryStrategy:
                         )
                     finally:
                         self._degraded_telemetry_source = _dts_saved
-                    return _res
-                self._tick_grid_buy = self._grid_buy_stamp(decision)
-                return self._result(
+                    return self._stamp_grid_buy(_res, decision)
+                return self._stamp_grid_buy(self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     f"Inclement ({decision.reason}) — pre-charging (SOC {soc}%)",
                     current_mode,
@@ -6279,7 +6325,7 @@ class BatteryStrategy:
                     season=season,
                     # D3 / Q2: storm precharge exempt (see above).
                     cloud_withhold_exempt=True,
-                )
+                ), decision)
             # Already charged enough (or precharge off) — hold via backup.
             return self._result(
                 BATTERY_MODE_BACKUP,
@@ -6306,25 +6352,62 @@ class BatteryStrategy:
         ):
             _pre_refused, _ = self._precharge_refused_on_blind(decision, soc)
             if not _pre_refused:
-                if decision.preonset_alert_id:
-                    self._preonset_precharge_latch[decision.preonset_alert_id] = (
-                        "engaged"
-                    )
-                self._tick_grid_buy = self._grid_buy_stamp(decision, preonset=True)
                 _onset = (
                     dt_util.as_local(decision.preonset_start).strftime("%H:%M")
                     if decision.preonset_start is not None else "?"
                 )
-                return self._result(
-                    BATTERY_MODE_SELF_CONSUMPTION,
+                _reason = (
                     f"Inclement pre-onset ({decision.preonset_event}, onset "
-                    f"{_onset}) — pre-charging (SOC {soc}%)",
-                    current_mode,
-                    charge_from_grid=True,
-                    reserve_level=decision.preonset_floor,
-                    season=season,
-                    cloud_withhold_exempt=True,
+                    f"{_onset}) — pre-charging (SOC {soc}%)"
                 )
+                # A-HIGH-1: mirror the full-hold storm path. Under bounded-
+                # degraded telemetry `_precharge_refused_on_blind` ALLOWED
+                # the buy; clear the degraded source around `_result` so its
+                # D-MED-1 ON-heal guard does not silently drop the turn_on
+                # (restored in `finally`; the suffix names the exemption).
+                _dts_saved = getattr(self, "_degraded_telemetry_source", None)
+                if _dts_saved is not None:
+                    _reason = (
+                        f"{_reason} (pre-onset precharge — safety over cost, "
+                        f"degraded telemetry: {_dts_saved})"
+                    )
+                    self._degraded_telemetry_source = None
+                try:
+                    _res = self._result(
+                        BATTERY_MODE_SELF_CONSUMPTION,
+                        _reason,
+                        current_mode,
+                        charge_from_grid=True,
+                        reserve_level=decision.preonset_floor,
+                        season=season,
+                        cloud_withhold_exempt=True,
+                    )
+                finally:
+                    if _dts_saved is not None:
+                        self._degraded_telemetry_source = _dts_saved
+                if _dts_saved is not None:
+                    # `_result` derives envoy_available from the (cleared)
+                    # source; keep the decision truthful for the Envoy
+                    # outage tracker (`_track_envoy_availability`).
+                    _res["envoy_available"] = False
+                # D-LOW-1: latch + stamp only when the turn_on is actually
+                # commanded (EnergyCoordinator un-engages in observation
+                # mode, where nothing is dispatched).
+                if self._cfg_buy_commanded(_res):
+                    if (
+                        decision.preonset_alert_id
+                        and self._preonset_precharge_latch.get(
+                            decision.preonset_alert_id,
+                        ) != "engaged"
+                    ):
+                        self._preonset_precharge_latch[
+                            decision.preonset_alert_id
+                        ] = "engaged"
+                        self._tick_preonset_engaged_id = decision.preonset_alert_id
+                    self._tick_grid_buy = self._grid_buy_stamp(
+                        decision, preonset=True,
+                    )
+                return _res
 
         # partial_hold/allow_discharge: TOU branches read effective_reserve.
         # For allow_discharge, decision.reserve_floor == self.reserve_soc so

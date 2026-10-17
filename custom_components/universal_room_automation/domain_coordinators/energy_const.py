@@ -783,6 +783,17 @@ FORECAST_PRECIP_CONFIRM_PCT: Final = 50
 # forecast". NOT fitted (no history yet); revisit with the PCT value.
 FORECAST_PRECIP_CONFIRM_MM: Final = 1.0
 # D-C2 forecast family per product (exact event name, case-folded at use).
+# Rung 1 (reviewed set, not a tunable): products whose hazard IS the
+# apparent temperature (wind chill / extreme cold). Their freeze-family
+# confirm reads the forecast's min apparent temp when present (OWM and
+# Open-Meteo hourly both carry `apparent_temperature`), else air temp.
+# Operator 2026-10-17 (Review A A-INFO-1).
+FORECAST_APPARENT_TEMP_PRODUCTS: Final[frozenset[str]] = frozenset({
+    "Extreme Cold Warning",
+    "Extreme Cold Watch",
+    "Wind Chill Warning",
+    "Wind Chill Watch",
+})
 INCLEMENT_FORECAST_FAMILY: Final[dict[str, str]] = {
     "Hard Freeze Warning": "freeze",
     "Hard Freeze Watch": "freeze",

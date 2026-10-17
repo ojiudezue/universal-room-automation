@@ -1288,7 +1288,15 @@ def test_preonset_degraded_fresh_decision_control(clock):
     c.hass._states[_TS] = ts
     d = s.determine_mode("off_peak", "shoulder", now=now)
     assert d["envoy_available"] is False
-    assert preonset_emitted(d) and "(degraded telemetry:" in d["reason"]
+    assert preonset_emitted(d)
+    assert "safety over cost, degraded telemetry: lkg" in d["reason"]
+    # A-HIGH-1: the CFG turn_on is actually emitted (the D-MED-1 ON-heal
+    # guard in `_result` must not swallow it), and only then latch + stamp.
+    assert cfg_on(d) and d["charge_from_grid"] is True
+    assert s._preonset_precharge_latch == {"wsw": "engaged"}
+    assert s._tick_grid_buy["leg"] == "preonset"
+    # The degraded source is restored after the emission.
+    assert s._degraded_telemetry_source == "lkg"
 
 
 def test_polygon_topup_requires_eligible_row(monkeypatch):
@@ -1304,3 +1312,247 @@ def test_polygon_topup_requires_eligible_row(monkeypatch):
     assert _poly_flag(svw, start + timedelta(minutes=5)) is True
     monkeypatch.setattr(mod, "INCLEMENT_PRODUCT_TABLE", table)
     assert _poly_flag(svw, start + timedelta(minutes=5)) is False
+
+
+# ===========================================================================
+# Review A / D fix-up (2026-10-17)
+# ===========================================================================
+def test_preonset_buy_reports_forecast_confirmed_fusion_direct():
+    """D-MED-1 repro (fusion direct): reserve 20, partial 50, knob 80, option
+    on, WSW `w1` Onset +6 h, bottom, SOC 40, confirmed={w1} → pre-onset buy
+    AND buy_forecast_confirmed True."""
+    now = T(16, 3)
+    w1 = alert("Winter Storm Warning", onset=now + timedelta(hours=6),
+               ends=now + timedelta(hours=12), id_="w1")
+    cls = AlertClassifier().classify([w1], now=now)
+    f = InclementFusion(reserve_soc=20, partial_hold_reserve_floor=50,
+                        grid_precharge_on_hold=True, preonset_floor=80)
+    bat = SimpleNamespace(_expected_solar_surplus_pct=lambda n, m: 0.0)
+    d = f.decide(bat, cls, False, 0, "off_peak", now, 40, bottom_rate=True,
+                 forecast_confirmed_ids=frozenset({"w1"}), preonset_latch={})
+    assert d.hold_depth == "allow_discharge" and d.preonset_floor == 80
+    assert d.preonset_precharge is True and d.buy_forecast_confirmed is True
+    # Control: unconfirmed → no buy and the attr reads False.
+    d = f.decide(bat, cls, False, 0, "off_peak", now, 40, bottom_rate=True,
+                 forecast_confirmed_ids=frozenset(), preonset_latch={})
+    assert d.preonset_precharge is False and d.buy_forecast_confirmed is False
+
+
+def test_preonset_buy_attr_and_stamp_confirmed(clock):
+    c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
+    d = tick(clock, c, s, NOW)
+    assert preonset_emitted(d) and cfg_on(d)
+    assert s._inclement_attrs()["inclement_buy_forecast"]["confirmed"] is True
+    assert s._tick_grid_buy["forecast_confirmed"] is True
+
+
+def _obs_episode(clock, observation):
+    c, s, _ = bshell(clock, NOW, alerts=[], outlook=ol())
+    tick(clock, c, s, NOW)
+    c._grid_buy_notify_tick()                     # boot seed
+    c._observation_mode = observation
+    feed(c, [WSW])
+    d = tick(clock, c, s, T(16, 3, 5))
+    assert preonset_emitted(d) and cfg_on(d)
+    c._grid_buy_notify_tick()
+    drain()
+    return c, s
+
+
+def test_grid_buy_no_nm_and_latch_rolled_back_in_observation_mode(clock):
+    """D-LOW-1 (#23): observation mode → no 'started grid-charging' NM and
+    the pre-onset latch engaged this tick is rolled back."""
+    c, s = _obs_episode(clock, True)
+    assert c.nm == []
+    assert s._preonset_precharge_latch == {}
+
+
+def test_grid_buy_nm_and_latch_outside_observation_mode(clock):
+    """Control for the observation-mode test."""
+    c, s = _obs_episode(clock, False)
+    assert len(c.nm) == 1
+    assert s._preonset_precharge_latch == {"wsw": "engaged"}
+
+
+def test_observation_rollback_keeps_prior_engaged_latch(clock):
+    """Rollback only undoes an engage made THIS tick."""
+    c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
+    tick(clock, c, s, NOW)
+    c._grid_buy_notify_tick()
+    assert s._preonset_precharge_latch == {"wsw": "engaged"}
+    c._observation_mode = True
+    tick(clock, c, s, T(16, 3, 5))
+    c._grid_buy_notify_tick()
+    assert s._preonset_precharge_latch == {"wsw": "engaged"}
+
+
+def test_preonset_stripped_turn_on_no_latch_no_stamp(clock):
+    """D-LOW-1: a `_result` whose CFG turn_on is withheld (switch reads off,
+    no turn_on action) → latch NOT engaged, no grid-buy stamp."""
+    c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
+    real = s._result
+
+    def _strip(*a, **k):
+        r = real(*a, **k)
+        r["actions"] = [x for x in r["actions"] if x["service"] != "switch.turn_on"]
+        return r
+    s._result = _strip
+    d = tick(clock, c, s, NOW)
+    assert preonset_emitted(d) and not cfg_on(d)
+    assert s._preonset_precharge_latch == {}
+    assert s._tick_grid_buy is None
+
+
+def test_fullhold_stripped_turn_on_no_stamp(clock):
+    c, s, _ = bshell(clock, NOW, soc="50",
+                     alerts=[_active("Winter Storm Warning", NOW, id_="w")],
+                     outlook=ol())
+    real = s._result
+
+    def _strip(*a, **k):
+        r = real(*a, **k)
+        r["actions"] = [x for x in r["actions"] if x["service"] != "switch.turn_on"]
+        return r
+    s._result = _strip
+    d = tick(clock, c, s, NOW)
+    assert "— pre-charging" in d["reason"] and not cfg_on(d)
+    assert s._tick_grid_buy is None
+    # Control: unstripped → stamped.
+    c, s, _ = bshell(clock, NOW, soc="50",
+                     alerts=[_active("Winter Storm Warning", NOW, id_="w")],
+                     outlook=ol())
+    tick(clock, c, s, NOW)
+    assert s._tick_grid_buy["leg"] == "zone"
+
+
+def test_cfg_already_on_counts_as_commanded(clock):
+    from _reserve_governor_harness import _st as _set
+    c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
+    real = s._result
+    eid = s._get_entity("charge_from_grid", "x", role="write")
+
+    def _on(*a, **k):
+        r = real(*a, **k)
+        r["actions"] = [x for x in r["actions"] if x["service"] != "switch.turn_on"]
+        _set(c.hass, eid, "on")
+        return r
+    s._result = _on
+    tick(clock, c, s, NOW)
+    assert s._preonset_precharge_latch == {"wsw": "engaged"}
+    assert s._tick_grid_buy is not None
+
+
+def _two_zone(order):
+    # "a" Hard Freeze (air 30 °F: NOT confirmed) sorts before "b" WSW
+    # (30 °F + PoP 80: confirmed). Both eligible zone warnings.
+    hf = _active("Hard Freeze Warning", NOW, id_="a")
+    ws = _active("Winter Storm Warning", NOW, id_="b")
+    return [hf, ws] if order else [ws, hf]
+
+
+@pytest.mark.parametrize("order", [True, False])
+def test_zone_stamp_names_confirmed_record(clock, order):
+    """A-LOW-1 / D-LOW-4: the zone stamp names the eligible AND confirmed
+    record, independent of feed order."""
+    c, s, _ = bshell(clock, NOW, soc="50", alerts=_two_zone(order),
+                     outlook=ol(min_temp=30.0, pop=80.0))
+    d = tick(clock, c, s, NOW)
+    assert cfg_on(d)
+    assert s._last_forecast_confirmed == frozenset({"b"})
+    assert s._tick_grid_buy["alert_id"] == "b"
+    assert s._tick_grid_buy["event"] == "Winter Storm Warning"
+
+
+@pytest.mark.parametrize("order", [True, False])
+def test_zone_stamp_key_order_independent(clock, order):
+    a = _active("Winter Storm Warning", NOW, id_="w-a")
+    b = _active("Ice Storm Warning", NOW, id_="w-b")
+    c, s, _ = bshell(clock, NOW, soc="50", alerts=[a, b] if order else [b, a],
+                     outlook=ol())
+    tick(clock, c, s, NOW)
+    assert s._tick_grid_buy["alert_id"] == "w-a"
+
+
+def test_polygon_stamp_names_in_window_record(clock):
+    """Polygon leg: an expired-cap SVW ("p-a", sorts first) and an in-window
+    one ("p-b") → the stamp names p-b."""
+    now = T(16, 18)
+    old = _active("Severe Thunderstorm Warning", now, code="SVW",
+                  mins_ago=120, hours=1, id_="p-a")
+    new = _active("Severe Thunderstorm Warning", now, code="SVW",
+                  mins_ago=20, hours=1, id_="p-b")
+    for alerts in ([old, new], [new, old]):
+        c, s, _ = bshell(clock, now, soc="55", alerts=alerts)
+        d = tick(clock, c, s, now)
+        assert cfg_on(d) and s._last_inclement_decision.precharge_leg == "polygon"
+        assert s._tick_grid_buy["alert_id"] == "p-b"
+
+
+@pytest.mark.parametrize("event,air,app,expected", [
+    ("Wind Chill Warning", 30.0, -5.0, True),
+    ("Wind Chill Watch", 30.0, -5.0, True),
+    ("Extreme Cold Warning", 30.0, -5.0, True),
+    ("Extreme Cold Watch", 30.0, 29.0, False),
+    ("Wind Chill Warning", 30.0, None, False),   # fallback: air 30 > 28
+    ("Wind Chill Warning", 20.0, None, True),    # fallback: air 20 <= 28
+    ("Wind Chill Warning", 20.0, 29.0, False),   # apparent wins when present
+    ("Hard Freeze Warning", 30.0, -5.0, False),  # air-temp product
+    ("Hard Freeze Watch", 28.0, 40.0, True),
+])
+def test_apparent_temperature_confirm(event, air, app, expected):
+    o = Outlook(window_start=T(16, 0), window_end=T(17, 0), hours=12,
+                min_temp_f=air, max_pop=None, max_precip_mm_no_pop=None,
+                max_gust=None, conditions=frozenset(), min_apparent_f=app)
+    assert inc.forecast_confirms(event, o) is expected
+
+
+def test_inclement_alert_id_is_the_ledger_key():
+    """A-LOW-2: one implementation, so memory and ledger keys cannot drift."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_outage_ledger as led,
+    )
+    mod = _inc()
+    assert mod.alert_id is led.alert_key
+    for a in ({"ID": "x", "URL": "u"}, {"URL": "u"},
+              {"Event": "E", "Sent": "s"}, {}):
+        assert mod.alert_id(a) == led.alert_key(a)
+    assert mod.alert_id({"Event": "E", "Sent": "s"}) == "E|s"
+
+
+def test_storm_guard_reresolves_when_cached_entity_vanishes(clock, monkeypatch):
+    """A-LOW-4: cached target renamed → state missing → re-resolved."""
+    from homeassistant.helpers import entity_registry as er
+    new = "switch.renamed_storm_guard"
+    ents = {_SG: SimpleNamespace(entity_id=_SG, platform="enphase_ev",
+                                 unique_id="enphase_ev_site_1_storm_guard")}
+    scans = []
+
+    def _get(hass):
+        scans.append(1)
+        return SimpleNamespace(entities=ents)
+    monkeypatch.setattr(er, "async_get", _get)
+    c, s = make_shell(clock)
+    c.hass._states[_SG] = MockState(_SG, "off", {})
+    assert c._storm_guard_entity() == _SG
+    assert c._storm_guard_entity() == _SG and len(scans) == 1  # cached, no scan
+    # Rename: old state gone, registry carries the new id.
+    del c.hass._states[_SG]
+    ents.clear()
+    ents[new] = SimpleNamespace(entity_id=new, platform="enphase_ev",
+                                unique_id="enphase_ev_site_1_storm_guard")
+    c.hass._states[new] = MockState(new, "off", {})
+    assert c._storm_guard_entity() == new
+    c._storm_guard_tick()
+    c.hass._states[new] = MockState(new, "on", {})
+    c._storm_guard_tick()
+    drain()
+    assert len(c.nm) == 1
+
+
+def test_storm_guard_failed_reresolve_keeps_cached(clock, monkeypatch):
+    from homeassistant.helpers import entity_registry as er
+    monkeypatch.setattr(er, "async_get",
+                        lambda hass: SimpleNamespace(entities={}))
+    c, s = make_shell(clock)
+    c._storm_guard_eid = _SG
+    assert c._storm_guard_entity() == _SG     # state missing, no match → keep
