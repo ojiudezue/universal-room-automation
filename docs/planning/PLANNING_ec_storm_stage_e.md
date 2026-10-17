@@ -1,24 +1,35 @@
 # PLANNING: EC storm Stage E (operator alert selection, pre-onset timing, arc closeout inventory)
 
-**Parent plan:** `PLANNING_ec_storm_and_blind_decisions.md` Rev 3.5 (Stages L, A, B, C shipped: v5.103.67, v5.103.68, v5.103.69). Stage E follows that plan's decision model, invariants INV-1 to INV-6, knob ladder and review protocol. Where this doc says nothing, the parent governs.
+**Parent plan:** `PLANNING_ec_storm_and_blind_decisions.md` Rev 3.5 (Stages L, A, B, C shipped: v5.103.67, v5.103.68, v5.103.69). Stage E follows the parent's decision model, invariants INV-1 to INV-6, knob ladder and review protocol. Where this doc says nothing, the parent governs. Where Stage E changes a parent invariant (INV-6(iii) bottom-rate gate, §E2), the parent is amended in the Stage E ship commit.
 **Arc:** `ARC_energy_coordinator_resilience.md`.
-**Cards:** EC-STORM-PRODUCT-SELECTION-EXTERNAL-1 (E1), EC-STORM-PREONSET-TIMING-1 (E2), parent EC-INCLEMENT-HARDENING-1 (E0, residual_2026_10_17_legacy_threat_list, E3 inventory). Batch `ec-storm-stage-e`.
-**Tier:** 3 (alert classification and grid-buy eligibility feed every storm hold, and E2 moves a reserve floor in time). Two Tier-3 plan reviews before build dispatch (completeness; adversarial build-prediction).
-**Status:** Rev 1, 2026-10-17. Coordinator critique of E1 (8 points) folded in as the recommended design (§E1). Not built.
+**Cards:** EC-STORM-PRODUCT-SELECTION-EXTERNAL-1 (E1), EC-STORM-PREONSET-TIMING-1 (E2, E2-P), parent EC-INCLEMENT-HARDENING-1 (E0, legacy residual, §9 inventory). Batch `ec-storm-stage-e`.
+**Tier:** 3. Grid-buy timing, reserve-floor timing and alert classification feed every storm hold.
+**Status:** **Rev 2** (2026-10-17). This revision folds in two Tier-3 plan reviews (`docs/reviews/code-review/plan_review_ec_storm_stage_e_1_completeness.md`, 1C/3H/7M/6L; `…_2_build_prediction.md`, 2C/5H/6M/3L), mapped per finding in §12. It also folds in the operator's E2 ruling of 2026-10-17 (buy in the cheapest hours just before the event; the floor no earlier than needed). Rev 1 (6dd862d15) folded the coordinator's 8-point E1 critique and the "not undone" ruling. Not built.
 
 **Operator input (2026-10-17, verbatim):**
 - "I think an externalization is interesting. The data backed version is good but annotate could Extend it. It also helps with diff locations who which will have different data and the operator can add or remove things that can hold, or buy. It can be simple list externally and more complicated internally ie we will in the internal table with known good things/code but the user selection stays simple."
 - "We didn't talk about good hold onset time. Holding for 12 hours is wasteful. We should hold when it counts ie 3-4 hours to expected event time intersect forecast confirmed time. Vs alert time."
 - "These can be follow ups but like immediately plus whatever else is in the arc or cards we spawned from it or things we dropped."
+- "We keep your code list for me right? Not undone."
+- **E2 ruling:** "There are 2 downsides to an early hold. We use grid power which may or may not be cheap (well above at dollar value is technically not cheap imo). Can we make the grid buy happen in any cheapest window just before the event and only during a higher rate window before the event if unavoidable. I believe we have prior art in how to check for rate periods so don't invent unnecessary code. So 3-4 hours of the cheapest period before the event. Also I think we know our battery can charge from grid in 1-2 hours."
 - (Doctrine, unchanged) "get an alert, check the applicability … check the local weather for the next x hours that alert applies, and then make an energy decision." "I don't want grid buys on mere rain."
 
 ---
 
-## 0. Read this first: three findings that change the asks
+## 0. Read this first: findings that change the asks
 
-1. **The NWS no longer issues four of our HOLD products (verified 2026-10-17).** `GET https://api.weather.gov/alerts/types` returns 111 event names. It has **no** `Hard Freeze Warning`, `Hard Freeze Watch`, `Wind Chill Warning`, `Wind Chill Watch` or `Wind Chill Advisory`. It does have `Freeze Warning`, `Freeze Watch`, `Extreme Cold Warning/Watch` and `Cold Weather Advisory`. (My understanding is that this is the NWS "hazard simplification" consolidation of 2024-25: Hard Freeze folded into Freeze, Wind Chill into Extreme Cold / Cold Weather Advisory. The date and mapping are from memory and **unverified**; the current vocabulary itself is verified.) Our table (`energy_const.py:694-725`) holds on Hard Freeze and Wind Chill, which can no longer arrive, and classes **Freeze Warning** as `notice` (`:721`). So a hard freeze that comes without an Extreme Cold product produces **no hold and no buy** today. Freezes are the one hazard the operator has seen take power down. This is a live defect in the shipped Stage B table, and it comes ahead of the asks: **E0**.
-2. **The hourly outlook keeps per-hour rows, but only exposes an aggregate.** `WeatherProviderManager._hourly[eid] = {"fetched_at", "rows": {hour_utc: {temp_f, apparent_f, pop, mm, gust, condition}}}` (`weather_manager.py:882`, built at `:897-944`). The public `hourly_outlook(start, end)` (`:946-1018`) collapses the window into one `Outlook` (`min_temp_f`, `max_pop`, `max_gust`, a `conditions` set; `inclement.py:1263-1284`). `forecast_confirms` (`inclement.py:1298-1356`) evaluates that aggregate. Locating the hazard hour therefore needs a new per-hour read. The data is already in RAM, so no new fetch is needed. Note that the aggregate can confirm a winter storm from a cold hour and a wet hour that are different hours; a per-hour predicate would not.
-3. **The forecast intersection cannot move the floor earlier, and later barely matters.** The pre-onset floor only covers `[start − lead, start)`. At `start` (Onset) the active hold takes over (D-B1). By the operator's definition the expected event time `T` lies inside the alert window, so `T ≥ start`. Intersecting with the forecast can only push the floor's start later, into a slot that is immediately followed by a hold. That saves at most `lead` hours of floor, and only on alerts where the forecast hazard hour is after Onset. Shortening the lead itself captures the operator's actual complaint ("holding for 12 hours is wasteful"). This is the marginal-benefit finding for E2 (§E2).
+1. **The NWS no longer issues four of our HOLD products (verified 2026-10-17).** `GET https://api.weather.gov/alerts/types` returns 111 event names. None of them is `Hard Freeze Warning/Watch` or `Wind Chill Warning/Watch/Advisory`. The list does have `Freeze Warning`, `Freeze Watch`, `Extreme Cold Warning/Watch` and `Cold Weather Advisory`. I believe this is the 2024-25 NWS hazard simplification, but that date and mapping come from memory and are unverified; the current vocabulary is verified.
+
+   In our table, `Freeze Warning` is `notice` (`energy_const.py:721`) and `Freeze Watch` has **no row**, so it is gated out. A hard freeze that arrives without an Extreme Cold product therefore gets no hold and no buy. Freezes are the one hazard the operator has seen take power down. → **E0**.
+
+2. **The hourly outlook stores per-hour rows but only exposes an aggregate.** The per-hour rows are `WeatherProviderManager._hourly[eid]["rows"] = {hour_utc: {temp_f, apparent_f, pop, mm, gust, condition}}` (`weather_manager.py:882`, built `:897-944`). `hourly_outlook()` (`:946-1018`) collapses them into one `Outlook` (`inclement.py:1263-1284`), and that aggregate is what `forecast_confirms` reads. A forecast "event hour" would need a new per-hour read over rows already in RAM (no new fetch).
+
+3. **Where the forecast intersection has margin (rewritten per Review 2).**
+   - **For the pre-onset floor, the margin is about zero.** The floor lives in `[start − lead, start)`. The expected event time `T` is inside the alert window, so `T ≥ start`. Intersecting can only start the floor later, just ahead of a hold that starts at `start` anyway.
+   - **Inside the alert window, the margin is real.** First, NWS Updates re-stamp Onset to the Update's Sent time once the hazard is "underway" (`AUDIT_ec_storm_stage0_probes.md:41,47`, Wind Advisory 10-16 10:26). Example: a WSW whose Onset is re-stamped from 21:00 to 13:00 makes D-B1 hold fully from 13:00, through the 17-21 top-rate block, even if the forecast's freezing-precip hour is 22:00. Second, watches are issued 15-37 h ahead (audit `:47`) with 24-48 h windows. Once corroborated, a watch full-holds the whole window. Deferring a **watch's** corroboration-driven full hold is the narrowing of a raise, not a warn demotion: an uncorroborated watch at top rate already allows discharge (`inclement.py:1121-1127`).
+   - That margin is empirical, so this cycle **measures it before deciding it** (**E2-P**, a go/no-go probe). It is not parked indefinitely.
+
+4. **The operator's E2 ruling moves the buy, not just the floor.** Today the D-B6 buy fires on any bottom-rate tick inside the 12 h horizon (`is_bottom_rate(now)`, INV-6(iii)). The operator wants three things: the buy in the cheapest hours **closest to the event**, higher-rate hours only when the charge cannot fit, and a floor that starts no earlier than needed. The prior art is `TOURateEngine.rate_rank`/`period_rank` (`energy_tou.py:491-533`, any datetime) and the arbitrage "charge in the last `lead` minutes before the next high-rate transition" pattern (`energy_battery.py:3558-3573 _is_charge_window_open`, `get_next_high_rate_transition` `energy_tou.py:699`). E2 reuses both and adds no new rate-period code (§E2.2).
 
 ---
 
@@ -28,52 +39,100 @@
 
 | Piece | Prior art (file:line) | Verdict |
 |---|---|---|
-| Internal product table | `INCLEMENT_PRODUCT_TABLE` `energy_const.py:694-725`, tuple `(code, name, class, polygon_local, precharge_eligible)`; matcher `match_product` `inclement.py:277-310`; `_effective_tier` `:313-319`; `build_record` `:321` | **REUSE** as the reviewed annotation layer. E0 edits rows. E1 overlays the operator selection on it at match time and never mutates it. |
-| Forecast family | `INCLEMENT_FORECAST_FAMILY` `energy_const.py:815-835`; `forecast_family` `inclement.py:1287-1295` | **REUSE.** E0 adds `Freeze Warning` / `Freeze Watch` → `freeze`. "No family" is the E1 rule that refuses a buy. |
-| Buy gate | `InclementFusion._zone_buy_confirmed` `inclement.py:918` (same-record eligible AND forecast-confirmed; §16 deviation 1); polygon leg `_precharge_flags` / `polygon_topup_records` | **REUSE unchanged.** E1 feeds an effective `precharge_eligible` per record, and the gates stay as they are. |
-| Operator setting persistence | CM options; `OPTIONS_RELOAD_SUPPRESS_KEYS` (`__init__.py`, reload decision `changed_keys ⊆ …` at `:6774`); `_inclement_config()` re-reads `{**data, **options}` every tick (`energy_battery.py:2600-2700`) | **REUSE** the options-read path, rung 2 (options flow), with no setter and no reload. |
-| Options-flow inclement section | `config_flow.py` EC step: inclement keys imported `:6029-6043`, `INCLEMENT_ADVANCED_SECTION` | **EXTEND**: two new fields in the existing section. |
-| Legacy list | `CONF_INCLEMENT_POWER_THREAT_EVENTS` / `CONF_INCLEMENT_WARN_MIN_SEVERITY` `energy_const.py:615-616`; defaults `:634-644`; read `energy_battery.py:2648-2660` and passed into `AlertClassifier` which discards it (`inclement.py:449-453`); config_flow imports `:6030-6031, 6036-6037` and parse `:6164-6168`; strings `strings.json:983-984, 1068-1069` (+ `translations/en.json`); repair check `energy.py:8335-8367 _check_legacy_threat_list` | **Triage §E1.4**: DELETE the plumbing, KEEP the constants the repair check reads. |
-| NWS event vocabulary | none in repo (grep `alerts/types`: 0) | **NEW** rung-1 snapshot tuple `NWS_WEATHER_EVENT_NAMES` (weather subset of `api.weather.gov/alerts/types`, fetched 2026-10-17, cited in the constant). Not fetched at runtime. |
-| Prepare window | `AlertClassifier.classify` prepare split `inclement.py:476-519` (`now < start ≤ now + lead`); `INCLEMENT_PREONSET_LEAD_H` `energy_const.py:744` (12); latch `_preonset_precharge_latch` (D-B6) | **EXTEND** (E2): separate the floor lead from the buy horizon. |
-| Per-hour forecast | `_hourly` rows `weather_manager.py:882` | Not needed for the recommended E2. **Parked** as E2b, which would reuse these rows. |
-| Decision attrs | `_inclement_attrs` `energy_battery.py:~2764`; `sensor.ura_inclement_state` copies `inclement_*` keys (`sensor.py:~9376`) | **EXTEND**: one attr `inclement_selection` (E1.5). |
+| Internal product table | `INCLEMENT_PRODUCT_TABLE` `energy_const.py:694-725` `(code, name, class, polygon_local, precharge_eligible)`; only iterator `match_product` `inclement.py:277-310` (loop `:295`); `_effective_tier` `:313-319` | **REUSE** as the authoritative default ("not undone"). E0 adds and edits rows. E1 overlays it and never mutates it. |
+| `match_product` callers | `classify` `inclement.py:495`; `build_record` `:326` (via `update_alert_memory` `:346`/`:403` and `classify` `:502`); **`energy_outage_ledger.py:269-280`** (writes `nws_alert.ura_class`/`ura_tier`) | **EXTEND** all three through an explicit `selection` argument (§E1.3). |
+| Forecast family | `INCLEMENT_FORECAST_FAMILY` `energy_const.py:815-835`; `forecast_family` `inclement.py:1287`; `FORECAST_APPARENT_TEMP_PRODUCTS` | **REUSE + rows** (E0). |
+| Buy gates | `_zone_buy_confirmed` `inclement.py:918` (same-record eligible AND confirmed); polygon leg `_precharge_flags` / `polygon_topup_records` | **REUSE**; E1 feeds the effective `eligible` per record. |
+| Watch corroboration | `_decide_hold` tier-level `corroborated = (not self._watch_requires_corroboration) or (condition_stormy and count>=1) or forecast_corroborates` (`inclement.py:1095-1105`) | **EXTEND**: one corroborable-record conjunct (§E1.4). |
+| Options-read path | `_inclement_config()` per tick (`energy_battery.py:2600-2700`); `_NO_LIVE_ATTR_KEYS` (`__init__.py:7353`) **and** `OPTIONS_RELOAD_SUPPRESS_KEYS` (`:7506`), both required (`__init__.py:6927-6928`, `:6982-6984`) | **REUSE**, rung 2. |
+| Legacy list | keys `energy_const.py:615-616`; defaults `:634-644`; built but **never passed** in `_inclement_config` (`energy_battery.py:2647-2660`; `AlertClassifier()` is constructed with no args at `:2749`); classifier `del`s them (`inclement.py:449-453`); config_flow `:6030-6031, 6036-6037, 6164-6168`; strings `strings.json:983-984, 1068-1069` + `translations/en.json`; repair `energy.py:8335`, text `strings.json:2321-2323` | Triage §E1.9. |
+| NWS vocabulary | none (grep `alerts/types`: 0) | **NEW** rung-1 `NWS_WEATHER_EVENT_NAMES` (§E1.2). |
+| Rate ranking | `period_rank` `energy_tou.py:491`, `rate_rank(now)` `:516`, `is_bottom_rate` `:530`, `get_current_period(dt)` `:459`; hour-walk precedent `peak_ahead_before_offpeak` `:628`; arbitrage window `_is_charge_window_open` `energy_battery.py:3558` | **REUSE.** E2 adds one ~20-line pure scheduler that calls `rate_rank(dt)` per hour (no tariff parsing, no period names). |
+| Pre-onset fields and readers | `InclementDecision.preonset_floor`, read at 7 sites (§4.3) | **EXTEND**: split into target vs registered floor (§E2.4). |
+| Prepare split, latch | classify `inclement.py:476-519`; `_apply_prepare` `:935-1012` (purge `:950-953`, advance `:974-980`, `pre` `:984-1005`); latch `_preonset_precharge_latch` | **EXTEND** (§E2). |
+| Hourly rows | `_hourly` `weather_manager.py:882` | **REUSE** in E2-P (offline) and, only on GO, E2b. |
+| Fetch timeouts | daily `_fetch_provider_forecast` `weather_manager.py:405-433` under `_refresh_lock` `:443`; hourly `:900-904` under `:866` | **EXTEND**: bound both (E3). |
 
-### 1b. Greps run (develop @ a34a076df)
-- `INCLEMENT_PRODUCT_TABLE|INCLEMENT_PREONSET_LEAD_H|CONF_INCLEMENT_POWER_THREAT_EVENTS|CONF_INCLEMENT_WARN_MIN_SEVERITY` over the integration: hits listed in §1a. Nothing else reads the legacy keys.
-- `power_threat_events|warn_min_severity` in `config_flow.py`, `inclement.py`, `energy_battery.py`, `strings.json`: as in §1a. `inclement.py:453` `del`s them.
-- `hourly_outlook` callers: only `energy_battery.py:2945-2947` (`_forecast_confirmed_ids`).
-- `INCLEMENT_FORECAST_FAMILY`: `energy_const.py:815`. It contains the four retired product names and no `Freeze Warning`.
-- Proposed new names (`inclement_hold_products`, `inclement_buy_products`, `NWS_WEATHER_EVENT_NAMES`, `INCLEMENT_PREONSET_FLOOR_LEAD_H`, `inclement_selection`): `grep -rn` gives 0 hits each. **NEW.**
-- Board: arc and parent cards enumerated in §E3 (`grep "arc: 'ARC_energy\|parent.*EC-INCLEMENT-HARDENING-1" kanban.data.yaml`).
+### 1b. Greps run (develop @ 377a7e3ed)
+- `INCLEMENT_PRODUCT_TABLE|INCLEMENT_FORECAST_FAMILY|FORECAST_APPARENT_TEMP_PRODUCTS|precharge_eligible`: `inclement.py:143,162,167,295,340,547,930,1292,1321,1340`; `energy_battery.py:2853,3180`; `sensor.py:9390`. Only `inclement.py:295` iterates the table.
+- `match_product|build_record(`: `inclement.py:326,403,495,502`, `energy_outage_ledger.py:271`.
+- `preonset_floor`: `energy_battery.py:2693, 2798` (config), `2835, 3137-3145, 6352, 6385, 6839, 7057`; `energy.py:9544-9589`; `inclement.py:1009`.
+- `rate_rank|is_bottom_rate|period_rank|cheapest|charge_window`: as in §1a. No existing "cheapest N hours before T" helper (grep `cheapest`: 0).
+- `get_forecasts|_refresh_lock`: `weather_manager.py:160,414,443,866,903`.
+- Tests touching changed rows: `test_ec_stage_b_classification.py:129-144`, `test_ec_stage_b_preonset_precharge.py:197-213, 569-590`, `test_ec_stage_c_hourly_outlook.py:188, 288-307`, `test_inclement_alert_classifier.py:111`.
+- New names (`inclement_hold_products`, `inclement_buy_products`, `inclement_hold_added/_removed`, `inclement_buy_added/_removed`, `NWS_WEATHER_EVENT_NAMES`, `INCLEMENT_PREONSET_FLOOR_LEAD_H`, `INCLEMENT_GRID_CHARGE_PP_PER_H`, `INCLEMENT_PREONSET_BUY_MARGIN_H`, `preonset_target`, `preonset_buy_hours`, `InclementSelection`, `inclement_selection`): 0 hits each. **NEW.**
 
 ### 1c. Docs and memory read
-Parent plan in full (Rev 3.5, §0-§16), `ARC_energy_coordinator_resilience.md`, `README_v5.103.68.md`, `README_v5.103.69.md`, `AUDIT_ec_storm_stage0_probes.md` (P1, P2(c) onset semantics), `AUDIT_nws_alert_history_lakeway.md`, `AUDIT_outage_alert_correlation.md` (Table 3), the three cards. Memory: `project_storm_counsel_doctrine.md`, `reference_ec_config_surface.md`, `feedback_label_style_guide.md`, `feedback_configurability_clarity.md`. HVAC and presence state-of-play docs do not apply (energy only).
+- **In full:** the parent plan (Rev 3.5) and the arc doc.
+- **READMEs:** v5.103.68 and v5.103.69, including the Validated table (377a7e3ed).
+- **Audits:** Stage 0 probes (P1, P2(a)/(c)), NWS alert history, outage correlation.
+- **Cards:** all three, plus EC-SOC-LADDER-FULL-WIRING-1.
+- **Both plan reviews.**
+- **Memory:** `project_storm_counsel_doctrine`, `reference_ec_config_surface`, `feedback_label_style_guide`, `feedback_configurability_clarity`, `feedback_suppression_needs_discharge`, `feedback_coincidental_equality_masks_concept_split`.
+- **Not applicable:** the HVAC and presence state-of-play docs (energy only).
 
-### 1d. Measured (read-only probes, 2026-10-17)
-- **NWS vocabulary:** see §0.1. 111 names. All weather products relevant here are listed in E0.
-- **SOC behaviour, recorder 10-10 06:33 → 10-17 14:33** (`sensor.envoy_482543015950_battery`, hourly samples, n=148 hour pairs):
-  - Positive ΔSOC/h: p50 9, p90 25, p95 26, max 30 pp/h. All the top climbs are 11:00-14:00, so they are **solar** charge. There is no grid charge in the window: the pre-charge option is off and arbitrage did not grid-charge overnight. **The grid charge rate is still unmeasured.** The parent plan's ~10 kW (~25 pp/h on 40 kWh) is an estimate, and the hardware ceiling is `BATTERY_MAX_CHARGE_KW` 30.72 kW (~77 pp/h).
-  - SOC by local hour, median: 00-10 h ≈ 7-10 %, 13 h 52 %, 15 h 91 %, 16-18 h 94-100 %, 19 h 76 %, 20 h 51 %, 21 h 35 %, 22 h 10 %.
-  - Discharge through the shoulder top-rate block 17-21 is about 60 pp in 4 h (≈ 15-20 pp/h).
-- **TOU (live `tou_rates.json`, PEC 2026):** winter top rate (`mid_peak`) is 05-09 and 17-21, and the rest is bottom rate. Shoulder top rate is 17-21. Summer peak is 16-20.
+### 1d. Measured (read-only, 2026-10-17)
+- **NWS vocabulary:** §0.1. 111 names.
+- **SOC, recorder 10-10 06:33 → 10-17 14:33** (`sensor.envoy_482543015950_battery`, 148 hour pairs):
+  - Positive ΔSOC per hour: p50 9, p90 25, max 30 pp/h. The top climbs are all 11:00-14:00, so they are **solar**.
+  - No grid-charge episode is in the window, so the grid charge rate is **not measured**.
+  - Operator: "our battery can charge from grid in 1-2 hours". That is 80 pp in 1-2 h, about 40-80 pp/h (16-32 kW on 40 kWh). The hardware ceiling is `BATTERY_MAX_CHARGE_KW` 30.72 kW, about 77 pp/h. The parent's ~10 kW estimate (25 pp/h) understated it.
+- **SOC by local hour, median:** 00-10 h ≈ 7-10 %; 15 h 91 %; 17 h 98 %; 21 h 35 %; 22 h 10 %. The shoulder 17-21 top-rate block drains about 60 pp.
+- **TOU (live PEC 2026):**
+  - Winter: top rate (`mid_peak`) 05-09 and 17-21; every other hour is bottom (0.0435 vs 0.0864 $/kWh).
+  - Shoulder: top rate 17-21.
+  - Summer: mid_peak 14-16 and 20-21; peak 16-20.
 
 ---
 
-## 2. Falsifiable invariants (Stage E adds INV-7 and INV-8; INV-1 to INV-6 unchanged)
+## 2. Falsifiable invariants (INV-1 to INV-6 unchanged except INV-6(iii)'s rate gate, amended by INV-9)
 
-> **INV-7 (selection chooses WHETHER, never HOW).** For every legal stored value of the two selection options, including empty, everything, and products not in the internal table:
-> (a) a `polygon_local` product never contributes a hold or a buy unless `INCLEMENT_POINT_FEED_POLYGON_EXACT` is True, and never buys outside `[start, min(end, start + INCLEMENT_POLYGON_TOPUP_MAX_MIN)]`;
-> (b) a zone (non-polygon) product never causes a charge_from_grid turn_on unless `forecast_confirms` is True **on the same record** (`_zone_buy_confirmed`);
-> (c) a product with no forecast family never buys. A product not in the internal table never exceeds `partial_hold` (it is treated as `watch`, not polygon-local, not eligible, and forecast-corroboration can't lift it because it has no family). Condition corroboration also can't lift it (E1.3 cap);
-> (d) the effective buy set ⊆ the effective hold set;
-> (e) **(operator 2026-10-17: "We keep your code list for me right? Not undone.")** `INCLEMENT_PRODUCT_TABLE` stays the authoritative internal default; the selection is an override layer on top and never a replacement. With zero operator overrides, every classification, hold and buy decision is byte-identical to v5.103.69. The proof is a golden over the full product table × {active, prepare, polygon in/out of cap, verified/unverified locality} × {option on/off} × {forecast confirmed/unconfirmed/None}, captured on the v5.103.69 tag before any Stage E code. The one allowed diff is the explicit E0 expected-diff list (Freeze Warning / Freeze Watch rows), and only if OQ-1 is approved. Any other diff stops the build (`test_zero_override_golden_identical_to_v5_103_69`).
-> **Falsifiers:** a CFG off→on whose reason names a product not in the effective buy set; a zone-product buy with `inclement_buy_forecast.confirmed` false; an operator-added unlisted product at `full_hold`; a polygon hold while `POLYGON_EXACT` is False; an override-free golden that differs from the E0 table golden.
-> **Legal-config repro (why the cap is needed):** the operator adds `Flood Watch` to the hold list (legal: it is in the vocabulary). An uncapped watch reaching `condition_stormy` (`pouring` is in `_STORM_CONDITIONS`) would be lifted to `full_hold` at any TOU. With the cap it stays `partial_hold`.
+> **INV-7 (the selection chooses WHETHER, never HOW).** These hold for every legal stored value of the four override keys, including empty, everything, names outside the vocabulary, hand-edited `.storage`, and combinations made illegal by a later table change. They also hold for every value of `watch_requires_corroboration`.
+> - **(a) Locality.** A `polygon_local` product never contributes a hold or a buy unless `INCLEMENT_POINT_FEED_POLYGON_EXACT` is True. It never buys outside `[start, min(end, start + INCLEMENT_POLYGON_TOPUP_MAX_MIN)]`. The selection cannot change `polygon_local`.
+> - **(b) Zone buys need the forecast.** A zone product never causes a charge_from_grid turn_on unless `forecast_confirms` holds on the same record (`_zone_buy_confirmed`).
+> - **(c) Caps on added rows.** A product with no forecast family never buys. A **non-corroborable** record never counts toward watch corroboration on **any** leg (condition, `watch_requires_corroboration=False`, forecast). A non-corroborable record is one that is unlisted (not in the table) or selection-widened (a table row whose default class is notice, added to hold). So a hold whose only HOLD records are non-corroborable never exceeds `partial_hold`, and such a prepare record gets only the lower pre-onset floor `max(reserve_soc, partial_floor)`.
+> - **(d) Buy ⊆ hold.** The effective buy set is a subset of the effective hold set, computed at runtime (not only at form validation).
+> - **(e) Table default.** `INCLEMENT_PRODUCT_TABLE` is the authoritative default and is never mutated. With zero overrides, the **classification, hold-depth and buy** projection (§E1.10) is identical to the v5.103.69 golden, except the enumerated E0 cells. Prepare-floor cells belong to INV-8/INV-9.
+> - **(f) No demotion of table products.** Adding an unlisted or widened product never changes the decision for a co-active table product.
+>
+> **Falsifiers:**
+> - a CFG off→on whose reason names a product outside the effective buy set;
+> - a zone-product buy with `inclement_buy_forecast.confirmed` false;
+> - a non-corroborable-only hold at `full_hold`, under either `watch_requires_corroboration` value;
+> - a polygon hold while `POLYGON_EXACT` is False;
+> - a zero-override golden diff outside the enumerated cells;
+> - a mixed fixture (Winter Storm Watch + unlisted Flood Watch) whose decision differs from Winter Storm Watch alone.
+>
+> **Repros:**
+> - (i) `watch_requires_corroboration=False` (legal option), Flood Watch added to hold, bottom rate. Without the cap the result is `watch_corroborated_offpeak_full_hold` (Review 2 H1).
+> - (ii) Wind Advisory added to hold, provider `pouring`, top rate. Without the cap the result is a full hold on rain (Review 2 M6).
 
-> **INV-8 (pre-onset floor only when it counts).** For a prepare alert with start `s`: the D-B6 floor is registered on a tick iff `s − INCLEMENT_PREONSET_FLOOR_LEAD_H ≤ now < s` **or** that alert's pre-charge latch is `engaged` or `reached`. A D-B6 buy is only ever evaluated inside `now < s ≤ now + INCLEMENT_PREONSET_LEAD_H` (the buy horizon, unchanged). Active-hold behaviour (`s ≤ now ≤ end`) is untouched.
-> **Falsifiers:** a `reserve_write` row with non-null `tick_preonset_floor` while `s − now > floor_lead` and no latch for that alert; floor lead 0 with a floor registered and no latch; any change to a `full_hold`/`partial_hold` decision inside an alert window.
-> **Repro:** WSW, Onset 21:00 winter, Sent 06:00, option False. Today (lead 12) the floor is 80 from 09:00, so the 09:00-17:00 bottom-rate hours hold the battery to no purpose. After E2 (floor lead 4) the floor is 80 from 17:00, covering exactly the 17-21 top-rate block, which is the only window where discharge was going to happen.
+> **INV-8 (pre-onset floor only when it counts).** Let `T` be the event time (§E2.1) and `S` the alert's buy schedule (§E2.2, empty when there is no buy). The D-B6 floor is registered on a tick iff `now < start` and **one** of these holds:
+> - (i) `now ≥ T − min(INCLEMENT_PREONSET_FLOOR_LEAD_H, INCLEMENT_PREONSET_LEAD_H)`; or
+> - (ii) `S` is non-empty and `now ≥ min(S)`, and this tick's buy is still eligible (option on AND same-record confirmed). If eligibility is lost, the latch entry is cleared (`engaged`) or kept with no floor extension (`reached`). Losing eligibility is the discharge for the suppression.
+>
+> Active holds (`start ≤ now ≤ end`) are unchanged.
+>
+> **Stated non-guarantees:**
+> - A restart mid-buy loses the latch and schedule (RAM). The floor falls back to (i) until the schedule is recomputed on the next tick.
+> - In observation mode the latch is rolled back each tick (`energy.py:9420`), so (ii) never applies there.
+>
+> **Falsifiers:**
+> - a `reserve_write` row with non-null `tick_preonset_floor` before `min(T − floor_lead, min(S))`;
+> - a floor that persists after the option turns False or the forecast unconfirms with the latch still `engaged`;
+> - floor lead 0 with no schedule and a floor registered;
+> - any in-window decision change.
+
+> **INV-9 (buy in the cheapest hours closest to the event; amends INV-6(iii)'s `is_bottom_rate(now)` conjunct).** A D-B6 grid buy happens on a tick only if `now`'s hour ∈ `S`. `S` contains `h_req = ceil((target − SOC) / INCLEMENT_GRID_CHARGE_PP_PER_H) + INCLEMENT_PREONSET_BUY_MARGIN_H` hours. They are chosen from the whole hours in `[now, T)` ∩ the buy horizon, ordered by `(rate_rank(hour), T − hour)`: cheapest first, then closest to `T`.
+> - An hour with rank > 0 is in `S` **only if** fewer than `h_req` rank-0 hours exist in that range.
+> - `S` is frozen when the latch first engages. It is recomputed only if `T` moves (an Update) or `target` changes.
+>
+> **Falsifiers:**
+> - a pre-onset CFG on in a rank > 0 hour while ≥ `h_req` rank-0 hours remained before `T` at schedule time;
+> - a pre-onset CFG on at a rank-0 hour farther from `T` than an unscheduled rank-0 hour closer to `T`;
+> - more than one CFG on→off per frozen schedule over D-B6-owned ticks (parent H2 scoping).
+>
+> **Repro:** winter WSW, Onset 21:00, SOC 30 at 06:00, target 80, rate 50 pp/h, margin 1 → `h_req = 1 + 1 = 2` → `S = {15:00, 16:00}`. Those are the last bottom-rate hours before the 17-21 top block, and the floor starts 15:00 (INV-8(ii)). Today the buy fires at the first bottom-rate tick (09:00, after the 05-09 block), the floor runs from 09:00, and the latch keeps it there.
 
 ---
 
@@ -81,124 +140,306 @@ Parent plan in full (Rev 3.5, §0-§16), `ARC_energy_coordinator_resilience.md`,
 
 | Value | Producer | Consumers |
 |---|---|---|
-| Effective product row (E1) | `match_product` → internal row → `_apply_selection(row, event, overrides)` → effective `(class, polygon_local, eligible)`. Depends on options, read per tick, and the internal table. For unknown products: the synthetic row `(None, event, "watch", False, False)` + `unlisted=True`. | `build_record` (trust), `_effective_tier` (trust), `_precharge_flags` (trust), `_zone_buy_confirmed` via `rec.eligible` (trust), `inclement_selection` attr (display), ledger `nws_alert.ura_class` (audit; it now records the effective class). |
-| Overrides | Options flow submit: `effective − defaults` and `defaults − effective` per level. | `_inclement_config()` per tick, then the classifier. |
-| Prepare floor timing (E2) | Classifier prepare split (buy horizon, 12 h) plus a new floor gate in fusion `_apply_prepare` (`inclement.py:935`): floor iff in floor lead or latch engaged/reached. | `_tick_reserve_floor` registration (trust), DP drain stamp (trust), `inclement_preonset` attr (display; gains `floor_from`). |
-| SOC/charge-rate physics | Recorder (§1d). Solar rate measured; grid rate not. | Sizing of the floor-lead default only. No runtime consumer. |
-
-The dependency health that matters: the forecast (Stage C) is live, but its precip thresholds are not fitted (parent §16), so E1's "buy only with a family" rule leans on unfitted thresholds. That is acceptable because buys stay off until the operator turns the option on.
+| `InclementSelection` (E1) | `build_selection(cm_options)` (pure, `inclement.py`). Effective hold/buy sets plus a corroborable flag per name. Built once per tick in `_inclement_config()`, and by `energy.py` for the ledger from the same `_get_cm_options()`. | `match_product` (all 3 callers, trust); `_decide_hold` corroboration (trust); `inclement_selection` attr (display); ledger `ura_class` (audit). |
+| Effective row | `match_product(alert, selection)`: table row → overlay rewrites `cls`, tier and `precharge_eligible`, and adds `corroborable`; an unlisted hold name gets the synthetic `(None, event, "watch", False, False)` with `corroborable=False` and no drift reporting. | `build_record` → `AlertRecord` (memory admission keys on `rec.cls` `:404`, prepare split `:505`, `prepare_class_of` `:126`), `_effective_tier`, `_precharge_flags`, `_zone_buy_confirmed`. |
+| `T` (E2) | `preonset_start` (the earliest prepare start, `_apply_prepare` `:957-963`). On E2-P GO only (E2b): the first forecast-confirming hour in `[start, end]`. | Floor gate (trust), scheduler (trust), attr (display). |
+| `S` buy schedule (E2) | `schedule_buy_hours(tou, now, T, h_req, horizon)` (pure, calls `rate_rank`); frozen on the latch. | Buy gate at `energy_battery.py:6352` (trust); floor gate (trust); attr `inclement_preonset.buy_hours` (display). |
+| `h_req` | `(target − SOC)` from SOC (3-tier resolver; None means no buy, as today) ÷ `INCLEMENT_GRID_CHARGE_PP_PER_H` (operator-stated; unmeasured, §1d). | Scheduler. If the rate is too high (charge slower than assumed), the schedule ends with SOC < target at `T`. The floor still blocks discharge and the hold at `start` takes over. Error toward a short charge, stated (E2-P measures the rate when an episode exists). |
 
 ---
 
 ## 4. Site enumeration
 
-- **Classification entry points that see a product row:** `match_product` (`inclement.py:277`), its two callers `classify` (`:495`) and `build_record` (`:326`), and `_effective_tier` (`:313`). The overlay must apply at `match_product`'s return so both callers see it. Applying it in `classify` alone would miss `build_record`, which is used by the D-B3 memory and the ledger: that is Bug Class #53. Builder: AST-check that no other function iterates `INCLEMENT_PRODUCT_TABLE` (today only `:295`).
-- **Eligibility consumers:** `_precharge_flags`, `polygon_topup_records`, `_zone_buy_confirmed` (`:918`), and the three buy expressions (`:989`, `:1020`, `:1068`, `:1140`). All of them read `rec.eligible`, so none changes if the record carries the effective value. Reviewer D re-greps `precharge_eligible|\.eligible` over `inclement.py` and `energy_battery.py`.
-- **Forecast-family readers:** `forecast_family` (`:1287`), `_forecast_confirmed_ids` (`energy_battery.py:2909`). E0 adds rows. The unknown-product rule needs no code because family None already yields False (`:1320-1321`).
-- **Condition corroboration lift (the INV-7(c) cap site):** the watch corroboration expression in `InclementFusion.decide` (`corroborated = condition OR forecast`). Add `and not rec_unlisted` for condition corroboration only. Builder locates it by symbol.
-- **Prepare floor:** the classifier split (`inclement.py:504-512`) stays the buy horizon. The floor gate goes in `_apply_prepare` (`:935`). The registration site in `determine_mode` stays unchanged and reads `decision.preonset_floor`.
+**4.1 `match_product` callers (three), each its own Review C drill.**
+- `classify` (`inclement.py:495`).
+- `build_record` (`:326`). It reaches D-B3 memory admission through `update_alert_memory` (`:403`) and the active/prepare split through `classify` (`:502`).
+- The outage ledger (`energy_outage_ledger.py:271`). Its `record_tick` gains `selection`, passed by its caller in `energy.py`, which builds it with `build_selection(self._get_cm_options())`.
+- **No module global** and no constructor-cached state. `AlertClassifier(selection=…)` takes it per construction, and the battery builds the classifier per tick (`:2749`). Every parameter defaults to `TABLE_SELECTION` (zero overrides), so an omitted argument is byte-identical.
+- The AST test pins that `INCLEMENT_PRODUCT_TABLE` is iterated only in `match_product`/`build_selection`.
+
+**4.2 Corroboration site (one).** In `_decide_hold`, the tier-level `corroborated` (`inclement.py:1095-1105`). Every leg is ANDed with `any(r.corroborable for r in watch_records)`, where `watch_records` = active HOLD records with `tier == "watch"`. Mixed sets keep the table watch's corroboration, so INV-7(f) holds.
+
+**4.3 `preonset_floor` readers (seven; split per §E2.4).**
+
+| # | Site | Reads after the split |
+|---|---|---|
+| 1 | `energy_battery.py:6352` buy precondition | `preonset_target is not None` AND hour ∈ `preonset_buy_hours` (replaces the `is_bottom_rate` conjunct in fusion `:997`) |
+| 2 | `:6385` buy `reserve_level` | `preonset_target` |
+| 3 | `:2835` grid-buy NM stamp `target` | `preonset_target` |
+| 4 | `:3137-3145` `inclement_preonset` attr | emitted whenever `preonset_target` is non-None. Fields: `floor` (target), `active` (`preonset_floor is not None`), `floor_from`, `buy_hours`, `event_time`, `event_time_source` (`"onset"`, or `"forecast"` only under E2b) |
+| 5 | `:6839` `_registered_floor` | `preonset_floor` (registered) |
+| 6 | `:7057` narration | `preonset_floor` (registered) |
+| 7 | `energy.py:9544-9550` ledger `tick_preonset_floor` | `preonset_floor` (registered) |
+
+`inclement.py:1009` (the producer) sets both fields. The builder re-greps `preonset_floor|preonset_target` at build time. **An eighth reader stops the build** until it is classified here. Drill per row: swap target↔registered at that reader, and a named test goes RED.
+
+**4.4 Eligibility consumers:** `_precharge_flags`, `polygon_topup_records`, `_zone_buy_confirmed` and the buy expressions (`inclement.py:989, 1020, 1068, 1140`) all read `rec.eligible`. They are unchanged, because the record carries the effective value. Reviewer D re-greps `\.eligible|precharge_eligible`.
+
+**4.5 Rate-gate consumers changed by INV-9:** only the D-B6 leg (fusion `:997` `is_bottom` and site 1). The full-hold off-peak leg and the polygon leg keep their gates. Stated: those are **in-window** buys, where the event is already under way.
 
 ---
 
 ## 5. Deliverables
 
-### E0: NWS vocabulary re-sync (table rows; ships with E1)
+### E0: NWS vocabulary re-sync (rung-1 table rows)
 
-Rows added to `INCLEMENT_PRODUCT_TABLE` (rung 1) and to `INCLEMENT_FORECAST_FAMILY`:
+| Product | Today | After | Eligible | Family | Why |
+|---|---|---|---|---|---|
+| Freeze Warning (`FZW`, probe-verified) | notice | **watch** | yes (buys only on a forecast ≤ 28 °F) | freeze (air temp) | Carries the hard-freeze hazard now. Watch class keeps a 32 °F night at partial hold. |
+| Freeze Watch | **gated out (no row)** | **watch**, `code=None` (FZA unverified) | yes (same rule) | freeze (air temp) | Precursor. Name-only per the P3 policy (`energy_const.py:688-690`); drift records the real code. |
+| Cold Weather Advisory | notice | notice | no | freeze, and added to `FORECAST_APPARENT_TEMP_PRODUCTS` | Successor of Wind Chill Advisory (apparent-temperature hazard), so an operator-widened hold confirms on apparent temp. |
+| Hard Freeze*, Wind Chill* rows | unchanged | unchanged, KEEP+DOCUMENT (retired-name list pinned) | unchanged | unchanged | Harmless; still matches replays. Outside the selectable vocabulary (§E1.2). |
 
-| Product | Class | Eligible | Family | Why |
-|---|---|---|---|---|
-| Freeze Warning (`FZW`) | **watch** (was notice) | yes (buy only when the forecast confirms ≤ 28 °F) | freeze | It carries the freeze hazard now that Hard Freeze is gone. Watch class keeps an ordinary 32 °F night at partial hold. Forecast ≤ `FORECAST_FREEZE_CONFIRM_F` (28, the old hard-freeze line) corroborates it to full hold and permits a buy. |
-| Freeze Watch (`FZA`) | **watch** (was notice) | yes (same rule) | freeze | Precursor of the above. |
-| Cold Weather Advisory | notice (unchanged) | no | freeze (display/corroboration only) | The successor of Wind Chill Advisory. It stays notice. |
-| Hard Freeze Warning/Watch, Wind Chill Warning/Watch/Advisory | unchanged rows | unchanged | unchanged | KEEP+DOCUMENT. They are harmless while the NWS doesn't issue them, and they still match old CAP replays and other offices if any reissue them. |
-
-Marginal benefit: this is the largest real-risk item in Stage E, at five table cells. The cost of Freeze Warning becoming watch-class is a partial hold, at most `max(reserve_soc, partial_floor)` = 50 live, on frost nights at bottom rate (watch partial holds apply off-peak), and a full hold only on ≤ 28 °F forecast nights. Operator question OQ-1.
+**Stated behaviour the operator approves (OQ-1):**
+- A 34 °F Freeze Warning at **bottom** rate gives `partial_hold` (floor 50 live).
+- The same alert at **top** rate (winter 05-09, 17-21) gives `allow_discharge`, so the battery is released. An uncorroborated watch at top rate discharges today too (`inclement.py:1121-1127`).
+- At ≤ 28 °F the watch is corroborated. At bottom rate that gives `full_hold`. At top rate the result depends on recoverability (`:1159-1172`): `full_hold` if not recoverable, else `partial_hold`.
 
 **Acceptance**
-- **Verify:** `Freeze Warning`, outlook min 34 °F → `partial_hold`, no buy with the option True. Outlook min 25 °F → `full_hold`, buy eligible at bottom rate with SOC < 90.
-- **Verify:** `Cold Weather Advisory` → notice, `allow_discharge`.
-- **Test:** `test_vocab_snapshot_covers_table` (every table name, except the KEEP+DOCUMENT retired list, is in `NWS_WEATHER_EVENT_NAMES`; the retired list is pinned so a vocabulary refresh fails loudly), `test_freeze_warning_watch_class_forecast_lift`, `test_freeze_warning_buy_needs_28f`.
-- **Live:** `inclement_gated_out_events` and the `nws_alert` rows' `ura_class` show `Freeze Warning` = `watch` on the first one received (event-gated, disposes on first FZW). Discriminates: `notice` there means the row edit did not reach `match_product`.
+- **Verify (bottom rate, 03:00 Dec):**
+  - FZW, outlook 34 °F → `partial_hold`, no buy with option True.
+  - Outlook 25 °F → `full_hold`, buy eligible with SOC 50.
+- **Verify (top rate, 18:00 Dec):**
+  - FZW at 34 °F → `allow_discharge`.
+  - At 25 °F → recoverability decides. Two fixtures: SOC 95 with Solcast high → `partial_hold`; SOC 30 → `full_hold`.
+- **Verify:** Cold Weather Advisory → notice. Freeze Watch → watch (not gated out).
+- **Test:** `test_vocab_snapshot_covers_table` (every non-retired table name is in the vocabulary; the retired list is pinned), `test_freeze_warning_watch_class_forecast_lift` (TOU-parametrized as above), `test_freeze_watch_name_only_row`, `test_cold_weather_advisory_apparent_temp`.
+- **Update with the expected diff stated** (no assertion may be weakened silently):
+  - `test_ec_stage_b_classification.py:129-144`: FZW notice → watch.
+  - `test_ec_stage_b_preonset_precharge.py:197-213`: `"Freeze Warning": False` → True; add Freeze Watch True.
+  - `test_ec_stage_c_hourly_outlook.py:188, 288-307`: add FZW/FZA air-temperature cases and the Cold Weather Advisory apparent case.
+- **Live (event-gated, disposes on the first FZW):** the `nws_alert` row's `ura_class` reads `watch`, now that the ledger goes through the overlay (§4.1). `notice` would mean the ledger caller was missed.
 
 ### E1: operator alert selection over the internal table (EC-STORM-PRODUCT-SELECTION-EXTERNAL-1)
 
-**E1.1 Shape: two multi-selects, buy ⊆ hold enforced.** This is coordinator point 1. I picked two fields over one level per product. A per-product dropdown means ~30 rows of four-way selects, which fails "quick conceptual clarity". Two lists read in one glance:
-- **"Alerts that hold the battery"** (multi-select). Default = the table's warn and watch rows. A product not selected becomes `notice` (shown and logged, never a hold).
-- **"Of those, alerts that may buy grid power"** (multi-select). Default = the table's eligible rows. Helper text: "Only used when 'Top up before storms' is on. Zone-wide alerts still need the local forecast to agree; storm warnings must cover the house."
-- **Validation errors** (field-scoped, the existing EC convention): a buy item not in the hold list (`buy_not_in_hold`); a buy item with no forecast family that is also not a polygon table row (`buy_needs_forecast`, coordinator point 3).
-- **Choices** come from `NWS_WEATHER_EVENT_NAMES`, a rung-1 snapshot of the weather products in `api.weather.gov/alerts/types` (the curated list excludes 911/civil/tsunami/marine/administrative). There is **no free text** (coordinator point 3): the legacy list failed by silently non-matching substrings.
-- "Off" vs "notice": the selection can't gate a product fully out. Notice only shows and logs, and costs nothing. Gating out stays an internal-table property (unlisted vocabulary that is never selected stays gated out, as today). One less axis to explain.
+**E1.1 Shape.** Two multi-selects in the existing inclement options section (rung 2):
+- **"Alerts that hold the battery"** (form key `inclement_hold_products`).
+- **"Of those, alerts that may buy grid power"** (`inclement_buy_products`). Helper text: "Only used when 'Top up before storms' is on. Zone-wide alerts still need the local forecast to agree; storm warnings must cover the house."
 
-**E1.2 What the selection may and may not change (coordinator point 2; INV-7).** The operator chooses whether a product holds and whether it may buy. Class semantics (warn vs watch for table rows), `polygon_local`, the polygon cap and verified-local rule, forecast confirmation, the storm-charge threshold and the precharge option stay internal. Removing a product from **hold** turns it to notice (narrowing, always safe). Adding a table product that is notice by default (e.g. Wind Advisory) to hold gives it **watch** class (partial hold unless corroborated). Narrowing is allowed and widening is bounded:
-- Widening **buy** to an ineligible table row is allowed only if the row has a forecast family or is polygon (e.g. Tornado Watch: buys only when the convective forecast confirms, which needs a storm condition and ≥ 70 % PoP).
-- Hurricane/Tropical rows have the convective family, so they can be widened.
+I chose two lists over a per-product four-way dropdown for glanceability: two fields instead of ~30 (label style guide). A product left out of hold becomes **notice** (shown and logged, never a hold). Gating out stays internal.
 
-**E1.3 Unknown products (coordinator point 3).** A vocabulary product not in the table and added to hold (e.g. `Flood Watch`, `Red Flag Warning`) gets the synthetic row `watch`, `polygon_local=False`, `eligible=False`, `unlisted=True`. It has no family, so forecast corroboration can't lift it and a buy is refused at validation. The fusion caps `unlisted` records at `partial_hold` by ignoring **condition** corroboration for them (the INV-7 repro: `pouring` is a storm condition, so a Flood Watch would otherwise reach full hold). Cost: one conjunct.
+**Validation errors**, field-scoped, with `strings.json` and `translations/en.json` `error` entries:
+- `buy_not_in_hold`: "Pick it under 'Alerts that hold the battery' first."
+- `buy_needs_forecast`: "This alert can't buy grid power: there's no local forecast check for it."
 
-**E1.4 Storage: overrides, not a snapshot (coordinator point 4).** Options keys (NEW, rung 2): `inclement_hold_added`, `inclement_hold_removed`, `inclement_buy_added`, `inclement_buy_removed`. Each is a list of exact event names. The submit handler stores `selected − default` and `default − selected`, and the form renders the effective lists. A later evidence-driven table change (like E0) therefore reaches every install that didn't touch the product. All four keys go in `OPTIONS_RELOAD_SUPPRESS_KEYS` and are read per tick by `_inclement_config()` (coordinator point 6), so a change takes effect on the next tick with no CM reload. A stored name that has left the vocabulary is ignored with one debug log and kept (no options write).
-**Migration:** the live `inclement_power_threat_events` equals the v5.5.0 default (parent §1a, verified 2026-10-16), so nothing is translated and nothing is written. A customized legacy list keeps raising the existing `inclement_legacy_threat_list_retired` repair (`energy.py:8335`). Substrings are not auto-mapped to products, because that was the defect being removed.
+**E1.2 Choices.**
+- `NWS_WEATHER_EVENT_NAMES` (NEW, rung 1): the weather subset of `api.weather.gov/alerts/types`, fetched 2026-10-17 and cited in the constant.
+- **Excluded:** marine/coastal/Pacific products (`Hurricane Force Wind *`, `Storm Warning/Watch`, `Storm Surge *`, `Typhoon *`, `Gale *`, seas/surf/spray), statements (`Special/Severe Weather Statement`, `Hazardous Weather Outlook`, `Short Term Forecast`), and civil/911/test/administrative messages.
+- **Included but unlisted:** `Snow Squall Warning` (it becomes a **zone** watch if added, not a polygon product), `Lake Effect Snow Warning`, `Extreme Heat Warning/Watch`, flood and fire products.
+- **No free text.**
+- The **selection domain** is `table_names ∩ NWS_WEATHER_EVENT_NAMES` plus unlisted vocabulary names. Retired table rows (Hard Freeze*, Wind Chill*) are outside it: they always use table behaviour, never appear in the form, and never produce a delta (Review 2 H5).
 
-**E1.5 Show consequences (coordinator point 5).** Attr `inclement_selection` on the strategy sensor (copied to `sensor.ura_inclement_state`). For each active or prepare alert: `{event, level: "hold"|"hold+buy"|"notice", source: "table"|"override"|"unlisted", buy_gate: "forecast_confirmed"|"forecast_unconfirmed"|"polygon_in_cap"|"polygon_out_of_cap"|"not_selected"|"option_off"}`. Also `overrides: {hold_added, hold_removed, buy_added, buy_removed}`. Display only. "Just enough" observability (parent §14): one attr, no new sensor.
+**E1.3 Threading.** `InclementSelection` is a frozen dataclass: `hold: frozenset[str]`, `buy: frozenset[str]`, `widened: frozenset[str]`, `unlisted: frozenset[str]`, all case-folded.
+- `build_selection(options)` computes:
+  - `hold = (default_hold − hold_removed) ∪ hold_added`;
+  - `buy = ((default_buy − buy_removed) ∪ buy_added) ∩ hold ∩ (family ∪ polygon-table rows)`. This is the runtime INV-7(d) (Reviews 1 F9 / 2 H4).
+- It is passed explicitly per §4.1. `TABLE_SELECTION` is the zero-override constant.
+- **Overlay semantics in `match_product`:**
+  - A table HOLD row not in `hold` → `cls = tier = "notice"`, `eligible = False`.
+  - A table notice row in `hold` → `cls = "watch"`, `corroborable = False`.
+  - A table HOLD row in `hold` → unchanged, `corroborable = True`.
+  - An unlisted name in `hold` → synthetic watch, `corroborable = False`, no drift entry.
+  - `eligible = name ∈ buy` (polygon rows keep their locality and cap gates).
+  - The overlay rewrites `cls`, `tier` and `eligible`, so memory admission (`:404`), the prepare split (`:505`) and `prepare_class_of` (`:126`) all see it.
 
-**E1.6 Other locations (coordinator point 7).** Help text: "Defaults come from storm and outage history at this house (Lakeway, TX). Other locations may need different choices." No per-region default sets. Parked with trigger: a second URA install with a non-Lakeway NWS zone.
+**E1.4 Caps (INV-7(c)).** Implemented by §4.2's per-tier conjunct. A non-corroborable record also gets the lower pre-onset floor (`_apply_prepare` `high` requires a corroborable warn, or a corroborable watch that is confirmed).
 
-**E1.7 Severity stays retired (coordinator point 8).** Class replaces it. No severity field returns.
+**E1.5 What the selection may change.** It may change whether a product holds or buys, never how (coordinator point 2).
+- Narrowing is always allowed.
+- Widening hold gives watch class, capped at partial, never corroborated.
+- Widening buy is allowed only for rows with a forecast family or polygon locality. For example, Tornado Watch buys only on the convective confirm, which needs a storm condition and ≥ 70 % PoP.
+- **Un-parked by this deliverable (Review 1 F10), stated:** parent §10 parks "Promoting Wind Advisory to hold" and "Pre-charge eligibility for convective or tropical products" with ledger-outage triggers. E1 lets the **operator** do either, bounded by INV-7.
+- The table **defaults** stay rung-1 evidence. Widening is a rung-2 operator action, not a reviewed evidence change.
+- The parent §10 park entries are amended in the ship commit to "default unchanged; operator-selectable via E1".
 
-**E1.8 Retire the dead legacy plumbing (supersession, three buckets).**
+**E1.6 Storage: overrides, not a snapshot.**
+- Stored keys (rung 2): `inclement_hold_added`, `inclement_hold_removed`, `inclement_buy_added`, `inclement_buy_removed`. Each is a list of canonical vocabulary spellings, compared case-folded.
+- The submit handler computes the deltas over the selection domain and then **pops** `inclement_hold_products` / `inclement_buy_products` from `user_input`. Otherwise `.storage` would hold a snapshot and the reload decision would see non-suppressed keys (Review 1 F8).
+- **Rendering:** the form defaults are the effective lists. A stored name no longer in the vocabulary is filtered out of the rendered default, because HA's selector rejects unknown values. It stays in storage, ignored at runtime with one debug log, until the next save drops it.
+- A `hold_added` name whose table row is later removed becomes an unlisted synthetic watch (stated).
+- All four keys go in **`_NO_LIVE_ATTR_KEYS` and `OPTIONS_RELOAD_SUPPRESS_KEYS`** (Reviews 1 F7 / 2 M1). They are read per tick, and saving does not reload the Coordinator Manager.
+- **Migration:** the live legacy list equals the v5.5.0 default, so nothing is written. A customized list keeps the repair issue, whose text (`strings.json:2321-2323` + translations) now points at the two new fields (F15).
 
-| Item | file:line | Bucket | Superseded by | Reason |
-|---|---|---|---|---|
-| Legacy read and `power_threat_events` / `warn_min_severity` keys in `_inclement_config` | `energy_battery.py:2608-2609, 2618-2619, 2647-2660` | **DELETE** | E1 overrides | Read and passed, then discarded (`inclement.py:453`). Misleads readers. |
-| `AlertClassifier.__init__` legacy args | `inclement.py:447-453` | **DELETE** (update callers) | — | Accepted only for call-site compatibility. Callers change in the same commit. |
-| config_flow imports + multiline parse | `config_flow.py:6030-6031, 6036-6037, 6164-6168` | **DELETE** | E1 fields | Fields left the form in D-B5. The parse runs on a key that is never submitted. |
-| strings/translations for the two fields | `strings.json:983-984, 1068-1069`; `translations/en.json` same | **DELETE** | E1 strings | Dead UI text. |
-| `CONF_INCLEMENT_POWER_THREAT_EVENTS`, `DEFAULT_INCLEMENT_POWER_THREAT_EVENTS` | `energy_const.py:615, 634-643` | **KEEP+DOCUMENT** | — | The repair check reads both. |
-| `CONF_INCLEMENT_WARN_MIN_SEVERITY`, `DEFAULT_…`, `INCLEMENT_WARN_MIN_SEVERITY_OPTIONS`, `INCLEMENT_SEVERITY_ORDER` | `energy_const.py:616, 644, 838-840` | **DELETE if 0 readers after the above** (builder greps), else KEEP+DOCUMENT | — | Severity is attrs-only now. `_severity_rank` may still use the order (attrs). |
-| `_event_matches_threat` substring gate | `inclement.py` (parent §13) | **DELETE**, gated on the v5.103.69 README validation table being written | product table | Parent §13 DELETE candidate. Its condition (Stage B validated) closes with that table. |
-| `_check_legacy_threat_list` | `energy.py:8335` | **KEEP** | — | Live repair path. |
+**E1.7 Show consequences (`inclement_selection` attr).** For each active or prepare alert: `{event, level: "hold"|"hold+buy"|"notice", source: "table"|"override"|"widened"|"unlisted", corroborable, buy_gate: "forecast_confirmed"|"forecast_unconfirmed"|"polygon_in_cap"|"polygon_out_of_cap"|"not_selected"|"option_off"}`. Plus `overrides`. Display only.
+
+**E1.8 Scope rules.**
+- Other locations: help text "Defaults come from storm and outage history at this house (Lakeway, TX)". No per-region sets (parked; trigger: a second install).
+- Severity stays retired.
+
+**E1.9 Retire the dead legacy plumbing (three buckets).**
+
+| Item | file:line | Bucket | Reason |
+|---|---|---|---|
+| Legacy keys built in `_inclement_config` (never passed: `AlertClassifier()` takes no args, `:2749`) | `energy_battery.py:2608-2609, 2618-2619, 2647-2660` | DELETE | Built and dropped; misleads readers. |
+| `AlertClassifier.__init__` legacy args | `inclement.py:447-453` | DELETE (it gains `selection`) | `test_inclement_alert_classifier.py:111` is updated (expected diff: legacy kwargs removed; `selection` kwarg added). |
+| config_flow imports + parse | `config_flow.py:6030-6031, 6036-6037, 6164-6168` | DELETE | Key never submitted. |
+| Field strings | `strings.json:983-984, 1068-1069` + translations | DELETE | Dead UI text. |
+| `CONF_INCLEMENT_POWER_THREAT_EVENTS`, `DEFAULT_…` | `energy_const.py:615, 634-643` | KEEP+DOCUMENT | The repair check reads them. |
+| Severity constants (`CONF_…WARN_MIN_SEVERITY`, default, options, order) | `energy_const.py:616, 644, 838-840` | DELETE if 0 readers after the above, else KEEP+DOCUMENT | Builder greps; `_severity_rank` may keep the order for attrs. |
+| `_event_matches_threat` | `inclement.py:237` (0 callers) | DELETE | Parent §13 gate met: the v5.103.69 Validated table landed (377a7e3ed). |
+| `_check_legacy_threat_list` | `energy.py:8335` | KEEP | Live repair path. |
+
+`test_legacy_plumbing_removed` (AST: no reader of the two keys outside the repair check; the two fields absent from the schema) also covers the parent §16 deferred item "D-B5 field removal has no unit test".
+
+**E1.10 Golden (Reviews 1 F6 / 2 C2): one capture point, one projection, enumerated diffs.**
+- **Capture:**
+  - The script `scripts/golden/ec_stage_e_capture.py` (committed) runs in a worktree at tag **v5.103.69**.
+  - It writes `quality/tests/fixtures/ec_stage_e_golden_v5_103_69.json` (committed **before any Stage E code**).
+  - The same script runs on the build branch with zero overrides and compares the two outputs.
+- **Projection** (named fields only, so new dataclass fields don't change the comparison):
+  - `AlertClassification`: `{tier, contributing_events, expires_at, hold ids/cls/tier, prepare ids, precharge_eligible, polygon_topup_active, prepare_precharge_eligible}`.
+  - `InclementDecision`: `{hold_depth, reserve_floor, grid_precharge, preonset_target (= v5.103.69 preonset_floor), reason}`.
+  - The registered floor is excluded here; INV-8 owns it.
+- **Axes:**
+  - product (every table row plus Freeze Watch plus one unlisted name);
+  - window position {active, prepare < 4 h, prepare 4-12 h, polygon in cap, polygon out of cap};
+  - TOU {bottom, top} × season {winter, summer};
+  - SOC {None, 30, 95};
+  - condition {calm, stormy with ≥ 2 providers};
+  - `watch_requires_corroboration` {T, F};
+  - option {T, F};
+  - forecast {confirms, not, None}.
+- **Expected diff** (an explicit key list in the fixture's sibling file):
+  - every cell for `Freeze Warning` and `Freeze Watch` (E0);
+  - `buy` (grid_precharge/preonset_precharge) cells where E2's schedule moves a buy, i.e. prepare-window cells at a bottom-rate hour outside `S`;
+  - nothing else. **Any other diff is RED.** The expected list is generated by a rule in the script, not hand-edited.
+- **Prepare-floor timing** has its own tests (INV-8).
 
 **E1 Acceptance**
-- **Verify (INV-7e, operator "not undone"):** zero overrides → the golden over the full table × case matrix in INV-7(e), captured on the **v5.103.69 tag** and committed before any Stage E code, is byte-identical except the E0 expected-diff rows. The table constant is not edited by E1 code; the AST test `test_product_table_not_mutated_by_selection` pins that the overlay returns new effective rows and never writes the constant.
-- **Verify (narrow):** remove `Winter Storm Warning` from hold → WSW in window = notice, `allow_discharge`. Remove it from buy only → `full_hold`, no CFG with option True, SOC 50, off-peak, forecast confirmed.
-- **Verify (widen buy):** add `Tornado Watch` to buy → buys only with a confirmed convective outlook (`lightning` + PoP 75). With PoP 60 or `pouring` only: no buy, hold unchanged.
-- **Verify (INV-7a):** a stored override adding SVW to buy has no effect when `POLYGON_EXACT` is False (monkeypatched constant). The SVW stays notice.
-- **Verify (INV-7c):** `Flood Watch` added to hold, providers `pouring`, top rate → `partial_hold`, never `full_hold`. Control: `Winter Storm Watch` with the same condition gives `full_hold` (same fixture).
-- **Verify (validation):** buy ⊄ hold → `buy_not_in_hold`. Buy `Flood Watch` → `buy_needs_forecast`. Both errors are field-scoped and nothing is persisted.
-- **Verify (storage):** submitting the defaults unchanged stores four empty lists. An E0-style table edit after storing changes the effective list for untouched products.
-- **Verify (no reload):** changing a selection triggers `apply_in_place`, not a CM reload (the reload-suppress test pattern).
-- **Test:** `test_zero_override_golden_identical_to_v5_103_69`, `test_product_table_not_mutated_by_selection`, `test_selection_remove_hold_is_notice`, `test_selection_remove_buy_keeps_hold`, `test_selection_widen_buy_needs_forecast`, `test_selection_cannot_override_polygon_locality`, `test_unlisted_product_capped_partial_hold` (+ control), `test_selection_validation_buy_subset_of_hold`, `test_selection_validation_buy_needs_family`, `test_selection_stores_deltas_only`, `test_selection_keys_in_options_reload_suppress_keys`, `test_selection_reads_live_options_per_tick`, `test_selection_overlay_applies_in_build_record` (memory/ledger path, Bug Class #53 anchor), `test_inclement_selection_attr_shape`, `test_legacy_plumbing_removed` (AST: no reader of the two keys outside the repair check).
-- **Mutation drills (Review C):** apply the overlay in `classify` only (the `build_record` test goes RED); drop the buy ⊆ hold validation; drop the unlisted condition-corroboration cap; let an override set `polygon_local=False`; store the full effective list instead of deltas; read the module default instead of options.
-- **Live:** (a) options flow shows the two lists with today's defaults, and `.storage/core.config_entries` holds four empty override lists after one save (or none if never saved). A full snapshot there = storage bug. (b) `inclement_selection` reads `[]`, `overrides` all empty, with no alert. (c) 0 URA errors mentioning `selection` / `match_product` after restart. (d) no CM reload in the log when the operator saves a changed selection (discriminates against a missing reload-suppress key).
+- **Verify:**
+  - (INV-7e) The golden comparison passes with the enumerated diff only.
+  - Behavioural "not mutated" drill: an override run leaves `INCLEMENT_PRODUCT_TABLE` and `TABLE_SELECTION` equal to their import-time copies.
+- **Verify (narrow):** WSW removed from hold → notice, `allow_discharge`, **not admitted to D-B3 memory**, no prepare floor. WSW removed from buy only → `full_hold`, no CFG (option True, SOC 50, bottom rate, forecast confirmed).
+- **Verify (widen):**
+  - Tornado Watch added to buy → buys only with `lightning` + PoP 75; with PoP 60 or `pouring`, no buy.
+  - Wind Advisory added to hold + `pouring` + top rate → `partial_hold` at most (repro ii).
+- **Verify (caps, INV-7(c)/(f)):** each case parametrized over `watch_requires_corroboration` {T, F}:
+  - Flood Watch in hold → `partial_hold` max (repro i).
+  - Mixed Winter Storm Watch + Flood Watch → identical to Winter Storm Watch alone.
+- **Verify (INV-7a):** an override adding SVW to buy has no effect when `POLYGON_EXACT` is False.
+- **Verify (runtime subset):** seed `buy_added=["Tornado Watch"]` with Tornado Watch removed from hold (or a monkeypatched table that makes it notice) directly into options → no buy and no error.
+- **Verify (storage):**
+  - Submitting the defaults through the real flow handler stores four empty lists, no form keys, and no `hold_removed` for retired names.
+  - A case-variant stored name matches.
+  - An out-of-vocabulary stored name is not rendered and is ignored at runtime.
+- **Verify (no reload):** a changed selection gives `apply_in_place`.
+- **Tests:**
+  - `test_zero_override_golden_identical_to_v5_103_69`, `test_product_table_not_mutated_by_selection` (behavioural);
+  - `test_selection_overlay_applies_in_classify`, `…_in_build_record`, `…_in_memory_admission`, `…_in_outage_ledger`;
+  - `test_selection_remove_hold_is_notice_and_not_admitted`, `test_selection_remove_buy_keeps_hold`, `test_selection_widen_buy_needs_forecast`, `test_widened_notice_not_corroborable`;
+  - `test_unlisted_product_capped_partial_hold[req_true|req_false]`, `test_mixed_unlisted_does_not_demote_table_watch`, `test_selection_cannot_override_polygon_locality`, `test_runtime_buy_subset_of_hold_seeded_store`;
+  - `test_selection_validation_buy_subset_of_hold`, `test_selection_validation_buy_needs_family`, `test_selection_stores_deltas_only_real_flow`, `test_selection_form_keys_popped`, `test_selection_casefold_and_unknown_names`;
+  - `test_selection_keys_in_no_live_attr_keys`, `test_selection_keys_in_options_reload_suppress_keys`, `test_selection_reads_live_options_per_tick`;
+  - `test_unlisted_rows_skip_drift`, `test_inclement_selection_attr_shape`, `test_legacy_plumbing_removed`.
+- **Mutation drills (Review C):**
+  - remove the overlay from each `match_product` caller (four drills, each RED);
+  - drop `∩ hold` in `build_selection`;
+  - drop the corroborable conjunct per leg (three drills);
+  - use `any(unlisted)` instead of `any(corroborable)` (the mixed test goes RED);
+  - let the overlay set `polygon_local`;
+  - store the full list;
+  - leave the form keys unpopped;
+  - drop a key from either live/reload set;
+  - mutate the table in place.
+- **Live:**
+  - (a) After one save, `.storage/core.config_entries` holds the four override keys (empty) and **no** `inclement_hold_products`/`_buy_products`. A form key present means a snapshot leak.
+  - (b) No CM reload in the log on saving a changed selection (discriminates a missing reload-suppress key).
+  - (c) 0 URA errors mentioning `selection` / `match_product` after restart.
+  - Rev 1's "attr reads [] with no alert" line is dropped (Review 2 L3: non-discriminating).
 
-### E2: pre-onset floor only when it counts (EC-STORM-PREONSET-TIMING-1)
+### E2-P: measure first, the forecast-timed hold (go/no-go this cycle)
 
-**Marginal-benefit decomposition (do this first; the recommendation follows from it).**
-- *Operator's complaint:* "holding for 12 hours is wasteful." The floor, not the hold, is what spans 12 h before Onset.
-- *Simplest version:* a short floor lead before alert Onset. In winter the top-rate blocks are 4 h (05-09, 17-21), and an Onset falls at or after one of them. A 4 h lead covers the one top-rate block before Onset, which is the only window where the battery was going to discharge (§1d: ~60 pp across 17-21). The other 8 h of today's lead fall in bottom-rate hours, where the battery barely discharges, so holding then protects almost nothing. **This captures the whole complaint.**
-- *Forecast intersection margin:* by §0.3, `T ≥ Onset`, and the hold starts at Onset. Intersecting can only remove some of the ≤4 h of floor directly before a hold that starts anyway, on alerts whose forecast hazard hour is after Onset. The ingredients are a per-hour predicate over provider rows, a new time anchor that moves as forecasts refresh (state × time seam, the bug family the marginal-benefit rule was coined for), and a fallback rule. **Margin ≈ 0 for the pre-onset floor. Recommend not building it here.**
-- *Where the operator's idea does have margin:* deferring the **in-window hold** from NWS Onset to `T − L` when NWS Onset is hours ahead of the forecast hazard. That is a demotion of an active warn (principle 1, INV-3) and needs evidence. Parked as **E2b** with trigger: after one winter, `inclement_forecast` + `nws_alert` rows show ≥ 3 HOLD events where the first forecast-confirming hour came ≥ 4 h after Onset. E2b would add `WeatherProviderManager.first_confirming_hour(family, start, end)` over `_hourly` rows using a **per-hour** predicate (cold and wet in the same hour), with fallback `T = start`. Operator question OQ-3.
+A one-shot, read-only `ura-prober` script. It runs **before** E2 build dispatch and its report is committed as `docs/planning/AUDIT_ec_storm_event_time_vs_onset.md`.
 
-**Recommended build (E2):**
-1. NEW `INCLEMENT_PREONSET_FLOOR_LEAD_H` (rung 1, default **4**): the floor is registered only when `start − 4 h ≤ now < start`.
-2. `INCLEMENT_PREONSET_LEAD_H` (12) is **re-scoped to the buy horizon**: the classifier's prepare split is unchanged, so a bottom-rate pre-charge can still start up to 12 h ahead, e.g. a 21:00 winter Onset with the 09-17 bottom-rate window.
-3. **Floor-follows-buy:** if the pre-charge latch for that alert is `engaged` or `reached`, the floor is registered from that tick to Onset. Otherwise bought energy would self-consume away before the floor window, and the buy would be wasted. The buy's own `_result` already emits `reserve_level=preonset_floor` while charging, and this extends that past the charge.
-4. Physics check for 4 h: from the overnight SOC (~10 %, §1d) to the 80 floor is 70 pp. Solar delivers up to 25 pp/h (p90), so ~3 h on a clear afternoon. Grid is unmeasured (~25 pp/h at the 10 kW estimate, also ~3 h). So 4 h ≥ the charge time on either source, with an hour of margin. With the option off (live), the floor only stops discharge, and 4 h = exactly one top-rate block. Both arguments give 4.
+- **Q1, Onset re-stamps:**
+  - Over the IEM VTEC archive for TXZ192 / TXC453, 2021-2026 (same source as `AUDIT_nws_alert_history_lakeway.md`), for every HOLD-class and E0 product: how many events had an Update (CON/EXT) whose begin time was re-stamped to its issue time, and by how many hours it moved the effective start earlier.
+  - Cross-check with the live `nws_alert` ledger rows (Stage L, since 10-16) and the recorder history of the alerts sensor (~10 days).
+- **Q2, Onset lead:**
+  - For each event: the first observed hazard hour from the nearest ASOS station's hourly observations (IEM ASOS archive; the prober names and cites the station). Freeze family: first hour ≤ 28 °F (apparent temperature for Extreme Cold). Winter storm: first hour with frozen precip present. Convective: first thunder report.
+  - The gap `G = first_hazard_hour − effective_start`.
+  - Observed hazard is the **oracle**. It is an upper bound on what a forecast could deliver. If a historical-forecast archive covering the house point is available (for example Open-Meteo's historical forecast API, **availability to be verified by the prober**, not assumed), also record the first forecast-confirming hour.
+- **Q3, value:** peak-block hours that a forecast-timed hold (`T − L_floor`) would have released versus Onset-timed. Report per event, per year, and in $ (pp × 0.4 kWh × top-bottom spread).
+- **Q4, safety:** documented outages (`AUDIT_outage_alert_correlation.md`) that began before `T − L_floor`, i.e. where a deferred hold would have been late.
+- **Q5, grid charge rate:** any recorder episode with the charge-from-grid switch on and battery charge power available gives the pp/h. If there is none (likely, §1d), record "none; operator value 1-2 h stands".
 
-Interactions: the forecast-confirm latch is unchanged (it decides the watch floor level and buy confirmation, not timing). `INCLEMENT_PREONSET_LEAD_H = 0` still kills D-B6 entirely. Floor lead 0 means floor only via the buy latch. Precharge is still OFF live, so live E2 is a floor-timing change only.
+**Go/no-go for E2b** (the forecast-timed in-window hold for **watches**, plus re-stamp handling). **GO** iff all three:
+- (a) ≥ 3 events in 5.8 y with `G ≥ 4 h`;
+- (b) ≥ 12 top-rate hours released over the archive (≈ 2/yr);
+- (c) **zero** Q4 outages that would have begun before `T − L_floor`.
+
+Otherwise **NO-GO**: E2b parks with the ledger trigger (≥ 3 ledger HOLD events with `G ≥ 4 h` once Stage C forecast attrs accrue).
+
+**On GO:** E2b gets its own plan addendum and Tier-3 increment (per-hour predicate over `_hourly` rows, "cold and wet in the same hour"; fallback `T = start`). It covers watches only. Warn deferral, including re-stamped warns, stays an explicit operator ruling (OQ-3b), because it demotes an active warning. Without E2b, `T = start` (Onset).
+
+**Acceptance:** the report answers Q1-Q5 with counts and sources, and states GO or NO-GO against (a)-(c). **Live:** n/a (offline).
+
+### E2: buy in the cheapest hours before the event; floor no earlier than needed (EC-STORM-PREONSET-TIMING-1 + operator ruling)
+
+**E2.1 Event time `T`.** `T = preonset_start` (Onset of the earliest prepare alert; NWS onsets for watches are hazard start, P2(c)). Under E2b GO only, `T` may come from the forecast. `T` is shown in the attr with `event_time_source`.
+
+**E2.2 Buy schedule (operator ruling; prior art REUSED).** New pure function `schedule_buy_hours(tou, now, T, h_req, horizon_h) -> tuple[datetime, …]` in `inclement.py`:
+- Candidate hours: whole local hours `H` with `now ≤ H < T` and `T − H ≤ INCLEMENT_PREONSET_LEAD_H`.
+- Each hour is ranked by `tou.period_rank(tou.get_season(H), tou.get_current_period(H))`. These are the existing helpers (`energy_tou.py:459, 491`); the hour-walk is the `peak_ahead_before_offpeak` pattern (`:628`). No tariff parsing and no period names.
+- Order by `(rank, T − H)` and take the first `h_req`. So the bottom-rate hours closest to the event are used. A higher-rate hour enters only when fewer than `h_req` bottom-rate hours remain before `T` (operator: "only during a higher rate window before the event if unavoidable").
+- `h_req = ceil(max(0, target − SOC) / INCLEMENT_GRID_CHARGE_PP_PER_H) + INCLEMENT_PREONSET_BUY_MARGIN_H`.
+- Engine missing → fall back to `get_current_period(H) == "off_peak"` as rank 0, else rank 1 (the parent's byte-safe convention).
+- Engine raises → empty schedule → no buy, and the floor rule (i) still applies.
+- It is the same "charge just before the expensive window" idea as arbitrage's `_is_charge_window_open` (`energy_battery.py:3558`), generalised from "next high-rate transition" to "the event".
+- **Freeze:** `S` is computed on the first tick where a buy would be eligible and stored on the latch entry (`{"state", "hours", "T", "target"}`). It is recomputed only if `T` or `target` changes. That bounds CFG transitions, and the solar test still runs before engagement (unchanged).
+
+**E2.3 Floor timing, priced (operator point 3).** The floor's job is to keep charge you already have, or just bought, until the hold starts.
+- **No buy scheduled** (option off, the live state; or not eligible): the floor starts at `T − INCLEMENT_PREONSET_FLOOR_LEAD_H` (default 4).
+  - Winter: that is exactly the 17-21 (or 05-09) top-rate block before a 21:00 (or 09:00) Onset, the only window where the battery was going to discharge.
+  - Price: holding through it forgoes ~60 pp × 0.4 kWh ≈ 24 kWh × (0.0864 − 0.0435) ≈ **$1.0 per event**.
+  - The alternative is to let it discharge and arrive at Onset at ~10-35 % with no way to refill (option off).
+  - Rule: with no buy available, hold through the last top block (at most 4 h, about $1). The 12 h lead it replaces held through bottom-rate hours for no gain.
+- **Buy scheduled:** the floor starts at `min(S)`, so bought energy isn't discharged before `T`. Because `S` is the cheapest hours **closest to** `T`, any top-rate block between `min(S)` and `T` is one the charge could not avoid: there was no later bottom-rate slot.
+  - Example: winter 21:00 Onset, `S = {15:00, 16:00}`, floor 15:00-21:00 (6 h, covering 17-21).
+  - Price: the same ~$1 forgone discharge plus the buy (~20 kWh × 0.0435 ≈ $0.9).
+  - Versus buying at 09:00 and holding 12 h (today): the same buy cost, plus the same forgone discharge, plus 6 more held hours. So E2 is never worse than today.
+- **Not built:** "discharge through the top block, then rebuy after it". It only pays when bottom-rate hours exist **between** the last top block and `T` (rare in winter: the 21:00-onward and 09:00-17:00 slots). It saves the spread minus ~10 % round-trip loss, ≈ $0.9/event, but it adds a second buy per event and a dependence on the rebuy succeeding. Parked (trigger: E2-P or the ledger shows ≥ 3 events/yr with a top block followed by ≥ `h_req` bottom hours before `T`).
+
+**E2.4 Field split (Reviews 1 F1 / 2 C1).**
+- `InclementDecision.preonset_target: int | None` is the floor/buy **value**. It is populated across the buy horizon, exactly what `preonset_floor` carries in v5.103.69.
+- `preonset_floor: int | None` is now the **registered** floor: equal to `preonset_target` when INV-8 (i) or (ii) holds, else None.
+- New: `preonset_buy_hours: tuple[datetime, …] = ()` and `preonset_floor_from: datetime | None`.
+- Readers per §4.3.
+- **Placement in `_apply_prepare` (Review 2 M3):** after the latch purge (`:950-953`), the `engaged→reached` advance (`:974-980`) and the `pre` computation (`:984-1005`, whose `is_bottom` conjunct becomes "hour ∈ S"). It sets `preonset_target`/`preonset_floor` in the final `replace()`. **No early return.**
+- **Multi-alert (Review 2 M2):**
+  - `T` is the earliest prepare start (`pstart`), so the floor gate uses `pstart`.
+  - The floor **value** uses the class of rows with `start ≤ now + floor_lead` (a warn 10 h out does not lift a watch's floor 3 h out). If no row is inside the floor window, the latch-key row is used.
+  - The latch exemption (INV-8(ii)) is checked on `key_id`.
+  - A two-alert fixture (warn 10 h, watch 3 h) pins all three rules.
+- **Eligibility-loss discharge (Review 1 F5):** each tick, if the latch is `engaged` and (option False OR not `_zone_buy_confirmed`), delete the entry. `reached` entries stay (no re-buy) but don't extend the floor.
+- **Knob extremes (Review 2 L1):** effective floor lead = `min(FLOOR_LEAD_H, LEAD_H)`. Floor lead 0 + no buy → no floor. `LEAD_H` 0 → D-B6 off.
+
+**Interactions:**
+- The forecast-confirm latch is unchanged.
+- §12 parent limits restated: **21** (lead 48 → now governs only the buy horizon; the floor is still ≤ floor lead or the schedule span); **23** (an Onset slip moves `T`, the schedule is recomputed, and the floor follows the new `T`); **25** (a shrunken forecast window on restart can unconfirm a buy, so the eligibility-loss rule clears the floor extension; the floor falls back to (i)).
+- EC-SOC-LADDER-FULL-WIRING-1 (parked, D2 peak-buffer seam): E2 neither touches `peak_buffer_target` nor fires its trigger (0 `threshold_ladder_violation` rows; the floor change is registration timing only).
 
 **Acceptance**
-- **Verify (INV-8 repro):** WSW Onset 21:00 (December), option False: no floor at 16:59, floor 80 at 17:00, hold at 21:00. Same alert, lead constants at the old values (12/12) → floor from 09:00 (regression control, parametrized).
-- **Verify (floor-follows-buy):** option True, Onset 21:00, SOC 30 at 10:00 bottom rate, forecast confirmed → buy engages at 10:00, floor registered 10:00-21:00, never below 80 after `reached`. Control: same with option False → no floor before 17:00.
-- **Verify:** an active hold inside its window is unchanged (hour-sweep golden of in-window decisions identical).
-- **Verify:** floor lead 0 + option False → no pre-onset floor at any hour. Buy lead 0 → D-B6 off.
-- **Test:** `test_preonset_floor_lead_window`, `test_preonset_floor_follows_engaged_latch`, `test_preonset_floor_lead_zero_floor_only_with_latch`, `test_preonset_in_window_hold_unchanged_golden`, `test_preonset_buy_horizon_unchanged`; update `test_preonset_floor_none_outside_lead` to the new semantics.
-- **Mutation:** key the floor on the buy horizon (repro goes RED); drop floor-follows-buy (the buy fixture shows the floor missing 10:00-17:00 → RED).
-- **Live:** with no alert, `inclement_preonset` is `null`. When a future HOLD alert sits 4-12 h ahead, `inclement_preonset` reads `{"floor_from": "<start−4h>", …}` and `reserve_write` rows carry no `tick_preonset_floor` before `floor_from`. Discriminates: a non-null `tick_preonset_floor` earlier than `floor_from` with no latch = gate missing. Event-gated, disposes on the first prepare alert.
+- **Verify (INV-9 repro):** winter WSW Onset 21:00, SOC 30 at 06:00, option True, forecast confirmed, rate 50, margin 1 → `S = {15:00, 16:00}`; CFG on at 15:00, off when SOC ≥ 80; floor registered from 15:00. No CFG at 09:00-14:59.
+- **Verify (unavoidable top rate):** WSW Onset 19:00 issued at 17:30, SOC 30 → `S` takes the rank-1 hours 17:00-18:00 (no bottom hours remain). Control: Onset 23:00 → `S` takes the bottom-rate hours 21:00-22:00, not the top-rate 17-21 hours.
+- **Verify (closest to event):** SOC 70 → `h_req = 2`, `S = {19:00, 20:00}` for a 21:00 summer-shoulder Onset only if those are bottom rate. Otherwise the latest bottom-rate hours before the 17:00 block.
+- **Verify (INV-8 option off):** same WSW, option False → no buy; floor from 17:00 (`T − 4`), none at 16:59. Regression control: with `FLOOR_LEAD_H = LEAD_H = 12` the floor starts at 09:00.
+- **Verify (eligibility loss):** engaged at 15:00; forecast unconfirms at 16:00 → latch deleted, floor drops to rule (i) (17:00), CFG off. Option True→False at 16:00 → same.
+- **Verify:** in-window hold golden unchanged. Effective floor lead parametrized (0, 4, 12, 13 → 12).
+- **Tests:** `test_schedule_cheapest_closest_to_event`, `test_schedule_uses_higher_rate_only_if_unavoidable`, `test_schedule_engine_missing_fallback`, `test_schedule_frozen_on_engage`, `test_schedule_recomputed_on_onset_update`, `test_preonset_floor_lead_window[0,4,12,13]`, `test_preonset_floor_from_schedule_start`, `test_preonset_floor_clears_on_eligibility_loss[unconfirm|option_off]`, `test_preonset_two_alerts_floor_value_and_gate`, `test_preonset_field_split_readers` (one assert per §4.3 row), `test_preonset_in_window_hold_unchanged_golden`.
+- **Update with the expected diff:** `test_ec_stage_b_preonset_precharge.py:569-590` (`test_preonset_floor_none_outside_lead` now asserts `preonset_target` set and `preonset_floor` None at 4-12 h); every D-B6 test asserting `is_bottom_rate` buy timing moves to the schedule, and the parent gate parametrize gains "hour ∉ S" as a refusal.
+- **Mutation:** per §4.3 row (target↔registered swap, seven drills); replace the schedule gate with `is_bottom_rate(now)` (repro RED); order by `(rank, H − now)` (closest-to-event RED); drop the eligibility-loss clear; early-return before the latch advance.
+- **Live:**
+  - When a future HOLD alert is 4-12 h ahead, `inclement_preonset` reads `{"active": false, "floor_from": "<T−4h or min(S)>", "buy_hours": [...]}`.
+  - `reserve_write` rows carry no `tick_preonset_floor` before `floor_from`. A row earlier than that is a wrong reader (§4.3).
+  - Event-gated: disposes on the first prepare alert.
 
-### E3: hygiene carried in-cycle (tiny, same review)
-- **B-LOW-5 (parent §16):** wrap `get_forecasts` in `asyncio.timeout(FORECAST_FETCH_TIMEOUT_S)` (NEW rung 1, 20 s) so a hung provider can't hold `_refresh_lock`. Test: `test_hourly_fetch_timeout_releases_lock`. ~5 lines. Fixed in-cycle per the fix-LOWs rule.
-- **Parent plan §13/§16 write-back:** mark `_event_matches_threat` deleted, legacy plumbing retired, Stage E link.
+### E3: hygiene carried in-cycle
+- **Fetch timeouts (Review 1 F12):** wrap both `get_forecasts` calls (daily `weather_manager.py:414`, hourly `:903`) in `asyncio.timeout(FORECAST_FETCH_TIMEOUT_S)` (NEW rung 1, 20 s). Test `test_fetch_timeout_releases_refresh_lock[daily|hourly]`.
+- **`number.py:1688-1695` docstring (F17):** the floor-lead / buy-horizon split.
+- **Write-backs in the ship commit:**
+  - parent §10 park entries (F10), §12 limits 21/23/25, §13 (`_event_matches_threat` deleted), INV-6(iii) amended by INV-9;
+  - arc doc status rows;
+  - this plan's completion tracking.
 
 ---
 
@@ -206,81 +447,139 @@ Interactions: the forecast-confirm latch is unchanged (it decides the watch floo
 
 | Knob | Rung | Default | Why / kill |
 |---|---|---|---|
-| `inclement_hold_added/_removed`, `inclement_buy_added/_removed` (options) | 2 | empty | Operator chooses which alerts hold or buy. Empty = table defaults. Kill for buys = `inclement_grid_precharge_on_hold` False (unchanged). |
-| `NWS_WEATHER_EVENT_NAMES` | 1 | snapshot of `api.weather.gov/alerts/types` 2026-10-17 (weather subset) | The selectable vocabulary. Refresh by reviewed code change; the E0 test fails if a table name falls out. |
-| `INCLEMENT_PRODUCT_TABLE` rows (E0) | 1 | §E0 | Evidence-set; review required. |
-| `INCLEMENT_PREONSET_FLOOR_LEAD_H` | 1 | 4 | Hours before Onset the pre-onset floor applies. Sized to one winter top-rate block and to the ~3 h charge time (§1d). 0 = floor only while a pre-onset buy is engaged or reached. Rung 1 because it prices peak arbitrage against readiness. |
-| `INCLEMENT_PREONSET_LEAD_H` | 1 | 12 (re-scoped: buy horizon) | How early a bottom-rate pre-charge may start. 0 = D-B6 off (both legs). |
-| `FORECAST_FETCH_TIMEOUT_S` | 1 | 20 | Hourly fetch bound. |
-
-No rung-3 additions. The options flow gains two fields and drops none (the two legacy fields left in D-B5).
+| `inclement_hold_added/_removed`, `inclement_buy_added/_removed` | 2 | empty | Operator chooses which alerts hold or buy. Empty = table defaults. Buy kill = `inclement_grid_precharge_on_hold` False. |
+| `NWS_WEATHER_EVENT_NAMES` | 1 | weather subset of `alerts/types`, 2026-10-17 | Selectable vocabulary. Refreshed by reviewed change; the E0 test fails loudly. |
+| E0 table rows | 1 | §E0 | Evidence-set. |
+| `INCLEMENT_PREONSET_LEAD_H` | 1 | 12 (re-scoped: buy horizon) | How far ahead a buy may be scheduled. 0 = D-B6 off. |
+| `INCLEMENT_PREONSET_FLOOR_LEAD_H` | 1 | 4 | Floor start before `T` when no buy is scheduled. One winter top-rate block. Effective value is `min(·, LEAD_H)`. 0 = floor only with a buy schedule. Rung 1: it prices peak arbitrage. |
+| `INCLEMENT_GRID_CHARGE_PP_PER_H` | 1 | 50 | Operator: "charge from grid in 1-2 hours" (80 pp / 1.6 h). Below the 77 pp/h hardware ceiling. E2-P Q5 replaces it once an episode is measured. A smaller value schedules more hours. Rung 1: it sizes paid import. |
+| `INCLEMENT_PREONSET_BUY_MARGIN_H` | 1 | 1 | Slack hour against rate or SOC error. 0 = exact. |
+| `FORECAST_FETCH_TIMEOUT_S` | 1 | 20 | Fetch bound. |
+| E2-P go/no-go thresholds (3 events, 12 h, 0 outages) | plan text | §E2-P | One-shot decision, not runtime. |
 
 ---
 
 ## 7. Non-goals
 1. No change to class/tier semantics, locality, the polygon cap, forecast thresholds, the storm threshold or the precharge option.
-2. No per-region default tables (parked, trigger: a second install).
-3. No forecast-timed hold (E2b, parked with trigger, OQ-3).
+2. No per-region default tables.
+3. No forecast-timed hold unless E2-P is GO (then a separate increment). No warn deferral without an operator ruling.
 4. No runtime fetch of the NWS vocabulary.
-5. No translation of customized legacy substring lists (repair issue stays).
-6. No arc steps 9-11, Stage D or EC-OBS-DP-EVSE-1 (each has its own cycle, §E3 inventory).
-7. No change to the arbitrage engine, the governor, the overlay or write-verify.
+5. No translation of customized legacy substring lists.
+6. No change to the full-hold or polygon buy legs' rate gates (in-window buys).
+7. No "discharge then rebuy" (§E2.3, parked).
+8. No change to the arbitrage engine, the governor, the overlay or write-verify. Arc steps 9-11, Stage D and EC-OBS-DP-EVSE-1 have their own cycles.
 
-## 8. Tier and review
-**Tier 3**: one cycle, E0+E1+E2+E3, `ura-super-builder`. Split option: E2 alone as "E-b" if E1's options-flow surface makes review heavy, since E2 touches only `inclement.py` fusion and constants. Plan reviews: (1) completeness (re-enumerate every `INCLEMENT_PRODUCT_TABLE` / `eligible` / prepare-floor site); (2) build-prediction. Build reviews A/B/C/D as parent §9. D's target is INV-7 under every legal selection, including the vocabulary extremes (empty hold list, everything selected, every unknown product), plus INV-8. Golden captured after E0, before E1/E2 code. Operator checkpoint before deploy. Deploy risk **MEDIUM**: no buy is live, the floor gets shorter, and Freeze Warning starts holding.
+## 8. Tier, order and review
+- **Tier 3.** Order:
+  1. E2-P probe (offline, first).
+  2. Golden capture on v5.103.69 (committed).
+  3. Build E0+E1+E2+E3 on one branch with `ura-super-builder`.
+- **Split option:** E2 as increment "E-b" (only `inclement.py` fusion/scheduler, the 7 readers and constants).
+- **Build reviews** A/B/C/D per the parent's §9. D's target is INV-7, INV-8 and INV-9:
+  - under every legal selection, including vocabulary extremes, `watch_requires_corroboration` {T, F}, and illegal stored combinations;
+  - for the scheduler at TOU extremes: Onset inside a top block, Onset at 00:00, a DST night, the summer bracketed mid_peak, engine missing.
+- Operator checkpoint before deploy.
+- **Deploy risk MEDIUM:** buys stay off live; Freeze rows begin holding; the floor gets shorter.
 
 ---
 
-## 9. E3: arc / spawned / dropped inventory (recommendations, not a menu)
+## 9. Arc / spawned / dropped inventory (recommendations)
 
-| # | Item | Source | Disposition | Why (one line) |
+| # | Item | Source | Disposition | Why |
 |---|---|---|---|---|
-| 1 | **NWS vocabulary drift** (Hard Freeze/Wind Chill gone, Freeze Warning notice) | found here §0.1 | **Stage E (E0)** | A live freeze-hold gap; cheapest high-value fix in the arc. |
+| 1 | NWS vocabulary drift | §0.1 | **Stage E (E0)** | Live freeze-hold gap. |
 | 2 | Operator alert selection | EC-STORM-PRODUCT-SELECTION-EXTERNAL-1 | **Stage E (E1)** | Operator ask. |
-| 3 | Pre-onset timing | EC-STORM-PREONSET-TIMING-1 | **Stage E (E2)**, forecast-timed hold **parked (E2b)** | Shorter lead captures the complaint; the intersection has ~0 margin for the floor. |
-| 4 | Legacy threat-list dead plumbing | residual_2026_10_17_legacy_threat_list | **Stage E (E1.8)** | Same files as E1. |
-| 5 | `_event_matches_threat` DELETE | parent §13 | **Stage E**, after the v5.103.69 Validated table | Its gate closes with that table. |
-| 6 | B-LOW-5 `get_forecasts` timeout under lock | parent §16 | **Stage E (E3)** | 5 lines; prevents a stuck refresh lock. |
-| 7 | B-LOW-4 Storm Guard negative cache | parent §16 | **Drop** | Registry re-resolve only runs while the state is missing; cost is a lookup. |
-| 8 | Arc step 8: obs-mode bypass | EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (shipped_organic v5.103.69) | **Dispose now** (one query: 0 `reserve_write` rows while observation mode on since restart) | Shipped; organic lane is not a parking lot. |
-| 9 | §12 limit 14 + B-LOW-1 (evaluate-path pre-onset latch not rolled back in observation mode) | parent §12 | **Verify in the step-8 disposition**; if the v5.103.69 gate covers the evaluate path's `determine_mode`, close; else card it under step 8 as a residual | Was explicitly deferred to step 8. |
-| 10 | Arc steps 9 + 10 (TOU-transition double consume; evaluate-path ledger gap) | EC-TOU-TRANSITION-DOUBLE-CONSUME-1, EC-EVALUATE-PATH-LEDGER-GAP-1 | **Separate joint Tier-2 cycle, next after Stage E**; measure first (how often the manager wins) | Arc rule: same path, one joint plan. |
-| 11 | Arc step 11: self-heal re-sends (frozen local reading) | EC-SELFHEAL-UNEXPLAINED-RESENDS-1 (waiting_operator) | **Separate cycle**, unblock on the operator answer | CRITICAL pages 1-5/day; own root cause, not storm logic. |
-| 12 | Stage D: 9 H period-name sites + pin | parent §6/§8, Q8 "do it" | **Separate Tier-2 cycle** after steps 9/10 | Byte-identical portability work; independent of Stage E. |
-| 13 | EV-charger writes in observation mode | EC-OBS-DP-EVSE-1 | **Separate Tier-2 cycle**, pair with step 8 residuals | Same observation-mode theme, different writers. |
-| 14 | `BLIND_RESPECT_MANUAL_LOWER` two must-fix defects | parent §7 | **Park, trigger: any proposal to set it True** | The constant is False, so the defects are unreachable. |
-| 15 | HOLD-CURRENT doesn't refresh `_desired_stamped_at` | README v5.103.68 | **Park, trigger: a redispatch gap traced to HOLD-CURRENT** | Re-pass proved it can only suppress a write. |
-| 16 | Sighted SOC-unknown full hold uses slider 60, not 100 | README v5.103.68 / parent §6 D-A3 | **Park, trigger: a ledger outage with SOC unknown at hold start** | Rare state; slider is operator-tunable. |
-| 17 | Review C equivalent mutant B19 (`cloud_withhold_exempt` at pre-onset) | ec_stage_bc_review_C | **Drop** | Equivalent mutant, unreachable on the cloud tier. |
-| 18 | Outage ledger Live (e): does the local witness flip on islanding | parent §12 limit 17, Stage L | **Event-gated disposition on the first real outage** (one query) | Can't be produced; disposes on first event. |
-| 19 | Forecast thresholds (50 % / 1.0 mm / 70 %) unfitted | parent §16, README v5.103.69 | **Park, trigger: 2027-03-31 end of first winter with Stage C attrs + `nws_alert` rows; one fit probe then** | No history exists to fit from; buys are off. |
-| 20 | Grid pre-charge option turn-on | parent §6 Live (e), ruled "after Stage C" | **Operator action (OQ-4)**, recommend after Stage E ships | E0/E1 change what can buy; turn on once against the final table. |
-| 21 | Q7 re-confirm (unverified polygon → notice) | parent §14 | **Operator item (OQ-5)**, default stands | Only bites if `?point=` proves inexact. |
-| 22 | §12 limit 15 (D-B3 memory lost on restart) | parent §10 | **Park (existing trigger)** | Unchanged. |
-| 23 | §12 limits 25/26 (forecast latch and grid-buy NM dedupe RAM-only) | parent §12 | **Park, trigger: a duplicated buy NM or post-restart unconfirm observed** | Cosmetic / rare. |
-| 24 | Polygon per-storm budget | parent D-B2a | **Park (existing trigger: ≥3 covering IDs in one storm)** | Measured ≤100 min per storm. |
-| 25 | Storm Guard switched on while HA down not NM'd | parent D-B7 | **Park (operator ruled log-only)** | Ruled. |
-| 26 | NM consuming `nws_alert` rows for HOLD-alert notices | parent §13 | **Park, trigger: operator asks to be told about holds** | Grid-buy NM already covers the money action. |
-| 27 | Pre-onset buy outside bottom rate; convective/tropical eligibility; WIY promotion; ledger table | parent §10 parked list | **Park (existing triggers)** | Unchanged. |
-| 28 | Full-hold degraded path `envoy_available=True` | parent §16 A-HIGH-1 note | **Done** (B-LOW-2, 95ecb7430) | Closed in v5.103.69. |
-| 29 | Arc doc status rows stale (steps 2-7 still read "waiting") | ARC doc | **Fix in the Stage E ship commit** | Doc-only. |
-| 30 | v5.103.69 README Validated table | CLAUDE.md write-back rule | **Do before Stage E build** | It gates item 5 and closes the cycle. |
-| 31 | EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 | outside arc | **Unchanged** (own card) | Explicitly outside. |
+| 3 | Pre-onset timing + cheapest-window buy | EC-STORM-PREONSET-TIMING-1 + ruling | **Stage E (E2)** | Operator ask and ruling. |
+| 3b | Forecast-timed in-window hold | §0.3 | **Stage E (E2-P) decides; E2b on GO** | Measured this cycle, per Review 2. |
+| 4 | Legacy plumbing | residual_2026_10_17_legacy_threat_list | **Stage E (E1.9)** | Same files. |
+| 5 | `_event_matches_threat` | parent §13 | **Stage E** | Gate met (Validated table 377a7e3ed). |
+| 6 | Fetch timeouts (B-LOW-5, daily + hourly) | parent §16 | **Stage E (E3)** | ~5 lines. |
+| 7 | B-LOW-4 Storm Guard negative cache | parent §16 | **Drop** | Re-resolve runs only while the state is missing. |
+| 8 | Arc step 8 (obs-mode bypass) | EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (shipped_organic) | **Dispose now** (one query) | Organic lane is not a parking lot. |
+| 9 | §12 limit 14 / B-LOW-1 (evaluate-path latch rollback) | parent §12 | **Check in the #8 disposition**; card a residual if not covered | Deferred to step 8. |
+| 10 | Arc steps 9+10 | EC-TOU-TRANSITION-DOUBLE-CONSUME-1, EC-EVALUATE-PATH-LEDGER-GAP-1 | **Separate joint Tier-2 cycle next**, measure first | Arc rule. |
+| 11 | Arc step 11 | EC-SELFHEAL-UNEXPLAINED-RESENDS-1 (waiting_operator) | **Separate cycle** on the operator answer | CRITICAL pages; own root cause. |
+| 12 | Stage D | parent §8, Q8 | **Separate Tier-2 cycle** | Independent. |
+| 13 | EV writes in obs mode | EC-OBS-DP-EVSE-1 | **Separate Tier-2 cycle**, paired with #9 | Same theme. |
+| 14 | Arc step 1 governor | EC-RESERVE-WRITE-GOVERNOR-1 (shipped_organic) | **Dispose now**: one query over `reserve_write` rows since v5.103.66 (`floor_ok` never false with a floor registered) | Missed in Rev 1 (F-inv). |
+| 15 | Parent card | EC-INCLEMENT-HARDENING-1 (shipped_organic v5.103.69) | **Close done-with-residuals at the Stage E ship**; residuals = rows 3b, 18, 19 | Missed in Rev 1. |
+| 16 | `BLIND_RESPECT_MANUAL_LOWER` defects | parent §7 | **Park**; trigger: any proposal to set it True | Unreachable while False. |
+| 17 | HOLD-CURRENT `_desired_stamped_at` | README v5.103.68 | **Park**; trigger: a redispatch gap traced to it | Only suppresses. |
+| 18 | Sighted SOC-unknown full hold = slider 60 | README v5.103.68 | **Park**; trigger: an outage with SOC unknown at hold start | Rare. |
+| 19 | Forecast thresholds unfitted | parent §16 | **Park**; trigger: 2027-03-31, one fit probe | No history. |
+| 20 | Outage witness on islanding | parent §12 limit 17 | **Dispose on the first real outage** | Event-gated. |
+| 21 | Review C equivalent mutant B19 | ec_stage_bc_review_C | **Drop** | Equivalent. |
+| 22 | Grid pre-charge option turn-on | parent Live (e) | **Operator (OQ-4)**, after Stage E | Final table and schedule. |
+| 23 | Q7 re-confirm | parent §14 | **Operator (OQ-5)**, default stands | — |
+| 24 | §12 limits 15 / 25 / 26 | parent §12 | **Park**, existing triggers (25 restated in E2) | — |
+| 25 | Polygon per-storm budget; Storm Guard down-time notice; NM for HOLD alerts | parent | **Park**, existing triggers | — |
+| 26 | Parent §10: WIY promotion, convective/tropical eligibility | parent §10 | **Superseded by E1** (operator-selectable; defaults unchanged) | Review 1 F10. |
+| 27 | Parent §10: pre-onset buy outside bottom rate | parent §10 | **Superseded by E2/INV-9** (higher rate only if unavoidable) | Operator ruling. |
+| 28 | Parent §10: ledger table, memory persistence | parent §10 | **Park**, existing triggers | — |
+| 29 | D-B5 field-removal unit test | parent §16 | **Stage E** (`test_legacy_plumbing_removed`) | F-inv. |
+| 30 | EC-SOC-LADDER-FULL-WIRING-1 | parked card | **No action**; E2 doesn't fire its trigger (§E2) | Checked. |
+| 31 | Full-hold degraded `envoy_available` | parent §16 | **Done** (95ecb7430) | — |
+| 32 | Arc doc status rows | ARC doc | **Stage E ship commit** | — |
+| 33 | v5.103.69 Validated table | CLAUDE.md | **Done** (377a7e3ed) | — |
+| 34 | EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 | outside arc | **Unchanged** | — |
 
 ---
 
-## 10. Open operator questions (each with the recommended default)
+## 10. Open operator questions (recommended default in bold)
 
-| # | Question | Recommended default |
+| # | Question | Default |
 |---|---|---|
-| OQ-1 | Freeze Warning / Freeze Watch become **watch** (partial hold on frost nights, full hold and buy only when the forecast shows ≤ 28 °F)? | **Yes.** The alternative leaves hard freezes unhedged now that the NWS no longer issues Hard Freeze. |
-| OQ-2 | Selection UI = two lists ("Alerts that hold the battery", "Of those, alerts that may buy grid power") with buy ⊆ hold enforced, choices from the NWS name list, no free text, unknown products capped at partial hold? | **Yes.** |
-| OQ-3 | Pre-onset floor = 4 h before NWS Onset; forecast-timed **hold** deferral parked until a winter of data shows Onset leading the forecast hazard by ≥ 4 h in ≥ 3 events? | **Yes.** The intersection you described can't start the floor earlier, and moving the in-window hold later is a demotion that needs evidence first. |
-| OQ-4 | Turn `inclement_grid_precharge_on_hold` on after Stage E ships, not before? | **After Stage E**, against the final table and selection. |
+| OQ-1 | Freeze Warning / Freeze Watch become watch: a partial hold on bottom-rate frost nights, **released at top rate** when the forecast is above 28 °F, and a full hold and buy only on a ≤ 28 °F forecast? | **Yes.** |
+| OQ-2 | Two lists (hold; may buy ⊆ hold), NWS names only, added and widened alerts capped at partial hold and never corroborated? | **Yes.** |
+| OQ-3 | (a) Event time = NWS Onset now, with the forecast-timed version decided by the E2-P probe this cycle (GO = ≥ 3 events with Onset ≥ 4 h ahead of the observed hazard, ≥ 12 top-rate hours saved, no outage missed). (b) If GO, apply it to **watches only**, or to warnings too (including Updates that re-stamp Onset to "now", e.g. a WSW re-stamped from 21:00 to 13:00 holding through the 17-21 block)? | (a) **Yes.** (b) **Watches only**; warnings need their own ruling after you see the probe numbers. |
+| OQ-4 | Turn grid pre-charge on after Stage E ships? | **After Stage E.** |
 | OQ-5 | Q7 (unverified polygon → notice) stands? | **Stands.** |
-| OQ-6 | Grid charge rate is unmeasured. Accept 4 h on the solar evidence plus the one-block argument, or run one supervised bottom-rate grid charge to measure it? | **Accept 4 h.** The first real pre-charge records the rate in `reserve_write` and SOC history. |
+| OQ-6 | Grid charge rate = **50 pp/h** (your "1-2 h", 80 pp in ~1.6 h) plus a 1 h margin, so a typical 30 → 80 % top-up books **2 cheapest hours** just before the event. E2-P replaces it if a recorder episode exists. OK? | **Yes.** |
+| OQ-7 | With grid buying off, hold the floor through the last top-rate block before the event (≤ 4 h, ≈ $1/event forgone discharge) rather than let the battery drain into the storm? | **Yes.** |
 
 ## 11. Changelog
 | Rev | Date | Change |
 |---|---|---|
-| 1 | 2026-10-17 | Initial Stage E. Coordinator E1 critique (8 points) folded in. Measured: NWS vocabulary (four HOLD products retired; E0), hourly outlook shape (per-hour rows internal, aggregate public), SOC/TOU physics for the 4 h lead. |
+| 1 | 2026-10-17 | Initial (6dd862d15): coordinator E1 critique, "not undone", E0 found, E2 4 h lead, inventory. |
+| 2 | 2026-10-17 | Both plan reviews folded (§12). Operator E2 ruling: cheapest-hours-before-event buy schedule (INV-9, amends INV-6(iii)), floor from the schedule start or `T − 4 h`, priced. Field split (target vs registered floor, 7 readers). Explicit `InclementSelection` threading to all 3 `match_product` callers, including the ledger. Corroborable cap on every leg. Runtime buy ⊆ hold. Selection domain excludes retired names. Golden: one capture point, projection, rule-generated diffs. E2b turned into the E2-P measure-first go/no-go. §0.3 rewritten. Inventory +8 rows. OQ-3 split, OQ-6 re-based on the operator's charge rate, OQ-7 new. |
+
+---
+
+## 12. Plan review fix-up (Rev 2)
+
+R1 = `plan_review_ec_storm_stage_e_1_completeness.md` (af96d1ab7). R2 = `plan_review_ec_storm_stage_e_2_build_prediction.md` (951a5c708).
+
+| ID | Sev | Plan change |
+|---|---|---|
+| R1-F1 / R2-C1 | CRIT | §E2.4 field split (`preonset_target` vs registered `preonset_floor`); §4.3 seven readers with the field each uses; an eighth reader stops the build; seven swap drills. |
+| R2-C2 / R1-F6 | CRIT / MED | §E1.10: one capture point (v5.103.69 tag, committed script + fixture); named projection; full axes; rule-generated expected diff (E0 cells + E2 buy-schedule cells); INV-7(e) scoped to classification/hold/buy; prepare-floor timing moved to INV-8. |
+| R1-F2 / R2-H3 (ledger) | HIGH | §4.1 ledger is the third caller; `record_tick(selection=…)` built in `energy.py`; `…_in_outage_ledger` test + drill. |
+| R1-F3 / R2-H3 (threading) | HIGH | §E1.3 frozen `InclementSelection`, explicit parameter on `match_product`/`build_record`/`update_alert_memory`/`AlertClassifier`/ledger; no global; overlay rewrites `cls`/tier/`eligible`; memory admission test. |
+| R1-F4 / R2-H2 | HIGH | §4.2 tier-level conjunct `any(r.corroborable for r in watch_records)`; mixed fixture; INV-7(f). |
+| R2-H1 | HIGH | INV-7(c): the cap covers every leg including `watch_requires_corroboration=False`; tests parametrized; D target list. |
+| R2-H4 / R1-F9 | HIGH / MED | `build_selection` runtime `∩ hold ∩ (family ∪ polygon)`; seeded-store test + drill. |
+| R2-H5 | HIGH | §E1.2 selection domain = `table ∩ vocabulary` ∪ unlisted vocabulary; retired rows outside; real-flow "defaults → four empty lists" test. |
+| R1-F5 | MED | INV-8(ii) + §E2.4 eligibility-loss clear; two tests. |
+| R1-F7 / R2-M1 | MED | §E1.6 both key sets; two tests; two drills. |
+| R1-F8 | MED | §E1.6 pop form keys, case-fold, out-of-vocabulary render filter, removed-row-becomes-unlisted; tests. |
+| R1-F10 | MED | §E1.5 un-park stated; inventory rows 26/27; parent §10 write-back (E3). |
+| R1-F11 | MED | Tests to update listed with expected diffs (E0, E1.9, E2). |
+| R2-M2 | MED | §E2.4 multi-alert rule (gate on `pstart`, value from rows in the floor window, latch on `key_id`); two-alert fixture. |
+| R2-M3 | MED | §E2.4 placement after purge/advance/`pre`; no early return; drill. |
+| R2-M4 | MED | §E0 TOU-specific expectations incl. top-rate release (OQ-1 states it). |
+| R2-M5 | MED | §E0 Freeze Watch is gated out today; name-only row; golden expected diff. |
+| R2-M6 | MED | Widened notice rows are non-corroborable (INV-7(c)); repro (ii); test. |
+| R1-F12 | LOW | Both daily and hourly fetches bounded (E3). |
+| R1-F13 | LOW | FZA name-only; Cold Weather Advisory → apparent temp; vocabulary inclusions/exclusions listed; unlisted rows skip drift. |
+| R1-F14 | LOW | §1a corrected (legacy value built, never passed); `_event_matches_threat` has 0 callers. |
+| R1-F15 | LOW | Repair text re-pointed (E1.6). |
+| R1-F16 | LOW | Error keys named with strings + translations (E1.1). |
+| R1-F17 | LOW | `number.py` docstring (E3). |
+| R2-L1 | LOW | Effective floor lead `min(floor, buy)`; parametrized test. |
+| R2-L2 | LOW | Restart and obs-mode stated as non-guarantees in INV-8. |
+| R2-L3 | LOW | Non-discriminating Live lines dropped or replaced (E1 Live, E2 Live). |
+| R1 inventory misses | — | Rows 14, 15, 26-30 added; parent limits 21/23/25 restated in E2. |
+| R2 mutation-authority gaps | — | Behavioural table-not-mutated drill; reader-side drills (§4.3); `∩ hold` drill; per-caller overlay drills. |
+| R2 forecast-intersection pushback | — | Accepted: §0.3 rewritten; E2b became E2-P (measure-first, GO thresholds, this cycle); OQ-3 split with the re-stamp example. |
+
+**Rejected:** none. **Partially taken:** R1-F1's alternative `preonset_floor_active: bool`. I used a value split instead (`preonset_target` plus a nullable registered `preonset_floor`), so the six existing registered-floor readers keep their None-means-absent semantics without a second flag to forget.
