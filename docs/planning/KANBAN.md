@@ -2,18 +2,18 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T02:12:48-05:00_ - _Data commit: `f68dcfbffd1e`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T02:16:19-05:00_ - _Data commit: `3001c79dcb0d`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -21,17 +21,10 @@ _Generated: 2026-10-17T02:12:48-05:00_ - _Data commit: `f68dcfbffd1e`_ - _last_r
 | 🅿️ Parked | 88 |
 | ✅ Done | 339 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
-### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **quality** - status: **inbox** - approval: **unreviewed**
-_created 2026-10-16 13:30 · initial_
-- **Problem / Solution:**
-  - Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes...
-- **Origin:** 2026-10-16 - Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.
-- **Why:** Pollutes every name-diff by time of day, so real regressions hide behind it.
-- **Tags:** found-during-build, test-infra
+_(none)_
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
@@ -70,7 +63,7 @@ _updated 2026-10-16 02:10_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-### `EC-OBS-DP-EVSE-1` - Drain-precedence EV-charger switch writes ignore energy observation mode — _#4 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `EC-OBS-DP-EVSE-1` - EV-charger writes ignore energy observation mode (drain-precedence charger switches + solar-follow amp restore) — _#4 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-17 02:12 · initial_
 - **Problem / Solution:**
@@ -80,7 +73,8 @@ _created 2026-10-17 02:12 · initial_
 - **Next:** Me: after EC-OBSERVATION-MODE-RESERVE-BYPASS-1 is merged, verify the four sites on develop, then a Tier-2 plan (note: the restore-time reconcile may be load-bearing for EVSE safety, so decide gate-vs-exempt per site) -> plan review -> bu...
 - **Tags:** found-during-plan-review, no-fabrication-verify
 - **Parsimony:** [BUILD (small), after the reserve gate lands to avoid same-file churn] With energy observation mode ON, drain-precedence still issues EV-charger switch.turn_on/off.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `INSTANCE_2026_10_17_solar_follow_restore`: From the reserve-gate build's D3 writer audit (docs/planning/AUDIT_ec_observation_mode_writer_coverage.md on fix/ec-obs-mode-reserve-gate): solar-follow _restore_pass (energy_pool.py:5257, :5270, :5492) restores saved EVSE amps when the ...
   - `tier`: 2
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `adjacency_2026_10_17`: Swept board (observation + evse/drain), BACKLOG.md, plan review table: NEW (different targets and code path from EC-OBSERVATION-MODE-RESERVE-BYPASS-1; sibling, same bug class).
@@ -327,10 +321,21 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (3)
 _being built_
 
-### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **quality** - status: **in_progress** - approval: **unreviewed**
+_created 2026-10-16 13:30 · updated 2026-10-17 02:17 · initial_
+- **Problem / Solution:**
+  - Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes...
+- **Origin:** 2026-10-16 - Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.
+- **Why:** Pollutes every name-diff by time of day, so real regressions hide behind it.
+- **Tags:** found-during-build, test-infra
+- **Forensic keys (1):**
+  - `gate_2026_10_17_overnight`: Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (tes...
+
+### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **energy** - status: **in_progress**
 _created 2026-10-16 · updated 2026-10-17 02:13 · refined_
 - **Problem / Solution:**
@@ -344,7 +349,7 @@ _created 2026-10-16 · updated 2026-10-17 02:13 · refined_
   - `measured_2026_10_17_overnight`: CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManage...
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#3 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **safety** - status: **in_progress** - approval: **unreviewed**
 _created 2026-10-14 19:30 · updated 2026-10-15 02:10 · initial_
 - **Origin:** 2026-10-14 - plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map
