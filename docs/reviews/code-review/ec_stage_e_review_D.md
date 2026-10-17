@@ -52,3 +52,64 @@ After a restart at 16:30 (SOC 50, Onset 23:00) the latch and S are empty. The re
 
 ## Verdict: FIX-REQUIRED
 Must fix: D-HIGH-1, and D-MED-1 with it (same site). D-MED-2 needs an operator ruling: accept and amend the spec, or force contiguity. D-LOW-1: plan text fix.
+
+---
+
+## Re-pass @ e4bdcecc9 (fix-up d2687080d..e4bdcecc9)
+
+These findings come from reading the code statically at file:line. No new executed probe was run, because the validator owns the worktree.
+
+### Prior findings: status
+- **D-HIGH-1: CLOSED on every path.** `inclement.py:1325` `basis = corroborable or prep`. Class, `prows`, `key_row` and `pstart` (:1326-1334) now come from `basis`. Each downstream path reads `basis` values only:
+  - reason/`preonset_event`: `key_row`.
+  - latch: `key_id`.
+  - schedule: `schedule_buy_hours(..., pstart)` at :1405.
+  - INV-8(i) `fstart`: `pstart - lead`.
+  - `eligible`/`buy_forecast_confirmed`: `prows`.
+
+  The (i) `hi` test still scans all of `prep`, but it requires `r.corroborable`, so an unlisted record gets only `lower` (INV-7(c) holds). Pinned by `test_unlisted_prepare_never_moves_table_event_time` and `..._never_names_the_buy`.
+- **D-MED-1: CLOSED.** The stale-T rule at :1374-1376 deletes `sched[key]` when the stored T ≠ the current `pstart`, and S is re-frozen against the new T on the same tick. Pinned by `test_stale_event_time_replans_after_earlier_alert_onsets`.
+- **D-MED-2: CLOSED by operator ruling.** `schedule_buy_hours` (:1141-1155) returns one contiguous run.
+- **D-LOW-1/2:** unchanged and accepted.
+
+### New mechanisms
+**(a) Contiguous scheduler: holds.**
+- An all-cheapest run of length L totals L·min_rate, the global minimum, so a higher-rate run can only win on an exact tie. A tie gives an equal total, which is not a loss.
+- The `get_current_rate` → rank fallback cannot mix units in practice. `energy_tou.py:472-478` reads the same `import_rate` that `period_rank` (:491) parses, and `period_rank` returns None when that rate is non-numeric, so the slot becomes unranked and breaks the run.
+- An unranked slot breaks a run: the `None` skip.
+- UTC stepping makes DST and midnight safe (local rank per slot).
+- The horizon filter only trims the head of `seq`, so it never creates an interior gap.
+- When fewer slots than `h_req` fit, the run shrinks to the longest available.
+
+**(b) Update carry-over (`_carry_over_updates` :1162-1189).** Wrong-Event (watch→warning) does not carry: it is keyed on Event+NWSCode. When two same-Event records are live at once, the old ID is still in `live`, so nothing carries. Two leaks are LOW:
+- **D2-LOW-1 (carry fires on Onset, not only on supersession; bug class: state×time seam).** The latch purge comment (:1313) treats "Onset reached" as a discharge, but carry-over runs first and transfers the latch whenever any departed key has a same-Event/code, window-overlapping successor in prep.
+  - Repro (legal): Winter Storm Watch A (table, confirmed), Onset 18:00, Ends 06:00. Same-code Watch B (adjacent segment) Onset 02:00, Ends 12:00. Both are in prep, key = A. A buys to the knob, so `latch[A]=reached`.
+  - At 18:00 A onsets, and `latch[B]=reached` is inherited. A's partial hold lets SOC drain toward `partial_floor` from 18:00 to 02:00. B's floor (i) registers at 22:00, but the `reached` latch suppresses B's buy, so B onsets near the partial floor. Without carry-over, B would re-buy to the knob in the cheap hours.
+  - This is equivalent to NWS having issued one long alert, so it is defensible. Fix option: carry only when the old ID is not in the current active-hold set (i.e. it was superseded, not onset).
+- **D2-LOW-2 (stale-T drops the carry metadata, so a `reached` latch is lost on a later Update and causes a re-buy; bug class #53 one-missed-site).** Carry-over needs `sched[old]` with its meta. The stale-T rule (:1375) deletes the whole entry, and a `reached` state never re-freezes. The same happens after eligibility loss (:1364-1366).
+  - Repro (legal): Freeze Watch (Onset 11:00, table) + WSW (Onset 21:00), key = WSW, T = 11. The buy reaches the target at 10:xx. At 11:00 stale-T deletes `sched[WSW]` and `reached` stays.
+  - At 15:00 NWS sends a WSW Update with a new ID and the same Onset. With no sched entry there is no carry, so the old latch is purged and the new ID starts fresh. If SOC < target, a second buy runs, which breaks plan §E2.2.6 "a `reached` latch survives: no re-buy".
+  - Cost impact is small: it tops up in the cheapest run. Fix option: keep the meta in the latch, or on stale-T replace the hours instead of deleting the entry.
+
+**(c) Degenerate-window fallback (:266-276): narrowing holds.** Only `Ends` null AND `Expires ≤ start` is revived. An explicit `Ends ≤ Onset` stays inverted. `Sent`-as-start can never trip it, because Expires > Sent.
+- **D2-LOW-3 (residual).** A revived record also extends `update_alert_memory` retention, from Expires to Onset+`INCLEMENT_ALERT_MAX_HOLD_H`. Rule (3) `left_feed` only fires on a NON-EMPTY healthy feed. So if NWS lets a null-Ends watch lapse at Expires and the feed goes empty, memory keeps it until Onset+MAX_HOLD. Before this fix the record had an inverted window and never acted.
+  - This follows the module's fail-toward-hold doctrine and needs a rare lapse with no successor. Noted only.
+
+**(d) Non-key purge and key delete on eligibility loss (:1360-1376): holds.** The purge order is: carry-over, then the live purge, then eligibility loss, then the non-key purge, then stale-T. Every exit leaves at most `sched[key_id]` with T == the current `pstart`.
+- An empty S is never frozen (:1410).
+- A latch for a non-key ID is not purged until it leaves `live`. This is harmless because the latch is only read for `key_id`.
+
+### Doc
+- **D2-LOW-4:** `PLANNING_ec_storm_stage_e.md` contradicts itself. Line 411 says carry-over was built, but :414 ("Accepted, not engineered … carry-over would add the state × time seam") and :656 ("carry-over option is declined") still describe it as declined. Line 128 still carries the `(rank, T−H)` ordering text next to the SUPERSEDED note. Fix the text.
+
+### Re-pass invariant checklist
+| Invariant | Verdict |
+|---|---|
+| INV-7(a)-(e) | PASS (untouched by the fix-up except `basis`) |
+| INV-7(f) | PASS (D-HIGH-1 closed) |
+| INV-8 | PASS |
+| INV-9 contiguity / cheapest / latest | PASS |
+| INV-9 no re-buy after reached (§E2.2.6) | LEAK, LOW (D2-LOW-1/2, small cost) |
+
+### Re-pass verdict: SHIP
+No CRITICAL, HIGH or MEDIUM findings. D2-LOW-1 and D2-LOW-2 are recommended in-cycle LOW fixes (each a few lines). D2-LOW-4 is a doc fix.
