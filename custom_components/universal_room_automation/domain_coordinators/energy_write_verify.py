@@ -752,7 +752,15 @@ class WriteVerifier:
                     "conduct check raised (swallowed)", exc_info=True,
                 )
             try:
-                await self._pending_watchdog_reserve(battery)
+                # EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (D2): no re-send
+                # ladder in observation mode. The episode is FROZEN, not
+                # reset: attempts, episode_at and any stand-down pin are
+                # preserved, so after the mode turns off the `_result`
+                # same-value skip, `is_reserve_verifiable` / the blind-window
+                # EVSE guard and the self-heal/reverted alarm suppression
+                # all see the same episode they saw before (plan rev 3).
+                if not getattr(self._coord, "_observation_mode", False):
+                    await self._pending_watchdog_reserve(battery)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "pending watchdog raised (swallowed)", exc_info=True,
@@ -2340,6 +2348,14 @@ class WriteVerifier:
         fire time (belt + suspenders vs the check we did above); if any
         precondition fails the call is a no-op with a DEBUG log.
         """
+        # EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (D2): defence-in-depth
+        # chokepoint for the attempt ladder AND the cool-off probe.
+        if getattr(self._coord, "_observation_mode", False):
+            _LOGGER.debug(
+                "WriteVerifier: %s retry (%s) suppressed by observation mode",
+                surface, attempt_index_note,
+            )
+            return
         try:
             fn = getattr(battery, "force_redispatch", None)
             if fn is None:
