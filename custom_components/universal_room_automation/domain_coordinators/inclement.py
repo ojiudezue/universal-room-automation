@@ -40,6 +40,7 @@ from .energy_const import (
     DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
     DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
     DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+    INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     INCLEMENT_SEVERITY_ORDER,
 )
 
@@ -553,8 +554,12 @@ class InclementFusion:
         watch_requires_corroboration: bool = DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
         surplus_margin_pct: int = DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
         storm_charge_threshold: int = 90,
+        blind_full_hold_floor: int = INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     ) -> None:
         self._reserve_soc = int(reserve_soc)
+        # EC storm/blind Stage A D-A5: live slider value (re-read per tick by
+        # `_inclement_config`); used only when SOC is unknown.
+        self._blind_full_hold_floor = max(0, min(100, int(blind_full_hold_floor)))
         self._partial_floor = int(partial_hold_reserve_floor)
         self._grid_precharge_on_hold = bool(grid_precharge_on_hold)
         self._watch_requires_corroboration = bool(watch_requires_corroboration)
@@ -724,11 +729,25 @@ class InclementFusion:
     def _full_hold_floor(self, current_soc: float | None) -> int:
         """full_hold preserves everything: hold at current SOC (clamp 0-100).
 
-        Mirrors today's BACKUP behavior (no discharge). When SOC unknown,
-        defaults to 100 (hold all) — conservative.
+        Mirrors today's BACKUP behavior (no discharge). Sighted (SOC known):
+        ``int(soc)`` — may be below reserve_soc, by design (P3-08).
+
+        EC storm/blind Stage A D-A3/D-A5: SOC unknown → ``max(reserve_soc,
+        partial_floor, blind_full_hold_floor)`` (the D-A5 slider, default 60;
+        100 = the legacy pin, 0 = no extra blind floor). Was a hard 100.
         """
         if current_soc is None:
-            return 100
+            return max(
+                0,
+                min(
+                    100,
+                    max(
+                        self._reserve_soc,
+                        self._partial_floor,
+                        self._blind_full_hold_floor,
+                    ),
+                ),
+            )
         return max(0, min(100, int(current_soc)))
 
     def _partial_floor_value(self, current_soc: float | None) -> int:

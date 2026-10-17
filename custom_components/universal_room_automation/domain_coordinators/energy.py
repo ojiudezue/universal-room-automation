@@ -9279,6 +9279,13 @@ class EnergyCoordinator(BaseCoordinator):
             floor_ok: bool | None = (
                 value_i >= inclement_floor if inclement_floor is not None else None
             )
+            # EC storm/blind Stage A D-A4 (additive): the REGISTERED tick
+            # floor + the cached decision's hold depth, read synchronously
+            # here, before the DB task is scheduled. INV-1 live falsifier:
+            # `value < tick_floor`. `inclement_floor`/`floor_ok` keep their
+            # partial-only semantics (Non-goal 1).
+            tick_floor = getattr(battery, "_tick_reserve_floor", None)
+            tick_hold_depth = getattr(dec, "hold_depth", None)
             key = (path, value_i, hold_owner)
             gated = (
                 status in (WriteStatus.APPLIED, WriteStatus.DEFERRED)
@@ -9314,6 +9321,8 @@ class EnergyCoordinator(BaseCoordinator):
                 "hold_owner": hold_owner,
                 "inclement_floor": inclement_floor,
                 "floor_ok": floor_ok,
+                "tick_floor": tick_floor,
+                "tick_hold_depth": tick_hold_depth,
                 "pre_state": pre_state,
                 "reason": reason,
             }

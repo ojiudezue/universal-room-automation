@@ -2613,11 +2613,19 @@ class TestV5175BlindPeakDeEscalation:
             grid_precharge = True
             reserve_floor = 60
             source = "test"
+        # EC storm/blind Stage A D-A3: the exemption reads THIS tick's
+        # decision (per-tick cache seam: stamped at the tick's `now`), and
+        # the registered full-hold floor now drives one blind hold write
+        # instead of "no commands issued". No CFG turn_off (exempt).
+        now = dt_util.now()
         h.strategy._last_inclement_decision = _FakeInclement()
-        h.strategy._last_inclement_decision_at = dt_util.now()
-        r = h.strategy.determine_mode("peak", "summer")
-        assert r["actions"] == []
-        assert "holding (no commands issued)" in r["reason"]
+        h.strategy._last_inclement_decision_at = now
+        r = h.strategy.determine_mode("peak", "summer", now=now)
+        services = [a.get("service") for a in r["actions"]]
+        assert "switch.turn_off" not in services
+        assert [a["data"]["value"] for a in r["actions"]
+                if a["service"] == "number.set_value"] == [60]
+        assert r["reason"].startswith("Blind hold — ")
 
     def test_degraded_reason_suffix_on_fallback(self):
         """Reason carries `(degraded telemetry: cloud_fallback)` when a
@@ -2942,13 +2950,26 @@ class TestV5175FullHoldFreshnessGate:
             grid_precharge = True
             reserve_floor = 60
             source = "test"
+        # EC storm/blind Stage A D-A3: freshness reduces to the current-tick
+        # decision. A full_hold decided THIS tick exempts de-escalation (no
+        # CFG turn_off); a decision stamped 5 min ago is not this tick's.
+        now = dt_util.now()
         h.strategy._last_inclement_decision = _FakeInclement()
-        # Stamped 5 min ago → fresh
-        h.strategy._last_inclement_decision_at = (
-            dt_util.now() - timedelta(minutes=5)
-        )
-        r = h.strategy.determine_mode("peak", "summer")
-        assert r["actions"] == []
+        h.strategy._last_inclement_decision_at = now
+        r = h.strategy.determine_mode("peak", "summer", now=now)
+        assert "switch.turn_off" not in [a.get("service") for a in r["actions"]]
+        assert r["reason"].startswith("Blind hold — ")
+        # Control: the same decision stamped 5 min earlier is a prior tick's
+        # (cache miss -> recomputed allow_discharge) -> de-escalation fires.
+        h2 = _BatteryHarness(soc=80)
+        h2.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        h2.strategy._soc_lkg = None
+        h2.strategy._soc_lkg_at = None
+        h2.hass.set_state(_CFG_STATE_ENTITY, "on")
+        h2.strategy._last_inclement_decision = _FakeInclement()
+        h2.strategy._last_inclement_decision_at = now - timedelta(minutes=5)
+        r2 = h2.strategy.determine_mode("peak", "summer", now=now)
+        assert "switch.turn_off" in [a.get("service") for a in r2["actions"]]
 
 
 class TestV5175LedgerOnlyDeEscalation:

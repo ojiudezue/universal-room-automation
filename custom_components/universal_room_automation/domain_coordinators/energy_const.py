@@ -653,6 +653,27 @@ DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION: Final = True
 # D-K: condition-only path decay after providers clear (minutes).
 DEFAULT_INCLEMENT_CONDITION_DECAY_MINUTES: Final = 30
 
+# EC storm/blind Stage A D-A5 (PLANNING_ec_storm_and_blind_decisions.md,
+# Q2 ruling). Blind full-hold floor when SOC is unknown on every tier:
+# `max(reserve_soc, partial_floor, slider)`. Rung 3 — the live value is the
+# Number entity `InclementBlindFullHoldFloorNumber`, persisted ONLY in the
+# CM `entry.options` under this key and re-read every tick by
+# `BatteryStrategy._inclement_config()` (options-read path: the key is in
+# `_NO_LIVE_ATTR_KEYS` + `OPTIONS_RELOAD_SUPPRESS_KEYS`; no setter). The
+# constant is the default. Kill semantics: 100 = legacy pin (every blind
+# full hold pins 100); 0 = the floor collapses to max(reserve_soc,
+# partial_floor).
+CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR: Final = "inclement_blind_full_hold_floor"
+INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT: Final = 60
+
+# EC storm/blind Stage A D-A3, Q6 ruled A (2026-10-16). Rung 1.
+# False = while fully blind, a manual reserve lower below the registered
+# floor is re-asserted next tick (sighted-path parity). True = a manual
+# lower (write-leg state below the last stamped desire and not the value
+# URA last dispatched) ends decision-side blind reserve writes for the
+# rest of the blind episode. Escape under either: the EC enable switch.
+BLIND_RESPECT_MANUAL_LOWER: Final = False
+
 # NWS severity ordering (CAP standard, low → high) for the noise filter.
 INCLEMENT_SEVERITY_ORDER: Final = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
 # Operator-facing select option keys for WARN_MIN_SEVERITY.
@@ -2305,8 +2326,9 @@ RESERVE_WRITE_LOG_IMPORTANCE: Final = "notable"
 # constant args of a counted Call are not counted again. A topology change
 # (new writer, moved writer) MUST update this table in the same commit.
 RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
-    ("energy_battery.py", "_result",                    "reserve",     1),
-    ("energy_battery.py", "determine_mode",             "reserve",     1),  # blind de-escalation
+    # EC storm/blind Stage A D-A2: the ONE decision-side reserve writer
+    # (sighted `_result` and every fully-blind rule route through it).
+    ("energy_battery.py", "_reserve_action",            "reserve",     1),
     ("energy_battery.py", "force_redispatch",           "reserve",     2),  # async_call + failure record
     ("energy.py",         "_apply_evse_battery_hold",   "reserve",     1),
     ("energy.py",         "_tap_write_verifier",        "reader",      1),  # svc compare (C1)

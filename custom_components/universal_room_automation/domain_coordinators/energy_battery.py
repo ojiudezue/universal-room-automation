@@ -25,6 +25,7 @@ from .energy_const import (
     ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
     BATTERY_MODE_BACKUP,
     BATTERY_MODE_SELF_CONSUMPTION,
+    BLIND_RESPECT_MANUAL_LOWER,
     DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     DEFAULT_ARBITRAGE_SOC_TARGET,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
@@ -44,6 +45,7 @@ from .energy_const import (
     DEFAULT_STORAGE_MODE_ENTITY,
     DEFAULT_STORM_CHARGE_THRESHOLD,
     DEFAULT_WEATHER_ENTITY,
+    INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     R7_USE_UNIFIED_PROJECTOR,
@@ -444,6 +446,15 @@ class BatteryStrategy:
         # never verified reserve for the hold's duration.
         # Unit: % SOC (0-100), semantic: floor (minimum).
         self._last_reserve_level_desired: int | None = None
+        # EC storm/blind Stage A D-A2: the current tick's registered reserve
+        # floor (`decision.reserve_floor` while holding, else None). ENTRY-
+        # RESET at the top of `determine_mode`; folded by `_reserve_action`
+        # (the sole stamper of `_last_reserve_level_desired`).
+        self._tick_reserve_floor: int | None = None
+        # D-A3 blind-episode flags (RAM-only; reset on every sighted tick).
+        self._blind_raised: bool = False
+        self._blind_pre_raise: int | None = None
+        self._blind_operator_override: bool = False
         # v5.17.2 — sibling DESIRED fields for the other two surfaces so
         # the write-verify reversion sweep can retire a stale record when
         # the strategy no longer wants the old commanded value (i.e. the
@@ -2568,6 +2579,7 @@ class BatteryStrategy:
             CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
             CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
             CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+            CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
             DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
             DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
             DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
@@ -2635,6 +2647,12 @@ class BatteryStrategy:
                 CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
                 DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
             )),
+            # EC storm/blind Stage A D-A5: the blind full-hold floor slider,
+            # read from entry.options every tick (no setter, no cache).
+            "blind_full_hold_floor": max(0, min(100, _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR),
+                INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+            ))),
         }
 
     def _read_nws_alerts(self, entity_id: str) -> Any:
@@ -2716,6 +2734,9 @@ class BatteryStrategy:
             watch_requires_corroboration=cfg["watch_requires_corroboration"],
             surplus_margin_pct=cfg["surplus_margin_pct"],
             storm_charge_threshold=DEFAULT_STORM_CHARGE_THRESHOLD,
+            blind_full_hold_floor=cfg.get(
+                "blind_full_hold_floor", INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+            ),
         )
         decision = fusion.decide(
             battery=self,
@@ -4816,10 +4837,42 @@ class BatteryStrategy:
         self._last_mode = current_mode or BATTERY_MODE_SELF_CONSUMPTION
         self._last_reason = reason
         self._arbitrage_phase = ARBITRAGE_PHASE_ATTAIN
+        # EC storm/blind Stage A fix-up (Review D HIGH-1): this return
+        # bypasses `_result`, so a registered tick floor would never reach
+        # `_reserve_action` (INV-1 leak via the EVSE overlay append, which
+        # composes from the stamp/ledger). When a floor is registered,
+        # route it through `_reserve_action` RAISE-ONLY: the requested
+        # level is max(floor, live write-leg reserve), so an in-flight
+        # charge reserve (e.g. 80) is never lowered (deadband → no
+        # action, stamp = hardware value) and a below-floor reserve is
+        # raised to the floor. No floor → no call: byte-identical.
+        _actions: list[dict[str, Any]] = []
+        _floor = self._tick_reserve_floor
+        if _floor is not None:
+            _hw = self._get_state_float(self._get_entity(
+                "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                role="write",
+            ))
+            # Review D re-pass D-MED-1: unreadable write leg → fall back to
+            # the stamp, then the KV-restored ledger, and deadband against
+            # that base (mirrors the blind branch) so an in-flight charge
+            # reserve is never lowered and nothing re-sends per tick.
+            if _hw is not None:
+                _base = _hw
+            elif self._last_reserve_level_desired is not None:
+                _base = self._last_reserve_level_desired
+            else:
+                _base = self._last_reserve_level
+            _level = int(max(_floor, _base)) if _base is not None else _floor
+            _, _act = self._reserve_action(
+                _level, compare_to=_base if _hw is None else None,
+            )
+            if _act is not None:
+                _actions.append(_act)
         return {
             "mode": current_mode or BATTERY_MODE_SELF_CONSUMPTION,
             "reason": reason,
-            "actions": [],
+            "actions": _actions,
             "soc": soc,
             "solar_production": self.solar_production,
             "net_power": self.net_power,
@@ -5494,6 +5547,11 @@ class BatteryStrategy:
         # without this a prior tick's True would stick on the sensor.
         self._grid_charge_withheld_untrusted = False
         self._grid_charge_withhold_dispatch_failed = False
+        # EC storm/blind Stage A D-A2 ENTRY-RESET: the registered reserve
+        # floor is per-tick. Assigned ONLY right after each
+        # `_inclement_decision` call below (sighted + fully blind); every
+        # early return before those (grid disconnect) leaves it None.
+        self._tick_reserve_floor = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -5595,93 +5653,131 @@ class BatteryStrategy:
             # post-deploy validation when an Envoy blip co-occurred with the
             # battery breaker tripping.
 
-            # ── v5.17.5 D2 blind peak de-escalation ─────────────────────
-            # Even fully blind, we MUST NEVER continue an active grid
-            # import into peak. Inclement `full_hold` (storm grid-precharge
-            # is deliberate) is exempt — read the last inclement decision
-            # so we don't fight a legitimate pre-storm charge. In the
-            # absence of a stored inclement state, we default to
-            # de-escalation (safer than importing through blind peak).
+            # ── EC storm/blind Stage A D-A3 — blind decisions ──────────
+            # Keep deciding while blind ("why stop reasoning when you
+            # clearly can?"): run the inclement decision (per-tick cache),
+            # register its floor, and emit AT MOST ONE reserve action, all
+            # through `_reserve_action` (fold + stamp + deadband). Never
+            # calls `_result` (no select, no CFG turn_on, no
+            # `_desired_stamped_at` refresh — v5.17.5 I-D3 kept). Precedence:
+            #   1. de-escalation (top rate / transition into top rate, CFG
+            #      on, not full_hold): turn_off + reserve_soc, folded;
+            #   2. hold (a floor is registered): max(F, base), never lowers;
+            #   3. release (no floor, a blind write raised the reserve):
+            #      restore the captured pre-raise value.
+            decision = self._inclement_decision(tou_period, now)
+            self._tick_reserve_floor = self._registered_floor(decision)
             de_escalate_actions: list[dict[str, Any]] = []
             de_escalate_reason: str | None = None
-            _inc = self._last_inclement_decision
-            # v5.17.5 A2 — bound the full_hold exemption on the inclement
-            # decision's freshness. A STALE full_hold would wrongly exempt
-            # de-escalation. Stale threshold = 30 min (inclement decisions
-            # tick per determine_mode call; if the last one is >30 min old,
-            # the state machine has probably been blind-held itself). Safe
-            # default: on stale/absent decision, fall through to
-            # de-escalation (the operator-ratified fail-safe).
-            _inc_at = self._last_inclement_decision_at
-            _inc_fresh = False
-            if _inc is not None and _inc_at is not None:
-                try:
-                    from homeassistant.util import dt as dt_util
-                    # `_last_inclement_decision_at` is stamped with the
-                    # caller's `now` (local via dt_util.now()); compare
-                    # against dt_util.now() to keep tz-awareness aligned.
-                    _age = (dt_util.now() - _inc_at).total_seconds()
-                    _inc_fresh = _age <= 1800  # 30 min
-                except Exception:  # noqa: BLE001
-                    _inc_fresh = False
-            _inc_full_hold = (
-                _inc_fresh
-                and getattr(_inc, "hold_depth", None) == "full_hold"
+            _floor = self._tick_reserve_floor
+            # v5.17.5 full_hold exemption, freshness reduced to the
+            # current-tick decision (it was computed just above).
+            _inc_full_hold = decision.hold_depth == "full_hold"
+            _top_edge = self._is_top_rate_edge(now, tou_period, tou_transition_into)
+            _res_eid = self._get_entity(
+                "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY, role="write",
             )
-            _is_peak_or_into_peak = (
-                tou_period == "peak" or tou_transition_into == "peak"
+            _wl = self._get_state_float(_res_eid) if _res_eid else None
+            _desired = self._last_reserve_level_desired
+            # Pre-write base: last stamped desire, else write-leg, else None.
+            _base = _desired if _desired is not None else _wl
+            # Q6 (BLIND_RESPECT_MANUAL_LOWER, ruled False): when True, a
+            # write-leg value below the stamped desire that URA did not
+            # dispatch ends blind reserve writes for this episode.
+            if (
+                BLIND_RESPECT_MANUAL_LOWER
+                and _wl is not None
+                and _desired is not None
+                and _wl < _desired
+                and self._last_reserve_level != _wl
+            ):
+                self._blind_operator_override = True
+            _cfg_write_eid = self._get_entity(
+                "charge_from_grid",
+                DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                role="write",
             )
-            if _is_peak_or_into_peak and not _inc_full_hold:
-                # Read CFG from the cloud (write-leg) entity + the
-                # commanded ledger. Either being True (or unknown-but-
-                # recently-commanded-on) triggers the two-action emit.
-                _cfg_write_eid = self._get_entity(
-                    "charge_from_grid",
-                    DEFAULT_CHARGE_FROM_GRID_ENTITY,
-                    role="write",
+            _cfg_live = self._get_state_bool(_cfg_write_eid)
+            _cfg_last_cmd = self._last_charge_from_grid_command
+            _cfg_currently_on = _cfg_live is True or _cfg_last_cmd is True
+            _rule: str | None = None
+            _target: int | None = None
+            _compare_to: float | None = None
+            if _top_edge and not _inc_full_hold and _cfg_currently_on:
+                _rule = "deescalate"
+                _target = int(self.reserve_soc)
+                if _cfg_write_eid:
+                    de_escalate_actions.append({
+                        "service": "switch.turn_off",
+                        "target": _cfg_write_eid,
+                        "data": {},
+                    })
+            elif _floor is not None:
+                _rule = "hold"
+                _target = _floor if _base is None else max(_floor, int(_base))
+                # Unreadable write leg: deadband against the stamp so a
+                # missing hardware value can't cause a write every tick.
+                _compare_to = _desired if _wl is None else None
+            elif self._blind_raised:
+                _rule = "release"
+                _target = (
+                    self._blind_pre_raise
+                    if self._blind_pre_raise is not None
+                    else int(self.reserve_soc)
                 )
-                _cfg_live = self._get_state_bool(_cfg_write_eid)
-                _cfg_last_cmd = self._last_charge_from_grid_command
-                _cfg_currently_on = (
-                    _cfg_live is True or _cfg_last_cmd is True
+            if _rule is not None and not self._blind_operator_override:
+                _folded, _act = self._reserve_action(
+                    _target, compare_to=_compare_to,
                 )
-                if _cfg_currently_on:
-                    # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: never emit a
-                    # write whose target role is unconfigured (2nd install).
-                    _de_res_eid = self._get_entity(
-                        "reserve_soc_number",
-                        DEFAULT_RESERVE_SOC_ENTITY,
-                        role="write",
+                if _act is not None:
+                    de_escalate_actions.append(_act)
+                if _rule == "release":
+                    self._blind_raised = False
+                    self._blind_pre_raise = None
+                elif (
+                    _rule == "deescalate"
+                    and self._blind_raised
+                    and self._blind_pre_raise is not None
+                    and _folded is not None
+                    and _folded <= self._blind_pre_raise
+                ):
+                    # Already restored by the de-escalation write.
+                    self._blind_raised = False
+                    self._blind_pre_raise = None
+                elif (
+                    not self._blind_raised
+                    and _folded is not None
+                    and (_base is None or _folded > _base)
+                ):
+                    # Release arming (any rule): this write raised the
+                    # reserve above its pre-write base.
+                    self._blind_raised = True
+                    self._blind_pre_raise = (
+                        int(_base) if _base is not None else None
                     )
-                    if _cfg_write_eid:
-                        de_escalate_actions.append({
-                            "service": "switch.turn_off",
-                            "target": _cfg_write_eid,
-                            "data": {},
-                        })
-                    if _de_res_eid:
-                        de_escalate_actions.append({
-                            "service": "number.set_value",
-                            "target": _de_res_eid,
-                            "data": {"value": max(
-                                0, min(100, int(self.reserve_soc))
-                            )},
-                        })
-                    de_escalate_reason = (
-                        "Blind de-escalation — never import through peak "
-                        f"blind (reserve→{int(self.reserve_soc)}, "
-                        "charge_from_grid→off)"
-                    )
-                    _LOGGER.warning(
-                        "Blind de-escalation ENGAGED: envoy down + SOC "
-                        "unresolved + %s + charge_from_grid ON — emitting "
-                        "turn_off + reserve=%d",
-                        (
-                            "peak" if tou_period == "peak"
-                            else "transition→peak"
-                        ),
-                        int(self.reserve_soc),
-                    )
+            else:
+                _folded = None
+            if _rule == "deescalate":
+                de_escalate_reason = (
+                    "Blind de-escalation — never import through the top "
+                    f"rate blind (reserve→{_folded}, charge_from_grid→off)"
+                )
+                _LOGGER.warning(
+                    "Blind de-escalation ENGAGED: envoy down + SOC "
+                    "unresolved + %s + charge_from_grid ON — emitting "
+                    "turn_off + reserve=%s",
+                    tou_transition_into if tou_transition_into else tou_period,
+                    _folded,
+                )
+            elif _rule == "hold":
+                de_escalate_reason = (
+                    f"Blind hold — inclement {decision.hold_depth} floor "
+                    f"{_floor} (reserve→{_folded})"
+                )
+            elif _rule == "release":
+                de_escalate_reason = (
+                    f"Blind release — no inclement floor (reserve→{_folded})"
+                )
             reason = (
                 de_escalate_reason
                 if de_escalate_reason is not None
@@ -5716,6 +5812,11 @@ class BatteryStrategy:
         # emission sites read at the end. Simpler: append the suffix to
         # `_last_reason` after we get a result. Handled via a post-hoc
         # wrap below.
+        # EC storm/blind Stage A D-A3: blind-episode flags are RAM-only and
+        # end with the episode (any tick that does not engage the gate).
+        self._blind_raised = False
+        self._blind_pre_raise = None
+        self._blind_operator_override = False
         self._degraded_telemetry_source = None
         if not envoy_avail:
             self._degraded_telemetry_source = soc_source_at_read
@@ -5785,6 +5886,9 @@ class BatteryStrategy:
         # path did; partial_hold/allow_discharge fall through with an
         # elevated/unchanged effective_reserve.
         decision = self._inclement_decision(tou_period, now)
+        # EC storm/blind Stage A D-A2 — register the tick floor (sighted
+        # call site). `_reserve_action` folds it into every reserve emit.
+        self._tick_reserve_floor = self._registered_floor(decision)
         if decision.hold_depth == "full_hold":
             if (
                 decision.grid_precharge
@@ -6220,8 +6324,13 @@ class BatteryStrategy:
         # partial_hold clamps the drain target up to the elevated floor so a
         # watch-uncorroborated / condition-only overnight watch retains the
         # 50% reserve instead of draining to drain_target (commonly 20-30%).
-        if decision.hold_depth == "partial_hold":
-            drain_target = max(drain_target, effective_reserve)
+        # EC storm/blind Stage A (Rev 3.1 H4): keyed on the REGISTERED tick
+        # floor, not `hold_depth == "partial_hold"`. Byte-identical here:
+        # full_hold returns before this branch, and for partial_hold
+        # `_tick_reserve_floor == decision.reserve_floor == effective_reserve`
+        # (fusion's partial floor is already max(reserve_soc, partial)).
+        if self._tick_reserve_floor is not None:
+            drain_target = max(drain_target, self._tick_reserve_floor)
 
         # dp-drain-target-value-stamp — VALUE STAMP. Publish the fully
         # composed off_peak drain target (post multi-day-max, post
@@ -6260,8 +6369,9 @@ class BatteryStrategy:
         # A-CRIT-1 — when a partial_hold is active and SOC is already below the
         # elevated floor, recover toward the floor via cheap off_peak grid
         # rather than reporting a sub-floor reserve.
-        if decision.hold_depth == "partial_hold":
-            hold_reserve = max(hold_reserve, effective_reserve)
+        # EC storm/blind Stage A (Rev 3.1 H4): keyed on the registered floor.
+        if self._tick_reserve_floor is not None:
+            hold_reserve = max(hold_reserve, self._tick_reserve_floor)
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
             # CF-1: same narration fix as the drain leg above.
@@ -6274,6 +6384,138 @@ class BatteryStrategy:
             target_day_class=target_day_class,
             arbitrage_phase=_ladder_phase,
         )
+
+    @staticmethod
+    def _registered_floor(decision: Any) -> int | None:
+        """EC storm/blind Stage A D-A2: the tick floor to register.
+
+        ``decision.reserve_floor`` while holding (partial: max(reserve_soc,
+        partial_floor); full sighted: int(soc), may be below reserve_soc;
+        full blind: max(reserve_soc, partial_floor, blind slider)), else None.
+        """
+        if getattr(decision, "hold_depth", None) in ("partial_hold", "full_hold"):
+            return int(decision.reserve_floor)
+        return None
+
+    def _is_top_rate_edge(
+        self,
+        now: datetime,
+        tou_period: str,
+        tou_transition_into: str | None,
+    ) -> bool:
+        """D-A3 de-escalation trigger: now is top rate, or this tick is the
+        transition INTO the top-rate period (INV-4, rate rank not name).
+
+        Engine absent → the legacy period-name literal (byte-safe).
+        """
+        tou = getattr(self, "_tou", None)
+        if tou is None or not hasattr(tou, "is_top_rate"):
+            return tou_period == "peak" or tou_transition_into == "peak"
+        try:
+            if tou.is_top_rate(now):
+                return True
+            return bool(
+                tou_transition_into is not None
+                and tou.is_top_period(tou.get_season(now), tou_transition_into)
+            )
+        except Exception:  # noqa: BLE001
+            return tou_period == "peak" or tou_transition_into == "peak"
+
+    def _tou_top_rate_attr(self) -> bool | None:
+        """D-A1 display attr `tou_top_rate` (None without a TOU engine)."""
+        tou = getattr(self, "_tou", None)
+        if tou is None or not hasattr(tou, "is_top_rate"):
+            return None
+        try:
+            from homeassistant.util import dt as dt_util
+            return bool(tou.is_top_rate(dt_util.now()))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _reserve_action(
+        self,
+        reserve_level: int | None,
+        *,
+        compare_to: float | None = None,
+    ) -> tuple[int | None, dict[str, Any] | None]:
+        """EC storm/blind Stage A D-A2 — the ONE decision-side reserve writer.
+
+        Returns ``(folded_target, action)``. Order is load-bearing:
+          1. FOLD: ``max(reserve_level, self._tick_reserve_floor)`` when a
+             floor is registered this tick (raise-only); ``reserve_level``
+             otherwise. ``reserve_level`` None → ``(None, None)``: no
+             reserve intent, no stamp.
+          2. CLAMP 0–100.
+          3. STAMP ``_last_reserve_level_desired`` from the folded, clamped
+             value — BEFORE the stand-down/deadband decision, whether or not
+             an action is emitted. This is the ONLY writer of that attribute
+             in the package (INV-1(ii)); the EVSE overlay and
+             ``force_redispatch`` compose from it, so they inherit the floor.
+          4. STAND-DOWN skip, then the ≥2 DEADBAND against ``compare_to``
+             when given (blind hold with an unreadable write leg), else the
+             live write-leg state (pre-Stage-A `_result` behavior).
+
+        Sighted ticks are byte-identical to the pre-Stage-A `_result` reserve
+        block (golden `test_ec_stage_a_noop_golden.py`).
+        """
+        if reserve_level is None:
+            return None, None
+        _floor = getattr(self, "_tick_reserve_floor", None)
+        folded = (
+            max(reserve_level, _floor) if _floor is not None else reserve_level
+        )
+        target_reserve = max(0, min(100, folded))
+        _folded_int = int(target_reserve)
+        self._last_reserve_level_desired = _folded_int
+        # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: resolve the write target
+        # once; an unconfigured reserve role emits no write.
+        _reserve_target = self._get_entity(
+            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+            role="write",
+        )
+        current_reserve = (
+            compare_to
+            if compare_to is not None
+            else self._get_state_float(_reserve_target)
+        )
+        # Root 2 (a) — HARD STAND-DOWN honesty. During a stand-down
+        # on the reserve surface at `target_reserve` (== the stuck
+        # non-compliant value), the normal 5-min dispatch tick MUST
+        # NOT keep re-dispatching the same value. That would be
+        # exactly the fight the stand-down was declared to prevent.
+        # Any change in effective desire → target_reserve differs
+        # from `_pending_standdown_value` → skip does not trigger →
+        # the append proceeds normally = automatic resume. Reads via
+        # the WriteVerifier public accessor so stand-down state
+        # lives in one place.
+        _wv = getattr(self, "_write_verifier", None)
+        _standdown_skip = False
+        if _wv is not None:
+            try:
+                from .energy_write_verify import (  # noqa: PLC0415
+                    WRITE_VERIFY_SURFACE_RESERVE,
+                )
+                if _wv.is_standdown_active_for_value(
+                    WRITE_VERIFY_SURFACE_RESERVE, target_reserve,
+                ):
+                    _standdown_skip = True
+                    _LOGGER.debug(
+                        "_reserve_action: reserve dispatch SKIPPED "
+                        "(stand-down active for value=%d)",
+                        target_reserve,
+                    )
+            except Exception:  # noqa: BLE001
+                _standdown_skip = False
+        if _reserve_target and not _standdown_skip and (
+            current_reserve is None
+            or abs(current_reserve - target_reserve) >= 2
+        ):
+            return _folded_int, {
+                "service": "number.set_value",
+                "target": _reserve_target,
+                "data": {"value": target_reserve},
+            }
+        return _folded_int, None
 
     def _result(
         self,
@@ -6349,53 +6591,14 @@ class BatteryStrategy:
                     "data": {"option": sm_option},
                 })
 
-        # 2. Reserve level — primary control lever
-        if reserve_level is not None:
-            # EC-HOUSE-ENTITY-DEFAULTS-1 fix-up: resolve the write target
-            # once; an unconfigured reserve role emits no write.
-            _reserve_target = self._get_entity(
-                "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
-                role="write",
-            )
-            current_reserve = self._get_state_float(_reserve_target)
-            target_reserve = max(0, min(100, reserve_level))
-            # Root 2 (a) — HARD STAND-DOWN honesty. During a stand-down
-            # on the reserve surface at `target_reserve` (== the stuck
-            # non-compliant value), the normal 5-min dispatch tick MUST
-            # NOT keep re-dispatching the same value. That would be
-            # exactly the fight the stand-down was declared to prevent.
-            # Any change in effective desire → target_reserve differs
-            # from `_pending_standdown_value` → skip does not trigger →
-            # the append proceeds normally = automatic resume. Reads via
-            # the WriteVerifier public accessor so stand-down state
-            # lives in one place.
-            _wv = getattr(self, "_write_verifier", None)
-            _standdown_skip = False
-            if _wv is not None:
-                try:
-                    from .energy_write_verify import (  # noqa: PLC0415
-                        WRITE_VERIFY_SURFACE_RESERVE,
-                    )
-                    if _wv.is_standdown_active_for_value(
-                        WRITE_VERIFY_SURFACE_RESERVE, target_reserve,
-                    ):
-                        _standdown_skip = True
-                        _LOGGER.debug(
-                            "_result: reserve dispatch SKIPPED "
-                            "(stand-down active for value=%d)",
-                            target_reserve,
-                        )
-                except Exception:  # noqa: BLE001
-                    _standdown_skip = False
-            if _reserve_target and not _standdown_skip and (
-                current_reserve is None
-                or abs(current_reserve - target_reserve) >= 2
-            ):
-                actions.append({
-                    "service": "number.set_value",
-                    "target": _reserve_target,
-                    "data": {"value": target_reserve},
-                })
+        # 2. Reserve level — primary control lever. EC storm/blind Stage A
+        # D-A2: the reserve block lives in `_reserve_action` (fold the
+        # registered tick floor → clamp → stamp desired → stand-down →
+        # deadband). `_result` keeps only the action; the folded target is
+        # stamped there, never here.
+        _folded_reserve, _reserve_act = self._reserve_action(reserve_level)
+        if _reserve_act is not None:
+            actions.append(_reserve_act)
 
         # 3. Charge from grid control
         if charge_from_grid:
@@ -6529,9 +6732,9 @@ class BatteryStrategy:
         # the write-verify supersession belt (energy_write_verify.py:269)
         # and sweep window guard (:395). See docstring on
         # `self._last_reserve_level_desired` (init).
-        if reserve_level is not None:
-            _new_res = int(max(0, min(100, reserve_level)))
-            self._last_reserve_level_desired = _new_res
+        # EC storm/blind Stage A D-A2: `_last_reserve_level_desired` is
+        # stamped ONLY by `_reserve_action` (folded value, before the
+        # deadband), called above.
         # v5.17.2 — stamp DESIRED for the other two surfaces every tick
         # regardless of whether an action was appended. This is the SAME
         # "strategy intent" values `_result` uses when it consults the
@@ -7024,6 +7227,9 @@ class BatteryStrategy:
             # derived from the cached fused decision rather than re-running
             # a per-attribute-read detection. **kw merge below.
             "reserve_soc": self.reserve_soc,
+            # EC storm/blind Stage A D-A1: is the active period the season's
+            # top import rate (rank, not name)? None when no TOU engine.
+            "tou_top_rate": self._tou_top_rate_attr(),
             **self._inclement_attrs(),
             "arbitrage_active": self._arbitrage_active,
             "arbitrage_enabled": self._arbitrage_enabled,

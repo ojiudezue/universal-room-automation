@@ -145,8 +145,10 @@ async def test_reserve_row_dp_fold_owner_and_value(clock):
 @pytest.mark.asyncio
 async def test_reserve_row_blind_deescalation(clock):
     """Edge 4: blind row via C1, reason prefix "Blind de-escalation",
-    value=reserve_soc, desire = previous tick's (None here: blind bypasses
-    `_result`), floor fields per the cached decision (none)."""
+    value=reserve_soc, floor fields per the cached decision (none).
+    EC storm/blind Stage A D-A2: the blind write now goes through
+    `_reserve_action`, which stamps the desire (10), and the row carries
+    `tick_floor` None (no hold this tick)."""
     now = clock.t.astimezone(_CDT)
     c, s = make_shell(clock, soc="unavailable", cfg_state="on", reserve_state="0")
     s._soc_lkg = None
@@ -158,31 +160,35 @@ async def test_reserve_row_blind_deescalation(clock):
     rs = rows(c)
     assert len(rs) == 1
     assert rs[0]["value"] == 10 == s.reserve_soc
-    assert rs[0]["desire"] is None
+    assert rs[0]["desire"] == 10
     assert rs[0]["reason"].startswith("Blind de-escalation")
     assert rs[0]["inclement_floor"] is None
+    assert rs[0]["tick_floor"] is None
+    assert rs[0]["tick_hold_depth"] == "allow_discharge"
 
 
 @pytest.mark.asyncio
-async def test_reserve_row_blind_under_partial_hold_floor_ok_false(clock):
-    """Edge 4 (continued): blind is the KNOWN unfloored site — under a
-    cached partial_hold with floor 50 the row shows floor_ok=False. That is
-    correct and expected (EC-INCLEMENT-HARDENING-1 D-blind fixes the write;
-    the row makes it visible). floor_ok is observed, never enforced."""
+async def test_reserve_row_blind_under_partial_hold_now_floored(clock):
+    """Edge 4 (continued): before EC storm/blind Stage A the blind write was
+    the KNOWN unfloored site (row showed value 10, floor_ok=False). Stage A
+    D-A3 folds the registered floor into the de-escalation write (INV-1
+    repro), so the row now shows value 50 == tick_floor, floor_ok True."""
     now = clock.t.astimezone(_CDT)
     c, s = make_shell(clock, soc="unavailable", cfg_state="on", reserve_state="0")
     s._soc_lkg = None
     s._soc_lkg_at = None
-    # Cached (fresh) partial_hold — the blind branch runs before the ladder
-    # and does not read it, but the row does.
+    # This tick's partial_hold (per-tick cache seam): the blind branch now
+    # runs the decision and registers its floor.
     seed_inclement(s, now, "partial_hold", 50)
     d = await timer_tick(c, s, "peak", now)
     assert d["reason"].startswith("Blind de-escalation")
     rs = rows(c)
     assert len(rs) == 1
-    assert rs[0]["value"] == 10
+    assert rs[0]["value"] == 50
     assert rs[0]["inclement_floor"] == 50
-    assert rs[0]["floor_ok"] is False
+    assert rs[0]["floor_ok"] is True
+    assert rs[0]["tick_floor"] == 50
+    assert rs[0]["tick_hold_depth"] == "partial_hold"
 
 
 @pytest.mark.asyncio
