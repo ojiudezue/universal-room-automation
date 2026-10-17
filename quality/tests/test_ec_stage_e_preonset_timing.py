@@ -291,7 +291,8 @@ def test_preonset_floor_clears_on_eligibility_loss(chi_clock, loss):
     d = tick(chi_clock, c, s, L(2026, 12, 16, 16))
     dec = s._last_inclement_decision
     assert not preonset_emitted(d)
-    assert s._preonset_precharge_latch == {} and s._preonset_buy_schedule == {}
+    assert s._preonset_precharge_latch == {}
+    assert s._preonset_buy_schedule["wsw"][0] == ()  # D2-LOW-2: hours dropped, carry metadata kept
     assert dec.preonset_floor is None and s._tick_reserve_floor is None
     tick(chi_clock, c, s, L(2026, 12, 16, 17))  # falls back to rule (i)
     assert s._last_inclement_decision.preonset_floor == 80
@@ -306,7 +307,7 @@ def test_schedule_cleared_before_engage_on_option_off_and_unconfirm(chi_clock):
     assert s._preonset_precharge_latch == {}  # never engaged
     s._inclement_config_override["inclement_grid_precharge_on_hold"] = False
     tick(chi_clock, c, s, L(2026, 12, 16, 13, 30))
-    assert s._preonset_buy_schedule == {}
+    assert s._preonset_buy_schedule["wsw"][0] == ()  # D2-LOW-2: hours dropped, carry metadata kept
     # Re-enabled: a FRESH schedule from that tick (SOC now 75 -> h_req 2).
     s._inclement_config_override["inclement_grid_precharge_on_hold"] = True
     tick(chi_clock, c, s, L(2026, 12, 16, 14), soc="75")
@@ -316,7 +317,7 @@ def test_schedule_cleared_before_engage_on_option_off_and_unconfirm(chi_clock):
     s._forecast_confirm_latch.clear()
     wm.outlook = None
     tick(chi_clock, c, s, L(2026, 12, 16, 14, 30))
-    assert s._preonset_buy_schedule == {}
+    assert s._preonset_buy_schedule["wsw"][0] == ()  # D2-LOW-2: hours dropped, carry metadata kept
 
 
 def test_schedule_cleared_every_observation_mode_tick(chi_clock):

@@ -96,7 +96,7 @@ def test_stale_event_time_replans_after_earlier_alert_onsets(chi_clock):
     tick(chi_clock, c, s, L(2026, 12, 16, 9))
     assert s._preonset_buy_schedule["wsw"][1] == L(2026, 12, 16, 11)
     tick(chi_clock, c, s, L(2026, 12, 16, 11, 30))   # Freeze Watch active
-    assert "wsw" not in s._preonset_buy_schedule
+    assert s._preonset_buy_schedule["wsw"][0] == ()  # D2-LOW-2: hours dropped, carry metadata kept
     tick(chi_clock, c, s, L(2026, 12, 16, 12, 30))   # it ended: re-plan to 21:00
     assert s._preonset_buy_schedule["wsw"][0] == _slots(
         L(2026, 12, 16, 14), L(2026, 12, 16, 15), L(2026, 12, 16, 16))
@@ -192,7 +192,7 @@ def test_non_key_schedule_entries_purged(chi_clock):
     assert set(sched) == {"w"}
     sched["w2"] = stale
     _decide(_fusion(option=False), TOURateEngine(), sched, now, [w, w2])
-    assert sched == {}
+    assert set(sched) == {"w"} and sched["w"][0] == ()  # D2-LOW-2: hours dropped, carry metadata kept
 
 
 # ---------------------------------------------------------------------------
@@ -328,3 +328,39 @@ def test_hazard_window_end_not_after_start_falls_back():
     start, end = inc._hazard_window(
         {"Onset": on, "Ends": "2026-10-16T04:00:00-05:00"})
     assert end < start
+
+
+# ---------------------------------------------------------------------------
+# Review D re-pass D2-LOW-1 / D2-LOW-2
+# ---------------------------------------------------------------------------
+def test_onset_is_not_an_update(chi_clock):
+    """D2-LOW-1: a same-Event successor in prep does NOT inherit when the old
+    ID merely onset (it is still live as an active hold)."""
+    a = _a("Winter Storm Watch", L(2026, 10, 16, 5), "a")
+    b = _a("Winter Storm Watch", L(2026, 10, 16, 9), "b")
+    c, s, _ = bshell(chi_clock, L(2026, 10, 16, 3), soc="40", alerts=[a, b],
+                     ol=outlook(**WS_OK))
+    tick(chi_clock, c, s, L(2026, 10, 16, 3))
+    tick(chi_clock, c, s, L(2026, 10, 16, 3, 5), soc="85")
+    assert s._preonset_precharge_latch.get("a") == "reached"
+    tick(chi_clock, c, s, L(2026, 10, 16, 5, 30), soc="40")  # a is active
+    assert s._preonset_precharge_latch.get("b") != "reached"
+
+
+def test_reached_survives_stale_t_then_update(chi_clock):
+    """D2-LOW-2: Freeze Watch 11:00 + WSW 21:00; WSW reaches at 10:xx;
+    stale-T at 11:00; a WSW Update at 15:00 (new ID, same Onset) inherits
+    `reached` -> no re-buy."""
+    from _ec_stage_e_harness import feed
+    fz = _a("Freeze Watch", L(2026, 12, 16, 11), "fz", hours=1)
+    w1 = _a("Winter Storm Warning", L(2026, 12, 16, 21), "w1")
+    c, s, _ = bshell(chi_clock, L(2026, 12, 16, 9), soc="40", alerts=[fz, w1],
+                     ol=outlook(**WS_OK))
+    tick(chi_clock, c, s, L(2026, 12, 16, 9, 30))
+    tick(chi_clock, c, s, L(2026, 12, 16, 10, 30), soc="85")
+    assert s._preonset_precharge_latch.get("w1") == "reached"
+    tick(chi_clock, c, s, L(2026, 12, 16, 12, 30), soc="85")  # stale-T replan
+    feed(c, [_a("Winter Storm Warning", L(2026, 12, 16, 21), "w2")])
+    d = tick(chi_clock, c, s, L(2026, 12, 16, 15), soc="40")
+    assert s._preonset_precharge_latch.get("w2") == "reached"
+    assert not preonset_emitted(d)

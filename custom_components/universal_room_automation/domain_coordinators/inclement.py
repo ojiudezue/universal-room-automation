@@ -1160,6 +1160,7 @@ def schedule_buy_hours(
 def _carry_over_updates(
     sched: dict[str, tuple], latch: dict[str, str] | None,
     prep: tuple[AlertRecord, ...],
+    active_ids: set[str] | frozenset[str] = frozenset(),
 ) -> None:
     """Stage E fix-up (AUDIT_nws_alert_fields_and_updates): an NWS Update
     arrives as a NEW message ID. When a scheduled key's ID has left the
@@ -1168,7 +1169,9 @@ def _carry_over_updates(
     latch state to the new ID (no fresh start, no re-buy after "reached").
     A changed T is then re-planned by the stale-T rule."""
     live = {r.alert_id: r for r in prep if r.alert_id}
-    for old in [k for k in sched if k not in live]:
+    # Review D D2-LOW-1: only a SUPERSEDED ID carries over -- an ID that
+    # merely onset (now an active hold) is not an Update.
+    for old in [k for k in sched if k not in live and k not in active_ids]:
         entry = sched[old]
         meta = entry[3] if len(entry) > 3 else None
         if not meta:
@@ -1306,7 +1309,11 @@ class InclementFusion:
         prep = tuple(getattr(classification, "prepare_alerts", ()) or ())
         live = {r.alert_id for r in prep}
         if sched is not None:
-            _carry_over_updates(sched, latch, prep)
+            _carry_over_updates(sched, latch, prep, {
+                r.alert_id for r in (
+                    getattr(classification, "active_alerts", ()) or ()
+                ) if r.alert_id
+            })
         if latch is not None:
             for k in list(latch):
                 if k not in live:  # Onset reached or left the prepare set
@@ -1363,8 +1370,11 @@ class InclementFusion:
         if not eligible and key_id is not None:
             if latch is not None and latch.get(key_id) == "engaged":
                 del latch[key_id]
-            if sched is not None:
-                sched.pop(key_id, None)
+            if sched is not None and key_id in sched:
+                # Review D D2-LOW-2: drop the hours, KEEP the carry metadata
+                # (so a later Update still inherits a "reached" latch).
+                _e = sched[key_id]
+                sched[key_id] = ((),) + tuple(_e[1:])
         if sched is not None:
             # Review B B2: only the current key alert may own a schedule.
             for k in list(sched):
@@ -1373,7 +1383,8 @@ class InclementFusion:
             # Review D D-MED-1: a frozen S whose T is no longer the current T
             # (the earlier alert onset, or an Update) is re-planned.
             if key_id in sched and sched[key_id][1] != pstart:
-                del sched[key_id]
+                _e = sched[key_id]  # D2-LOW-2: re-plan, keep the metadata
+                sched[key_id] = ((), pstart) + tuple(_e[2:])
         if base.hold_depth == "full_hold":
             return base  # the active hold governs; prepare fields stay default
         state = latch.get(key_id) if (latch is not None and key_id) else None
@@ -1401,7 +1412,10 @@ class InclementFusion:
                     surplus = 0.0
                 solar_ok = float(current_soc) + surplus < target
             if solar_ok:
-                if stored is None and sched is not None and key_id is not None:
+                if (
+                    (stored is None or not stored[0])
+                    and sched is not None and key_id is not None
+                ):
                     hours = schedule_buy_hours(
                         getattr(battery, "_tou", None), now, pstart,
                         preonset_h_req(current_soc, target),
@@ -1413,7 +1427,7 @@ class InclementFusion:
                             key_row.start, key_row.end,
                         ))
                         sched[key_id] = stored
-                pre = stored is not None and preonset_slot(now) in stored[0]
+                pre = bool(stored) and preonset_slot(now) in stored[0]
         # Registered floor -- the ONE rule (§E2.4).
         hours = tuple(stored[0]) if stored else ()
         eff_lead = max(0.0, min(float(INCLEMENT_PREONSET_FLOOR_LEAD_H),
