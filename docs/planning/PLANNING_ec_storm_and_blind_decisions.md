@@ -890,3 +890,9 @@ Operator scope change 2026-10-16: Stage B and Stage C build together. Stage C D-
 - B-LOW-1: documented under §12 limit 14 (evaluate-path latch rollback not done; arc step 8). B-LOW-3: §12 limit 26.
 - Not done (optional per review): B-LOW-4 (Storm Guard negative cache), B-LOW-5 (`get_forecasts` timeout under `_refresh_lock`).
 
+
+**Review C fix-up (2026-10-17, tests only, no source change):**
+- Added discriminating tests for every Review C survivor except B19 (`cloud_withhold_exempt=True` at the pre-onset site; equivalent mutant, unreachable on the cloud tier per Review C L1). Re-running the harness on the 27 previously surviving sites gave 26 RED and 1 SURVIVED (B19). Source `git diff --quiet` was clean after the drills. Site → test table: `docs/reviews/code-review/ec_stage_bc_review_C.md` § "Review C fix-up result".
+- New tests in `test_ec_stage_b_preonset_precharge.py` (`test_review_c_*` plus extra stamp assertions in `test_full_hold_degraded_precharge_reports_envoy_unavailable`) and `test_ec_stage_c_hourly_outlook.py` (catch-up tracked/cancelled, second recovery after a finished catch-up, catch-up guards, outlook conditions/gust/slot floor/pop-over-amount, refresh lock).
+- Finding (no fix needed): `polygon_topup_records` end-time (:148) and before-onset (:149) edges cannot be reached through `classify()`, because the D-B1 window split already drops expired and pre-onset rows. Both are now pinned by a direct test of the shared helper. They are defense-in-depth for the stamp caller, which re-evaluates at its own `dt_util.now()`. No production behaviour was found wrong.
+- 9 cycle test files: 1876 passed.

@@ -380,3 +380,111 @@ def test_hourly_catch_up_not_retriggered_once_rows_exist(wm_mod, clock):
     assert calls == [(OWM, "hourly")]
     loop.run_until_complete(m.async_teardown())
     assert m._pending_refresh_tasks == set()
+
+
+# ---------------------------------------------------------------------------
+# Review C fix-up — catch-up task lifecycle + outlook aggregation.
+# ---------------------------------------------------------------------------
+def test_hourly_catch_up_task_tracked_and_cancelled_by_teardown(wm_mod, clock):
+    """Bug Class #19: the catch-up task is in `_pending_refresh_tasks` while
+    in flight and `async_teardown` cancels it (a hung provider call must not
+    outlive teardown)."""
+    m, hass, loop, calls = _boot_mgr(wm_mod, clock, "unavailable")
+    gate = asyncio.Event()
+
+    async def _hang(domain, svc, data, blocking=False, return_response=False):
+        calls.append((data["entity_id"], data.get("type")))
+        await gate.wait()
+        return {data["entity_id"]: {"forecast": _rows(T0, 48)}}
+    hass.services = SimpleNamespace(async_call=_hang)
+    m._handle_provider_state_change(_state_event(hass, "snowy"))
+    task = m._hourly_catch_up_task
+    assert task is not None
+    loop.run_until_complete(asyncio.sleep(0.01))
+    assert calls == [(OWM, "hourly")] and not task.done()
+    assert task in m._pending_refresh_tasks
+    loop.run_until_complete(asyncio.wait_for(m.async_teardown(), 2.0))
+    assert task.cancelled()
+    assert m._pending_refresh_tasks == set()
+
+
+def test_second_recovery_after_finished_catch_up_fetches_again(wm_mod, clock):
+    """`not pending.done()` debounce: once the first catch-up FINISHED
+    without rows (provider returned nothing), a later recovery must fetch
+    again — a finished task never blocks the next catch-up."""
+    m, hass, loop, calls = _boot_mgr(wm_mod, clock, "unavailable")
+    replies = [[], _rows(T0, 48)]
+
+    async def _svc(domain, svc, data, blocking=False, return_response=False):
+        calls.append((data["entity_id"], data.get("type")))
+        return {data["entity_id"]: {"forecast": replies.pop(0)}}
+    hass.services = SimpleNamespace(async_call=_svc)
+    m._handle_provider_state_change(_state_event(hass, "snowy"))
+    _drain(m, loop)
+    assert calls == [(OWM, "hourly")] and OWM not in m._hourly
+    assert m._hourly_catch_up_task.done()
+    m._handle_provider_state_change(_state_event(hass, "cloudy"))
+    _drain(m, loop)
+    assert calls == [(OWM, "hourly"), (OWM, "hourly")]
+    assert OWM in m._hourly
+
+
+def test_hourly_catch_up_guards(wm_mod, clock):
+    """LOW guards: empty entity_id, missing new_state, and a hass double
+    that does not return a Future each schedule/track nothing."""
+    m, hass, loop, calls = _boot_mgr(wm_mod, clock, "unavailable")
+    ev = _state_event(hass, "snowy")
+    m._maybe_hourly_catch_up(ev, "")
+    assert m._hourly_catch_up_task is None
+    m._maybe_hourly_catch_up(SimpleNamespace(data={"entity_id": OWM,
+                                                   "new_state": None}), OWM)
+    assert m._hourly_catch_up_task is None
+    hass.async_create_task = lambda coro, name=None: None
+    m._maybe_hourly_catch_up(ev, OWM)
+    assert m._hourly_catch_up_task is None and m._pending_refresh_tasks == set()
+
+
+def test_outlook_aggregates_conditions_gust_and_floors_slot(wm_mod, clock):
+    """`hourly_outlook`: conditions + gusts aggregated; pop wins over amount
+    in an hour that has both; a window starting mid-hour is floored to the
+    hour slot."""
+    rows = _rows(T0, 10, mm=4.0)          # pop 70 AND 4 mm each hour
+    rows[2]["condition"] = "lightning"
+    rows[3]["wind_gust_speed"] = 45.0
+    m, _ = _mgr(wm_mod, clock, owm_rows=rows, om_rows=[])
+    o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
+    assert o.conditions == frozenset({"snowy", "lightning"})
+    assert o.max_gust == 45.0
+    assert o.max_pop == 70 and o.max_precip_mm_no_pop is None
+    # Mid-hour start: slots T0..T0+5h are all < T0+5h30 → 6 hours.
+    o2 = m.hourly_outlook(T0 + timedelta(minutes=30),
+                          T0 + timedelta(hours=5, minutes=30))
+    assert o2 is not None and o2.hours == 6
+    # The aggregated condition alone confirms a convective product.
+    norain = _rows(T0, 10, pop=False)
+    for r in norain:
+        r["condition"] = "cloudy"
+    norain[1]["condition"] = "lightning"
+    m2, _ = _mgr(wm_mod, clock, owm_rows=norain, om_rows=[])
+    assert _forecast_confirms("Severe Thunderstorm Watch",
+                              m2.hourly_outlook(T0, T0 + timedelta(hours=5))) is True
+
+
+def test_refresh_hourly_serialised_by_lock(wm_mod, clock):
+    """LOW: concurrent `_refresh_hourly` calls never overlap (WPM-C1)."""
+    m, calls = _mgr(wm_mod, clock, owm_rows=_rows(T0, 48), om_rows=[])
+    state = {"in": 0, "max": 0}
+
+    async def _svc(domain, svc, data, blocking=False, return_response=False):
+        state["in"] += 1
+        state["max"] = max(state["max"], state["in"])
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        state["in"] -= 1
+        return {data["entity_id"]: {"forecast": _rows(T0, 48)}}
+    m.hass.services = SimpleNamespace(async_call=_svc)
+
+    async def _both():
+        await asyncio.gather(m._refresh_hourly(), m._refresh_hourly())
+    asyncio.new_event_loop().run_until_complete(_both())
+    assert state["max"] == 1

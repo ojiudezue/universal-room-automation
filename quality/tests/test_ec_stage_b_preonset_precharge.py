@@ -1580,3 +1580,175 @@ def test_full_hold_degraded_precharge_reports_envoy_unavailable(clock):
     assert d["charge_from_grid"] is True
     assert d["envoy_available"] is False
     assert s._degraded_telemetry_source == "lkg"
+    # Review C fix-up (energy_battery.py:6322): the degraded full-hold site
+    # stamps the grid buy (it commanded CFG on) — the stamp is the one the
+    # buy NM + forecast-confirmed attribute read.
+    assert cfg_on(d)
+    assert s._tick_grid_buy is not None and s._tick_grid_buy["leg"] == "zone"
+    assert s._tick_grid_buy["forecast_confirmed"] is True
+
+
+# ===========================================================================
+# Review C fix-up — discriminating tests for the surviving mutants
+# (docs/reviews/code-review/ec_stage_bc_review_C.md). Oracles typed by hand.
+# ===========================================================================
+@pytest.mark.parametrize("event,outlook,expected", [
+    # inclement.py:1337 — a freeze outlook with hours but NO temperature
+    # (precip-only rows) must NOT confirm (fail-closed).
+    ("Hard Freeze Warning", ol(min_temp=None, pop=90), False),
+    ("Wind Chill Warning", ol(min_temp=None, pop=90), False),
+    ("Hard Freeze Warning", ol(min_temp=10.0, pop=None), True),     # control
+    # inclement.py:1348 — convective confirms on precipitation alone.
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=50, cond=()), True),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=None, mm=1.0, cond=()), True),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=None, mm=0.9, cond=()), False),
+])
+def test_review_c_forecast_confirms_fail_closed_and_convective_precip(
+        event, outlook, expected):
+    assert _inc().forecast_confirms(event, outlook) is expected
+
+
+def _rec(a):
+    r = _inc().build_record(a)
+    assert r is not None
+    return r
+
+
+def test_review_c_polygon_topup_helper_window_edges(monkeypatch):
+    """`polygon_topup_records` direct (the ONE predicate shared by the
+    decision flag and the stamp): [start, min(end, start+cap)].
+    classify() pre-filters expired / pre-onset rows, so these edges are
+    defense-in-depth for the stamp caller (energy_battery `_grid_buy_stamp`
+    re-evaluates at its own `dt_util.now()`)."""
+    ptr = _inc().polygon_topup_records
+    start = T(16, 15)
+    short = _rec(alert("Severe Thunderstorm Warning", code="SVW", onset=start,
+                       ends=start + timedelta(minutes=40), id_="s"))
+    # :148 — the warning's own end binds before the 60-min cap.
+    assert ptr([short], start + timedelta(minutes=40)) == [short]
+    assert ptr([short], start + timedelta(minutes=41)) == []
+    # :149 — never before the polygon onset.
+    assert ptr([short], start - timedelta(minutes=1)) == []
+    assert ptr([short], start) == [short]
+    # :140 — cap 0 is the kill switch, even at the exact onset instant.
+    monkeypatch.setattr(_inc(), "INCLEMENT_POLYGON_TOPUP_MAX_MIN", 0)
+    assert ptr([short], start) == []
+
+
+def test_review_c_precharge_flags_polygon_and_prepare_class():
+    """inclement.py:162 — the non-polygon eligibility leg ignores polygon
+    rows; :167 — prepare eligibility is read on the prepare CLASS rows
+    only (an eligible watch cannot make a warn-class prepare eligible)."""
+    now = NOW
+    clf = _inc().AlertClassifier()
+    svw = _active("Severe Thunderstorm Warning", now, code="SVW", mins_ago=10,
+                  hours=1, id_="svw")
+    c1 = clf.classify([svw], now=now)
+    assert c1.tier != "none" and c1.polygon_topup_active is True
+    assert c1.precharge_eligible is False
+    c1b = clf.classify([_active("Winter Storm Warning", now, id_="w")], now=now)
+    assert c1b.precharge_eligible is True                        # control
+    hur = alert("Hurricane Warning", onset=T(16, 9), ends=T(17, 3), id_="hu")
+    wsa = alert("Winter Storm Watch", onset=T(16, 10), ends=T(17, 3), id_="wa")
+    c2 = clf.classify([hur, wsa], now=now)
+    assert {r.alert_id for r in c2.prepare_alerts} == {"hu", "wa"}
+    assert c2.prepare_precharge_eligible is False
+    c3 = clf.classify([wsa], now=now)
+    assert c3.prepare_precharge_eligible is True                 # control
+
+
+@pytest.mark.parametrize("lead_h,onset_h,in_prepare", [
+    (2.0, 5, False),    # default lead (12) would include it
+    (20.0, 15, True),   # default lead (12) would exclude it
+    (6.0, 5, True),
+])
+def test_review_c_classify_honours_preonset_lead_arg(lead_h, onset_h, in_prepare):
+    """inclement.py:479 — the lead window is the ARGUMENT, not the module
+    default (Bug Class #63: default == knob masks the split)."""
+    a = alert("Winter Storm Warning", onset=NOW + timedelta(hours=onset_h),
+              ends=NOW + timedelta(hours=onset_h + 6), id_="lead")
+    got = _inc().AlertClassifier().classify([a], now=NOW, preonset_lead_h=lead_h)
+    assert (len(got.prepare_alerts) == 1) is in_prepare
+
+
+def test_review_c_active_full_hold_shadows_prepare_fields(clock):
+    """inclement.py:981 — an active full_hold with a prepare row in the
+    lead window: the active hold governs, prepare fields stay default."""
+    fut = alert("Winter Storm Warning", onset=T(16, 15), ends=T(17, 3), id_="fut")
+    c, s, _ = bshell(clock, NOW, soc="50",
+                     alerts=[_active("Winter Storm Warning", NOW, id_="w"), fut],
+                     outlook=ol())
+    tick(clock, c, s, NOW)
+    dec = s._last_inclement_decision
+    assert dec.hold_depth == "full_hold"
+    assert dec.preonset_floor is None and dec.preonset_alert_id is None
+    assert dec.preonset_precharge is False
+    # Control: the same prepare row without the active hold registers.
+    c, s, _ = bshell(clock, NOW, soc="50", alerts=[fut], outlook=ol())
+    tick(clock, c, s, NOW)
+    assert s._last_inclement_decision.preonset_alert_id == "fut"
+
+
+def test_review_c_prepare_key_row_from_prepare_class(clock):
+    """inclement.py:956 (LOW) — key row / latch id come from the prepare
+    class rows: an earlier watch never names a warn-class prepare."""
+    wsa = alert("Winter Storm Watch", onset=T(16, 10), ends=T(17, 3), id_="wa")
+    wsw = alert("Winter Storm Warning", onset=T(16, 15), ends=T(17, 3), id_="ww")
+    c, s, _ = bshell(clock, NOW, alerts=[wsa, wsw], outlook=ol())
+    tick(clock, c, s, NOW)
+    dec = s._last_inclement_decision
+    assert dec.preonset_class == "warn"
+    assert dec.preonset_alert_id == "ww"
+    assert dec.preonset_event == "Winter Storm Warning"
+
+
+def test_review_c_match_product_code_precedence_and_code_only():
+    """inclement.py:298/308 (LOW) — the code row wins a code/name
+    disagreement; a code-only match resolves by code."""
+    mp = _inc().match_product
+    row, drift = mp({"Event": "Winter Storm Warning", "NWSCode": "SVW"})
+    assert row[1] == "Severe Thunderstorm Warning" and drift[2] == "mismatch"
+    row, _ = mp({"Event": "Svr Tstm Wrn (renamed)", "NWSCode": "SVW"})
+    assert row is not None and row[1] == "Severe Thunderstorm Warning"
+
+
+def test_review_c_withheld_cfg_with_switch_already_on_not_commanded(clock):
+    """energy_battery.py:2879 — `_result` withheld charge_from_grid (a
+    chokepoint) while the CFG switch already reads on: NOT a commanded buy
+    → no latch engage, no stamp."""
+    from _reserve_governor_harness import _st as _set
+    c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
+    real = s._result
+    eid = s._get_entity("charge_from_grid", "x", role="write")
+
+    def _withhold(*a, **k):
+        r = real(*a, **k)
+        r["actions"] = [x for x in r["actions"] if x["service"] != "switch.turn_on"]
+        r["charge_from_grid"] = False
+        _set(c.hass, eid, "on")
+        return r
+    s._result = _withhold
+    d = tick(clock, c, s, NOW)
+    assert preonset_emitted(d)
+    assert s._preonset_precharge_latch == {}
+    assert s._tick_grid_buy is None
+    assert s._cfg_buy_commanded(
+        {"charge_from_grid": False,
+         "actions": [{"service": "switch.turn_on"}]}) is False
+
+
+def test_review_c_storm_guard_platform_filter(clock, monkeypatch):
+    """energy.py Storm Guard registry resolve (LOW): a suffix-matching
+    switch on ANOTHER platform is not a candidate."""
+    from homeassistant.helpers import entity_registry as er
+    ents = {
+        _SG: SimpleNamespace(entity_id=_SG, platform="enphase_ev",
+                             unique_id="enphase_ev_site_1_storm_guard"),
+        "switch.foreign": SimpleNamespace(entity_id="switch.foreign",
+                                          platform="other_integration",
+                                          unique_id="x_storm_guard"),
+    }
+    monkeypatch.setattr(er, "async_get",
+                        lambda hass: SimpleNamespace(entities=ents))
+    c, _ = make_shell(clock)
+    assert c._storm_guard_entity() == _SG

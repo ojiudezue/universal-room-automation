@@ -197,3 +197,39 @@ Must-fix (add discriminating tests; do not change source):
 LOW survivors can ride with the same pass (1-30 LoC each). Re-verify with the same mutation list after the test add.
 
 Cleanliness: after the last drill `git status --short` shows only the three pre-existing untracked files (`mut_drill_reviewC.py`, `mut_spec_reviewC.py`, `mut_spec_reviewC.json`); `git diff --quiet` clean.
+
+## Review C fix-up result (2026-10-17)
+Tests only; no production source changed. Each site was mutated on its own with the same harness (`mut_drill_reviewC.py`, 9-file scoped set, `-x`, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` cleared, restored in try/finally). Source `git diff --quiet` was clean at the end.
+
+| Site | Mutation | New / extended test | Result |
+|---|---|---|---|
+| inclement.py:1337 | freeze `tmin is None or ...` | test_review_c_forecast_confirms_fail_closed_and_convective_precip[Hard Freeze Warning-outlook0-False] | RED |
+| inclement.py:1348 | convective precip dropped | test_review_c_forecast_confirms_fail_closed_and_convective_precip[Severe Thunderstorm Watch-outlook3-True] | RED |
+| inclement.py:148 | `stop = cap_end` | test_review_c_polygon_topup_helper_window_edges | RED |
+| inclement.py:149 | `start<=now` dropped | test_review_c_polygon_topup_helper_window_edges | RED |
+| inclement.py:140 | `cap<=0` kill dropped | test_review_c_polygon_topup_helper_window_edges | RED |
+| inclement.py:162 | eligible counts polygon rows | test_review_c_precharge_flags_polygon_and_prepare_class | RED |
+| inclement.py:167 | prepare class gate dropped | test_review_c_precharge_flags_polygon_and_prepare_class | RED |
+| inclement.py:956 (LOW) | `prows` not class-filtered | test_review_c_prepare_key_row_from_prepare_class | RED |
+| inclement.py:981 | full_hold `return base` removed | test_review_c_active_full_hold_shadows_prepare_fields | RED |
+| inclement.py:479 | lead ignores `preonset_lead_h` arg | test_review_c_classify_honours_preonset_lead_arg[2.0-5-False] (non-default leads 2/6/20 h) | RED |
+| inclement.py:298 (LOW) | name row wins over code | test_review_c_match_product_code_precedence_and_code_only | RED |
+| inclement.py:308 (LOW) | code match disabled | test_review_c_match_product_code_precedence_and_code_only | RED |
+| energy_battery.py:2879 | `charge_from_grid` kept-check skipped | test_review_c_withheld_cfg_with_switch_already_on_not_commanded | RED |
+| energy_battery.py:6322 | stamp at full-hold degraded site removed | test_full_hold_degraded_precharge_reports_envoy_unavailable (extended) | RED |
+| energy_battery.py pre-onset `cloud_withhold_exempt=True` (LOW) | dropped | none: equivalent, unreachable on the cloud tier (Review C L1) | SURVIVED (accepted) |
+| energy.py Storm Guard resolve (LOW) | platform filter dropped | test_review_c_storm_guard_platform_filter | RED |
+| weather_manager.py pop/mm (LOW) | `elif` -> `if` | test_outlook_aggregates_conditions_gust_and_floors_slot | RED |
+| weather_manager.py slot floor | slot not floored | test_outlook_aggregates_conditions_gust_and_floors_slot | RED |
+| weather_manager.py gust (LOW) | not collected | test_outlook_aggregates_conditions_gust_and_floors_slot | RED |
+| weather_manager.py conditions | not collected | test_outlook_aggregates_conditions_gust_and_floors_slot | RED |
+| weather_manager.py refresh lock (LOW) | `async with` removed | test_refresh_hourly_serialised_by_lock | RED |
+| weather_manager.py catch-up debounce | `not pending.done()` -> `pending is not None` | test_second_recovery_after_finished_catch_up_fetches_again | RED |
+| weather_manager.py catch-up tracking | not added to `_pending_refresh_tasks` | test_hourly_catch_up_task_tracked_and_cancelled_by_teardown | RED |
+| weather_manager.py async_teardown | `task.cancel()` dropped | test_hourly_catch_up_task_tracked_and_cancelled_by_teardown | RED (teardown times out) |
+| weather_manager.py catch-up (LOW) | `isinstance(Future)` guard dropped | test_hourly_catch_up_guards | RED |
+| weather_manager.py catch-up (LOW) | `not entity_id` guard dropped | test_hourly_catch_up_guards | RED |
+| weather_manager.py catch-up (LOW) | `new_state is None` guard inverted | test_hourly_catch_up_guards | RED |
+
+Totals: 27 re-drilled, 26 RED, 1 accepted equivalent (B19). The 9 cycle files give 1876 passed. Order check: `test_ec_stage_c_hourly_outlook.py` + `test_ec_stage_b_preonset_precharge.py` + legacy `test_v47x_weather_manager.py` give 244 passed.
+Note: the :148 and :149 edges are filtered upstream by `classify()`'s window split, so they are pinned by a direct test of the shared `polygon_topup_records` helper (defense-in-depth for the stamp caller).
