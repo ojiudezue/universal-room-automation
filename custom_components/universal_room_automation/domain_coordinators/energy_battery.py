@@ -6315,6 +6315,10 @@ class BatteryStrategy:
                         )
                     finally:
                         self._degraded_telemetry_source = _dts_saved
+                    # Review B B-LOW-2: `_result` derived envoy_available
+                    # from the cleared source; keep it truthful (same as
+                    # the pre-onset site) for `_track_envoy_availability`.
+                    _res["envoy_available"] = False
                     return self._stamp_grid_buy(_res, decision)
                 return self._stamp_grid_buy(self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,

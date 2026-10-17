@@ -1556,3 +1556,27 @@ def test_storm_guard_failed_reresolve_keeps_cached(clock, monkeypatch):
     c, s = make_shell(clock)
     c._storm_guard_eid = _SG
     assert c._storm_guard_entity() == _SG     # state missing, no match → keep
+
+
+def test_full_hold_degraded_precharge_reports_envoy_unavailable(clock):
+    """Review B B-LOW-2: the pre-existing full-hold storm precharge degraded
+    branch clears `_degraded_telemetry_source` around `_result`; the emitted
+    decision must still say envoy_available=False (the Envoy-offline NM
+    counter in `_track_envoy_availability` reads it)."""
+    now = NOW
+    a = alert("Winter Storm Warning", onset=now - timedelta(hours=1),
+              ends=now + timedelta(hours=6), id_="wsw_on")
+    c, s, _ = bshell(clock, now, alerts=[a], outlook=ol())
+    clock.t = now.astimezone(_UTC)
+    _st(c.hass, _SOC, "40", unit="%", lu=clock.t - timedelta(hours=1))
+    s._soc_lkg = 40.0
+    s._soc_lkg_at = clock.t - timedelta(seconds=30)
+    feed(c)
+    ts = MockState(_TS, "x", {})
+    ts.last_changed = clock.t
+    c.hass._states[_TS] = ts
+    d = s.determine_mode("peak", "shoulder", now=now)
+    assert "(storm precharge — safety over cost, degraded telemetry)" in d["reason"]
+    assert d["charge_from_grid"] is True
+    assert d["envoy_available"] is False
+    assert s._degraded_telemetry_source == "lkg"
