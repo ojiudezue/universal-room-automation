@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.68
+# Universal Room Automation vv5.103.69
 # Build: 2026-01-02
 # File: number.py
 #
@@ -82,6 +82,8 @@ async def async_setup_entry(
             # EC storm/blind Stage A D-A5: blind full-hold floor slider
             # (options-read; no coordinator setter).
             InclementBlindFullHoldFloorNumber(hass, entry),
+            # EC storm Stage B D-B6: pre-onset prepare floor slider.
+            InclementPreonsetFloorNumber(hass, entry),
             # v4.5.0 D2: live-tunable charge lead time (NumberMode.BOX, not
             # slider — user has slider fatigue; minute-precision values are
             # easier to type than drag). Hard min 120 (physics floor + safety).
@@ -1612,18 +1614,27 @@ class InclementBlindFullHoldFloorNumber(NumberEntity):
     _attr_native_unit_of_measurement = "%"
     _attr_mode = NumberMode.SLIDER
     _attr_entity_category = EntityCategory.CONFIG
+    # EC storm Stage B D-B6: the pre-onset slider reuses this class shape
+    # (subclass overrides these three; same options-read path).
+    _uid_suffix = "inclement_blind_full_hold_floor"
+    _label = "Inclement Blind Full Hold Floor"
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        from homeassistant.helpers.device_registry import DeviceInfo
-        from .const import VERSION
+    @staticmethod
+    def _key_default() -> tuple[str, int]:
         from .domain_coordinators.energy_const import (
             CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
             INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
         )
+        return CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR, INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        _key, _default = self._key_default()
         self.hass = hass
         self._entry = entry
-        self._attr_unique_id = f"{DOMAIN}_energy_inclement_blind_full_hold_floor"
-        self._attr_name = "Inclement Blind Full Hold Floor"
+        self._attr_unique_id = f"{DOMAIN}_energy_{self._uid_suffix}"
+        self._attr_name = self._label
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "energy_coordinator")},
             name="URA: Energy Coordinator",
@@ -1637,12 +1648,9 @@ class InclementBlindFullHoldFloorNumber(NumberEntity):
         # displayed value and the acting value cannot disagree.
         config = {**entry.data, **entry.options}
         try:
-            seeded = int(config.get(
-                CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
-                INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
-            ))
+            seeded = int(config.get(_key, _default))
         except (TypeError, ValueError):
-            seeded = INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT
+            seeded = _default
         self._value = max(0, min(100, seeded))
 
     @property
@@ -1655,25 +1663,49 @@ class InclementBlindFullHoldFloorNumber(NumberEntity):
         return bool(manager and manager.coordinators.get("energy") is not None)
 
     async def async_set_native_value(self, value: float) -> None:
-        from .domain_coordinators.energy_const import (
-            CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
-        )
+        _key, _default = self._key_default()
         self._value = max(0, min(100, int(value)))
         try:
             self.hass.config_entries.async_update_entry(
                 self._entry,
                 options={
                     **self._entry.options,
-                    CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR: self._value,
+                    _key: self._value,
                 },
             )
         except Exception:  # noqa: BLE001 — best-effort persist
             _LOGGER.debug(
-                "InclementBlindFullHoldFloor options-writeback failed",
-                exc_info=True,
+                "%s options-writeback failed", self._label, exc_info=True,
             )
         self.async_write_ha_state()
-        _LOGGER.info("Inclement blind full-hold floor set to %d%%", self._value)
+        _LOGGER.info("%s set to %d%%", self._label, self._value)
+
+
+class InclementPreonsetFloorNumber(InclementBlindFullHoldFloorNumber):
+    """EC storm Stage B D-B6 — pre-onset prepare floor slider (rung 3).
+
+    A HOLD-class warning (or forecast-confirmed watch) whose Onset is within
+    INCLEMENT_PREONSET_LEAD_H raises the reserve floor to
+    ``max(reserve_soc, partial_floor, <this value>)`` before Onset. Same
+    options-read path as the blind slider: writes ONLY
+    ``entry.options[CONF_INCLEMENT_PREONSET_FLOOR]``; the key is in
+    ``_NO_LIVE_ATTR_KEYS`` + ``OPTIONS_RELOAD_SUPPRESS_KEYS``; re-read every
+    tick by ``_inclement_config``. Default 80. A value at or below
+    ``max(reserve_soc, partial_floor)`` makes the warn floor equal the
+    partial floor (INCLEMENT_PREONSET_LEAD_H = 0 is the real kill).
+    """
+
+    _attr_icon = "mdi:weather-snowy-heavy"
+    _uid_suffix = "inclement_preonset_floor"
+    _label = "Inclement Pre-Onset Floor"
+
+    @staticmethod
+    def _key_default() -> tuple[str, int]:
+        from .domain_coordinators.energy_const import (
+            CONF_INCLEMENT_PREONSET_FLOOR,
+            INCLEMENT_PREONSET_FLOOR_PCT,
+        )
+        return CONF_INCLEMENT_PREONSET_FLOOR, INCLEMENT_PREONSET_FLOOR_PCT
 
 
 class ArbitrageChargeLeadTimeNumber(NumberEntity):

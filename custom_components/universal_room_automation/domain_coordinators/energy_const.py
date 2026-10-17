@@ -608,6 +608,10 @@ EV_UNTRUSTED_SOC_EXEMPT_PATHS: Final = frozenset(
 
 # Primary surface (4 knobs)
 CONF_INCLEMENT_NWS_ALERTS_ENTITY: Final = "inclement_nws_alerts_entity"
+# EC storm Stage B D-B5: the two keys below are RETIRED (removed from the
+# options flow; the product table replaces them). KEEP+DOCUMENT: constants
+# kept so a stored legacy value can be detected (repair issue) — never read
+# by the decision path.
 CONF_INCLEMENT_POWER_THREAT_EVENTS: Final = "inclement_power_threat_events"
 CONF_INCLEMENT_WARN_MIN_SEVERITY: Final = "inclement_warn_min_severity"
 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = "inclement_grid_precharge_on_hold"
@@ -673,6 +677,162 @@ INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT: Final = 60
 # URA last dispatched) ends decision-side blind reserve writes for the
 # rest of the blind episode. Escape under either: the EC enable switch.
 BLIND_RESPECT_MANUAL_LOWER: Final = False
+
+# ----------------------------------------------------------------------------
+# EC storm/blind Stage B (PLANNING_ec_storm_and_blind_decisions.md §6 D-B1..B7)
+# All rung 1 unless stated: decision topology / evidence-set values whose
+# change must be reviewed.
+# ----------------------------------------------------------------------------
+# D-B2 / D-B2a product table. Rows: (NWS code | None, exact event name
+# (case-folded match), class, polygon_local, precharge_eligible).
+# class: "warn" / "watch" (HOLD) or "notice" (shown + logged, never a hold).
+# Unlisted products are gated out. Only the P3-verified codes are coded
+# (AUDIT_ec_storm_stage0_probes.md P3); every other row matches by exact
+# name only. precharge_eligible (D-B2a evidence table): may this product
+# grid-charge (never changes class/tier/floor). Polygon rows are eligible
+# ONLY through the capped verified-local immediate leg.
+INCLEMENT_PRODUCT_TABLE: Final[tuple[tuple[str | None, str, str, bool, bool], ...]] = (
+    # HOLD-warn
+    (None, "Winter Storm Warning", "warn", False, True),
+    (None, "Ice Storm Warning", "warn", False, True),
+    (None, "Hard Freeze Warning", "warn", False, True),
+    (None, "Extreme Cold Warning", "warn", False, True),
+    (None, "Wind Chill Warning", "warn", False, True),
+    (None, "Blizzard Warning", "warn", False, True),
+    ("TOW", "Tornado Warning", "warn", True, True),
+    ("SVW", "Severe Thunderstorm Warning", "warn", True, True),
+    (None, "Extreme Wind Warning", "warn", True, True),
+    (None, "Hurricane Warning", "warn", False, False),
+    ("TRW", "Tropical Storm Warning", "warn", False, False),
+    # HOLD-watch
+    (None, "Winter Storm Watch", "watch", False, True),
+    (None, "Hard Freeze Watch", "watch", False, True),
+    (None, "Extreme Cold Watch", "watch", False, True),
+    (None, "Wind Chill Watch", "watch", False, True),
+    (None, "Tornado Watch", "watch", False, False),
+    (None, "Severe Thunderstorm Watch", "watch", False, False),
+    (None, "Hurricane Watch", "watch", False, False),
+    (None, "Tropical Storm Watch", "watch", False, False),
+    # NOTICE (never a hold)
+    ("WIY", "Wind Advisory", "notice", False, False),
+    ("HWW", "High Wind Warning", "notice", False, False),
+    ("HWA", "High Wind Watch", "notice", False, False),
+    ("WWY", "Winter Weather Advisory", "notice", False, False),
+    ("FZW", "Freeze Warning", "notice", False, False),
+    (None, "Wind Chill Advisory", "notice", False, False),
+    (None, "Cold Weather Advisory", "notice", False, False),
+)
+# D-B1 / Q7 (ruled "notice"): what a polygon product does when the point
+# feed is NOT polygon-exact. "table" keeps the table tier; "notice" demotes.
+INCLEMENT_UNVERIFIED_POLYGON_TIER: Final = "notice"
+# D-B2a: evidence that `?point=` is polygon-exact (P2(b), n=1). False =
+# polygon rows follow INCLEMENT_UNVERIFIED_POLYGON_TIER and the immediate
+# top-up leg is off.
+INCLEMENT_POINT_FEED_POLYGON_EXACT: Final = True
+# D-B2a: minutes after a verified-local polygon warning's start (per alert
+# ID) that grid top-up may run, any TOU. 0 = immediate leg off. Measured
+# per-storm union <= 100 min (IEM archive, plan "Cap, measured").
+INCLEMENT_POLYGON_TOPUP_MAX_MIN: Final = 60
+# D-B1: cap for an alert with neither Ends nor Expires (end = start + this).
+INCLEMENT_ALERT_MAX_HOLD_H: Final = 48
+# D-B3: feed staleness bound on the `last_updated` sibling's last_changed.
+# P2(d)/(e): healthy poll gap max 302 s, unavailable drop max 245 s, so any
+# value <= 310 self-triggers; 900 = ~3x margin. MUST stay > 310.
+NWS_ALERTS_STALE_S: Final = 900
+# D-B6: how far ahead of Onset the prepare floor applies. 0 = D-B6 off
+# (both legs). One evening peak at most at 12 h.
+INCLEMENT_PREONSET_LEAD_H: Final = 12
+# D-B6 rung 3: pre-onset floor slider default (Number entity
+# `InclementPreonsetFloorNumber`, options key below, read per tick by
+# `_inclement_config`; same options-read path as the blind slider).
+CONF_INCLEMENT_PREONSET_FLOOR: Final = "inclement_preonset_floor"
+INCLEMENT_PREONSET_FLOOR_PCT: Final = 80
+# D-B7: Enphase Storm Guard trip-wire target (notice only, never a decision
+# input), resolved at run time by entity-registry lookup — no house
+# entity_id literal (EC-HOUSE-ENTITY-DEFAULTS-1; same pattern as the Stage L
+# calendar resolution): the one `switch.*` entity of this platform whose
+# unique_id ends with the suffix (live 2026-10-16: platform enphase_ev,
+# unique_id enphase_ev_site_<id>_storm_guard). "" platform = trip-wire off.
+STORM_GUARD_PLATFORM: Final = "enphase_ev"
+STORM_GUARD_UNIQUE_ID_SUFFIX: Final = "_storm_guard"
+
+# ----------------------------------------------------------------------------
+# EC storm/blind Stage C (D-C2 forecast confirmation; rung 1). Thresholds
+# for `inclement.forecast_confirms`. A forecast is raise-only corroboration:
+# it can corroborate a watch and is REQUIRED for any zone-product grid buy
+# (INV-6(vii)); it never demotes and never creates a hold.
+# ----------------------------------------------------------------------------
+# D-C1 hourly refresh cadence (minutes), per Stage 0 P1 (OWM hourly).
+FORECAST_REFRESH_MIN: Final = 30
+# Outlook older than this (minutes) = None (no corroboration, no buy).
+FORECAST_STALE_MIN: Final = 120
+# Bounds the evaluated hazard window for a long Ends.
+FORECAST_WINDOW_MAX_H: Final = 48
+# NWS hard-freeze threshold (deg F): freeze/cold family confirms at min <= this.
+FORECAST_FREEZE_CONFIRM_F: Final = 28
+# Frozen-precip threshold (deg F) for the winter-storm family.
+FORECAST_WINTER_STORM_CONFIRM_F: Final = 32
+# Max precip probability (%) in the window for winter-storm (convective uses
+# FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT below, operator 2026-10-17).
+# NOT fitted: no recorded hourly PoP series exists yet (Stage 0 P1 /
+# addendum: one live sample only). 50 is the plan §7 placeholder; revisit
+# from the nws_alert ledger + OWM history once a season accrues.
+FORECAST_PRECIP_CONFIRM_PCT: Final = 50
+# Winter-storm AND convective precip leg for hours whose provider has NO
+# precipitation_probability (Open-Meteo carries only an amount; coordinator
+# provider policy 2026-10-16). Hourly amount (mm) treated as "precip
+# forecast". NOT fitted (no history yet); revisit with the PCT value.
+FORECAST_PRECIP_CONFIRM_MM: Final = 1.0
+# Convective family (Tornado / Severe Thunderstorm / Hurricane / Tropical
+# Storm / Extreme Wind) confirm rule. Operator 2026-10-17 (verbatim): "this is
+# storm conditions right not just rainy weather? I think the rain chance
+# should be higher and it should be storm conditions. I don't want grid buys
+# on mere rain." Convective confirms iff the window carries a STORM condition
+# AND a strong rain signal (probability >= this, else amount >=
+# FORECAST_PRECIP_CONFIRM_MM on no-probability hours). NOT fitted (no hourly
+# PoP history yet); operator-set placeholder, revisit with the PCT above.
+FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT: Final = 70
+# Storm conditions that count for the convective confirm. Operator 2026-10-17
+# ruling above; NOT fitted. Deliberately EXCLUDES "pouring" / "snowy-rainy"
+# (heavy rain is not a storm). Kept separate from weather_manager.
+# _STORM_CONDITIONS, which is shared with condition corroboration.
+FORECAST_CONVECTIVE_STORM_CONDITIONS: Final[frozenset[str]] = frozenset({
+    "lightning", "lightning-rainy", "hail", "tornado", "hurricane",
+    "exceptional",
+})
+# D-C2 forecast family per product (exact event name, case-folded at use).
+# Rung 1 (reviewed set, not a tunable): products whose hazard IS the
+# apparent temperature (wind chill / extreme cold). Their freeze-family
+# confirm reads the forecast's min apparent temp when present (OWM and
+# Open-Meteo hourly both carry `apparent_temperature`), else air temp.
+# Operator 2026-10-17 (Review A A-INFO-1).
+FORECAST_APPARENT_TEMP_PRODUCTS: Final[frozenset[str]] = frozenset({
+    "Extreme Cold Warning",
+    "Extreme Cold Watch",
+    "Wind Chill Warning",
+    "Wind Chill Watch",
+})
+INCLEMENT_FORECAST_FAMILY: Final[dict[str, str]] = {
+    "Hard Freeze Warning": "freeze",
+    "Hard Freeze Watch": "freeze",
+    "Extreme Cold Warning": "freeze",
+    "Extreme Cold Watch": "freeze",
+    "Wind Chill Warning": "freeze",
+    "Wind Chill Watch": "freeze",
+    "Winter Storm Warning": "winter_storm",
+    "Winter Storm Watch": "winter_storm",
+    "Ice Storm Warning": "winter_storm",
+    "Blizzard Warning": "winter_storm",
+    "Tornado Watch": "convective",
+    "Severe Thunderstorm Watch": "convective",
+    "Tornado Warning": "convective",
+    "Severe Thunderstorm Warning": "convective",
+    "Extreme Wind Warning": "convective",
+    "Hurricane Warning": "convective",
+    "Hurricane Watch": "convective",
+    "Tropical Storm Warning": "convective",
+    "Tropical Storm Watch": "convective",
+}
 
 # NWS severity ordering (CAP standard, low → high) for the noise filter.
 INCLEMENT_SEVERITY_ORDER: Final = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
@@ -2337,6 +2497,17 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
     ("energy_pool.py",    "determine_actions",          "non_reserve", 2),  # pool speed
     ("energy_pool.py",    "_write_amps",                "non_reserve", 1),  # EVSE amps
     ("radar_tuning.py",   "async_send_radar_settings",  "non_reserve", 1),  # radar device numbers
+)
+
+# EC storm Stage B D-B6 item 8 (rung 1): every `charge_from_grid=True`
+# keyword in energy_battery.py, per enclosing function (AST lint
+# `test_cfg_true_emission_sites_pinned`). All reach the decision dict via
+# `_result`; `"switch.turn_on"` literals live only in `_result`.
+# determine_mode: storm precharge x2 (degraded + plain) + pre-onset x1.
+CFG_TRUE_EMISSION_SITES: tuple[tuple[str, str, int], ...] = (
+    ("energy_battery.py", "_get_arbitrage_decision", 1),
+    ("energy_battery.py", "_get_attainability_decision", 1),
+    ("energy_battery.py", "determine_mode", 3),
 )
 
 

@@ -6412,12 +6412,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # not raw internal keys. Same {label, value} SelectOptionDict pattern as
         # the DPM relax-ceiling dropdown (config_flow.py:4675) — values stay the
         # existing enum keys so what's stored is unchanged (enum consistency).
-        _inclement_severity_options = [
-            {"label": "Extreme — only catastrophic events", "value": "Extreme"},
-            {"label": "Severe (recommended) — Severe + Extreme", "value": "Severe"},
-            {"label": "Moderate — Moderate + Severe + Extreme", "value": "Moderate"},
-            {"label": "Minor — any non-Unknown severity", "value": "Minor"},
-        ]
         _inclement_corroboration_options = [
             {"label": "Any provider stormy", "value": "any"},
             {
@@ -6561,30 +6555,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
-                CONF_INCLEMENT_POWER_THREAT_EVENTS,
-                default="\n".join(self._get_current(
-                    CONF_INCLEMENT_POWER_THREAT_EVENTS,
-                    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-                ) if isinstance(self._get_current(
-                    CONF_INCLEMENT_POWER_THREAT_EVENTS,
-                    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-                ), list) else DEFAULT_INCLEMENT_POWER_THREAT_EVENTS),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True)
-            ),
-            vol.Optional(
-                CONF_INCLEMENT_WARN_MIN_SEVERITY,
-                default=self._get_current(
-                    CONF_INCLEMENT_WARN_MIN_SEVERITY,
-                    DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=_inclement_severity_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
+            # EC storm Stage B D-B5: the legacy power-threat list and the
+            # warn-min-severity select are RETIRED (the exact product table
+            # replaces them). Constants kept (KEEP+DOCUMENT); a customized
+            # stored list raises one repair issue at setup; no options write.
             vol.Optional(
                 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
                 default=self._get_current(
@@ -9387,6 +9361,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_SILENCE_DURATION,
             DEFAULT_NM_SILENCE_DURATION,
             CONF_NM_SECURITY_ACK_PERSONS,
+            CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+            DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+            NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+            NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+            NM_LIFE_SAFETY_SCHEDULE_URGENT,
         )
 
         if user_input is not None:
@@ -9408,6 +9387,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_QUIET_MANUAL_END,
                 default=self._get_current(CONF_NM_QUIET_MANUAL_END, "07:00"),
             ): selector.TimeSelector(),
+            # SAFETY-NM-REFIRE-UNWIRED-1 D7: unacked life-safety repeat
+            # schedule (named buckets, plain-English labels; stored values
+            # are the NM_LIFE_SAFETY_SCHEDULE_* keys).
+            vol.Optional(
+                CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                default=self._get_current(
+                    CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                    DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+                        NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+                        NM_LIFE_SAFETY_SCHEDULE_URGENT,
+                    ],
+                    # Review A1: labels translated via strings.json "selector"
+                    # (same pattern as night_light_sleep_hue).
+                    translation_key="nm_life_safety_repeat_schedule",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(
                 CONF_NM_SAFE_WORD,
                 default=self._get_current(CONF_NM_SAFE_WORD, ""),

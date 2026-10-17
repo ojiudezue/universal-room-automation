@@ -333,10 +333,16 @@ class TestC3DNDBypass:
         # Empty bypass set for this recipient — safety floor MUST still fire.
         person = _base_person(**{CONF_NM_PERSON_DND_BYPASS_SEVERITIES: ()})
         nm = NotificationManager(hass, _cfg_all_channels(**{CONF_NM_PERSONS: [person]}))
+        # SAFETY-NM-REFIRE-UNWIRED-1 (Review B-MED-1): the floor applies at
+        # HIGH and above; LOW/MEDIUM life-safety readings follow DND.
         for hz in NM_LIFE_SAFETY_HAZARDS:
-            for sev in (Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL):
+            for sev in (Severity.HIGH, Severity.CRITICAL):
                 assert nm._recipient_bypasses_dnd("person.oji", hz, sev) is True, (
                     f"safety floor violated: hz={hz} sev={sev.name}"
+                )
+            for sev in (Severity.LOW, Severity.MEDIUM):
+                assert nm._recipient_bypasses_dnd("person.oji", hz, sev) is False, (
+                    f"sub-HIGH life-safety must not bypass DND: hz={hz} sev={sev.name}"
                 )
 
 

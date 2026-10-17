@@ -123,59 +123,35 @@ def test_fix2_interval_helper_gates_life_safety_first():
 
 
 def test_fix2_phase_boundaries_are_correct():
-    """Verify the ladder boundaries — this is the functional intent."""
-    # Simulate the pure decision by loading the helper into a namespace.
-    src = NM_SRC
-    tree = ast.parse(src)
-    fn_src = None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.FunctionDef)
-            and node.name == "_repeat_interval_for_active_alert"
-        ):
-            fn_src = ast.get_source_segment(src, node)
-            break
-    assert fn_src is not None
+    """Verify the ladder boundaries — this is the functional intent.
 
-    # Load consts.
-    ns: dict = {}
-    exec(
-        "NM_REPEAT_INTERVAL_LIFE_SAFETY=30\n"
-        "NM_REPEAT_INTERVAL_NON_LIFE_SAFETY=300\n"
-        "NM_REPEAT_PHASE1_S=300\n"
-        "NM_REPEAT_PHASE1_WINDOW_S=3600\n"
-        "NM_REPEAT_PHASE2_S=1800\n"
-        "NM_REPEAT_DAILY_AFTER_S=86400\n",
-        ns,
-    )
+    SAFETY-NM-REFIRE-UNWIRED-1 D7: converted from a source-exec of the
+    helper to a behavioural test on a REAL NotificationManager (the helper
+    now reads the life-safety schedule setting). Age is driven through the
+    real ``_unacked_critical_age_s`` via a patched instance method.
+    """
+    import test_notification_manager as _tnm
 
-    class _Fake:
-        def __init__(self, hazard, age):
-            self.hass = None
-            self._active_alert_data = {"hazard_type": hazard}
-            self._age = age
-
-        def _unacked_critical_age_s(self):
-            return self._age
-
-    # Inject a `is_life_safety_hazard` stub matching the union helper.
-    ns["is_life_safety_hazard"] = lambda hass, hz: hz in {
-        "smoke", "fire", "carbon_monoxide",
-        "water_leak", "flooding", "intruder", "freeze_risk",
-    }
-    exec(fn_src.replace("def _repeat_interval_for_active_alert(self)",
-                        "def _repeat_interval_for_active_alert(self)"), ns)
-    fn = ns["_repeat_interval_for_active_alert"]
+    def _interval(hazard, age, **cfg):
+        nm = _tnm.NotificationManager(_tnm._make_hass(), _tnm._make_config(**cfg))
+        nm._active_alert_data = {"hazard_type": hazard}
+        nm._unacked_critical_age_s = lambda: age
+        return nm._repeat_interval_for_active_alert()
 
     # Phase boundaries at non-life-safety.
-    assert fn(_Fake("reserve_soc", 0)) == 300         # phase1
-    assert fn(_Fake("reserve_soc", 3599)) == 300       # phase1 upper
-    assert fn(_Fake("reserve_soc", 3600)) == 1800      # phase2 lower
-    assert fn(_Fake("reserve_soc", 86399)) == 1800     # phase2 upper
-    assert fn(_Fake("reserve_soc", 86400)) == 86400    # daily
-    assert fn(_Fake("reserve_soc", 90 * 86400)) == 86400  # deep-daily
-    # Life-safety cadence untouched.
-    assert fn(_Fake("smoke", 100000)) == 30
+    assert _interval("reserve_soc", 0) == 300         # phase1
+    assert _interval("reserve_soc", 3599) == 300       # phase1 upper
+    assert _interval("reserve_soc", 3600) == 1800      # phase2 lower
+    assert _interval("reserve_soc", 86399) == 1800     # phase2 upper
+    assert _interval("reserve_soc", 86400) == 86400    # daily
+    assert _interval("reserve_soc", 90 * 86400) == 86400  # deep-daily
+    # Life-safety: default "standard" schedule = same ladder (D7) ...
+    assert _interval("smoke", 0) == 300
+    assert _interval("smoke", 100000) == 86400
+    # ... and the "urgent" schedule = 30 s flat at any age.
+    assert _interval("smoke", 100000, nm_life_safety_repeat_schedule="urgent") == 30
+    # Non-Safety life-safety (intruder) stays 30 s flat under the default.
+    assert _interval("intruder", 100000) == 30
 
 
 def test_fix2_created_at_stamped_and_recovered_from_db():

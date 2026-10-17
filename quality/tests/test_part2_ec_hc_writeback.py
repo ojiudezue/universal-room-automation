@@ -176,6 +176,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_NM_MUTE_DEFAULT_DURATION_MINUTES"),
     # NM Cycle C-2 (2026-07-22, D2): additive-only life-safety extras.
     _extract_conf(CONST_SRC, "CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS"),
+    # SAFETY-NM-REFIRE-UNWIRED-1 D7 (B-MED-2): repeat schedule (in _NM_C_KEYS).
+    _extract_conf(CONST_SRC, "CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE"),
     # Arrester operator-immunity cycle (2026-08-06): AC-ramp master
     # option-persistence key. Added to OPTIONS_RELOAD_SUPPRESS_KEYS to
     # prevent write-through reload loop; the arrester seeds from the
@@ -215,6 +217,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # EC storm/blind Stage A D-A5: blind full-hold floor slider (options-
     # read path; the battery re-reads entry.options every tick).
     "inclement_blind_full_hold_floor",
+    # EC storm Stage B D-B6: pre-onset floor slider (same options-read path;
+    # a slider move must not reload the CM — PLANNING_ec_storm Rev 3.1 H1).
+    "inclement_preonset_floor",
 }
 
 
@@ -267,6 +272,8 @@ def _verify_hand_typed_conf_literals() -> None:
         "stuck_sensor_exclusion_enabled": "CONF_STUCK_SENSOR_EXCLUSION_ENABLED",
         # EC storm/blind Stage A D-A5 (literal in __init__.py).
         "inclement_blind_full_hold_floor": "CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR",
+        # EC storm Stage B D-B6 (literal in __init__.py).
+        "inclement_preonset_floor": "CONF_INCLEMENT_PREONSET_FLOOR",
     }
     mismatches: list[str] = []
     for hand_value, conf_name in hand_typed_values.items():
@@ -362,7 +369,10 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
     # +3 EC-HOUSE-ENTITY-DEFAULTS-1 pin bookkeeping flags -> 101
     # +1 inclement_blind_full_hold_floor (EC storm/blind Stage A D-A5) -> 102
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 102
+    # +1 nm_life_safety_repeat_schedule (SAFETY-NM-REFIRE-UNWIRED-1 D7,
+    #    Review B-MED-2; via _NM_C_KEYS) -> 103
+    # +1 inclement_preonset_floor (EC storm Stage B D-B6 slider) -> 104
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 104
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +633,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES":      "nm_mute_default_duration_minutes",
         # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS":          "nm_extra_life_safety_hazards",
+        # SAFETY-NM-REFIRE-UNWIRED-1 D7 (B-MED-2) — repeat schedule in `_NM_C_KEYS`.
+        "_CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE":        "nm_life_safety_repeat_schedule",
         # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13) — both stuck-signal
         # knobs added to `_NM_A2_KEYS`.
         "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",

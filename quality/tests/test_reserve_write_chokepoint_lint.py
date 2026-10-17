@@ -299,3 +299,76 @@ def test_module_level_writer_is_attributed_to_module():
     assert hits == [("m.py", "<module>", "const", 1)]
     v = violations(hits, ALLOWLIST)
     assert any("m.py:<module>: UNLISTED" in s for s in v)
+
+
+# ---------------------------------------------------------------------------
+# EC storm Stage B D-B6 item 8 — charge_from_grid=True emission-site pin.
+# ---------------------------------------------------------------------------
+def _cfg_true_sites(src: str) -> tuple[Counter, Counter]:
+    tree = ast.parse(src)
+    parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+    kw: Counter = Counter()
+    turn_on: Counter = Counter()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.keyword)
+            and node.arg == "charge_from_grid"
+            and isinstance(node.value, ast.Constant)
+            and node.value.value is True
+        ):
+            kw[_enclosing_function(parents, node)] += 1
+        # Count EMISSION uses only: a literal that is an operand of a
+        # comparison (e.g. `_cfg_buy_commanded`'s
+        # `a.get("service") == "switch.turn_on"`) reads, it does not emit.
+        if (
+            isinstance(node, ast.Constant)
+            and node.value == "switch.turn_on"
+            and not isinstance(parents.get(node), ast.Compare)
+        ):
+            turn_on[_enclosing_function(parents, node)] += 1
+    return kw, turn_on
+
+
+def _load_cfg_sites():
+    spec = importlib.util.spec_from_file_location(
+        "_cfg_lint_private_energy_const", _EC_CONST_PATH,
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return tuple(mod.CFG_TRUE_EMISSION_SITES)
+
+
+def test_cfg_true_emission_sites_pinned():
+    path = URA_DIR / "domain_coordinators" / "energy_battery.py"
+    kw, turn_on = _cfg_true_sites(path.read_text())
+    expected = Counter({fn: n for (_m, fn, n) in _load_cfg_sites()})
+    assert kw == expected
+    # The only CFG turn_on EMISSION literal is `_result`'s action builder.
+    # Comparison reads (e.g. `_cfg_buy_commanded`) are excluded by the lint.
+    assert turn_on == Counter({"_result": 1})
+
+
+def test_cfg_lint_counts_a_new_site():
+    src = (
+        "class B:\n"
+        "    def x(self):\n"
+        "        return self._result('m', 'r', None, charge_from_grid=True)\n"
+        "    def _result(self):\n"
+        "        return {'service': 'switch.turn_on'}\n"
+    )
+    kw, turn_on = _cfg_true_sites(src)
+    assert kw == Counter({"x": 1}) and turn_on == Counter({"_result": 1})
+
+
+def test_cfg_lint_ignores_comparison_reads_but_counts_new_emission():
+    src = (
+        "class B:\n"
+        "    def _result(self):\n"
+        "        return {'service': 'switch.turn_on'}\n"
+        "    def _cfg_buy_commanded(self, res):\n"
+        "        return any(a.get('service') == 'switch.turn_on' for a in res)\n"
+        "    def rogue(self):\n"
+        "        return {'service': 'switch.turn_on'}\n"
+    )
+    _kw, turn_on = _cfg_true_sites(src)
+    assert turn_on == Counter({"_result": 1, "rogue": 1})

@@ -13,6 +13,7 @@ Validates:
 import asyncio
 import os
 import sys
+import threading
 import types
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
@@ -146,6 +147,14 @@ DOMAIN = "universal_room_automation"
 class FakeHass:
     def __init__(self):
         self.data = {DOMAIN: {}}
+        # Mirrors homeassistant.core.HomeAssistant: loop_thread_id is set to
+        # the event-loop thread, and verify_event_loop_thread(what) is called
+        # by the real helpers.dispatcher.async_dispatcher_send.
+        self.loop_thread_id = threading.get_ident()
+
+    def verify_event_loop_thread(self, what: str) -> None:
+        if self.loop_thread_id != threading.get_ident():
+            raise RuntimeError(f"Detected non-thread-safe operation: {what}")
 
 
 class FakeDatabase:

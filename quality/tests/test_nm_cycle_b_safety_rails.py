@@ -156,7 +156,14 @@ class TestB1SubtypeCadence:
     """`_schedule_repeat` picks cadence from the active hazard."""
 
     def _nm(self):
-        return NotificationManager(_make_hass(), _make_config())
+        # D7 (SAFETY-NM-REFIRE-UNWIRED-1): smoke/CO/flood/fire follow the
+        # "Smoke, CO and flood repeat schedule"; this class loops over every
+        # life-safety token incl. those, so pin the "urgent" (30 s) value.
+        # Non-Safety tokens are 30 s under every value (see TestB1Intruder*).
+        return NotificationManager(
+            _make_hass(),
+            _make_config(nm_life_safety_repeat_schedule="urgent"),
+        )
 
     def test_life_safety_selects_30s(self):
         nm = self._nm()

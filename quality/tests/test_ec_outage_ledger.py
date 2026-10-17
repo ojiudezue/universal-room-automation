@@ -441,7 +441,9 @@ async def test_ledger_row_round_trips_through_real_db(real_db):
     assert len(res["rows"]) == 1
     d = json.loads(res["rows"][0]["details_json"])
     assert d["NWSCode"] == "WIY" and d["id"] == "d39a0907-7955-f998-4def-f28ae2509698"
-    assert d["ura_class"] is None and d["local"] == "unknown"
+    # EC storm Stage B D-B2: the row now carries the product-table class/tier.
+    assert d["ura_class"] == "notice" and d["ura_tier"] == "notice"
+    assert d["local"] == "unknown"
     assert res["rows"][0]["importance"] == "notable"
 
 
@@ -1545,3 +1547,145 @@ def test_s16_energy_coordinator_init_builds_the_ledger():
     )
     assert isinstance(coord._outage_ledger, L.OutageLedger)
     assert coord._outage_ledger.hass is hass
+
+
+# ===========================================================================
+# EC storm Stage B — enclosing-method anchors for the three new per-tick
+# hooks in the REAL `_decision_cycle_body` (`_inclement_rows_tick`,
+# `_storm_guard_tick`, `_grid_buy_notify_tick`). Deleting a CALL in the body
+# turns one of these RED. Lives here to reuse this file's module-isolation
+# fixture and cycle harness.
+# ===========================================================================
+_SG = "switch.main_panel_wall_iq_gateway_hacs_storm_guard"
+
+
+def _stage_b_setup(hass, **battery_attrs):
+    b = _battery_stub(hass, {"mode": "self_consumption", "reason": "r",
+                             "actions": []})
+    b._inclement_pending_rows = []
+    b._tick_grid_buy = None
+    b._storm_guard_state = None
+    for k, v in battery_attrs.items():
+        setattr(b, k, v)
+    c = _cycle(hass, b)
+    nm = []
+
+    async def _nm(**kw):
+        nm.append(kw)
+    c._send_nm_alert = _nm
+    c._nm = nm
+    c._storm_guard_eid = _SG
+    return c, b
+
+
+async def _stage_b_body(c, hass):
+    await c._outage_ledger._seed_alerts(NOW)
+    try:
+        await c._decision_cycle_body()
+    except _Stop:
+        pass
+    await hass.drain()
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_drains_inclement_rows():
+    db = _FakeDB()
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass, _inclement_pending_rows=[
+        ("inclement_code_drift", "drift WSW", {"event": "Winter Storm Warning",
+                                               "code": "WSW", "kind": "observed_code"}),
+    ])
+    await _stage_b_body(c, hass)
+    rows = _rows(db, "inclement_code_drift")
+    assert len(rows) == 1
+    assert json.loads(rows[0]["details_json"])["code"] == "WSW"
+    assert b._inclement_pending_rows == []
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_runs_storm_guard_tripwire():
+    db = _FakeDB()
+    saved = []
+
+    async def _save(ev):
+        saved.append(ev)
+    db.save_anomaly_event = _save
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass)
+    hass.states.d[_SG] = _State("off")
+    await _stage_b_body(c, hass)
+    assert b._storm_guard_state == "off" and c._nm == []
+    hass.states.d[_SG] = _State("on")
+    await _stage_b_body(c, hass)
+    assert len(c._nm) == 1 and c._nm[0]["title"] == "Enphase Storm Guard is on"
+    assert [e.type for e in saved] == ["energy.storm_guard_enabled"]
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_runs_grid_buy_notify():
+    db = _FakeDB()
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass)
+    await _stage_b_body(c, hass)          # first tick after setup: seeds, no buy
+    b._tick_grid_buy = {"leg": "polygon", "alert_id": "svw",
+                        "event": "Severe Thunderstorm Warning", "target": 90,
+                        "forecast_confirmed": False}
+    await _stage_b_body(c, hass)
+    assert len(c._nm) == 1 and c._nm[0]["severity"] == "low"
+    await _stage_b_body(c, hass)          # same episode → no second NM
+    assert len(c._nm) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_setup_runs_legacy_threat_list_check():
+    """EC storm Stage B D-B5 call-site anchor: async_setup calls
+    `_check_legacy_threat_list` (the repair-issue check)."""
+    class _Shell(EnergyCoordinator):
+        def __init__(self):
+            pass
+
+    armed = []
+    c = _Shell()
+    c.hass = _Hass(_FakeDB())
+    c._decision_timer_unsub = None
+    c._solar_follow = None
+    c._decision_interval = 5
+
+    async def _restore(now):
+        return None
+
+    c._restore_all_sequential = _restore
+    c._register_solar_follow_timer = lambda: None
+    c._unsub_listeners = []
+    c._outage_ledger = SimpleNamespace(arm=lambda: armed.append(True))
+    c._write_verifier = object()
+    checked = []
+    c._check_legacy_threat_list = lambda: checked.append(True)
+
+    class _Stop(Exception):
+        pass
+
+    def _stop(*_a, **_k):
+        raise _Stop
+
+    c._optimizer_intent_unsub = None
+    import custom_components.universal_room_automation.domain_coordinators.energy as E
+    orig_track = E.async_track_time_interval
+    orig_conn = E.async_dispatcher_connect
+    E.async_track_time_interval = lambda *a, **k: (lambda: None)
+    calls = {"n": 0}
+
+    def _conn(*a, **k):
+        calls["n"] += 1
+        if calls["n"] >= 2:  # the optimizer-intent subscribe follows the arm
+            raise _Stop
+        return lambda: None
+
+    E.async_dispatcher_connect = _conn
+    try:
+        with pytest.raises(_Stop):
+            await c.async_setup()
+    finally:
+        E.async_track_time_interval = orig_track
+        E.async_dispatcher_connect = orig_conn
+    assert armed == [True] and checked == [True]

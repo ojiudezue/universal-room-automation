@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "218",
+  "author": "ojiudezue",
+  "session_id": "claude_20261017_182203_ship_v5_103_69",
+  "timestamp": "2026-10-17T18:22:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.69 shipped: EC storm Stage B+C, observation-mode reserve gate, safety re-page, S10 notify HIGH",
+  "summary": "EC storm Stage B+C, observation-mode reserve gate, safety re-page, S10 notify HIGH",
+  "why": "Operator 10-17 approved bundling and restarting today. Stage B+C gives the storm hold a real alert window, local matching and a forecast check (convective = storm condition AND >=70% rain per operator: no reaction to mere rain); grid pre-charge stays off until the operator enables it. Obs-mode gate closes two reserve-write paths that ignored observation mode. Safety re-page fixes acked smoke/CO/flood never re-paging (hazard key None). S10 notifications were MEDIUM and reached nobody.",
+  "implications": "Shipped EC-INCLEMENT-HARDENING-1, EC-OBSERVATION-MODE-RESERVE-BYPASS-1, SAFETY-NM-REFIRE-UNWIRED-1, HVAC-S10-NOTIFY-UNDELIVERED-1 at v5.103.69; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.69.md (Live criteria).",
+  "revisit_trigger": "Live: inclement_forecast.fetched_at advances ~30 min with providers_ok>0; 0 URA ERRORs; precharge option still False; safety repeat-schedule option = Standard",
+  "refs": {
+    "cards": [
+      "EC-INCLEMENT-HARDENING-1",
+      "EC-OBSERVATION-MODE-RESERVE-BYPASS-1",
+      "SAFETY-NM-REFIRE-UNWIRED-1",
+      "HVAC-S10-NOTIFY-UNDELIVERED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.69.md"
+    ],
+    "release_notes": "Storm hold: real alert window (Onset to Ends), local product matching, pre-onset prepare floor (80), Storm Guard trip-wire, hourly forecast check (thunderstorm watches need a storm condition AND >=70% rain). Grid pre-charge stays off until enabled. Observation mode now blocks the TOU-transition and write-verify reserve writes. Acknowledged smoke/CO/flood alarms re-page while active; new repeat-schedule setting (default Standard). Custom Preset Ranges give-up notifications are HIGH. Details: docs/readmes/README_v5.103.69.md"
+  }
+}
