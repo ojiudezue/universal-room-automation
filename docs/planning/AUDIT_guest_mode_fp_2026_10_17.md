@@ -99,3 +99,42 @@ Verdict: **can't tell, leaning toward a second body present as of 20:36Z-21:43Z.
 - Do NOT touch the live state yet. If a guest is in fact staying, GUEST is correct and every consumer above was a no-op or benign.
 - If the occupant turns out to be a resident: add the guest-room resident exclusion for the one gap measured, the missing GB2 BLE fix. Config-first options: give GB2 a direct scanner area, or add the resident to the occupant-known check by borrowing; neither is a code change. A code remedy would be a separate Tier 2-DB card (revive GUEST-FP-RESIDUALS-1 on the fired trigger).
 - A long-term guest staying in a flagged guest room will, by design, hold or re-arm GUEST while the room is occupied; that is correct behavior.
+
+## Re-probe (appended 2026-10-17 ~16:58 CDT / 21:58Z) — items not done above
+Read-only. Sources: HA recorder (`ssh ha sqlite3 /config/home-assistant_v2.db`), URA DB `census_snapshots` / `person_entry_exit_events`. No camera images viewed. Operator approved the WiFi enumeration 2026-10-17.
+
+### VERDICT: can't tell. Leans "guest NOT detected home right now", low confidence.
+- For away: the one guest-candidate phone has been off WiFi ~36 h; no interior detection of anyone between 11:50Z and 20:12Z; the census right now reads house = 1 (jaya), unidentified 0 (rows to 21:54:55Z).
+- For a second body: GB2 mmWave/bathroom activity 20:13-21:46Z and GB1 motion 21:43-21:51Z while Jaya's phone sat static in "Jaya Bedroom". Only fits a second person if Jaya was phone-less. Nothing here separates the two.
+
+### 1. Guest WiFi
+- Producer: `camera_census._get_wifi_guest_count` (camera_census.py:5649). `CONF_GUEST_VLAN_SSID` is live "Revel" (core.config_entries). Counts router-sourced device_trackers that are `home`, on essid Revel, with a non-empty hostname outside NON_GUEST/TABLET prefixes, not a family tracker/MAC, and with last_changed within 4 h (const.py:3779). Diagnostic only (`wifi_guest_floor`).
+- Every Revel device with a phone-like hostname in the last 4 d (recorder, 21:55Z):
+  - `device_tracker.unifi_default_0e_a8_a4_be_6d_7e`, host "MacBookAir", private MAC. Home 10-11..10-16 in bursts, not_home 10-17 03:25Z-18:24Z, **home since 20:12:52Z** (same minute Jaya arrived). It roamed APs at 20:14:44, 21:29:53 and 21:31:24Z, so it is moving with someone. **Connected now** (last update 21:31:24Z). Owner unknown: Jaya's own Mac is a different tracker (`jayas_macbook_air_4`, MAC E2:03:74:04:55:E5, no states today).
+  - `device_tracker.unifi_default_02_f0_d7_b5_e4_cd`, no hostname, private MAC (02:..). Seen on Revel 10-14 00:31Z through 10-16 12:31Z (daily ~02-04Z and ~12:22-12:31Z), last home 10-16 15:15Z. **not_home now, ~36 h absent.** Persistent across days, so this is the best guest-phone candidate. It has an empty hostname, so `_get_wifi_guest_count` skips it anyway (Filter 1).
+  - `device_tracker.iphone_4` (MAC 06:7b:aa:d0:af:aa): home 10-14 12:26Z-10-16 12:30Z, 2 rows only. Not home now.
+  - `device_tracker.unifi_default_5a_77_3f_c6_f9_ae` "Watch": home 10-13 21:56Z-10-14 10:10Z, then off. `unifi_default_9c_b8_b4_9c_1c_52` "Watch" is still home, static (stale-looking, 18:24:38 restore row).
+- Not in the formula: the empty-hostname phone. A recency window is moot for it.
+- Limit: I enumerated 4 d of recorder history only. First-seen before 10-13 is unknown, so I can't prove "a month".
+- 4 h count of 4 earlier (20:12:54Z) is explained by the Mac plus other family/unclassified clients, not verified per device.
+
+### 2. Cameras after 11:50Z (detection state only)
+- **11:50Z-20:12Z: no interior person detection at all** (staircase, stairs_top, upstairs_hall, playroom, family_room, living_room, foyer: all off). Exterior only: hot_tub 12:54-15:05Z (many), utilities_ptz 13:06/15:31/17:05/19:45Z, rear_ptz 13:27/15:30Z, front_side_ptz 18:49-19:42Z (many), madrone entry/front_door_aerial 16:13Z, reolink porch PTZ 15:58-17:3xZ. Consistent with the house being empty indoors and someone outside. (Whether those outdoor people are the guest is not determinable from state.)
+- From 20:12Z: doorbell/garage_a/g5_bullet 20:12-20:14 (Jaya entry, person_id jaya), garage_a 20:22 (exit peak 2 at 20:23, jaya + one unnamed), doorbell 20:38 (unnamed entry), family_room/living_room/foyer/master_hallway 20:44-20:46 (census: 2 unidentified + jaya = 3, then exit 20:46:15 unnamed via front_door_aerial; `unexpected_person_detected` ON 20:45-20:46).
+- Upstairs: stairs_top/upstairs_hall/staircase/playroom detections at 20:13, 21:21, 21:26, 21:30, 21:35-37, 21:41-42, then staircase + garage-hallway 21:42-21:52Z (latest 21:52). `unexpected_person_detected` ON 21:42:xx-21:43.
+- Unrecognized faces: none persisted. `census_snapshots` (house) 21:49-21:54Z = identified ["jaya"], unidentified 0, total 1. Unidentified > 0 rows today: property zone 20:08-20:42Z and 21:19-21:23Z (exterior bodies), house zone 20:45Z (2).
+- Crossings since 20:46:15Z: none (`person_entry_exit_events` max id 8640). The 11:50:22Z exit is named "jaya".
+
+### 3. Guest rooms 1 and 2 (UTC, today)
+- GB2 (`upstairs_guest_bedroom_occupied`): on 20:14, off 20:27, on 20:36:36, off 21:47:27. Matter mmWave on 20:13-20:22, 20:36-21:36, 21:37-21:42:25. GB2 bathroom occupied 20:22-20:41 and 21:35-21:46, with its room-lights switch on 20:22-20:32, 20:33-20:41 and 21:35-21:46 (the lights are URA-actuated; they show the room sensor, not a manual switch).
+- GB1 (`guest_bedroom_1_occupied`): **ON now** since 21:43:xx (mmWave on 21:43, off 21:44, on 21:44-21:51:06; URA occupied still on 21:51:30). Motion 21:43-21:51Z. No GB1 activity before 21:43Z today.
+- Lights, fans, covers: nothing turned on by hand. All bedroom lights/fans/ceiling fans off; the only "on" is the URA-driven GB2 bathroom lights. Covers closed (unavailable blips at 13:4x/14:0x Z are the restart). No manual-mode or override changes visible.
+- Door contacts `openclose_aquara_zigbee_dnguestbedroom_contact` / `_2`: unavailable, no usable data.
+- Nothing from 11:50Z to 20:13Z in either room: both rooms were quiet while the house was empty.
+
+### 4. Verdict: see top. The decisive missing input is whose the MacBookAir is, which can only come from the operator.
+- A single falsifier: if the "MacBookAir" disconnects/reconnects with Jaya's phone moving in sync, it is Jaya's. If it moves while her phone is static (as at 21:31Z vs phone static since 21:30:30Z), it is not hers.
+- That timing already points to the Mac belonging to someone other than the phone carrier, or to Jaya having left the phone. I did not verify which.
+
+### 5. Does `sensor.universal_room_automation_last_person_entry` re-read person_id after an entry is named later?
+**No.** `LastPersonEntrySensor` (sensor.py:4837-4893) subscribes only to the bus event `ura_person_egress_event` (sensor.py:4855) and sets `_last_person_id = event.data.get("person_id") or "unidentified"` once at event time (sensor.py:4857-4868). It has no dispatcher subscription and no DB re-read. By contrast `LastPersonExitSensor` subscribes to `SIGNAL_EGRESS_EXIT_BACKFILLED` and re-reads the newest exit row (sensor.py:4913-4935). `SIGNAL_EGRESS_EXIT_BACKFILLED` has a single producer (camera_census.py:4698-4702), and `grep SIGNAL_EGRESS_ENTRY` finds nothing, so there is no entry-side backfill signal to listen to either. A late-named entry stays "unidentified" on the sensor. Consistent with the unnamed entries at 20:39:10Z (id 8639) in `person_entry_exit_events`.
