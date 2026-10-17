@@ -167,3 +167,60 @@ All of C1-C2, H1-H5 and M1-M6 are genuinely resolved. The new E2 schedule has tw
 - F2: the freeze point and its storage are ambiguous, and five string-typed latch readers are not enumerated.
 
 Must-fix before build: F1, F2, F4, F5. F3 and F6-F10 are fixed in the same revision.
+
+## Final re-check Rev 3.1 (d276e36a5, 2026-10-17)
+
+Scope: §E2.2 rules 1-8, scheduler drills, INV-9, §E2.4, E2 acceptance; §E1.10 golden; E1.3 N1 change; residual two-reading text. Read against `inclement.py:940-1012` (purge `:950-953`, advance `:974-980`, `pre` `:984-1005`), `_zone_buy_confirmed` `:918-933`, `energy_battery.py:3140-3148, 6340-6415`, `energy.py:9410-9425, 9540-9550`, `energy_tou.py:459-520`, `energy_const.py:15-65` (`PEC_TOU_RATES`).
+
+### Prior findings
+| ID | Status | Evidence |
+|---|---|---|
+| F1 | RESOLVED | Rule 1: slots `[H, H+1h)` with `H+1h > now`; current slot is a candidate; hh:30 test + drill (b). |
+| F2 | RESOLVED | Rule 5: latch stays `dict[str,str]` (string readers `:975`, `:984`, `3145`, `6403-6408`, `9420-9421` untouched, confirmed in code); sibling `_preonset_buy_schedule`; one freeze point; readers; discharge. Residual LOW-2 (obs mode). |
+| F3 | RESOLVED | Rule 6 new-ID semantics, honest test. |
+| F4 | RESOLVED | Rule 3: engine missing / raising → S = (); None rank excluded. |
+| F5 | RESOLVED | Rule 4: SOC None or ≥ target → S = (); margin only when buying. |
+| F6 | RESOLVED | Rule 2: UTC stepping, `as_local` ranking (`get_current_period` uses `now.hour`, `energy_tou.py:459-470`, so the local conversion is required and stated). |
+| F7 | PARTIAL | Rule 7 + §E2.4 multi-alert bullet fix (ii). The field definition still contradicts the (i) rule: MED-1. |
+| F8 / N2 | RESOLVED | Prepare-cell buy/floor fields projected out; allowed diff = E0 product names only; scheduler not called by the comparison. Residual LOW-1 (tariff source). |
+| F9 | RESOLVED | Rule 8 pins shoulder `{15:00, 16:00}`, partial S, T on the hour. Arithmetic checked against `PEC_TOU_RATES`: shoulder bottom `0-17, 21-24`; winter bottom `0-5, 9-17, 21-24`. INV-9 repro, "unavoidable top" (17:30 → slots 17, 18, both rank 1) and its control (Onset 23:00 → {21, 22}) are all correct. |
+| F10 | PARTIAL | Drills (b)-(e) are falsifiable. Drill (a)'s fixture can't discriminate: MED-2. |
+| N1 | RESOLVED | `buy = … ∩ hold ∩ (family ∪ polygon) ∩ corroborable_names`; overlay `eligible = name ∈ buy`; `_zone_buy_confirmed` (`:929-933`) requires `r.precharge_eligible`. So a widened or unlisted record is never eligible, on both the prepare path and the co-active full-hold path. `buy_needs_table_hold` validation + two tests + drill. |
+| N3-N5 | RESOLVED | E2 test-ref classification, the attr-shape rewrite and 104 → 108; E1.7 allowlist and pinned key set; 5-tuple shape kept, `corroborable` returned separately. |
+
+### New / residual findings
+
+**MED-1. The registered-floor value under INV-8(i) has two readings.**
+- §E2.4 bullet 2 says `preonset_floor` = `preonset_target` "when INV-8 (i) or (ii) holds".
+- The multi-alert bullet says that under (i) only, the value comes from the class of rows with `start ≤ now + floor_lead`.
+- Concrete case: warn 10 h out (key row, so `preonset_target` = 80) plus watch 3 h out (`pstart`), no buy, at `pstart − 3h`. Rule (i) holds. Bullet 2 registers 80; the multi-alert bullet registers 50 (`lower`).
+- The two-alert fixture and `test_preonset_field_split_readers` will pin whichever reading the builder picks.
+- **Fix:** rewrite bullet 2 as: "`preonset_floor` = `preonset_target` under (ii); under (i)-only = the window-class value (§E2.4 multi-alert); else None." Also note that the (i)-only value can be below `preonset_target` (readers 5-7 see the lower value).
+
+**MED-2. Drill (a)'s fixture can't go RED.**
+- The fixture is "SOC rising 30→60 mid-buy so S shifts later". With target 80, rate 50 and margin 1:
+  - SOC 30 gives `h_req = ceil(50/50) + 1 = 2`;
+  - SOC 60 gives `h_req = ceil(20/50) + 1 = 2`.
+- So a per-tick recompute at 15:30 returns the same `{15:00, 16:00}`, because the current slot is a candidate (rule 1). The recompute mutant therefore emits exactly one CFG on→off. `test_schedule_frozen_while_soc_rises` stays GREEN: a hollow anchor (#62).
+- **Fix:** the fixture must change `h_req` mid-buy. Example: SOC 20 at freeze, so `h_req = 3` and `S = {14:00, 15:00, 16:00}`; SOC reaches 45 at 14:30, so a recompute gives `h_req = 2` and `{15:00, 16:00}`. The mutant turns CFG off at 14:30 and on again at 15:00, which is two cycles, so RED. Pin the numbers in the plan.
+
+**LOW-1. "The committed `tou_rates.json`" does not exist.** `DEFAULT_TOU_RATE_FILE` (`energy_const.py:266`) is a runtime HA-config path that is not in the repo. Say "built from `energy_const.PEC_TOU_RATES`". That keeps the golden reproducible from the repo, with no live file.
+
+**LOW-2. The observation-mode schedule deletion has two readings.**
+- The `energy.py:9415-9422` rollback runs only when a latch was engaged this tick (`_tick_preonset_engaged_id`).
+- In obs mode, a schedule frozen before its first slot never engages, so with "alongside the engaged rollback" it survives. INV-8(ii) then registers from `min(S)`, contradicting the non-guarantee "(ii) never applies there".
+- Nothing is dispatched in obs mode, so the effect is attr/ledger only.
+- **Fix:** delete the decision's `_preonset_buy_schedule[key_id]` on every obs-mode tick, outside the `eid_engaged` guard. Reword the non-guarantee to "(ii) may register on a freeze tick only".
+
+**LOW-3. Evaluation order at the freeze point.**
+- The freeze conjuncts include the solar test, which today runs only inside the `pre` block (`:995-1005`). That block will be gated on slot ∈ S, which is circular before S exists.
+- **Fix:** state the order: compute the non-S conjuncts and the solar test, then freeze S if absent, then gate `pre` on slot ∈ S.
+- An implementation that keeps solar inside the gated block never freezes. The INV-9 repro catches that, so this is LOW.
+
+**LOW-4. Wording in drills (c) and §4.3 row 1.**
+- Drill (c) "drop margin-only-when-needed" is an equivalent mutant when the `SOC ≥ target → ()` early return is the same line. Name the mutant "remove the `SOC ≥ target` early return", and have it go RED in the pure-function test, since the freeze conjunct already blocks it at decide level.
+- "Compute `h_req` from `floor`" is ambiguous after the split. Say "from `lower`".
+- §4.3 row 1 says "hour ∈ `preonset_buy_hours`". Use rule 1's wording: "the UTC slot containing `now` ∈ `preonset_buy_hours`".
+
+### Verdict: **FIX-PLAN** (two MED, both one-paragraph text fixes; no re-review needed beyond an orchestrator diff check)
+Must-fix before build: MED-1, MED-2. LOW-1 to LOW-4 are fixed in the same edit. Everything else in scope is a single unambiguous rule set and matches the code.
