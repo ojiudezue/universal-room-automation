@@ -233,28 +233,70 @@ def _prime(hass, bat, clk):
     bat._last_reserve_level_at = clk.t0  # commanded_at pinned
 
 
+def _episode(v):
+    return (
+        v._pending_episode_at.get(SURFACE),
+        v._pending_attempts_fired.get(SURFACE, 0),
+        v._pending_last_attempt_at.get(SURFACE),
+        v._pending_standdown_at.get(SURFACE),
+        v._pending_standdown_value.get(SURFACE),
+        v._pending_cooloff_probe_fired.get(SURFACE, False),
+        v.is_pending_episode_active(SURFACE),
+    )
+
+
 @pytest.mark.asyncio
-async def test_obs_on_sweep_no_retry_no_anomaly_no_nm_and_resets(hass):
-    """Mutation: remove the reversion_sweep gate -> RED (retry + anomaly)."""
+async def test_obs_on_sweep_no_retry_no_anomaly_no_nm_episode_frozen(hass):
+    """Mode ON: no retry / anomaly / NM, and the episode is FROZEN (plan
+    rev 3). Mutation: remove the reversion_sweep gate -> RED."""
     coord, bat, v, emitted, retries = _wv(hass, obs=True)
     clk = _Clk(bat)
     try:
         _prime(hass, bat, clk)
-        # Leftover episode state from before the mode was turned on.
+        # Live episode from before the mode was turned on: 2 attempts fired.
         v._pending_episode_at[SURFACE] = clk.t0
         v._pending_attempts_fired[SURFACE] = 2
         v._pending_last_attempt_at[SURFACE] = clk.t0
-        clk.at(901)  # past attempt-1 age (900 s)
-        await v.reversion_sweep()
+        before = _episode(v)
+        for off in (901, 4000, 8000):  # past attempt-1/2/3 ages
+            clk.at(off)
+            await v.reversion_sweep()
+            assert _episode(v) == before
     finally:
         clk.restore()
     assert retries == []
     assert "pending_write_stuck" not in emitted
     assert coord.nm_calls == []
-    assert v._pending_attempts_fired[SURFACE] == 0
-    assert v._pending_episode_at[SURFACE] is None
-    assert v._pending_last_attempt_at[SURFACE] is None
-    assert v._pending_standdown_at[SURFACE] is None
+    assert before[1] == 2 and before[6] is True
+
+
+@pytest.mark.asyncio
+async def test_obs_on_sweep_preserves_standdown_pin(hass):
+    """A pinned stand-down survives ON ticks and ON->OFF: the `_result`
+    same-value skip predicate stays True for the stuck value."""
+    coord, bat, v, emitted, retries = _wv(hass, obs=False)
+    clk = _Clk(bat)
+    try:
+        _prime(hass, bat, clk)
+        for off in (901, 2701, 4501):  # three spaced attempts -> stand-down
+            clk.at(off)
+            await v.reversion_sweep()
+        assert len(retries) == 3
+        assert v.is_standdown_active_for_value(SURFACE, 10) is True
+        before = _episode(v)
+        coord._observation_mode = True
+        for off in (5000, 9000, 20000):
+            clk.at(off)
+            await v.reversion_sweep()
+            assert _episode(v) == before
+            assert v.is_standdown_active_for_value(SURFACE, 10) is True
+            assert v.is_pending_episode_active(SURFACE) is True
+        coord._observation_mode = False
+        assert v.is_standdown_active_for_value(SURFACE, 10) is True
+        assert v._pending_standdown_value[SURFACE] == 10
+    finally:
+        clk.restore()
+    assert len(retries) == 3
 
 
 @pytest.mark.asyncio
@@ -274,41 +316,32 @@ async def test_obs_off_sweep_fires_attempt_one(hass):
 
 
 @pytest.mark.asyncio
-async def test_obs_off_on_off_single_attempt_no_standdown(hass):
-    """Two attempts fired, mode ON past attempt-3 age, then OFF: the first
-    OFF tick fires ONE attempt (attempt 1, not 3), no stand-down; the next
-    tick inside 15 min fires nothing.
-    Mutation: drop the _reset_pending_episode call in the gate -> RED."""
-    coord, bat, v, emitted, retries = _wv(hass, obs=False)
+async def test_obs_off_on_off_zero_attempt_episode_single_attempt(hass):
+    """Episode with 0 attempts, mode ON until past attempt-3 age (3600 s),
+    then OFF: the first OFF tick fires exactly attempt 1 (no stand-down),
+    the next tick within 899 s fires nothing (ladder spacing)."""
+    coord, bat, v, emitted, retries = _wv(hass, obs=True)
     clk = _Clk(bat)
     try:
         _prime(hass, bat, clk)
-        clk.at(901)
-        await v.reversion_sweep()
-        clk.at(1801 + 900)
-        await v.reversion_sweep()
-        assert len(retries) == 2
-        assert v._pending_attempts_fired[SURFACE] == 2
-        coord._observation_mode = True
-        for off in (4000, 6000, 8000):
+        for off in (901, 2000, 3700):
             clk.at(off)
             await v.reversion_sweep()
-        assert len(retries) == 2
+        assert retries == []
+        assert v._pending_attempts_fired.get(SURFACE, 0) == 0
         coord._observation_mode = False
-        coord.nm_calls.clear()
-        emitted.clear()
-        clk.at(9000)
+        clk.at(3700)
         await v.reversion_sweep()
-        assert len(retries) == 3
+        assert retries == [SURFACE]
         assert v._pending_attempts_fired[SURFACE] == 1
-        assert v._pending_standdown_at[SURFACE] is None
+        assert v._pending_standdown_at.get(SURFACE) is None
         assert all(
             c.get("alert_type") != "pending_write_standdown"
             for c in coord.nm_calls
         )
-        clk.at(9000 + 899)
+        clk.at(3700 + 899)
         await v.reversion_sweep()
-        assert len(retries) == 3
+        assert retries == [SURFACE]
     finally:
         clk.restore()
 
