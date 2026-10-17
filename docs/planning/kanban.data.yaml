@@ -125,6 +125,20 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1
+  title: "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person"
+  thread: identity
+  status: "inbox"
+  tier: 2
+  created: "2026-10-17 17:10"
+  updated: "2026-10-17 17:10"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer)."}
+  why: "Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case."
+  links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-COMULTI-DEPART-1"]}
+  next: "Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both."
+  rank: {value: 4, time_criticality: 2, effort: 2}
 - id: EC-LOADED-VS-INSTALLED-VERSION-1
   title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
   thread: platform
@@ -6959,10 +6973,11 @@ cards:
   sibling_of:
   - DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - id: EGRESS-EXIT-IDENTITY-BACKFILL-1
+  disposed_2026_10_17: "DONE with residuals (soak-exit). Not regressed: spot check 5 most recent organic backfills (10-13..10-15) 3 RIGHT / 0 WRONG / 2 UNVERIFIABLE; switch on, disabled-skip 0, ble_exit_error_count 0. Validated table written into README_v5.103.64.md. Residuals: R-A -> EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1 (joint departure with ONE crossing row is named for whichever tracker edge claims first: both 10-13 rows went to oji while oji+jaya left together). R-B (v5.103.64 display re-read + switch path unobserved live, 0 backfills since load): revival = next ble_exit_backfilled_count increment -> check Last Person Exit within ~5 min. R-C structural known limit: a resident whose phone never leaves BLE range on a short trip produces no home/not_home edge, so neither entry lead (180 s) nor exit backfill can name; operator-confirmed 10-17 Jaya 20:38Z entry + 20:45Z exit unnamed for this reason (trackers home continuously from 20:30:39Z); only path is face (face_lookup_missing_count 12). Surfaced: house_state=guest since 21:06Z with census 0 guests -> traced separately (AUDIT_guest_mode_fp_2026_10_17.md)."
   title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the
     door crossing)
   thread: identity
-  status: shipped_organic
+  status: "done"
   relane_2026_09_10: 'Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates.
     Revival: v1 validated.'
   shipped_version: v5.103.64

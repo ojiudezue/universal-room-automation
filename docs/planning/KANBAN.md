@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T15:14:12-05:00_ - _Data commit: `fdaab8211c2b`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T15:17:45-05:00_ - _Data commit: `cde60c03854f`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 8 |
@@ -17,14 +17,21 @@ _Generated: 2026-10-17T15:14:12-05:00_ - _Data commit: `fdaab8211c2b`_ - _last_r
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 15 |
+| 🚀 Shipped (organic open) | 14 |
 | 🅿️ Parked | 88 |
-| ✅ Done | 340 |
+| ✅ Done | 341 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1` - When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **identity** - status: **inbox** - approval: **unreviewed**
+_created 2026-10-17 17:10 · initial_
+- **Origin:** 2026-10-17 - Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer).
+- **Why:** Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case.
+- **Next:** Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both.
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -1112,7 +1119,7 @@ _created 2026-10-14 02:10_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
 - **Next:** After ~7 nights: one-shot recorder query of landscape lights not on within 5 min of trigger; dispose done or reopen.
 
-## 🚀 Shipped (organic open) (15)
+## 🚀 Shipped (organic open) (14)
 _live, awaiting proof_
 
 ### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
@@ -1343,22 +1350,6 @@ _created 2026-10-12 02:06 · updated 2026-10-16 02:09 · initial_
   - `operator_2026_10_15b`: Operator: "The buffer is green it." APPROVED option A (resume at 80%, re-pause only below 77%). Tier 2-DB build queued.
   - `update_2026_10_15`: Operator 2026-10-15: "see if config fixes these first". Checked: only one knob, energy_fill_priority_soc (energy_const.py:1077-1079); pause and resume use the same number (energy_pool.py determine_fill_priority_actions), so moving it onl...
   - `adjacency_2026_10_12`: NEW. Swept: board (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 = different owner, arbitrage rung-1/WAIT at night; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 done = arbitrage release vs fill-priority; EVSE-SOLAR-STOP-CONDITIONS-1 parked menti...
-
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#15 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-05 17:35 · initial_
-- **Problem / Solution:**
-  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
-- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
-- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
-- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
-- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
-- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
-- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
-- **Forensic keys (2):**
-  - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
-  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
 ## 🅿️ Parked (88)
 _revisit-trigger set_
@@ -2578,7 +2569,7 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (340)
+## ✅ Done (341)
 _closed, evidence in refs_
 
 ### `EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1` - Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time) — _WSJF 4.3 · v6 tc5 u2 /e3_
@@ -6807,6 +6798,23 @@ _created 2026-09-05 22:20 · initial_
 - **Forensic keys (2):**
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: sensor.py:4514/4648/4720 now naive-UTC-of-local-midnight before get_entry_exit_events_since; commit fa0dd8eca.
   - `relane_2026_09_10`: Not a soak -> PLANNED (BLE mop-up). Convert day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 + :4559; test across a UTC-5 restart.
+
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+thread: **identity** - status: **done** - approval: **explicit**
+_created 2026-09-05 17:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
+- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
+- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
+- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
+- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
+- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
+- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
+- **Forensic keys (3):**
+  - `disposed_2026_10_17`: DONE with residuals (soak-exit). Not regressed: spot check 5 most recent organic backfills (10-13..10-15) 3 RIGHT / 0 WRONG / 2 UNVERIFIABLE; switch on, disabled-skip 0, ble_exit_error_count 0. Validated table written into README_v5.103....
+  - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
+  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache) — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **device-tree** - status: **done** - approval: **unreviewed**
