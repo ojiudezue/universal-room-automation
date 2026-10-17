@@ -158,21 +158,23 @@ for mod_name in [
 # Import the module under test — FanController
 # ---------------------------------------------------------------------------
 
-from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
-    FanController,
-    RoomFanState,
-    DEFAULT_FAN_VACANCY_HOLD,
-)
-
-# Restore: drop the stubs this file installed, and the hvac_fans module that
-# was bound against them (FanController et al. stay referenced here).
-for _k in _HVAC_STUBS_ADDED:
-    sys.modules.pop(_k, None)
-if _HVAC_STUBS_ADDED:
-    sys.modules.pop(
-        "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
-        None,
+try:
+    from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
+        FanController,
+        RoomFanState,
+        DEFAULT_FAN_VACANCY_HOLD,
     )
+finally:
+    # Restore (even if the import raised): drop the stubs this file
+    # installed, and the hvac_fans module that was bound against them
+    # (FanController et al. stay referenced here).
+    for _k in _HVAC_STUBS_ADDED:
+        sys.modules.pop(_k, None)
+    if _HVAC_STUBS_ADDED:
+        sys.modules.pop(
+            "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
+            None,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -327,13 +327,20 @@ def ensure_ura_signals(overrides: dict | None = None) -> types.ModuleType:
     # dataclasses resolves ``sys.modules[cls.__module__]`` during class
     # creation, which is None (-> AttributeError at collection) when no
     # signals module was resident yet.
+    _fresh = sys.modules.get(primary) is not mod
     sys.modules[primary] = mod
-    _make_complete(
-        mod,
-        source_path=_REAL_SIGNALS_PATH,
-        marker=_SIGNALS_MARKER,
-        default_name=primary,
-    )
+    try:
+        _make_complete(
+            mod,
+            source_path=_REAL_SIGNALS_PATH,
+            marker=_SIGNALS_MARKER,
+            default_name=primary,
+        )
+    except BaseException:
+        # Do not leave a half-executed module resident (review LOW).
+        if _fresh:
+            sys.modules.pop(primary, None)
+        raise
 
     sys.modules[primary] = mod
     for k in _SIGNALS_KEYS[1:]:
