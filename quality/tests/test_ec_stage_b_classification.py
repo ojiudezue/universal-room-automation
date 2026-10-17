@@ -549,3 +549,21 @@ def test_customized_legacy_list_raises_repair_issue(clock, monkeypatch):
     assert len(calls) == 1
     assert calls[0][0][2] == "inclement_legacy_threat_list_retired"
     assert not c.hass.config_entries.async_update_entry.called
+
+
+def test_battery_passes_engine_bottom_rate_into_fusion(clock):
+    """D-B4 call-site anchor: on PEC the engine and the literal agree, so a
+    discriminating engine (bottom at a period NAMED mid_peak) is used: an
+    uncorroborated watch holds partial only if the engine's answer is read."""
+    class _Eng(TOURateEngine):
+        def is_bottom_rate(self, now=None):
+            return True
+    c, s = _shell(clock)
+    s._tou = _Eng()
+    wsa = alert("Winter Storm Watch", onset=T(16, 1), ends=T(16, 23), id_="a")
+    _feed(c, [wsa], ts_lu=T(16, 18).astimezone(_UTC))
+    d = _tick(clock, s, T(16, 18), period="mid_peak")
+    assert d.hold_depth == "partial_hold"
+    s._tou = TOURateEngine()
+    d = _tick(clock, s, T(16, 18, 5), period="mid_peak")
+    assert d.hold_depth == "allow_discharge"

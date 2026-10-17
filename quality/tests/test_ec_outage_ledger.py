@@ -1547,3 +1547,89 @@ def test_s16_energy_coordinator_init_builds_the_ledger():
     )
     assert isinstance(coord._outage_ledger, L.OutageLedger)
     assert coord._outage_ledger.hass is hass
+
+
+# ===========================================================================
+# EC storm Stage B — enclosing-method anchors for the three new per-tick
+# hooks in the REAL `_decision_cycle_body` (`_inclement_rows_tick`,
+# `_storm_guard_tick`, `_grid_buy_notify_tick`). Deleting a CALL in the body
+# turns one of these RED. Lives here to reuse this file's module-isolation
+# fixture and cycle harness.
+# ===========================================================================
+_SG = "switch.main_panel_wall_iq_gateway_hacs_storm_guard"
+
+
+def _stage_b_setup(hass, **battery_attrs):
+    b = _battery_stub(hass, {"mode": "self_consumption", "reason": "r",
+                             "actions": []})
+    b._inclement_pending_rows = []
+    b._tick_grid_buy = None
+    b._storm_guard_state = None
+    for k, v in battery_attrs.items():
+        setattr(b, k, v)
+    c = _cycle(hass, b)
+    nm = []
+
+    async def _nm(**kw):
+        nm.append(kw)
+    c._send_nm_alert = _nm
+    c._nm = nm
+    return c, b
+
+
+async def _stage_b_body(c, hass):
+    await c._outage_ledger._seed_alerts(NOW)
+    try:
+        await c._decision_cycle_body()
+    except _Stop:
+        pass
+    await hass.drain()
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_drains_inclement_rows():
+    db = _FakeDB()
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass, _inclement_pending_rows=[
+        ("inclement_code_drift", "drift WSW", {"event": "Winter Storm Warning",
+                                               "code": "WSW", "kind": "observed_code"}),
+    ])
+    await _stage_b_body(c, hass)
+    rows = _rows(db, "inclement_code_drift")
+    assert len(rows) == 1
+    assert json.loads(rows[0]["details_json"])["code"] == "WSW"
+    assert b._inclement_pending_rows == []
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_runs_storm_guard_tripwire():
+    db = _FakeDB()
+    saved = []
+
+    async def _save(ev):
+        saved.append(ev)
+    db.save_anomaly_event = _save
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass)
+    hass.states.d[_SG] = _State("off")
+    await _stage_b_body(c, hass)
+    assert b._storm_guard_state == "off" and c._nm == []
+    hass.states.d[_SG] = _State("on")
+    await _stage_b_body(c, hass)
+    assert len(c._nm) == 1 and c._nm[0]["title"] == "Enphase Storm Guard is on"
+    assert [e.type for e in saved] == ["energy.storm_guard_enabled"]
+
+
+@pytest.mark.asyncio
+async def test_cycle_body_runs_grid_buy_notify():
+    db = _FakeDB()
+    hass = _Hass(db)
+    c, b = _stage_b_setup(hass)
+    await _stage_b_body(c, hass)          # first tick after setup: seeds, no buy
+    b._tick_grid_buy = {"leg": "polygon", "alert_id": "svw",
+                        "event": "Severe Thunderstorm Warning", "target": 90,
+                        "forecast_confirmed": False}
+    await _stage_b_body(c, hass)
+    assert len(c._nm) == 1 and c._nm[0]["severity"] == "low"
+    await _stage_b_body(c, hass)          # same episode → no second NM
+    assert len(c._nm) == 1
