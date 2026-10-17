@@ -328,14 +328,34 @@ cards:
   origin: 'Found 2026-10-16 by v6 milestone scan (AUDIT_v6_milestone_candidates.md); operator floated "making OC actually work better" as a milestone.'
   next: "PICK: (A) fold the validator fix + finding dedup into the FIRST SLICE of the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), because what gets scored (each re-emitted finding vs each deduped problem) is a redesign decision (my recommendation); or (B) build the validator fix alone now as a Tier 2-DB cycle so samples start accruing (7-day span needed before any promotion). -> On A I write it into the redesign doc's first slice; on B I plan it (one plan review) and build to review."
   rank: {value: 6, time_criticality: 3, effort: 8}
+- id: EC-OBS-DP-EVSE-1
+  title: "Drain-precedence EV-charger switch writes ignore energy observation mode"
+  thread: energy
+  status: "pre_planning"
+  tier: 2
+  created: "2026-10-17 02:12"
+  updated: "2026-10-17 02:12"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  tags: [found-during-plan-review, no-fabrication-verify]
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  problem_solution: ["Problem: with energy observation mode on ('think, do not touch'), the drain-precedence logic can still switch the EV chargers on and off, because its decision tick runs before the main loop's observation check. Solution: route those charger writes through the same observation check (one gate at the decision tick or at each charger write), with a test that mode-on sends nothing."]
+  origin: {date: "2026-10-17", gist: "Tier-2 plan review of EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (finding 1, MEDIUM): _dp_decision_tick at energy.py:6505 runs before the :6609 gate; charger switch writes at energy.py:5624/:5775/:5922 and restore reconcile :1813 -> :6085."}
+  why: "Bug Class #23. Out of the reserve-gate cycle's invariant (reserve/CFG/storage-mode only), so carded separately instead of widening that cycle. Latent here: observation mode has been off for the whole recorder window (10-09..10-17)."
+  adjacency_2026_10_17: "Swept board (observation + evse/drain), BACKLOG.md, plan review table: NEW (different targets and code path from EC-OBSERVATION-MODE-RESERVE-BYPASS-1; sibling, same bug class)."
+  links: {"sibling_of": ["EC-OBSERVATION-MODE-RESERVE-BYPASS-1"], "context": "Same bug class and coordinator; found by that cycle's plan review; kept out of its invariant on purpose."}
+  parsimony: {problem: "With energy observation mode ON, drain-precedence still issues EV-charger switch.turn_on/off.", verdict: "BUILD (small), after the reserve gate lands to avoid same-file churn"}
+  next: "Me: after EC-OBSERVATION-MODE-RESERVE-BYPASS-1 is merged, verify the four sites on develop, then a Tier-2 plan (note: the restore-time reconcile may be load-bearing for EVSE safety, so decide gate-vs-exempt per site) -> plan review -> build to review."
+  rank: {value: 4, time_criticality: 2, effort: 3}
 - id: EC-OBSERVATION-MODE-RESERVE-BYPASS-1
+  plan_review_2026_10_17: "Plan PLANNING_ec_observation_mode_reserve_gate.md rev 1 -> FIX-PLAN (3 MED, 4 LOW: DP-EVSE writes out of scope -> carded EC-OBS-DP-EVSE-1; D2 chokepoint = WriteVerifier._pending_fire_retry; OFF->ON->OFF episode spec (decided: reset episode while mode on); conduct check stays ungated; full-equality OFF test; D3 must include switch/select writers). All folded into rev 2. Review record docs/reviews/code-review/plan_review_ec_observation_mode_reserve_gate.md."
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode'
   thread: energy
-  status: "planned"
+  status: "in_progress"
   tier: 2
   created: "2026-10-16"
-  updated: "2026-10-17 02:07"
+  updated: "2026-10-17 02:13"
   refinement_status: "refined"
   problem_solution: ["Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager, and the write checker's automatic re-send. Nobody has turned observation mode on in the last 8 days, so it has not bitten here, but it would on any home that uses it (for example while URA is being rolled out to a new house). Solution: make both paths respect observation mode, the same way the main 5-minute loop already does."]
   measured_2026_10_17_overnight: "CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManager._run_all_evaluations (manager.py:984-1007) -> _execute_action (manager.py:1035-1060), which calls hass.services.async_call with no observation gate. (2) The timer path reversion sweep (energy.py:~7150, NOT inside an observation gate) -> WriteVerifier.reversion_sweep (energy_write_verify.py:726) -> _pending_watchdog_reserve (:755, :2118) -> _pending_fire_retry (:2331) -> BatteryStrategy.force_redispatch (energy_battery.py:6916), a real number.set_value, no observation gate. Contrast: the timer dispatch IS gated (energy.py:6609 'if not self._observation_mode'), load-shed (:7103), hazard handler (:1414). LIVE: switch.ura_energy_coordinator_observation_mode was only ever off/unavailable over the full recorder window (10-09..10-17) -> latent here; matters for multi-home rollout. Gate: validity STILL-REAL; config-first n/a (it is the gate itself that is missing); prior art REUSE the existing 'if not self._observation_mode' pattern (energy.py:6609); parsimony BUILD (two small gates, no new knob); cost/benefit: byte-identical on the live path (mode off), so Tier 2 with 2 reviews, no Tier-3 ingredient."
@@ -343,7 +363,7 @@ cards:
   origin: 'Ground-truth audit 2026-10-16 (audit_reserve_surface_ground_truth.md); Bug Class #23 observation-mode gating.'
   related: [EC-RESERVE-WRITE-GOVERNOR-1, EC-EVALUATE-PATH-LEDGER-GAP-1]
   parsimony: {problem: "With energy observation mode ON, a TOU-transition evaluate() and the write-verify pending re-send still send reserve/CFG commands to hardware.", verdict: "BUILD"}
-  next: 'Me (overnight 10-17): build in a worktree (gate evaluate() battery actions + force_redispatch on observation mode; tests with mode on and off), 2 reviews + validator, leave in review for an attended deploy.'
+  next: 'Me (overnight 10-17): ura-builder in worktree against plan rev 2 -> validator name-diff -> 2 reviews (A correctness/edge, B lifecycle/byte-identical-when-off) -> review lane. No deploy.'
   rank: {value: 6, time_criticality: 3, effort: 3}
 - id: EC-TOU-TRANSITION-DOUBLE-CONSUME-1
   updated: "2026-10-16 02:06"

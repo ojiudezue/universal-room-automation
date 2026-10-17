@@ -1,7 +1,7 @@
 # PLANNING — EC observation-mode gate on the CM TOU-transition path and the write-verify re-send
 
 Card: `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` · Tier 2 (2 code reviews + validator) · Arc: `ARC_energy_coordinator_resilience.md`
-Written 2026-10-17 by the overnight pass. Build goes to `review` only; no unattended deploy.
+Written 2026-10-17 by the overnight pass. **Rev 2** after one Tier-2 plan review (FIX-PLAN, 3 MED + 4 LOW, all folded in). Build goes to `review` only; no unattended deploy.
 
 ## Problem
 
@@ -50,33 +50,58 @@ ledger stamps, same anomalies/pages).
 ### D1 — gate the CM TOU-transition battery actions
 In `evaluate()`, keep `check_period_transition()` + `_tou_transition_count` exactly as today (the period
 is still consumed, so the double-consumer behaviour is unchanged), but when `_observation_mode` is True,
-do NOT call `_evaluate_battery()` and return no battery actions (DEBUG log once per transition).
+do NOT call `_evaluate_battery()` and return no battery actions (DEBUG log once per transition). This also skips `determine_mode` and the updates to `_evse_battery_hold_active`, `_evse_hold_soc` and `_last_battery_decision` (`energy.py:7182-7208`) on this path — correct, because the timer tick recomputes them every cycle.
 
 **Acceptance criteria**
 - **Test:** observation mode ON + TOU transition → `evaluate()` returns `[]`; no CFG ledger stamp; no
   `_record_reserve_dispatch` call; `_tou_transition_count` still increments; `_last_period` consumed.
-- **Test:** observation mode OFF → identical actions to develop for the same fixture (golden/equality).
+- **Test:** observation mode ON also asserts `_last_battery_decision` is unchanged.
+- **Test:** observation mode OFF → identical to develop for the same fixture: compare the FULL `ServiceCallAction` list (service, target, data), the `_stamp_cfg_ledger` call and the `_record_reserve_dispatch` arguments — not a count (hollow-anchor class #62).
 - **Mutation:** removing the D1 gate makes the ON test fail.
 
-### D2 — gate the write-verify re-send
-Skip `_pending_watchdog_reserve` while observation mode is on (no anomalies, no NM page, no retry), AND
-add a defence-in-depth early return in the re-send chokepoint (`_pending_fire_retry` or
-`force_redispatch` — builder picks whichever can read the coordinator's mode without new coupling;
-`WriteVerifier` already holds `self._coord`) so any future caller is covered. Do not reset or mutate
-pending-episode state while skipped (resume naturally when the mode turns off).
+### D2 — gate the write-verify re-send (rev 2 after plan review)
+Two gates, both in `energy_write_verify.py`:
+1. In `reversion_sweep` (`:726`), when `self._coord._observation_mode` is True, skip
+   `_pending_watchdog_reserve` (no anomalies, no NM page, no retry) AND call
+   `self._reset_pending_episode(WRITE_VERIFY_SURFACE_RESERVE)` (`:2108`). **Decision (plan review
+   finding 3):** the episode is RESET, not frozen, while the mode is on, so turning the mode off starts a
+   fresh ladder: at most one attempt-1 re-send on the first diverged tick, then the existing ≥15-min
+   ladder spacing; never an immediate stand-down or back-to-back retries. The conduct check
+   (`_conduct_check_reserve`, `:1963`) is NOT gated (see Non-goals).
+2. Defence-in-depth chokepoint: an early return (DEBUG log) at the top of `_pending_fire_retry`
+   (`:2331`) when `self._coord._observation_mode` is True. This covers the attempt ladder (`:2299`) and
+   the cool-off probe (`:2186`). Do NOT gate inside `BatteryStrategy.force_redispatch` — it has no
+   coordinator reference and adding one is new coupling (plan review finding 2).
+   Read the mode via `getattr(self._coord, "_observation_mode", False)` so test doubles without it keep
+   today's behaviour.
 
 **Acceptance criteria**
 - **Test:** observation mode ON + a diverged pending episode past the attempt-1 age → no
-  `number.set_value` call, no `pending_write_stuck` anomaly, no NM call.
+  `number.set_value` call, no `pending_write_stuck` anomaly, no NM call; episode state reset.
+- **Test (mode OFF→ON→OFF):** mode on for longer than the attempt-2 age with divergence standing, then
+  off → the first OFF tick fires at most ONE attempt (attempt 1), no `pending_write_standdown`, and the
+  next tick inside 15 min fires nothing.
+- **Test:** `_pending_fire_retry` called directly with mode ON → no `force_redispatch` call.
 - **Test:** observation mode OFF → ladder fires exactly as today (existing pending-watchdog tests stay green).
-- **Mutation:** removing each gate individually leaves at least one specific test red (the chokepoint
-  gate needs its own test that calls the chokepoint directly with mode ON).
+- **Mutation:** removing each gate individually leaves at least one specific test red.
 
 ### D3 — enumeration note
-In the README (attended deploy writes it), a table: each entry of `RESERVE_SET_VALUE_WRITERS` → the
-observation gate that covers it (file:line). Any writer not covered is a finding, not silently left.
+In the README (attended deploy writes it), a table: each entry of `RESERVE_SET_VALUE_WRITERS` PLUS every
+switch/select writer found by grepping `async_call|select_option|turn_on|turn_off` across
+`domain_coordinators/energy*.py` (the inventory lists only `number.set_value` writers, so it cannot prove
+charge-from-grid or storage mode) → the observation gate that covers it (file:line). Any writer not covered
+is a finding, not silently left. The plan review's table (`docs/reviews/code-review/plan_review_ec_observation_mode_reserve_gate.md`) is the starting fixture.
 
 ## Non-goals
+- **Drain-precedence EVSE charger switch writes also bypass observation mode** (`energy.py:5624`, `:5775`,
+  `:5922`, restore reconcile `:1813` → `:6085`; `_dp_decision_tick` runs at `:6505`, before the `:6609`
+  gate). They are outside INV-OBS (not reserve/CFG/storage-mode) and are carded separately as
+  `EC-OBS-DP-EVSE-1`. After this cycle the energy package is NOT fully observation-clean.
+- **The reserve conduct check stays ungated on purpose** (`_conduct_check_reserve`, `:1963`; anomaly +
+  page at `:2069/:2090`). It sends no commands, and the hardware still holds the last real floor, so its
+  page stays truthful in observation mode. Do not "fix" it.
+- **In-flight race accepted:** a manager batch whose actions were already returned when the mode flips
+  still executes (one-coroutine window).
 - Witness selection / frozen local reading (`EC-SELFHEAL-UNEXPLAINED-RESENDS-1`).
 - Who consumes the TOU period (`EC-TOU-TRANSITION-DOUBLE-CONSUME-1`).
 - Other coordinators' observation gates.
