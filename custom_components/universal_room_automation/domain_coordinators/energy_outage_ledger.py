@@ -261,11 +261,25 @@ class OutageLedger:
             if key in self._seen_alerts:
                 continue
             payload = {f: alert.get(f) for f in NWS_ALERT_LEDGER_FIELDS}
+            # EC storm Stage B D-B2: product-table class / effective tier
+            # (None = gated out). Locality: polygon rows are verified-local
+            # only while the point feed is polygon-exact; zone rows unknown.
+            _cls, _tier, _local = None, None, "unknown"
+            try:
+                from .inclement import _effective_tier, match_product
+                from .energy_const import INCLEMENT_POINT_FEED_POLYGON_EXACT
+                _row, _ = match_product(alert)
+                if _row is not None:
+                    _cls, _tier = _row[2], _effective_tier(_row)
+                    if _row[3]:
+                        _local = bool(INCLEMENT_POINT_FEED_POLYGON_EXACT)
+            except Exception:  # noqa: BLE001
+                pass
             payload.update({
                 "id": key,
-                "ura_class": None,   # Stage B product table not shipped
-                "ura_tier": None,
-                "local": "unknown",  # Stage B locality not shipped
+                "ura_class": _cls,
+                "ura_tier": _tier,
+                "local": _local,
                 "decision_age_s": decision_age_s,
             })
             if self._emit(

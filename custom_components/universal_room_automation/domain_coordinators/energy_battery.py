@@ -46,7 +46,9 @@ from .energy_const import (
     DEFAULT_STORM_CHARGE_THRESHOLD,
     DEFAULT_WEATHER_ENTITY,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+    INCLEMENT_PREONSET_FLOOR_PCT,
     MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    NWS_ALERTS_STALE_S,
     MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     R7_USE_UNIFIED_PROJECTOR,
     SOLAR_DAY_THRESHOLDS,
@@ -455,6 +457,37 @@ class BatteryStrategy:
         self._blind_raised: bool = False
         self._blind_pre_raise: int | None = None
         self._blind_operator_override: bool = False
+        # EC storm Stage B D-B3: RAM hold memory keyed on alert message ID
+        # (`inclement.update_alert_memory`); lost on restart (§12 limit 15).
+        self._inclement_alert_memory: dict[str, dict[str, Any]] = {}
+        # D-B3 feed health of the last decision (attr `inclement_alerts_stale`).
+        self._inclement_alerts_stale: bool = False
+        self._nws_ts_unresolved_warned: bool = False
+        # D-B2/D-B3 ledger rows (`inclement_code_drift`,
+        # `inclement_memory_cleared`) queued by the decision, drained by
+        # `EnergyCoordinator._inclement_rows_tick` after determine_mode.
+        self._inclement_pending_rows: list[tuple[str, str, dict[str, Any]]] = []
+        self._inclement_drift_seen: set[tuple[str, str | None, str]] = set()
+        # D-B6 pre-charge latch: prepare alert ID -> "engaged" | "reached"
+        # (RAM; advanced in fusion every tick, "engaged" set only by the
+        # pre-onset emission). Not persisted (one extra on->off per restart).
+        self._preonset_precharge_latch: dict[str, str] = {}
+        # Stage C D-C2 forecast-confirmation latch: alert ID -> its end.
+        # Confirmed stays confirmed to the alert's end (no buy/hold flap).
+        self._forecast_confirm_latch: dict[str, datetime] = {}
+        # Last tick's classification + forecast evaluation (attrs only).
+        self._last_inclement_classification: Any = None
+        self._last_forecast_eval: dict[str, Any] | None = None
+        # Per-tick grid-buy stamp (ENTRY-RESET in determine_mode): set only
+        # by an inclement CFG-on emission; read by EnergyCoordinator's
+        # grid-buy NM hook after determine_mode returns.
+        self._tick_grid_buy: dict[str, Any] | None = None
+        # Forecast-confirmed alert IDs of the last inclement evaluation (the
+        # set fusion gated on); the grid-buy stamp names a record from it.
+        self._last_forecast_confirmed: frozenset[str] = frozenset()
+        self._tick_preonset_engaged_id: str | None = None
+        # D-B7 Storm Guard state (display attr; set by EnergyCoordinator).
+        self._storm_guard_state: str | None = None
         # v5.17.2 — sibling DESIRED fields for the other two surfaces so
         # the write-verify reversion sweep can retire a stale record when
         # the strategy no longer wants the old commanded value (i.e. the
@@ -2580,6 +2613,8 @@ class BatteryStrategy:
             CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
             CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
             CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
+            CONF_INCLEMENT_PREONSET_FLOOR,
+            INCLEMENT_PREONSET_FLOOR_PCT,
             DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
             DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
             DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
@@ -2653,6 +2688,12 @@ class BatteryStrategy:
                 opts.get(CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR),
                 INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
             ))),
+            # EC storm Stage B D-B6: the pre-onset floor slider, same
+            # options-read path (no setter, no cache).
+            "preonset_floor": max(0, min(100, _coerce_int_or_default(
+                opts.get(CONF_INCLEMENT_PREONSET_FLOOR),
+                INCLEMENT_PREONSET_FLOOR_PCT,
+            ))),
         }
 
     def _read_nws_alerts(self, entity_id: str) -> Any:
@@ -2693,19 +2734,35 @@ class BatteryStrategy:
             AlertClassifier,
             InclementFusion,
             _allow_discharge_decision,
+            classifier_input,
+            update_alert_memory,
         )
 
         cfg = self._inclement_config()
         soc = self.battery_soc
 
-        # AlertClassifier on the NWS sensor (if configured).
-        alerts = self._read_nws_alerts(cfg["nws_alerts_entity"])
-        classifier = AlertClassifier(
-            power_threat_events=cfg["power_threat_events"],
-            warn_min_severity=cfg["warn_min_severity"],
-        )
+        # AlertClassifier on the NWS sensor (if configured). EC storm Stage B:
+        # D-B3 feed health + hold memory, then classify the union (the
+        # D-B1 window split happens inside classify, after the union).
+        _nws_eid = cfg["nws_alerts_entity"]
+        alerts = self._read_nws_alerts(_nws_eid)
+        classifier = AlertClassifier()
         try:
-            classification = classifier.classify(alerts, now=now)
+            _healthy = self._nws_feed_healthy(_nws_eid, now) if _nws_eid else False
+            self._inclement_alerts_stale = bool(_nws_eid) and not _healthy
+            _cleared = update_alert_memory(
+                self._inclement_alert_memory, alerts, _healthy, now,
+            )
+            for _cid, _cev, _creason in _cleared:
+                self._inclement_pending_rows.append((
+                    "inclement_memory_cleared",
+                    f"inclement_memory_cleared {_cev} ({_creason})",
+                    {"id": _cid, "event": _cev, "reason": _creason},
+                ))
+            classification = classifier.classify(
+                classifier_input(alerts, self._inclement_alert_memory, now),
+                now=now,
+            )
         except Exception:  # noqa: BLE001 — never let detection crash the tick
             _LOGGER.debug("inclement: alert classify failed", exc_info=True)
             self._last_inclement_gated_out = ()
@@ -2713,6 +2770,7 @@ class BatteryStrategy:
             self._cache_inclement(decision, now)
             return decision
         self._last_inclement_gated_out = classification.gated_out_events
+        self._queue_inclement_drift(classification.drift)
 
         # ConditionElector cross-check via the weather manager (D-L fail-mode:
         # NWS absent → condition-only path).
@@ -2737,7 +2795,14 @@ class BatteryStrategy:
             blind_full_hold_floor=cfg.get(
                 "blind_full_hold_floor", INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
             ),
+            preonset_floor=cfg.get("preonset_floor", INCLEMENT_PREONSET_FLOOR_PCT),
+            polygon_import_guard_tripped=self._polygon_import_guard_tripped(
+                cfg["grid_precharge_on_hold"],
+            ),
         )
+        self._last_inclement_classification = classification
+        confirmed = self._forecast_confirmed_ids(classification, now)
+        self._last_forecast_confirmed = confirmed
         decision = fusion.decide(
             battery=self,
             classification=classification,
@@ -2746,9 +2811,238 @@ class BatteryStrategy:
             tou_period=tou_period,
             now=now,
             current_soc=soc,
+            bottom_rate=self._is_bottom_rate(now, tou_period),
+            forecast_confirmed_ids=confirmed,
+            preonset_latch=self._preonset_precharge_latch,
         )
         self._cache_inclement(decision, now)
         return decision
+
+    def _grid_buy_stamp(self, decision: Any, preonset: bool = False) -> dict[str, Any]:
+        """Per-tick record of an inclement grid-buy emission (observability:
+        the ONE NM per buy episode). Episode key = (leg, alert ID).
+
+        A-LOW-1 / D-LOW-4: the named record satisfies the SAME predicate as
+        the gate that authorised the buy (zone: eligible non-polygon AND
+        forecast-confirmed; polygon: inside its cap window), and the pick is
+        order-independent (lowest alert ID), so the dedup key cannot flip
+        when the feed reorders."""
+        if preonset:
+            return {
+                "leg": "preonset",
+                "alert_id": getattr(decision, "preonset_alert_id", None),
+                "event": getattr(decision, "preonset_event", None),
+                "target": getattr(decision, "preonset_floor", None),
+                "forecast_confirmed": bool(
+                    getattr(decision, "buy_forecast_confirmed", False)
+                ),
+            }
+        cls = self._last_inclement_classification
+        leg = getattr(decision, "precharge_leg", None) or "zone"
+        hold = tuple(getattr(cls, "hold_alerts", ()) or ())
+        cands: list[Any] = []
+        try:
+            if leg == "polygon":
+                from homeassistant.util import dt as dt_util
+                from .inclement import polygon_topup_records
+                cands = polygon_topup_records(hold, dt_util.now())
+            else:
+                confirmed = self._last_forecast_confirmed or frozenset()
+                cands = [
+                    r for r in hold
+                    if not r.polygon_local and r.precharge_eligible
+                    and r.alert_id is not None and r.alert_id in confirmed
+                ]
+        except Exception:  # noqa: BLE001 — observability never breaks emission
+            cands = []
+        rec = min(cands, key=lambda r: str(r.alert_id)) if cands else None
+        # getattr throughout: observability must never break the emission
+        # it annotates (decision doubles may carry only the hold fields).
+        return {
+            "leg": leg,
+            "alert_id": rec.alert_id if rec else None,
+            "event": (
+                rec.event if rec else getattr(decision, "contributing_event", None)
+            ),
+            "target": DEFAULT_STORM_CHARGE_THRESHOLD,
+            "forecast_confirmed": bool(
+                getattr(decision, "buy_forecast_confirmed", False)
+            ),
+        }
+
+    def _cfg_buy_commanded(self, res: dict[str, Any]) -> bool:
+        """D-LOW-1: does this `_result` actually command a grid charge? True
+        iff it kept ``charge_from_grid`` AND either emits a CFG
+        ``switch.turn_on`` or the CFG already reads on. False when a
+        chokepoint inside `_result` withheld / suppressed it (cloud-only
+        SOC withhold, degraded ON-heal suppression, no write target)."""
+        if not res.get("charge_from_grid"):
+            return False
+        if any(a.get("service") == "switch.turn_on" for a in res.get("actions", ())):
+            return True
+        try:
+            return self._get_state_bool(self._get_entity(
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY, role="write",
+            )) is True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _stamp_grid_buy(self, res: dict[str, Any], decision: Any,
+                        preonset: bool = False) -> dict[str, Any]:
+        """Stamp the per-tick grid buy only when `_result` commanded it."""
+        if self._cfg_buy_commanded(res):
+            self._tick_grid_buy = self._grid_buy_stamp(decision, preonset=preonset)
+        return res
+
+    def _polygon_import_guard_tripped(self, option_on: bool) -> bool:
+        """D-B2a Rev 3.3 M4: REUSE the arbitrage grid-import guard for the
+        polygon immediate leg, only when its toggle is on (live OFF: the
+        Enphase firmware curtails on breaker size). Evaluated only when the
+        precharge option is on (option-off ticks read nothing new)."""
+        if not option_on or not self._arbitrage_grid_import_guard_enabled:
+            return False
+        try:
+            return bool(self._grid_import_guard_triggered())
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _forecast_confirmed_ids(self, classification: Any, now: datetime) -> frozenset[str]:
+        """Stage C D-C2 + INV-6(vii): alert IDs whose local forecast confirms
+        the product's hazard over ``[max(now, start), end]`` (capped at
+        FORECAST_WINDOW_MAX_H). Latched per ID until that alert's end.
+        Zone (non-polygon) HOLD records only: active + prepare. Outlook None
+        → not confirmed (no corroboration, no buy). Never raises."""
+        from datetime import timedelta as _td
+        from .energy_const import FORECAST_WINDOW_MAX_H
+        from .inclement import _dt_lt, forecast_confirms, forecast_family
+        latch = self._forecast_confirm_latch
+        for k in list(latch):
+            try:
+                if _dt_lt(latch[k], now):
+                    del latch[k]
+            except Exception:  # noqa: BLE001
+                del latch[k]
+        records = list(getattr(classification, "hold_alerts", ()) or ()) + list(
+            getattr(classification, "prepare_alerts", ()) or ()
+        )
+        evals: list[dict[str, Any]] = []
+        confirmed: set[str] = set()
+        mgr = None
+        for r in records:
+            if r.polygon_local or not r.alert_id or forecast_family(r.event) is None:
+                continue
+            if r.alert_id in latch:
+                confirmed.add(r.alert_id)
+                continue
+            if mgr is None:
+                mgr = self._weather_manager() or False
+            outlook = None
+            start = now if (r.start is None or _dt_lt(r.start, now)) else r.start
+            end = r.end
+            cap = start + _td(hours=FORECAST_WINDOW_MAX_H)
+            if _dt_lt(cap, end):
+                end = cap
+            if mgr and hasattr(mgr, "hourly_outlook"):
+                try:
+                    outlook = mgr.hourly_outlook(start, end)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("inclement: hourly_outlook failed", exc_info=True)
+                    outlook = None
+            ok = forecast_confirms(r.event, outlook)
+            evals.append({"id": r.alert_id, "event": r.event,
+                          "outlook": outlook, "confirms": ok})
+            if ok:
+                latch[r.alert_id] = r.end
+                confirmed.add(r.alert_id)
+        self._last_forecast_eval = {"evals": evals, "latched_ids": sorted(latch)}
+        return frozenset(confirmed)
+
+    def _is_bottom_rate(self, now: datetime, tou_period: str) -> bool:
+        """EC storm Stage B D-B4: TOU engine bottom rate (rate rank, not
+        name); engine absent → the legacy ``off_peak`` literal (byte-safe)."""
+        tou = getattr(self, "_tou", None)
+        if tou is None or not hasattr(tou, "is_bottom_rate"):
+            return tou_period == "off_peak"
+        try:
+            return bool(tou.is_bottom_rate(now))
+        except Exception:  # noqa: BLE001
+            return tou_period == "off_peak"
+
+    def _nws_last_updated_entity(self, alerts_eid: str) -> str | None:
+        """D-B3: the nws_alerts ``last_updated`` timestamp sensor that is
+        the sibling of the configured alerts entity (same config entry,
+        unique_id carries ``last_updated``; nws_alerts/sensor.py:19-24, 58).
+        None when unresolvable (one warning per boot)."""
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+            ent = reg.async_get(alerts_eid)
+            if ent is not None and ent.config_entry_id:
+                for sib in er.async_entries_for_config_entry(
+                    reg, ent.config_entry_id,
+                ):
+                    if (
+                        sib.entity_id != alerts_eid
+                        and sib.entity_id.startswith("sensor.")
+                        and "last_updated" in str(sib.unique_id or "")
+                    ):
+                        return sib.entity_id
+        except Exception:  # noqa: BLE001
+            pass
+        if not self._nws_ts_unresolved_warned:
+            self._nws_ts_unresolved_warned = True
+            _LOGGER.warning(
+                "inclement: NWS last_updated sibling of %s not resolved — "
+                "feed staleness uses the unavailable/unknown leg only",
+                alerts_eid,
+            )
+        return None
+
+    def _nws_feed_healthy(self, alerts_eid: str, now: datetime) -> bool:
+        """D-B3: healthy = alerts sensor not unavailable/unknown AND the
+        ``last_updated`` sibling's ``State.last_changed`` is within
+        ``NWS_ALERTS_STALE_S`` of ``now`` (its value changes every
+        successful poll; the alerts sensor's own timestamps do not advance
+        on a steady alert)."""
+        try:
+            st = self.hass.states.get(alerts_eid)
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None or st.state in ("unavailable", "unknown"):
+            return False
+        ts_eid = self._nws_last_updated_entity(alerts_eid)
+        if ts_eid is None:
+            return True
+        ts = self.hass.states.get(ts_eid)
+        if ts is None or ts.state in ("unavailable", "unknown"):
+            return False
+        changed = getattr(ts, "last_changed", None)
+        if changed is None:
+            return False
+        try:
+            age = (now - changed).total_seconds()
+        except TypeError:
+            return False
+        return age <= NWS_ALERTS_STALE_S
+
+    def _queue_inclement_drift(self, drift: Any) -> None:
+        """D-B2 trip-wire: one warning + one ``inclement_code_drift`` row per
+        (event, code, kind) per boot."""
+        for event, code, kind in drift or ():
+            key = (str(event).casefold(), code, kind)
+            if key in self._inclement_drift_seen:
+                continue
+            self._inclement_drift_seen.add(key)
+            if kind == "mismatch":
+                _LOGGER.warning(
+                    "inclement: product code/name drift — event=%r code=%r",
+                    event, code,
+                )
+            self._inclement_pending_rows.append((
+                "inclement_code_drift",
+                f"inclement_code_drift {event} {code} ({kind})",
+                {"event": event, "code": code, "kind": kind},
+            ))
 
     def _cache_inclement(self, decision: Any, now: datetime) -> None:
         """Cache the decision and fire the transition signal if (tier, depth) changed."""
@@ -2803,6 +3097,8 @@ class BatteryStrategy:
                 "inclement_reserve_floor": self.reserve_soc,
                 "inclement_reason": "initializing",
                 "inclement_solar_horizon": {},
+                "inclement_alerts_stale": self._inclement_alerts_stale,
+                **self._stage_b_attrs(None),
             }
         gated_out: list[str] = list(self._last_inclement_gated_out)
         try:
@@ -2827,6 +3123,69 @@ class BatteryStrategy:
             "inclement_reserve_floor": decision.reserve_floor,
             "inclement_reason": decision.reason,
             "inclement_solar_horizon": sh,
+            # EC storm Stage B D-B3: feed health of the last decision.
+            "inclement_alerts_stale": self._inclement_alerts_stale,
+            **self._stage_b_attrs(decision),
+        }
+
+    def _stage_b_attrs(self, decision: Any) -> dict[str, Any]:
+        """EC storm Stage B/C display attrs (D-B6 item 7, D-B2a L4, D-B7,
+        D-C3). Display only — no decision path reads them."""
+        from homeassistant.util import dt as dt_util
+        cls = self._last_inclement_classification
+        pre = None
+        if decision is not None and getattr(decision, "preonset_floor", None) is not None:
+            _st = decision.preonset_start
+            pre = {
+                "floor": decision.preonset_floor,
+                "start": dt_util.as_local(_st).isoformat() if _st else None,
+                "event": decision.preonset_event,
+                "class": decision.preonset_class,
+                "precharge": bool(decision.preonset_precharge),
+                "latch": self._preonset_precharge_latch.get(
+                    decision.preonset_alert_id or "",
+                ),
+            }
+        ev = self._last_forecast_eval or {}
+        evals = ev.get("evals") or []
+        first_ok = next((e for e in evals if e.get("outlook") is not None), None)
+        ol = first_ok.get("outlook") if first_ok else None
+        buy = {
+            "confirmed": bool(getattr(decision, "buy_forecast_confirmed", False))
+            if decision is not None else False,
+            "outlook": "ok" if ol is not None else "none",
+            "window_end": ol.window_end.isoformat() if ol is not None else None,
+        }
+        mgr = self._weather_manager()
+        fetched_at = None
+        providers_ok = 0
+        try:
+            fetched_at = getattr(mgr, "hourly_fetched_at", None)
+            providers_ok = int(getattr(mgr, "hourly_providers_ok", 0) or 0)
+        except Exception:  # noqa: BLE001
+            pass
+        forecast = {
+            "fetched_at": fetched_at.isoformat() if fetched_at else None,
+            "providers_ok": providers_ok,
+            "window_end": ol.window_end.isoformat() if ol is not None else None,
+            "min_temp": ol.min_temp_f if ol is not None else None,
+            "max_pop": ol.max_pop if ol is not None else None,
+            "max_gust": ol.max_gust if ol is not None else None,
+            "source": [list(x) for x in ol.sources] if ol is not None else [],
+            "confirms": {e["id"]: e["confirms"] for e in evals},
+            "latched_ids": list(ev.get("latched_ids") or []),
+        }
+        return {
+            "inclement_preonset": pre,
+            "inclement_precharge_eligible": bool(
+                getattr(cls, "precharge_eligible", False)
+            ),
+            "inclement_polygon_topup_active": bool(
+                getattr(cls, "polygon_topup_active", False)
+            ),
+            "inclement_buy_forecast": buy,
+            "inclement_forecast": forecast,
+            "storm_guard_state": self._storm_guard_state,
         }
 
     # ------------------------------------------------------------------
@@ -5552,6 +5911,10 @@ class BatteryStrategy:
         # `_inclement_decision` call below (sighted + fully blind); every
         # early return before those (grid disconnect) leaves it None.
         self._tick_reserve_floor = None
+        # EC storm Stage B ENTRY-RESET: grid-buy stamp is per-tick, as is
+        # the pre-onset latch ID engaged THIS tick (D-LOW-1 rollback key).
+        self._tick_grid_buy = None
+        self._tick_preonset_engaged_id = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -5952,8 +6315,12 @@ class BatteryStrategy:
                         )
                     finally:
                         self._degraded_telemetry_source = _dts_saved
-                    return _res
-                return self._result(
+                    # Review B B-LOW-2: `_result` derived envoy_available
+                    # from the cleared source; keep it truthful (same as
+                    # the pre-onset site) for `_track_envoy_availability`.
+                    _res["envoy_available"] = False
+                    return self._stamp_grid_buy(_res, decision)
+                return self._stamp_grid_buy(self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
                     f"Inclement ({decision.reason}) — pre-charging (SOC {soc}%)",
                     current_mode,
@@ -5962,7 +6329,7 @@ class BatteryStrategy:
                     season=season,
                     # D3 / Q2: storm precharge exempt (see above).
                     cloud_withhold_exempt=True,
-                )
+                ), decision)
             # Already charged enough (or precharge off) — hold via backup.
             return self._result(
                 BATTERY_MODE_BACKUP,
@@ -5971,6 +6338,81 @@ class BatteryStrategy:
                 reserve_level=decision.reserve_floor,
                 season=season,
             )
+        # ── EC storm Stage B D-B6 — pre-onset pre-charge (the one new
+        # `_result(charge_from_grid=True)` call site). Fusion decided the
+        # INV-6(iii) eligibility (option, class, eligible product,
+        # forecast-confirmed buy, bottom rate, SOC < floor, latch / solar).
+        # Here: (1) yield to a running arbitrage CHARGE / attain charge
+        # (latch kept); (2) the shared blind refusal (REUSE, unchanged);
+        # (3) emit through `_result` and set the latch. Refused / skipped /
+        # ineligible → fall through to the TOU branches (the fold keeps
+        # every reserve write >= the registered prepare floor).
+        if (
+            getattr(decision, "preonset_precharge", False)
+            and getattr(decision, "preonset_floor", None) is not None
+            and soc is not None
+            and self._arbitrage_phase != ARBITRAGE_PHASE_CHARGE
+            and self._attain_state != "charging"
+        ):
+            _pre_refused, _ = self._precharge_refused_on_blind(decision, soc)
+            if not _pre_refused:
+                _onset = (
+                    dt_util.as_local(decision.preonset_start).strftime("%H:%M")
+                    if decision.preonset_start is not None else "?"
+                )
+                _reason = (
+                    f"Inclement pre-onset ({decision.preonset_event}, onset "
+                    f"{_onset}) — pre-charging (SOC {soc}%)"
+                )
+                # A-HIGH-1: mirror the full-hold storm path. Under bounded-
+                # degraded telemetry `_precharge_refused_on_blind` ALLOWED
+                # the buy; clear the degraded source around `_result` so its
+                # D-MED-1 ON-heal guard does not silently drop the turn_on
+                # (restored in `finally`; the suffix names the exemption).
+                _dts_saved = getattr(self, "_degraded_telemetry_source", None)
+                if _dts_saved is not None:
+                    _reason = (
+                        f"{_reason} (pre-onset precharge — safety over cost, "
+                        f"degraded telemetry: {_dts_saved})"
+                    )
+                    self._degraded_telemetry_source = None
+                try:
+                    _res = self._result(
+                        BATTERY_MODE_SELF_CONSUMPTION,
+                        _reason,
+                        current_mode,
+                        charge_from_grid=True,
+                        reserve_level=decision.preonset_floor,
+                        season=season,
+                        cloud_withhold_exempt=True,
+                    )
+                finally:
+                    if _dts_saved is not None:
+                        self._degraded_telemetry_source = _dts_saved
+                if _dts_saved is not None:
+                    # `_result` derives envoy_available from the (cleared)
+                    # source; keep the decision truthful for the Envoy
+                    # outage tracker (`_track_envoy_availability`).
+                    _res["envoy_available"] = False
+                # D-LOW-1: latch + stamp only when the turn_on is actually
+                # commanded (EnergyCoordinator un-engages in observation
+                # mode, where nothing is dispatched).
+                if self._cfg_buy_commanded(_res):
+                    if (
+                        decision.preonset_alert_id
+                        and self._preonset_precharge_latch.get(
+                            decision.preonset_alert_id,
+                        ) != "engaged"
+                    ):
+                        self._preonset_precharge_latch[
+                            decision.preonset_alert_id
+                        ] = "engaged"
+                        self._tick_preonset_engaged_id = decision.preonset_alert_id
+                    self._tick_grid_buy = self._grid_buy_stamp(
+                        decision, preonset=True,
+                    )
+                return _res
+
         # partial_hold/allow_discharge: TOU branches read effective_reserve.
         # For allow_discharge, decision.reserve_floor == self.reserve_soc so
         # this is byte-identical to a clear tick.
@@ -6393,9 +6835,17 @@ class BatteryStrategy:
         partial_floor); full sighted: int(soc), may be below reserve_soc;
         full blind: max(reserve_soc, partial_floor, blind slider)), else None.
         """
-        if getattr(decision, "hold_depth", None) in ("partial_hold", "full_hold"):
+        depth = getattr(decision, "hold_depth", None)
+        pre = getattr(decision, "preonset_floor", None)
+        if depth == "full_hold":
             return int(decision.reserve_floor)
-        return None
+        if depth == "partial_hold":
+            # EC storm Stage B D-B6: max(hold floor, prepare floor).
+            if pre is not None:
+                return max(int(decision.reserve_floor), int(pre))
+            return int(decision.reserve_floor)
+        # allow_discharge: the D-B6 prepare floor (None when none).
+        return int(pre) if pre is not None else None
 
     def _is_top_rate_edge(
         self,
@@ -6599,6 +7049,16 @@ class BatteryStrategy:
         _folded_reserve, _reserve_act = self._reserve_action(reserve_level)
         if _reserve_act is not None:
             actions.append(_reserve_act)
+        # EC storm Stage B D-B6 narration only: a floor-only pre-onset tick
+        # names the prepare floor (the folded target) on the branch reason.
+        _inc = getattr(self, "_last_inclement_decision", None)
+        if (
+            self._tick_reserve_floor is not None
+            and getattr(_inc, "preonset_floor", None) is not None
+            and _folded_reserve is not None
+            and not reason.startswith("Inclement pre-onset")
+        ):
+            reason = f"{reason} + pre-onset floor {_folded_reserve}"
 
         # 3. Charge from grid control
         if charge_from_grid:
