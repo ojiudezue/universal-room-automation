@@ -755,6 +755,50 @@ def test_hold_current_warmup_path_applies_partial_floor(clock):
     assert s._last_reserve_level_desired == 50
 
 
+@pytest.mark.asyncio
+async def test_hold_current_unreadable_reserve_uses_ledger_never_lowers(clock):
+    """Review D re-pass D-MED-1 repro: restart mid-charge, write-leg reserve
+    `unknown`, CFG unavailable, stamp None, ledger 80, partial floor 50,
+    EVSE hold 45 → no write below 80 (no write at all), stamp 80, overlay
+    never emits below 80 (pre-fix: wrote 50, overlay clamped to 50)."""
+    c, s = _hold_current_shell(clock, hw="unknown")
+    set_hw(c, "unknown")
+    s._last_reserve_level = 80
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert writes(d) == []
+    assert s._last_reserve_level_desired == 80
+    c._evse_hold_soc = 45
+    c._evse_battery_hold_active = True
+    d = c._apply_evse_battery_hold(d)
+    assert all(v >= 80 for v in writes(d))
+
+
+def test_hold_current_unreadable_reserve_no_repeat_writes(clock):
+    """Unreadable reserve, ledger 30 below floor 50 → one write of 50; the
+    next tick (still unreadable) deadbands against the stamp → no write."""
+    c, s = _hold_current_shell(clock, hw="unknown")
+    set_hw(c, "unknown")
+    s._last_reserve_level = 30
+    d1 = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert writes(d1) == [50]
+    d2 = tick(clock, s, OCT_04, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d2["reason"]
+    assert writes(d2) == []
+    assert s._last_reserve_level_desired == 50
+
+
+def test_hold_current_unreadable_reserve_all_none_writes_floor(clock):
+    """Hardware, stamp and ledger all unknown → write the floor 50."""
+    c, s = _hold_current_shell(clock, hw="unknown")
+    set_hw(c, "unknown")
+    s._last_reserve_level = None
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert writes(d) == [50]
+    assert s._last_reserve_level_desired == 50
+
+
 # ===========================================================================
 # Review C gaps C-1..C-4
 # ===========================================================================

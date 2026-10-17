@@ -4853,8 +4853,20 @@ class BatteryStrategy:
                 "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
                 role="write",
             ))
-            _level = int(max(_floor, _hw)) if _hw is not None else _floor
-            _, _act = self._reserve_action(_level)
+            # Review D re-pass D-MED-1: unreadable write leg → fall back to
+            # the stamp, then the KV-restored ledger, and deadband against
+            # that base (mirrors the blind branch) so an in-flight charge
+            # reserve is never lowered and nothing re-sends per tick.
+            if _hw is not None:
+                _base = _hw
+            elif self._last_reserve_level_desired is not None:
+                _base = self._last_reserve_level_desired
+            else:
+                _base = self._last_reserve_level
+            _level = int(max(_floor, _base)) if _base is not None else _floor
+            _, _act = self._reserve_action(
+                _level, compare_to=_base if _hw is None else None,
+            )
             if _act is not None:
                 _actions.append(_act)
         return {
