@@ -9253,6 +9253,14 @@ class EnergyCoordinator(BaseCoordinator):
                 soc = battery.battery_soc
             except Exception:  # noqa: BLE001
                 soc = None
+            # Stage E §4.1: the ledger's `ura_class` goes through the same
+            # operator selection overlay as the decision (live CM options).
+            selection = None
+            try:
+                from .inclement import build_selection
+                selection = build_selection(self._get_cm_options())
+            except Exception:  # noqa: BLE001
+                selection = None
             ledger.record_tick(
                 now=now,
                 alerts=alerts,
@@ -9261,6 +9269,7 @@ class EnergyCoordinator(BaseCoordinator):
                 decision_age_s=age_s,
                 soc=soc,
                 local_readings=self._outage_local_readings(),
+                selection=selection,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("outage ledger tick failed", exc_info=True)

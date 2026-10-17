@@ -220,6 +220,12 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # EC storm Stage B D-B6: pre-onset floor slider (same options-read path;
     # a slider move must not reload the CM — PLANNING_ec_storm Rev 3.1 H1).
     "inclement_preonset_floor",
+    # EC storm Stage E E1.6: the four alert-selection override lists (read
+    # per tick; saving a changed selection must not reload the CM).
+    "inclement_hold_added",
+    "inclement_hold_removed",
+    "inclement_buy_added",
+    "inclement_buy_removed",
 }
 
 
@@ -372,7 +378,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 nm_life_safety_repeat_schedule (SAFETY-NM-REFIRE-UNWIRED-1 D7,
     #    Review B-MED-2; via _NM_C_KEYS) -> 103
     # +1 inclement_preonset_floor (EC storm Stage B D-B6 slider) -> 104
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 104
+    # +4 EC storm Stage E E1.6 alert-selection override lists -> 108
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 108
 
 
 # ---------------------------------------------------------------------------

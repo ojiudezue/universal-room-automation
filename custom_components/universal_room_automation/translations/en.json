@@ -980,9 +980,9 @@
           "weather_staleness_max_hours": "Weather Staleness Limit (hours)",
           "weather_divergence_threshold_f": "Weather Divergence Threshold (°F)",
           "inclement_nws_alerts_entity": "NWS Alerts sensor",
-          "inclement_power_threat_events": "Event types that can hold the battery",
-          "inclement_warn_min_severity": "Minimum severity that can hold the battery",
           "inclement_grid_precharge_on_hold": "Charge from grid to fill the battery during holds",
+          "inclement_hold_products": "Alerts that hold the battery",
+          "inclement_buy_products": "Of those, alerts that may buy grid power",
           "energy_solcast_today_entity": "Solar forecast today",
           "energy_solcast_tomorrow_entity": "Solar forecast tomorrow",
           "energy_solcast_remaining_entity": "Solar forecast remaining today",
@@ -1065,9 +1065,9 @@
           "weather_staleness_max_hours": "Maximum age (in hours) of a weather provider's last update before it is considered stale and skipped. Default: 3 hours.",
           "weather_divergence_threshold_f": "If two healthy providers disagree on today's high by more than this many °F, the binary_sensor.ura_weather_divergence turns ON and a WARNING is logged. The median value is used as the authoritative reading. Default: 5°F.",
           "inclement_nws_alerts_entity": "The Home Assistant sensor that exposes National Weather Service alerts (e.g. sensor.nws_alerts_…). Leave blank to fall back to weather-condition cross-checks only.",
-          "inclement_power_threat_events": "One per line. Case-insensitive substring match against the NWS Event name (so 'Severe Thunderstorm' matches both 'Severe Thunderstorm Warning' AND 'Severe Thunderstorm Watch'). This is the FIRST gate — any alert whose Event name does NOT match an entry here is informational only and will not hold the battery, regardless of how severe it sounds. Fire-weather alerts (Red Flag Warning, Fire Weather Watch) are notice-only by default; ADD 'Red Flag' or 'Fire Weather' here to make them hold-eligible. Flood alerts are absent by default for this elevated property; ADD 'Flood' if your location is power-vulnerable to flooding.",
-          "inclement_warn_min_severity": "Secondary noise filter applied AFTER the Event-type gate. Choose the lowest NWS Severity value that should still produce a hold. 'Extreme' — only catastrophic events; 'Severe' (recommended) — Severe + Extreme; 'Moderate' — Moderate + Severe + Extreme; 'Minor' — any non-Unknown severity. NOTE: this filter never overrides the Event-type gate — a non-power-threat event is always informational regardless of severity.",
           "inclement_grid_precharge_on_hold": "When ON, a warning-tier hold will pull from grid during off_peak hours to top up the battery to ~90% before the storm. When OFF, the battery is held at whatever level the sun/arbitrage put it at — no expensive grid energy is used. URA defaults OFF (solar-first philosophy).",
+          "inclement_hold_products": "Weather alerts that keep the battery charged while they are active. Defaults come from storm and outage history at this house (Lakeway, TX). An alert you add that is not a default holds partially at most and never buys grid power. An alert you remove is only shown and logged.",
+          "inclement_buy_products": "Only used when 'Charge from grid to fill the battery during holds' is on. Zone-wide alerts still need the local forecast to agree; storm warnings must cover the house.",
           "energy_solcast_today_entity": "Sensor providing today's total solar forecast in kWh. Used for solar day classification.",
           "energy_solcast_tomorrow_entity": "Sensor providing tomorrow's total solar forecast in kWh. Used for off-peak drain targets and arbitrage decisions.",
           "energy_solcast_remaining_entity": "Sensor providing remaining solar forecast for today in kWh. Used for excess solar EV charging decisions.",
@@ -2284,6 +2284,9 @@
       }
     },
     "error": {
+      "buy_not_in_hold": "Pick it under 'Alerts that hold the battery' first.",
+      "buy_needs_forecast": "This alert can't buy grid power: there's no local forecast check for it.",
+      "buy_needs_table_hold": "Only alerts that hold by default can buy grid power.",
       "ai_parse_failed": "AI parsing failed. Ensure ai_task integration is configured (Settings > AI Task). If the problem persists, check logs for details.",
       "ai_rule_validation_failed": "The AI-generated actions failed validation. Some entities may not exist or the output was malformed. Try simplifying your rule description.",
       "ai_rule_empty_description": "Please enter a rule description.",
@@ -2320,7 +2323,7 @@
   "issues": {
     "inclement_legacy_threat_list_retired": {
       "title": "Inclement threat list is retired",
-      "description": "Your stored inclement power-threat event list differs from the shipped default, but URA now matches NWS products against a fixed, reviewed product table (Stage B) and no longer reads that list. Nothing was changed in your options. If you relied on a custom entry, ask for the product table to be updated."
+      "description": "Your stored inclement power-threat event list differs from the shipped default, but URA no longer reads that list. Nothing was changed in your options. To choose which weather alerts hold the battery or may buy grid power, use 'Alerts that hold the battery' and 'Of those, alerts that may buy grid power' in the Energy Coordinator options."
     },
     "ec_role_entity_broken": {
       "title": "Energy entity unavailable: {key}",

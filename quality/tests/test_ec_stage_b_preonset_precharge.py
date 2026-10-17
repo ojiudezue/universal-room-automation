@@ -1710,9 +1710,12 @@ def test_review_c_match_product_code_precedence_and_code_only():
     """inclement.py:298/308 (LOW) — the code row wins a code/name
     disagreement; a code-only match resolves by code."""
     mp = _inc().match_product
-    row, drift = mp({"Event": "Winter Storm Warning", "NWSCode": "SVW"})
+    # Stage E E1.3 (expected diff): match_product returns a third element,
+    # `corroborable` (positions 0-4 of the row are unchanged).
+    row, drift, corr = mp({"Event": "Winter Storm Warning", "NWSCode": "SVW"})
     assert row[1] == "Severe Thunderstorm Warning" and drift[2] == "mismatch"
-    row, _ = mp({"Event": "Svr Tstm Wrn (renamed)", "NWSCode": "SVW"})
+    assert corr is True
+    row, _, _ = mp({"Event": "Svr Tstm Wrn (renamed)", "NWSCode": "SVW"})
     assert row is not None and row[1] == "Severe Thunderstorm Warning"
 
 

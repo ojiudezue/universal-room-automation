@@ -608,12 +608,13 @@ EV_UNTRUSTED_SOC_EXEMPT_PATHS: Final = frozenset(
 
 # Primary surface (4 knobs)
 CONF_INCLEMENT_NWS_ALERTS_ENTITY: Final = "inclement_nws_alerts_entity"
-# EC storm Stage B D-B5: the two keys below are RETIRED (removed from the
-# options flow; the product table replaces them). KEEP+DOCUMENT: constants
-# kept so a stored legacy value can be detected (repair issue) — never read
-# by the decision path.
+# EC storm Stage B D-B5: the legacy key below is RETIRED (removed from the
+# options flow; the product table + the Stage E operator selection replace
+# it). KEEP+DOCUMENT: the constant (and its default list) are kept ONLY so
+# `EnergyCoordinator._check_legacy_threat_list` can detect a customized
+# stored value (repair issue) — never read by the decision path. Stage E
+# E1.9 deleted the warn-min-severity key/default/options (0 readers).
 CONF_INCLEMENT_POWER_THREAT_EVENTS: Final = "inclement_power_threat_events"
-CONF_INCLEMENT_WARN_MIN_SEVERITY: Final = "inclement_warn_min_severity"
 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = "inclement_grid_precharge_on_hold"
 
 # Advanced subsection (3 knobs)
@@ -628,9 +629,8 @@ CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION: Final = "inclement_watch_requires_c
 INCLEMENT_ADVANCED_SECTION: Final = "inclement_advanced"
 
 # Defaults
-# D-B: power-threat events default list (case-insensitive substring match
-# against the NWS Event name). Fire alerts notice-only by default; flood
-# alerts absent by default for this elevated property.
+# D-B (RETIRED, KEEP+DOCUMENT): the v5.5.0 power-threat default list. Read
+# only by the legacy repair check (a stored list equal to this is silent).
 DEFAULT_INCLEMENT_POWER_THREAT_EVENTS: Final = [
     "Tornado",
     "Severe Thunderstorm",
@@ -641,8 +641,6 @@ DEFAULT_INCLEMENT_POWER_THREAT_EVENTS: Final = [
     "Hurricane",
     "Blizzard",
 ]
-# D-C: secondary noise filter, applied AFTER the Event-type gate.
-DEFAULT_INCLEMENT_WARN_MIN_SEVERITY: Final = "Severe"
 # D-I: never burn grid energy to backup-fill on a watch (solar-first).
 DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = False
 # D-E (FIN-1): reserve floor URA preserves during a partial_hold.
@@ -803,6 +801,22 @@ NWS_WEATHER_EVENT_NAMES: Final[tuple[str, ...]] = (
     "Winter Storm Watch",
     "Winter Weather Advisory",
 )
+# Stage E E1.6 (rung 2): operator alert selection over the product table,
+# stored as OVERRIDES (never a snapshot) in the CM entry.options. Each is a
+# list of canonical NWS_WEATHER_EVENT_NAMES spellings, compared case-folded;
+# empty lists = the table defaults. Read per tick by
+# `BatteryStrategy._inclement_config` (and by the outage ledger via
+# `EnergyCoordinator._get_cm_options`); listed in `_NO_LIVE_ATTR_KEYS` and
+# `OPTIONS_RELOAD_SUPPRESS_KEYS` (a save does not reload the CM). Buy kill
+# switch: `inclement_grid_precharge_on_hold` False.
+CONF_INCLEMENT_HOLD_ADDED: Final = "inclement_hold_added"
+CONF_INCLEMENT_HOLD_REMOVED: Final = "inclement_hold_removed"
+CONF_INCLEMENT_BUY_ADDED: Final = "inclement_buy_added"
+CONF_INCLEMENT_BUY_REMOVED: Final = "inclement_buy_removed"
+# Form-only keys (two multi-selects); popped by the submit handler after the
+# deltas are computed, never stored.
+CONF_INCLEMENT_HOLD_PRODUCTS: Final = "inclement_hold_products"
+CONF_INCLEMENT_BUY_PRODUCTS: Final = "inclement_buy_products"
 # D-B1 / Q7 (ruled "notice"): what a polygon product does when the point
 # feed is NOT polygon-exact. "table" keeps the table tier; "notice" demotes.
 INCLEMENT_UNVERIFIED_POLYGON_TIER: Final = "notice"
@@ -924,10 +938,9 @@ INCLEMENT_FORECAST_FAMILY: Final[dict[str, str]] = {
     "Tropical Storm Watch": "convective",
 }
 
-# NWS severity ordering (CAP standard, low → high) for the noise filter.
+# NWS severity ordering (CAP standard, low → high). Attrs only
+# (`inclement._severity_rank` -> max_severity); never a gate.
 INCLEMENT_SEVERITY_ORDER: Final = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
-# Operator-facing select option keys for WARN_MIN_SEVERITY.
-INCLEMENT_WARN_MIN_SEVERITY_OPTIONS: Final = ["Extreme", "Severe", "Moderate", "Minor"]
 # Operator-facing select option keys for CONDITION_CORROBORATION_MODE.
 INCLEMENT_CONDITION_CORROBORATION_OPTIONS: Final = ["any", "majority", "unanimous"]
 

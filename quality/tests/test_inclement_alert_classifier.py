@@ -108,7 +108,11 @@ def make_alert(
 
 
 def classify(alerts, threat=None, warn_min="Severe"):
-    c = AlertClassifier(power_threat_events=threat, warn_min_severity=warn_min)
+    # Stage E E1.9 (expected diff): the retired legacy kwargs are removed
+    # from AlertClassifier; `threat` / `warn_min` are accepted here only so
+    # the legacy-semantics tests below keep proving they have no effect.
+    del threat, warn_min
+    c = AlertClassifier(selection=None)
     return c.classify(alerts, now=_NOW)
 
 

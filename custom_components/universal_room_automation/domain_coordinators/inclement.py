@@ -28,6 +28,7 @@ Robustness / bug-class prevention:
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -39,6 +40,10 @@ from .energy_const import (
     DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
     DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
     DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+    CONF_INCLEMENT_BUY_ADDED,
+    CONF_INCLEMENT_BUY_REMOVED,
+    CONF_INCLEMENT_HOLD_ADDED,
+    CONF_INCLEMENT_HOLD_REMOVED,
     INCLEMENT_ALERT_MAX_HOLD_H,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     INCLEMENT_FORECAST_FAMILY,
@@ -49,6 +54,7 @@ from .energy_const import (
     INCLEMENT_PRODUCT_TABLE,
     INCLEMENT_SEVERITY_ORDER,
     INCLEMENT_UNVERIFIED_POLYGON_TIER,
+    NWS_WEATHER_EVENT_NAMES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,6 +90,9 @@ class AlertRecord:
     precharge_eligible: bool
     start: datetime | None
     end: datetime
+    # Stage E E1.3 / INV-7(c): False for an unlisted or selection-widened
+    # record (never buys, never corroborates a watch on any leg).
+    corroborable: bool = True
 
 
 @dataclass(frozen=True)
@@ -119,6 +128,9 @@ class AlertClassification:
     precharge_eligible: bool = False
     polygon_topup_active: bool = False
     prepare_precharge_eligible: bool = False
+    # Stage E E1.7 (display only): every ACTIVE record incl. notice, for the
+    # `inclement_selection` attr. No decision path reads it.
+    active_alerts: tuple[AlertRecord, ...] = ()
 
 
 def prepare_class_of(records: tuple[AlertRecord, ...] | list[AlertRecord]) -> str | None:
@@ -234,18 +246,6 @@ def _dt_max(values: list[datetime]) -> datetime | None:
     return best
 
 
-def _event_matches_threat(event: str, threat_events: list[str]) -> str | None:
-    """RETIRED by Stage B D-B2 (exact product table). KEEP until Stage B
-    validates (plan §13 DELETE candidate); no decision path calls it."""
-    if not event:
-        return None
-    event_l = event.lower()
-    for keyword in threat_events:
-        if keyword and keyword.lower() in event_l:
-            return keyword
-    return None
-
-
 # Message key of one NWS alert (``ID``, else ``URL``, else Event|Sent).
 # REUSED from the outage ledger (A-LOW-2): memory entries and ledger rows
 # must name the same message, so there is exactly one implementation.
@@ -274,18 +274,216 @@ def _is_cancel(alert: dict[str, Any]) -> bool:
     return str(alert.get("Type", "") or "").strip().lower() == "cancel"
 
 
+# ---------------------------------------------------------------------------
+# Stage E E1 — operator alert selection over the internal product table
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InclementSelection:
+    """Effective operator selection (PLANNING_ec_storm_stage_e.md §E1.3).
+
+    All names case-folded. ``hold`` / ``buy`` are the EFFECTIVE sets over the
+    selection domain (NWS_WEATHER_EVENT_NAMES); ``buy`` is already clamped to
+    ``hold ∩ (forecast family ∪ polygon rows) ∩ corroborable`` (INV-7(c)/(d)
+    at runtime). ``widened`` = table notice rows added to hold; ``unlisted``
+    = held names with no table row. ``overrides`` keeps the four stored
+    delta lists (canonical spellings, vocabulary-filtered) for display.
+    The selection chooses WHETHER a product holds / buys, never HOW
+    (INV-7): it never changes locality, thresholds or the polygon cap.
+    """
+
+    hold: frozenset[str]
+    buy: frozenset[str]
+    widened: frozenset[str] = frozenset()
+    unlisted: frozenset[str] = frozenset()
+    overrides: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+
+_UNKNOWN_SELECTION_LOGGED: set[str] = set()
+
+
+def build_selection(options: Any) -> InclementSelection:
+    """Pure: the effective selection from the four stored override lists.
+
+    Unknown / out-of-vocabulary stored names are ignored (one debug log per
+    name per process). Retired table rows (not in the vocabulary) are
+    outside the domain: table behaviour always."""
+    opts = options if isinstance(options, Mapping) else {}
+    vocab = {n.casefold(): n for n in NWS_WEATHER_EVENT_NAMES}
+
+    def _names(key: str) -> list[str]:
+        raw = opts.get(key)
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return []
+        out: list[str] = []
+        for v in raw:
+            cf = str(v).strip().casefold()
+            if cf in vocab:
+                if vocab[cf] not in out:
+                    out.append(vocab[cf])
+            elif cf and cf not in _UNKNOWN_SELECTION_LOGGED:
+                _UNKNOWN_SELECTION_LOGGED.add(cf)
+                _LOGGER.debug(
+                    "inclement selection: ignoring unknown stored name %r "
+                    "(%s)", v, key,
+                )
+        return out
+
+    lists = {
+        k: _names(k)
+        for k in (CONF_INCLEMENT_HOLD_ADDED, CONF_INCLEMENT_HOLD_REMOVED,
+                  CONF_INCLEMENT_BUY_ADDED, CONF_INCLEMENT_BUY_REMOVED)
+    }
+    table: dict[str, tuple] = {}
+    for row in INCLEMENT_PRODUCT_TABLE:
+        table.setdefault(row[1].casefold(), row)
+    default_hold = {
+        cf for cf, row in table.items()
+        if row[2] in ("warn", "watch") and cf in vocab
+    }
+    default_buy = {cf for cf, row in table.items() if row[4] and cf in vocab}
+    corroborable = {cf for cf, row in table.items() if row[2] in ("warn", "watch")}
+    can_buy = {cf for cf, row in table.items() if row[3]} | {
+        n.casefold() for n in INCLEMENT_FORECAST_FAMILY
+    }
+
+    def _cf(key: str) -> set[str]:
+        return {n.casefold() for n in lists[key]}
+
+    hold = (default_hold - _cf(CONF_INCLEMENT_HOLD_REMOVED)) | _cf(
+        CONF_INCLEMENT_HOLD_ADDED,
+    )
+    buy = (
+        ((default_buy - _cf(CONF_INCLEMENT_BUY_REMOVED))
+         | _cf(CONF_INCLEMENT_BUY_ADDED))
+        & hold & can_buy & corroborable
+    )
+    return InclementSelection(
+        hold=frozenset(hold),
+        buy=frozenset(buy),
+        widened=frozenset(
+            cf for cf in hold if cf in table and table[cf][2] == "notice"
+        ),
+        unlisted=frozenset(cf for cf in hold if cf not in table),
+        overrides=tuple((k, tuple(v)) for k, v in lists.items()),
+    )
+
+
+# The zero-override selection (the table defaults) at import time. Callers
+# that omit `selection` get `build_selection({})` from the CURRENT table
+# (`_resolve_selection`), which equals this constant unless the table is
+# replaced (tests). Never mutated (frozen dataclass of frozensets).
+TABLE_SELECTION: InclementSelection = build_selection({})
+
+
+def selection_form_defaults(options: Any) -> tuple[list[str], list[str]]:
+    """Stage E E1.6 rendering: the EFFECTIVE hold / buy lists as canonical
+    vocabulary spellings (vocabulary order). Stored names no longer in the
+    vocabulary are never rendered (HA's selector rejects unknown values)."""
+    sel = build_selection(options)
+    hold = [n for n in NWS_WEATHER_EVENT_NAMES if n.casefold() in sel.hold]
+    buy = [n for n in NWS_WEATHER_EVENT_NAMES if n.casefold() in sel.buy]
+    return hold, buy
+
+
+def selection_form_deltas(
+    hold_submitted: Any, buy_submitted: Any,
+) -> tuple[dict[str, list[str]], str | None]:
+    """Stage E E1.6 submit: the four override lists (deltas vs the table
+    defaults over the selection domain) + the first validation error key
+    for the buy field (None = valid). Retired table rows are outside the
+    domain, so they never produce a delta."""
+    def _canon(raw: Any) -> list[str]:
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return []
+        cfs = {str(v).strip().casefold() for v in raw}
+        return [n for n in NWS_WEATHER_EVENT_NAMES if n.casefold() in cfs]
+
+    hold = _canon(hold_submitted)
+    buy = _canon(buy_submitted)
+    table = build_selection({})  # zero overrides = the table defaults
+    default_hold = [n for n in NWS_WEATHER_EVENT_NAMES if n.casefold() in table.hold]
+    default_buy = [n for n in NWS_WEATHER_EVENT_NAMES if n.casefold() in table.buy]
+    hold_cf = {n.casefold() for n in hold}
+    buy_cf = {n.casefold() for n in buy}
+    error: str | None = None
+    family = {n.casefold() for n in INCLEMENT_FORECAST_FAMILY}
+    for n in buy:
+        cf = n.casefold()
+        # The table row via the single table iterator (zero overrides).
+        row = match_product({"Event": n}, table)[0]
+        if cf not in hold_cf:
+            error = "buy_not_in_hold"
+            break
+        if cf not in family and not (row is not None and row[3]):
+            error = "buy_needs_forecast"
+            break
+        if cf not in table.hold:  # default class is not warn/watch
+            error = "buy_needs_table_hold"
+            break
+    deltas = {
+        CONF_INCLEMENT_HOLD_ADDED: [n for n in hold if n not in default_hold],
+        CONF_INCLEMENT_HOLD_REMOVED: [
+            n for n in default_hold if n.casefold() not in hold_cf
+        ],
+        CONF_INCLEMENT_BUY_ADDED: [n for n in buy if n not in default_buy],
+        CONF_INCLEMENT_BUY_REMOVED: [
+            n for n in default_buy if n.casefold() not in buy_cf
+        ],
+    }
+    return deltas, error
+
+
+def _resolve_selection(selection: InclementSelection | None) -> InclementSelection:
+    """None = the zero-override selection built from the CURRENT table
+    (byte-identical to the table; robust to a monkeypatched table)."""
+    return selection if selection is not None else build_selection({})
+
+
+def _overlay(
+    row: tuple, selection: InclementSelection,
+) -> tuple[tuple, bool]:
+    """Stage E E1.3 overlay of a TABLE row: (effective 5-tuple, corroborable).
+    Positions 0-4 keep their meaning; ``polygon_local`` (3) is never
+    changed (INV-7(a))."""
+    name_cf = row[1].casefold()
+    default_hold = row[2] in ("warn", "watch")
+    if name_cf not in {n.casefold() for n in NWS_WEATHER_EVENT_NAMES}:
+        return row, default_hold  # retired row: table behaviour always
+    eligible = name_cf in selection.buy
+    if name_cf not in selection.hold:
+        if default_hold:
+            return (row[0], row[1], "notice", row[3], False), True
+        return (row[0], row[1], row[2], row[3], False), False
+    if not default_hold:
+        return (row[0], row[1], "watch", row[3], eligible), False
+    return (row[0], row[1], row[2], row[3], eligible), True
+
+
 def match_product(
     alert: dict[str, Any],
-) -> tuple[tuple | None, tuple[str, str | None, str] | None]:
+    selection: InclementSelection | None = None,
+) -> tuple[tuple | None, tuple[str, str | None, str] | None, bool]:
     """D-B2: match by NWS code (coded rows) OR exact case-folded event name.
 
-    Returns (row, drift). ``drift`` is (event, observed_code, kind):
+    Stage E E1.3: the matched table row is passed through the operator
+    ``selection`` overlay (default = zero overrides, byte-identical), and an
+    unlisted vocabulary name the operator added to hold matches a synthetic
+    watch row ``(None, event, "watch", False, False)`` with no drift.
+
+    Returns (row, drift, corroborable). ``drift`` is (event, observed_code, kind):
     ``"mismatch"`` when code and name point at different rows (or one of
     them matches no row while the other does), ``"observed_code"`` when a
     name-only row is matched and the alert carries a code (records the
     first observed code; the battery dedups per boot). The code row wins a
     disagreement (codes are probe-verified).
     """
+    sel = _resolve_selection(selection)
     event = str(alert.get("Event", "") or "").strip()
     code_raw = alert.get("NWSCode")
     code = str(code_raw).strip().upper() if code_raw else None
@@ -305,7 +503,15 @@ def match_product(
             drift = (event, code, "mismatch")
         elif name_row[0] is None:
             drift = (event, code, "observed_code")
-    return (code_row or name_row), drift
+    row = code_row or name_row
+    if row is None:
+        if ev_cf and ev_cf in sel.unlisted:
+            # Unlisted operator-held product: synthetic zone watch, capped
+            # (never buys, never corroborates), no drift reporting.
+            return (None, event, "watch", False, False), None, False
+        return None, drift, False
+    eff, corroborable = _overlay(row, sel)
+    return eff, drift, corroborable
 
 
 def _effective_tier(row: tuple) -> str:
@@ -318,12 +524,17 @@ def _effective_tier(row: tuple) -> str:
     return cls
 
 
-def build_record(alert: dict[str, Any]) -> AlertRecord | None:
+def build_record(
+    alert: dict[str, Any],
+    selection: InclementSelection | None = None,
+) -> AlertRecord | None:
     """Status/Type-filtered, table-matched record with its hazard window.
-    None = not Actual, a Cancel, no table row, or no usable window."""
+    None = not Actual, a Cancel, no table row, or no usable window.
+    Stage E: ``cls`` / ``tier`` / ``precharge_eligible`` / ``corroborable``
+    are the selection-overlaid values."""
     if not isinstance(alert, dict) or not _is_actual(alert) or _is_cancel(alert):
         return None
-    row, _drift = match_product(alert)
+    row, _drift, corroborable = match_product(alert, selection)
     if row is None:
         return None
     start, end = _hazard_window(alert)
@@ -340,6 +551,7 @@ def build_record(alert: dict[str, Any]) -> AlertRecord | None:
         precharge_eligible=bool(row[4]),
         start=start,
         end=end,
+        corroborable=bool(corroborable),
     )
 
 
@@ -348,6 +560,7 @@ def update_alert_memory(
     feed: Any,
     healthy: bool,
     now: datetime,
+    selection: InclementSelection | None = None,
 ) -> list[tuple[str, str, str]]:
     """D-B3 hold memory, mutated in place. Returns rows to log for clears
     under rules (2)/(3): [(alert_id, event, reason)].
@@ -400,7 +613,7 @@ def update_alert_memory(
                 del memory[key]
     # Admission.
     for a in feed_dicts:
-        rec = build_record(a)
+        rec = build_record(a, selection)
         if rec is None or rec.cls not in ("warn", "watch") or rec.alert_id is None:
             continue
         if _dt_lt(rec.end, now):
@@ -440,17 +653,14 @@ class AlertClassifier:
     """Pure classifier (EC storm Stage B): Status/Type filter → product
     table (code or exact name) → hazard window (Onset→Ends) → tier.
 
-    Severity / Certainty are attrs only (no demotion on this path). The
-    legacy ``power_threat_events`` / ``warn_min_severity`` arguments are
-    RETIRED (D-B5): accepted for call-site compatibility, never read.
+    Severity / Certainty are attrs only (no demotion on this path).
+    Stage E E1.3: ``selection`` (the operator overlay) is taken per
+    construction; the battery builds the classifier per tick. None = zero
+    overrides (byte-identical to the table).
     """
 
-    def __init__(
-        self,
-        power_threat_events: list[str] | None = None,
-        warn_min_severity: str | None = None,
-    ) -> None:
-        del power_threat_events, warn_min_severity  # retired (D-B5)
+    def __init__(self, selection: InclementSelection | None = None) -> None:
+        self._selection = selection
 
     def classify(
         self,
@@ -492,14 +702,14 @@ class AlertClassifier:
                     continue
                 seen_ids.add(key)
             event = str(alert.get("Event", "") or "").strip()
-            row, d = match_product(alert)
+            row, d, _corr = match_product(alert, self._selection)
             if d is not None:
                 drift.append(d)
             if row is None:
                 if event:
                     gated_out.append(event)
                 continue
-            rec = build_record(alert)
+            rec = build_record(alert, self._selection)
             if rec is None:
                 continue
             # D-B1 window split: start <= now <= end is active. Pre-onset
@@ -547,6 +757,7 @@ class AlertClassifier:
             precharge_eligible=eligible,
             polygon_topup_active=topup,
             prepare_precharge_eligible=prep_eligible,
+            active_alerts=tuple(r for r, _ in active),
         )
 
 _TIER_ORDER: dict[str, int] = {"none": 0, "notice": 1, "watch": 2, "warn": 3}
@@ -962,8 +1173,14 @@ class InclementFusion:
             if r.start is not None and pstart is not None and _dt_lt(r.start, pstart):
                 pstart = r.start
         key_id = key_row.alert_id
+        # Stage E E1.4 / INV-7(c): the higher floor needs a CORROBORABLE
+        # record: a warn (every warn record is a table HOLD row, so always
+        # corroborable -- the selection only ever adds WATCH-class rows), or
+        # a table watch that is itself confirmed. An unlisted / widened
+        # prepare record gets only `lower`.
         watch_confirmed = pclass == "watch" and any(
-            r.alert_id in confirmed for r in prows if r.alert_id
+            r.alert_id in confirmed and r.corroborable
+            for r in prows if r.alert_id
         )
         high = pclass == "warn" or watch_confirmed
         lower = max(self._reserve_soc, self._partial_floor)
@@ -1094,13 +1311,23 @@ class InclementFusion:
         if tier == "watch":
             # Stage C D-C2: forecast confirmation of an active watch counts
             # as corroboration (corroborated = condition OR forecast).
+            # Stage E §4.2 / INV-7(c)/(f): every corroboration leg requires a
+            # corroborable watch record (a table watch); an unlisted or
+            # widened watch never corroborates, and a co-active table watch
+            # keeps its own corroboration (no demotion).
+            watch_records = [
+                r for r in classification.hold_alerts if r.tier == "watch"
+            ]
+            corr_ok = any(r.corroborable for r in watch_records)
             forecast_corroborates = any(
-                r.alert_id in confirmed
-                for r in classification.hold_alerts
-                if r.alert_id and r.tier == "watch"
+                r.alert_id in confirmed and r.corroborable
+                for r in watch_records
+                if r.alert_id
             )
-            corroborated = (not self._watch_requires_corroboration) or (
-                condition_stormy and condition_provider_count >= 1
+            corroborated = (
+                (not self._watch_requires_corroboration) and corr_ok
+            ) or (
+                condition_stormy and condition_provider_count >= 1 and corr_ok
             ) or forecast_corroborates
             if not corroborated:
                 # Uncorroborated watch: off_peak partial_hold; mid/peak discharge.

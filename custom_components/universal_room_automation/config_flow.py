@@ -6027,14 +6027,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F,
             # Inclement-weather reserve cycle: 4 Primary + 3 Advanced knobs
             CONF_INCLEMENT_NWS_ALERTS_ENTITY,
-            CONF_INCLEMENT_POWER_THREAT_EVENTS,
-            CONF_INCLEMENT_WARN_MIN_SEVERITY,
             CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
             CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
             CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
             CONF_INCLEMENT_CONDITION_CORROBORATION_MODE,
-            DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-            DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
+            # EC storm Stage E E1: operator alert selection (two form-only
+            # multi-selects -> four stored override lists).
+            CONF_INCLEMENT_HOLD_PRODUCTS,
+            CONF_INCLEMENT_BUY_PRODUCTS,
+            NWS_WEATHER_EVENT_NAMES,
             DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
             DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
             DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
@@ -6160,12 +6161,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             _baec_adv = user_input.pop("baec_advanced", None)
             if isinstance(_baec_adv, dict):
                 user_input = {**user_input, **_baec_adv}
-            # Parse the multiline power-threat-events text into a list.
-            _threat = user_input.get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
-            if isinstance(_threat, str):
-                user_input[CONF_INCLEMENT_POWER_THREAT_EVENTS] = [
-                    ln.strip() for ln in _threat.splitlines() if ln.strip()
-                ]
+            # EC storm Stage E E1.6: the two alert-selection multi-selects
+            # are FORM-ONLY. Store the four override deltas (vs the table
+            # defaults over the selection domain), then POP the form keys so
+            # `.storage` never holds a snapshot (and the reload decision sees
+            # only suppressed keys). Absent keys leave the stored overrides
+            # untouched.
+            if (
+                CONF_INCLEMENT_HOLD_PRODUCTS in user_input
+                or CONF_INCLEMENT_BUY_PRODUCTS in user_input
+            ):
+                from .domain_coordinators.inclement import (
+                    selection_form_defaults,
+                    selection_form_deltas,
+                )
+                _cur_hold, _cur_buy = selection_form_defaults(
+                    {**self._config_entry.data, **self._config_entry.options},
+                )
+                _deltas, _sel_err = selection_form_deltas(
+                    user_input.get(CONF_INCLEMENT_HOLD_PRODUCTS, _cur_hold),
+                    user_input.get(CONF_INCLEMENT_BUY_PRODUCTS, _cur_buy),
+                )
+                if _sel_err is not None:
+                    errors[CONF_INCLEMENT_BUY_PRODUCTS] = _sel_err
+                else:
+                    user_input.update(_deltas)
+            user_input.pop(CONF_INCLEMENT_HOLD_PRODUCTS, None)
+            user_input.pop(CONF_INCLEMENT_BUY_PRODUCTS, None)
 
             # v5.5.x cycle (c): cross-field validation — when the arbitrage
             # grid-import guard toggle is ON, the kW value is REQUIRED. No
@@ -6412,6 +6434,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # not raw internal keys. Same {label, value} SelectOptionDict pattern as
         # the DPM relax-ceiling dropdown (config_flow.py:4675) — values stay the
         # existing enum keys so what's stored is unchanged (enum consistency).
+        from .domain_coordinators.inclement import selection_form_defaults
+        _inclement_hold_default, _inclement_buy_default = (
+            selection_form_defaults(
+                {**self._config_entry.data, **self._config_entry.options},
+            )
+        )
         _inclement_corroboration_options = [
             {"label": "Any provider stormy", "value": "any"},
             {
@@ -6566,6 +6594,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
                 ),
             ): selector.BooleanSelector(),
+            # EC storm Stage E E1.1: operator alert selection (two lists).
+            # Defaults are the EFFECTIVE lists (table defaults + stored
+            # overrides), filtered to the NWS vocabulary.
+            vol.Optional(
+                CONF_INCLEMENT_HOLD_PRODUCTS,
+                default=_inclement_hold_default,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(NWS_WEATHER_EVENT_NAMES),
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_INCLEMENT_BUY_PRODUCTS,
+                default=_inclement_buy_default,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(NWS_WEATHER_EVENT_NAMES),
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             # ── Inclement-weather reserve — Advanced subsection (3 knobs) ──
             # Grouped under a collapsed "Advanced" section (FIN-1). Flattened
             # back to top-level entry.options on submit (mirrors the

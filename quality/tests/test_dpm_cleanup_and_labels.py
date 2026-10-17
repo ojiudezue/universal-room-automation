@@ -469,6 +469,12 @@ _ALLOWED_REMOVED_KEYS = frozenset(
         "sections": ("sleep_section",),
     }.items()
     for field in fields
+) | frozenset(
+    # EC storm Stage E E1.9: the retired legacy inclement fields' strings
+    # are deleted with the dead config-flow plumbing (DELETE bucket).
+    f"options.step.coordinator_energy.{sub}.{field}"
+    for sub in ("data", "data_description")
+    for field in ("inclement_power_threat_events", "inclement_warn_min_severity")
 ) | frozenset({
     # v5.21.0 fix-up (operator scope change 2026-07-17): standalone
     # coordinator_baec step retired; content folded into the
