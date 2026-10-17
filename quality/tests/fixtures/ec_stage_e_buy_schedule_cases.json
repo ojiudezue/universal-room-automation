@@ -1,0 +1,33 @@
+{
+  "about": "EC storm Stage E INV-9 hand table (PLANNING_ec_storm_stage_e.md §E1.10). Hand-derived from PEC_TOU_RATES (winter top 05-09 & 17-21; shoulder top 17-21; summer mid 14-16 & 20-21, peak 16-20; every other hour bottom). target 80, INCLEMENT_GRID_CHARGE_PP_PER_H 50, INCLEMENT_PREONSET_BUY_MARGIN_H 1, buy horizon 12 h. h_req = ceil((80 - soc) / 50) + 1, 0 when soc >= 80. Times are America/Chicago wall clock; expected slots are UTC hour-slot starts given as offset ISO strings.",
+  "cases": [
+    {"id": "winter_repro_last_bottom_before_top", "now": "2026-12-16T06:00:00-06:00", "onset": "2026-12-16T21:00:00-06:00", "soc": 30,
+     "expected": ["2026-12-16T15:00:00-06:00", "2026-12-16T16:00:00-06:00"], "note": "removes today's 09:00 first-bottom-tick buy"},
+    {"id": "winter_unavoidable_top", "now": "2026-12-16T17:30:00-06:00", "onset": "2026-12-16T19:00:00-06:00", "soc": 30,
+     "expected": ["2026-12-16T17:00:00-06:00", "2026-12-16T18:00:00-06:00"], "note": "no bottom slot remains: rank-1 slots added"},
+    {"id": "winter_control_bottom_after_top", "now": "2026-12-16T17:30:00-06:00", "onset": "2026-12-16T23:00:00-06:00", "soc": 30,
+     "expected": ["2026-12-16T21:00:00-06:00", "2026-12-16T22:00:00-06:00"]},
+    {"id": "shoulder_closest_to_event", "now": "2026-10-16T10:00:00-05:00", "onset": "2026-10-16T21:00:00-05:00", "soc": 70,
+     "expected": ["2026-10-16T15:00:00-05:00", "2026-10-16T16:00:00-05:00"]},
+    {"id": "shoulder_partial_s", "now": "2026-10-16T03:20:00-05:00", "onset": "2026-10-16T04:00:00-05:00", "soc": 30,
+     "expected": ["2026-10-16T03:00:00-05:00"], "note": "h_req 2, only the current slot is before T"},
+    {"id": "shoulder_t_on_the_hour", "now": "2026-10-16T01:00:00-05:00", "onset": "2026-10-16T05:00:00-05:00", "soc": 30,
+     "expected": ["2026-10-16T03:00:00-05:00", "2026-10-16T04:00:00-05:00"], "note": "[T-1h, T) is the last candidate"},
+    {"id": "soc_at_target_empty", "now": "2026-12-16T06:00:00-06:00", "onset": "2026-12-16T21:00:00-06:00", "soc": 80,
+     "expected": []},
+    {"id": "winter_soc20_three_hours", "now": "2026-12-16T13:00:00-06:00", "onset": "2026-12-16T21:00:00-06:00", "soc": 20,
+     "expected": ["2026-12-16T14:00:00-06:00", "2026-12-16T15:00:00-06:00", "2026-12-16T16:00:00-06:00"]},
+    {"id": "winter_onset_inside_morning_top", "now": "2026-12-16T06:00:00-06:00", "onset": "2026-12-16T09:00:00-06:00", "soc": 30,
+     "expected": ["2026-12-16T07:00:00-06:00", "2026-12-16T08:00:00-06:00"]},
+    {"id": "winter_onset_midnight_across_day", "now": "2026-12-16T18:00:00-06:00", "onset": "2026-12-17T00:00:00-06:00", "soc": 30,
+     "expected": ["2026-12-16T22:00:00-06:00", "2026-12-16T23:00:00-06:00"]},
+    {"id": "summer_bottom_before_bracketed_mid", "now": "2026-07-15T12:00:00-05:00", "onset": "2026-07-15T21:00:00-05:00", "soc": 30,
+     "expected": ["2026-07-15T12:00:00-05:00", "2026-07-15T13:00:00-05:00"]},
+    {"id": "summer_unavoidable_rank1_closest", "now": "2026-07-15T12:00:00-05:00", "onset": "2026-07-15T21:00:00-05:00", "soc": 20,
+     "expected": ["2026-07-15T12:00:00-05:00", "2026-07-15T13:00:00-05:00", "2026-07-15T20:00:00-05:00"], "note": "rank-1 20:00 (closest mid_peak) beats 14:00/15:00; never peak 16-20"},
+    {"id": "dst_fall_back_night", "now": "2026-11-01T00:30:00-05:00", "onset": "2026-11-01T04:00:00-06:00", "soc": 30,
+     "expected": ["2026-11-01T08:00:00+00:00", "2026-11-01T09:00:00+00:00"], "note": "5 UTC slots incl. both 01:00 hours; closest two = 02:00 CST, 03:00 CST"},
+    {"id": "dst_spring_forward_night", "now": "2026-03-08T00:30:00-06:00", "onset": "2026-03-08T04:00:00-05:00", "soc": 30,
+     "expected": ["2026-03-08T07:00:00+00:00", "2026-03-08T08:00:00+00:00"], "note": "3 UTC slots (00:00 CST, 01:00 CST, 03:00 CDT)"}
+  ]
+}

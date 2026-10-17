@@ -28,6 +28,7 @@ Robustness / bug-class prevention:
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -47,8 +48,11 @@ from .energy_const import (
     INCLEMENT_ALERT_MAX_HOLD_H,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     INCLEMENT_FORECAST_FAMILY,
+    INCLEMENT_GRID_CHARGE_PP_PER_H,
     INCLEMENT_POINT_FEED_POLYGON_EXACT,
     INCLEMENT_POLYGON_TOPUP_MAX_MIN,
+    INCLEMENT_PREONSET_BUY_MARGIN_H,
+    INCLEMENT_PREONSET_FLOOR_LEAD_H,
     INCLEMENT_PREONSET_FLOOR_PCT,
     INCLEMENT_PREONSET_LEAD_H,
     INCLEMENT_PRODUCT_TABLE,
@@ -1002,7 +1006,16 @@ class InclementDecision:
     # EC storm Stage B D-B6 (defaults keep every construction site valid).
     # The prepare floor raises `_tick_reserve_floor`; it never changes
     # hold_depth (no pre-onset hold).
+    # Stage E E2.4 field split: `preonset_target` is the floor / buy VALUE,
+    # populated across the whole buy horizon (what v5.103.69 carried in
+    # `preonset_floor`); `preonset_floor` is now the REGISTERED floor, set
+    # only when INV-8 (i) or (ii) holds (None = no floor this tick).
+    preonset_target: int | None = None
     preonset_floor: int | None = None
+    # Stage E E2.2: the frozen buy schedule (UTC hour-slot starts, sorted;
+    # () = no buy scheduled) and when the registered floor starts.
+    preonset_buy_hours: tuple[datetime, ...] = ()
+    preonset_floor_from: datetime | None = None
     preonset_precharge: bool = False
     preonset_start: datetime | None = None  # aware
     preonset_event: str | None = None
@@ -1055,6 +1068,68 @@ def _na_horizon() -> SolarHorizon:
     )
 
 
+# ---------------------------------------------------------------------------
+# Stage E E2 — buy in the cheapest hours closest to the event (INV-9)
+# ---------------------------------------------------------------------------
+
+
+def preonset_slot(now: datetime) -> datetime:
+    """The UTC hour slot ``[H, H+1h)`` containing ``now`` (its start H)."""
+    return dt_util.as_utc(now).replace(minute=0, second=0, microsecond=0)
+
+
+def preonset_h_req(current_soc: float | None, target: int) -> int:
+    """Hours to book: 0 when SOC is unknown or already >= target (no buy);
+    else ceil((target - SOC) / INCLEMENT_GRID_CHARGE_PP_PER_H) + margin."""
+    if current_soc is None or float(current_soc) >= float(target):
+        return 0
+    rate = float(INCLEMENT_GRID_CHARGE_PP_PER_H)
+    if rate <= 0:
+        return 0
+    return int(math.ceil((float(target) - float(current_soc)) / rate)) + max(
+        0, int(INCLEMENT_PREONSET_BUY_MARGIN_H),
+    )
+
+
+def schedule_buy_hours(
+    tou: Any, now: datetime, event_time: datetime | None, h_req: int,
+    horizon_h: float,
+) -> tuple[datetime, ...]:
+    """Stage E E2.2 (pure): the ``h_req`` UTC hour slots to buy in.
+
+    Candidates: slots ``[H, H+1h)`` with ``H+1h > now``, ``H < T`` and
+    ``T - H <= horizon_h`` (the slot containing ``now`` included; stepping is
+    on UTC hours, so a DST night neither skips nor repeats a slot). Each slot
+    is ranked by the TOU engine at its LOCAL start (``period_rank`` of
+    ``get_season`` / ``get_current_period``); unranked slots are excluded.
+    Order ``(rank, T - H)``: cheapest first, then closest to the event, so a
+    higher-rate slot is used only when fewer than ``h_req`` bottom-rate slots
+    remain. Engine missing / raising, ``h_req <= 0`` or no ``T`` -> ().
+    Returned sorted ascending."""
+    if tou is None or event_time is None or h_req <= 0:
+        return ()
+    try:
+        now_u = dt_util.as_utc(now)
+        t_u = dt_util.as_utc(event_time)
+        horizon = timedelta(hours=max(0.0, float(horizon_h)))
+        slot = now_u.replace(minute=0, second=0, microsecond=0)
+        cands: list[tuple[int, float, datetime]] = []
+        while slot < t_u:
+            if t_u - slot <= horizon:
+                loc = dt_util.as_local(slot)
+                rank = tou.period_rank(
+                    tou.get_season(loc), tou.get_current_period(loc),
+                )
+                if rank is not None:
+                    cands.append((int(rank), (t_u - slot).total_seconds(), slot))
+            slot = slot + timedelta(hours=1)
+        cands.sort(key=lambda c: (c[0], c[1]))
+        return tuple(sorted(c[2] for c in cands[: int(h_req)]))
+    except Exception:  # noqa: BLE001 — engine raising -> no buy
+        _LOGGER.debug("inclement: schedule_buy_hours failed", exc_info=True)
+        return ()
+
+
 class InclementFusion:
     """Fuse alert classification + condition election + solar horizon → decision."""
 
@@ -1097,6 +1172,7 @@ class InclementFusion:
         bottom_rate: bool | None = None,
         forecast_confirmed_ids: frozenset[str] | set[str] = frozenset(),
         preonset_latch: dict[str, str] | None = None,
+        preonset_buy_schedule: dict[str, tuple] | None = None,
     ) -> InclementDecision:
         """Produce the InclementDecision (matrix in PLANNING §Design).
 
@@ -1111,6 +1187,10 @@ class InclementFusion:
 
         D-B6: ``preonset_latch`` (RAM, owned by the battery) is advanced here
         every tick, leg-independently (INV-6(viii)).
+
+        Stage E E2: ``preonset_buy_schedule`` (RAM, owned by the battery)
+        holds the frozen buy schedule per prepare key ``(S, T, target)``;
+        None = no schedule store (no D-B6 buy, floor by rule (i) only).
         """
         is_bottom = (
             bottom_rate if bottom_rate is not None else tou_period == "off_peak"
@@ -1123,7 +1203,7 @@ class InclementFusion:
         )
         return self._apply_prepare(
             base, battery, classification, now, current_soc, is_bottom,
-            confirmed, preonset_latch,
+            confirmed, preonset_latch, preonset_buy_schedule,
         )
 
     def _zone_buy_confirmed(
@@ -1153,14 +1233,27 @@ class InclementFusion:
         is_bottom: bool,
         confirmed: frozenset[str],
         latch: dict[str, str] | None,
+        sched: dict[str, tuple] | None = None,
     ) -> InclementDecision:
-        """D-B6 pre-onset prepare floor / pre-charge eligibility."""
+        """D-B6 pre-onset prepare floor / pre-charge eligibility.
+
+        Stage E E2 (INV-8 / INV-9): the value (``preonset_target``) is set
+        across the buy horizon; the floor is REGISTERED only when (ii) a
+        frozen buy schedule exists and ``now >= min(S)``, or (i) ``now >= T -
+        min(FLOOR_LEAD_H, LEAD_H)``. The buy fires only in a scheduled slot.
+        ``is_bottom`` no longer gates the D-B6 buy (INV-9 amends INV-6(iii)).
+        """
+        del is_bottom  # INV-9: the schedule replaces the bottom-rate gate
         prep = tuple(getattr(classification, "prepare_alerts", ()) or ())
+        live = {r.alert_id for r in prep}
         if latch is not None:
-            live = {r.alert_id for r in prep}
             for k in list(latch):
                 if k not in live:  # Onset reached or left the prepare set
                     del latch[k]
+        if sched is not None:
+            for k in list(sched):
+                if k not in live:  # same discharge as the latch
+                    del sched[k]
         if not prep:
             return base
         pclass = prepare_class_of(prep)
@@ -1184,33 +1277,43 @@ class InclementFusion:
         )
         high = pclass == "warn" or watch_confirmed
         lower = max(self._reserve_soc, self._partial_floor)
-        floor = max(lower, self._preonset_knob) if high else lower
-        floor = max(0, min(100, int(floor)))
+        target = max(lower, self._preonset_knob) if high else lower
+        target = max(0, min(100, int(target)))
         # INV-6(viii): leg-independent latch advance (full_hold shadowing
         # included). A full_hold tick never sets "engaged".
         if (
             latch is not None and key_id is not None
             and latch.get(key_id) == "engaged"
-            and current_soc is not None and current_soc >= floor
+            and current_soc is not None and current_soc >= target
         ):
             latch[key_id] = "reached"
+        # Stage E §E2.4 eligibility-loss discharge (INV-8(ii)): option off
+        # or the same-record forecast confirm lost -> an "engaged" latch
+        # entry and the schedule are deleted ("reached" stays: no re-buy).
+        eligible = self._grid_precharge_on_hold and self._zone_buy_confirmed(
+            prows, confirmed,
+        )
+        if not eligible and key_id is not None:
+            if latch is not None and latch.get(key_id) == "engaged":
+                del latch[key_id]
+            if sched is not None:
+                sched.pop(key_id, None)
         if base.hold_depth == "full_hold":
             return base  # the active hold governs; prepare fields stay default
         state = latch.get(key_id) if (latch is not None and key_id) else None
+        stored = sched.get(key_id) if (sched is not None and key_id) else None
         pre = False
+        # Evaluation order (§E2.2 rule 5): (1) every other D-B6 buy gate,
+        # then the solar test (skipped while engaged); (2) freeze S if none
+        # is stored; (3) buy only in a scheduled slot.
         if (
-            self._grid_precharge_on_hold
-            # class gate + eligibility + forecast on the same prepare row:
-            # a warn row, or a watch row that is itself confirmed (which is
-            # exactly what makes `high` True for a watch).
-            and self._zone_buy_confirmed(prows, confirmed)
-            and is_bottom
+            eligible
             and current_soc is not None
-            and current_soc < floor
+            and current_soc < target
             and state != "reached"
         ):
             if state == "engaged":
-                pre = True
+                solar_ok = True
             else:
                 mins = 0
                 if pstart is not None:
@@ -1220,10 +1323,56 @@ class InclementFusion:
                     surplus = float(battery._expected_solar_surplus_pct(now, mins))
                 except Exception:  # noqa: BLE001 — Solcast missing → 0
                     surplus = 0.0
-                pre = float(current_soc) + surplus < floor
+                solar_ok = float(current_soc) + surplus < target
+            if solar_ok:
+                if stored is None and sched is not None and key_id is not None:
+                    hours = schedule_buy_hours(
+                        getattr(battery, "_tou", None), now, pstart,
+                        preonset_h_req(current_soc, target),
+                        INCLEMENT_PREONSET_LEAD_H,
+                    )
+                    stored = (hours, pstart, target)
+                    sched[key_id] = stored
+                pre = stored is not None and preonset_slot(now) in stored[0]
+        # Registered floor -- the ONE rule (§E2.4).
+        hours = tuple(stored[0]) if stored else ()
+        eff_lead = max(0.0, min(float(INCLEMENT_PREONSET_FLOOR_LEAD_H),
+                                float(INCLEMENT_PREONSET_LEAD_H)))
+        starts: list[datetime] = []
+        registered: int | None = None
+        if hours:
+            starts.append(hours[0])
+            if _dt_le(hours[0], now):  # INV-8(ii)
+                registered = target
+        if eff_lead > 0 and pstart is not None:
+            fstart = pstart - timedelta(hours=eff_lead)
+            starts.append(fstart)
+            if registered is None and _dt_le(fstart, now):  # INV-8(i)
+                horizon_end = now + timedelta(hours=eff_lead)
+                in_window = [
+                    r for r in prep
+                    if r.start is not None and _dt_le(r.start, horizon_end)
+                ]
+                hi = any(
+                    r.corroborable and (
+                        r.cls == "warn"
+                        or (r.cls == "watch" and r.alert_id in confirmed)
+                    )
+                    for r in in_window
+                )
+                registered = max(
+                    0, min(100, int(max(lower, self._preonset_knob) if hi else lower)),
+                )
+        floor_from = None
+        for st in starts:
+            if floor_from is None or _dt_lt(st, floor_from):
+                floor_from = st
         return replace(
             base,
-            preonset_floor=floor,
+            preonset_target=target,
+            preonset_floor=registered,
+            preonset_buy_hours=hours,
+            preonset_floor_from=floor_from,
             preonset_precharge=pre,
             preonset_start=pstart,
             preonset_event=key_row.event,

@@ -45,9 +45,12 @@ DOMAIN = "universal_room_automation"
 
 def inc_mod():
     """The inclement module the battery imports AT CALL TIME."""
-    return sys.modules[
-        "custom_components.universal_room_automation.domain_coordinators.inclement"
-    ]
+    name = "custom_components.universal_room_automation.domain_coordinators.inclement"
+    mod = sys.modules.get(name)
+    if mod is None:
+        import importlib
+        mod = importlib.import_module(name)
+    return mod
 
 
 @pytest.fixture

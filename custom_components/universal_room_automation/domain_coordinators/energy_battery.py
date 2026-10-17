@@ -472,6 +472,10 @@ class BatteryStrategy:
         # (RAM; advanced in fusion every tick, "engaged" set only by the
         # pre-onset emission). Not persisted (one extra on->off per restart).
         self._preonset_precharge_latch: dict[str, str] = {}
+        # Stage E E2.2: frozen pre-onset buy schedule per prepare alert ID ->
+        # (S: UTC slot starts, T: event time, target). RAM; purged with the
+        # latch, deleted on eligibility loss and every observation-mode tick.
+        self._preonset_buy_schedule: dict[str, tuple] = {}
         # Stage C D-C2 forecast-confirmation latch: alert ID -> its end.
         # Confirmed stays confirmed to the alert's end (no buy/hold flap).
         self._forecast_confirm_latch: dict[str, datetime] = {}
@@ -2814,6 +2818,7 @@ class BatteryStrategy:
             bottom_rate=self._is_bottom_rate(now, tou_period),
             forecast_confirmed_ids=confirmed,
             preonset_latch=self._preonset_precharge_latch,
+            preonset_buy_schedule=self._preonset_buy_schedule,
         )
         self._last_inclement_selection_attr = self._selection_attr(
             classification, _selection, confirmed,
@@ -2905,7 +2910,7 @@ class BatteryStrategy:
                 "leg": "preonset",
                 "alert_id": getattr(decision, "preonset_alert_id", None),
                 "event": getattr(decision, "preonset_event", None),
-                "target": getattr(decision, "preonset_floor", None),
+                "target": getattr(decision, "preonset_target", None),
                 "forecast_confirmed": bool(
                     getattr(decision, "buy_forecast_confirmed", False)
                 ),
@@ -3207,10 +3212,21 @@ class BatteryStrategy:
         from homeassistant.util import dt as dt_util
         cls = self._last_inclement_classification
         pre = None
-        if decision is not None and getattr(decision, "preonset_floor", None) is not None:
+        if decision is not None and getattr(decision, "preonset_target", None) is not None:
             _st = decision.preonset_start
+            _ff = getattr(decision, "preonset_floor_from", None)
             pre = {
-                "floor": decision.preonset_floor,
+                # Stage E E2.4: `floor` is the VALUE; `active` says whether
+                # it is registered this tick; `floor_from` when it starts.
+                "floor": decision.preonset_target,
+                "active": getattr(decision, "preonset_floor", None) is not None,
+                "floor_from": dt_util.as_local(_ff).isoformat() if _ff else None,
+                "buy_hours": [
+                    dt_util.as_local(h).isoformat()
+                    for h in (getattr(decision, "preonset_buy_hours", ()) or ())
+                ],
+                "event_time": dt_util.as_local(_st).isoformat() if _st else None,
+                "event_time_source": "onset",
                 "start": dt_util.as_local(_st).isoformat() if _st else None,
                 "event": decision.preonset_event,
                 "class": decision.preonset_class,
@@ -6423,9 +6439,15 @@ class BatteryStrategy:
         # (3) emit through `_result` and set the latch. Refused / skipped /
         # ineligible → fall through to the TOU branches (the fold keeps
         # every reserve write >= the registered prepare floor).
+        # Stage E §4.3 row 1 / INV-9: the value is set AND the slot holding
+        # `now` is in the frozen buy schedule (replaces the bottom-rate gate).
+        from .inclement import preonset_slot as _preonset_slot
         if (
             getattr(decision, "preonset_precharge", False)
-            and getattr(decision, "preonset_floor", None) is not None
+            and getattr(decision, "preonset_target", None) is not None
+            and _preonset_slot(now) in (
+                getattr(decision, "preonset_buy_hours", ()) or ()
+            )
             and soc is not None
             and self._arbitrage_phase != ARBITRAGE_PHASE_CHARGE
             and self._attain_state != "charging"
@@ -6458,7 +6480,7 @@ class BatteryStrategy:
                         _reason,
                         current_mode,
                         charge_from_grid=True,
-                        reserve_level=decision.preonset_floor,
+                        reserve_level=decision.preonset_target,
                         season=season,
                         cloud_withhold_exempt=True,
                     )

@@ -834,9 +834,23 @@ INCLEMENT_ALERT_MAX_HOLD_H: Final = 48
 # P2(d)/(e): healthy poll gap max 302 s, unavailable drop max 245 s, so any
 # value <= 310 self-triggers; 900 = ~3x margin. MUST stay > 310.
 NWS_ALERTS_STALE_S: Final = 900
-# D-B6: how far ahead of Onset the prepare floor applies. 0 = D-B6 off
-# (both legs). One evening peak at most at 12 h.
+# D-B6: the prepare window (how far ahead of Onset a prepare alert is seen).
+# Stage E E2 re-scoped it to the BUY HORIZON: the furthest slot a pre-onset
+# grid buy may be scheduled in (T - H <= this). 0 = D-B6 off (both legs).
 INCLEMENT_PREONSET_LEAD_H: Final = 12
+# Stage E E2.3 (rung 1; it prices peak arbitrage): with no buy scheduled the
+# pre-onset floor starts at T - this (one winter top-rate block, ~$1/event of
+# forgone discharge, OQ-7). Effective value = min(this, LEAD_H). 0 = the
+# floor exists only with a buy schedule.
+INCLEMENT_PREONSET_FLOOR_LEAD_H: Final = 4
+# Stage E E2.2 (rung 1; it sizes paid import): assumed grid-charge rate in
+# SOC points per hour. Operator 2026-10-17 "charge from grid in 1-2 hours"
+# (80 pp in ~1.6 h; OQ-6). UNMEASURED (no recorder grid-charge episode);
+# below the 77 pp/h hardware ceiling. Smaller = more hours scheduled.
+INCLEMENT_GRID_CHARGE_PP_PER_H: Final = 50
+# Stage E E2.2 (rung 1): slack hours added to a needed buy (rate / SOC
+# error). 0 = exact. Added only when a buy is needed.
+INCLEMENT_PREONSET_BUY_MARGIN_H: Final = 1
 # D-B6 rung 3: pre-onset floor slider default (Number entity
 # `InclementPreonsetFloorNumber`, options key below, read per tick by
 # `_inclement_config`; same options-read path as the blind slider).

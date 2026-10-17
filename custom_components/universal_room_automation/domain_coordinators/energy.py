@@ -9424,6 +9424,11 @@ class EnergyCoordinator(BaseCoordinator):
                 # "started grid-charging" notice, and the pre-onset latch
                 # engaged THIS tick is rolled back (later ticks must still
                 # run the solar test).
+                # Stage E E2.2 rule 5: no buy schedule (and so no floor
+                # extension / buy_hours attr) survives observation mode.
+                _sched = getattr(battery, "_preonset_buy_schedule", None)
+                if isinstance(_sched, dict):
+                    _sched.clear()
                 eid_engaged = getattr(battery, "_tick_preonset_engaged_id", None)
                 if eid_engaged:
                     latch = getattr(battery, "_preonset_precharge_latch", {})
