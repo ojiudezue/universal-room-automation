@@ -125,9 +125,9 @@
 > - floor lead 0 with no schedule and a floor registered;
 > - any in-window decision change.
 
-> **INV-9 (buy in ONE contiguous run of the cheapest hours closest to the event; amends INV-6(iii)'s `is_bottom_rate(now)` conjunct).** **Operator ruling 2026-10-17 (fix-up): "I think starting earlier is probably less error prone than start stop."** `S` is one contiguous run of `h_req` slots ending at or before T: the run with the lowest total import rate, the latest among ties; a higher-rate slot only when no all-cheapest run fits (then the minimal-cost run, latest among ties). An unranked slot breaks a run. The text below that orders single slots by `(rank, T − H)` is SUPERSEDED by this rule. A D-B6 grid buy happens on a tick only if the hour slot containing `now` ∈ `S`. `S` is built and frozen per §E2.2: `h_req` slots (0 when SOC is None or ≥ target), chosen from the UTC hour slots `[H, H+1h)` with `H+1h > now`, `H < T`, `T − H ≤ INCLEMENT_PREONSET_LEAD_H`, excluding unranked slots. They are ordered by `(period_rank(local H), T − H)`: cheapest first, then closest to `T`.
-> - An hour with rank > 0 is in `S` **only if** fewer than `h_req` rank-0 hours exist in that range.
-> - `S` is frozen at the freeze point of §E2.2 rule 5 and deleted by that rule's discharge. An NWS Update is a new alert ID and starts a fresh `S` (§E2.2 rule 6).
+> **INV-9 (buy in ONE contiguous run of the cheapest hours closest to the event; amends INV-6(iii)'s `is_bottom_rate(now)` conjunct).** **Operator ruling 2026-10-17 (fix-up): "I think starting earlier is probably less error prone than start stop."** `S` is one contiguous run of `h_req` slots ending at or before T: the run with the lowest total import rate, the latest among ties; a higher-rate slot only when no all-cheapest run fits (then the minimal-cost run, latest among ties). An unranked slot breaks a run. A D-B6 grid buy happens on a tick only if the hour slot containing `now` ∈ `S`. `S` is built and frozen per §E2.2: `h_req` slots (0 when SOC is None or ≥ target), chosen from the UTC hour slots `[H, H+1h)` with `H+1h > now`, `H < T`, `T − H ≤ INCLEMENT_PREONSET_LEAD_H`, excluding unranked slots (an unranked slot breaks a run).
+> - An hour with rank > 0 is in `S` **only if** no contiguous run of `h_req` rank-0 hours exists in that range.
+> - `S` is frozen at the freeze point of §E2.2 rule 5 and emptied by that rule's discharge (the carry metadata is kept). An NWS Update (new ID, same Event + NWSCode, overlapping window, old ID superseded rather than onset) carries the schedule and latch over (§E2.2 rule 6).
 >
 > **Falsifiers:**
 > - a pre-onset CFG on in a rank > 0 hour while ≥ `h_req` rank-0 hours remained before `T` at schedule time;
@@ -383,7 +383,7 @@ Otherwise **NO-GO**: E2b parks with the ledger trigger (≥ 3 ledger HOLD events
 
 **E2.1 Event time `T`.** `T = preonset_start` (Onset of the earliest prepare alert; NWS onsets for watches are hazard start, P2(c)). Under E2b GO only, `T` may come from the forecast. `T` is shown in the attr with `event_time_source`.
 
-**E2.2 Buy schedule (operator ruling; prior art REUSED).** One pure function `schedule_buy_hours(tou, now, T, h_req, horizon_h) -> tuple[datetime, ...]` in `inclement.py`. It ranks slots with the existing `period_rank` / `get_season` / `get_current_period` helpers (`energy_tou.py:459, 491`): no tariff parsing, no period names. The idea is arbitrage's "charge just before the expensive window" (`_is_charge_window_open`, `energy_battery.py:3558`), generalised from "the next high-rate transition" to "the event". It orders slots by `(rank, T − H)` and takes the first `h_req`, so the bottom-rate slots closest to the event are used. A higher-rate slot enters only when fewer than `h_req` bottom-rate slots remain before `T` (operator: "only during a higher rate window before the event if unavoidable"). Rules:
+**E2.2 Buy schedule (operator ruling; prior art REUSED).** One pure function `schedule_buy_hours(tou, now, T, h_req, horizon_h) -> tuple[datetime, ...]` in `inclement.py`. It ranks slots with the existing `period_rank` / `get_season` / `get_current_period` helpers (`energy_tou.py:459, 491`): no tariff parsing, no period names. The idea is arbitrage's "charge just before the expensive window" (`_is_charge_window_open`, `energy_battery.py:3558`), generalised from "the next high-rate transition" to "the event". It picks ONE contiguous run of `h_req` slots with the lowest total import rate, the latest among ties (rule 1a), so the bottom-rate slots closest to the event are used without a stop/start. A higher-rate slot enters only when no all-bottom-rate run fits before `T` (operator: "only during a higher rate window before the event if unavoidable"). Rules:
 1. **Slots.**
    - Candidates are UTC hour slots `[H, H+1h)` with `H + 1h > now` and `H < T`, and `T − H ≤ INCLEMENT_PREONSET_LEAD_H`. The slot containing `now` is a candidate.
    - The buy gate is "the slot containing `now` ∈ S".
@@ -410,10 +410,8 @@ Otherwise **NO-GO**: E2b parks with the ledger trigger (≥ 3 ledger HOLD events
 6. **Onset Updates (amended by the fix-up, `AUDIT_nws_alert_fields_and_updates.md`).**
    - An NWS Update is a new message ID (`alert_key`, `energy_outage_ledger.py:72-81`; references/VTEC are not exposed). When the scheduled key's ID leaves the prepare set and a new prepare record with the same Event + NWSCode and an overlapping hazard window appears, the frozen schedule AND the latch state move to the new ID (a `reached` latch survives: no re-buy). A changed T is re-planned by the stale-T rule. A different Event starts fresh.
    - `_hazard_window`: with `Ends` null, an `Expires` at or before the start (e.g. Onset == Expires) falls back to start + `INCLEMENT_ALERT_MAX_HOLD_H`. An explicit `Ends` before Onset stays as given (malformed or expired, never revived into a hold).
-   - Superseded text:
-   - Accepted, not engineered. This is parent §12 limit 23's class. A carry-over keyed on event name + window overlap would add the state × time seam for a rare event.
-   - Cost: at most one extra CFG off→on per Update during a buy.
-   - The test uses a **new ID** with a moved Onset (`test_schedule_fresh_on_update_new_id`).
+   - Carry-over happens only when the old ID has left both the prepare and the active set (superseded, not onset; Review D D2-LOW-1). Eligibility loss and the stale-T re-plan empty the hours but keep the carry metadata, so a `reached` latch still carries (D2-LOW-2).
+   - Tests: `test_update_same_event_carries_latch_and_schedule`, `test_update_different_event_starts_fresh`, `test_onset_is_not_an_update`, `test_reached_survives_stale_t_then_update`; `test_schedule_fresh_on_update_new_id` (moved Onset: carried, then re-planned).
 7. **Multi-alert value.** The registered floor value is the single rule in §E2.4.
 8. **Pinned examples.**
    - Shoulder (October) Onset 21:00, SOC 70 → `h_req = 1 + 1 = 2` → S = {15:00, 16:00} (last bottom hours before the 17-21 block).
@@ -653,7 +651,7 @@ R1b = completeness re-check (e7dce3ca4); R2b = build-prediction re-check (f5ed38
 **Rev 3 rejections:**
 - None outright.
 - R1b-N1's alternative (filter `_zone_buy_confirmed` on `r.corroborable`) is not taken. The reviewer preferred the selection-level cut, and it keeps the form honest.
-- R2b-F3's carry-over option is declined, with the reason in §E2.2.6.
+- R2b-F3's carry-over option: declined at Rev 3, then BUILT in the review fix-up (§E2.2.6) after the NWS Update audit.
 - R2b-F4: chose "engine missing → no buy" over the legacy fallback. It is stated as a byte change.
 
 **Rev 2 rejections:** none. **Partially taken:** R1-F1's alternative `preonset_floor_active: bool`. I used a value split instead (`preonset_target` plus a nullable registered `preonset_floor`), so the six existing registered-floor readers keep their None-means-absent semantics without a second flag to forget.
