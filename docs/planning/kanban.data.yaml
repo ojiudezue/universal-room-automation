@@ -126,11 +126,12 @@ meta:
     acknowledged: false
 cards:
 - id: TEST-BAYES-B2-CLOCK-SKEW-1
+  gate_2026_10_17_overnight: "Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (test-only, Tier 1). Cost/benefit: removes a time-of-day flake from every name-diff; no production code. Overnight build -> review lane."
   title: "Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC"
   thread: quality
-  status: inbox
+  status: "in_progress"
   created: '2026-10-16 13:30'
-  updated: '2026-10-16 13:30'
+  updated: "2026-10-17 02:17"
   refinement_status: initial
   approval: unreviewed
   tags: [found-during-build, test-infra]
