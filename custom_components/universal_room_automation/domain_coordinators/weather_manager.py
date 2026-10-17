@@ -173,6 +173,8 @@ class WeatherProviderManager:
         self._hourly: dict[str, dict[str, Any]] = {}
         self.hourly_fetched_at: datetime | None = None
         self.hourly_providers_ok: int = 0
+        # Review B B-MED-1: in-flight provider-recovery hourly catch-up.
+        self._hourly_catch_up_task: asyncio.Task | None = None
         self._apparent_high_ring: list[tuple[str, float]] = []
         self._apparent_high_store: Store = Store(
             hass, version=1, key="ura_dpm_apparent_high_ring"
@@ -812,6 +814,35 @@ class WeatherProviderManager:
             self._refresh_all_providers(),
             name="ura_weather_manager_refresh",
         )
+        self._pending_refresh_tasks.add(task)
+        task.add_done_callback(self._pending_refresh_tasks.discard)
+        self._maybe_hourly_catch_up(event, entity_id)
+
+    @callback
+    def _maybe_hourly_catch_up(self, event, entity_id: str) -> None:
+        """Review B B-MED-1: a provider that was unavailable at setup has
+        no ``_hourly`` rows and would wait up to FORECAST_REFRESH_MIN for
+        the next timer. When such a provider becomes reachable, schedule
+        ONE tracked hourly refresh. Discharge: no-op once the provider has
+        rows (the 30-min timer owns freshness) or while a catch-up is
+        already in flight (debounce). Tracked in _pending_refresh_tasks,
+        cancelled by async_teardown."""
+        if not entity_id or entity_id in self._hourly:
+            return
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
+            return
+        pending = self._hourly_catch_up_task
+        if pending is not None and not pending.done():
+            return
+        coro = self._refresh_hourly()
+        task = self.hass.async_create_task(
+            coro, name="ura_weather_manager_hourly_catch_up"
+        )
+        if not isinstance(task, asyncio.Future):
+            coro.close()  # non-scheduling hass double: nothing to track
+            return
+        self._hourly_catch_up_task = task
         self._pending_refresh_tasks.add(task)
         task.add_done_callback(self._pending_refresh_tasks.discard)
 

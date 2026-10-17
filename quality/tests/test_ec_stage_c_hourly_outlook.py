@@ -306,3 +306,77 @@ def test_apparent_absent_falls_back_to_air(wm_mod, clock):
     m2, _ = _mgr(wm_mod, clock, owm_rows=_rows(T0, 10, temp=20.0), om_rows=[])
     assert _forecast_confirms("Wind Chill Warning",
                               m2.hourly_outlook(T0, T0 + timedelta(hours=5)))
+
+
+# ---------------------------------------------------------------------------
+# Review B fix-up: B-MED-1 — provider recovering after boot triggers ONE
+# tracked hourly catch-up instead of waiting for the 30-min timer.
+# ---------------------------------------------------------------------------
+def _boot_mgr(wm_mod, clock, owm_state):
+    clock.t = T0
+    hass = MockHass()
+    hass._states[OWM] = MockState(OWM, owm_state, {"apparent_temperature": 20,
+                                                   "temperature_unit": "°F"})
+    hass._states[OWM].last_changed = hass._states[OWM].last_updated = T0
+    calls = []
+
+    async def _svc(domain, svc, data, blocking=False, return_response=False):
+        calls.append((data["entity_id"], data.get("type")))
+        return {data["entity_id"]: {"forecast": _rows(T0, 48)}}
+    hass.services = SimpleNamespace(async_call=_svc)
+    loop = asyncio.new_event_loop()
+    hass.async_create_task = lambda coro, name=None: loop.create_task(coro)
+    m = wm_mod.WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: OWM})
+
+    async def _noop():
+        return None
+    m._refresh_all_providers = _noop  # condition path not under test
+    loop.run_until_complete(m._refresh_hourly())
+    return m, hass, loop, calls
+
+
+def _state_event(hass, state):
+    hass._states[OWM] = MockState(OWM, state, {"apparent_temperature": 20,
+                                               "temperature_unit": "°F"})
+    hass._states[OWM].last_changed = hass._states[OWM].last_updated = T0
+    return SimpleNamespace(data={"entity_id": OWM,
+                                 "new_state": hass._states[OWM]})
+
+
+def _drain(m, loop):
+    while m._pending_refresh_tasks:
+        loop.run_until_complete(asyncio.gather(*list(m._pending_refresh_tasks)))
+
+
+def test_provider_recovery_after_boot_refreshes_hourly_immediately(wm_mod, clock):
+    m, hass, loop, calls = _boot_mgr(wm_mod, clock, "unavailable")
+    assert OWM not in m._hourly and calls == []
+    assert m.hourly_outlook(T0, T0 + timedelta(hours=5)) is None
+    # still unavailable / unknown -> no catch-up
+    m._handle_provider_state_change(_state_event(hass, "unknown"))
+    assert m._hourly_catch_up_task is None  # nothing scheduled while down
+    _drain(m, loop)
+    assert calls == []
+    # provider comes up; clock NOT advanced (no 30-min timer fired)
+    m._handle_provider_state_change(_state_event(hass, "snowy"))
+    _drain(m, loop)
+    assert calls == [(OWM, "hourly")]
+    assert m.hourly_providers_ok == 1
+    o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
+    assert o is not None and o.hours == 5
+
+
+def test_hourly_catch_up_not_retriggered_once_rows_exist(wm_mod, clock):
+    m, hass, loop, calls = _boot_mgr(wm_mod, clock, "unavailable")
+    # two state changes before the loop runs -> debounced to ONE fetch
+    m._handle_provider_state_change(_state_event(hass, "snowy"))
+    m._handle_provider_state_change(_state_event(hass, "cloudy"))
+    _drain(m, loop)
+    assert calls == [(OWM, "hourly")]
+    # rows exist: later condition changes never re-fetch hourly
+    for s in ("rainy", "snowy", "cloudy"):
+        m._handle_provider_state_change(_state_event(hass, s))
+        _drain(m, loop)
+    assert calls == [(OWM, "hourly")]
+    loop.run_until_complete(m.async_teardown())
+    assert m._pending_refresh_tasks == set()
