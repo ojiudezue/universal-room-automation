@@ -1179,6 +1179,13 @@ def test_storm_guard_tripwire_disabled_empty_platform(clock, monkeypatch):
         energy_const,
     )
     monkeypatch.setattr(energy_const, "STORM_GUARD_PLATFORM", "")
+    # Even a registry row that would match an empty platform is ignored:
+    # "" is the kill switch, not a wildcard.
+    from homeassistant.helpers import entity_registry as er
+    ents = {_SG: SimpleNamespace(entity_id=_SG, platform="",
+                                 unique_id="x_storm_guard")}
+    monkeypatch.setattr(er, "async_get",
+                        lambda hass: SimpleNamespace(entities=ents))
     c, s = make_shell(clock)
     assert c._storm_guard_entity() is None
     c.hass._states[_SG] = MockState(_SG, "off", {})
