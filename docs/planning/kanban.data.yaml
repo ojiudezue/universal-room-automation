@@ -125,10 +125,25 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EC-LOADED-VS-INSTALLED-VERSION-1
+  title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
+  thread: platform
+  status: "pre_planning"
+  tier: 1
+  created: "2026-10-17 16:30"
+  updated: "2026-10-17 16:30"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while operator travels)."}
+  why: "Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record the wrong code. Prior art grep (loaded_version/installed_version/manifest_version) found nothing."
+  links: {"related": ["EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1"]}
+  next: "Me: Tier-1 plan in the card: at setup record the loaded version (manifest read at import); a cheap periodic compare against manifest.json on disk -> a diagnostic sensor attribute (loaded vs installed) + one WARNING/repair issue 'restart pending to load vX'. Also: write v5.103.67/.68 Validated tables (they went live only 10-17 18:27Z)."
+  rank: {value: 4, time_criticality: 3, effort: 2}
 - id: EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1
+  refuted_2026_10_17: "REFUTED-but-fertile. Not a code defect: v5.103.67 (ledger, 10-16 19:44Z) and v5.103.68 were INSTALLED but HA was not restarted until 2026-10-17 18:27Z (homeassistant_start events 10-16 15:56:39Z, 10-17 18:27:27Z); the advisory ran 19:45Z-00:00Z on the pre-.67 code. Corroborated: reserve_write rows in that window lack tick_floor/tick_hold_depth keys that current code writes. Since the 18:27Z restart the feed has been Alerts:[] so 0 rows is correct. Builder added an unseeded real-DB end-to-end test (fix/outage-ledger-nws-rows 6e43e85d8, test_alert_row_lands_unseeded_boot_real_db; drill on _seed_alerts :483 RED) - merge with the next batch. Confirming observation: first nws_alert row when the next alert appears. Surfaced work -> EC-LOADED-VS-INSTALLED-VERSION-1; v5.103.67/.68 READMEs have no Validated table and only went live 10-17."
   title: "Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time)"
   thread: energy
-  status: "investigating"
+  status: "done"
   tier: 2
   created: "2026-10-17 16:00"
   updated: "2026-10-17 16:00"

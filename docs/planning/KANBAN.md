@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T15:11:45-05:00_ - _Data commit: `56654b582ee8`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T15:14:12-05:00_ - _Data commit: `fdaab8211c2b`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -10,8 +10,8 @@ _Generated: 2026-10-17T15:11:45-05:00_ - _Data commit: `56654b582ee8`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 2 |
-| 🧭 Pre-planning | 11 |
+| 🔬 Investigating | 1 |
+| 🧭 Pre-planning | 12 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
@@ -19,28 +19,17 @@ _Generated: 2026-10-17T15:11:45-05:00_ - _Data commit: `56654b582ee8`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 15 |
 | 🅿️ Parked | 88 |
-| ✅ Done | 339 |
+| ✅ Done | 340 |
 
 ## 📥 Inbox (0)
 _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-### `EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1` - Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time) — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
-thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-10-17 16:00 · initial_
-- **Origin:** 2026-10-17 - E2-P probe found 0 nws_alert ledger rows; ura-prober confirmed BROKEN: sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts held Wind Advisory IDs d39a0907... and 7be42762... from ship (10-16 19:45Z) to 00:00Z; ura_activi...
-- **Why:** The ledger is the evidence base for every storm-threshold revisit (E2-P revival trigger, forecast-threshold fit, outage correlation). All failures on the path are swallowed at DEBUG (energy.py:9265, energy_outage_ledger.py:217/179, datab...
-- **Next:** Me: ura-builder reproduces with the real Database (temp sqlite) + the recorded 10-16 Alerts payload through EnergyCoordinator._outage_ledger_tick -> find the failing gate, fix, add a trip-wire (WARNING/NM when an alert is present and no ...
-- **Forensic keys (3):**
-  - `tier`: 2
-  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
-  - `live_2026_10_17`: Orchestrator set logger debug on domain_coordinators.energy_outage_ledger and domain_coordinators.energy (runtime only, resets on restart); revert after capture.
-
-### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **presence** - status: **investigating** - approval: **implied**
 _created 2026-09-27 02:50 · updated 2026-10-17 07:25 · refined ×2_
 - **Problem / Solution:**
@@ -63,7 +52,7 @@ _created 2026-09-27 02:50 · updated 2026-10-17 07:25 · refined ×2_
   - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
   - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
-## 🧭 Pre-planning (11)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `EC-BLIND-DEESCALATE-TOP-RATE-1` - TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21) — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
@@ -77,7 +66,16 @@ thread: **energy** - status: **pre_planning**
   - `tier`: 3
   - `related`: EC-INCLEMENT-HARDENING-1
 
-### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **platform** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-10-17 16:30 · initial_
+- **Origin:** 2026-10-17 - EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while op...
+- **Why:** Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record...
+- **Next:** Me: Tier-1 plan in the card: at setup record the loaded version (manifest read at import); a cheap periodic compare against manifest.json on disk -> a diagnostic sensor attribute (loaded vs installed) + one WARNING/repair issue 'restart ...
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **pre_planning**
 _updated 2026-10-16 02:06 · refined_
 - **Next:** Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive a...
@@ -86,7 +84,7 @@ _updated 2026-10-16 02:06 · refined_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-EVALUATE-PATH-LEDGER-GAP-1
 
-### `EC-EVALUATE-PATH-LEDGER-GAP-1` - TOU-transition battery path (_evaluate_battery -> CoordinatorManager) never stamps the commanded reserve ledger or calls write-verify, and swallows dispatch failures — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `EC-EVALUATE-PATH-LEDGER-GAP-1` - TOU-transition battery path (_evaluate_battery -> CoordinatorManager) never stamps the commanded reserve ledger or calls write-verify, and swallows dispatch failures — _#4 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **pre_planning**
 _updated 2026-10-16 02:10_
 - **Next:** Me, in the arc steps 8-11 joint plan after the governor ships: choose between (a) delete/redirect the evaluate() battery call once step 9 stops it consuming boundaries, or (b) add ledger stamp + write-verify + failure surfacing to it. (a...
@@ -95,7 +93,7 @@ _updated 2026-10-16 02:10_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-### `EC-OBS-DP-EVSE-1` - EV-charger writes ignore energy observation mode (drain-precedence charger switches + solar-follow amp restore) — _#4 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `EC-OBS-DP-EVSE-1` - EV-charger writes ignore energy observation mode (drain-precedence charger switches + solar-follow amp restore) — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-10-17 02:12 · initial_
 - **Problem / Solution:**
@@ -112,7 +110,7 @@ _created 2026-10-17 02:12 · initial_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `adjacency_2026_10_17`: Swept board (observation + evse/drain), BACKLOG.md, plan review table: NEW (different targets and code path from EC-OBSERVATION-MODE-RESERVE-BYPASS-1; sibling, same bug class).
 
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#5 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#6 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-10-16 02:16_
 - **Problem / Solution:**
@@ -143,7 +141,7 @@ _updated 2026-10-16 02:16_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#6 · WSJF 2.0 · v7 tc3 u6 /e8_
+### `CENSUS-OCCUPANCY-ESTIMATOR-1` - Build the hybrid house head-count estimator (and a guests-present flag) now that its inputs are fixed — _#7 · WSJF 2.0 · v7 tc3 u6 /e8_
 thread: **census** - status: **pre_planning** - approval: **explicit**
 _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
 - **Problem / Solution:**
@@ -158,7 +156,7 @@ _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **explicit**
 _created 2026-10-04 01:00 · updated 2026-10-16 02:03_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
@@ -175,7 +173,7 @@ _created 2026-10-04 01:00 · updated 2026-10-16 02:03_
   - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
-### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-10-16 02:15_
 - **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
@@ -187,7 +185,7 @@ _updated 2026-10-16 02:15_
   - `gate_2026_09_12`: PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049 lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT: HYGIENE not a defect (card own why: correctness preserved, beta c...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.
 
-### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#9 · WSJF 1.8 · v9 tc3 u2 /e8_
+### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#10 · WSJF 1.8 · v9 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
@@ -197,7 +195,7 @@ thread: **optimization** - status: **pre_planning**
   - `related`: OC-SHADOW-SAMPLES-EMPTY-1
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#10 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#11 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -208,7 +206,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#11 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#12 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -2580,8 +2578,20 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (339)
+## ✅ Done (340)
 _closed, evidence in refs_
+
+### `EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1` - Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time) — _WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-10-17 16:00 · initial_
+- **Origin:** 2026-10-17 - E2-P probe found 0 nws_alert ledger rows; ura-prober confirmed BROKEN: sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts held Wind Advisory IDs d39a0907... and 7be42762... from ship (10-16 19:45Z) to 00:00Z; ura_activi...
+- **Why:** The ledger is the evidence base for every storm-threshold revisit (E2-P revival trigger, forecast-threshold fit, outage correlation). All failures on the path are swallowed at DEBUG (energy.py:9265, energy_outage_ledger.py:217/179, datab...
+- **Next:** Me: ura-builder reproduces with the real Database (temp sqlite) + the recorded 10-16 Alerts payload through EnergyCoordinator._outage_ledger_tick -> find the failing gate, fix, add a trip-wire (WARNING/NM when an alert is present and no ...
+- **Forensic keys (4):**
+  - `refuted_2026_10_17`: REFUTED-but-fertile. Not a code defect: v5.103.67 (ledger, 10-16 19:44Z) and v5.103.68 were INSTALLED but HA was not restarted until 2026-10-17 18:27Z (homeassistant_start events 10-16 15:56:39Z, 10-17 18:27:27Z); the advisory ran 19:45Z...
+  - `tier`: 2
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `live_2026_10_17`: Orchestrator set logger debug on domain_coordinators.energy_outage_ledger and domain_coordinators.energy (runtime only, resets on restart); revert after capture.
 
 ### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **quality** - status: **done** - approval: **unreviewed**
