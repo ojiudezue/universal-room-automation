@@ -188,7 +188,8 @@ cards:
   operator_2026_10_17_plan_go: "Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: \"Agree with all recs\" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capped partial (yes), OQ-3a NWS Onset anchor now + E2-P decides this cycle (yes), OQ-3b if GO later hold for watches only (yes), OQ-4 enable grid pre-charge after Stage E ships, OQ-5 Q7 stands, OQ-6 50 pp/h + 1 h margin, OQ-7 hold through last top-rate block pre-buy (yes). Plus 10-17 ruling: buy in the cheapest hours just before the event, higher rate only if unavoidable, reuse TOU helpers. Build dispatched to ura-super-builder; Tier-3 operator checkpoint before deploy still applies."
   title: "Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table"
   thread: energy
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.70
   tier: 3
   created: "2026-10-17 15:10"
   updated: "2026-10-17 15:10"
@@ -207,7 +208,8 @@ cards:
   operator_2026_10_17_plan_go: "Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: \"Agree with all recs\" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capped partial (yes), OQ-3a NWS Onset anchor now + E2-P decides this cycle (yes), OQ-3b if GO later hold for watches only (yes), OQ-4 enable grid pre-charge after Stage E ships, OQ-5 Q7 stands, OQ-6 50 pp/h + 1 h margin, OQ-7 hold through last top-rate block pre-buy (yes). Plus 10-17 ruling: buy in the cheapest hours just before the event, higher rate only if unavoidable, reuse TOU helpers. Build dispatched to ura-super-builder; Tier-3 operator checkpoint before deploy still applies."
   title: "Pre-onset storm floor starts up to 12 h before the alert onset: holds the battery high for hours that do not matter instead of 3-4 h before the forecast-confirmed hazard time"
   thread: energy
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.70
   tier: 3
   created: "2026-10-17 15:10"
   updated: "2026-10-17 15:10"
