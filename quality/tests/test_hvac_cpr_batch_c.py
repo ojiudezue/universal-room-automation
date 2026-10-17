@@ -2391,3 +2391,49 @@ async def test_s10_a4_confirmed_success_resets_write_counter(mods, monkeypatch):
     assert len(r.pr_calls()) == 1 + 3                # a fresh budget of 3
     assert r.coord._s10_records[Z1]["home|apply"]["latched"] is True
     assert len(r.nms("s10_preset_range_not_sticking")) == 1
+
+
+# ==========================================================================
+# HVAC-S10-NOTIFY-UNDELIVERED-1 — every latch NM is HIGH (MEDIUM reaches
+# no channel under the live NM config, so a MEDIUM latch was never seen).
+# ==========================================================================
+
+
+def _sev_name(note):
+    sev = note["severity"]
+    return getattr(sev, "name", str(sev))
+
+
+@pytest.mark.asyncio
+async def test_s10_latch_nm_not_sticking_is_high(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    for _ in range(6):
+        await r.tick()
+        r.clock.advance(7800)
+    notes = r.nms("s10_preset_range_not_sticking")
+    assert len(notes) == 1
+    assert _sev_name(notes[0]) == "HIGH"
+
+
+@pytest.mark.asyncio
+async def test_s10_latch_nm_call_failed_is_high(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    r.raise_domains.add("ha_carrier")
+    for _ in range(6):
+        await r.tick()
+        r.clock.advance(7800)
+    notes = r.nms("s10_preset_range_call_failed")
+    assert len(notes) == 1
+    assert _sev_name(notes[0]) == "HIGH"
+
+
+@pytest.mark.asyncio
+async def test_s10_latch_nm_restore_not_taking_is_high(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    await _apply_then_off(r)
+    for _ in range(6):
+        await r.tick()
+        r.clock.advance(7800)
+    notes = r.nms("s10_restore_not_taking")
+    assert len(notes) == 1
+    assert _sev_name(notes[0]) == "HIGH"

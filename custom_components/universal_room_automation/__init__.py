@@ -6973,6 +6973,10 @@ from .const import (
     # `is_life_safety_hazard(hass, ...)` which reads fresh via
     # `nm_cycle_a_knob` (cache flushed by CM options-update listener).
     CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS as _CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+    # SAFETY-NM-REFIRE-UNWIRED-1 D7 (Review B-MED-2) — smoke/CO/flood repeat
+    # schedule. NM re-reads it via `_refresh_config`; `_apply_in_place`
+    # re-arms the pending repeat so a switch applies promptly.
+    CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE as _CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
 )
 
 # NM Cycle C — central set used to extend BOTH `_NO_LIVE_ATTR_KEYS` and
@@ -6985,6 +6989,8 @@ _NM_C_KEYS: frozenset[str] = frozenset({
     _CONF_NM_MUTE_DEFAULT_DURATION_MINUTES,
     # NM Cycle C-2 (2026-07-22, D2) — additive-only life-safety extras.
     _CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS,
+    # SAFETY-NM-REFIRE-UNWIRED-1 D7 (Review B-MED-2) — repeat schedule.
+    _CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
 })
 
 # NM Cycle A-2 — the 13 CONF keys (12 Cycle-A + 1 optimizer allowlist)
@@ -7452,6 +7458,9 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # re-reads entry.options every tick in `_inclement_config()`, so there
     # is no live-attr push. Also in OPTIONS_RELOAD_SUPPRESS_KEYS below.
     "inclement_blind_full_hold_floor",
+    # EC storm Stage B D-B6 — `InclementPreonsetFloorNumber` (==
+    # energy_const.CONF_INCLEMENT_PREONSET_FLOOR), same options-read path.
+    "inclement_preonset_floor",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7493,6 +7502,8 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # read path, no setter). A slider move must NOT reload the CM. Literal
     # == energy_const.CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR (see above).
     "inclement_blind_full_hold_floor",
+    # EC storm Stage B D-B6 — pre-onset floor slider (options-read path).
+    "inclement_preonset_floor",
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
@@ -8329,6 +8340,22 @@ def _apply_in_place(
                         new_options.get(_CONF_MF_NIGHT_SUPPRESS_MODE),
                         err,
                     )
+
+    # SAFETY-NM-REFIRE-UNWIRED-1 D7 (Review B-MED-2): the repeat interval is
+    # computed when the repeat is scheduled, so re-arm the pending repeat of
+    # an active alert with the new schedule (else a switch to "urgent" could
+    # wait up to a phase-2 / daily interval). The key itself is in
+    # `_NO_LIVE_ATTR_KEYS` (via `_NM_C_KEYS`) so the snapshot advances below.
+    if _CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE in changed_keys:
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is not None:
+            try:
+                nm.reschedule_repeat_for_config_change()
+            except Exception as err:  # noqa: BLE001 — never block the save
+                _LOGGER.warning(
+                    "CM in-place apply: NM repeat re-arm failed for key=%s: %s",
+                    _CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE, err,
+                )
 
     # ----- Keys whose consumer re-reads entry.options each tick -----
     # No live-attr push needed (option write already persisted by the

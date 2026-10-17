@@ -38,6 +38,13 @@ _INCLEMENT_KEYS = {
     "inclement_reserve_floor",
     "inclement_reason",
     "inclement_solar_horizon",
+    # EC storm Stage B/C display keys.
+    "inclement_alerts_stale",
+    "inclement_preonset",
+    "inclement_precharge_eligible",
+    "inclement_polygon_topup_active",
+    "inclement_buy_forecast",
+    "inclement_forecast",
 }
 _NON_INCLEMENT_BATTERY_KEYS = {"mode", "soc", "reserve_soc"}
 

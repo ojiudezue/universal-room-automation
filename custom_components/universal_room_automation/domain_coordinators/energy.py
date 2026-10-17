@@ -1209,6 +1209,10 @@ class EnergyCoordinator(BaseCoordinator):
         # OUTAGE_SWEEP_INTERVAL_H). Idempotent; cancelled in async_teardown.
         self._arm_outage_ledger()
 
+        # EC storm Stage B D-B5: one repair issue if the retired legacy
+        # threat list was customized (no options write).
+        self._check_legacy_threat_list()
+
         # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
         # coordinator gets a chance to veto an Optimizer-proposed actuation
         # before it dispatches. Bug Class #50 guardrail — store the unsub on
@@ -1391,6 +1395,18 @@ class EnergyCoordinator(BaseCoordinator):
         if new_period is not None:
             self._tou_transition_count += 1
             _LOGGER.info("TOU transition detected: now %s", new_period)
+            # EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (D1): observation mode
+            # means compute-only. The actions returned here are executed by
+            # CoordinatorManager unconditionally, so skip the battery
+            # re-evaluation (and its CFG ledger stamp + DEFERRED reserve
+            # row) entirely. The period is still consumed above; the timer
+            # tick recomputes the decision state every cycle.
+            if self._observation_mode:
+                _LOGGER.debug(
+                    "Energy: TOU transition to %s — battery actions "
+                    "suppressed by observation mode", new_period,
+                )
+                return actions
             # Re-evaluate battery on TOU transition
             battery_actions = await self._evaluate_battery()
             actions.extend(battery_actions)
@@ -6453,6 +6469,14 @@ class EnergyCoordinator(BaseCoordinator):
             # skip it). Synchronous, pure state reads, fire-and-forget DB
             # writes; never raises.
             self._outage_ledger_tick()
+            # EC storm Stage B D-B2/D-B3: drain the decision's queued ledger
+            # rows (code drift, memory cleared). Same placement contract.
+            self._inclement_rows_tick()
+            # EC storm Stage B D-B7 Storm Guard trip-wire (notice only) and
+            # the ONE NM per inclement grid-buy episode start. Same
+            # placement contract (sync, before the first await).
+            self._storm_guard_tick()
+            self._grid_buy_notify_tick()
 
             # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
             # When arbitrage_active and SOC has risen since the previous cycle,
@@ -8308,6 +8332,38 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
 
+    def _check_legacy_threat_list(self) -> bool:
+        """EC storm Stage B D-B5: the power-threat list is retired. If the
+        stored value differs from the v5.5.0 default, raise ONE repair issue
+        (``inclement_legacy_threat_list_retired``). Never writes options.
+        Returns True iff the issue was raised. Never raises."""
+        try:
+            from .energy_const import (
+                CONF_INCLEMENT_POWER_THREAT_EVENTS,
+                DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
+            )
+            stored = self._get_cm_options().get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
+            if stored is None:
+                return False
+            if isinstance(stored, str):
+                stored = [ln.strip() for ln in stored.splitlines() if ln.strip()]
+            if list(stored) == list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS):
+                return False
+            from homeassistant.helpers import issue_registry as ir
+            from ..const import DOMAIN
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                "inclement_legacy_threat_list_retired",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="inclement_legacy_threat_list_retired",
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("legacy threat-list check failed", exc_info=True)
+            return False
+
     def _get_cm_options(self) -> dict:
         """Return current Coordinator Manager options, re-read on every call.
 
@@ -9209,6 +9265,201 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("outage ledger tick failed", exc_info=True)
 
+    def _inclement_rows_tick(self) -> None:
+        """EC storm Stage B: write the battery's queued ``inclement_code_drift``
+        / ``inclement_memory_cleared`` rows through the outage ledger's
+        fire-and-forget writer (retained by ACTIVITY_LEDGER_RETAINED_ACTIONS).
+        Never raises."""
+        battery = getattr(self, "_battery", None)
+        ledger = getattr(self, "_outage_ledger", None)
+        if battery is None or ledger is None:
+            return
+        try:
+            rows = list(getattr(battery, "_inclement_pending_rows", ()) or ())
+            battery._inclement_pending_rows = []  # noqa: SLF001
+            if not rows:
+                return
+            from homeassistant.util import dt as dt_util
+            ts = dt_util.now().isoformat()
+            for action, description, payload in rows:
+                ledger._emit(  # noqa: SLF001
+                    action=action, timestamp=ts, description=description,
+                    payload=payload, entity_id=None,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("inclement rows tick failed", exc_info=True)
+
+    def _storm_guard_tick(self) -> None:
+        """D-B7: Enphase Storm Guard trip-wire. Reads the registry-resolved switch;
+        on an IN-SESSION transition to ``on`` from a known non-``on`` value:
+        one NM notice + one ``energy.storm_guard_enabled`` anomaly row. The
+        first readable value after setup only seeds (``on`` → one WARNING,
+        no NM, no row). unavailable/unknown/missing update nothing. Never a
+        decision input. Never raises."""
+        try:
+            eid = self._storm_guard_entity()
+            if not eid:
+                return
+            st = self.hass.states.get(eid)
+            val = getattr(st, "state", None)
+            if val in (None, "unavailable", "unknown"):
+                return
+            battery = getattr(self, "_battery", None)
+            if battery is not None:
+                battery._storm_guard_state = val  # noqa: SLF001 — display attr
+            prev = getattr(self, "_storm_guard_last", None)
+            self._storm_guard_last = val
+            if prev is None:
+                if val == "on":
+                    _LOGGER.warning(
+                        "Enphase Storm Guard is ON at startup (%s) — it can "
+                        "fight URA's inclement floor/pre-charge (no notice "
+                        "sent for a boot reading)", eid,
+                    )
+                return
+            if val != "on" or prev == "on":
+                return
+            self.hass.async_create_task(self._send_nm_alert(
+                title="Enphase Storm Guard is on",
+                message=(
+                    "Enphase Storm Guard was switched on. It drives the "
+                    "battery reserve and grid charging from its own NWS "
+                    "logic and will fight URA's inclement floor and "
+                    "narrowed pre-charge. Turn it off unless intended."
+                ),
+                severity="medium",
+            ))
+            self.hass.async_create_task(self._emit_storm_guard_anomaly(eid))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("storm guard tick failed", exc_info=True)
+
+    def _storm_guard_entity(self) -> str | None:
+        """D-B7 target by registry lookup (STORM_GUARD_PLATFORM +
+        STORM_GUARD_UNIQUE_ID_SUFFIX, exactly one `switch.*` match). Cached
+        once found; unresolved → None (trip-wire inert), never raises."""
+        cached = getattr(self, "_storm_guard_eid", None)
+        if cached:
+            # A-LOW-4: a cached target whose state vanished (renamed /
+            # removed) is re-resolved — cheap, and only while it is missing.
+            # A failed re-resolve keeps the old target (inert until it
+            # returns), never clears it.
+            try:
+                if self.hass.states.get(cached) is not None:
+                    return cached
+            except Exception:  # noqa: BLE001
+                return cached
+        try:
+            from .energy_const import (
+                STORM_GUARD_PLATFORM,
+                STORM_GUARD_UNIQUE_ID_SUFFIX,
+            )
+            if not STORM_GUARD_PLATFORM:
+                return None
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+            found = [
+                e.entity_id for e in list(reg.entities.values())
+                if e.entity_id.startswith("switch.")
+                and e.platform == STORM_GUARD_PLATFORM
+                and str(e.unique_id or "").endswith(STORM_GUARD_UNIQUE_ID_SUFFIX)
+            ]
+        except Exception:  # noqa: BLE001
+            return cached or None
+        if len(found) != 1:
+            return cached or None
+        self._storm_guard_eid = found[0]
+        return found[0]
+
+    async def _emit_storm_guard_anomaly(self, eid: str) -> None:
+        """One POINT_IN_TIME anomaly row (same shape as
+        `_emit_circuit_anomaly_event`). Never raises."""
+        try:
+            from ..const import DOMAIN  # noqa: PLC0415
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                AnomalyType,
+                build_context_json,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            await database.save_anomaly_event(AnomalyEvent(
+                coordinator="energy",
+                type="energy.storm_guard_enabled",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=dt_util.utcnow().isoformat(),
+                payload=build_context_json(
+                    source_signal="storm_guard_tripwire",
+                    extra={"entity_id": eid},
+                ),
+                entity_id=eid,
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("storm guard anomaly failed", exc_info=True)
+
+    def _grid_buy_notify_tick(self) -> None:
+        """Observability ("just enough"): ONE NM (severity low) per inclement
+        grid-buy episode start, keyed (leg, alert ID) from the battery's
+        per-tick `_tick_grid_buy` stamp. None per tick / at episode end /
+        for floor-only holds. Boot rule (mirrors D-B7): the first decision
+        tick after setup only seeds, so a restart mid-episode does not
+        re-fire. Never raises."""
+        try:
+            battery = getattr(self, "_battery", None)
+            buy = getattr(battery, "_tick_grid_buy", None) if battery else None
+            if getattr(self, "_observation_mode", False):
+                # D-LOW-1 (#23): observation mode dispatches nothing — no
+                # "started grid-charging" notice, and the pre-onset latch
+                # engaged THIS tick is rolled back (later ticks must still
+                # run the solar test).
+                eid_engaged = getattr(battery, "_tick_preonset_engaged_id", None)
+                if eid_engaged:
+                    latch = getattr(battery, "_preonset_precharge_latch", {})
+                    if latch.get(eid_engaged) == "engaged":
+                        del latch[eid_engaged]
+                    battery._tick_preonset_engaged_id = None  # noqa: SLF001
+                return
+            notified = self.__dict__.setdefault("_grid_buy_notified", set())
+            key = (buy.get("leg"), buy.get("alert_id")) if buy else None
+            if not getattr(self, "_grid_buy_seeded", False):
+                self._grid_buy_seeded = True
+                if key is not None:
+                    notified.add(key)
+                    _LOGGER.info(
+                        "inclement grid buy already in progress at startup "
+                        "(%s) — no notice", key,
+                    )
+                return
+            if key is None or key in notified:
+                return
+            if len(notified) > 256:
+                notified.clear()
+            notified.add(key)
+            leg_txt = {
+                "preonset": "pre-onset (before the hazard starts)",
+                "zone": "full hold (zone product)",
+                "polygon": "verified-local warning top-up",
+            }.get(buy.get("leg"), str(buy.get("leg")))
+            fc = (
+                " Local forecast confirmed the hazard."
+                if buy.get("leg") in ("zone", "preonset")
+                and buy.get("forecast_confirmed") else ""
+            )
+            self.hass.async_create_task(self._send_nm_alert(
+                title="Battery grid charging for storm",
+                message=(
+                    f"URA started grid-charging the battery for "
+                    f"{buy.get('event')}: {leg_txt}, target "
+                    f"{buy.get('target')}%.{fc}"
+                ),
+                severity="low",
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("grid buy notify tick failed", exc_info=True)
+
     def _record_reserve_dispatch(
         self,
         *,
@@ -9286,6 +9537,18 @@ class EnergyCoordinator(BaseCoordinator):
             # partial-only semantics (Non-goal 1).
             tick_floor = getattr(battery, "_tick_reserve_floor", None)
             tick_hold_depth = getattr(dec, "hold_depth", None)
+            # EC storm Stage B D-B6 (additive): the prepare floor registered
+            # this tick + its event (INV-6 falsifier keys on non-null).
+            # Only when a floor was registered THIS tick (an early return
+            # before registration leaves the cached decision stale).
+            tick_preonset_floor = (
+                getattr(dec, "preonset_floor", None)
+                if tick_floor is not None else None
+            )
+            preonset_event = (
+                getattr(dec, "preonset_event", None)
+                if tick_preonset_floor is not None else None
+            )
             key = (path, value_i, hold_owner)
             gated = (
                 status in (WriteStatus.APPLIED, WriteStatus.DEFERRED)
@@ -9323,6 +9586,8 @@ class EnergyCoordinator(BaseCoordinator):
                 "floor_ok": floor_ok,
                 "tick_floor": tick_floor,
                 "tick_hold_depth": tick_hold_depth,
+                "tick_preonset_floor": tick_preonset_floor,
+                "preonset_event": preonset_event,
                 "pre_state": pre_state,
                 "reason": reason,
             }

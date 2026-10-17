@@ -126,6 +126,14 @@ from ..const import (
     NM_OVERFLOW_QUEUE_MAX,
     NM_REPEAT_INTERVAL_LIFE_SAFETY,
     NM_REPEAT_INTERVAL_NON_LIFE_SAFETY,
+    CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+    DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+    NM_LIFE_SAFETY_SCHEDULE_FAST_START,
+    NM_LIFE_SAFETY_SCHEDULE_STANDARD,
+    NM_LIFE_SAFETY_SCHEDULE_URGENT,
+    NM_REPEAT_FAST_START_S,
+    NM_REPEAT_FAST_START_WINDOW_S,
+    NM_SCHEDULED_LIFE_SAFETY_HAZARDS,
     NM_DELIVERY_DIGEST,
     NM_DELIVERY_IMMEDIATE,
     NM_DELIVERY_OFF,
@@ -2547,10 +2555,10 @@ class NotificationManager:
     def _schedule_repeat(self) -> None:
         """Schedule the next repeat notification.
 
-        NM Cycle B B1: cadence selected by hazard subtype. Life-safety
-        (smoke / CO / fire / water_leak / flooding / intrusion / freeze_risk)
-        uses NM_REPEAT_INTERVAL_LIFE_SAFETY (30s); everything else uses
-        NM_REPEAT_INTERVAL_NON_LIFE_SAFETY (300s) to reduce paging fatigue.
+        NM Cycle B B1: cadence selected by hazard subtype. Smoke/CO/flood
+        follow the operator's repeat schedule (D7: standard ladder by default,
+        fast_start, or urgent 30 s); other life-safety hazards repeat at 30 s;
+        everything else uses the decay ladder. See ``_repeat_interval_for_active_alert``.
         """
         if self._repeat_unsub:
             self._repeat_unsub()
@@ -2567,16 +2575,30 @@ class NotificationManager:
         Notification Hygiene FIX 2: non-life-safety CRITICALs use a
         decay ladder based on unacked age so a stuck alert (e.g.
         reserve_soc storm) doesn't page every 5 minutes for hours.
-        Life-safety cadence is UNCHANGED (30s flat) — safety contract.
-        Ladder is disabled (falls back to legacy 300s flat) when
+        Smoke/CO/flood (NM_SCHEDULED_LIFE_SAFETY_HAZARDS) follow the D7
+        schedule setting (CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE; default
+        "standard" = this same ladder; "urgent" = 30 s flat). Other
+        life-safety hazards stay 30 s flat. Ladder is disabled (falls back to legacy 300s flat) when
         ``NM_REPEAT_PHASE1_WINDOW_S == 0``.
         """
         hazard = ""
         if self._active_alert_data:
             hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
-        # NM Cycle C-2 D2: union helper — extras promoted to 30s cadence.
+        # NM Cycle C-2 D2: union helper — extras share the life-safety schedule.
+        # SAFETY-NM-REFIRE-UNWIRED-1 D7: smoke/CO/flood follow the operator's
+        # schedule ("standard" falls through to the ladder below); every other
+        # life-safety token (intruder, extras) keeps the 30 s cadence.
         if is_life_safety_hazard(self.hass, hazard):
-            return NM_REPEAT_INTERVAL_LIFE_SAFETY
+            if hazard not in NM_SCHEDULED_LIFE_SAFETY_HAZARDS:
+                return NM_REPEAT_INTERVAL_LIFE_SAFETY
+            schedule = self._life_safety_repeat_schedule()
+            if schedule == NM_LIFE_SAFETY_SCHEDULE_URGENT:
+                return NM_REPEAT_INTERVAL_LIFE_SAFETY
+            if (
+                schedule == NM_LIFE_SAFETY_SCHEDULE_FAST_START
+                and self._unacked_critical_age_s() < int(NM_REPEAT_FAST_START_WINDOW_S)
+            ):
+                return int(NM_REPEAT_FAST_START_S)
         # Kill switch: window=0 → legacy flat cadence.
         if int(NM_REPEAT_PHASE1_WINDOW_S) <= 0:
             return NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
@@ -2618,11 +2640,45 @@ class NotificationManager:
         except (TypeError, ValueError):
             return 0
 
+    def reschedule_repeat_for_config_change(self) -> bool:
+        """D7 (Review B-MED-2): re-arm the pending repeat after a schedule save.
+
+        Called from the CM in-place options handler. Re-reads config, and if
+        an alert is REPEATING, cancels the pending repeat and schedules the
+        next one with the interval the new schedule gives. Returns True when
+        a repeat was re-armed.
+        """
+        self._refresh_config()
+        if self._alert_state == AlertState.REPEATING and self._active_alert_data:
+            self._schedule_repeat()
+            return True
+        return False
+
+    def _life_safety_repeat_schedule(self) -> str:
+        """D7: operator-chosen unacked smoke/CO/flood repeat schedule.
+
+        Read from ``self._config`` (refreshed by ``_refresh_config`` on every
+        notify / repeat tick, so no reload is needed). Unknown or missing
+        values fall back to "standard".
+        """
+        raw = str(
+            (self._config or {}).get(
+                CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+                DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE,
+            )
+            or ""
+        ).lower()
+        if raw in (NM_LIFE_SAFETY_SCHEDULE_FAST_START, NM_LIFE_SAFETY_SCHEDULE_URGENT):
+            return raw
+        return NM_LIFE_SAFETY_SCHEDULE_STANDARD
+
     def _repeat_phase(self) -> str:
         """Return the current repeat-phase label for diagnostics.
 
         - "idle"       : no active CRITICAL
-        - "life_safety": 30s cadence (hazard vocabulary)
+        - "life_safety": 30s cadence (intruder / extras, or the "urgent" schedule)
+        - "fast_start" : smoke/CO/flood/leak/freeze "fast_start" schedule,
+                         first NM_REPEAT_FAST_START_WINDOW_S of unacked age
         - "phase1"     : first PHASE1_WINDOW_S of unacked age
         - "phase2"     : until DAILY_AFTER_S
         - "daily"      : one repeat per day
@@ -2632,7 +2688,18 @@ class NotificationManager:
             return "idle"
         hazard = str(self._active_alert_data.get("hazard_type") or "").lower()
         if is_life_safety_hazard(self.hass, hazard):
-            return "life_safety"
+            # D7: smoke/CO/flood label follows the chosen schedule
+            # ("standard" -> ladder labels); other life-safety -> 30 s label.
+            if hazard not in NM_SCHEDULED_LIFE_SAFETY_HAZARDS:
+                return "life_safety"
+            schedule = self._life_safety_repeat_schedule()
+            if schedule == NM_LIFE_SAFETY_SCHEDULE_URGENT:
+                return "life_safety"
+            if (
+                schedule == NM_LIFE_SAFETY_SCHEDULE_FAST_START
+                and self._unacked_critical_age_s() < int(NM_REPEAT_FAST_START_WINDOW_S)
+            ):
+                return "fast_start"
         if int(NM_REPEAT_PHASE1_WINDOW_S) <= 0:
             return "legacy"
         age = self._unacked_critical_age_s()
@@ -4181,7 +4248,9 @@ class NotificationManager:
         """
         # 1. Safety floor — hard-coded, not a per-recipient knob.
         # NM Cycle C-2 D2: union helper — extras also bypass DND.
-        if is_life_safety_hazard(self.hass, hazard_type):
+        # SAFETY-NM-REFIRE-UNWIRED-1 (Review B-MED-1): only at HIGH or above;
+        # a MEDIUM/LOW leak/freeze/CO reading is held by quiet hours.
+        if severity >= Severity.HIGH and is_life_safety_hazard(self.hass, hazard_type):
             return True
         # 2. Per-recipient set.
         person_cfg = self._get_person_cfg(recipient_id)
@@ -4232,7 +4301,11 @@ class NotificationManager:
         # intent is authoritative routing, not a snooze). This mirrors
         # `_recipient_bypasses_dnd`'s safety floor.
         # NM Cycle C-2 D2: union helper — extras bypass mute in router.
-        life_safety = is_life_safety_hazard(self.hass, hazard_type)
+        # Review B-MED-1: the mute bypass needs severity >= HIGH.
+        life_safety = (
+            severity >= Severity.HIGH
+            and is_life_safety_hazard(self.hass, hazard_type)
+        )
 
         # D. Legacy fallback — the byte-identical oracle path. For legacy
         # (no matrix/override) *materialized* matrix lookup: prefer the

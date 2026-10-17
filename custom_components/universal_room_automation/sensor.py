@@ -9384,6 +9384,13 @@ class InclementStateSensor(AggregationEntity, SensorEntity):
             "inclement_reserve_floor": status.get("inclement_reserve_floor"),
             "inclement_reason": status.get("inclement_reason"),
             "inclement_solar_horizon": status.get("inclement_solar_horizon"),
+            # EC storm Stage B/C (display only).
+            "inclement_alerts_stale": status.get("inclement_alerts_stale"),
+            "inclement_preonset": status.get("inclement_preonset"),
+            "inclement_precharge_eligible": status.get("inclement_precharge_eligible"),
+            "inclement_polygon_topup_active": status.get("inclement_polygon_topup_active"),
+            "inclement_buy_forecast": status.get("inclement_buy_forecast"),
+            "inclement_forecast": status.get("inclement_forecast"),
         }
 
 
