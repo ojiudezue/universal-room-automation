@@ -1391,6 +1391,18 @@ class EnergyCoordinator(BaseCoordinator):
         if new_period is not None:
             self._tou_transition_count += 1
             _LOGGER.info("TOU transition detected: now %s", new_period)
+            # EC-OBSERVATION-MODE-RESERVE-BYPASS-1 (D1): observation mode
+            # means compute-only. The actions returned here are executed by
+            # CoordinatorManager unconditionally, so skip the battery
+            # re-evaluation (and its CFG ledger stamp + DEFERRED reserve
+            # row) entirely. The period is still consumed above; the timer
+            # tick recomputes the decision state every cycle.
+            if self._observation_mode:
+                _LOGGER.debug(
+                    "Energy: TOU transition to %s — battery actions "
+                    "suppressed by observation mode", new_period,
+                )
+                return actions
             # Re-evaluate battery on TOU transition
             battery_actions = await self._evaluate_battery()
             actions.extend(battery_actions)
