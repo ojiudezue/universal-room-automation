@@ -571,6 +571,44 @@ def test_blind_hold_manual_lower(clock, monkeypatch, respect):
         assert s._blind_operator_override is False
 
 
+def test_blind_respect_manual_lower_default_false():
+    """Q6 ruled A (2026-10-16): the shipped default re-asserts the floor."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_const,
+    )
+    assert energy_const.BLIND_RESPECT_MANUAL_LOWER is False
+
+
+def _respect_on(monkeypatch, s):
+    monkeypatch.setitem(
+        type(s).determine_mode.__globals__, "BLIND_RESPECT_MANUAL_LOWER", True,
+    )
+
+
+def test_blind_manual_raise_not_treated_as_lower(clock, monkeypatch):
+    """BLIND_RESPECT_MANUAL_LOWER=True: hardware ABOVE the stamp is not a
+    manual lower → no override; the hold still writes its target."""
+    c, s = shell(clock, blind=True, hw="70")
+    _respect_on(monkeypatch, s)
+    s._last_reserve_level_desired = 50
+    s._last_reserve_level = 50
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert s._blind_operator_override is False
+    assert writes(d) == [50]
+
+
+def test_blind_ura_dispatched_lower_not_treated_as_manual(clock, monkeypatch):
+    """BLIND_RESPECT_MANUAL_LOWER=True: hardware below the stamp but EQUAL to
+    what URA last dispatched (C1) is URA's own value → no override."""
+    c, s = shell(clock, blind=True, hw="30")
+    _respect_on(monkeypatch, s)
+    s._last_reserve_level_desired = 50
+    s._last_reserve_level = 30
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert s._blind_operator_override is False
+    assert writes(d) == [50]
+
+
 def test_blind_episode_flags_reset_on_sighted_tick(clock):
     c, s = shell(clock, blind=True, hw="20")
     s._last_reserve_level_desired = 20
@@ -613,3 +651,15 @@ async def test_reserve_row_tick_floor_null_without_hold(clock):
     assert len(rows) == 1
     assert rows[0]["tick_floor"] is None
     assert rows[0]["tick_hold_depth"] == "allow_discharge"
+
+
+@pytest.mark.parametrize("t,expected", [(OCT_18, True), (OCT_16, False)])
+def test_get_status_carries_tou_top_rate(clock, t, expected):
+    """D-A1 wire-in: the strategy sensor's attr pack (get_status) carries
+    `tou_top_rate` from the engine's rate rank (October 18:00 top, 16:00
+    not; a name-keyed check would read False all shoulder day)."""
+    clock.t = t
+    c, s = shell(clock, blind=False, hw="0")
+    assert s.get_status()["tou_top_rate"] is expected
+    s._tou = None
+    assert s.get_status()["tou_top_rate"] is None
