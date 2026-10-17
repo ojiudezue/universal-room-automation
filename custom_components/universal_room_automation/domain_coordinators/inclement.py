@@ -28,7 +28,7 @@ Robustness / bug-class prevention:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -40,7 +40,11 @@ from .energy_const import (
     DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
     INCLEMENT_ALERT_MAX_HOLD_H,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+    INCLEMENT_FORECAST_FAMILY,
     INCLEMENT_POINT_FEED_POLYGON_EXACT,
+    INCLEMENT_POLYGON_TOPUP_MAX_MIN,
+    INCLEMENT_PREONSET_FLOOR_PCT,
+    INCLEMENT_PREONSET_LEAD_H,
     INCLEMENT_PRODUCT_TABLE,
     INCLEMENT_SEVERITY_ORDER,
     INCLEMENT_UNVERIFIED_POLYGON_TIER,
@@ -101,6 +105,59 @@ class AlertClassification:
     # Stage B D-B2: code/name disagreements seen this tick:
     # (event, observed_code, kind) with kind "mismatch" or "observed_code".
     drift: tuple[tuple[str, str | None, str], ...] = ()
+    # D-B6 prepare set: non-polygon HOLD records with
+    # now < start <= now + INCLEMENT_PREONSET_LEAD_H (never feed tier /
+    # expires_at).
+    prepare_alerts: tuple[AlertRecord, ...] = ()
+    # D-B2a flags (computed by the guarded `_precharge_flags`):
+    #   precharge_eligible — some ACTIVE non-polygon HOLD record is eligible;
+    #   polygon_topup_active — some ACTIVE verified-local polygon record is
+    #     inside [start, min(end, start + INCLEMENT_POLYGON_TOPUP_MAX_MIN)];
+    #   prepare_precharge_eligible — some prepare record of the prepare class
+    #     is eligible.
+    precharge_eligible: bool = False
+    polygon_topup_active: bool = False
+    prepare_precharge_eligible: bool = False
+
+
+def prepare_class_of(records: tuple[AlertRecord, ...] | list[AlertRecord]) -> str | None:
+    """D-B6: "warn" if any warn row, else "watch"; None when empty."""
+    if not records:
+        return None
+    return "warn" if any(r.cls == "warn" for r in records) else "watch"
+
+
+def _precharge_flags(
+    hold: list[AlertRecord], prepare: list[AlertRecord], now: datetime,
+) -> tuple[bool, bool, bool]:
+    """D-B2a guarded helper (Rev 3.3 M1). Any exception → (False, False,
+    False) with one debug log, so it can never reach the `classify_error`
+    fallback and never lose a hold."""
+    try:
+        eligible = any(
+            r.precharge_eligible and not r.polygon_local for r in hold
+        )
+        topup = False
+        cap = int(INCLEMENT_POLYGON_TOPUP_MAX_MIN)
+        if cap > 0 and INCLEMENT_POINT_FEED_POLYGON_EXACT:
+            for r in hold:
+                if not (r.polygon_local and r.precharge_eligible):
+                    continue
+                if r.start is None:
+                    continue
+                cap_end = r.start + timedelta(minutes=cap)
+                stop = r.end if _dt_lt(r.end, cap_end) else cap_end
+                if _dt_le(r.start, now) and _dt_le(now, stop):
+                    topup = True
+                    break
+        pclass = prepare_class_of(prepare)
+        prep_eligible = any(
+            r.precharge_eligible and r.cls == pclass for r in prepare
+        )
+        return eligible, topup, prep_eligible
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("inclement: _precharge_flags failed", exc_info=True)
+        return False, False, False
 
 
 def _severity_rank(severity: str | None) -> int:
@@ -394,7 +451,10 @@ class AlertClassifier:
         del power_threat_events, warn_min_severity  # retired (D-B5)
 
     def classify(
-        self, alerts: Any, now: datetime | None = None,
+        self,
+        alerts: Any,
+        now: datetime | None = None,
+        preonset_lead_h: float | None = None,
     ) -> AlertClassification:
         """Classify the alert list into a single tier.
 
@@ -411,6 +471,10 @@ class AlertClassifier:
             )
 
         active: list[tuple[AlertRecord, dict[str, Any]]] = []
+        prepare: list[AlertRecord] = []
+        if preonset_lead_h is None:
+            preonset_lead_h = INCLEMENT_PREONSET_LEAD_H  # read at call time
+        lead_end = now + timedelta(hours=max(0.0, float(preonset_lead_h or 0)))
         gated_out: list[str] = []
         drift: list[tuple[str, str | None, str]] = []
         seen_ids: set[str] = set()
@@ -439,6 +503,14 @@ class AlertClassifier:
             # D-B1 window split: start <= now <= end is active. Pre-onset
             # contributes nothing to tier / expires_at (Q5 doctrine).
             if rec.start is not None and _dt_lt(now, rec.start):
+                # D-B6 prepare split: non-polygon HOLD, start <= now + lead.
+                if (
+                    rec.cls in ("warn", "watch")
+                    and not rec.polygon_local
+                    and _dt_le(rec.start, lead_end)
+                    and _dt_lt(now, lead_end)
+                ):
+                    prepare.append(rec)
                 continue
             if _dt_lt(rec.end, now):
                 continue
@@ -458,6 +530,7 @@ class AlertClassifier:
                 max_sev = severity.title() if severity else "Unknown"
                 max_cert = certainty.title() if certainty else "Unknown"
 
+        eligible, topup, prep_eligible = _precharge_flags(hold, prepare, now)
         return AlertClassification(
             tier=_max_tier([r.tier for r, _ in active]),  # type: ignore[arg-type]
             contributing_events=tuple(r.event for r, _ in active),
@@ -468,6 +541,10 @@ class AlertClassifier:
             gated_out_events=tuple(gated_out),
             hold_alerts=tuple(hold),
             drift=tuple(drift),
+            prepare_alerts=tuple(prepare),
+            precharge_eligible=eligible,
+            polygon_topup_active=topup,
+            prepare_precharge_eligible=prep_eligible,
         )
 
 _TIER_ORDER: dict[str, int] = {"none": 0, "notice": 1, "watch": 2, "warn": 3}
@@ -709,6 +786,22 @@ class InclementDecision:
     reserve_floor: int  # 0-100 — the floor passed to determine_mode
     reason: str
     solar_horizon: SolarHorizon
+    # EC storm Stage B D-B6 (defaults keep every construction site valid).
+    # The prepare floor raises `_tick_reserve_floor`; it never changes
+    # hold_depth (no pre-onset hold).
+    preonset_floor: int | None = None
+    preonset_precharge: bool = False
+    preonset_start: datetime | None = None  # aware
+    preonset_event: str | None = None
+    # Latch key (prepare alert ID) + prepare class, for the emission site
+    # and the `inclement_preonset` attr shape.
+    preonset_alert_id: str | None = None
+    preonset_class: str | None = None
+    # D-B2a / INV-6(vii): which full-hold leg set grid_precharge ("zone" /
+    # "polygon"; None when grid_precharge is False) and whether a zone
+    # buy was forecast-confirmed this tick (attr `inclement_buy_forecast`).
+    precharge_leg: str | None = None
+    buy_forecast_confirmed: bool = False
 
     def expires_at_iso(self) -> str | None:
         return self.expires_at.isoformat() if self.expires_at else None
@@ -761,8 +854,15 @@ class InclementFusion:
         surplus_margin_pct: int = DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
         storm_charge_threshold: int = 90,
         blind_full_hold_floor: int = INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+        preonset_floor: int = INCLEMENT_PREONSET_FLOOR_PCT,
+        polygon_import_guard_tripped: bool = False,
     ) -> None:
         self._reserve_soc = int(reserve_soc)
+        # EC storm Stage B D-B6: live pre-onset slider (re-read per tick).
+        self._preonset_knob = max(0, min(100, int(preonset_floor)))
+        # D-B2a / Rev 3.3 M4: the arbitrage grid-import guard (only when its
+        # toggle is on) refuses the polygon immediate leg this tick.
+        self._polygon_import_guard_tripped = bool(polygon_import_guard_tripped)
         # EC storm/blind Stage A D-A5: live slider value (re-read per tick by
         # `_inclement_config`); used only when SOC is unknown.
         self._blind_full_hold_floor = max(0, min(100, int(blind_full_hold_floor)))
@@ -782,16 +882,144 @@ class InclementFusion:
         now: datetime,
         current_soc: float | None,
         bottom_rate: bool | None = None,
+        forecast_confirmed_ids: frozenset[str] | set[str] = frozenset(),
+        preonset_latch: dict[str, str] | None = None,
     ) -> InclementDecision:
         """Produce the InclementDecision (matrix in PLANNING §Design).
 
         EC storm Stage B D-B4: ``bottom_rate`` (TOU engine ``is_bottom_rate``)
         replaces the literal ``tou_period == "off_peak"`` checks; None =
         legacy literal (no engine).
+
+        Stage C D-C2: ``forecast_confirmed_ids`` = alert IDs whose local
+        forecast confirms the product's hazard over its window (latched per
+        ID by the caller). Raise-only: corroborates a watch and is REQUIRED
+        for every zone-product grid buy (INV-6(vii)). Empty = no forecast.
+
+        D-B6: ``preonset_latch`` (RAM, owned by the battery) is advanced here
+        every tick, leg-independently (INV-6(viii)).
         """
         is_bottom = (
             bottom_rate if bottom_rate is not None else tou_period == "off_peak"
         )
+        confirmed = frozenset(forecast_confirmed_ids or ())
+        base = self._decide_hold(
+            battery, classification, condition_stormy,
+            condition_provider_count, tou_period, now, current_soc,
+            is_bottom, confirmed,
+        )
+        return self._apply_prepare(
+            base, battery, classification, now, current_soc, is_bottom,
+            confirmed, preonset_latch,
+        )
+
+    def _zone_buy_confirmed(
+        self, records: tuple[AlertRecord, ...] | list[AlertRecord],
+        confirmed: frozenset[str],
+    ) -> bool:
+        """INV-6(vii): some eligible ZONE (non-polygon) record is
+        forecast-confirmed."""
+        return any(
+            r.precharge_eligible and not r.polygon_local
+            and r.alert_id is not None and r.alert_id in confirmed
+            for r in records
+        )
+
+    def _apply_prepare(
+        self,
+        base: InclementDecision,
+        battery: Any,
+        classification: AlertClassification,
+        now: datetime,
+        current_soc: float | None,
+        is_bottom: bool,
+        confirmed: frozenset[str],
+        latch: dict[str, str] | None,
+    ) -> InclementDecision:
+        """D-B6 pre-onset prepare floor / pre-charge eligibility."""
+        prep = tuple(getattr(classification, "prepare_alerts", ()) or ())
+        if latch is not None:
+            live = {r.alert_id for r in prep}
+            for k in list(latch):
+                if k not in live:  # Onset reached or left the prepare set
+                    del latch[k]
+        if not prep:
+            return base
+        pclass = prepare_class_of(prep)
+        prows = [r for r in prep if r.cls == pclass]
+        key_row = min(
+            prows, key=lambda r: (r.start.timestamp() if r.start else 0.0),
+        )
+        pstart = key_row.start
+        for r in prep:
+            if r.start is not None and pstart is not None and _dt_lt(r.start, pstart):
+                pstart = r.start
+        key_id = key_row.alert_id
+        watch_confirmed = pclass == "watch" and any(
+            r.alert_id in confirmed for r in prows if r.alert_id
+        )
+        high = pclass == "warn" or watch_confirmed
+        lower = max(self._reserve_soc, self._partial_floor)
+        floor = max(lower, self._preonset_knob) if high else lower
+        floor = max(0, min(100, int(floor)))
+        # INV-6(viii): leg-independent latch advance (full_hold shadowing
+        # included). A full_hold tick never sets "engaged".
+        if (
+            latch is not None and key_id is not None
+            and latch.get(key_id) == "engaged"
+            and current_soc is not None and current_soc >= floor
+        ):
+            latch[key_id] = "reached"
+        if base.hold_depth == "full_hold":
+            return base  # the active hold governs; prepare fields stay default
+        state = latch.get(key_id) if (latch is not None and key_id) else None
+        pre = False
+        if (
+            self._grid_precharge_on_hold
+            and high
+            and classification.prepare_precharge_eligible
+            and self._zone_buy_confirmed(prows, confirmed)
+            and is_bottom
+            and current_soc is not None
+            and current_soc < floor
+            and state != "reached"
+        ):
+            if state == "engaged":
+                pre = True
+            else:
+                mins = 0
+                if pstart is not None:
+                    _n, _s = _coerce_compatible(now, pstart)
+                    mins = max(0, int((_s - _n).total_seconds() // 60))
+                try:
+                    surplus = float(battery._expected_solar_surplus_pct(now, mins))
+                except Exception:  # noqa: BLE001 — Solcast missing → 0
+                    surplus = 0.0
+                pre = float(current_soc) + surplus < floor
+        return replace(
+            base,
+            preonset_floor=floor,
+            preonset_precharge=pre,
+            preonset_start=pstart,
+            preonset_event=key_row.event,
+            preonset_alert_id=key_id,
+            preonset_class=pclass,
+        )
+
+    def _decide_hold(
+        self,
+        battery: Any,
+        classification: AlertClassification,
+        condition_stormy: bool,
+        condition_provider_count: int,
+        tou_period: str,
+        now: datetime,
+        current_soc: float | None,
+        is_bottom: bool,
+        confirmed: frozenset[str],
+    ) -> InclementDecision:
+        """The v5.5.0 hold ladder (unchanged except the D-B2a buy gates and
+        the D-C2 forecast corroboration)."""
         tier = classification.tier
         has_alert_hold = tier in ("warn", "watch")
 
@@ -810,15 +1038,36 @@ class InclementFusion:
         # ── warn tier ────────────────────────────────────────────────────
         if tier == "warn":
             # Warn always holds at any TOU period; recoverability not consulted.
+            # D-B2a narrowed (Rev 3.2/3.3): zone leg = bottom rate + an
+            # eligible active zone product + forecast-confirmed buy; polygon
+            # leg = a verified-local polygon inside its cap window, any TOU,
+            # unless the (toggle-on) arbitrage import guard tripped. Option
+            # False short-circuits first (byte-identical).
+            zone_ok = poly_ok = buy_ok = False
             grid_precharge = (
                 self._grid_precharge_on_hold
-                and is_bottom
                 and current_soc is not None
                 and current_soc < self._storm_charge_threshold
             )
+            if grid_precharge:
+                buy_ok = self._zone_buy_confirmed(
+                    classification.hold_alerts, confirmed,
+                )
+                zone_ok = (
+                    is_bottom and classification.precharge_eligible and buy_ok
+                )
+                poly_ok = (
+                    classification.polygon_topup_active
+                    and not self._polygon_import_guard_tripped
+                )
+                grid_precharge = zone_ok or poly_ok
             return InclementDecision(
                 hold_depth="full_hold",
                 grid_precharge=grid_precharge,
+                precharge_leg=(
+                    "zone" if zone_ok else ("polygon" if poly_ok else None)
+                ),
+                buy_forecast_confirmed=buy_ok,
                 tier="warn",
                 source="alert",
                 contributing_event=_first(classification.contributing_events),
@@ -830,9 +1079,16 @@ class InclementFusion:
 
         # ── watch tier ───────────────────────────────────────────────────
         if tier == "watch":
+            # Stage C D-C2: forecast confirmation of an active watch counts
+            # as corroboration (corroborated = condition OR forecast).
+            forecast_corroborates = any(
+                r.alert_id in confirmed
+                for r in classification.hold_alerts
+                if r.alert_id and r.tier == "watch"
+            )
             corroborated = (not self._watch_requires_corroboration) or (
                 condition_stormy and condition_provider_count >= 1
-            )
+            ) or forecast_corroborates
             if not corroborated:
                 # Uncorroborated watch: off_peak partial_hold; mid/peak discharge.
                 if is_bottom:
@@ -859,14 +1115,26 @@ class InclementFusion:
             # Corroborated watch.
             if is_bottom:
                 # Off_peak holds readily (FIN-3 — recoverability not consulted).
+                # D-B2a + INV-6(vii): eligible product AND forecast-confirmed
+                # buy (no polygon watches exist → no immediate leg here).
                 grid_precharge = (
                     self._grid_precharge_on_hold
                     and current_soc is not None
                     and current_soc < self._storm_charge_threshold
                 )
+                buy_ok = False
+                if grid_precharge:
+                    buy_ok = self._zone_buy_confirmed(
+                        classification.hold_alerts, confirmed,
+                    )
+                    grid_precharge = (
+                        classification.precharge_eligible and buy_ok
+                    )
                 return InclementDecision(
                     hold_depth="full_hold",
                     grid_precharge=grid_precharge,
+                    precharge_leg="zone" if grid_precharge else None,
+                    buy_forecast_confirmed=buy_ok,
                     tier="watch",
                     source="alert",
                     contributing_event=_first(classification.contributing_events),
@@ -973,3 +1241,86 @@ class InclementFusion:
 
 def _first(events: tuple[str, ...]) -> str | None:
     return events[0] if events else None
+
+
+# ---------------------------------------------------------------------------
+# EC storm Stage C D-C2 — forecast confirmation (provider-agnostic)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Outlook:
+    """Aggregated hourly forecast over one hazard window (D-C1 producer:
+    ``WeatherProviderManager.hourly_outlook``).
+
+    Precipitation is split by what each hour's provider actually carries:
+    ``max_pop`` over hours whose provider has ``precipitation_probability``;
+    ``max_precip_mm_no_pop`` over hours whose provider has only an amount.
+    ``sources`` = ((provider, first_hour_iso, last_hour_iso), ...).
+    """
+
+    window_start: datetime
+    window_end: datetime
+    hours: int
+    min_temp_f: float | None
+    max_pop: float | None
+    max_precip_mm_no_pop: float | None
+    max_gust: float | None
+    conditions: frozenset[str]
+    sources: tuple[tuple[str, str, str], ...] = ()
+
+
+def forecast_family(event: str | None) -> str | None:
+    """D-C2 family of a product (exact name, case-folded)."""
+    if not event:
+        return None
+    ev = str(event).strip().casefold()
+    for name, fam in INCLEMENT_FORECAST_FAMILY.items():
+        if name.casefold() == ev:
+            return fam
+    return None
+
+
+def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
+    """D-C2: does the local forecast confirm this product's hazard over the
+    window the outlook covers? Outlook None (never fetched, stale, provider
+    down, no hourly support) → False: no corroboration, no buy.
+
+    freeze/cold: min temp <= FORECAST_FREEZE_CONFIRM_F (any provider).
+    winter storm: min temp <= FORECAST_WINTER_STORM_CONFIRM_F AND precip
+      (probability >= FORECAST_PRECIP_CONFIRM_PCT where the hour's provider
+      has it, else amount >= FORECAST_PRECIP_CONFIRM_MM).
+    convective: precip (same rule) OR a storm condition in the window.
+    """
+    if outlook is None or outlook.hours <= 0:
+        return False
+    fam = forecast_family(event)
+    if fam is None:
+        return False
+    from .energy_const import (
+        FORECAST_FREEZE_CONFIRM_F,
+        FORECAST_PRECIP_CONFIRM_MM,
+        FORECAST_PRECIP_CONFIRM_PCT,
+        FORECAST_WINTER_STORM_CONFIRM_F,
+    )
+    precip_ok = (
+        (outlook.max_pop is not None
+         and outlook.max_pop >= FORECAST_PRECIP_CONFIRM_PCT)
+        or (outlook.max_precip_mm_no_pop is not None
+            and outlook.max_precip_mm_no_pop >= FORECAST_PRECIP_CONFIRM_MM)
+    )
+    tmin = outlook.min_temp_f
+    if fam == "freeze":
+        return tmin is not None and tmin <= FORECAST_FREEZE_CONFIRM_F
+    if fam == "winter_storm":
+        return (
+            tmin is not None and tmin <= FORECAST_WINTER_STORM_CONFIRM_F
+            and precip_ok
+        )
+    if fam == "convective":
+        try:
+            from .weather_manager import _STORM_CONDITIONS
+        except Exception:  # noqa: BLE001
+            _STORM_CONDITIONS = frozenset()
+        return precip_ok or bool(outlook.conditions & _STORM_CONDITIONS)
+    return False

@@ -7452,6 +7452,9 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # re-reads entry.options every tick in `_inclement_config()`, so there
     # is no live-attr push. Also in OPTIONS_RELOAD_SUPPRESS_KEYS below.
     "inclement_blind_full_hold_floor",
+    # EC storm Stage B D-B6 — `InclementPreonsetFloorNumber` (==
+    # energy_const.CONF_INCLEMENT_PREONSET_FLOOR), same options-read path.
+    "inclement_preonset_floor",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7493,6 +7496,8 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # read path, no setter). A slider move must NOT reload the CM. Literal
     # == energy_const.CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR (see above).
     "inclement_blind_full_hold_floor",
+    # EC storm Stage B D-B6 — pre-onset floor slider (options-read path).
+    "inclement_preonset_floor",
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,

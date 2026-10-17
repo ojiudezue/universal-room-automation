@@ -757,6 +757,8 @@ STORM_GUARD_ENTITY: Final = "switch.main_panel_wall_iq_gateway_hacs_storm_guard"
 # it can corroborate a watch and is REQUIRED for any zone-product grid buy
 # (INV-6(vii)); it never demotes and never creates a hold.
 # ----------------------------------------------------------------------------
+# D-C1 hourly refresh cadence (minutes), per Stage 0 P1 (OWM hourly).
+FORECAST_REFRESH_MIN: Final = 30
 # Outlook older than this (minutes) = None (no corroboration, no buy).
 FORECAST_STALE_MIN: Final = 120
 # Bounds the evaluated hazard window for a long Ends.
@@ -770,6 +772,11 @@ FORECAST_WINTER_STORM_CONFIRM_F: Final = 32
 # addendum: one live sample only). 50 is the plan §7 placeholder; revisit
 # from the nws_alert ledger + OWM history once a season accrues.
 FORECAST_PRECIP_CONFIRM_PCT: Final = 50
+# Winter-storm / convective precip leg for hours whose provider has NO
+# precipitation_probability (Open-Meteo carries only an amount; coordinator
+# provider policy 2026-10-16). Hourly amount (mm) treated as "precip
+# forecast". NOT fitted (no history yet); revisit with the PCT value.
+FORECAST_PRECIP_CONFIRM_MM: Final = 1.0
 # D-C2 forecast family per product (exact event name, case-folded at use).
 INCLEMENT_FORECAST_FAMILY: Final[dict[str, str]] = {
     "Hard Freeze Warning": "freeze",
@@ -2456,6 +2463,17 @@ RESERVE_SET_VALUE_WRITERS: tuple[tuple[str, str, str, int], ...] = (
     ("energy_pool.py",    "determine_actions",          "non_reserve", 2),  # pool speed
     ("energy_pool.py",    "_write_amps",                "non_reserve", 1),  # EVSE amps
     ("radar_tuning.py",   "async_send_radar_settings",  "non_reserve", 1),  # radar device numbers
+)
+
+# EC storm Stage B D-B6 item 8 (rung 1): every `charge_from_grid=True`
+# keyword in energy_battery.py, per enclosing function (AST lint
+# `test_cfg_true_emission_sites_pinned`). All reach the decision dict via
+# `_result`; `"switch.turn_on"` literals live only in `_result`.
+# determine_mode: storm precharge x2 (degraded + plain) + pre-onset x1.
+CFG_TRUE_EMISSION_SITES: tuple[tuple[str, str, int], ...] = (
+    ("energy_battery.py", "_get_arbitrage_decision", 1),
+    ("energy_battery.py", "_get_attainability_decision", 1),
+    ("energy_battery.py", "determine_mode", 3),
 )
 
 

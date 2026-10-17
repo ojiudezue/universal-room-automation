@@ -30,7 +30,10 @@ except ImportError:  # Python < 3.11
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -48,6 +51,8 @@ from .energy_const import (
     DPM_ROLLING_WINDOW_MAX_DAYS,
     DPM_ROLLING_WINDOW_MIN_DAYS,
     DPM_P25_MIN_DAYS,
+    FORECAST_REFRESH_MIN,
+    FORECAST_STALE_MIN,
 )
 from .signals import SIGNAL_WEATHER_PROVIDER_CHANGED, SIGNAL_WEATHER_DIVERGENCE_DETECTED
 
@@ -151,6 +156,13 @@ class WeatherProviderManager:
         # under key 'ura_dpm_apparent_high_ring' (hydrated lazily in
         # async_setup; saved on every record). DPM's relative_delta semantic
         # (today vs rolling median) replaces the v4.7.16.4 indoor-target frame.
+        # EC storm Stage C D-C1: hourly forecast rows per provider, refreshed
+        # every FORECAST_REFRESH_MIN under the WPM-C1 lock. provider ->
+        # {"fetched_at": utc datetime, "rows": {hour_utc: row dict}}.
+        # A provider without hourly support simply has no entry.
+        self._hourly: dict[str, dict[str, Any]] = {}
+        self.hourly_fetched_at: datetime | None = None
+        self.hourly_providers_ok: int = 0
         self._apparent_high_ring: list[tuple[str, float]] = []
         self._apparent_high_store: Store = Store(
             hass, version=1, key="ura_dpm_apparent_high_ring"
@@ -204,6 +216,15 @@ class WeatherProviderManager:
 
         # Do an immediate probe so sensors have data before the first state change
         await self._refresh_all_providers()
+
+        # EC storm Stage C D-C1: hourly outlook timer (unsub captured, Bug
+        # #38) + an immediate first refresh as a TRACKED task (off the boot
+        # path; `never_fetched` until it lands).
+        self._unsub_handles.append(async_track_time_interval(
+            self.hass, self._on_hourly_timer,
+            timedelta(minutes=FORECAST_REFRESH_MIN),
+        ))
+        self._on_hourly_timer(None)
 
     async def async_teardown(self) -> None:
         """Cancel all state-change listeners and in-flight refresh tasks."""
@@ -777,6 +798,165 @@ class WeatherProviderManager:
         )
         self._pending_refresh_tasks.add(task)
         task.add_done_callback(self._pending_refresh_tasks.discard)
+
+    # -------------------------------------------------------------------------
+    # EC storm Stage C D-C1 — hourly outlook (BACKUP provider policy)
+    # -------------------------------------------------------------------------
+
+    @callback
+    def _on_hourly_timer(self, _now: Any) -> None:
+        """Timer callback → tracked refresh task (WPM-C2, Bug #19/#42)."""
+        coro = self._refresh_hourly()
+        task = self.hass.async_create_task(coro, name="ura_weather_manager_hourly")
+        if not isinstance(task, asyncio.Future):
+            coro.close()  # non-scheduling hass double: nothing to track
+            return
+        self._pending_refresh_tasks.add(task)
+        task.add_done_callback(self._pending_refresh_tasks.discard)
+
+    async def _refresh_hourly(self) -> None:
+        """Fetch hourly forecasts for every configured provider, WPM-C1 lock."""
+        async with self._refresh_lock:
+            await self._refresh_hourly_locked()
+
+    async def _refresh_hourly_locked(self) -> None:
+        providers = self._build_provider_list()
+        ok = 0
+        for eid in providers:
+            if not eid:
+                continue
+            if self._check_provider_health(eid) not in (
+                WeatherProviderHealth.HEALTHY,
+                WeatherProviderHealth.APPARENT_UNAVAILABLE,
+            ):
+                continue
+            rows = await self._fetch_provider_hourly(eid)
+            if not rows:
+                # No hourly support / empty / failed: not usable, not an error.
+                continue
+            now = dt_util.utcnow()
+            self._hourly[eid] = {"fetched_at": now, "rows": rows}
+            self.hourly_fetched_at = now
+            ok += 1
+        self.hourly_providers_ok = ok
+
+    async def _fetch_provider_hourly(self, entity_id: str) -> dict[datetime, dict]:
+        """``weather.get_forecasts type=hourly`` → {hour_utc: row}. Units
+        normalized from the entity's own attributes: temperature → °F,
+        precipitation amount → mm. {} on any error (Bug #19: awaited)."""
+        try:
+            response = await self.hass.services.async_call(
+                "weather", "get_forecasts",
+                {"entity_id": entity_id, "type": "hourly"},
+                blocking=True, return_response=True,
+            )
+        except Exception:  # noqa: BLE001 — unsupported type raises; skip
+            _LOGGER.debug("WPM hourly: get_forecasts failed for %s",
+                          entity_id, exc_info=True)
+            return {}
+        forecasts = ((response or {}).get(entity_id) or {}).get("forecast") or []
+        st = self.hass.states.get(entity_id)
+        attrs = getattr(st, "attributes", {}) or {}
+        t_unit = str(attrs.get("temperature_unit", "°F") or "°F")
+        p_unit = str(attrs.get("precipitation_unit", "mm") or "mm")
+        out: dict[datetime, dict] = {}
+        for f in forecasts:
+            try:
+                when = dt_util.parse_datetime(str(f.get("datetime")))
+            except Exception:  # noqa: BLE001
+                when = None
+            if when is None:
+                continue
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=dt_util.UTC)
+            hour = dt_util.as_utc(when).replace(minute=0, second=0, microsecond=0)
+            temp = _parse_float(f.get("temperature"))
+            if temp is not None and "C" in t_unit:
+                temp = temp * 9.0 / 5.0 + 32.0
+            mm = _parse_float(f.get("precipitation"))
+            if mm is not None and p_unit.strip().lower() in ("in", "inch", "inches"):
+                mm = mm * 25.4
+            out[hour] = {
+                "temp_f": temp,
+                "pop": _parse_float(f.get("precipitation_probability")),
+                "mm": mm,
+                "gust": _parse_float(f.get("wind_gust_speed")),
+                "condition": f.get("condition"),
+            }
+        return out
+
+    def hourly_outlook(self, start: datetime, end: datetime) -> Any:
+        """Aggregate the hourly rows over ``[start, end)`` (D-C1).
+
+        BACKUP policy (coordinator ruling 2026-10-16): for each hour slot use
+        the FIRST provider in rank order that is currently healthy, fresh
+        (fetched within FORECAST_STALE_MIN) and has a row for that hour —
+        so OWM (48 h) covers the near hours and Open-Meteo the hours beyond
+        its horizon. No cross-check. Returns ``inclement.Outlook`` or None
+        when no slot is covered (all providers unhealthy / stale / never
+        fetched / no hourly support).
+        """
+        from .inclement import Outlook
+        now = dt_util.utcnow()
+        usable: list[tuple[str, dict]] = []
+        for eid in self._build_provider_list():
+            data = self._hourly.get(eid)
+            if not data:
+                continue
+            if (now - data["fetched_at"]).total_seconds() > FORECAST_STALE_MIN * 60:
+                continue
+            if self._check_provider_health(eid) not in (
+                WeatherProviderHealth.HEALTHY,
+                WeatherProviderHealth.APPARENT_UNAVAILABLE,
+            ):
+                continue
+            usable.append((eid, data["rows"]))
+        if not usable:
+            return None
+        s_utc = dt_util.as_utc(start)
+        e_utc = dt_util.as_utc(end)
+        slot = s_utc.replace(minute=0, second=0, microsecond=0)
+        temps: list[float] = []
+        pops: list[float] = []
+        mms: list[float] = []
+        gusts: list[float] = []
+        conds: set[str] = set()
+        sources: list[list[str]] = []
+        hours = 0
+        while slot < e_utc:
+            for eid, rows in usable:
+                row = rows.get(slot)
+                if row is None:
+                    continue
+                hours += 1
+                if row["temp_f"] is not None:
+                    temps.append(row["temp_f"])
+                if row["pop"] is not None:
+                    pops.append(row["pop"])
+                elif row["mm"] is not None:
+                    mms.append(row["mm"])
+                if row["gust"] is not None:
+                    gusts.append(row["gust"])
+                if row["condition"]:
+                    conds.add(str(row["condition"]))
+                iso = slot.isoformat()
+                if sources and sources[-1][0] == eid:
+                    sources[-1][2] = iso
+                else:
+                    sources.append([eid, iso, iso])
+                break
+            slot += timedelta(hours=1)
+        if hours == 0:
+            return None
+        return Outlook(
+            window_start=start, window_end=end, hours=hours,
+            min_temp_f=min(temps) if temps else None,
+            max_pop=max(pops) if pops else None,
+            max_precip_mm_no_pop=max(mms) if mms else None,
+            max_gust=max(gusts) if gusts else None,
+            conditions=frozenset(conds),
+            sources=tuple(tuple(x) for x in sources),
+        )
 
     # -------------------------------------------------------------------------
     # Read-only properties used by sensors
