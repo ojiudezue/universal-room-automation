@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T07:18:49-05:00_ - _Data commit: `7694d46f4dd3`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T10:53:37-05:00_ - _Data commit: `5a41c2bf6e19`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -40,8 +40,9 @@ _created 2026-09-27 02:50 · updated 2026-10-17 07:25 · refined ×2_
 - **Tags:** measure-before-build, audit-first, no-fabrication-verify
 - **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
 - **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `INSTANCE_2026_10_17_homelab_host_findings`: From the homelab session (10-17 ~07:20). Operator approved my tests (b) stable 2.1.0 firmware on one switch (Dining1 cc:ba) and (c) aioshelly debug. Two host-side findings: (1) the OTBR add-on is at debug log level, about 29k journal lin...
+  - `INSTANCE_2026_10_17_host_fixes_applied`: Homelab (~07:35 CDT 10-17, operator chose both): OTBR otbr_log_level debug->info + add-on restart (journal ~29k -> ~420 lines/min); HAOS mdns=resolve on enp4s0.3 (IoT) + enp4s0.5 (AV), enp4s0/enp4s0.2 default; resolved conflicts ~900/min...
   - `handoff_2026_10_16_overnight`: Operator 10-15: 'A candidate for locking to the pantry access point. Push to homelab agent'. DONE: relayed to the homelab board queue as an instruct on SMIDG-TUNE-1 (the Smidg Wi-Fi tuning card) with the 5 MACs, the UniFi name-swap cavea...
   - `operator_instruction_2026_10_15`: A candidate for locking to the pantry access point. Push to homelab agent
   - `unifi_2026_10_15_overnight`: Read-only UniFi lookup (stat/sta, rest/user, stat/device, wlanconf, system-log; 02:2x CDT 10-15). All 5 cluster devices are on SSID Smidg via AP U6-Extender-EA, 2.4 GHz channel 6, all on the bc_filter allowlist, signals -28 to -66 dBm (f...
