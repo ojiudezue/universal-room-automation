@@ -135,7 +135,11 @@ for sig in [
 _dc_signals.EnergyConstraint = MagicMock()
 sys.modules["custom_components.universal_room_automation.domain_coordinators.signals"] = _dc_signals
 
-# Mock heavy HVAC sub-modules (but NOT hvac_const — we need real constants)
+# Mock heavy HVAC sub-modules (but NOT hvac_const — we need real constants).
+# Only the stubs this file ADDS are tracked and removed right after the
+# import below, so no MagicMock module leaks into later files (e.g.
+# test_envoy_auto_derive imports the real hvac_predict).
+_HVAC_STUBS_ADDED = []
 for mod_name in [
     "custom_components.universal_room_automation.domain_coordinators.hvac_override",
     "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
@@ -146,7 +150,9 @@ for mod_name in [
     "custom_components.universal_room_automation.domain_coordinators.hvac_predict",
     "custom_components.universal_room_automation.domain_coordinators.base",
 ]:
-    sys.modules.setdefault(mod_name, MagicMock())
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = MagicMock()
+        _HVAC_STUBS_ADDED.append(mod_name)
 
 # ---------------------------------------------------------------------------
 # Import the module under test — FanController
@@ -157,6 +163,16 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
     RoomFanState,
     DEFAULT_FAN_VACANCY_HOLD,
 )
+
+# Restore: drop the stubs this file installed, and the hvac_fans module that
+# was bound against them (FanController et al. stay referenced here).
+for _k in _HVAC_STUBS_ADDED:
+    sys.modules.pop(_k, None)
+if _HVAC_STUBS_ADDED:
+    sys.modules.pop(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
+        None,
+    )
 
 
 # ---------------------------------------------------------------------------
