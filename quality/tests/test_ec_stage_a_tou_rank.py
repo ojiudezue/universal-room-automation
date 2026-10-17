@@ -164,3 +164,28 @@ def test_tou_top_rate_strategy_attr(hour, expected, monkeypatch):
     assert s._tou_top_rate_attr() is expected
     s._tou = None
     assert s._tou_top_rate_attr() is None
+
+
+def test_tou_rank_guards_unknown_period_and_non_numeric_rate(monkeypatch):
+    """Review A LOW-3: unknown period / non-numeric rate → rank None,
+    is_bottom_rate False, is_top_* False; never KeyError/ValueError."""
+    eng = TOURateEngine(rate_table=_table({
+        "off_peak": ([(0, 14), (21, 24)], 0.04),
+        "mid_peak": ([(14, 21)], 0.10),
+    }, range(1, 13)))
+    t = datetime(2026, 7, 1, 3, 0, tzinfo=_CHI)
+    assert eng.period_rank("only", "bogus") is None
+    assert eng.period_rank("nope", "off_peak") is None
+    monkeypatch.setattr(eng, "get_current_period", lambda now=None: "bogus")
+    assert eng.rate_rank(t) is None
+    assert eng.is_bottom_rate(t) is False
+    assert eng.is_top_rate(t) is False
+    monkeypatch.undo()
+    bad = TOURateEngine(rate_table=_table({
+        "off_peak": ([(0, 14), (21, 24)], "n/a"),
+        "mid_peak": ([(14, 21)], 0.10),
+    }, range(1, 13)))
+    assert bad.period_rank("only", "mid_peak") is None
+    assert bad.rate_rank(t) is None
+    assert bad.is_bottom_rate(t) is False
+    assert bad.is_top_period("only", "mid_peak") is False

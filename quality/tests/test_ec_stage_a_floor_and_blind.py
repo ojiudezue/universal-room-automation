@@ -663,3 +663,143 @@ def test_get_status_carries_tou_top_rate(clock, t, expected):
     assert s.get_status()["tou_top_rate"] is expected
     s._tou = None
     assert s.get_status()["tou_top_rate"] is None
+
+
+# ===========================================================================
+# Review D HIGH-1 — attain HOLD-CURRENT returns route the floor through
+# `_reserve_action` (raise-only)
+# ===========================================================================
+def _hold_current_shell(clock, hw="40", **kw):
+    c, s = shell(clock, blind=False, cfg="unavailable", hw=hw, reserve_soc=20,
+                 **kw)
+    s._arbitrage_enabled = True
+    s._attain_reboot_recovered = False
+    s._last_reserve_level_desired = None
+    s._last_reserve_level = 40           # KV ledger
+    return c, s
+
+
+@pytest.mark.asyncio
+async def test_hold_current_defer_applies_partial_floor_and_overlay(clock):
+    """D repro: sighted, CFG unavailable (boot), arbitrage on, latch
+    unconsumed, stamp None, ledger 40, hardware 40, Oct 03:00 partial floor
+    50, EVSE hold 35 → decision raises to 50 and the overlay never emits
+    below 50 (pre-fix: overlay appended 40)."""
+    c, s = _hold_current_shell(clock)
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert s._tick_reserve_floor == 50
+    assert writes(d) == [50]
+    assert s._last_reserve_level_desired == 50
+    assert not any(sv in services(d) for sv in _CFG_SURFACES)
+    assert "switch.turn_off" not in services(d)
+    c._evse_hold_soc = 35
+    c._evse_battery_hold_active = True
+    d = c._apply_evse_battery_hold(d)
+    assert writes(d) and min(writes(d)) >= 50
+
+
+def test_hold_current_defer_repeats_each_tick_without_lowering(clock):
+    """Defer repeats while the CFG leg stays unavailable: tick 2 with the
+    hardware at 50 → no write, stamp stays 50, latch still unconsumed."""
+    c, s = _hold_current_shell(clock)
+    tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    set_hw(c, "50")
+    d2 = tick(clock, s, OCT_04, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d2["reason"]
+    assert writes(d2) == []
+    assert s._last_reserve_level_desired == 50
+    assert s._attain_reboot_recovered is False
+
+
+def test_hold_current_never_lowers_inflight_charge_reserve(clock):
+    """Raise-only: hardware at 80 (in-flight charge), floor 50 → no write;
+    the stamp records 80 (never 50)."""
+    c, s = _hold_current_shell(clock, hw="80")
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert writes(d) == []
+    assert s._last_reserve_level_desired == 80
+
+
+def test_hold_current_no_floor_zero_actions(clock):
+    """No floor registered → the pre-fix zero-action dict, stamp untouched."""
+    c, s = _hold_current_shell(clock)
+    d = tick(clock, s, OCT_03, "off_peak")
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert d["actions"] == []
+    assert s._last_reserve_level_desired is None
+
+
+def test_hold_current_warmup_path_applies_partial_floor(clock):
+    """Second call site (rate-window warm-up, latch consumed): CFG reads ON
+    at boot (in-flight charge adopted), rate window empty, hardware 30,
+    partial floor 50 → raise to 50, no CFG/select command."""
+    c, s = _hold_current_shell(clock, hw="30", peak_buffer_target=80)
+    for eid in (
+        "switch.iq_battery_hacs_charge_battery_from_grid",
+    ):
+        _st(c.hass, eid, "on")
+    from ec_phalanx_entities import (
+        PHALANX_CHARGE_FROM_GRID_ENTITY,
+        PHALANX_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
+    )
+    _st(c.hass, PHALANX_CHARGE_FROM_GRID_ENTITY, "on")
+    _st(c.hass, PHALANX_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY, "on")
+    s._attain_reboot_recovered = True       # latch consumed: not the defer
+    s._attain_state = "charging"            # adopted in-flight charge
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert "post-reboot HOLD CURRENT" in d["reason"]
+    assert writes(d) == [50]
+    assert services(d) == ["number.set_value"]
+    assert s._last_reserve_level_desired == 50
+
+
+# ===========================================================================
+# Review C gaps C-1..C-4
+# ===========================================================================
+def test_blind_hold_restart_no_stamp_never_lowers_hardware(clock):
+    """C-1: restart into blind (desired None), hardware 90 (arbitrage-set),
+    floor 60 → base falls back to the write leg: target 90, no write."""
+    c, s = shell(clock, blind=True, hw="90")
+    assert s._last_reserve_level_desired is None
+    d = tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 60))
+    assert writes(d) == []
+    assert s._last_reserve_level_desired == 90
+
+
+def test_blind_full_hold_floor_reserve_soc_dominates(clock):
+    """C-2: reserve_soc 80 > partial 50 > slider 60 → blind full hold 80."""
+    c, s = shell(clock, blind=True, hw="0", reserve_soc=80)
+    s._inclement_config_override = alert_opts(c, "Winter Storm Warning", partial=50)
+    d = tick(clock, s, OCT_03, "off_peak")
+    assert s._last_inclement_decision.hold_depth == "full_hold"
+    assert s._tick_reserve_floor == 80
+    assert writes(d) == [80]
+
+
+def test_reserve_action_standdown_skips_but_stamps(clock):
+    """C-3: HARD STAND-DOWN on the reserve surface at the stuck value 60
+    (hardware 30) → no action, stamp still 60; a changed desire (61)
+    resumes the write."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (  # noqa: E501
+        WRITE_VERIFY_SURFACE_RESERVE,
+    )
+    c, s = shell(clock, blind=False, hw="30")
+    s._tick_reserve_floor = None
+    wv = s._write_verifier
+    wv._pending_standdown_at[WRITE_VERIFY_SURFACE_RESERVE] = clock.t
+    wv._pending_standdown_value[WRITE_VERIFY_SURFACE_RESERVE] = 60
+    assert s._reserve_action(60) == (60, None)
+    assert s._last_reserve_level_desired == 60
+    folded, act = s._reserve_action(61)
+    assert folded == 61 and act is not None and act["data"]["value"] == 61
+
+
+@pytest.mark.parametrize("hw,expect_write", [("48", True), ("49", False),
+                                             ("52", True), ("51", False)])
+def test_reserve_action_deadband_boundary(clock, hw, expect_write):
+    """C-4: deadband is `>= 2` — a difference of exactly 2 writes, 1 does not."""
+    c, s = shell(clock, blind=False, hw=hw)
+    s._tick_reserve_floor = None
+    assert (s._reserve_action(50)[1] is not None) is expect_write

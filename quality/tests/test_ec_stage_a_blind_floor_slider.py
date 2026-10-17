@@ -230,3 +230,19 @@ def test_blind_floor_key_in_no_live_attr_keys(listener):
     and is re-diffed forever)."""
     _, snap = _drive(listener, 60, 75)
     assert snap[CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR] == 75
+
+
+def test_blind_floor_seed_and_battery_read_same_source(clock):
+    """Review A LOW-4: a value present ONLY in entry.data (90) is what both
+    the Number seed displays and the battery acts on (both merge
+    `{**data, **options}`); an options value overrides it on both sides."""
+    c, s, entry = _blind_warn_shell(clock, {})
+    entry.data = {**entry.data, CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR: 90}
+    nm = _number_mod()
+    hass, _ = _hass_with_energy()
+    assert nm.InclementBlindFullHoldFloorNumber(hass, entry).native_value == 90
+    assert _blind_floor(clock, s) == 90
+    entry.options = {**entry.options, CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR: 70}
+    assert nm.InclementBlindFullHoldFloorNumber(hass, entry).native_value == 70
+    clock.t = datetime(2026, 10, 15, 9, 0, tzinfo=_UTC)   # next tick
+    assert _blind_floor(clock, s) == 70

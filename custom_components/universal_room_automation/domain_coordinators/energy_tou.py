@@ -488,23 +488,34 @@ class TOURateEngine:
         periods = self._rates[season]["periods"]
         return sorted({float(p["import_rate"]) for p in periods.values()})
 
-    def period_rank(self, season: str, period: str) -> int:
-        """Rank of ``period``'s import rate within ``season`` (0 = lowest)."""
-        rate = float(self._rates[season]["periods"][period]["import_rate"])
-        return self._season_distinct_rates(season).index(rate)
+    def period_rank(self, season: str, period: str | None) -> int | None:
+        """Rank of ``period``'s import rate within ``season`` (0 = lowest).
+
+        None for an unknown season/period or a non-numeric rate anywhere in
+        the season (Review A LOW-3: same unknown-period guard as
+        ``is_top_period``; callers treat None as "not ranked").
+        """
+        try:
+            # Unknown season/period (incl. None) → KeyError → None.
+            rate = float(self._rates[season]["periods"][period]["import_rate"])
+            return self._season_distinct_rates(season).index(rate)
+        except (KeyError, TypeError, ValueError):
+            return None
 
     def is_top_period(self, season: str, period: str | None) -> bool:
         """True iff ``period`` carries the season's maximum distinct import
         rate AND the season has at least two distinct rates."""
-        if period is None or period not in self._rates[season]["periods"]:
+        rank = self.period_rank(season, period)
+        if rank is None:
             return False
         rates = self._season_distinct_rates(season)
         if len(rates) < 2:
             return False
-        return self.period_rank(season, period) == len(rates) - 1
+        return rank == len(rates) - 1
 
-    def rate_rank(self, now: datetime | None = None) -> int:
-        """Rank of the active period's import rate (0 = season bottom)."""
+    def rate_rank(self, now: datetime | None = None) -> int | None:
+        """Rank of the active period's import rate (0 = season bottom);
+        None when the active period cannot be ranked."""
         if now is None:
             now = dt_util.now()
         return self.period_rank(self.get_season(now), self.get_current_period(now))

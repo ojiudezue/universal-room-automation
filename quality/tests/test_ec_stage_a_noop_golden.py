@@ -58,16 +58,30 @@ CASES = [
     f"{t[0]}|{h[0]}|soc{soc}|hw{hw}|arb{int(arb)}"
     for t, h, soc, hw, arb in itertools.product(_TIMES, _HOLDS, _SOCS, _HW, _ARB)
 ]
+# Review D HIGH-1 fix-up: attain post-reboot HOLD-CURRENT (CFG leg
+# unavailable at boot, latch unconsumed, arbitrage on) with NO floor —
+# the fix routes a registered floor through `_reserve_action`, and must be
+# byte-identical (zero actions, stamp untouched) when none is registered.
+# Captured on pre-Stage-A f2ec3cb38.
+CASES += [
+    f"{t[0]}|none|soc{soc}|hw{hw}|arb1|hc"
+    for t, soc, hw in itertools.product(_TIMES, _SOCS, _HW)
+]
 
 
 def _run_case(case: str, clock) -> dict:
-    tlabel, hlabel, soc_s, hw_s, arb_s = case.split("|")
+    tlabel, hlabel, soc_s, hw_s, arb_s, *hc = case.split("|")
     t = next(x for x in _TIMES if x[0] == tlabel)
     hold = dict(_HOLDS)[hlabel]
     clock.t = t[1]
     now = clock.t.astimezone(_CDT)
-    c, s = make_shell(clock, soc=soc_s[3:], reserve_state=hw_s[2:])
+    c, s = make_shell(
+        clock, soc=soc_s[3:], reserve_state=hw_s[2:],
+        **({"cfg_state": "unavailable"} if hc else {}),
+    )
     s._arbitrage_enabled = arb_s == "arb1"
+    if hc:
+        s._attain_reboot_recovered = False
     if hold is not None:
         seed_inclement(
             s, now, "partial_hold" if hlabel == "partial" else "full_hold", hold,

@@ -1631,6 +1631,10 @@ class InclementBlindFullHoldFloorNumber(NumberEntity):
             model="Energy Coordinator",
             sw_version=VERSION,
         )
+        # Review A LOW-4 (adjudicated): this `{**data, **options}` merge is
+        # the SAME source the battery reads every tick (energy_battery
+        # `_inclement_config` merges the CM entry identically), so the
+        # displayed value and the acting value cannot disagree.
         config = {**entry.data, **entry.options}
         try:
             seeded = int(config.get(

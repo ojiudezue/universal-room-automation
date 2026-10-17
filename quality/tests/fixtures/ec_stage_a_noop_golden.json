@@ -237,6 +237,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak hold \u2014 SOC 15.0% <= target 15% (target good)"
   },
+  "jun_03|none|soc15|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "jun_03|none|soc15|hw60|arb0": {
     "actions": [
       {
@@ -270,6 +279,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak hold \u2014 SOC 15.0% <= target 15% (target good)"
+  },
+  "jun_03|none|soc15|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "jun_03|none|soc45|hw0|arb0": {
     "actions": [
@@ -305,6 +323,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 45.0% > target 15% (target good)"
   },
+  "jun_03|none|soc45|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "jun_03|none|soc45|hw60|arb0": {
     "actions": [
       {
@@ -338,6 +365,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 45.0% > target 15% (target good)"
+  },
+  "jun_03|none|soc45|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "jun_03|none|soc85|hw0|arb0": {
     "actions": [
@@ -373,6 +409,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 85.0% > target 15% (target good)"
   },
+  "jun_03|none|soc85|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "jun_03|none|soc85|hw60|arb0": {
     "actions": [
       {
@@ -406,6 +451,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 85.0% > target 15% (target good)"
+  },
+  "jun_03|none|soc85|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "jun_03|partial|soc15|hw0|arb0": {
     "actions": [
@@ -801,6 +855,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
+  "jun_15|none|soc15|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 15
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 15,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
   "jun_15|none|soc15|hw60|arb0": {
     "actions": [
       {
@@ -819,6 +890,23 @@
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
   "jun_15|none|soc15|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 15
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 15,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
+  "jun_15|none|soc15|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -869,6 +957,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
+  "jun_15|none|soc45|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 45
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 45,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
   "jun_15|none|soc45|hw60|arb0": {
     "actions": [
       {
@@ -887,6 +992,23 @@
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
   "jun_15|none|soc45|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 45
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 45,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
+  "jun_15|none|soc45|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -937,6 +1059,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
+  "jun_15|none|soc85|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 85
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 85,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
   "jun_15|none|soc85|hw60|arb0": {
     "actions": [
       {
@@ -955,6 +1094,23 @@
     "reason": "Mid-peak (summer) \u2014 holding charge for peak"
   },
   "jun_15|none|soc85|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 85
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 85,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (summer) \u2014 holding charge for peak"
+  },
+  "jun_15|none|soc85|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -1381,6 +1537,23 @@
     "mode": "self_consumption",
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
+  "jun_17|none|soc15|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
   "jun_17|none|soc15|hw60|arb0": {
     "actions": [
       {
@@ -1399,6 +1572,23 @@
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
   "jun_17|none|soc15|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
+  "jun_17|none|soc15|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -1449,6 +1639,23 @@
     "mode": "self_consumption",
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
+  "jun_17|none|soc45|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
   "jun_17|none|soc45|hw60|arb0": {
     "actions": [
       {
@@ -1467,6 +1674,23 @@
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
   "jun_17|none|soc45|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
+  "jun_17|none|soc45|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -1517,6 +1741,23 @@
     "mode": "self_consumption",
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
+  "jun_17|none|soc85|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
   "jun_17|none|soc85|hw60|arb0": {
     "actions": [
       {
@@ -1535,6 +1776,23 @@
     "reason": "Peak \u2014 battery covers load, solar exports"
   },
   "jun_17|none|soc85|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak \u2014 battery covers load, solar exports"
+  },
+  "jun_17|none|soc85|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -1945,6 +2203,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak hold \u2014 SOC 15.0% <= target 15% (target good)"
   },
+  "oct_03|none|soc15|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "oct_03|none|soc15|hw60|arb0": {
     "actions": [
       {
@@ -1978,6 +2245,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak hold \u2014 SOC 15.0% <= target 15% (target good)"
+  },
+  "oct_03|none|soc15|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "oct_03|none|soc45|hw0|arb0": {
     "actions": [
@@ -2013,6 +2289,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 45.0% > target 15% (target good)"
   },
+  "oct_03|none|soc45|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "oct_03|none|soc45|hw60|arb0": {
     "actions": [
       {
@@ -2046,6 +2331,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 45.0% > target 15% (target good)"
+  },
+  "oct_03|none|soc45|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "oct_03|none|soc85|hw0|arb0": {
     "actions": [
@@ -2081,6 +2375,15 @@
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 85.0% > target 15% (target good)"
   },
+  "oct_03|none|soc85|hw0|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
+  },
   "oct_03|none|soc85|hw60|arb0": {
     "actions": [
       {
@@ -2114,6 +2417,15 @@
     "dp_stamp": 15,
     "mode": "self_consumption",
     "reason": "Off-peak drain \u2014 SOC 85.0% > target 15% (target good)"
+  },
+  "oct_03|none|soc85|hw60|arb1|hc": {
+    "actions": [],
+    "arbitrage_phase": "attain",
+    "charge_from_grid": null,
+    "desired": null,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Peak-buffer attainability \u2014 post-reboot HOLD CURRENT (K-tick rate-window warm-up; preserving in-flight Enphase state, no commands issued)"
   },
   "oct_03|partial|soc15|hw0|arb0": {
     "actions": [
@@ -2509,6 +2821,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
+  "oct_18|none|soc15|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
   "oct_18|none|soc15|hw60|arb0": {
     "actions": [
       {
@@ -2527,6 +2856,23 @@
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
   "oct_18|none|soc15|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
+  "oct_18|none|soc15|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -2577,6 +2923,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
+  "oct_18|none|soc45|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
   "oct_18|none|soc45|hw60|arb0": {
     "actions": [
       {
@@ -2595,6 +2958,23 @@
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
   "oct_18|none|soc45|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
+  "oct_18|none|soc45|hw60|arb1|hc": {
     "actions": [
       {
         "data": {
@@ -2645,6 +3025,23 @@
     "mode": "self_consumption",
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
+  "oct_18|none|soc85|hw0|arb1|hc": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
   "oct_18|none|soc85|hw60|arb0": {
     "actions": [
       {
@@ -2663,6 +3060,23 @@
     "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
   },
   "oct_18|none|soc85|hw60|arb1": {
+    "actions": [
+      {
+        "data": {
+          "value": 10
+        },
+        "service": "number.set_value",
+        "target": "number.iq_battery_hacs_battery_reserve"
+      }
+    ],
+    "arbitrage_phase": "discharge",
+    "charge_from_grid": false,
+    "desired": 10,
+    "dp_stamp": null,
+    "mode": "self_consumption",
+    "reason": "Mid-peak (shoulder) \u2014 discharging, best rate window"
+  },
+  "oct_18|none|soc85|hw60|arb1|hc": {
     "actions": [
       {
         "data": {

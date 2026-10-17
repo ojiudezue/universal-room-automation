@@ -4837,10 +4837,30 @@ class BatteryStrategy:
         self._last_mode = current_mode or BATTERY_MODE_SELF_CONSUMPTION
         self._last_reason = reason
         self._arbitrage_phase = ARBITRAGE_PHASE_ATTAIN
+        # EC storm/blind Stage A fix-up (Review D HIGH-1): this return
+        # bypasses `_result`, so a registered tick floor would never reach
+        # `_reserve_action` (INV-1 leak via the EVSE overlay append, which
+        # composes from the stamp/ledger). When a floor is registered,
+        # route it through `_reserve_action` RAISE-ONLY: the requested
+        # level is max(floor, live write-leg reserve), so an in-flight
+        # charge reserve (e.g. 80) is never lowered (deadband → no
+        # action, stamp = hardware value) and a below-floor reserve is
+        # raised to the floor. No floor → no call: byte-identical.
+        _actions: list[dict[str, Any]] = []
+        _floor = self._tick_reserve_floor
+        if _floor is not None:
+            _hw = self._get_state_float(self._get_entity(
+                "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                role="write",
+            ))
+            _level = int(max(_floor, _hw)) if _hw is not None else _floor
+            _, _act = self._reserve_action(_level)
+            if _act is not None:
+                _actions.append(_act)
         return {
             "mode": current_mode or BATTERY_MODE_SELF_CONSUMPTION,
             "reason": reason,
-            "actions": [],
+            "actions": _actions,
             "soc": soc,
             "solar_production": self.solar_production,
             "net_power": self.net_power,
