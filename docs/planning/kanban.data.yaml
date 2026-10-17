@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EC-OBSERVATION-MODE-RESERVE-BYPASS-1@2026-10-17T02:08:10"
+    at: "2026-10-17T02:08:10"
+    outcome: "measured"
+    headline: "Confirmed: with energy 'observation mode' on, two paths would still send battery-reserve commands (the rate-change path and the checker's re-send). It has not been on here in 8 days, so no harm yet. Building the two small gates tonight, to review only (no deploy)."
+    acknowledged: false
+  - fid: "EC-SELFHEAL-UNEXPLAINED-RESENDS-1@2026-10-17T02:08:10"
+    at: "2026-10-17T02:08:10"
+    outcome: "escalated"
+    headline: "Found why the battery 'write stuck' pages keep coming: URA checks reserve changes against a gateway reading that has been frozen at 10% since early August, so any reserve other than 10 looks ignored -> 3 needless re-sends + a CRITICAL page, 1-5 a day (one fired at 02:02 tonight). The battery did take the settings. Fix is small; you pick how: a 'reserve witness' setting (recommended) or hard-code the right sensor."
+    acknowledged: false
   - fid: "SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1@2026-10-16T02:25:37"
     at: "2026-10-16T02:25:37"
     outcome: "measured"
@@ -316,12 +326,19 @@ cards:
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode'
   thread: energy
-  status: investigating
+  status: "planned"
   tier: 2
+  created: "2026-10-16"
+  updated: "2026-10-17 02:08"
+  refinement_status: "refined"
+  problem_solution: ["Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager, and the write checker's automatic re-send. Nobody has turned observation mode on in the last 8 days, so it has not bitten here, but it would on any home that uses it (for example while URA is being rolled out to a new house). Solution: make both paths respect observation mode, the same way the main 5-minute loop already does."]
+  measured_2026_10_17_overnight: "CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManager._run_all_evaluations (manager.py:984-1007) -> _execute_action (manager.py:1035-1060), which calls hass.services.async_call with no observation gate. (2) The timer path reversion sweep (energy.py:~7150, NOT inside an observation gate) -> WriteVerifier.reversion_sweep (energy_write_verify.py:726) -> _pending_watchdog_reserve (:755, :2118) -> _pending_fire_retry (:2331) -> BatteryStrategy.force_redispatch (energy_battery.py:6916), a real number.set_value, no observation gate. Contrast: the timer dispatch IS gated (energy.py:6609 'if not self._observation_mode'), load-shed (:7103), hazard handler (:1414). LIVE: switch.ura_energy_coordinator_observation_mode was only ever off/unavailable over the full recorder window (10-09..10-17) -> latent here; matters for multi-home rollout. Gate: validity STILL-REAL; config-first n/a (it is the gate itself that is missing); prior art REUSE the existing 'if not self._observation_mode' pattern (energy.py:6609); parsimony BUILD (two small gates, no new knob); cost/benefit: byte-identical on the live path (mode off), so Tier 2 with 2 reviews, no Tier-3 ingredient."
+  links: {"related": ["EC-SELFHEAL-UNEXPLAINED-RESENDS-1", "EC-TOU-TRANSITION-DOUBLE-CONSUME-1"], "context": "EC-SELFHEAL-UNEXPLAINED-RESENDS-1 is the false re-send ladder on the same force_redispatch path; EC-TOU-TRANSITION-DOUBLE-CONSUME-1 is the same evaluate() TOU-transition entry point (the gate must not change who consumes the period)."}
   origin: 'Ground-truth audit 2026-10-16 (audit_reserve_surface_ground_truth.md); Bug Class #23 observation-mode gating.'
   related: [EC-RESERVE-WRITE-GOVERNOR-1, EC-EVALUATE-PATH-LEDGER-GAP-1]
-  next: 'Confirm by code trace + test with observation mode on; fix gates (likely Tier 2) after the governor so the lint/rows cover it.'
-  rank: {value: 7, time_criticality: 4, effort: 3}
+  parsimony: {problem: "With energy observation mode ON, a TOU-transition evaluate() and the write-verify pending re-send still send reserve/CFG commands to hardware.", verdict: "BUILD"}
+  next: 'Me (overnight 10-17): build in a worktree (gate evaluate() battery actions + force_redispatch on observation mode; tests with mode on and off), 2 reviews + validator, leave in review for an attended deploy.'
+  rank: {value: 6, time_criticality: 3, effort: 3}
 - id: EC-TOU-TRANSITION-DOUBLE-CONSUME-1
   updated: "2026-10-16 02:06"
   links: {"blocked_by": ["EC-RESERVE-WRITE-GOVERNOR-1"], "related": ["EC-EVALUATE-PATH-LEDGER-GAP-1", "EC-OBSERVATION-MODE-RESERVE-BYPASS-1"], "context": "Arc steps 8-11 share the TOU-transition/self-heal path and get one joint plan after step 1 (governor) ships, per ARC_energy_coordinator_resilience.md."}
@@ -337,12 +354,22 @@ cards:
   next: "Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive alone only if a tou_transition decision goes missing at a boundary."
 - id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
-  title: 'Write-verify anomalies 10-14: self-heal re-sent 90 three times while cloud already showed 90; cloud stayed at 6 for 6.5 h while URA sent 10 forty-nine times'
+  title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
   thread: energy
-  status: investigating
+  status: "waiting_operator"
+  created: "2026-10-16"
+  updated: "2026-10-17 02:06"
+  refinement_status: "refined"
+  tier: 2
+  problem_solution: ["Problem: URA double-checks every battery-reserve change against a 'local' reading from the house gateway, but the reading it was set up to use has been stuck at the same number (10%) since early August. So whenever URA sets any reserve other than 10, the checker thinks the battery ignored it, re-sends the same setting three times over an hour, and pages you (up to CRITICAL) that the write is 'stuck', even though the battery already took it. That is 1-5 false pages a day. Solution: point the checker at the gateway reading that actually follows the real reserve (it moved to 90 within a minute of the cloud on 10-14, and showed the true 14 in the 10-12/13 episode), via a setting so other homes can choose too."]
+  measured_2026_10_17_overnight: "CONFIRMED - mechanism found (read-only, 02:00-02:06 CDT; HA recorder + URA DB anomaly_log + code). (1) The verifier's 'local witness' for the reserve is _local_entity_for -> battery._get_entity('reserve_soc_number', role='read') (energy_write_verify.py:369-409), which resolves to the configured energy_reserve_soc_entity = number.enpower_482348004678_reserve_battery_level. Over the whole 8-day recorder window that entity has ONLY ever read 10.0 or unavailable (55 + 52 rows), while the real reserve went 5..99 (cloud number.iq_battery_hacs_battery_reserve and sensor.envoy_482543015950_reserve_battery_level both show 5,6,7,8,...,80,90,99). URA DB: every write_local_witness_divergence row on reserve_soc since 2026-08-05 reads local_seen=10.0 (3,647 rows), and 3,142 rows 07-18..08-04 read 61.0 - the entity has been frozen for ~3 months. Every reserve pending_write_stuck row since 10-01 has oracle_seen=10.0 (attempt-3 CRITICAL on 13 of 16 days, including 10-17 07:02Z tonight). The docstring at energy_write_verify.py:1555 says the honest witness is sensor.envoy_*_reserve_battery_level; the code reads the number instead (doc/code mismatch). (2) O-3 explained: 10-14 cloud went 90 at 15:47:36, sensor.envoy reserve 90 at 15:48:22; the watchdog compared against the frozen number (10.0), saw divergence, fired attempts at 16:02/16:22/16:52 CDT (anomaly_log 21:02/21:22/21:52Z, hw_witness=envoy_reserve_battery_level, oracle_seen 10.0) and a CRITICAL 'Pending write stuck' page. (3) O-4 PARTLY explained: 09:08-15:47 CDT the cloud number reported 6.0 with NO state update for 6.5 h (cloud last_success ticked every minute), while sensor.envoy reserve went 6->8 (10:02) ->10 (10:18). The 49 sends of 10 were judged against the stale cloud value (write_verification_failed / write_reverted oracle_seen 6.0, self_heal_starvation). The battery was charging on solar the whole time (SOC 7->52 by 12:45), so behaviour cannot say whether 6 or 10 was enforced; the gateway sensor says 10. (4) Cross-check vs EC-RESERVE-CLOUD-DIVERGENCE-1 (10-12/13, cloud was RIGHT at 14): sensor.envoy reserve read 14 there too (10-11 10:06 -> 10-13 14:18), so this sensor matched ground truth in both episodes; it was the frozen NUMBER that misled. Prior-art: no existing card (swept board + history for frozen/witness/pending_write_stuck); CONF_ENERGY_STREAM_COWITNESS_ENTITY (energy_const.py:337) is the SOC co-witness, not reusable for reserve. Config-first: NO - energy_reserve_soc_entity is also the local write-fallback target (energy_battery.py:842-846 / :868-877), so pointing it at a sensor would break fallback writes."
+  links: {"related": ["EC-RESERVE-CLOUD-DIVERGENCE-1", "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "PERIMETER-ALERT-VOLUME-FATIGUE-1", "EC-OBSERVATION-MODE-RESERVE-BYPASS-1"], "context": "EC-RESERVE-CLOUD-DIVERGENCE-1 is the 10-12/13 episode where the frozen number also misled (it said 10 while the battery obeyed 14); EC-ENPHASE-CONNECTIVITY-RESILIENCE-1's 10-03 'stand-down' evidence ('hardware reports 10.0') is this same frozen witness, not cloud-path health; the false CRITICAL pages add to alert fatigue; the observation-mode card gates the same force_redispatch path."}
   origin: 'Ground-truth audit 2026-10-16.'
   related: [EC-RESERVE-CLOUD-DIVERGENCE-1]
-  next: 'After governor ships, use dispatch rows to trace; check against EC-RESERVE-CLOUD-DIVERGENCE-1 (Enphase pending-write episode).'
+  parsimony: {problem: "The reserve write checker compares every command against number.enpower_*_reserve_battery_level, which has been frozen at 10.0 since 2026-08-05, so every non-10 reserve triggers 3 redundant re-sends, a stand-down and a CRITICAL page.", verdict: "BUILD (small), but the witness choice is a PICK"}
+  knobs: ["CONF_ENERGY_RESERVE_WITNESS_ENTITY (rung 2 options-flow entity selector; per-home hardware wiring; blank = today's behaviour)"]
+  next: "PICK: (A) add a 'reserve witness' entity setting (options flow, blank = today's behaviour) and set it here to sensor.envoy_482543015950_reserve_battery_level (my recommendation: explicit, works for other homes, reversible by blanking); or (B) hard-code the verifier to prefer the envoy reserve_battery_level sensor; or (C) turn the reserve pending watchdog off until A/B ships (stops the false pages tonight, loses real stuck-write detection). -> On A/B I plan it (one plan review), build to review with 2 reviews, you deploy. Energy reserve verification sits in the 'we cannot fuck this up' arc, so I did not build it unattended."
+  rank: {value: 7, time_criticality: 5, effort: 5}
 - id: EC-RESERVE-WRITE-GOVERNOR-1
   reviews_2026_10_16: 'Code reviews: A SHIP, B SHIP (log_activity goes through _write_queue, settled), D FIX-REQUIRED small: D-1 lint misses mixed positional/keyword async_call; D-2 optimizer can write the reserve via variable-domain service (optimization.py:4606/:4749), no row, only operator deny list + ±20% clamp (not live: OC in shadow); D-4 FAILED row poisons change-gate memo; D-3 + B-L2 known limits. Fix-up after review C: D-1, D-4, D-2 hard reserve-entity deny in optimizer, document D-3/B-L2.'
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
@@ -392,6 +419,7 @@ cards:
   next: 'Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.'
   rank: {value: 7, time_criticality: 5, effort: 5}
 - id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  correction_2026_10_17_overnight: "CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_level, frozen at 10.0 since 2026-08-05 (3,647 witness-divergence rows all 10.0). Those stand-downs are false positives; see EC-SELFHEAL-UNEXPLAINED-RESENDS-1. Do not cite them as evidence for this card."
   approved_by: "operator 2026-10-15 22:32 CDT (board instruct: 'Check for relevance then approve'; relevance confirmed overnight 10-16)"
   approval: "explicit"
   relevance_check_2026_10_16_overnight: "Operator asked 'Check for relevance then approve'. STILL-RELEVANT, narrowed. Checked 02:0x CDT against develop: (1) the dormant local write-failover still exists (energy_battery.py:551 _write_failover_by_surface, read at :831 and energy_write_verify.py:2375) although local battery writes are gone since fw 8.2.4225 -> still real. (2) nothing in the code reads Enphase's control_change_pending, so URA still re-sends every ~15 min and pages per attempt during an Enphase pending episode -> still real; this overlaps the reserve write governor (EC-RESERVE-WRITE-GOVERNOR-1, Tier 3, building) which adds dispatch rows and a change gate, so item (2) should extend the governor, not add a second write path. (3) the stream path is OUT: ENVOY-STREAM-AB-48H-1 closed NO-GO on 10-07; remaining options are /ivp/meters or the failover-map telemetry pair. (4) token expiry alert: not checked tonight. Both old blockers are done (EC-DEGRADED-DATA-POLICY-1 live-validated v5.103.39; stream A/B closed). New gates: the 10-18 dropout re-count (operator 10-15) and the governor shipping (arc step 1). Approved per the instruction; stays pre_planning (battery commanding = Tier 3, so the plan still gets two plan reviews and an operator checkpoint before any build)."
