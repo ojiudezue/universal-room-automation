@@ -772,16 +772,34 @@ FORECAST_WINDOW_MAX_H: Final = 48
 FORECAST_FREEZE_CONFIRM_F: Final = 28
 # Frozen-precip threshold (deg F) for the winter-storm family.
 FORECAST_WINTER_STORM_CONFIRM_F: Final = 32
-# Max precip probability (%) in the window for winter-storm / convective.
+# Max precip probability (%) in the window for winter-storm (convective uses
+# FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT below, operator 2026-10-17).
 # NOT fitted: no recorded hourly PoP series exists yet (Stage 0 P1 /
 # addendum: one live sample only). 50 is the plan §7 placeholder; revisit
 # from the nws_alert ledger + OWM history once a season accrues.
 FORECAST_PRECIP_CONFIRM_PCT: Final = 50
-# Winter-storm / convective precip leg for hours whose provider has NO
+# Winter-storm AND convective precip leg for hours whose provider has NO
 # precipitation_probability (Open-Meteo carries only an amount; coordinator
 # provider policy 2026-10-16). Hourly amount (mm) treated as "precip
 # forecast". NOT fitted (no history yet); revisit with the PCT value.
 FORECAST_PRECIP_CONFIRM_MM: Final = 1.0
+# Convective family (Tornado / Severe Thunderstorm / Hurricane / Tropical
+# Storm / Extreme Wind) confirm rule. Operator 2026-10-17 (verbatim): "this is
+# storm conditions right not just rainy weather? I think the rain chance
+# should be higher and it should be storm conditions. I don't want grid buys
+# on mere rain." Convective confirms iff the window carries a STORM condition
+# AND a strong rain signal (probability >= this, else amount >=
+# FORECAST_PRECIP_CONFIRM_MM on no-probability hours). NOT fitted (no hourly
+# PoP history yet); operator-set placeholder, revisit with the PCT above.
+FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT: Final = 70
+# Storm conditions that count for the convective confirm. Operator 2026-10-17
+# ruling above; NOT fitted. Deliberately EXCLUDES "pouring" / "snowy-rainy"
+# (heavy rain is not a storm). Kept separate from weather_manager.
+# _STORM_CONDITIONS, which is shared with condition corroboration.
+FORECAST_CONVECTIVE_STORM_CONDITIONS: Final[frozenset[str]] = frozenset({
+    "lightning", "lightning-rainy", "hail", "tornado", "hurricane",
+    "exceptional",
+})
 # D-C2 forecast family per product (exact event name, case-folded at use).
 # Rung 1 (reviewed set, not a tunable): products whose hazard IS the
 # apparent temperature (wind chill / extreme cold). Their freeze-family

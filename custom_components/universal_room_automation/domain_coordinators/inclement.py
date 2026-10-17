@@ -1306,7 +1306,11 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
     winter storm: min temp <= FORECAST_WINTER_STORM_CONFIRM_F AND precip
       (probability >= FORECAST_PRECIP_CONFIRM_PCT where the hour's provider
       has it, else amount >= FORECAST_PRECIP_CONFIRM_MM).
-    convective: precip (same rule) OR a storm condition in the window.
+    convective (operator 2026-10-17: no grid buys on mere rain): a storm
+      condition (FORECAST_CONVECTIVE_STORM_CONDITIONS; excludes "pouring" /
+      "snowy-rainy") in the window AND strong precip (probability >=
+      FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT where the hour's provider has it,
+      else amount >= FORECAST_PRECIP_CONFIRM_MM). Rain alone never confirms.
     """
     if outlook is None or outlook.hours <= 0:
         return False
@@ -1315,6 +1319,8 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
         return False
     from .energy_const import (
         FORECAST_APPARENT_TEMP_PRODUCTS,
+        FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT,
+        FORECAST_CONVECTIVE_STORM_CONDITIONS,
         FORECAST_FREEZE_CONFIRM_F,
         FORECAST_PRECIP_CONFIRM_MM,
         FORECAST_PRECIP_CONFIRM_PCT,
@@ -1341,9 +1347,14 @@ def forecast_confirms(event: str | None, outlook: Outlook | None) -> bool:
             and precip_ok
         )
     if fam == "convective":
-        try:
-            from .weather_manager import _STORM_CONDITIONS
-        except Exception:  # noqa: BLE001
-            _STORM_CONDITIONS = frozenset()
-        return precip_ok or bool(outlook.conditions & _STORM_CONDITIONS)
+        convective_precip_ok = (
+            (outlook.max_pop is not None
+             and outlook.max_pop >= FORECAST_CONVECTIVE_PRECIP_CONFIRM_PCT)
+            or (outlook.max_precip_mm_no_pop is not None
+                and outlook.max_precip_mm_no_pop >= FORECAST_PRECIP_CONFIRM_MM)
+        )
+        return (
+            bool(outlook.conditions & FORECAST_CONVECTIVE_STORM_CONDITIONS)
+            and convective_precip_ok
+        )
     return False

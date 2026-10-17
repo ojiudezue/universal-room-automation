@@ -460,14 +460,23 @@ def test_outlook_aggregates_conditions_gust_and_floors_slot(wm_mod, clock):
     o2 = m.hourly_outlook(T0 + timedelta(minutes=30),
                           T0 + timedelta(hours=5, minutes=30))
     assert o2 is not None and o2.hours == 6
-    # The aggregated condition alone confirms a convective product.
+    # Operator 2026-10-17: the aggregated storm condition alone no longer
+    # confirms a convective product; it needs a strong rain signal too.
     norain = _rows(T0, 10, pop=False)
     for r in norain:
         r["condition"] = "cloudy"
     norain[1]["condition"] = "lightning"
     m2, _ = _mgr(wm_mod, clock, owm_rows=norain, om_rows=[])
     assert _forecast_confirms("Severe Thunderstorm Watch",
-                              m2.hourly_outlook(T0, T0 + timedelta(hours=5))) is True
+                              m2.hourly_outlook(T0, T0 + timedelta(hours=5))) is False
+    # Same window with a 70 % probability on every hour → confirms.
+    wet = _rows(T0, 10, pop=True)
+    for r in wet:
+        r["condition"] = "cloudy"
+    wet[1]["condition"] = "lightning"
+    m3, _ = _mgr(wm_mod, clock, owm_rows=wet, om_rows=[])
+    assert _forecast_confirms("Severe Thunderstorm Watch",
+                              m3.hourly_outlook(T0, T0 + timedelta(hours=5))) is True
 
 
 def test_refresh_hourly_serialised_by_lock(wm_mod, clock):

@@ -526,7 +526,8 @@ def test_forecast_window_capped(clock):
     ("Winter Storm Warning", ol(min_temp=33, pop=90), False),
     ("Winter Storm Warning", ol(min_temp=30, pop=None, mm=1.0), True),
     ("Winter Storm Warning", ol(min_temp=30, pop=None, mm=0.9), False),
-    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=10, cond=("lightning",)), True),
+    # Operator 2026-10-17: storm condition alone (pop 10) no longer confirms.
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=10, cond=("lightning",)), False),
     ("Severe Thunderstorm Watch", ol(min_temp=70, pop=10), False),
     ("Wind Advisory", ol(), False),
     ("Winter Storm Warning", None, False),
@@ -1598,9 +1599,9 @@ def test_full_hold_degraded_precharge_reports_envoy_unavailable(clock):
     ("Hard Freeze Warning", ol(min_temp=None, pop=90), False),
     ("Wind Chill Warning", ol(min_temp=None, pop=90), False),
     ("Hard Freeze Warning", ol(min_temp=10.0, pop=None), True),     # control
-    # inclement.py:1348 — convective confirms on precipitation alone.
-    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=50, cond=()), True),
-    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=None, mm=1.0, cond=()), True),
+    # Operator 2026-10-17 — convective NEVER confirms on precipitation alone.
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=50, cond=()), False),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=None, mm=1.0, cond=()), False),
     ("Severe Thunderstorm Watch", ol(min_temp=70, pop=None, mm=0.9, cond=()), False),
 ])
 def test_review_c_forecast_confirms_fail_closed_and_convective_precip(
@@ -1752,3 +1753,29 @@ def test_review_c_storm_guard_platform_filter(clock, monkeypatch):
                         lambda hass: SimpleNamespace(entities=ents))
     c, _ = make_shell(clock)
     assert c._storm_guard_entity() == _SG
+
+
+# ===========================================================================
+# Operator 2026-10-17: "I don't want grid buys on mere rain." Convective
+# confirms iff a STORM condition (excl. pouring / snowy-rainy) AND strong
+# rain (pop >= 70, else no-pop amount >= 1.0 mm). Literals typed by hand.
+# ===========================================================================
+@pytest.mark.parametrize("event,outlook,expected", [
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=90, cond=("rainy",)), False),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=90, cond=("pouring",)), False),
+    ("Tornado Warning", ol(min_temp=70, pop=90, cond=("snowy-rainy",)), False),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=60, cond=("lightning-rainy",)), False),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=69, cond=("lightning-rainy",)), False),
+    ("Severe Thunderstorm Watch", ol(min_temp=70, pop=70, cond=("lightning-rainy",)), True),
+    ("Tornado Watch", ol(min_temp=70, pop=None, mm=2.0, cond=("hail",)), True),
+    ("Tornado Watch", ol(min_temp=70, pop=None, mm=0.9, cond=("hail",)), False),
+    ("Tornado Watch", ol(min_temp=70, pop=None, mm=None, cond=("tornado",)), False),
+    ("Severe Thunderstorm Warning", ol(min_temp=70, pop=95, cond=("pouring", "lightning")), True),
+    # Non-convective families unchanged (pinned).
+    ("Winter Storm Warning", ol(min_temp=30, pop=50, cond=()), True),
+    ("Winter Storm Warning", ol(min_temp=30, pop=49, cond=("lightning",)), False),
+    ("Hard Freeze Warning", ol(min_temp=28, pop=None, cond=()), True),
+    ("Hard Freeze Warning", ol(min_temp=29, pop=99, cond=("lightning",)), False),
+])
+def test_convective_requires_storm_condition_and_strong_rain(event, outlook, expected):
+    assert inc.forecast_confirms(event, outlook) is expected
