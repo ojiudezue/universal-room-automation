@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T07:01:45-05:00_ - _Data commit: `5bb28f34b98f`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T07:02:43-05:00_ - _Data commit: `823a13e6ee6a`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-17T07:01:45-05:00_ - _Data commit: `5bb28f34b98f`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 2 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 12 |
@@ -322,28 +322,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
-### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
-thread: **energy** - status: **in_progress**
-_created 2026-10-16 · updated 2026-10-17 02:13 · refined_
-- **Problem / Solution:**
-  - Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager...
-- **Next:** Me (overnight 10-17): ura-builder in worktree against plan rev 2 -> validator name-diff -> 2 reviews (A correctness/edge, B lifecycle/byte-identical-when-off) -> review lane. No deploy.
-- **Parsimony:** [BUILD] With energy observation mode ON, a TOU-transition evaluate() and the write-verify pending re-send still send reserve/CFG commands to hardware.
-- **Forensic keys (9):**
-  - `freeze_fix_2026_10_17`: Rev 3 commit 054aa4927 (freeze, not reset): sweep gate is now 'if not obs: watchdog'. Tests: episode frozen across ON ticks (attempts, episode_at, standdown pin, is_pending_episode_active), stand-down pin survives ON->OFF, 0-attempt epis...
-  - `residual_LOW_B1`: Pre-existing, out of scope: if the energy observation switch's deferred restore retry also fails (coordinator still None after 5 s, switch.py:810-841) it logs a warning and gives up, so observation mode silently stays OFF across a restar...
-  - `review_B_2026_10_17`: Review B (async/lifecycle/race/cross-coord): SHIP. Boot window holds (first evaluate() seeds the period and cannot fire D1); retry ladder is inline so no queued-before-flip fire; delayed _check callbacks only page. LOW-B2 + LOW-B3 (and A...
-  - `build_2026_10_17_overnight`: Built on fix/ec-obs-mode-reserve-gate 689dba975 (base f68dcfbff; tag pre-review-ec-obs-gate). +12 energy.py (D1 gate :1400), +16/-1 energy_write_verify.py (D2 sweep gate :758 + reset, chokepoint :2351), 10 tests in quality/tests/test_ec_...
-  - `plan_review_2026_10_17`: Plan PLANNING_ec_observation_mode_reserve_gate.md rev 1 -> FIX-PLAN (3 MED, 4 LOW: DP-EVSE writes out of scope -> carded EC-OBS-DP-EVSE-1; D2 chokepoint = WriteVerifier._pending_fire_retry; OFF->ON->OFF episode spec (decided: reset episo...
-  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
-  - `tier`: 2
-  - `measured_2026_10_17_overnight`: CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManage...
-  - `related`: EC-RESERVE-WRITE-GOVERNOR-1
-
-### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **safety** - status: **in_progress** - approval: **unreviewed**
 _created 2026-10-14 19:30 · updated 2026-10-15 02:10 · initial_
 - **Origin:** 2026-10-14 - plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map
@@ -354,10 +336,29 @@ _created 2026-10-14 19:30 · updated 2026-10-15 02:10 · initial_
   - `constraint_2026_10_14`: From safety-clear review B (LOW, latent): NM smoke/CO cooldown is 2 min (const.py:3357-3358) < the new 300 s clear hold, so once hazard_type/location are wired, NM would re-page CRITICAL for a detector that already cleared. When wiring, ...
   - `operator_2026_10_15`: Operator: repeat schedule = A (today's ladder) as a setting with a default (D7, plan rev 4.2); deploy held until Sunday 10-18.
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
-### `HVAC-S10-NOTIFY-UNDELIVERED-1` - Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
+thread: **energy** - status: **review**
+_created 2026-10-16 · updated 2026-10-17 07:14 · refined_
+- **Problem / Solution:**
+  - Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager...
+- **Next:** APPROVE at the next attended deploy (HIGH risk: battery reserve behaviour, hold for operator return Sun 10-18): merge fix/ec-obs-mode-reserve-gate into develop and ship with the batch; write README with LOW-1/LOW-2 notes + live checks.
+- **Parsimony:** [BUILD] With energy observation mode ON, a TOU-transition evaluate() and the write-verify pending re-send still send reserve/CFG commands to hardware.
+- **Forensic keys (10):**
+  - `validation_2026_10_17`: Validator full-suite name-diff f68dcfbff (pre-fix base) -> 054aa4927: CLEAN. 122 failing names both sides, identical sets; passed 15,460 -> 15,471. The 14 DP/DPM/governor failures on the branch all pre-exist on the base. The builder 24-f...
+  - `freeze_fix_2026_10_17`: Rev 3 commit 054aa4927 (freeze, not reset): sweep gate is now 'if not obs: watchdog'. Tests: episode frozen across ON ticks (attempts, episode_at, standdown pin, is_pending_episode_active), stand-down pin survives ON->OFF, 0-attempt epis...
+  - `residual_LOW_B1`: Pre-existing, out of scope: if the energy observation switch's deferred restore retry also fails (coordinator still None after 5 s, switch.py:810-841) it logs a warning and gives up, so observation mode silently stays OFF across a restar...
+  - `review_B_2026_10_17`: Review B (async/lifecycle/race/cross-coord): SHIP. Boot window holds (first evaluate() seeds the period and cannot fire D1); retry ladder is inline so no queued-before-flip fire; delayed _check callbacks only page. LOW-B2 + LOW-B3 (and A...
+  - `build_2026_10_17_overnight`: Built on fix/ec-obs-mode-reserve-gate 689dba975 (base f68dcfbff; tag pre-review-ec-obs-gate). +12 energy.py (D1 gate :1400), +16/-1 energy_write_verify.py (D2 sweep gate :758 + reset, chokepoint :2351), 10 tests in quality/tests/test_ec_...
+  - `plan_review_2026_10_17`: Plan PLANNING_ec_observation_mode_reserve_gate.md rev 1 -> FIX-PLAN (3 MED, 4 LOW: DP-EVSE writes out of scope -> carded EC-OBS-DP-EVSE-1; D2 chokepoint = WriteVerifier._pending_fire_retry; OFF->ON->OFF episode spec (decided: reset episo...
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `tier`: 2
+  - `measured_2026_10_17_overnight`: CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManage...
+  - `related`: EC-RESERVE-WRITE-GOVERNOR-1
+
+### `HVAC-S10-NOTIFY-UNDELIVERED-1` - Several Custom Preset Ranges notifications are sent at LOW/MEDIUM and reach nobody under the live channel config — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **review**
 _updated 2026-10-16 02:15_
 - **Why:** Live NM: one recipient (person.oji_udezue, digest delivery, no routing matrix); pushover/imessage/whatsapp CRITICAL only, companion HIGH, lights/TTS disabled; digest rows are written only for qualifying channels. So LOW/MEDIUM S10 notifi...
