@@ -1,7 +1,7 @@
 # PLANNING — EC observation-mode gate on the CM TOU-transition path and the write-verify re-send
 
 Card: `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` · Tier 2 (2 code reviews + validator) · Arc: `ARC_energy_coordinator_resilience.md`
-Written 2026-10-17 by the overnight pass. **Rev 2** after one Tier-2 plan review (FIX-PLAN, 3 MED + 4 LOW, all folded in). Build goes to `review` only; no unattended deploy.
+Written 2026-10-17 by the overnight pass. **Rev 2** after one Tier-2 plan review (FIX-PLAN, 3 MED + 4 LOW, all folded in). **Rev 3** (post code review): D2 episode handling changed from RESET to FREEZE — see D2. Build goes to `review` only; no unattended deploy.
 
 ## Problem
 
@@ -59,7 +59,16 @@ do NOT call `_evaluate_battery()` and return no battery actions (DEBUG log once 
 - **Test:** observation mode OFF → identical to develop for the same fixture: compare the FULL `ServiceCallAction` list (service, target, data), the `_stamp_cfg_ledger` call and the `_record_reserve_dispatch` arguments — not a count (hollow-anchor class #62).
 - **Mutation:** removing the D1 gate makes the ON test fail.
 
-### D2 — gate the write-verify re-send (rev 2 after plan review)
+### D2 — gate the write-verify re-send (rev 3)
+
+> **Rev 3 change (2026-10-17, after code reviews A+B, both SHIP):** while observation mode is on the pending
+> episode is FROZEN (skip the watchdog; do NOT reset). The rev-2 reset cleared the stand-down pin and made
+> `is_pending_episode_active` False, so after OFF the `_result` leg could re-send a stuck value (Review B
+> LOW-B2), `is_reserve_verifiable` could flip True and release the blind-window EVSE guard (LOW-B3), and the
+> overlapping write_reverted / self_heal_starvation alarms re-enabled while on (Review A LOW-1). Freezing
+> keeps those protections; the existing ladder-spacing gate (≥ attempt-1 age between attempts) still
+> prevents back-to-back retries when the mode turns off. The rev-2 text below is superseded on this point.
+
 Two gates, both in `energy_write_verify.py`:
 1. In `reversion_sweep` (`:726`), when `self._coord._observation_mode` is True, skip
    `_pending_watchdog_reserve` (no anomalies, no NM page, no retry) AND call
