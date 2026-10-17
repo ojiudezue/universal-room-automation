@@ -125,6 +125,22 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1
+  title: "Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time)"
+  thread: energy
+  status: "investigating"
+  tier: 2
+  created: "2026-10-17 16:00"
+  updated: "2026-10-17 16:00"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "E2-P probe found 0 nws_alert ledger rows; ura-prober confirmed BROKEN: sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts held Wind Advisory IDs d39a0907... and 7be42762... from ship (10-16 19:45Z) to 00:00Z; ura_activity_log has 0 nws_alert/grid_outage/inclement_code_drift rows ever, while 137 energy rows (anomaly, reserve_write) wrote in the same window."}
+  why: "The ledger is the evidence base for every storm-threshold revisit (E2-P revival trigger, forecast-threshold fit, outage correlation). All failures on the path are swallowed at DEBUG (energy.py:9265, energy_outage_ledger.py:217/179, database.py:6290), so a dead producer is invisible: Bug Class computed-but-not-consumed + silent failure. Static read found no defect (prober)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1"}
+  live_2026_10_17: "Orchestrator set logger debug on domain_coordinators.energy_outage_ledger and domain_coordinators.energy (runtime only, resets on restart); revert after capture."
+  next: "Me: ura-builder reproduces with the real Database (temp sqlite) + the recorded 10-16 Alerts payload through EnergyCoordinator._outage_ledger_tick -> find the failing gate, fix, add a trip-wire (WARNING/NM when an alert is present and no row is written), test that drives the live wiring."
+  rank: {value: 6, time_criticality: 5, effort: 3}
 - id: EC-STORM-PRODUCT-SELECTION-EXTERNAL-1
   operator_2026_10_17_plan_go: "Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: \"Agree with all recs\" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capped partial (yes), OQ-3a NWS Onset anchor now + E2-P decides this cycle (yes), OQ-3b if GO later hold for watches only (yes), OQ-4 enable grid pre-charge after Stage E ships, OQ-5 Q7 stands, OQ-6 50 pp/h + 1 h margin, OQ-7 hold through last top-rate block pre-buy (yes). Plus 10-17 ruling: buy in the cheapest hours just before the event, higher rate only if unavoidable, reuse TOU helpers. Build dispatched to ura-super-builder; Tier-3 operator checkpoint before deploy still applies."
   title: "Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table"

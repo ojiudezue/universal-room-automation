@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T14:59:11-05:00_ - _Data commit: `fa7e1ffe2b06`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T15:11:45-05:00_ - _Data commit: `56654b582ee8`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-17T14:59:11-05:00_ - _Data commit: `fa7e1ffe2b06`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 2 |
@@ -26,10 +26,21 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#1 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1` - Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time) — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **energy** - status: **investigating** - approval: **unreviewed**
+_created 2026-10-17 16:00 · initial_
+- **Origin:** 2026-10-17 - E2-P probe found 0 nws_alert ledger rows; ura-prober confirmed BROKEN: sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts held Wind Advisory IDs d39a0907... and 7be42762... from ship (10-16 19:45Z) to 00:00Z; ura_activi...
+- **Why:** The ledger is the evidence base for every storm-threshold revisit (E2-P revival trigger, forecast-threshold fit, outage correlation). All failures on the path are swallowed at DEBUG (energy.py:9265, energy_outage_ledger.py:217/179, datab...
+- **Next:** Me: ura-builder reproduces with the real Database (temp sqlite) + the recorded 10-16 Alerts payload through EnergyCoordinator._outage_ledger_tick -> find the failing gate, fix, add a trip-wire (WARNING/NM when an alert is present and no ...
+- **Forensic keys (3):**
+  - `tier`: 2
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `live_2026_10_17`: Orchestrator set logger debug on domain_coordinators.energy_outage_ledger and domain_coordinators.energy (runtime only, resets on restart); revert after capture.
+
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **presence** - status: **investigating** - approval: **implied**
 _created 2026-09-27 02:50 · updated 2026-10-17 07:25 · refined ×2_
 - **Problem / Solution:**
