@@ -995,3 +995,10 @@ embeds the drifting value (§3).
   `manager.py:1079` passes them through; add a D4-style NM round-trip test that
   asserts `_re_evaluate_hazard` returns True while the hazard is active and False
   after clear. Prerequisite (§4-G `is_hazard_active` rewrite) ships in THIS cycle.
+  **Update 2026-10-15: BUILT** as SAFETY-NM-REFIRE-UNWIRED-1 (branch
+  `feature/safety-nm-refire`; ships in the next release, version stamped at
+  deploy). See `docs/planning/PLANNING_safety_nm_refire.md` Rev 4/4.1: D1 wires
+  `hazard_type`/`location`, D2 makes `is_hazard_active` hold-aware (post-ACK
+  gate only), D6 sorts the flooding location. The plan's D5 (stop the unacked
+  repeat loop on clear) was WITHDRAWN — unacked life-safety alerts
+  latch until acked; `_repeat_alert` is unchanged.

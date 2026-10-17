@@ -247,8 +247,19 @@ def test_extras_promote_cadence_end_to_end():
         NM_REPEAT_INTERVAL_NON_LIFE_SAFETY,
     )
 
+    # Flush the knob cache of the _nm_cycle_a module NM actually calls (an
+    # earlier test file may have re-exec'd _nm_cycle_a, leaving the module-
+    # level `invalidate_knob_cache` import bound to a different object).
+    _nm_invalidate = NotificationManager._repeat_interval_for_active_alert.__globals__[
+        "is_life_safety_hazard"
+    ].__globals__["invalidate_knob_cache"]
+
+    def _flush():
+        invalidate_knob_cache()
+        _nm_invalidate()
+
     # Baseline: overheat is non-life-safety with empty extras.
-    invalidate_knob_cache()
+    _flush()
     hass_base = _hass_with_extras([])
     # Splice the _make_hass fixture attributes NM needs onto our fake.
     src = _make_hass()
@@ -260,7 +271,7 @@ def test_extras_promote_cadence_end_to_end():
     assert nm._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_NON_LIFE_SAFETY
 
     # Promote overheat via extras and re-check.
-    invalidate_knob_cache()
+    _flush()
     hass_promoted = _hass_with_extras(["overheat"])
     for attr in ("services", "data", "bus", "loop"):
         if hasattr(src, attr):
@@ -269,8 +280,9 @@ def test_extras_promote_cadence_end_to_end():
     nm2._active_alert_data = {"hazard_type": "overheat"}
     assert nm2._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
 
-    # Base member unchanged.
-    nm2._active_alert_data = {"hazard_type": "smoke"}
+    # Base member unchanged. (D7: smoke now follows the smoke/CO/flood
+    # schedule, default ladder; intruder is the base member that stays 30 s.)
+    nm2._active_alert_data = {"hazard_type": "intruder"}
     assert nm2._repeat_interval_for_active_alert() == NM_REPEAT_INTERVAL_LIFE_SAFETY
 
 

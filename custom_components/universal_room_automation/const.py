@@ -3438,6 +3438,33 @@ NM_REPEAT_PHASE1_WINDOW_S: Final = 3600
 NM_REPEAT_PHASE2_S: Final = 1800
 NM_REPEAT_DAILY_AFTER_S: Final = 86400
 
+# SAFETY-NM-REFIRE-UNWIRED-1 D7 (plan Rev 4.2 + orchestrator ruling): the
+# "Smoke, CO and flood repeat schedule". Rung 2 (options-flow select, CM "Quiet
+# Hours" step); read live via NM._refresh_config. Unknown/missing -> standard.
+# Applies ONLY to NM_SCHEDULED_LIFE_SAFETY_HAZARDS; every other life-safety
+# token (intruder, operator extras) keeps NM_REPEAT_INTERVAL_LIFE_SAFETY (30 s).
+#   standard  : the ladder above (PHASE1_S / PHASE1_WINDOW_S / PHASE2_S /
+#               DAILY_AFTER_S) — same as non-life-safety CRITICALs.
+#   fast_start: NM_REPEAT_FAST_START_S for the first
+#               NM_REPEAT_FAST_START_WINDOW_S of unacked age, then standard.
+#   urgent    : NM_REPEAT_INTERVAL_LIFE_SAFETY (30 s) until acknowledged.
+CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE: Final = "nm_life_safety_repeat_schedule"
+# Safety-Coordinator life-safety tokens (smoke, CO, flooding, water_leak,
+# freeze_risk) + "fire": a Safety HazardType token sharing smoke's cooldown
+# key; not emitted today, but if it ever is it must page like smoke.
+# Review B-HIGH-1: plus water_leak + freeze_risk — every life-safety token
+# Safety emits (ROC humidity-rise water_leak reaches CRITICAL at z>=5).
+NM_SCHEDULED_LIFE_SAFETY_HAZARDS: Final = frozenset({
+    "smoke", "carbon_monoxide", "flooding", "fire", "water_leak", "freeze_risk",
+})
+NM_LIFE_SAFETY_SCHEDULE_STANDARD: Final = "standard"
+NM_LIFE_SAFETY_SCHEDULE_FAST_START: Final = "fast_start"
+NM_LIFE_SAFETY_SCHEDULE_URGENT: Final = "urgent"
+DEFAULT_NM_LIFE_SAFETY_REPEAT_SCHEDULE: Final = NM_LIFE_SAFETY_SCHEDULE_STANDARD
+# Rung 1: fast-start shape is a reviewed safety-cadence contract.
+NM_REPEAT_FAST_START_S: Final = 60
+NM_REPEAT_FAST_START_WINDOW_S: Final = 600
+
 # FIX 5: per-person safe words + ack-authority.
 # (a) Per-person safe word — optional field on each entry in
 # CONF_NM_PERSONS. Empty/absent → the person uses CONF_NM_SAFE_WORD

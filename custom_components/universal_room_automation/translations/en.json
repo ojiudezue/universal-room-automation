@@ -1579,6 +1579,7 @@
           "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
           "nm_quiet_manual_start": "Manual Quiet Start Time",
           "nm_quiet_manual_end": "Manual Quiet End Time",
+          "nm_life_safety_repeat_schedule": "Smoke, CO and flood repeat schedule",
           "nm_safe_word": "Safe Word (for CRITICAL alert acknowledgment)",
           "nm_silence_duration": "Silence Duration (minutes)"
         },
@@ -1586,6 +1587,7 @@
           "nm_quiet_use_house_state": "When enabled, quiet hours activate automatically when house state is SLEEP or HOME_NIGHT. Disable to use manual time window.",
           "nm_quiet_manual_start": "Start time for manual quiet hours (used when house state mode is off).",
           "nm_quiet_manual_end": "End time for manual quiet hours.",
+          "nm_life_safety_repeat_schedule": "How often an unacknowledged smoke, CO, flood, water-leak or freeze alert repeats until someone acknowledges it. Intruder alerts and any hazard types you added as extra life-safety types always repeat every 30 seconds.",
           "nm_safe_word": "A shared household secret word (min 4 chars) required to acknowledge CRITICAL alerts via text reply. Never sent in notifications.",
           "nm_silence_duration": "How long 'silence' command suppresses non-CRITICAL alerts. Default: 30 minutes."
         }
@@ -1679,7 +1681,7 @@
           "nm_person_hazard_overrides": "Structured mapping: {person_id: {hazard_type: {SEVERITY: {channel: true/false}}}}. Overrides the base matrix for a specific hazard (smoke, co, water_leak, etc.).",
           "nm_person_dnd_bypass_severities": "Structured mapping: {person_id: [SEVERITY, ...]}. Severities in the list bypass Do-Not-Disturb for that person.",
           "nm_mute_default_duration_minutes": "Default duration a mute button silences NM if the operator does not choose a length. Range 0-1440 minutes.",
-          "nm_extra_life_safety_hazards": "Additional hazard types (beyond the built-in rung-1 set) to treat as life-safety. Purely additive — cannot remove built-ins. Leave empty for defaults."
+          "nm_extra_life_safety_hazards": "Additional hazard types (beyond the built-in rung-1 set) to treat as life-safety. Purely additive — cannot remove built-ins. Leave empty for defaults. This also applies to Safety Coordinator alerts: a promoted type bypasses quiet hours and mutes at HIGH or above and repeats every 30 seconds until acknowledged."
         }
       },
       "signal_responses": {
@@ -2466,6 +2468,13 @@
     }
   },
   "selector": {
+    "nm_life_safety_repeat_schedule": {
+      "options": {
+        "standard": "Standard (recommended) — every 5 min for the first hour, then every 30 min, then daily",
+        "fast_start": "Fast start — every minute for the first 10 minutes, then Standard",
+        "urgent": "Urgent — every 30 seconds until acknowledged"
+      }
+    },
     "night_light_sleep_hue": {
       "options": {
         "red": "Red (recommended)",

@@ -200,6 +200,7 @@ def _load_ns() -> dict:
         "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES",
         "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES",
         "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS",
+        "_CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE",
     ]
     # Real string values for the D1-added ROOM allowlist keys — used by
     # behavioral tests that assert on specific key identities.

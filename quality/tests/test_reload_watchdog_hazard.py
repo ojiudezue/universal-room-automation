@@ -316,6 +316,7 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES",
             "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES",
             "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS",
+            "_CONF_NM_LIFE_SAFETY_REPEAT_SCHEDULE",
             # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) —
             # climate-step LIVE + REFRESHED-with-coverage keys promoted
             # into _ROOM_SUPPRESS_KEYS. String identity is irrelevant to
