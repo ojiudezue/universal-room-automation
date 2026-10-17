@@ -351,10 +351,24 @@ class _Bat:
 
 
 def _watch():
+    # EC storm Stage E (expected diff, §4.2 / INV-7(c)): a `watch` tier is only
+    # ever produced WITH its active watch record (AlertClassifier.classify
+    # derives `tier` from the active records); corroboration now requires a
+    # corroborable record, so the fixture carries the real table watch.
+    from custom_components.universal_room_automation.domain_coordinators.inclement import (
+        AlertRecord,
+    )
+    rec = AlertRecord(
+        alert_id="sva", event="Severe Thunderstorm Watch", code=None,
+        cls="watch", tier="watch", polygon_local=False,
+        precharge_eligible=False, start=_INC_NOW.replace(hour=17),
+        end=_INC_NOW.replace(hour=19, minute=30),
+    )
     return AlertClassification(
         tier="watch", contributing_events=("Severe Thunderstorm Watch",),
         max_severity="Severe", max_certainty="Possible",
         expires_at=_INC_NOW.replace(hour=19, minute=30), raw_alert_count=1,
+        hold_alerts=(rec,), active_alerts=(rec,),
     )
 
 

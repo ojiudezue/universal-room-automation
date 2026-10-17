@@ -206,13 +206,20 @@ class OutageLedger:
         decision_age_s: float | None,
         soc: Any,
         local_readings: dict[str, bool | None],
+        selection: Any = None,
     ) -> None:
-        """Run the per-tick ledger. Never raises."""
+        """Run the per-tick ledger. Never raises.
+
+        Stage E §4.1: ``selection`` (the operator alert selection, built by
+        the caller from the live CM options) overlays ``ura_class`` /
+        ``ura_tier``; None = zero overrides (the table)."""
         try:
             if not self._alerts_seeded:
                 self._ensure_alert_seed()
             if self._alerts_seeded:
-                self._record_alerts(now, alerts, nws_entity, decision_age_s)
+                self._record_alerts(
+                    now, alerts, nws_entity, decision_age_s, selection,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("ledger: nws_alert pass failed", exc_info=True)
         snap = self._decision_snapshot(decision, decision_age_s)
@@ -246,7 +253,7 @@ class OutageLedger:
 
     def _record_alerts(
         self, now: datetime, alerts: Any, nws_entity: str | None,
-        decision_age_s: float | None,
+        decision_age_s: float | None, selection: Any = None,
     ) -> None:
         if not isinstance(alerts, list):
             return  # unavailable / not configured: no rows, no pruning
@@ -268,7 +275,7 @@ class OutageLedger:
             try:
                 from .inclement import _effective_tier, match_product
                 from .energy_const import INCLEMENT_POINT_FEED_POLYGON_EXACT
-                _row, _ = match_product(alert)
+                _row, _, _ = match_product(alert, selection)
                 if _row is not None:
                     _cls, _tier = _row[2], _effective_tier(_row)
                     if _row[3]:

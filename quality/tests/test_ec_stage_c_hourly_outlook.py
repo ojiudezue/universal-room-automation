@@ -186,6 +186,9 @@ def test_celsius_provider_converted(wm_mod, clock):
     o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
     assert o.min_temp_f == pytest.approx(23.0)
     assert _forecast_confirms("Hard Freeze Watch", o) is True
+    # Stage E E0: the current NWS freeze products confirm on air temp.
+    assert _forecast_confirms("Freeze Warning", o) is True
+    assert _forecast_confirms("Freeze Watch", o) is True
 
 
 def test_winter_storm_confirms_by_amount_when_no_probability(wm_mod, clock):
@@ -289,6 +292,11 @@ def test_apparent_temperature_aggregated(wm_mod, clock):
     assert _forecast_confirms("Extreme Cold Watch", o) is True
     # Hard Freeze is an AIR-temperature product: 30 °F air does not confirm.
     assert _forecast_confirms("Hard Freeze Warning", o) is False
+    # Stage E E0: Freeze Warning / Freeze Watch are AIR-temperature products
+    # too; Cold Weather Advisory (Wind Chill Advisory successor) is apparent.
+    assert _forecast_confirms("Freeze Warning", o) is False
+    assert _forecast_confirms("Freeze Watch", o) is False
+    assert _forecast_confirms("Cold Weather Advisory", o) is True
 
 
 def test_apparent_temperature_celsius_converted(wm_mod, clock):

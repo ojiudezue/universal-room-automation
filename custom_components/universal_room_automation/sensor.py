@@ -9391,6 +9391,8 @@ class InclementStateSensor(AggregationEntity, SensorEntity):
             "inclement_polygon_topup_active": status.get("inclement_polygon_topup_active"),
             "inclement_buy_forecast": status.get("inclement_buy_forecast"),
             "inclement_forecast": status.get("inclement_forecast"),
+            # EC storm Stage E E1.7 (display only).
+            "inclement_selection": status.get("inclement_selection"),
         }
 
 

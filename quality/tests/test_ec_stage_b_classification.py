@@ -138,11 +138,13 @@ def test_freeze_products_hold():
     c = classify([hfa], now)
     assert c.tier == "watch"
     assert f.decide(None, c, False, 0, "off_peak", now, 50).hold_depth == "partial_hold"
-    assert classify([fzw], now).tier == "notice"
-    # Exact name, not substring: "Freeze Warning" (no code) must not match
-    # the "Hard Freeze Warning" row.
+    # Stage E E0 (expected diff): Freeze Warning notice -> watch.
+    assert classify([fzw], now).tier == "watch"
+    # Exact name, not substring: "Freeze Warning" (no code) must match its
+    # own row (watch), not the "Hard Freeze Warning" row (warn).
     fzw_name = alert("Freeze Warning", onset=T(16, 0), ends=T(16, 10))
-    assert classify([fzw_name], now).tier == "notice"
+    assert classify([fzw_name], now).tier == "watch"
+    assert classify([fzw_name], now).hold_alerts[0].event == "Freeze Warning"
     c = classify([flood], now)
     assert c.tier == "none" and "Flood Watch" in c.gated_out_events
     assert classify([wsw_name_only], now).tier == "warn"

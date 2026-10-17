@@ -181,9 +181,14 @@ def drain():
         loop.run_until_complete(asyncio.sleep(0))
 
 
-# Base pre-onset scenario: Oct 16 03:00 (bottom rate), WSW Onset 15:00.
+# Base pre-onset scenario: Oct 16 03:00 (bottom rate), WSW Onset 05:00.
+# Stage E (expected diff, INV-9): was Onset 15:00 (12 h ahead). A D-B6 buy
+# now fires only in the frozen schedule S = the h_req cheapest slots closest
+# to Onset; with SOC 40 -> target 80, h_req = 2 -> S = {03:00, 04:00}, so a
+# 2 h-ahead Onset keeps every "buy at NOW" assertion meaningful. The 12 h
+# case is pinned by the Stage E INV-8/INV-9 tests.
 NOW = T(16, 3)
-WSW = alert("Winter Storm Warning", sent=T(16, 2), onset=T(16, 15),
+WSW = alert("Winter Storm Warning", sent=T(16, 2), onset=T(16, 5),
             ends=T(17, 3), id_="wsw")
 
 
@@ -205,7 +210,10 @@ def test_precharge_eligible_column_values():
         "Tropical Storm Warning": False, "Tropical Storm Watch": False,
         "Wind Advisory": False, "High Wind Warning": False,
         "High Wind Watch": False, "Winter Weather Advisory": False,
-        "Freeze Warning": False, "Wind Chill Advisory": False,
+        # Stage E E0 (expected diff): Freeze Warning False -> True; Freeze
+        # Watch added (True).
+        "Freeze Warning": True, "Freeze Watch": True,
+        "Wind Chill Advisory": False,
         "Cold Weather Advisory": False,
     }
     got = {row[1]: row[4] for row in INCLEMENT_PRODUCT_TABLE}
@@ -577,7 +585,11 @@ def test_preonset_floor_none_outside_lead(clock):
     tick(clock, c, s, T(16, 8, 59))                   # 12 h 01 min ahead
     assert s._last_inclement_decision.preonset_floor is None
     tick(clock, c, s, T(16, 9, 0))                    # exactly 12 h: in
-    assert s._last_inclement_decision.preonset_floor == 80
+    # Stage E (expected diff, ref = TARGET): at 4-12 h the VALUE is set and
+    # the floor is NOT registered (INV-8: from T - 4 h with no buy).
+    assert s._last_inclement_decision.preonset_target == 80
+    assert s._last_inclement_decision.preonset_floor is None
+    assert s._tick_reserve_floor is None
 
 
 def test_preonset_lead_zero_disables(clock, monkeypatch):
@@ -593,7 +605,9 @@ def test_preonset_lead_zero_disables(clock, monkeypatch):
 
 
 def test_preonset_watch_floor_uncorroborated(clock):
-    wsa = alert("Winter Storm Watch", onset=T(16, 9), ends=T(17, 9), id_="wsa")
+    # Stage E (expected diff): Onset 09:00 -> 05:00 (inside the floor lead and
+    # the buy schedule), so the registered floor and the buy stay observable.
+    wsa = alert("Winter Storm Watch", onset=T(16, 5), ends=T(17, 9), id_="wsa")
     c, s, _ = bshell(clock, NOW, alerts=[wsa], outlook=None)
     d = tick(clock, c, s, NOW)
     assert s._last_inclement_decision.preonset_floor == 50
@@ -629,7 +643,9 @@ def test_preonset_polygon_excluded(clock):
 
 def test_preonset_partial_hold_takes_max(clock):
     wsa = _active("Winter Storm Watch", NOW, id_="wsa")      # partial 50
-    wsw = alert("Winter Storm Warning", onset=NOW + timedelta(hours=10),
+    # Stage E (expected diff): Onset +10 h -> +3 h (the floor registers from
+    # T - 4 h with no buy; at +10 h only the value is set).
+    wsw = alert("Winter Storm Warning", onset=NOW + timedelta(hours=3),
                 ends=NOW + timedelta(hours=20), id_="wsw")
     c, s, _ = bshell(clock, NOW, alerts=[wsa, wsw], option=False)
     tick(clock, c, s, NOW)
@@ -647,7 +663,7 @@ def _gate_case(clock, case):
     outlook = ol()
     pre_tick = None
     if case == "ineligible":
-        alerts = [alert("Severe Thunderstorm Watch", onset=T(16, 9),
+        alerts = [alert("Severe Thunderstorm Watch", onset=T(16, 5),
                         ends=T(17, 3), id_="sva")]
         outlook = ol(cond=("lightning",))
     elif case == "option_off":
@@ -668,7 +684,7 @@ def _gate_case(clock, case):
     elif case == "fully_blind":
         blind = True
     elif case == "uncorroborated_watch":
-        alerts = [alert("Winter Storm Watch", onset=T(16, 9), ends=T(17, 3),
+        alerts = [alert("Winter Storm Watch", onset=T(16, 5), ends=T(17, 3),
                         id_="wsa")]
         outlook = None
     elif case == "arbitrage_charge":
@@ -678,7 +694,13 @@ def _gate_case(clock, case):
     elif case == "forecast_unconfirmed":
         outlook = None
     elif case == "degraded_stale":
-        alerts = [alert("Winter Storm Warning", onset=T(16, 13), ends=T(17, 3),
+        # Stage E: Onset 04:00 so the decision tick (02:29) is in S.
+        alerts = [alert("Winter Storm Warning", onset=T(16, 4), ends=T(17, 3),
+                        id_="wsw")]
+    elif case == "hour_not_in_schedule":
+        # Stage E INV-9 refusal: every other gate passes, but 03:00 is not
+        # one of the cheapest slots closest to a 15:00 Onset ({13:00, 14:00}).
+        alerts = [alert("Winter Storm Warning", onset=T(16, 15), ends=T(17, 3),
                         id_="wsw")]
     c, s, _ = bshell(clock, now, alerts=alerts, outlook=outlook, **kw)
     if pre_tick:
@@ -705,7 +727,7 @@ def _gate_case(clock, case):
 _REFUSALS = ["ineligible", "option_off", "not_bottom", "soc_at_floor",
              "solar_closes", "fully_blind", "uncorroborated_watch",
              "degraded_stale", "arbitrage_charge", "attain_charging",
-             "forecast_unconfirmed"]
+             "forecast_unconfirmed", "hour_not_in_schedule"]
 
 
 @pytest.mark.parametrize("case", _REFUSALS)
@@ -715,8 +737,11 @@ def test_preonset_precharge_gates(clock, case):
     assert dec.reason != "classify_error"
     assert not preonset_emitted(d)
     assert not any(a["service"] == "switch.turn_on" for a in d["actions"])
-    # The floor is still registered in every case.
-    assert dec.preonset_floor is not None and s._tick_reserve_floor is not None
+    # Stage E (expected diff, ref = TARGET): the VALUE is set in every case;
+    # the floor is registered wherever Onset is inside the 4 h floor lead.
+    assert dec.preonset_target is not None
+    if case not in ("not_bottom", "hour_not_in_schedule"):
+        assert dec.preonset_floor is not None and s._tick_reserve_floor is not None
 
 
 def test_preonset_precharge_gates_positive_control(clock):
@@ -757,7 +782,9 @@ def test_preonset_negatives_not_classify_error(clock):
     assert s._last_inclement_decision.reason != "classify_error"
     assert s._last_inclement_decision.preonset_floor is None
     tick(clock, c, s, NOW + timedelta(hours=9))
-    assert s._last_inclement_decision.preonset_floor == 80
+    # Stage E (expected diff, ref = TARGET): 11 h ahead -> value only.
+    assert s._last_inclement_decision.preonset_target == 80
+    assert s._last_inclement_decision.preonset_floor is None
 
 
 def test_preonset_precharge_routes_through_result(clock):
@@ -774,7 +801,7 @@ def test_preonset_reason_local_time_and_event(clock):
     c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
     d = tick(clock, c, s, NOW)
     assert d["reason"].startswith(
-        "Inclement pre-onset (Winter Storm Warning, onset 15:00) — pre-charging"
+        "Inclement pre-onset (Winter Storm Warning, onset 05:00) — pre-charging"
     )
 
 
@@ -814,7 +841,10 @@ def test_preonset_precharge_reached_never_reengages(clock):
     d = tick(clock, c, s, T(16, 3, 10), soc="40")
     assert not preonset_emitted(d)
     # A second alert with a different ID is evaluated independently.
-    wsw2 = alert("Winter Storm Warning", onset=T(16, 14), ends=T(17, 3), id_="wsw2")
+    # Stage E fix-up (expected diff): same Event + overlapping window is now an
+    # NWS Update (carry-over keeps "reached"); an independent alert is a
+    # different product.
+    wsw2 = alert("Ice Storm Warning", onset=T(16, 5), ends=T(17, 3), id_="wsw2")
     feed(c, [wsw2])
     d = tick(clock, c, s, T(16, 3, 15), soc="40")
     assert preonset_emitted(d)
@@ -890,7 +920,8 @@ def test_preonset_solar_minutes_lead_48(clock, monkeypatch):
 
 
 def test_preonset_blind_hold_and_release(clock):
-    wsw = alert("Winter Storm Warning", onset=T(16, 11), ends=T(17, 3), id_="wsw")
+    # Stage E: Onset 11:00 -> 05:00 (registered floor inside the 4 h lead).
+    wsw = alert("Winter Storm Warning", onset=T(16, 5), ends=T(17, 3), id_="wsw")
     c, s, _ = bshell(clock, NOW, alerts=[wsw], hw="0")
     d = tick(clock, c, s, NOW, blind=True)
     assert d["envoy_available"] is False
@@ -901,7 +932,7 @@ def test_preonset_blind_hold_and_release(clock):
         _st(c.hass, eid, "80", unit="%")
     d = tick(clock, c, s, T(16, 3, 5), blind=True)
     assert sets(d) == []
-    cancel = alert("Winter Storm Warning", type_="Cancel", onset=T(16, 11),
+    cancel = alert("Winter Storm Warning", type_="Cancel", onset=T(16, 5),
                    ends=T(17, 3), id_="wsw-c")
     feed(c, [cancel])
     d = tick(clock, c, s, T(16, 3, 10), blind=True)
@@ -949,11 +980,25 @@ def test_inclement_preonset_attr_shape(clock):
     c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
     tick(clock, c, s, NOW)
     a = s._inclement_attrs()
+    # Stage E (expected diff): new exact dict (value, active, floor_from,
+    # buy_hours, event_time, event_time_source + the existing keys).
     assert a["inclement_preonset"] == {
-        "floor": 80, "start": "2026-10-16T15:00:00-05:00",
+        "floor": 80, "active": True,
+        "floor_from": "2026-10-16T01:00:00-05:00",
+        "buy_hours": ["2026-10-16T03:00:00-05:00", "2026-10-16T04:00:00-05:00"],
+        "event_time": "2026-10-16T05:00:00-05:00", "event_time_source": "onset",
+        "start": "2026-10-16T05:00:00-05:00",
         "event": "Winter Storm Warning", "class": "warn",
         "precharge": True, "latch": "engaged",
     }
+    # 4-12 h ahead: the attr is non-null with active False (value only).
+    far = alert("Winter Storm Warning", onset=T(16, 13), ends=T(17, 3), id_="far")
+    c2, s2, _ = bshell(clock, NOW, alerts=[far], outlook=None)
+    tick(clock, c2, s2, NOW)
+    p2 = s2._inclement_attrs()["inclement_preonset"]
+    assert p2["floor"] == 80 and p2["active"] is False
+    assert p2["floor_from"] == "2026-10-16T09:00:00-05:00"
+    assert p2["buy_hours"] == []
     assert a["inclement_buy_forecast"]["outlook"] == "ok"
     c, s, _ = bshell(clock, NOW, alerts=[], outlook=None)
     tick(clock, c, s, NOW)
@@ -998,7 +1043,8 @@ def test_preonset_uncorroborated_watch_partial_gt_knob(clock):
     wsa = alert("Winter Storm Watch", onset=T(16, 9), ends=T(17, 3), id_="wsa")
     c, s, _ = bshell(clock, NOW, alerts=[wsa], partial=90, knob=80)
     tick(clock, c, s, NOW)
-    assert s._last_inclement_decision.preonset_floor == 90
+    # Stage E (expected diff, ref = TARGET): 6 h ahead -> value only.
+    assert s._last_inclement_decision.preonset_target == 90
 
 
 def test_preonset_solcast_unavailable_fails_toward_charging(clock):
@@ -1277,7 +1323,8 @@ def test_preonset_degraded_fresh_decision_control(clock):
     SOC, Envoy blind) with a FRESH decision → bounded-degraded exemption
     allows the pre-charge; the standard degraded suffix follows the prefix."""
     now = NOW
-    a = alert("Winter Storm Warning", onset=T(16, 13), ends=T(17, 3), id_="wsw")
+    # Stage E: Onset 13:00 -> 05:00 (03:00 must be a scheduled slot).
+    a = alert("Winter Storm Warning", onset=T(16, 5), ends=T(17, 3), id_="wsw")
     c, s, _ = bshell(clock, now, alerts=[a], outlook=ol())
     clock.t = now.astimezone(_UTC)
     _st(c.hass, _SOC, "40", unit="%", lu=clock.t - timedelta(hours=1))
@@ -1323,19 +1370,25 @@ def test_preonset_buy_reports_forecast_confirmed_fusion_direct():
     on, WSW `w1` Onset +6 h, bottom, SOC 40, confirmed={w1} → pre-onset buy
     AND buy_forecast_confirmed True."""
     now = T(16, 3)
-    w1 = alert("Winter Storm Warning", onset=now + timedelta(hours=6),
+    # Stage E (expected diff): Onset +6 h -> +1 h, a TOU engine and a buy-
+    # schedule store are passed (no engine / no store -> no D-B6 buy).
+    w1 = alert("Winter Storm Warning", onset=now + timedelta(hours=1),
                ends=now + timedelta(hours=12), id_="w1")
     cls = AlertClassifier().classify([w1], now=now)
     f = InclementFusion(reserve_soc=20, partial_hold_reserve_floor=50,
                         grid_precharge_on_hold=True, preonset_floor=80)
-    bat = SimpleNamespace(_expected_solar_surplus_pct=lambda n, m: 0.0)
+    bat = SimpleNamespace(_expected_solar_surplus_pct=lambda n, m: 0.0,
+                          _tou=TOURateEngine())
     d = f.decide(bat, cls, False, 0, "off_peak", now, 40, bottom_rate=True,
-                 forecast_confirmed_ids=frozenset({"w1"}), preonset_latch={})
-    assert d.hold_depth == "allow_discharge" and d.preonset_floor == 80
+                 forecast_confirmed_ids=frozenset({"w1"}), preonset_latch={},
+                 preonset_buy_schedule={})
+    assert d.hold_depth == "allow_discharge" and d.preonset_target == 80
+    assert d.preonset_floor == 80
     assert d.preonset_precharge is True and d.buy_forecast_confirmed is True
     # Control: unconfirmed → no buy and the attr reads False.
     d = f.decide(bat, cls, False, 0, "off_peak", now, 40, bottom_rate=True,
-                 forecast_confirmed_ids=frozenset(), preonset_latch={})
+                 forecast_confirmed_ids=frozenset(), preonset_latch={},
+                 preonset_buy_schedule={})
     assert d.preonset_precharge is False and d.buy_forecast_confirmed is False
 
 
@@ -1707,9 +1760,12 @@ def test_review_c_match_product_code_precedence_and_code_only():
     """inclement.py:298/308 (LOW) — the code row wins a code/name
     disagreement; a code-only match resolves by code."""
     mp = _inc().match_product
-    row, drift = mp({"Event": "Winter Storm Warning", "NWSCode": "SVW"})
+    # Stage E E1.3 (expected diff): match_product returns a third element,
+    # `corroborable` (positions 0-4 of the row are unchanged).
+    row, drift, corr = mp({"Event": "Winter Storm Warning", "NWSCode": "SVW"})
     assert row[1] == "Severe Thunderstorm Warning" and drift[2] == "mismatch"
-    row, _ = mp({"Event": "Svr Tstm Wrn (renamed)", "NWSCode": "SVW"})
+    assert corr is True
+    row, _, _ = mp({"Event": "Svr Tstm Wrn (renamed)", "NWSCode": "SVW"})
     assert row is not None and row[1] == "Severe Thunderstorm Warning"
 
 
