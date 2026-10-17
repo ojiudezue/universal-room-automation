@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T02:16:19-05:00_ - _Data commit: `3001c79dcb0d`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T02:26:03-05:00_ - _Data commit: `649537e739bf`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -279,7 +279,8 @@ _updated 2026-10-15 02:14_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
-- **Forensic keys (25):**
+- **Forensic keys (26):**
+  - `INSTANCE_2026_10_17_import_time_stubs`: Found by TEST-BAYES-B2-CLOCK-SKEW-1 (overnight 10-17): test_bayesian_predictor.py, test_envoy_auto_derive.py and test_hvac_fan_control.py each still replace the signals module with a small stub at import time and replace the custom_compo...
   - `card_was_wrong_2026_10_14`: next said MERGE fix/test-bathroom-exhaust-collection (7bb1b5715); git merge-base --is-ancestor shows it is ALREADY in develop (237 commits back). Shipped slices recorded; the card is an epic, so moved shipped_organic -> planned rather th...
   - `mergecheck_2026_10_10_overnight`: Branch fix/test-bathroom-exhaust-collection still merges cleanly onto develop fe0532918+ (git merge-tree: no conflicts); it is 52 commits behind develop, so the pre-ship suite name-diff must run on the merged tree, not the branch.
   - `built_to_review_2026_10_09_overnight`: BATHROOM SLICE BUILT-TO-REVIEW (test-only, no production code). Branch fix/test-bathroom-exhaust-collection HEAD 7bb1b5715 (ura-builder 812547a60 + orchestrator comment fix). Root cause: the file stubbed the URA package with __path__=[],...
@@ -332,7 +333,9 @@ _created 2026-10-16 13:30 · updated 2026-10-17 02:17 · initial_
 - **Origin:** 2026-10-16 - Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.
 - **Why:** Pollutes every name-diff by time of day, so real regressions hide behind it.
 - **Tags:** found-during-build, test-infra
-- **Forensic keys (1):**
+- **Forensic keys (3):**
+  - `build2_2026_10_17_overnight`: Follow-up commit 38e8fedcb (tests only): FakeHass gains loop_thread_id + verify_event_loop_thread (real signature homeassistant/core.py:422; dispatcher calls it at helpers/dispatcher.py:214) -> 6 unmasked failures fixed. The other 9 were...
+  - `build_2026_10_17_overnight`: Built on fix/test-bayes-b2-clock-skew a5d8b2f33 (tests only: test_bayesian_b2_prediction_sensors.py freezes the predictor's own dt_util.now per test; _ura_const_support.ensure_ura_signals registers the module in sys.modules before exec -...
   - `gate_2026_10_17_overnight`: Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (tes...
 
 ### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
@@ -342,7 +345,10 @@ _created 2026-10-16 · updated 2026-10-17 02:13 · refined_
   - Problem: 'observation mode' on the energy coordinator is meant to mean 'think but do not touch the hardware', but two paths still send battery-reserve commands while it is on: the change-of-rate-period path run by the coordinator manager...
 - **Next:** Me (overnight 10-17): ura-builder in worktree against plan rev 2 -> validator name-diff -> 2 reviews (A correctness/edge, B lifecycle/byte-identical-when-off) -> review lane. No deploy.
 - **Parsimony:** [BUILD] With energy observation mode ON, a TOU-transition evaluate() and the write-verify pending re-send still send reserve/CFG commands to hardware.
-- **Forensic keys (5):**
+- **Forensic keys (8):**
+  - `residual_LOW_B1`: Pre-existing, out of scope: if the energy observation switch's deferred restore retry also fails (coordinator still None after 5 s, switch.py:810-841) it logs a warning and gives up, so observation mode silently stays OFF across a restar...
+  - `review_B_2026_10_17`: Review B (async/lifecycle/race/cross-coord): SHIP. Boot window holds (first evaluate() seeds the period and cannot fire D1); retry ladder is inline so no queued-before-flip fire; delayed _check callbacks only page. LOW-B2 + LOW-B3 (and A...
+  - `build_2026_10_17_overnight`: Built on fix/ec-obs-mode-reserve-gate 689dba975 (base f68dcfbff; tag pre-review-ec-obs-gate). +12 energy.py (D1 gate :1400), +16/-1 energy_write_verify.py (D2 sweep gate :758 + reset, chokepoint :2351), 10 tests in quality/tests/test_ec_...
   - `plan_review_2026_10_17`: Plan PLANNING_ec_observation_mode_reserve_gate.md rev 1 -> FIX-PLAN (3 MED, 4 LOW: DP-EVSE writes out of scope -> carded EC-OBS-DP-EVSE-1; D2 chokepoint = WriteVerifier._pending_fire_retry; OFF->ON->OFF episode spec (decided: reset episo...
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `tier`: 2
