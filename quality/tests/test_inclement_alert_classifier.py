@@ -150,20 +150,6 @@ def test_red_flag_warning_returns_NOTICE_by_default_because_fire_absent_from_lis
     assert "Red Flag Warning" in r.gated_out_events
 
 
-def test_red_flag_warning_returns_warn_tier_when_operator_adds_red_flag_to_power_threat_list():
-    threat = list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS) + ["Red Flag"]
-    r = classify([make_alert(event="Red Flag Warning", severity="Severe",
-                             certainty="Observed")], threat=threat)
-    assert r.tier == "warn"
-
-
-def test_severity_below_min_demotes_one_tier():
-    # Moderate Severe-Thunderstorm-Warning: warn (warning product) → demote → watch.
-    r = classify([make_alert(event="Severe Thunderstorm Warning",
-                             severity="Moderate", certainty="Observed")])
-    assert r.tier == "watch"
-
-
 def test_severity_never_overrides_gate():
     # Extreme Flood Watch still NOTICE — gate is on Event, not Severity.
     r = classify([make_alert(event="Flood Watch", severity="Extreme",
@@ -207,37 +193,6 @@ def test_warning_product_type_folds_into_higher_certainty():
     assert r.tier == "warn"
 
 
-def test_resolved_precedence_gate_then_productfold_then_severity_demote_AMED1():
-    # A-MED-1 (resolved precedence — WORKING AS INTENDED). Pins the order:
-    #   (1) gate  →  (2) certainty/product-fold  →  (3) severity demote.
-    # A "...Warning" product folds to warn, but a Severity BELOW warn_min_severity
-    # then demotes it to watch — severity is a SECONDARY filter that may demote
-    # tier but never overrides the Event-type gate. A gated-out event can never
-    # be promoted back regardless of severity.
-    # (a) product-folded warn @ Severe (>= min) stays warn.
-    r_warn = classify([make_alert(event="Tornado Warning",
-                                  severity="Severe", certainty="Possible")])
-    assert r_warn.tier == "warn"
-    # (b) SAME product @ Moderate (< Severe min) demotes warn → watch.
-    r_demoted = classify([make_alert(event="Tornado Warning",
-                                     severity="Moderate", certainty="Possible")])
-    assert r_demoted.tier == "watch"
-    # (c) severity can NEVER override the gate: Extreme Flood Watch is still none.
-    r_gated = classify([make_alert(event="Flood Watch",
-                                   severity="Extreme", certainty="Observed")])
-    assert r_gated.tier == "none"
-
-
-def test_expires_at_is_min_across_contributors():
-    a1 = make_alert(event="Tornado Warning", severity="Extreme",
-                    certainty="Observed", ends="2026-06-11T20:00:00-05:00")
-    a2 = make_alert(event="High Wind Warning", severity="Severe",
-                    certainty="Observed", ends="2026-06-11T15:00:00-05:00")
-    r = classify([a1, a2])
-    assert r.expires_at is not None
-    assert r.expires_at.hour == 15  # the earlier of the two
-
-
 def test_max_tier_aggregates_across_contributors():
     warn = make_alert(event="Tornado Warning", severity="Extreme",
                       certainty="Observed")
@@ -245,3 +200,41 @@ def test_max_tier_aggregates_across_contributors():
                        certainty="Possible")
     r = classify([watch, warn])
     assert r.tier == "warn"
+
+
+# ---------------------------------------------------------------------------
+# EC storm Stage B (D-B2): the legacy threat list and the severity demotion
+# are RETIRED. These replace the four tests that pinned the old semantics.
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_threat_list_is_ignored_red_flag_stays_gated_out():
+    threat = list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS) + ["Red Flag"]
+    r = classify([make_alert(event="Red Flag Warning", severity="Severe",
+                             certainty="Observed")], threat=threat)
+    assert r.tier == "none"
+    assert "Red Flag Warning" in r.gated_out_events
+
+
+def test_severity_never_demotes_table_tier():
+    # Moderate Severe-Thunderstorm-Warning stays warn (table tier, D-B2).
+    r = classify([make_alert(event="Severe Thunderstorm Warning",
+                             severity="Moderate", certainty="Observed")])
+    assert r.tier == "warn"
+    r2 = classify([make_alert(event="Tornado Warning", severity="Minor",
+                              certainty="Possible")], warn_min="Extreme")
+    assert r2.tier == "warn"
+
+
+def test_expires_at_is_max_over_hold_contributors():
+    a1 = make_alert(event="Tornado Warning", severity="Extreme",
+                    certainty="Observed", ends="2026-06-11T20:00:00-05:00")
+    a2 = make_alert(event="Winter Storm Watch", severity="Severe",
+                    certainty="Possible", ends="2026-06-11T15:00:00-05:00")
+    # High Wind Warning is NOTICE: never moves expires_at even if later.
+    a3 = make_alert(event="High Wind Warning", severity="Severe",
+                    certainty="Observed", ends="2026-06-11T23:00:00-05:00")
+    r = classify([a1, a2, a3])
+    assert r.expires_at is not None
+    assert r.expires_at.hour == 20  # the later HOLD end, not the NOTICE end
+

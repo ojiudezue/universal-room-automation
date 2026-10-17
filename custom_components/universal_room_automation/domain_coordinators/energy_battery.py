@@ -47,6 +47,7 @@ from .energy_const import (
     DEFAULT_WEATHER_ENTITY,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
     MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    NWS_ALERTS_STALE_S,
     MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     R7_USE_UNIFIED_PROJECTOR,
     SOLAR_DAY_THRESHOLDS,
@@ -455,6 +456,17 @@ class BatteryStrategy:
         self._blind_raised: bool = False
         self._blind_pre_raise: int | None = None
         self._blind_operator_override: bool = False
+        # EC storm Stage B D-B3: RAM hold memory keyed on alert message ID
+        # (`inclement.update_alert_memory`); lost on restart (§12 limit 15).
+        self._inclement_alert_memory: dict[str, dict[str, Any]] = {}
+        # D-B3 feed health of the last decision (attr `inclement_alerts_stale`).
+        self._inclement_alerts_stale: bool = False
+        self._nws_ts_unresolved_warned: bool = False
+        # D-B2/D-B3 ledger rows (`inclement_code_drift`,
+        # `inclement_memory_cleared`) queued by the decision, drained by
+        # `EnergyCoordinator._inclement_rows_tick` after determine_mode.
+        self._inclement_pending_rows: list[tuple[str, str, dict[str, Any]]] = []
+        self._inclement_drift_seen: set[tuple[str, str | None, str]] = set()
         # v5.17.2 — sibling DESIRED fields for the other two surfaces so
         # the write-verify reversion sweep can retire a stale record when
         # the strategy no longer wants the old commanded value (i.e. the
@@ -2693,19 +2705,35 @@ class BatteryStrategy:
             AlertClassifier,
             InclementFusion,
             _allow_discharge_decision,
+            classifier_input,
+            update_alert_memory,
         )
 
         cfg = self._inclement_config()
         soc = self.battery_soc
 
-        # AlertClassifier on the NWS sensor (if configured).
-        alerts = self._read_nws_alerts(cfg["nws_alerts_entity"])
-        classifier = AlertClassifier(
-            power_threat_events=cfg["power_threat_events"],
-            warn_min_severity=cfg["warn_min_severity"],
-        )
+        # AlertClassifier on the NWS sensor (if configured). EC storm Stage B:
+        # D-B3 feed health + hold memory, then classify the union (the
+        # D-B1 window split happens inside classify, after the union).
+        _nws_eid = cfg["nws_alerts_entity"]
+        alerts = self._read_nws_alerts(_nws_eid)
+        classifier = AlertClassifier()
         try:
-            classification = classifier.classify(alerts, now=now)
+            _healthy = self._nws_feed_healthy(_nws_eid, now) if _nws_eid else False
+            self._inclement_alerts_stale = bool(_nws_eid) and not _healthy
+            _cleared = update_alert_memory(
+                self._inclement_alert_memory, alerts, _healthy, now,
+            )
+            for _cid, _cev, _creason in _cleared:
+                self._inclement_pending_rows.append((
+                    "inclement_memory_cleared",
+                    f"inclement_memory_cleared {_cev} ({_creason})",
+                    {"id": _cid, "event": _cev, "reason": _creason},
+                ))
+            classification = classifier.classify(
+                classifier_input(alerts, self._inclement_alert_memory, now),
+                now=now,
+            )
         except Exception:  # noqa: BLE001 — never let detection crash the tick
             _LOGGER.debug("inclement: alert classify failed", exc_info=True)
             self._last_inclement_gated_out = ()
@@ -2713,6 +2741,7 @@ class BatteryStrategy:
             self._cache_inclement(decision, now)
             return decision
         self._last_inclement_gated_out = classification.gated_out_events
+        self._queue_inclement_drift(classification.drift)
 
         # ConditionElector cross-check via the weather manager (D-L fail-mode:
         # NWS absent → condition-only path).
@@ -2746,9 +2775,97 @@ class BatteryStrategy:
             tou_period=tou_period,
             now=now,
             current_soc=soc,
+            bottom_rate=self._is_bottom_rate(now, tou_period),
         )
         self._cache_inclement(decision, now)
         return decision
+
+    def _is_bottom_rate(self, now: datetime, tou_period: str) -> bool:
+        """EC storm Stage B D-B4: TOU engine bottom rate (rate rank, not
+        name); engine absent → the legacy ``off_peak`` literal (byte-safe)."""
+        tou = getattr(self, "_tou", None)
+        if tou is None or not hasattr(tou, "is_bottom_rate"):
+            return tou_period == "off_peak"
+        try:
+            return bool(tou.is_bottom_rate(now))
+        except Exception:  # noqa: BLE001
+            return tou_period == "off_peak"
+
+    def _nws_last_updated_entity(self, alerts_eid: str) -> str | None:
+        """D-B3: the nws_alerts ``last_updated`` timestamp sensor that is
+        the sibling of the configured alerts entity (same config entry,
+        unique_id carries ``last_updated``; nws_alerts/sensor.py:19-24, 58).
+        None when unresolvable (one warning per boot)."""
+        try:
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+            ent = reg.async_get(alerts_eid)
+            if ent is not None and ent.config_entry_id:
+                for sib in er.async_entries_for_config_entry(
+                    reg, ent.config_entry_id,
+                ):
+                    if (
+                        sib.entity_id != alerts_eid
+                        and sib.entity_id.startswith("sensor.")
+                        and "last_updated" in str(sib.unique_id or "")
+                    ):
+                        return sib.entity_id
+        except Exception:  # noqa: BLE001
+            pass
+        if not self._nws_ts_unresolved_warned:
+            self._nws_ts_unresolved_warned = True
+            _LOGGER.warning(
+                "inclement: NWS last_updated sibling of %s not resolved — "
+                "feed staleness uses the unavailable/unknown leg only",
+                alerts_eid,
+            )
+        return None
+
+    def _nws_feed_healthy(self, alerts_eid: str, now: datetime) -> bool:
+        """D-B3: healthy = alerts sensor not unavailable/unknown AND the
+        ``last_updated`` sibling's ``State.last_changed`` is within
+        ``NWS_ALERTS_STALE_S`` of ``now`` (its value changes every
+        successful poll; the alerts sensor's own timestamps do not advance
+        on a steady alert)."""
+        try:
+            st = self.hass.states.get(alerts_eid)
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None or st.state in ("unavailable", "unknown"):
+            return False
+        ts_eid = self._nws_last_updated_entity(alerts_eid)
+        if ts_eid is None:
+            return True
+        ts = self.hass.states.get(ts_eid)
+        if ts is None or ts.state in ("unavailable", "unknown"):
+            return False
+        changed = getattr(ts, "last_changed", None)
+        if changed is None:
+            return False
+        try:
+            age = (now - changed).total_seconds()
+        except TypeError:
+            return False
+        return age <= NWS_ALERTS_STALE_S
+
+    def _queue_inclement_drift(self, drift: Any) -> None:
+        """D-B2 trip-wire: one warning + one ``inclement_code_drift`` row per
+        (event, code, kind) per boot."""
+        for event, code, kind in drift or ():
+            key = (str(event).casefold(), code, kind)
+            if key in self._inclement_drift_seen:
+                continue
+            self._inclement_drift_seen.add(key)
+            if kind == "mismatch":
+                _LOGGER.warning(
+                    "inclement: product code/name drift — event=%r code=%r",
+                    event, code,
+                )
+            self._inclement_pending_rows.append((
+                "inclement_code_drift",
+                f"inclement_code_drift {event} {code} ({kind})",
+                {"event": event, "code": code, "kind": kind},
+            ))
 
     def _cache_inclement(self, decision: Any, now: datetime) -> None:
         """Cache the decision and fire the transition signal if (tier, depth) changed."""
@@ -2803,6 +2920,7 @@ class BatteryStrategy:
                 "inclement_reserve_floor": self.reserve_soc,
                 "inclement_reason": "initializing",
                 "inclement_solar_horizon": {},
+                "inclement_alerts_stale": self._inclement_alerts_stale,
             }
         gated_out: list[str] = list(self._last_inclement_gated_out)
         try:
@@ -2827,6 +2945,8 @@ class BatteryStrategy:
             "inclement_reserve_floor": decision.reserve_floor,
             "inclement_reason": decision.reason,
             "inclement_solar_horizon": sh,
+            # EC storm Stage B D-B3: feed health of the last decision.
+            "inclement_alerts_stale": self._inclement_alerts_stale,
         }
 
     # ------------------------------------------------------------------

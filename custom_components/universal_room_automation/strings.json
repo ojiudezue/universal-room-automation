@@ -2316,6 +2316,10 @@
     }
   },
   "issues": {
+    "inclement_legacy_threat_list_retired": {
+      "title": "Inclement threat list is retired",
+      "description": "Your stored inclement power-threat event list differs from the shipped default, but URA now matches NWS products against a fixed, reviewed product table (Stage B) and no longer reads that list. Nothing was changed in your options. If you relied on a custom entry, ask for the product table to be updated."
+    },
     "ec_role_entity_broken": {
       "title": "Energy entity unavailable: {key}",
       "description": "The energy option `{key}` is configured as `{entity_id}`, but the entity is {problem}. If the device is temporarily offline this will clear itself within about an hour after it recovers. Otherwise open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy and either pick a working entity, or tick the matching `Clear …` box to drop this field if you no longer use it."

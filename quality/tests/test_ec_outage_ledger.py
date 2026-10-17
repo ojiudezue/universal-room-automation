@@ -441,7 +441,9 @@ async def test_ledger_row_round_trips_through_real_db(real_db):
     assert len(res["rows"]) == 1
     d = json.loads(res["rows"][0]["details_json"])
     assert d["NWSCode"] == "WIY" and d["id"] == "d39a0907-7955-f998-4def-f28ae2509698"
-    assert d["ura_class"] is None and d["local"] == "unknown"
+    # EC storm Stage B D-B2: the row now carries the product-table class/tier.
+    assert d["ura_class"] == "notice" and d["ura_tier"] == "notice"
+    assert d["local"] == "unknown"
     assert res["rows"][0]["importance"] == "notable"
 
 

@@ -36,12 +36,14 @@ from homeassistant.util import dt as dt_util
 
 from .energy_const import (
     DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
-    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
     DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
-    DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
     DEFAULT_INCLEMENT_WATCH_REQUIRES_CORROBORATION,
+    INCLEMENT_ALERT_MAX_HOLD_H,
     INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+    INCLEMENT_POINT_FEED_POLYGON_EXACT,
+    INCLEMENT_PRODUCT_TABLE,
     INCLEMENT_SEVERITY_ORDER,
+    INCLEMENT_UNVERIFIED_POLYGON_TIER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,6 +62,26 @@ _HoldDepth = Literal["full_hold", "partial_hold", "allow_discharge"]
 
 
 @dataclass(frozen=True)
+class AlertRecord:
+    """One table-matched, filtered alert (EC storm Stage B D-B1/D-B2).
+
+    ``tier`` is the EFFECTIVE tier (table tier, or ``notice`` for a polygon
+    row under the unverified-polygon switch). ``start``/``end`` are the
+    hazard window (``_hazard_window``); ``start`` None = no lower bound.
+    """
+
+    alert_id: str | None
+    event: str
+    code: str | None
+    cls: str  # table class: warn | watch | notice
+    tier: str  # effective tier
+    polygon_local: bool
+    precharge_eligible: bool
+    start: datetime | None
+    end: datetime
+
+
+@dataclass(frozen=True)
 class AlertClassification:
     """Result of classifying ``attributes.Alerts`` for outage relevance."""
 
@@ -67,10 +89,18 @@ class AlertClassification:
     contributing_events: tuple[str, ...]
     max_severity: str
     max_certainty: str
-    expires_at: datetime | None  # min(Ends, Expires) across contributors
+    # EC storm Stage B D-B1: max(end) over ACTIVE HOLD contributors (was
+    # min(Ends, Expires) over all contributors). None = no HOLD contributor.
+    expires_at: datetime | None
     raw_alert_count: int
-    # Events that failed the outage-relevance gate (observability / debugging).
+    # Alerts with no product-table row (observability / debugging).
     gated_out_events: tuple[str, ...] = ()
+    # Stage B: active HOLD records (start <= now <= end, effective tier
+    # warn/watch) — consumed by the eligibility / forecast gates.
+    hold_alerts: tuple[AlertRecord, ...] = ()
+    # Stage B D-B2: code/name disagreements seen this tick:
+    # (event, observed_code, kind) with kind "mismatch" or "observed_code".
+    drift: tuple[tuple[str, str | None, str], ...] = ()
 
 
 def _severity_rank(severity: str | None) -> int:
@@ -127,20 +157,17 @@ def _dt_lt(a: datetime, b: datetime) -> bool:
     return aa < bb
 
 
-def _alert_expires_at(alert: dict[str, Any]) -> datetime | None:
-    """min(Ends, Expires) for a single alert; None when neither parses."""
-    candidates = [
-        _parse_dt(alert.get("Ends")),
-        _parse_dt(alert.get("Expires")),
-    ]
-    candidates = [c for c in candidates if c is not None]
-    if not candidates:
-        return None
-    return min(candidates)
+def _dt_max(values: list[datetime]) -> datetime | None:
+    best: datetime | None = None
+    for v in values:
+        if best is None or _dt_lt(best, v):
+            best = v
+    return best
 
 
 def _event_matches_threat(event: str, threat_events: list[str]) -> str | None:
-    """Return the matched threat keyword (case-insensitive substring) or None."""
+    """RETIRED by Stage B D-B2 (exact product table). KEEP until Stage B
+    validates (plan §13 DELETE candidate); no decision path calls it."""
     if not event:
         return None
     event_l = event.lower()
@@ -150,27 +177,226 @@ def _event_matches_threat(event: str, threat_events: list[str]) -> str | None:
     return None
 
 
+def alert_id(alert: dict[str, Any]) -> str | None:
+    """Message key of one NWS alert: ``ID``, else ``URL``, else Event|Sent.
+
+    Same rule as ``energy_outage_ledger.alert_key`` (the ledger dedup key),
+    so memory entries and ledger rows name the same message.
+    """
+    for k in ("ID", "URL"):
+        v = alert.get(k)
+        if v:
+            return str(v)
+    ev, sent = alert.get("Event"), alert.get("Sent")
+    if ev or sent:
+        return f"{ev}|{sent}"
+    return None
+
+
+def _hazard_window(
+    alert: dict[str, Any],
+) -> tuple[datetime | None, datetime | None]:
+    """D-B1: ``start = Onset or Sent``; ``end = Ends or Expires or start +
+    INCLEMENT_ALERT_MAX_HOLD_H``. Unparseable values are treated as missing.
+    (None, None) = unbounded on both sides (contributes nothing)."""
+    start = _parse_dt(alert.get("Onset")) or _parse_dt(alert.get("Sent"))
+    end = _parse_dt(alert.get("Ends")) or _parse_dt(alert.get("Expires"))
+    if end is None and start is not None:
+        end = start + timedelta(hours=INCLEMENT_ALERT_MAX_HOLD_H)
+    return start, end
+
+
+def _is_actual(alert: dict[str, Any]) -> bool:
+    status = str(alert.get("Status", "Actual") or "Actual").strip().lower()
+    return status == _ACTIONABLE_STATUS
+
+
+def _is_cancel(alert: dict[str, Any]) -> bool:
+    return str(alert.get("Type", "") or "").strip().lower() == "cancel"
+
+
+def match_product(
+    alert: dict[str, Any],
+) -> tuple[tuple | None, tuple[str, str | None, str] | None]:
+    """D-B2: match by NWS code (coded rows) OR exact case-folded event name.
+
+    Returns (row, drift). ``drift`` is (event, observed_code, kind):
+    ``"mismatch"`` when code and name point at different rows (or one of
+    them matches no row while the other does), ``"observed_code"`` when a
+    name-only row is matched and the alert carries a code (records the
+    first observed code; the battery dedups per boot). The code row wins a
+    disagreement (codes are probe-verified).
+    """
+    event = str(alert.get("Event", "") or "").strip()
+    code_raw = alert.get("NWSCode")
+    code = str(code_raw).strip().upper() if code_raw else None
+    ev_cf = event.casefold()
+    name_row = None
+    code_row = None
+    for row in INCLEMENT_PRODUCT_TABLE:
+        if name_row is None and row[1].casefold() == ev_cf:
+            name_row = row
+        if code is not None and code_row is None and row[0] == code:
+            code_row = row
+    drift = None
+    if code_row is not None and code_row is not name_row:
+        drift = (event, code, "mismatch")
+    elif name_row is not None and code is not None:
+        if name_row[0] is not None and name_row[0] != code:
+            drift = (event, code, "mismatch")
+        elif name_row[0] is None:
+            drift = (event, code, "observed_code")
+    return (code_row or name_row), drift
+
+
+def _effective_tier(row: tuple) -> str:
+    """Table tier, or the unverified-polygon switch for polygon rows when
+    the point feed is not polygon-exact (D-B1 / Q7)."""
+    cls = row[2]
+    if row[3] and not INCLEMENT_POINT_FEED_POLYGON_EXACT:
+        if INCLEMENT_UNVERIFIED_POLYGON_TIER == "notice":
+            return "notice"
+    return cls
+
+
+def build_record(alert: dict[str, Any]) -> AlertRecord | None:
+    """Status/Type-filtered, table-matched record with its hazard window.
+    None = not Actual, a Cancel, no table row, or no usable window."""
+    if not isinstance(alert, dict) or not _is_actual(alert) or _is_cancel(alert):
+        return None
+    row, _drift = match_product(alert)
+    if row is None:
+        return None
+    start, end = _hazard_window(alert)
+    if end is None:
+        return None
+    return AlertRecord(
+        alert_id=alert_id(alert),
+        event=str(alert.get("Event", "") or "").strip(),
+        code=(str(alert.get("NWSCode")).strip().upper()
+              if alert.get("NWSCode") else None),
+        cls=row[2],
+        tier=_effective_tier(row),
+        polygon_local=bool(row[3]),
+        precharge_eligible=bool(row[4]),
+        start=start,
+        end=end,
+    )
+
+
+def update_alert_memory(
+    memory: dict[str, dict[str, Any]],
+    feed: Any,
+    healthy: bool,
+    now: datetime,
+) -> list[tuple[str, str, str]]:
+    """D-B3 hold memory, mutated in place. Returns rows to log for clears
+    under rules (2)/(3): [(alert_id, event, reason)].
+
+    Admission: healthy feed only; Actual, not Cancel, product class HOLD
+    (warn/watch, table class), any window (an alert whose Onset is still
+    ahead is admitted, Rev 3.1 H3). Clearing: (1) ``now > end`` (silent);
+    (2) a Cancel in a healthy feed with the same event name and an
+    overlapping window (code compared when both carry one); (3) the entry's
+    ID is absent from a healthy NON-EMPTY feed. A stale / unavailable /
+    empty feed clears nothing and admits nothing.
+    """
+    cleared: list[tuple[str, str, str]] = []
+    feed_list = feed if isinstance(feed, list) else []
+    feed_dicts = [a for a in feed_list if isinstance(a, dict)]
+    # (1) expiry.
+    for key in list(memory):
+        if _dt_lt(memory[key]["end"], now):
+            del memory[key]
+    if not healthy:
+        return cleared
+    # (2) Cancel clears by event name + overlapping window.
+    for a in feed_dicts:
+        if not (_is_actual(a) and _is_cancel(a)):
+            continue
+        c_ev = str(a.get("Event", "") or "").strip().casefold()
+        c_code = str(a.get("NWSCode")).strip().upper() if a.get("NWSCode") else None
+        c_start, c_end = _hazard_window(a)
+        for key in list(memory):
+            m = memory[key]
+            if m["event"].casefold() != c_ev:
+                continue
+            if c_code and m.get("code") and c_code != m["code"]:
+                continue
+            m_start = m.get("start")
+            overlap = True
+            if c_end is not None and m_start is not None and _dt_lt(c_end, m_start):
+                overlap = False
+            if c_start is not None and _dt_lt(m["end"], c_start):
+                overlap = False
+            if overlap:
+                cleared.append((key, m["event"], "cancel"))
+                del memory[key]
+    # (3) absent from a healthy non-empty feed.
+    present = {alert_id(a) for a in feed_dicts}
+    if feed_dicts:
+        for key in list(memory):
+            if key not in present:
+                cleared.append((key, memory[key]["event"], "left_feed"))
+                del memory[key]
+    # Admission.
+    for a in feed_dicts:
+        rec = build_record(a)
+        if rec is None or rec.cls not in ("warn", "watch") or rec.alert_id is None:
+            continue
+        if _dt_lt(rec.end, now):
+            continue
+        memory[rec.alert_id] = {
+            "alert": dict(a),
+            "event": rec.event,
+            "code": rec.code,
+            "start": rec.start,
+            "end": rec.end,
+        }
+    return cleared
+
+
+def classifier_input(
+    feed: Any, memory: dict[str, dict[str, Any]], now: datetime,
+) -> list[dict[str, Any]]:
+    """D-B3: feed alerts ∪ memory entries with ``now <= end`` (feed wins on
+    a shared ID). The D-B1 window split is applied after this union."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if isinstance(feed, list):
+        for a in feed:
+            if isinstance(a, dict):
+                out.append(a)
+                k = alert_id(a)
+                if k:
+                    seen.add(k)
+    for key, m in memory.items():
+        if key in seen or _dt_lt(m["end"], now):
+            continue
+        out.append(m["alert"])
+    return out
+
+
 class AlertClassifier:
-    """Pure classifier: gate → certainty → severity-noise-filter → tier."""
+    """Pure classifier (EC storm Stage B): Status/Type filter → product
+    table (code or exact name) → hazard window (Onset→Ends) → tier.
+
+    Severity / Certainty are attrs only (no demotion on this path). The
+    legacy ``power_threat_events`` / ``warn_min_severity`` arguments are
+    RETIRED (D-B5): accepted for call-site compatibility, never read.
+    """
 
     def __init__(
         self,
         power_threat_events: list[str] | None = None,
         warn_min_severity: str | None = None,
     ) -> None:
-        self._threat_events = list(
-            power_threat_events
-            if power_threat_events is not None
-            else DEFAULT_INCLEMENT_POWER_THREAT_EVENTS
-        )
-        self._warn_min_severity = (
-            warn_min_severity or DEFAULT_INCLEMENT_WARN_MIN_SEVERITY
-        )
+        del power_threat_events, warn_min_severity  # retired (D-B5)
 
     def classify(
         self, alerts: Any, now: datetime | None = None,
     ) -> AlertClassification:
-        """Classify the ``attributes.Alerts`` payload into a single tier.
+        """Classify the alert list into a single tier.
 
         ``alerts`` may be None / [] / [{}] / a non-list — all yield tier=none
         with no exception (Bug Class — malformed sensor robustness).
@@ -178,94 +404,71 @@ class AlertClassifier:
         if now is None:
             now = dt_util.now()
 
-        empty = AlertClassification(
-            tier="none",
-            contributing_events=(),
-            max_severity="Unknown",
-            max_certainty="Unknown",
-            expires_at=None,
-            raw_alert_count=0,
-            gated_out_events=(),
-        )
-
         if not isinstance(alerts, list) or not alerts:
-            return empty
+            return AlertClassification(
+                tier="none", contributing_events=(), max_severity="Unknown",
+                max_certainty="Unknown", expires_at=None, raw_alert_count=0,
+            )
 
-        contributing: list[str] = []
+        active: list[tuple[AlertRecord, dict[str, Any]]] = []
         gated_out: list[str] = []
-        expiries: list[datetime] = []
-        tier_per_alert: list[_Tier] = []
-        max_sev_rank = 0
-        max_sev = "Unknown"
-        max_cert = "Unknown"
+        drift: list[tuple[str, str | None, str]] = []
+        seen_ids: set[str] = set()
 
         for alert in alerts:
             if not isinstance(alert, dict):
                 continue
+            if not _is_actual(alert) or _is_cancel(alert):
+                continue
+            key = alert_id(alert)
+            if key is not None:
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
             event = str(alert.get("Event", "") or "").strip()
-
-            # Drop non-Actual statuses (Exercise / Test / Draft).
-            status = str(alert.get("Status", "Actual") or "Actual").strip().lower()
-            if status != _ACTIONABLE_STATUS:
-                continue
-
-            # Drop already-expired alerts.
-            expires = _alert_expires_at(alert)
-            if expires is not None and _dt_le(expires, now):
-                continue
-
-            # (1) OUTAGE-RELEVANCE GATE — the primary, load-bearing gate.
-            matched = _event_matches_threat(event, self._threat_events)
-            if matched is None:
+            row, d = match_product(alert)
+            if d is not None:
+                drift.append(d)
+            if row is None:
                 if event:
                     gated_out.append(event)
                 continue
+            rec = build_record(alert)
+            if rec is None:
+                continue
+            # D-B1 window split: start <= now <= end is active. Pre-onset
+            # contributes nothing to tier / expires_at (Q5 doctrine).
+            if rec.start is not None and _dt_lt(now, rec.start):
+                continue
+            if _dt_lt(rec.end, now):
+                continue
+            active.append((rec, alert))
 
-            # (2) CERTAINTY TIERING.
-            certainty = str(alert.get("Certainty", "Unknown") or "Unknown").strip()
-            cert_l = certainty.lower()
-            if cert_l in ("observed", "likely"):
-                tier: _Tier = "warn"
-            else:  # possible / unlikely / unknown → watch-candidate
-                tier = "watch"
-            # Product-type folding: a "Warning" product promotes certainty
-            # even when the Certainty field is conservative.
-            if event.lower().endswith("warning"):
-                tier = "warn"
-
-            # (3) SEVERITY NOISE FILTER (secondary — never the gate).
-            # A-MED-1 (resolved precedence — WORKING AS INTENDED): the severity
-            # filter runs AFTER certainty/product-folding, so a product-folded
-            # warn (e.g. a "...Warning" event) IS demotable when its Severity is
-            # below warn_min_severity (Tornado Warning @ Moderate → watch). This
-            # is the plan's intent: severity is a secondary filter that may
-            # demote tier but never OVERRIDES the Event-type gate (a gated-out
-            # event already exited above and can never be promoted back).
+        active.sort(key=lambda ra: -_TIER_ORDER.get(ra[0].tier, 0))
+        hold = [r for r, _ in active if r.tier in ("warn", "watch")]
+        max_sev_rank = 0
+        max_sev = "Unknown"
+        max_cert = "Unknown"
+        for _rec, alert in active:
             severity = str(alert.get("Severity", "Unknown") or "Unknown").strip()
-            if _severity_rank(severity) < _severity_rank(self._warn_min_severity):
-                tier = _demote(tier)
-
-            contributing.append(event)
-            tier_per_alert.append(tier)
-            if expires is not None:
-                expiries.append(expires)
+            certainty = str(alert.get("Certainty", "Unknown") or "Unknown").strip()
             srank = _severity_rank(severity)
             if srank >= max_sev_rank:
                 max_sev_rank = srank
                 max_sev = severity.title() if severity else "Unknown"
                 max_cert = certainty.title() if certainty else "Unknown"
 
-        final_tier = _max_tier(tier_per_alert)
         return AlertClassification(
-            tier=final_tier,
-            contributing_events=tuple(contributing),
+            tier=_max_tier([r.tier for r, _ in active]),  # type: ignore[arg-type]
+            contributing_events=tuple(r.event for r, _ in active),
             max_severity=max_sev,
             max_certainty=max_cert,
-            expires_at=min(expiries) if expiries else None,
+            expires_at=_dt_max([r.end for r in hold]),
             raw_alert_count=len(alerts),
             gated_out_events=tuple(gated_out),
+            hold_alerts=tuple(hold),
+            drift=tuple(drift),
         )
-
 
 _TIER_ORDER: dict[str, int] = {"none": 0, "notice": 1, "watch": 2, "warn": 3}
 
@@ -332,6 +535,7 @@ def compute_solar_horizon(
     alert_expires_at: datetime | None,
     partial_hold_reserve_floor: int = DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
     surplus_margin_pct: int = DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
+    bottom_rate: bool | None = None,
 ) -> SolarHorizon:
     """Compute recoverability (FIN-2) gated by TOU rung (FIN-3).
 
@@ -352,8 +556,10 @@ def compute_solar_horizon(
     # and would inflate the surplus projection).
     today_sunset = _today_sunset(battery, now)
 
-    # FIN-3 — off_peak short-circuit. MUST NOT call the surplus helper.
-    if tou_period == "off_peak":
+    # FIN-3 — bottom-rate short-circuit. MUST NOT call the surplus helper.
+    # EC storm Stage B D-B4: keyed on the TOU engine's bottom rate when the
+    # caller passes it; legacy period-name literal otherwise (byte-safe).
+    if (bottom_rate if bottom_rate is not None else tou_period == "off_peak"):
         return SolarHorizon(
             recoverable=None,
             surplus_pct_to_window=None,
@@ -575,8 +781,17 @@ class InclementFusion:
         tou_period: str,
         now: datetime,
         current_soc: float | None,
+        bottom_rate: bool | None = None,
     ) -> InclementDecision:
-        """Produce the InclementDecision (matrix in PLANNING §Design)."""
+        """Produce the InclementDecision (matrix in PLANNING §Design).
+
+        EC storm Stage B D-B4: ``bottom_rate`` (TOU engine ``is_bottom_rate``)
+        replaces the literal ``tou_period == "off_peak"`` checks; None =
+        legacy literal (no engine).
+        """
+        is_bottom = (
+            bottom_rate if bottom_rate is not None else tou_period == "off_peak"
+        )
         tier = classification.tier
         has_alert_hold = tier in ("warn", "watch")
 
@@ -597,7 +812,7 @@ class InclementFusion:
             # Warn always holds at any TOU period; recoverability not consulted.
             grid_precharge = (
                 self._grid_precharge_on_hold
-                and tou_period == "off_peak"
+                and is_bottom
                 and current_soc is not None
                 and current_soc < self._storm_charge_threshold
             )
@@ -620,7 +835,7 @@ class InclementFusion:
             )
             if not corroborated:
                 # Uncorroborated watch: off_peak partial_hold; mid/peak discharge.
-                if tou_period == "off_peak":
+                if is_bottom:
                     return InclementDecision(
                         hold_depth="partial_hold",
                         grid_precharge=False,
@@ -642,7 +857,7 @@ class InclementFusion:
                 )
 
             # Corroborated watch.
-            if tou_period == "off_peak":
+            if is_bottom:
                 # Off_peak holds readily (FIN-3 — recoverability not consulted).
                 grid_precharge = (
                     self._grid_precharge_on_hold
@@ -674,6 +889,7 @@ class InclementFusion:
                 # discharge. Validator/anomaly still read the RAW option.
                 partial_hold_reserve_floor=self._partial_floor_value(current_soc),
                 surplus_margin_pct=self._surplus_margin_pct,
+                bottom_rate=is_bottom,
             )
             if horizon.recoverable:
                 return InclementDecision(
@@ -702,7 +918,7 @@ class InclementFusion:
         # ── condition-only path (NWS sensor absent / no alert tier) ───────
         # ≥2 healthy providers stormy: off_peak partial_hold; mid/peak discharge.
         if condition_only:
-            if tou_period == "off_peak":
+            if is_bottom:
                 return InclementDecision(
                     hold_depth="partial_hold",
                     grid_precharge=False,
