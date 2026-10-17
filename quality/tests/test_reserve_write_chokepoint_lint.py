@@ -317,7 +317,14 @@ def _cfg_true_sites(src: str) -> tuple[Counter, Counter]:
             and node.value.value is True
         ):
             kw[_enclosing_function(parents, node)] += 1
-        if isinstance(node, ast.Constant) and node.value == "switch.turn_on":
+        # Count EMISSION uses only: a literal that is an operand of a
+        # comparison (e.g. `_cfg_buy_commanded`'s
+        # `a.get("service") == "switch.turn_on"`) reads, it does not emit.
+        if (
+            isinstance(node, ast.Constant)
+            and node.value == "switch.turn_on"
+            and not isinstance(parents.get(node), ast.Compare)
+        ):
             turn_on[_enclosing_function(parents, node)] += 1
     return kw, turn_on
 
@@ -336,7 +343,8 @@ def test_cfg_true_emission_sites_pinned():
     kw, turn_on = _cfg_true_sites(path.read_text())
     expected = Counter({fn: n for (_m, fn, n) in _load_cfg_sites()})
     assert kw == expected
-    # The only CFG turn_on service literal is `_result`'s action builder.
+    # The only CFG turn_on EMISSION literal is `_result`'s action builder.
+    # Comparison reads (e.g. `_cfg_buy_commanded`) are excluded by the lint.
     assert turn_on == Counter({"_result": 1})
 
 
@@ -350,3 +358,17 @@ def test_cfg_lint_counts_a_new_site():
     )
     kw, turn_on = _cfg_true_sites(src)
     assert kw == Counter({"x": 1}) and turn_on == Counter({"_result": 1})
+
+
+def test_cfg_lint_ignores_comparison_reads_but_counts_new_emission():
+    src = (
+        "class B:\n"
+        "    def _result(self):\n"
+        "        return {'service': 'switch.turn_on'}\n"
+        "    def _cfg_buy_commanded(self, res):\n"
+        "        return any(a.get('service') == 'switch.turn_on' for a in res)\n"
+        "    def rogue(self):\n"
+        "        return {'service': 'switch.turn_on'}\n"
+    )
+    _kw, turn_on = _cfg_true_sites(src)
+    assert turn_on == Counter({"_result": 1, "rogue": 1})
