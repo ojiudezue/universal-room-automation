@@ -159,7 +159,7 @@ _ura_const.DOMAIN = "universal_room_automation"
 _ura_const.VERSION = "4.0.2"
 sys.modules["custom_components.universal_room_automation.const"] = _ura_const
 from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-4
-_ura_ensure_const(); _ura_ensure_signals()
+_ura_ensure_const()
 
 # Provide .domain_coordinators.signals
 _dc = types.ModuleType(
@@ -170,14 +170,9 @@ sys.modules[
     "custom_components.universal_room_automation.domain_coordinators"
 ] = _dc
 
-_dc_signals = types.ModuleType(
-    "custom_components.universal_room_automation.domain_coordinators.signals"
-)
-_dc_signals.SIGNAL_BAYESIAN_UPDATED = "ura_bayesian_updated"
-_dc_signals.SIGNAL_OCCUPANCY_ANOMALY = "ura_occupancy_anomaly"
-sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.signals"
-] = _dc_signals
+# Use the COMPLETE real signals module (upgraded in place, never clobbered
+# with a two-attribute stub that would break later files' imports).
+_dc_signals = _ura_ensure_signals()
 
 # ---------------------------------------------------------------------------
 # Now import the module under test
@@ -190,7 +185,43 @@ from custom_components.universal_room_automation.bayesian_predictor import (
     _day_type,
 )
 
+from custom_components.universal_room_automation import (  # noqa: E402
+    bayesian_predictor as _bp,
+)
+
 DOMAIN = "universal_room_automation"
+
+
+# ---------------------------------------------------------------------------
+# Clock: TEST-BAYES-B2-CLOCK-SKEW-1
+# ---------------------------------------------------------------------------
+# The predictor reads ``dt_util.now()`` (bayesian_predictor.get_anomaly_score /
+# predict_room_*_at_time). With the real HA util.dt loaded that is the HA
+# default zone (UTC in tests), NOT naive local ``datetime.now()``. Tests must
+# derive the expected cell from the SAME clock, so we freeze the predictor's
+# own ``dt_util.now`` per test and read it back via ``_clock_now()``.
+# ``URA_B2_FROZEN_NOW`` (ISO 8601) pins the instant for clock-skew drills.
+
+_FROZEN_ENV = "URA_B2_FROZEN_NOW"
+
+
+@pytest.fixture(autouse=True)
+def _frozen_predictor_clock(monkeypatch):
+    real_now = _bp.dt_util.now
+    iso = os.environ.get(_FROZEN_ENV)
+    if iso:
+        frozen = datetime.fromisoformat(iso)
+        if frozen.tzinfo is not None:
+            frozen = _bp.dt_util.as_local(frozen)
+    else:
+        frozen = real_now()
+    monkeypatch.setattr(_bp.dt_util, "now", lambda *a, **k: frozen)
+    yield frozen
+
+
+def _clock_now():
+    """The exact clock the production predictor reads."""
+    return _bp.dt_util.now()
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +389,7 @@ class TestAnomalyScore:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -381,7 +412,7 @@ class TestAnomalyScore:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -400,7 +431,7 @@ class TestAnomalyScore:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -420,7 +451,7 @@ class TestAnomalyScore:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -450,7 +481,7 @@ class TestAnomalyScore:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -615,7 +646,7 @@ class TestPersonLikelyNextRoomBayesianUpgrade:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -639,7 +670,7 @@ class TestPersonLikelyNextRoomBayesianUpgrade:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -660,7 +691,7 @@ class TestPersonLikelyNextRoomBayesianUpgrade:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         result = predictor.predict_room_at_time("nonexistent", now)
         assert result is None
 
@@ -679,7 +710,7 @@ class TestOccupancyForecast:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         for delta_h in [0, 1, 4]:
             future = now + timedelta(hours=delta_h)
             time_bin = _hour_to_time_bin(future.hour)
@@ -715,7 +746,7 @@ class TestOccupancyAnomaly:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -735,7 +766,7 @@ class TestOccupancyAnomaly:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -755,7 +786,7 @@ class TestOccupancyAnomaly:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -904,7 +935,7 @@ class TestWiring:
         predictor._known_persons = {"Oji"}
 
         # Simulate accuracy evaluation
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 
@@ -967,7 +998,7 @@ class TestEdgeCases:
         db = FakeDatabase()
         await predictor.initialize(db)
 
-        now = datetime.now()
+        now = _clock_now()
         time_bin = _hour_to_time_bin(now.hour)
         day_type_val = _day_type(now)
 

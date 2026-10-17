@@ -322,6 +322,12 @@ def ensure_ura_signals(overrides: dict | None = None) -> types.ModuleType:
     if mod is None:
         mod = types.ModuleType(primary)
 
+    # TEST-BAYES-B2-CLOCK-SKEW-1: register BEFORE exec. signals.py defines
+    # @dataclass classes under ``from __future__ import annotations``;
+    # dataclasses resolves ``sys.modules[cls.__module__]`` during class
+    # creation, which is None (-> AttributeError at collection) when no
+    # signals module was resident yet.
+    sys.modules[primary] = mod
     _make_complete(
         mod,
         source_path=_REAL_SIGNALS_PATH,
