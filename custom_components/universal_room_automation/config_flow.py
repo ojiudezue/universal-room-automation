@@ -6104,6 +6104,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from homeassistant.data_entry_flow import section  # noqa: F401 (used in schema)
 
         errors: dict[str, str] = {}
+        # Stage E fix-up (Review A A-LOW-2): on a selection validation error
+        # the form re-shows the operator's SUBMITTED lists, not the stored.
+        _sel_resubmit: tuple[list, list] | None = None
         if user_input is not None:
             from .domain_coordinators.energy_const import (
                 validate_envoy_config,
@@ -6184,6 +6187,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
                 if _sel_err is not None:
                     errors[CONF_INCLEMENT_BUY_PRODUCTS] = _sel_err
+                    _sel_resubmit = (
+                        [n for n in NWS_WEATHER_EVENT_NAMES if n in (
+                            user_input.get(CONF_INCLEMENT_HOLD_PRODUCTS, _cur_hold) or [])],
+                        [n for n in NWS_WEATHER_EVENT_NAMES if n in (
+                            user_input.get(CONF_INCLEMENT_BUY_PRODUCTS, _cur_buy) or [])],
+                    )
                 else:
                     user_input.update(_deltas)
             user_input.pop(CONF_INCLEMENT_HOLD_PRODUCTS, None)
@@ -6436,7 +6445,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # existing enum keys so what's stored is unchanged (enum consistency).
         from .domain_coordinators.inclement import selection_form_defaults
         _inclement_hold_default, _inclement_buy_default = (
-            selection_form_defaults(
+            _sel_resubmit or selection_form_defaults(
                 {**self._config_entry.data, **self._config_entry.options},
             )
         )
