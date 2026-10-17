@@ -32,6 +32,19 @@
 - Full suite: 115 failed / 15103 passed, against the develop baseline of 119 / 15013.
   - One failure is new against the baseline: a timing-sensitive test in `test_deploy_scripts.py`. On a re-run a different test in that file failed instead. The branch doesn't touch the deploy scripts.
 
+## Validated 2026-10-16 (partial — common paths)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| reserve_write rows, real values | PASS | `ura_activity_log` action=reserve_write: 6 rows 23:42→02:57 UTC, one per write, value/desire/path/status/pre_state/reason populated (e.g. `applied path=timer value=8 desire=8 pre_state=5.0`) |
+| Paths exercised | PASS (timer, redispatch) | `path=timer` ×5, `path=redispatch` ×1 (02:47 UTC, pending-watchdog retry) |
+| floor_ok semantics | as-expected | `floor_ok=null`, `inclement_floor=null` on every row — no inclement floor active |
+| Reserve behaviour unchanged | PASS | Off-peak hold tracks SOC (5–8%), reasons identical to pre-governor strategy text |
+| 0 ERRORs (reserve_write / hard_deny) | PASS | HA container log since 23:00 UTC: 0 |
+| Envoy reconnects | PASS | entry `01KNYRAGVP5XESS6N8PD6BVQP2` state=loaded |
+
+Not observed live (rare paths, covered in-suite only): `status=failed`/unverified write, non-null `floor_ok` under an inclement floor, EVSE-hold owner. Note: battery SOC 5–8% with Enphase battery Error reported earlier the same day — hardware issue, not governor.
+
 ## Live validation (prospective)
 - **Live:** within 1 h of a reserve change, `ura_activity_log` has a `reserve_write` row with non-null value, path and status, not sentinels.
 - **Live:** the reserve behaviour is unchanged. The `battery_strategy` sensor and the reserve values look the same as before the restart.
