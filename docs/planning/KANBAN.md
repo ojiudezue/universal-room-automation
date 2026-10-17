@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T14:31:27-05:00_ - _Data commit: `a34a076df0f0`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T14:59:11-05:00_ - _Data commit: `fa7e1ffe2b06`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -353,7 +353,8 @@ _created 2026-10-17 15:10 · initial_
 - **Origin:** 2026-10-17 - Operator review of the v5.103.69 release summary (D-B6 INCLEMENT_PREONSET_LEAD_H = 12).
 - **Why:** D-B6 (inclement.py ~508) prepares when now < start <= now + INCLEMENT_PREONSET_LEAD_H (12, energy_const.py:744), keyed on the ALERT Onset, not on when the forecast shows the hazard. Target: lead ~3-4 h before the expected event time = in...
 - **Next:** Me: in the Stage E plan (measure first: does the hourly outlook carry per-hour hazard rows good enough to locate the event hour? ~charge time from current SOC to 80 at bottom-rate/solar decides 3 vs 4 h).
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `e2p_probe_2026_10_17`: E2-P (docs/planning/AUDIT_ec_storm_e2p_onset_vs_hazard.md; plan named it AUDIT_ec_storm_event_time_vs_onset.md): NO-GO, E2b stays parked. 228 HOLD+Freeze events 2021-26 at TXZ192/TXC453, KATT/KAUS/KRYW obs + Open-Meteo proxy. Watches onl...
   - `operator_2026_10_17_plan_go`: Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: "Agree with all recs" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capp...
   - `tier`: 3
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
