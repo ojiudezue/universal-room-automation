@@ -718,6 +718,28 @@ def test_preonset_precharge_gates_positive_control(clock):
     d, s = _gate_case(clock, "control")
     assert preonset_emitted(d) and cfg_on(d)
     assert s._preonset_precharge_latch == {"wsw": "engaged"}
+    assert s._tick_grid_buy["leg"] == "preonset"
+    # Latch entries drop when the alert leaves the prepare set (Onset).
+    c = s._coord
+    tick(clock, c, s, T(16, 15), soc="95")   # active hold, SOC above threshold
+    assert s._preonset_precharge_latch == {}
+    # Per-tick stamp is entry-reset: a non-buy tick reads None.
+    assert s._tick_grid_buy is None
+
+
+def test_polygon_buy_notifies_once_via_determine_mode(clock):
+    now = T(16, 18)
+    svw = _active("Severe Thunderstorm Warning", now, code="SVW", mins_ago=20,
+                  hours=1, id_="svw")
+    c, s, _ = bshell(clock, now, soc="55", alerts=[])
+    tick(clock, c, s, now)
+    c._grid_buy_notify_tick()                 # seed
+    feed(c, [svw])
+    tick(clock, c, s, T(16, 18, 5))
+    assert s._tick_grid_buy["leg"] == "polygon"
+    c._grid_buy_notify_tick()
+    drain()
+    assert len(c.nm) == 1 and "verified-local" in c.nm[0]["message"]
 
 
 def test_preonset_negatives_not_classify_error(clock):

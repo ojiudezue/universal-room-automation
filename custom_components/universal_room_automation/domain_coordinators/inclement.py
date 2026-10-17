@@ -917,10 +917,15 @@ class InclementFusion:
         self, records: tuple[AlertRecord, ...] | list[AlertRecord],
         confirmed: frozenset[str],
     ) -> bool:
-        """INV-6(vii): some eligible ZONE (non-polygon) record is
-        forecast-confirmed."""
+        """D-B2a + INV-6(vii) on the SAME record: some active/prepare record
+        that is precharge-eligible AND forecast-confirmed. This is the
+        eligibility gate of every zone buy (the classification-level
+        `precharge_eligible` flag is display-only: an "any eligible" AND
+        "any confirmed" pair would let a confirmed INELIGIBLE watch buy on
+        behalf of an unconfirmed eligible warning). Polygon records never
+        enter `confirmed` (`_forecast_confirmed_ids` skips them)."""
         return any(
-            r.precharge_eligible and not r.polygon_local
+            r.precharge_eligible
             and r.alert_id is not None and r.alert_id in confirmed
             for r in records
         )
@@ -976,8 +981,9 @@ class InclementFusion:
         pre = False
         if (
             self._grid_precharge_on_hold
-            and high
-            and classification.prepare_precharge_eligible
+            # class gate + eligibility + forecast on the same prepare row:
+            # a warn row, or a watch row that is itself confirmed (which is
+            # exactly what makes `high` True for a watch).
             and self._zone_buy_confirmed(prows, confirmed)
             and is_bottom
             and current_soc is not None
@@ -1053,9 +1059,7 @@ class InclementFusion:
                 buy_ok = self._zone_buy_confirmed(
                     classification.hold_alerts, confirmed,
                 )
-                zone_ok = (
-                    is_bottom and classification.precharge_eligible and buy_ok
-                )
+                zone_ok = is_bottom and buy_ok
                 poly_ok = (
                     classification.polygon_topup_active
                     and not self._polygon_import_guard_tripped
@@ -1127,9 +1131,7 @@ class InclementFusion:
                     buy_ok = self._zone_buy_confirmed(
                         classification.hold_alerts, confirmed,
                     )
-                    grid_precharge = (
-                        classification.precharge_eligible and buy_ok
-                    )
+                    grid_precharge = buy_ok
                 return InclementDecision(
                     hold_depth="full_hold",
                     grid_precharge=grid_precharge,

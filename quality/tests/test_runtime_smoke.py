@@ -328,6 +328,29 @@ async def test_number_platform_registers_inclement_blind_floor(smoke_hass):
     await async_setup_entry(
         smoke_hass, cm_entry, lambda ents, _u=False: added.extend(ents),
     )
-    found = [e for e in added if isinstance(e, InclementBlindFullHoldFloorNumber)]
+    # Exact type: the Stage B pre-onset slider subclasses this entity.
+    found = [e for e in added if type(e) is InclementBlindFullHoldFloorNumber]
     assert len(found) == 1
     assert found[0].native_value == 60
+
+
+@pytest.mark.asyncio
+async def test_number_platform_registers_inclement_preonset_floor(smoke_hass):
+    """EC storm Stage B D-B6 wire-in: the CM number platform registers
+    exactly one `InclementPreonsetFloorNumber` (default 80)."""
+    from custom_components.universal_room_automation.number import (
+        InclementPreonsetFloorNumber,
+        async_setup_entry,
+    )
+
+    cm_entry = next(
+        e for e in smoke_hass.config_entries.async_entries()
+        if e.title == "coordinator_manager_entry"
+    )
+    added: list = []
+    await async_setup_entry(
+        smoke_hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+    )
+    found = [e for e in added if type(e) is InclementPreonsetFloorNumber]
+    assert len(found) == 1
+    assert found[0].native_value == 80
