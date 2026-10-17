@@ -324,3 +324,7 @@ def test_hazard_window_end_not_after_start_falls_back():
     start, end = inc._hazard_window(
         {"Onset": on, "Ends": "2026-10-16T09:00:00-05:00"})
     assert end - start == timedelta(hours=4)             # control
+    # An explicit Ends before Onset is never revived into a 48 h window.
+    start, end = inc._hazard_window(
+        {"Onset": on, "Ends": "2026-10-16T04:00:00-05:00"})
+    assert end < start

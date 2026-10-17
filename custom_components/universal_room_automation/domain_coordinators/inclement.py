@@ -263,10 +263,15 @@ def _hazard_window(
     INCLEMENT_ALERT_MAX_HOLD_H``. Unparseable values are treated as missing.
     (None, None) = unbounded on both sides (contributes nothing)."""
     start = _parse_dt(alert.get("Onset")) or _parse_dt(alert.get("Sent"))
-    end = _parse_dt(alert.get("Ends")) or _parse_dt(alert.get("Expires"))
-    # Stage E fix-up (AUDIT_nws_alert_fields_and_updates): an end at or
-    # before the start (e.g. Ends null and Onset == Expires) is not a window.
-    if start is not None and (end is None or _dt_le(end, start)):
+    ends = _parse_dt(alert.get("Ends"))
+    end = ends or _parse_dt(alert.get("Expires"))
+    # Stage E fix-up (AUDIT_nws_alert_fields_and_updates): with Ends null, an
+    # Expires at or before the start (e.g. Onset == Expires) is the message
+    # expiry, not the hazard end. An explicit Ends before Onset stays as
+    # given (expired / malformed: never revived into a hold).
+    if start is not None and (
+        end is None or (ends is None and _dt_le(end, start))
+    ):
         end = start + timedelta(hours=INCLEMENT_ALERT_MAX_HOLD_H)
     return start, end
 
