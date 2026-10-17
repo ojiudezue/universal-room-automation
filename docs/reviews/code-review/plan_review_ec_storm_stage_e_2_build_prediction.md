@@ -108,3 +108,62 @@ Evidence: the defaults are derived from the table, which keeps Hard Freeze and W
 Bug classes: #53 one-missed-site (C1 readers, H3 ledger caller, M1); #63 coincidental equality masking a concept split (C1: "buy target" and "registered floor" are the same field today only because they are equal); #62 hollow anchor risk (C2 golden without a projection, AST-only table test); observation-mode gating (L2).
 
 **Must-fix before build dispatch:** C1, C2, H1-H5, M1-M3. M4-M6 and the LOWs are fixed in the plan text in the same revision.
+
+---
+
+## Re-check Rev 2 (a181ae959, 2026-10-17)
+
+### Prior findings: resolved in the plan text?
+| ID | Status | Evidence in Rev 2 |
+|---|---|---|
+| C1 | RESOLVED | §E2.4 split; §4.3 lists 7 readers. Re-grep `preonset_floor` confirms exactly `energy_battery.py:2835, 3137, 6352, 6385, 6839, 7057` + `energy.py:9544` (plus config keys 2693/2798, producer `inclement.py:1009`). Swap drills per row. |
+| C2 | RESOLVED, residual F8 | One capture point (v5.103.69 tag, committed script + fixture), named projection, full axes, INV-7(e) scoped. |
+| H1 | RESOLVED | INV-7(c) "any leg", repro (i), tests parametrized on `watch_requires_corroboration`. |
+| H2 | RESOLVED | §4.2 `any(r.corroborable for r in watch_records)` ANDed onto the tier `corroborated`; mixed fixture. |
+| H3 | RESOLVED | §4.1 three callers incl. ledger; explicit `selection` param; no global; drift skip for unlisted. |
+| H4 | RESOLVED | §E1.3 runtime `∩ hold ∩ (family ∪ polygon)`; seeded-store test + drill. |
+| H5 | RESOLVED | §E1.2 selection domain excludes retired rows; real-flow "four empty lists" test. |
+| M1-M6 | RESOLVED | §E1.6 both sets; §E2.4 multi-alert + placement; §E0 TOU rows; Freeze Watch name-only; widened rows non-corroborable. (M2 residual: F7.) |
+| L1-L3 | RESOLVED | min(floor, buy) lead; INV-8 non-guarantees; Live lines replaced. |
+
+### Prior-art check (operator: "don't invent unnecessary code")
+Holds. The scheduler ranks each hour with existing `period_rank`/`get_season`/`get_current_period` (`energy_tou.py:459, 491, 516`). No existing "N cheapest hours before T" selector exists (grep `cheap|cheapest|rate_rank(` outside `energy_tou.py`: no energy hits), so ~20 new lines is the minimum. `_is_charge_window_open` (`energy_battery.py:3558-3573`) is cited as an analogy, not reused; fine.
+
+### New findings (E2 schedule, field split)
+
+**F1 HIGH. The candidate rule excludes the current hour, which breaks the plan's own repro and test.** §E2.2: candidates are whole hours `H` with `now ≤ H < T`; the gate is "now's hour ∈ S". At any tick after hh:00:00 the current hour is not a candidate. Concrete: "Verify (unavoidable top rate)": issued 17:30, Onset 19:00, expects `S ⊇ {17:00}`, but 17:00 < 17:30 is excluded, so S = {18:00}. INV-9 repro: if S is recomputed at 15:01 (pre-freeze or after a target change), 15:00 drops out and the ordering picks {16:00, 20:00}, i.e. a top-rate hour. Event 50 min away (20:10, T 21:00) gives S = () and no buy. Fix: candidate slots `[H, H+1h)` with `H+1h > now` and `H < T`. The gate is "the slot containing now ∈ S". Add a test at hh:30.
+
+**F2 HIGH. The freeze point is stated two ways, and its storage changes the latch type without enumerating the latch readers.** INV-9 says "frozen when the latch first engages". §E2.2 says "computed on the first tick where a buy would be eligible and stored on the latch entry `{state, hours, T, target}`". Engagement happens only after a commanded buy (`energy_battery.py:6401-6409`), so INV-9's reading recomputes S every tick before the buy, and F1 bites. §E2.2's reading turns `dict[str, str]` (`energy_battery.py:474`) into dict values. Five readers compare against strings: `inclement.py:975` (advance), `:984` (`state`), `energy_battery.py:3145` (attr), `:6403-6408` (engage), and `energy.py:9420-9421` (obs-mode rollback). A dict entry never `== "engaged"`, so the advance and the rollback silently stop (#53). The observation-mode rollback deletes only `engaged`, so a pre-engage schedule entry would survive obs mode. Fix: keep the latch type. Add a sibling RAM dict `_preonset_buy_schedule[key_id] = (hours, T, target)`, purged in the same loop as `inclement.py:950-953`. Freeze it on the first tick where every D-B6 conjunct except hour ∈ S holds. Enumerate its readers in §4.3. State its discharge: purge on alert exit; clear on option-off or forecast-unconfirm (today's eligibility rule covers only `engaged`).
+
+**F3 MED. Onset Updates re-key the alert, so "recompute on T change" never happens in place.** `alert_id = alert_key` takes the NWS `ID` (`energy_outage_ledger.py:72-81`, `inclement.py:252`). An Update is a new message with a new ID. The old latch and schedule are purged at `:950-953`, and the new ID starts fresh: `engaged`/`reached` are lost, and the solar test re-runs. A `test_schedule_recomputed_on_onset_update` written with the same ID and a moved Onset is hollow (#62). Fix: the fixture replaces the alert with a new ID and a new Onset, and the plan states the real semantics (fresh schedule, parent limit 23).
+
+**F4 MED. The engine-missing fallback is unbuildable, and an unranked hour crashes the sort.** "Engine missing → `get_current_period(H) == "off_peak"`" calls the engine that is missing. Today's fallback is `tou_period == "off_peak"` for now only (`energy_battery.py:2960-2969`). `period_rank` returns None for an unknown period (`energy_tou.py:491-506`), and `(None, Δ) < (0, Δ)` raises TypeError. That is not the "engine raises" path. Fix: engine missing → S = () (no D-B6 buy, a stated byte change), or legacy current-tick behaviour. A None rank excludes that hour. Test both.
+
+**F5 MED. `h_req` is ≥ 1 even when SOC ≥ target, so the floor starts early with no buy.** `ceil(max(0, target − SOC)/rate) + margin` = 0 + 1 = 1, so S is non-empty and INV-8(ii) registers the floor from min(S). In winter with Onset 21:00 that is 16:00 instead of 17:00, with nothing bought. That breaks "floor no earlier than needed", and the INV-8 falsifier can't see it because it is defined relative to S. Fix: SOC ≥ target or SOC None → S = (). Test it.
+
+**F6 MED. DST and timezone handling are unspecified, and the cited walk pattern carries the bug.** `T` is a fixed-offset datetime (`inclement.py:185-190`, `fromisoformat`); `now` is zoneinfo. `peak_ahead_before_offpeak` (`energy_tou.py:661-668`) steps with wall-clock `+ timedelta(hours=1)` on aware datetimes, which skips the repeated 01:00 on fall-back and yields a non-existent 02:00 on spring-forward. Hour counts and `T − H` ordering are then off by one. Fix: step UTC hour boundaries and rank via `dt_util.as_local(H)`. Add DST-night and window-across-midnight tests (§8 names DST as a D target, but §E2 has no test for it).
+
+**F7 MED. The multi-alert floor value contradicts the field definition.** §E2.4 says the registered floor equals `preonset_target` when INV-8 holds. M2's rule says the floor value comes from rows inside the floor window. With a warn 10 h out and a watch 3 h out, the buy target is 80 (key row = warn, `inclement.py:956-970`), while the registered value is the watch's lower floor. Bought energy can then discharge to 50 before T. Fix: under INV-8(ii), registered = target. The window-class rule applies only under (i).
+
+**F8 MED. The golden's E2 expected diff is generated by the code under test.** "Prepare cells at a bottom-rate hour outside S" requires computing S, which only the build branch's scheduler can do. A wrong scheduler then widens its own allowed diff (#62). Fix: take the E2 buy cells out of the golden and give them to the explicit INV-9 tests, or derive the diff from a hand table independent of `schedule_buy_hours`.
+
+**F9 LOW.** "Verify (closest to event)" is conditional ("only if those are bottom rate. Otherwise…"); pin the shoulder answer {15:00, 16:00}. There is no test where T is less than `h_req` hours away (partial S), and none for T exactly on the hour.
+
+**F10 (mutation authority, INV-9).** The listed drills (`is_bottom_rate(now)` gate; `(rank, H − now)` order) are falsifiable. They are not enough. Add:
+- (a) no freeze, recompute every tick: needs a fixture where SOC rises mid-buy so S shifts and CFG cycles twice. Without that fixture, `test_schedule_frozen_on_engage` stays GREEN;
+- (b) a current-hour exclusion drill (F1);
+- (c) drop the margin, or compute `h_req` from `floor` instead of `target`;
+- (d) drop the eligibility conjunct from INV-8(ii);
+- (e) the engine-missing path.
+
+### Discharge paths (operator's three cases)
+- Alert cancel or expiry: covered by the purge at `inclement.py:950-953`.
+- Forecast unconfirm, or option off: covered for `engaged` only. A pre-engage frozen schedule has no clear (F2).
+- Option back on later: a stale frozen S whose hours have passed gives no buy until a new ID arrives. State it.
+
+### Verdict: **FIX-PLAN**
+All of C1-C2, H1-H5 and M1-M6 are genuinely resolved. The new E2 schedule has two HIGH build traps:
+- F1: the current-hour exclusion contradicts the plan's own repro.
+- F2: the freeze point and its storage are ambiguous, and five string-typed latch readers are not enumerated.
+
+Must-fix before build: F1, F2, F4, F5. F3 and F6-F10 are fixed in the same revision.
