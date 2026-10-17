@@ -125,6 +125,40 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EC-STORM-PRODUCT-SELECTION-EXTERNAL-1
+  title: "Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table"
+  thread: energy
+  status: "pre_planning"
+  tier: 3
+  created: "2026-10-17 15:10"
+  updated: "2026-10-17 15:10"
+  refinement_status: "initial"
+  approval: "approved"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "Operator after v5.103.69 asked whether Stage B reused the EC config-flow alert list (it did not: D-B5 retired it for INCLEMENT_PRODUCT_TABLE)."}
+  operator_2026_10_17: '"I think an externalization is interesting. The data backed version is good but annotate could Extend it. It also helps with diff locations who which will have different data and the operator can add or remove things that can hold, or buy. It can be simple list externally and more complicated internally ie we will in the internal table with known good things/code but the user selection stays simple." + "These can be follow ups but like immediately plus whatever else is in the arc or cards we spawned from it or things we dropped".'
+  why: "Simple operator selection (per product: may hold, may buy) layered over the reviewed internal table (code, class, polygon_local, eligibility). Replaces the retired free-text list (residual_2026_10_17_legacy_threat_list on EC-INCLEMENT-HARDENING-1: dead plumbing at energy_battery.py:2647-2660, config_flow.py:6030-6037/6164-6168)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1", "sibling_of": ["EC-STORM-PREONSET-TIMING-1"]}
+  batch: "ec-storm-stage-e"
+  next: "Me: ura-planner writes Stage E of PLANNING_ec_storm_and_blind_decisions.md (this card + EC-STORM-PREONSET-TIMING-1 + arc/dropped inventory) -> two plan reviews (Tier 3) -> operator checkpoint on the plan."
+  rank: {value: 6, time_criticality: 4, effort: 5}
+- id: EC-STORM-PREONSET-TIMING-1
+  title: "Pre-onset storm floor starts up to 12 h before the alert onset: holds the battery high for hours that do not matter instead of 3-4 h before the forecast-confirmed hazard time"
+  thread: energy
+  status: "pre_planning"
+  tier: 3
+  created: "2026-10-17 15:10"
+  updated: "2026-10-17 15:10"
+  refinement_status: "initial"
+  approval: "approved"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "Operator review of the v5.103.69 release summary (D-B6 INCLEMENT_PREONSET_LEAD_H = 12)."}
+  operator_2026_10_17: '"We didnt talk about good hold onset time. Holding for 12 hours is wasteful. We should hold when it counts ie 3-4 hours to expected event time intersect forecast confirmed time. Vs alert time."'
+  why: "D-B6 (inclement.py ~508) prepares when now < start <= now + INCLEMENT_PREONSET_LEAD_H (12, energy_const.py:744), keyed on the ALERT Onset, not on when the forecast shows the hazard. Target: lead ~3-4 h before the expected event time = intersection of alert window and the forecast hours that confirm the hazard (outlook hourly rows)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1", "sibling_of": ["EC-STORM-PRODUCT-SELECTION-EXTERNAL-1"]}
+  batch: "ec-storm-stage-e"
+  next: "Me: in the Stage E plan (measure first: does the hourly outlook carry per-hour hazard rows good enough to locate the event hour? ~charge time from current SOC to 80 at bottom-rate/solar decides 3 vs 4 h)."
+  rank: {value: 6, time_criticality: 5, effort: 4}
 - id: TEST-BAYES-B2-CLOCK-SKEW-1
   merged_2026_10_17: "Merged to develop e2c319b45 (tests only, no deploy needed). Post-merge: the 4 touched files 133 passed on develop."
   review_2026_10_17: "Tier-1 review: SHIP. Mutation of production time-bin (bayesian_predictor.py:843) -> 5 B2 tests RED (not hollow); bin-edge clock passes; 231/157-test cross-order runs green. Two LOWs fixed in-cycle by orchestrator (d8089da78): pop a half-executed signals module on exec failure (_ura_const_support.py), try/finally around the stub cleanup (test_hvac_fan_control.py); 133 passed both orders after."
