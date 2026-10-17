@@ -126,15 +126,16 @@ meta:
     acknowledged: false
 cards:
 - id: TEST-BAYES-B2-CLOCK-SKEW-1
+  merged_2026_10_17: "Merged to develop e2c319b45 (tests only, no deploy needed). Post-merge: the 4 touched files 133 passed on develop."
   review_2026_10_17: "Tier-1 review: SHIP. Mutation of production time-bin (bayesian_predictor.py:843) -> 5 B2 tests RED (not hollow); bin-edge clock passes; 231/157-test cross-order runs green. Two LOWs fixed in-cycle by orchestrator (d8089da78): pop a half-executed signals module on exec failure (_ura_const_support.py), try/finally around the stub cleanup (test_hvac_fan_control.py); 133 passed both orders after."
   build2_2026_10_17_overnight: "Follow-up commit 38e8fedcb (tests only): FakeHass gains loop_thread_id + verify_event_loop_thread (real signature homeassistant/core.py:422; dispatcher calls it at helpers/dispatcher.py:214) -> 6 unmasked failures fixed. The other 9 were NOT caused by test_bayesian_predictor.py (my brief was wrong): test_envoy_auto_derive.py and test_hvac_fan_control.py leaked MagicMock HVAC modules into sys.modules at import and broke each other (envoy->fan 9 failed, reverse 3 failed, with no bayesian file in the run); both now scope + restore their stubs. All 4 files green alone, 133 passed in forward and reverse order; fan/carrier neighbours 94 passed both ways."
   build_2026_10_17_overnight: "Built on fix/test-bayes-b2-clock-skew a5d8b2f33 (tests only: test_bayesian_b2_prediction_sensors.py freezes the predictor's own dt_util.now per test; _ura_const_support.ensure_ura_signals registers the module in sys.modules before exec - that was the collection error). 45/45 alone, under 4 forced UTC-vs-local skews + TZ=Asia/Tokyo, and in both orders after the light stub files; old file under Tokyo reproduces the 5 failures. SIDE EFFECT: the helper fix lets test_bayesian_predictor.py collect again, unmasking 15 failures it had been hiding (6 in that file: FakeHass lacks verify_event_loop_thread; 3 test_envoy_auto_derive + 6 test_hvac_fan_control fail only after it = leakage). Sent the builder back to fix those on the same branch so the merge does not add visible failures."
   gate_2026_10_17_overnight: "Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (test-only, Tier 1). Cost/benefit: removes a time-of-day flake from every name-diff; no production code. Overnight build -> review lane."
   title: "Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC"
   thread: quality
-  status: "in_progress"
+  status: "done"
   created: '2026-10-16 13:30'
-  updated: "2026-10-17 02:17"
+  updated: "2026-10-17 07:05"
   refinement_status: initial
   approval: unreviewed
   tags: [found-during-build, test-infra]

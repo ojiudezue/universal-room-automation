@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T02:27:04-05:00_ - _Data commit: `373821c67279`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T07:01:45-05:00_ - _Data commit: `5bb28f34b98f`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -13,13 +13,13 @@ _Generated: 2026-10-17T02:27:04-05:00_ - _Data commit: `373821c67279`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 40 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 88 |
-| ✅ Done | 339 |
+| ✅ Done | 340 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -322,24 +322,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
-### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **quality** - status: **in_progress** - approval: **unreviewed**
-_created 2026-10-16 13:30 · updated 2026-10-17 02:17 · initial_
-- **Problem / Solution:**
-  - Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes...
-- **Origin:** 2026-10-16 - Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.
-- **Why:** Pollutes every name-diff by time of day, so real regressions hide behind it.
-- **Tags:** found-during-build, test-infra
-- **Forensic keys (4):**
-  - `review_2026_10_17`: Tier-1 review: SHIP. Mutation of production time-bin (bayesian_predictor.py:843) -> 5 B2 tests RED (not hollow); bin-edge clock passes; 231/157-test cross-order runs green. Two LOWs fixed in-cycle by orchestrator (d8089da78): pop a half-...
-  - `build2_2026_10_17_overnight`: Follow-up commit 38e8fedcb (tests only): FakeHass gains loop_thread_id + verify_event_loop_thread (real signature homeassistant/core.py:422; dispatcher calls it at helpers/dispatcher.py:214) -> 6 unmasked failures fixed. The other 9 were...
-  - `build_2026_10_17_overnight`: Built on fix/test-bayes-b2-clock-skew a5d8b2f33 (tests only: test_bayesian_b2_prediction_sensors.py freezes the predictor's own dt_util.now per test; _ura_const_support.ensure_ura_signals registers the module in sys.modules before exec -...
-  - `gate_2026_10_17_overnight`: Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (tes...
-
-### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `EC-OBSERVATION-MODE-RESERVE-BYPASS-1` - Reserve writes can reach hardware in observation mode: the CoordinatorManager TOU-transition path and the write-verify self-heal re-send ignore observation mode — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **energy** - status: **in_progress**
 _created 2026-10-16 · updated 2026-10-17 02:13 · refined_
 - **Problem / Solution:**
@@ -357,7 +343,7 @@ _created 2026-10-16 · updated 2026-10-17 02:13 · refined_
   - `measured_2026_10_17_overnight`: CONFIRMED by code trace (develop @ ac732201b, 02:0x CDT). (1) energy.py:1377-1398 evaluate(): on a TOU period change calls _evaluate_battery() (energy.py:7177) with no _observation_mode check; the returned actions go to CoordinatorManage...
   - `related`: EC-RESERVE-WRITE-GOVERNOR-1
 
-### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#3 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `SAFETY-NM-REFIRE-UNWIRED-1` - Safety alerts never re-page: NotificationAction carries no hazard_type/location, so NM's re-evaluate sees is_hazard_active('', '') = False — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **safety** - status: **in_progress** - approval: **unreviewed**
 _created 2026-10-14 19:30 · updated 2026-10-15 02:10 · initial_
 - **Origin:** 2026-10-14 - plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map
@@ -2529,8 +2515,23 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-## ✅ Done (339)
+## ✅ Done (340)
 _closed, evidence in refs_
+
+### `TEST-BAYES-B2-CLOCK-SKEW-1` - Five bayesian anomaly tests fail depending on the time of day: the test bins by local time, the predictor by UTC — _WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **quality** - status: **done** - approval: **unreviewed**
+_created 2026-10-16 13:30 · updated 2026-10-17 07:05 · initial_
+- **Problem / Solution:**
+  - Problem: test_bayesian_b2_prediction_sensors.py picks the expected time bin from naive datetime.now().hour. The predictor uses the real homeassistant.util.dt.now(), which is UTC because no time zone is set; the file's dt stub never takes...
+- **Origin:** 2026-10-16 - Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.
+- **Why:** Pollutes every name-diff by time of day, so real regressions hide behind it.
+- **Tags:** found-during-build, test-infra
+- **Forensic keys (5):**
+  - `merged_2026_10_17`: Merged to develop e2c319b45 (tests only, no deploy needed). Post-merge: the 4 touched files 133 passed on develop.
+  - `review_2026_10_17`: Tier-1 review: SHIP. Mutation of production time-bin (bayesian_predictor.py:843) -> 5 B2 tests RED (not hollow); bin-edge clock passes; 231/157-test cross-order runs green. Two LOWs fixed in-cycle by orchestrator (d8089da78): pop a half-...
+  - `build2_2026_10_17_overnight`: Follow-up commit 38e8fedcb (tests only): FakeHass gains loop_thread_id + verify_event_loop_thread (real signature homeassistant/core.py:422; dispatcher calls it at helpers/dispatcher.py:214) -> 6 unmasked failures fixed. The other 9 were...
+  - `build_2026_10_17_overnight`: Built on fix/test-bayes-b2-clock-skew a5d8b2f33 (tests only: test_bayesian_b2_prediction_sensors.py freezes the predictor's own dt_util.now per test; _ura_const_support.ensure_ura_signals registers the module in sys.modules before exec -...
+  - `gate_2026_10_17_overnight`: Validity STILL-REAL (test file :361-663 bins with naive datetime.now().hour; dt stub via sys.modules.setdefault at :108/:130). Config-first n/a. Prior art: reuse the predictor's own clock (homeassistant.util.dt.now). Parsimony BUILD (tes...
 
 ### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **done** - approval: **implied**
