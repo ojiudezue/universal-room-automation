@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T15:17:45-05:00_ - _Data commit: `cde60c03854f`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T16:43:01-05:00_ - _Data commit: `2eef6cfb5635`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 8 |
@@ -21,7 +21,7 @@ _Generated: 2026-10-17T15:17:45-05:00_ - _Data commit: `cde60c03854f`_ - _last_r
 | 🅿️ Parked | 88 |
 | ✅ Done | 341 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1` - When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
@@ -32,6 +32,15 @@ _created 2026-10-17 17:10 · initial_
 - **Next:** Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both.
 - **Forensic keys (1):**
   - `tier`: 2
+
+### `EGRESS-ENTRY-DISPLAY-LATE-NAME-1` - Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not) — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
+thread: **identity** - status: **inbox** - approval: **unreviewed**
+_created 2026-10-17 17:40 · initial_
+- **Origin:** 2026-10-17 - Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGN...
+- **Why:** v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard.
+- **Next:** Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read).
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_

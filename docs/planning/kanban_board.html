@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-17T15:17:45-05:00</b></span>
-<span>data <b>cde60c03854f</b></span>
+<span>generated <b>2026-10-17T16:43:01-05:00</b></span>
+<span>data <b>2eef6cfb5635</b></span>
 <span>reconciled <b>2026-10-17</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">4<span class="den"> / 167</span></span>
+<span class="metric">4<span class="den"> / 168</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 23 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -388,7 +388,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>1</b></span>
+<span>Inbox <b>2</b></span>
 <span>Investigating <b>1</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>8</b></span>
@@ -402,9 +402,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card ap-unreviewed" data-id="EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1" draggable="true"><summary><span class="id">EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 4.0 · v4 tc2 u2 /e2</span><span class="apl">unreviewed</span><span class="title">When two residents leave together and the camera records one exit, the backfill names whoever&#x27;s tracker edge arrives first: possibly the wrong person</span><div class="tagline">identity</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-17 17:10 · initial</div><dt>Origin</dt><dd>2026-10-17 - Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer).</dd><dt>Why</dt><dd>Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case.</dd><dt>Next</dt><dd>Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when &gt;1 resident edge lands in the window for a single row, or name both.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card ap-unreviewed" data-id="EGRESS-ENTRY-DISPLAY-LATE-NAME-1" draggable="true"><summary><span class="id">EGRESS-ENTRY-DISPLAY-LATE-NAME-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 3.5 · v3 tc2 u2 /e2</span><span class="apl">unreviewed</span><span class="title">Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)</span><div class="tagline">identity</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-17 17:40 · initial</div><dt>Origin</dt><dd>2026-10-17 - Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGN...</dd><dt>Why</dt><dd>v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard.</dd><dt>Next</dt><dd>Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read).</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -982,7 +983,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>cde60c03854f</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>2eef6cfb5635</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

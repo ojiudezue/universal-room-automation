@@ -125,6 +125,20 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
+  title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
+  thread: identity
+  status: "inbox"
+  tier: 1
+  created: "2026-10-17 17:40"
+  updated: "2026-10-17 17:40"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGNAL_EGRESS_EXIT_BACKFILLED, sensor.py:4913-4935)."}
+  why: "v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard."
+  links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-DISPLAY-REREAD-1"]}
+  next: "Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read)."
+  rank: {value: 3, time_criticality: 2, effort: 2}
 - id: EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1
   title: "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person"
   thread: identity
