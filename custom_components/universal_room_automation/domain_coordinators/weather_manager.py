@@ -30,10 +30,14 @@ except ImportError:  # Python < 3.11
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import (
-    async_track_state_change_event,
-    async_track_time_interval,
-)
+from homeassistant.helpers.event import async_track_state_change_event
+
+try:  # EC storm Stage C D-C1 timer. Guarded so a reduced helpers.event (a
+    # test double exposing only the state-change tracker) keeps the WPM
+    # importable; async_setup falls back to a lazy import.
+    from homeassistant.helpers.event import async_track_time_interval
+except ImportError:  # pragma: no cover — real HA always has it
+    async_track_time_interval = None  # type: ignore[assignment]
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -220,7 +224,12 @@ class WeatherProviderManager:
         # EC storm Stage C D-C1: hourly outlook timer (unsub captured, Bug
         # #38) + an immediate first refresh as a TRACKED task (off the boot
         # path; `never_fetched` until it lands).
-        self._unsub_handles.append(async_track_time_interval(
+        _track = async_track_time_interval
+        if _track is None:
+            from homeassistant.helpers.event import (
+                async_track_time_interval as _track,
+            )
+        self._unsub_handles.append(_track(
             self.hass, self._on_hourly_timer,
             timedelta(minutes=FORECAST_REFRESH_MIN),
         ))

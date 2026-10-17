@@ -27,18 +27,62 @@ class MockHass(_BaseMockHass):
         super().__init__()
         self.config = MagicMock()
 
-import custom_components.universal_room_automation.domain_coordinators.weather_manager as wm_mod
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (
     CONF_ENERGY_WEATHER_ENTITY,
     CONF_ENERGY_WEATHER_FALLBACK_1,
     CONF_ENERGY_WEATHER_FALLBACK_2,
 )
-from custom_components.universal_room_automation.domain_coordinators.inclement import (
-    forecast_confirms,
-)
-from custom_components.universal_room_automation.domain_coordinators.weather_manager import (
-    WeatherProviderManager,
-)
+
+_WM = "custom_components.universal_room_automation.domain_coordinators.weather_manager"
+
+
+class _Store:
+    """Inert stand-in for HA's Store (the ring is not under test here)."""
+
+    def __init__(self, *a, **k):
+        pass
+
+
+@pytest.fixture
+def wm_mod(clock, monkeypatch):
+    """The weather_manager module, imported at TEST time (never at collection,
+    so this file cannot pre-load it into another file's stub environment),
+    with a deterministic clock shim on ITS OWN `dt_util` binding (whatever
+    dt module another file installed) and an inert Store. A module this
+    fixture imported is removed again afterwards."""
+    import importlib
+    import sys
+    pre = sys.modules.get(_WM)
+    mod = pre or importlib.import_module(_WM)
+
+    class _Dt:
+        UTC = timezone.utc
+
+        @staticmethod
+        def utcnow():
+            return clock.t
+
+        @staticmethod
+        def as_utc(d):
+            return d.astimezone(timezone.utc)
+
+        @staticmethod
+        def parse_datetime(v):
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+
+    monkeypatch.setattr(mod, "dt_util", _Dt)
+    monkeypatch.setattr(mod, "Store", _Store)
+    yield mod
+    if pre is None:
+        sys.modules.pop(_WM, None)
+
+
+def _forecast_confirms(*a):
+    import sys
+    return sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators.inclement"
+    ].forecast_confirms(*a)
+
 
 _UTC = timezone.utc
 OWM, DYN, OM = "weather.owm", "weather.dyn", "weather.om"
@@ -59,7 +103,7 @@ def _rows(start, n, *, pop=True, temp=25.0, mm=None):
     return out
 
 
-def _mgr(clock, *, owm_rows, om_rows, owm_state="snowy", om_unit="°F"):
+def _mgr(wm_mod, clock, *, owm_rows, om_rows, owm_state="snowy", om_unit="°F"):
     clock.t = T0
     hass = MockHass()
     for eid, unit in ((OWM, "°F"), (DYN, "°F"), (OM, om_unit)):
@@ -78,7 +122,7 @@ def _mgr(clock, *, owm_rows, om_rows, owm_state="snowy", om_unit="°F"):
         rows = owm_rows if eid == OWM else om_rows
         return {eid: {"forecast": rows}}
     hass.services = SimpleNamespace(async_call=_svc)
-    m = WeatherProviderManager(hass, {
+    m = wm_mod.WeatherProviderManager(hass, {
         CONF_ENERGY_WEATHER_ENTITY: OWM,
         CONF_ENERGY_WEATHER_FALLBACK_1: DYN,
         CONF_ENERGY_WEATHER_FALLBACK_2: OM,
@@ -87,8 +131,8 @@ def _mgr(clock, *, owm_rows, om_rows, owm_state="snowy", om_unit="°F"):
     return m, calls
 
 
-def test_backup_policy_owm_then_open_meteo_beyond_horizon(clock):
-    m, calls = _mgr(clock, owm_rows=_rows(T0, 48),
+def test_backup_policy_owm_then_open_meteo_beyond_horizon(wm_mod, clock):
+    m, calls = _mgr(wm_mod, clock, owm_rows=_rows(T0, 48),
                     om_rows=_rows(T0, 164, pop=False, temp=10.0, mm=2.0))
     assert set(calls) == {OWM, DYN, OM}
     assert m.hourly_providers_ok == 2 and m.hourly_fetched_at == T0
@@ -103,52 +147,52 @@ def test_backup_policy_owm_then_open_meteo_beyond_horizon(clock):
     assert [s[0] for s in o2.sources] == [OWM] and o2.min_temp_f == 25.0
 
 
-def test_unhealthy_primary_skipped(clock):
-    m, _ = _mgr(clock, owm_rows=_rows(T0, 48),
+def test_unhealthy_primary_skipped(wm_mod, clock):
+    m, _ = _mgr(wm_mod, clock, owm_rows=_rows(T0, 48),
                 om_rows=_rows(T0, 164, pop=False, temp=10.0, mm=2.0))
     m.hass._states[OWM] = MockState(OWM, "unavailable", {})
     o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
     assert [s[0] for s in o.sources] == [OM]
 
 
-def test_all_unusable_is_none(clock):
-    m, _ = _mgr(clock, owm_rows=_rows(T0, 48), om_rows=[])
+def test_all_unusable_is_none(wm_mod, clock):
+    m, _ = _mgr(wm_mod, clock, owm_rows=_rows(T0, 48), om_rows=[])
     m.hass._states[OWM] = MockState(OWM, "unavailable", {})
     assert m.hourly_outlook(T0, T0 + timedelta(hours=5)) is None
 
 
-def test_forecast_stale_beyond_limit_is_none(clock):
-    m, _ = _mgr(clock, owm_rows=_rows(T0, 48), om_rows=[])
+def test_forecast_stale_beyond_limit_is_none(wm_mod, clock):
+    m, _ = _mgr(wm_mod, clock, owm_rows=_rows(T0, 48), om_rows=[])
     clock.t = T0 + timedelta(minutes=120)
     assert m.hourly_outlook(T0, T0 + timedelta(hours=5)) is not None
     clock.t = T0 + timedelta(minutes=121)
     assert m.hourly_outlook(T0, T0 + timedelta(hours=5)) is None
 
 
-def test_forecast_first_tick_never_fetched(clock):
+def test_forecast_first_tick_never_fetched(wm_mod, clock):
     clock.t = T0
-    m = WeatherProviderManager(MockHass(), {CONF_ENERGY_WEATHER_ENTITY: OWM})
+    m = wm_mod.WeatherProviderManager(MockHass(), {CONF_ENERGY_WEATHER_ENTITY: OWM})
     assert m.hourly_fetched_at is None
     assert m.hourly_outlook(T0, T0 + timedelta(hours=5)) is None
 
 
-def test_celsius_provider_converted(clock):
-    m, _ = _mgr(clock, owm_rows=[], om_rows=_rows(T0, 10, pop=False,
+def test_celsius_provider_converted(wm_mod, clock):
+    m, _ = _mgr(wm_mod, clock, owm_rows=[], om_rows=_rows(T0, 10, pop=False,
                                                   temp=-5.0, mm=3.0),
                 om_unit="°C")
     o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
     assert o.min_temp_f == pytest.approx(23.0)
-    assert forecast_confirms("Hard Freeze Watch", o) is True
+    assert _forecast_confirms("Hard Freeze Watch", o) is True
 
 
-def test_winter_storm_confirms_by_amount_when_no_probability(clock):
-    m, _ = _mgr(clock, owm_rows=[], om_rows=_rows(T0, 10, pop=False,
+def test_winter_storm_confirms_by_amount_when_no_probability(wm_mod, clock):
+    m, _ = _mgr(wm_mod, clock, owm_rows=[], om_rows=_rows(T0, 10, pop=False,
                                                   temp=30.0, mm=1.5))
     o = m.hourly_outlook(T0, T0 + timedelta(hours=5))
-    assert o.max_pop is None and forecast_confirms("Winter Storm Warning", o)
+    assert o.max_pop is None and _forecast_confirms("Winter Storm Warning", o)
 
 
-def test_forecast_timer_torn_down(clock, monkeypatch):
+def test_forecast_timer_torn_down(wm_mod, clock, monkeypatch):
     unsub = MagicMock()
     monkeypatch.setattr(wm_mod, "async_track_time_interval",
                         lambda hass, cb, interval: unsub)
@@ -164,7 +208,7 @@ def test_forecast_timer_torn_down(clock, monkeypatch):
         return t
     hass.async_create_task = _ct
     hass.services = SimpleNamespace(async_call=MagicMock())
-    m = WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: OWM})
+    m = wm_mod.WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: OWM})
 
     async def _noop():
         return None

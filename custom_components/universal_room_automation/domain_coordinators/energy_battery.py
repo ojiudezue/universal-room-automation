@@ -2819,8 +2819,10 @@ class BatteryStrategy:
         cls = self._last_inclement_classification
         if preonset:
             return {
-                "leg": "preonset", "alert_id": decision.preonset_alert_id,
-                "event": decision.preonset_event, "target": decision.preonset_floor,
+                "leg": "preonset",
+                "alert_id": getattr(decision, "preonset_alert_id", None),
+                "event": getattr(decision, "preonset_event", None),
+                "target": getattr(decision, "preonset_floor", None),
                 "forecast_confirmed": True,
             }
         leg = getattr(decision, "precharge_leg", None) or "zone"
@@ -2832,12 +2834,18 @@ class BatteryStrategy:
             if leg == "zone" and not r.polygon_local and r.precharge_eligible:
                 rec = r
                 break
+        # getattr throughout: observability must never break the emission
+        # it annotates (decision doubles may carry only the hold fields).
         return {
             "leg": leg,
             "alert_id": rec.alert_id if rec else None,
-            "event": rec.event if rec else decision.contributing_event,
+            "event": (
+                rec.event if rec else getattr(decision, "contributing_event", None)
+            ),
             "target": DEFAULT_STORM_CHARGE_THRESHOLD,
-            "forecast_confirmed": bool(decision.buy_forecast_confirmed),
+            "forecast_confirmed": bool(
+                getattr(decision, "buy_forecast_confirmed", False)
+            ),
         }
 
     def _polygon_import_guard_tripped(self, option_on: bool) -> bool:
@@ -6290,8 +6298,8 @@ class BatteryStrategy:
         # ineligible → fall through to the TOU branches (the fold keeps
         # every reserve write >= the registered prepare floor).
         if (
-            decision.preonset_precharge
-            and decision.preonset_floor is not None
+            getattr(decision, "preonset_precharge", False)
+            and getattr(decision, "preonset_floor", None) is not None
             and soc is not None
             and self._arbitrage_phase != ARBITRAGE_PHASE_CHARGE
             and self._attain_state != "charging"

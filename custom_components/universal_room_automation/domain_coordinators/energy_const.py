@@ -748,8 +748,13 @@ INCLEMENT_PREONSET_LEAD_H: Final = 12
 CONF_INCLEMENT_PREONSET_FLOOR: Final = "inclement_preonset_floor"
 INCLEMENT_PREONSET_FLOOR_PCT: Final = 80
 # D-B7: Enphase Storm Guard trip-wire target (notice only, never a decision
-# input). "" = trip-wire off.
-STORM_GUARD_ENTITY: Final = "switch.main_panel_wall_iq_gateway_hacs_storm_guard"
+# input), resolved at run time by entity-registry lookup — no house
+# entity_id literal (EC-HOUSE-ENTITY-DEFAULTS-1; same pattern as the Stage L
+# calendar resolution): the one `switch.*` entity of this platform whose
+# unique_id ends with the suffix (live 2026-10-16: platform enphase_ev,
+# unique_id enphase_ev_site_<id>_storm_guard). "" platform = trip-wire off.
+STORM_GUARD_PLATFORM: Final = "enphase_ev"
+STORM_GUARD_UNIQUE_ID_SUFFIX: Final = "_storm_guard"
 
 # ----------------------------------------------------------------------------
 # EC storm/blind Stage C (D-C2 forecast confirmation; rung 1). Thresholds

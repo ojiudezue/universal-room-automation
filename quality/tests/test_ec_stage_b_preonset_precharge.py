@@ -1122,6 +1122,7 @@ def _sg_shell(clock):
         saved.append(ev)
     c.db.save_anomaly_event = _save
     c._sg_saved = saved
+    c._storm_guard_eid = _SG  # resolved target (resolver tested separately)
     return c, s
 
 
@@ -1173,22 +1174,52 @@ def test_storm_guard_tripwire_on_at_boot_is_log_only(clock, caplog):
     assert len(c.nm) == 1
 
 
-def test_storm_guard_tripwire_disabled_empty_entity(clock, monkeypatch):
+def test_storm_guard_tripwire_disabled_empty_platform(clock, monkeypatch):
     from custom_components.universal_room_automation.domain_coordinators import (
         energy_const,
     )
-    monkeypatch.setattr(energy_const, "STORM_GUARD_ENTITY", "")
-    c, s = _sg_shell(clock)
-    _sg(c, "off")
-    _sg(c, "on")
+    monkeypatch.setattr(energy_const, "STORM_GUARD_PLATFORM", "")
+    c, s = make_shell(clock)
+    assert c._storm_guard_entity() is None
+    c.hass._states[_SG] = MockState(_SG, "off", {})
+    c._storm_guard_tick()
+    c.hass._states[_SG] = MockState(_SG, "on", {})
+    c._storm_guard_tick()
+    drain()
     assert c.nm == []
 
+
+def test_storm_guard_entity_resolved_from_registry(clock, monkeypatch):
+    """Registry lookup (no house entity_id literal): exactly one switch of
+    platform enphase_ev whose unique_id ends `_storm_guard`."""
+    from homeassistant.helpers import entity_registry as er
+    ents = {
+        _SG: SimpleNamespace(entity_id=_SG, platform="enphase_ev",
+                             unique_id="enphase_ev_site_1_storm_guard"),
+        "switch.other": SimpleNamespace(entity_id="switch.other",
+                                        platform="enphase_ev",
+                                        unique_id="enphase_ev_site_1_cfg"),
+        "sensor.x_storm_guard": SimpleNamespace(
+            entity_id="sensor.x_storm_guard", platform="enphase_ev",
+            unique_id="y_storm_guard"),
+    }
+    monkeypatch.setattr(er, "async_get",
+                        lambda hass: SimpleNamespace(entities=ents))
+    c, s = make_shell(clock)
+    assert c._storm_guard_entity() == _SG
+    # Two matches → unresolved (inert).
+    ents["switch.dup"] = SimpleNamespace(entity_id="switch.dup",
+                                         platform="enphase_ev",
+                                         unique_id="z_storm_guard")
+    c2, _ = make_shell(clock)
+    assert c2._storm_guard_entity() is None
 
 def test_storm_guard_not_a_decision_input(clock):
     outs = []
     for state in ("off", "on"):
         c, s, _ = bshell(clock, NOW, alerts=[WSW], outlook=ol())
         c.hass._states[_SG] = MockState(_SG, state, {})
+        c._storm_guard_eid = _SG
         c._storm_guard_tick()
         d = tick(clock, c, s, NOW)
         outs.append((d["reason"], d["actions"], s._tick_reserve_floor))

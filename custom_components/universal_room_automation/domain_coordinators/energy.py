@@ -9278,17 +9278,17 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("inclement rows tick failed", exc_info=True)
 
     def _storm_guard_tick(self) -> None:
-        """D-B7: Enphase Storm Guard trip-wire. Reads STORM_GUARD_ENTITY;
+        """D-B7: Enphase Storm Guard trip-wire. Reads the registry-resolved switch;
         on an IN-SESSION transition to ``on`` from a known non-``on`` value:
         one NM notice + one ``energy.storm_guard_enabled`` anomaly row. The
         first readable value after setup only seeds (``on`` → one WARNING,
         no NM, no row). unavailable/unknown/missing update nothing. Never a
         decision input. Never raises."""
         try:
-            from .energy_const import STORM_GUARD_ENTITY
-            if not STORM_GUARD_ENTITY:
+            eid = self._storm_guard_entity()
+            if not eid:
                 return
-            st = self.hass.states.get(STORM_GUARD_ENTITY)
+            st = self.hass.states.get(eid)
             val = getattr(st, "state", None)
             if val in (None, "unavailable", "unknown"):
                 return
@@ -9302,7 +9302,7 @@ class EnergyCoordinator(BaseCoordinator):
                     _LOGGER.warning(
                         "Enphase Storm Guard is ON at startup (%s) — it can "
                         "fight URA's inclement floor/pre-charge (no notice "
-                        "sent for a boot reading)", STORM_GUARD_ENTITY,
+                        "sent for a boot reading)", eid,
                     )
                 return
             if val != "on" or prev == "on":
@@ -9317,11 +9317,40 @@ class EnergyCoordinator(BaseCoordinator):
                 ),
                 severity="medium",
             ))
-            self.hass.async_create_task(self._emit_storm_guard_anomaly())
+            self.hass.async_create_task(self._emit_storm_guard_anomaly(eid))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("storm guard tick failed", exc_info=True)
 
-    async def _emit_storm_guard_anomaly(self) -> None:
+    def _storm_guard_entity(self) -> str | None:
+        """D-B7 target by registry lookup (STORM_GUARD_PLATFORM +
+        STORM_GUARD_UNIQUE_ID_SUFFIX, exactly one `switch.*` match). Cached
+        once found; unresolved → None (trip-wire inert), never raises."""
+        cached = getattr(self, "_storm_guard_eid", None)
+        if cached:
+            return cached
+        try:
+            from .energy_const import (
+                STORM_GUARD_PLATFORM,
+                STORM_GUARD_UNIQUE_ID_SUFFIX,
+            )
+            if not STORM_GUARD_PLATFORM:
+                return None
+            from homeassistant.helpers import entity_registry as er
+            reg = er.async_get(self.hass)
+            found = [
+                e.entity_id for e in list(reg.entities.values())
+                if e.entity_id.startswith("switch.")
+                and e.platform == STORM_GUARD_PLATFORM
+                and str(e.unique_id or "").endswith(STORM_GUARD_UNIQUE_ID_SUFFIX)
+            ]
+        except Exception:  # noqa: BLE001
+            return None
+        if len(found) != 1:
+            return None
+        self._storm_guard_eid = found[0]
+        return found[0]
+
+    async def _emit_storm_guard_anomaly(self, eid: str) -> None:
         """One POINT_IN_TIME anomaly row (same shape as
         `_emit_circuit_anomaly_event`). Never raises."""
         try:
@@ -9333,7 +9362,6 @@ class EnergyCoordinator(BaseCoordinator):
                 AnomalyType,
                 build_context_json,
             )
-            from .energy_const import STORM_GUARD_ENTITY
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
                 return
@@ -9345,9 +9373,9 @@ class EnergyCoordinator(BaseCoordinator):
                 detected_at=dt_util.utcnow().isoformat(),
                 payload=build_context_json(
                     source_signal="storm_guard_tripwire",
-                    extra={"entity_id": STORM_GUARD_ENTITY},
+                    extra={"entity_id": eid},
                 ),
-                entity_id=STORM_GUARD_ENTITY,
+                entity_id=eid,
             ))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("storm guard anomaly failed", exc_info=True)

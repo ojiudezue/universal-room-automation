@@ -1574,6 +1574,7 @@ def _stage_b_setup(hass, **battery_attrs):
         nm.append(kw)
     c._send_nm_alert = _nm
     c._nm = nm
+    c._storm_guard_eid = _SG
     return c, b
 
 
