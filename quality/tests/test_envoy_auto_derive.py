@@ -10,6 +10,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Mock homeassistant before importing URA code
 # ---------------------------------------------------------------------------
@@ -134,9 +136,12 @@ for sig in [
     setattr(_dc_signals, sig, f"ura_{sig.lower()}")
 sys.modules["custom_components.universal_room_automation.domain_coordinators.signals"] = _dc_signals
 
-# Mock heavy HVAC sub-modules so hvac_predict can be imported without
-# pulling in the entire HVAC coordinator dependency tree
-for mod_name in [
+# Heavy HVAC sub-modules are stubbed ONLY while TestHVACPredictorNetPower
+# runs (fixture-scoped, restored afterwards) so hvac_predict can be imported
+# without the whole HVAC tree -- and without leaving MagicMock modules in
+# sys.modules for later files (e.g. test_hvac_fan_control needs real
+# hvac_const). TEST-BAYES-B2-CLOCK-SKEW-1 follow-up.
+_HVAC_STUB_MODULES = [
     "custom_components.universal_room_automation.domain_coordinators.hvac_const",
     "custom_components.universal_room_automation.domain_coordinators.hvac_override",
     "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
@@ -144,8 +149,10 @@ for mod_name in [
     "custom_components.universal_room_automation.domain_coordinators.hvac_fan",
     "custom_components.universal_room_automation.domain_coordinators.hvac_cover",
     "custom_components.universal_room_automation.domain_coordinators.hvac_zone_intel",
-]:
-    sys.modules.setdefault(mod_name, MagicMock())
+]
+_HVAC_PREDICT_MODULE = (
+    "custom_components.universal_room_automation.domain_coordinators.hvac_predict"
+)
 
 # Add EnergyConstraint to signals mock
 _dc_signals.EnergyConstraint = MagicMock()
@@ -307,6 +314,16 @@ class TestAutoDeriveIntegration:
 
 class TestHVACPredictorNetPower:
     """Tests for HVACPredictor net_power_entity parameter."""
+
+    @pytest.fixture(autouse=True)
+    def _scoped_hvac_stubs(self, monkeypatch):
+        """Install the heavy-HVAC stubs for this class only; monkeypatch
+        restores every sys.modules entry (and a previously-imported
+        hvac_predict, possibly another file's MagicMock) at teardown."""
+        for mod_name in _HVAC_STUB_MODULES:
+            monkeypatch.setitem(sys.modules, mod_name, MagicMock())
+        monkeypatch.delitem(sys.modules, _HVAC_PREDICT_MODULE, raising=False)
+        yield
 
     def _make_predictor(self, net_power_entity=None):
         """Create a minimal HVACPredictor with mocked dependencies."""
