@@ -45,6 +45,8 @@ _INCLEMENT_KEYS = {
     "inclement_polygon_topup_active",
     "inclement_buy_forecast",
     "inclement_forecast",
+    # EC storm Stage E E1.7 display key.
+    "inclement_selection",
 }
 _NON_INCLEMENT_BATTERY_KEYS = {"mode", "soc", "reserve_soc"}
 

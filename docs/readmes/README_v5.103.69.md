@@ -108,15 +108,21 @@ Branch `integ/bundle-v5.103.69` from develop fc4e80d4b:
 - Safety + NM + reload files: 400 passed.
 - Full-suite name-diff of the integrated branch vs develop: _(filled at deploy)_.
 
-## Live validation (prospective)
-- **Live:** 0 URA ERRORs after restart mentioning `inclement`, `forecast`, `hourly`, `_reserve_action`, `notification_manager` or `safety`.
-- **Live:** `sensor.ura_energy_coordinator_battery_strategy` attr `inclement_forecast.fetched_at` is set within a minute of setup and advances about every 30 min, with `providers_ok` > 0. A frozen `fetched_at` means a dead timer; `providers_ok=0` means a silent fetch failure.
-- **Live:** `inclement_preonset` is `null` with no future hold alert.
-- **Live:** `number.*inclement_preonset_floor*` exists and reads 80.
-- **Live:** `inclement_alerts_stale` reads false.
-- **Live:** `inclement_grid_precharge_on_hold` is still False in `.storage/core.config_entries`, and 0 `reserve_write` rows have reasons starting `Inclement pre-onset` with a grid charge.
-- **Live:** Storm Guard switch reads off, and there are 0 `storm_guard_enabled` anomaly rows.
-- **Live:** the options flow no longer shows the two legacy inclement fields, and there is no CM `async_update_entry` in the setup log window.
-- **Live:** the CM options flow shows "Smoke, CO and flood repeat schedule" = Standard.
-- **Live (event-gated):** the first test or real life-safety alert writes `notification_log` rows with `hazard_type` and a location.
-- **Live:** with observation mode off (live state), `reserve_write` rows and reasons match the pre-restart pattern.
+## Validated 2026-10-17
+HA restarted 13:23 CDT. Checks ran 14:14–14:40 CDT (ura-validator, live mode). Nothing was changed during them.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Release installed, entries loaded | PASS | manifest v5.103.69 on the HA host; 50/50 URA config entries `loaded` |
+| 0 URA ERRORs | PASS | `system_log` and raw `error_log` ERROR searches = 0. Warnings are pre-existing and unrelated (optimizer truncation, Envoy cross-check, boot-settle). NWS upstream returned HTTP 500 at 13:37/13:49/13:50/13:56 (NWS side). |
+| Hourly forecast live | PASS | `inclement_forecast.fetched_at` 14:04:30 → 14:34:31 CDT (30-min timer advancing), `providers_ok` 2 |
+| No phantom pre-onset | PASS | `inclement_preonset` = null with no future hold alert; `inclement_alerts_stale` = false; `inclement_buy_forecast.confirmed` = false |
+| New sliders | PASS | `number.ura_energy_coordinator_inclement_pre_onset_floor` = 80; `number.ura_energy_coordinator_inclement_blind_full_hold_floor` = 60 |
+| Grid pre-charge still off | PASS | CM option `inclement_grid_precharge_on_hold` = False; 0 `reserve_write` rows with an "Inclement pre-onset" reason, all history |
+| Storm Guard trip-wire quiet | PASS | `switch.main_panel_wall_iq_gateway_hacs_storm_guard` = off; 0 `storm_guard_enabled` anomaly rows since restart |
+| Safety repeat schedule | PASS (default) | `nm_life_safety_repeat_schedule` absent on the CM entry, so it reads Standard |
+| Reserve writes unchanged | as-expected | 0 `reserve_write` rows in the first 75 min (steady-state Saturday afternoon). `current_commanded_reserve` 9 vs `live_desire`/hardware 10 is within the ≥2 write deadband. |
+
+Proven in-suite only, not observed live: storm hold windows, prepare floor, forecast confirmation and polygon top-up (no qualifying NWS alert was active); the life-safety re-page (no hazard occurred; the kitchen smoke detector is offline since 10-15); the observation-mode gate (observation mode is off live); and S10 HIGH delivery (no give-up event). These are event-gated. The first real event is checked against the in-suite criteria instead of being watched for.
+
+Notes: `inclement_alerts_stale` is a strategy-sensor attribute, not a binary_sensor. During validation the URA DB was read from a copy, because the Samba mount refused an in-place read-only open.

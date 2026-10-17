@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.69
+# Universal Room Automation vv5.103.70
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -9391,6 +9391,8 @@ class InclementStateSensor(AggregationEntity, SensorEntity):
             "inclement_polygon_topup_active": status.get("inclement_polygon_topup_active"),
             "inclement_buy_forecast": status.get("inclement_buy_forecast"),
             "inclement_forecast": status.get("inclement_forecast"),
+            # EC storm Stage E E1.7 (display only).
+            "inclement_selection": status.get("inclement_selection"),
         }
 
 

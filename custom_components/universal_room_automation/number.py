@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.69
+# Universal Room Automation vv5.103.70
 # Build: 2026-01-02
 # File: number.py
 #
@@ -1685,8 +1685,13 @@ class InclementPreonsetFloorNumber(InclementBlindFullHoldFloorNumber):
     """EC storm Stage B D-B6 — pre-onset prepare floor slider (rung 3).
 
     A HOLD-class warning (or forecast-confirmed watch) whose Onset is within
-    INCLEMENT_PREONSET_LEAD_H raises the reserve floor to
-    ``max(reserve_soc, partial_floor, <this value>)`` before Onset. Same
+    INCLEMENT_PREONSET_LEAD_H sets the pre-onset VALUE
+    ``max(reserve_soc, partial_floor, <this value>)``. Stage E E2 split the
+    timing: INCLEMENT_PREONSET_LEAD_H (12 h) is the BUY HORIZON (how far
+    ahead a grid buy may be scheduled, in the cheapest slots closest to
+    Onset); the floor is REGISTERED only from the first scheduled buy slot,
+    or from Onset - min(INCLEMENT_PREONSET_FLOOR_LEAD_H (4 h), the buy
+    horizon) when no buy is scheduled. Same
     options-read path as the blind slider: writes ONLY
     ``entry.options[CONF_INCLEMENT_PREONSET_FLOOR]``; the key is in
     ``_NO_LIVE_ATTR_KEYS`` + ``OPTIONS_RELOAD_SUPPRESS_KEYS``; re-read every

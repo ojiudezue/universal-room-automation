@@ -9253,6 +9253,14 @@ class EnergyCoordinator(BaseCoordinator):
                 soc = battery.battery_soc
             except Exception:  # noqa: BLE001
                 soc = None
+            # Stage E §4.1: the ledger's `ura_class` goes through the same
+            # operator selection overlay as the decision (live CM options).
+            selection = None
+            try:
+                from .inclement import build_selection
+                selection = build_selection(self._get_cm_options())
+            except Exception:  # noqa: BLE001
+                selection = None
             ledger.record_tick(
                 now=now,
                 alerts=alerts,
@@ -9261,6 +9269,7 @@ class EnergyCoordinator(BaseCoordinator):
                 decision_age_s=age_s,
                 soc=soc,
                 local_readings=self._outage_local_readings(),
+                selection=selection,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("outage ledger tick failed", exc_info=True)
@@ -9415,6 +9424,11 @@ class EnergyCoordinator(BaseCoordinator):
                 # "started grid-charging" notice, and the pre-onset latch
                 # engaged THIS tick is rolled back (later ticks must still
                 # run the solar test).
+                # Stage E E2.2 rule 5: no buy schedule (and so no floor
+                # extension / buy_hours attr) survives observation mode.
+                _sched = getattr(battery, "_preonset_buy_schedule", None)
+                if isinstance(_sched, dict):
+                    _sched.clear()
                 eid_engaged = getattr(battery, "_tick_preonset_engaged_id", None)
                 if eid_engaged:
                     latch = getattr(battery, "_preonset_precharge_latch", {})

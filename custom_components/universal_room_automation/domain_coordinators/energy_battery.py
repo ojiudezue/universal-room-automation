@@ -472,11 +472,17 @@ class BatteryStrategy:
         # (RAM; advanced in fusion every tick, "engaged" set only by the
         # pre-onset emission). Not persisted (one extra on->off per restart).
         self._preonset_precharge_latch: dict[str, str] = {}
+        # Stage E E2.2: frozen pre-onset buy schedule per prepare alert ID ->
+        # (S: UTC slot starts, T: event time, target). RAM; purged with the
+        # latch, deleted on eligibility loss and every observation-mode tick.
+        self._preonset_buy_schedule: dict[str, tuple] = {}
         # Stage C D-C2 forecast-confirmation latch: alert ID -> its end.
         # Confirmed stays confirmed to the alert's end (no buy/hold flap).
         self._forecast_confirm_latch: dict[str, datetime] = {}
         # Last tick's classification + forecast evaluation (attrs only).
         self._last_inclement_classification: Any = None
+        # Stage E E1.7 `inclement_selection` attr (display only).
+        self._last_inclement_selection_attr: dict[str, Any] | None = None
         self._last_forecast_eval: dict[str, Any] | None = None
         # Per-tick grid-buy stamp (ENTRY-RESET in determine_mode): set only
         # by an inclement CFG-on emission; read by EnergyCoordinator's
@@ -2605,8 +2611,6 @@ class BatteryStrategy:
         """
         from .energy_const import (
             CONF_INCLEMENT_NWS_ALERTS_ENTITY,
-            CONF_INCLEMENT_POWER_THREAT_EVENTS,
-            CONF_INCLEMENT_WARN_MIN_SEVERITY,
             CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
             CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
             CONF_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
@@ -2615,8 +2619,6 @@ class BatteryStrategy:
             CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
             CONF_INCLEMENT_PREONSET_FLOOR,
             INCLEMENT_PREONSET_FLOOR_PCT,
-            DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-            DEFAULT_INCLEMENT_WARN_MIN_SEVERITY,
             DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
             DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
             DEFAULT_INCLEMENT_RECOVERABLE_SURPLUS_MARGIN_PCT,
@@ -2644,20 +2646,20 @@ class BatteryStrategy:
             except Exception:  # noqa: BLE001 — test harness / pre-wire safety
                 opts = {}
 
-        threat = opts.get(
-            CONF_INCLEMENT_POWER_THREAT_EVENTS, DEFAULT_INCLEMENT_POWER_THREAT_EVENTS
-        )
-        if isinstance(threat, str):
-            threat = [ln.strip() for ln in threat.splitlines() if ln.strip()]
-        elif not isinstance(threat, list):
-            threat = list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS)
+        # Stage E E1.3: the operator alert selection, rebuilt every tick from
+        # the four stored override lists (no cache, no module global).
+        from .inclement import build_selection
+
+        try:
+            selection = build_selection(opts)
+        except Exception:  # noqa: BLE001 — never lose the decision; None =
+            # zero overrides (the table defaults).
+            _LOGGER.debug("inclement: build_selection failed", exc_info=True)
+            selection = None
 
         return {
             "nws_alerts_entity": opts.get(CONF_INCLEMENT_NWS_ALERTS_ENTITY) or "",
-            "power_threat_events": threat,
-            "warn_min_severity": opts.get(
-                CONF_INCLEMENT_WARN_MIN_SEVERITY, DEFAULT_INCLEMENT_WARN_MIN_SEVERITY
-            ),
+            "selection": selection,
             "grid_precharge_on_hold": bool(opts.get(
                 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
                 DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD,
@@ -2746,12 +2748,14 @@ class BatteryStrategy:
         # D-B1 window split happens inside classify, after the union).
         _nws_eid = cfg["nws_alerts_entity"]
         alerts = self._read_nws_alerts(_nws_eid)
-        classifier = AlertClassifier()
+        _selection = cfg.get("selection")
+        classifier = AlertClassifier(selection=_selection)
         try:
             _healthy = self._nws_feed_healthy(_nws_eid, now) if _nws_eid else False
             self._inclement_alerts_stale = bool(_nws_eid) and not _healthy
             _cleared = update_alert_memory(
                 self._inclement_alert_memory, alerts, _healthy, now,
+                selection=_selection,
             )
             for _cid, _cev, _creason in _cleared:
                 self._inclement_pending_rows.append((
@@ -2814,9 +2818,83 @@ class BatteryStrategy:
             bottom_rate=self._is_bottom_rate(now, tou_period),
             forecast_confirmed_ids=confirmed,
             preonset_latch=self._preonset_precharge_latch,
+            preonset_buy_schedule=self._preonset_buy_schedule,
+        )
+        self._last_inclement_selection_attr = self._selection_attr(
+            classification, _selection, confirmed,
+            bool(cfg["grid_precharge_on_hold"]), now,
         )
         self._cache_inclement(decision, now)
         return decision
+
+    @staticmethod
+    def _selection_attr(
+        classification: Any, selection: Any, confirmed: frozenset[str],
+        option_on: bool, now: datetime,
+    ) -> dict[str, Any] | None:
+        """Stage E E1.7 `inclement_selection` attr (display only): per
+        active / prepare alert, what the operator selection made of it."""
+        try:
+            from .inclement import _resolve_selection, polygon_topup_records
+            sel = _resolve_selection(selection)
+            recs = list(getattr(classification, "active_alerts", ()) or ())
+            seen = {id(r) for r in recs}
+            recs += [
+                r for r in (getattr(classification, "prepare_alerts", ()) or ())
+                if id(r) not in seen
+            ]
+            in_cap = {
+                r.alert_id for r in polygon_topup_records(
+                    [r for r in recs if r.polygon_local], now,
+                )
+            }
+            overridden = {
+                n.casefold() for _k, names in sel.overrides for n in names
+            }
+            out = []
+            for r in recs:
+                cf = r.event.casefold()
+                if cf in sel.unlisted:
+                    source = "unlisted"
+                elif cf in sel.widened:
+                    source = "widened"
+                elif cf in overridden:
+                    source = "override"
+                else:
+                    source = "table"
+                if r.tier not in ("warn", "watch"):
+                    level = "notice"
+                elif r.precharge_eligible:
+                    level = "hold+buy"
+                else:
+                    level = "hold"
+                if not option_on:
+                    gate = "option_off"
+                elif not r.precharge_eligible:
+                    gate = "not_selected"
+                elif r.polygon_local:
+                    gate = (
+                        "polygon_in_cap" if r.alert_id in in_cap
+                        else "polygon_out_of_cap"
+                    )
+                elif r.alert_id is not None and r.alert_id in confirmed:
+                    gate = "forecast_confirmed"
+                else:
+                    gate = "forecast_unconfirmed"
+                out.append({
+                    "event": r.event,
+                    "level": level,
+                    "source": source,
+                    "corroborable": bool(r.corroborable),
+                    "buy_gate": gate,
+                })
+            return {
+                "alerts": out,
+                "overrides": {k: list(v) for k, v in sel.overrides},
+            }
+        except Exception:  # noqa: BLE001 — display never breaks the tick
+            _LOGGER.debug("inclement: selection attr failed", exc_info=True)
+            return None
 
     def _grid_buy_stamp(self, decision: Any, preonset: bool = False) -> dict[str, Any]:
         """Per-tick record of an inclement grid-buy emission (observability:
@@ -2832,7 +2910,7 @@ class BatteryStrategy:
                 "leg": "preonset",
                 "alert_id": getattr(decision, "preonset_alert_id", None),
                 "event": getattr(decision, "preonset_event", None),
-                "target": getattr(decision, "preonset_floor", None),
+                "target": getattr(decision, "preonset_target", None),
                 "forecast_confirmed": bool(
                     getattr(decision, "buy_forecast_confirmed", False)
                 ),
@@ -3134,10 +3212,21 @@ class BatteryStrategy:
         from homeassistant.util import dt as dt_util
         cls = self._last_inclement_classification
         pre = None
-        if decision is not None and getattr(decision, "preonset_floor", None) is not None:
+        if decision is not None and getattr(decision, "preonset_target", None) is not None:
             _st = decision.preonset_start
+            _ff = getattr(decision, "preonset_floor_from", None)
             pre = {
-                "floor": decision.preonset_floor,
+                # Stage E E2.4: `floor` is the VALUE; `active` says whether
+                # it is registered this tick; `floor_from` when it starts.
+                "floor": decision.preonset_target,
+                "active": getattr(decision, "preonset_floor", None) is not None,
+                "floor_from": dt_util.as_local(_ff).isoformat() if _ff else None,
+                "buy_hours": [
+                    dt_util.as_local(h).isoformat()
+                    for h in (getattr(decision, "preonset_buy_hours", ()) or ())
+                ],
+                "event_time": dt_util.as_local(_st).isoformat() if _st else None,
+                "event_time_source": "onset",
                 "start": dt_util.as_local(_st).isoformat() if _st else None,
                 "event": decision.preonset_event,
                 "class": decision.preonset_class,
@@ -3185,6 +3274,9 @@ class BatteryStrategy:
             ),
             "inclement_buy_forecast": buy,
             "inclement_forecast": forecast,
+            "inclement_selection": getattr(
+                self, "_last_inclement_selection_attr", None,
+            ),
             "storm_guard_state": self._storm_guard_state,
         }
 
@@ -6347,9 +6439,15 @@ class BatteryStrategy:
         # (3) emit through `_result` and set the latch. Refused / skipped /
         # ineligible → fall through to the TOU branches (the fold keeps
         # every reserve write >= the registered prepare floor).
+        # Stage E §4.3 row 1 / INV-9: the value is set AND the slot holding
+        # `now` is in the frozen buy schedule (replaces the bottom-rate gate).
+        from .inclement import preonset_slot as _preonset_slot
         if (
             getattr(decision, "preonset_precharge", False)
-            and getattr(decision, "preonset_floor", None) is not None
+            and getattr(decision, "preonset_target", None) is not None
+            and _preonset_slot(now) in (
+                getattr(decision, "preonset_buy_hours", ()) or ()
+            )
             and soc is not None
             and self._arbitrage_phase != ARBITRAGE_PHASE_CHARGE
             and self._attain_state != "charging"
@@ -6382,7 +6480,7 @@ class BatteryStrategy:
                         _reason,
                         current_mode,
                         charge_from_grid=True,
-                        reserve_level=decision.preonset_floor,
+                        reserve_level=decision.preonset_target,
                         season=season,
                         cloud_withhold_exempt=True,
                     )

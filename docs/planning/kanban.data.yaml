@@ -125,6 +125,104 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: false
 cards:
+- id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
+  title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
+  thread: identity
+  status: "inbox"
+  tier: 1
+  created: "2026-10-17 17:40"
+  updated: "2026-10-17 17:40"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGNAL_EGRESS_EXIT_BACKFILLED, sensor.py:4913-4935)."}
+  why: "v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard."
+  links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-DISPLAY-REREAD-1"]}
+  next: "Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read)."
+  rank: {value: 3, time_criticality: 2, effort: 2}
+- id: EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1
+  title: "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person"
+  thread: identity
+  status: "inbox"
+  tier: 2
+  created: "2026-10-17 17:10"
+  updated: "2026-10-17 17:10"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer)."}
+  why: "Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case."
+  links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-COMULTI-DEPART-1"]}
+  next: "Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both."
+  rank: {value: 4, time_criticality: 2, effort: 2}
+- id: EC-LOADED-VS-INSTALLED-VERSION-1
+  title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
+  thread: platform
+  status: "pre_planning"
+  tier: 1
+  created: "2026-10-17 16:30"
+  updated: "2026-10-17 16:30"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  origin: {date: "2026-10-17", gist: "EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while operator travels)."}
+  why: "Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record the wrong code. Prior art grep (loaded_version/installed_version/manifest_version) found nothing."
+  links: {"related": ["EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1"]}
+  next: "Me: Tier-1 plan in the card: at setup record the loaded version (manifest read at import); a cheap periodic compare against manifest.json on disk -> a diagnostic sensor attribute (loaded vs installed) + one WARNING/repair issue 'restart pending to load vX'. Also: write v5.103.67/.68 Validated tables (they went live only 10-17 18:27Z)."
+  rank: {value: 4, time_criticality: 3, effort: 2}
+- id: EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1
+  refuted_2026_10_17: "REFUTED-but-fertile. Not a code defect: v5.103.67 (ledger, 10-16 19:44Z) and v5.103.68 were INSTALLED but HA was not restarted until 2026-10-17 18:27Z (homeassistant_start events 10-16 15:56:39Z, 10-17 18:27:27Z); the advisory ran 19:45Z-00:00Z on the pre-.67 code. Corroborated: reserve_write rows in that window lack tick_floor/tick_hold_depth keys that current code writes. Since the 18:27Z restart the feed has been Alerts:[] so 0 rows is correct. Builder added an unseeded real-DB end-to-end test (fix/outage-ledger-nws-rows 6e43e85d8, test_alert_row_lands_unseeded_boot_real_db; drill on _seed_alerts :483 RED) - merge with the next batch. Confirming observation: first nws_alert row when the next alert appears. Surfaced work -> EC-LOADED-VS-INSTALLED-VERSION-1; v5.103.67/.68 READMEs have no Validated table and only went live 10-17."
+  title: "Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time)"
+  thread: energy
+  status: "done"
+  tier: 2
+  created: "2026-10-17 16:00"
+  updated: "2026-10-17 16:00"
+  refinement_status: "initial"
+  approval: "unreviewed"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "E2-P probe found 0 nws_alert ledger rows; ura-prober confirmed BROKEN: sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts held Wind Advisory IDs d39a0907... and 7be42762... from ship (10-16 19:45Z) to 00:00Z; ura_activity_log has 0 nws_alert/grid_outage/inclement_code_drift rows ever, while 137 energy rows (anomaly, reserve_write) wrote in the same window."}
+  why: "The ledger is the evidence base for every storm-threshold revisit (E2-P revival trigger, forecast-threshold fit, outage correlation). All failures on the path are swallowed at DEBUG (energy.py:9265, energy_outage_ledger.py:217/179, database.py:6290), so a dead producer is invisible: Bug Class computed-but-not-consumed + silent failure. Static read found no defect (prober)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1"}
+  live_2026_10_17: "Orchestrator set logger debug on domain_coordinators.energy_outage_ledger and domain_coordinators.energy (runtime only, resets on restart); revert after capture."
+  next: "Me: ura-builder reproduces with the real Database (temp sqlite) + the recorded 10-16 Alerts payload through EnergyCoordinator._outage_ledger_tick -> find the failing gate, fix, add a trip-wire (WARNING/NM when an alert is present and no row is written), test that drives the live wiring."
+  rank: {value: 6, time_criticality: 5, effort: 3}
+- id: EC-STORM-PRODUCT-SELECTION-EXTERNAL-1
+  operator_2026_10_17_plan_go: "Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: \"Agree with all recs\" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capped partial (yes), OQ-3a NWS Onset anchor now + E2-P decides this cycle (yes), OQ-3b if GO later hold for watches only (yes), OQ-4 enable grid pre-charge after Stage E ships, OQ-5 Q7 stands, OQ-6 50 pp/h + 1 h margin, OQ-7 hold through last top-rate block pre-buy (yes). Plus 10-17 ruling: buy in the cheapest hours just before the event, higher rate only if unavoidable, reuse TOU helpers. Build dispatched to ura-super-builder; Tier-3 operator checkpoint before deploy still applies."
+  title: "Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table"
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.103.70
+  tier: 3
+  created: "2026-10-17 15:10"
+  updated: "2026-10-17 15:10"
+  refinement_status: "initial"
+  approval: "approved"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "Operator after v5.103.69 asked whether Stage B reused the EC config-flow alert list (it did not: D-B5 retired it for INCLEMENT_PRODUCT_TABLE)."}
+  operator_2026_10_17: '"I think an externalization is interesting. The data backed version is good but annotate could Extend it. It also helps with diff locations who which will have different data and the operator can add or remove things that can hold, or buy. It can be simple list externally and more complicated internally ie we will in the internal table with known good things/code but the user selection stays simple." + "These can be follow ups but like immediately plus whatever else is in the arc or cards we spawned from it or things we dropped".'
+  why: "Simple operator selection (per product: may hold, may buy) layered over the reviewed internal table (code, class, polygon_local, eligibility). Replaces the retired free-text list (residual_2026_10_17_legacy_threat_list on EC-INCLEMENT-HARDENING-1: dead plumbing at energy_battery.py:2647-2660, config_flow.py:6030-6037/6164-6168)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1", "sibling_of": ["EC-STORM-PREONSET-TIMING-1"]}
+  batch: "ec-storm-stage-e"
+  next: "Me: ura-planner writes Stage E of PLANNING_ec_storm_and_blind_decisions.md (this card + EC-STORM-PREONSET-TIMING-1 + arc/dropped inventory) -> two plan reviews (Tier 3) -> operator checkpoint on the plan."
+  rank: {value: 6, time_criticality: 4, effort: 5}
+- id: EC-STORM-PREONSET-TIMING-1
+  e2p_probe_2026_10_17: "E2-P (docs/planning/AUDIT_ec_storm_e2p_onset_vs_hazard.md; plan named it AUDIT_ec_storm_event_time_vs_onset.md): NO-GO, E2b stays parked. 228 HOLD+Freeze events 2021-26 at TXZ192/TXC453, KATT/KAUS/KRYW obs + Open-Meteo proxy. Watches only: 9/7/0 events with gap>=4h (by oracle), 3.75 h top-rate freed max (gate 12). All HOLD incl warnings 16.1 h (~$4.15 over 5.8 y), 11 h of it from 2 warnings (Uri, Jan 2023) = out of scope per OQ-3b. Onset re-stamped EARLIER in only 5/228 (common re-stamp is LATER). Zero-missed-outage unprovable (Jan 2026 start time unknown). Grid charge rate: no CFG-on episode in recorder; operator 1-2 h stands. Revival trigger: a winter of nws_alert ledger + hourly forecast rows showing >=12 top-rate hours/season lost to watch full holds."
+  operator_2026_10_17_plan_go: "Plan PLANNING_ec_storm_stage_e.md Rev 3.2 (20cbec0b0) after 2 plan reviews + 2 re-check rounds. Operator: \"Agree with all recs\" = OQ-1 Freeze Warning/Watch watch-class (yes), OQ-2 two lists buy subset of hold, no free text, unlisted capped partial (yes), OQ-3a NWS Onset anchor now + E2-P decides this cycle (yes), OQ-3b if GO later hold for watches only (yes), OQ-4 enable grid pre-charge after Stage E ships, OQ-5 Q7 stands, OQ-6 50 pp/h + 1 h margin, OQ-7 hold through last top-rate block pre-buy (yes). Plus 10-17 ruling: buy in the cheapest hours just before the event, higher rate only if unavoidable, reuse TOU helpers. Build dispatched to ura-super-builder; Tier-3 operator checkpoint before deploy still applies."
+  title: "Pre-onset storm floor starts up to 12 h before the alert onset: holds the battery high for hours that do not matter instead of 3-4 h before the forecast-confirmed hazard time"
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.103.70
+  tier: 3
+  created: "2026-10-17 15:10"
+  updated: "2026-10-17 15:10"
+  refinement_status: "initial"
+  approval: "approved"
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  origin: {date: "2026-10-17", gist: "Operator review of the v5.103.69 release summary (D-B6 INCLEMENT_PREONSET_LEAD_H = 12)."}
+  operator_2026_10_17: '"We didnt talk about good hold onset time. Holding for 12 hours is wasteful. We should hold when it counts ie 3-4 hours to expected event time intersect forecast confirmed time. Vs alert time."'
+  why: "D-B6 (inclement.py ~508) prepares when now < start <= now + INCLEMENT_PREONSET_LEAD_H (12, energy_const.py:744), keyed on the ALERT Onset, not on when the forecast shows the hazard. Target: lead ~3-4 h before the expected event time = intersection of alert window and the forecast hours that confirm the hazard (outlook hourly rows)."
+  links: {"parent": "EC-INCLEMENT-HARDENING-1", "sibling_of": ["EC-STORM-PRODUCT-SELECTION-EXTERNAL-1"]}
+  batch: "ec-storm-stage-e"
+  next: "Me: in the Stage E plan (measure first: does the hourly outlook carry per-hour hazard rows good enough to locate the event hour? ~charge time from current SOC to 80 at bottom-rate/solar decides 3 vs 4 h)."
+  rank: {value: 6, time_criticality: 5, effort: 4}
 - id: TEST-BAYES-B2-CLOCK-SKEW-1
   merged_2026_10_17: "Merged to develop e2c319b45 (tests only, no deploy needed). Post-merge: the 4 touched files 133 passed on develop."
   review_2026_10_17: "Tier-1 review: SHIP. Mutation of production time-bin (bayesian_predictor.py:843) -> 5 B2 tests RED (not hollow); bin-edge clock passes; 231/157-test cross-order runs green. Two LOWs fixed in-cycle by orchestrator (d8089da78): pop a half-executed signals module on exec failure (_ura_const_support.py), try/finally around the stub cleanup (test_hvac_fan_control.py); 133 passed both orders after."
@@ -451,6 +549,7 @@ cards:
   stage_bc_recovery_2026_10_17: "Crash recovery 07:40. feature/ec-stage-b (15 commits ahead, 21 behind develop, docs-only drift) state verified from git: Review A + D fixed (9ff82272b); Review B FIX-REQUIRED (B-MED-1 boot hourly-refresh gap, B-LOW-1/2/3) UNFIXED at crash; Review C (mutation) started 00:18 but left no record = NOT DONE. Dispatched ura-super-builder for B fix-up; then Review C, validator name-diff, orchestrator mutation verify, Tier-3 operator checkpoint before deploy. Open operator items: precip confirm thresholds 50 pct / 1.0 mm unfitted; Q7 re-confirm at Stage B checkpoint."
   stage_bc_validation_2026_10_17: "feature/ec-stage-b @ 1ff5062cb. Review B fixed (186364ed3 B-MED-1 tracked hourly catch-up on provider recovery; 95ecb7430 B-LOW-2; c07d4388b plan limits). Review C (mutation) record d089e2e1b; survivors killed 218732b46 (26/27 RED, 1 equivalent LOW, 1876 pass in 9 cycle files, no prod change). Validator full-suite name-diff vs 88dd37aa0: 1 NEW (test_cfg_true_emission_sites_pinned) = lint false positive counting the comparison read in _cfg_buy_commanded; fixed test-only 1ff5062cb (lint excludes ast.Compare, pin still {_result:1}, new self-test, mutation 2 RED). Re-validation CLEAN: lint 18/18; isolated 152-file pass NEW=[] GONE=[] (47/47 both sides). Remaining: orchestrator per-site mutation verify (awaiting operator OK for the command), Tier-3 operator checkpoint, README v5.103.x, HIGH-risk deploy -> hold to operator return unless approved."
   operator_2026_10_17_storm_not_rain: '"this is storm conditions right not just rainy weather? I think the rain chance should be higher and it should be storm conditions. I don''t want grid buys on mere rain." Verified: a buy already needs a storm-type NWS alert + SOC below storm threshold + forecast confirm, but convective confirm was precip>=50% OR storm condition (inclement.py:1348) so rain alone could confirm under a Severe Thunderstorm Watch. Change dispatched (ura-super-builder): convective = storm condition (lightning/lightning-rainy/hail/tornado/hurricane/exceptional; not pouring) AND pop>=70 (or mm>=1.0 on no-pop hours). Winter-storm/freeze unchanged. Same message: "bundle and restart all of it now including the safety re-alert and stage B+C" = Tier-3 checkpoint GO for Stage B+C + obs-mode gate + S10 + safety re-page as v5.103.69 (integ/bundle-v5.103.69). Homelab owns OTBR log + mDNS (done 07:35).'
+  residual_2026_10_17_legacy_threat_list: "Operator asked whether Stage B reused the EC config-flow alert list. It did NOT: D-B5 replaced it with the rung-1 INCLEMENT_PRODUCT_TABLE (energy_const.py:694) and removed the list + min-severity fields from the options form; stored value kept (live = v5.5.0 default, so no repair issue); inclement.py:453 discards it. Leftover dead plumbing: energy_battery.py:2647-2660 still reads/passes it, config_flow.py:6030-6037,6164-6168 still imports/parses it -> KEEP+DOCUMENT or remove in a tidy-up. Semantics changed: High Wind Warning/Watch now notice (no hold); Hard Freeze/Extreme Cold/Wind Chill + Tropical Storm added as holds; severity filter replaced by per-product class. I mis-stated Wind Advisory to the operator as un-gated: it is notice (shown, never a hold)."
   operator_2026_10_16_joint: '"Keep them together and plan them together so they fit like jigsaw and not discordant" -> steps 2-7 of ARC_energy_coordinator_resilience.md get ONE integrated plan (PLANNING_ec_storm_and_blind_decisions.md) after the governor ships.'
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   correlation_2026_10_16: 'AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-covering 32 / 0; Winter Storm 9/3, Ice Storm 1/1, Hard Freeze 5/1, Extreme Cold 2/1. Enphase calendar only ~47 days deep, 0 real outages. Verdict: keep Wind Advisory medium (no hold); freeze/ice products carry the outage signal; add an off-grid outage ledger (log each real off-grid event + alerts active) as a revision deliverable since Enphase keeps ~7 weeks. Utility serving the house unverified (PEC vs Austin Energy).'
@@ -859,6 +958,7 @@ cards:
     context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
+  test_b_2026_10_17: "Operator approved test (b) directly 10-17. update.install on update.shelly2pmg4_ccba97de38c4_firmware (Dining1, 2.1.0-beta2 -> 2.1.0) FAILED twice: HA 500 Device communication error triggering OTA, while the device reads online (cloud on, RSSI -72 dBm). Not retried further. Next: try from the Shelly web UI / after the evening count, or check whether the weak RSSI or OTA-over-cloud is the blocker."
   INSTANCE_2026_10_17_homelab_host_findings: "From the homelab session (10-17 ~07:20). Operator approved my tests (b) stable 2.1.0 firmware on one switch (Dining1 cc:ba) and (c) aioshelly debug. Two host-side findings: (1) the OTBR add-on is at debug log level, about 29k journal lines a minute, so the 486 MB host journal holds about 18 minutes and last night HA logs are gone; any debug capture needs OTBR at info first. (2) mDNS self-conflict storm on the HAOS host: systemd-resolved sees its own name on 192.168.8.13, .12.13 and link-local IPv6 bounced back by the UDM reflector (on for Compute/IoT/AV), about 900 renames a minute, now MadroneHAOS2247353. .15.13 (Security, reflector off) never conflicts = the control. Ruled out at the 19:10 drop: WAN renew, UDM logrotate, NIC. NOT proven causal. Proposed (awaiting operator): HAOS mdns=resolve on enp4s0.3 and enp4s0.5. REOPENED: card was status done while next still said I owe a recount."
   INSTANCE_2026_10_17_host_fixes_applied: "Homelab (~07:35 CDT 10-17, operator chose both): OTBR otbr_log_level debug->info + add-on restart (journal ~29k -> ~420 lines/min); HAOS mdns=resolve on enp4s0.3 (IoT) + enp4s0.5 (AV), enp4s0/enp4s0.2 default; resolved conflicts ~900/min -> 0; HA python-zeroconf still binds every VLAN. 5 entities unavailable in the next 15 min incl Receiving Room 1PM Mini a0:85 = not fixed instantly. Snapshot configs/snapshots/haos/network-otbr-2026-10-17-pre-mdns.json; rollback mdns default + otbr debug. Inovelli office Thread switch unavailable since 10-16 15:47Z (unrelated). Test (c) STARTED by me: logger.set_level aioshelly + homeassistant.components.shelly = debug (runtime only, resets on restart; revert to warning after the capture). Test (b) firmware 2.1.0 on Dining1 cc:ba held for direct operator OK (approval so far relayed via homelab only)."
   handoff_2026_10_16_overnight: "Operator 10-15: 'A candidate for locking to the pantry access point. Push to homelab agent'. DONE: relayed to the homelab board queue as an instruct on SMIDG-TUNE-1 (the Smidg Wi-Fi tuning card) with the 5 MACs, the UniFi name-swap caveat, and a caution that the Pantry AP read 94% 2.4 GHz utilisation at noon 10-15 (homelab's research says client unicast is not that load). Overnight URA did NOT change the network. When homelab reports the lock done, the next URA overnight re-counts HA unavailable transitions for these 5 devices (baseline ~70-82 per 8.6 h each)."
@@ -6890,10 +6990,11 @@ cards:
   sibling_of:
   - DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - id: EGRESS-EXIT-IDENTITY-BACKFILL-1
+  disposed_2026_10_17: "DONE with residuals (soak-exit). Not regressed: spot check 5 most recent organic backfills (10-13..10-15) 3 RIGHT / 0 WRONG / 2 UNVERIFIABLE; switch on, disabled-skip 0, ble_exit_error_count 0. Validated table written into README_v5.103.64.md. Residuals: R-A -> EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1 (joint departure with ONE crossing row is named for whichever tracker edge claims first: both 10-13 rows went to oji while oji+jaya left together). R-B (v5.103.64 display re-read + switch path unobserved live, 0 backfills since load): revival = next ble_exit_backfilled_count increment -> check Last Person Exit within ~5 min. R-C structural known limit: a resident whose phone never leaves BLE range on a short trip produces no home/not_home edge, so neither entry lead (180 s) nor exit backfill can name; operator-confirmed 10-17 Jaya 20:38Z entry + 20:45Z exit unnamed for this reason (trackers home continuously from 20:30:39Z); only path is face (face_lookup_missing_count 12). Surfaced: house_state=guest since 21:06Z with census 0 guests -> traced separately (AUDIT_guest_mode_fp_2026_10_17.md)."
   title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the
     door crossing)
   thread: identity
-  status: shipped_organic
+  status: "done"
   relane_2026_09_10: 'Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates.
     Revival: v1 validated.'
   shipped_version: v5.103.64
@@ -17173,10 +17274,11 @@ cards:
   disposition:
   - 'RE-APPLY: investigate -> needs_investigation (priority intake).'
 - id: CENSUS-GUEST-FLOOR-1
+  operator_2026_10_17_revive: 'Operator: "Card it. Didn''t we have that already? But we need to be clear on how to use it and lifetime decay. No need to tell the guest it[s] my network." REVIVED (trigger evidence 10-17: guest-SSID "Revel" MacBookAir 0e:a8:a4:be:6d:7e registered 2026-09-30, home/not_home minute-matched with private-MAC phone 02:f0:d7:b5:e4:cd = one guest carrying two devices; census never counted the hostname-less phone; guest-room gate set house_state=guest at 21:06Z while census showed 0 guests). Scope to add: (1) HOW it is used - which consumers may read guest-device presence (census floor only? house_state guest predicate? guest-room gate corroboration?) and trust-vs-display per consumer; (2) LIFETIME/DECAY - a device becomes "known guest device" after N days of recurrence, decays after M days unseen, presence = connected-now with a short grace; private-MAC rotation handling (per-SSID MAC is stable, but re-randomises on forget/rejoin); (3) no registration, no guest notice (operator ruling). AUDIT_guest_mode_fp_2026_10_17.md has the evidence.'
   title: Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded
     FLOOR, gated to contain the FP problem that unplugged it
   thread: presence
-  status: parked
+  status: "pre_planning"
   approval: unreviewed
   origin:
     date: '2026-08-15'

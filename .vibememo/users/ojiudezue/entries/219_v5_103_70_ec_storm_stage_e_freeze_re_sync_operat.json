@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "219",
+  "author": "ojiudezue",
+  "session_id": "claude_20261017_225930_ship_v5_103_70",
+  "timestamp": "2026-10-17T22:59:30Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.70 shipped: EC storm Stage E: freeze re-sync, operator alert selection, cheapest-block pre-storm charge",
+  "summary": "EC storm Stage E: freeze re-sync, operator alert selection, cheapest-block pre-storm charge",
+  "why": "Operator 10-17: externalize alert selection over the data-backed table (keep the table), stop 12 h early holds, buy in the cheapest window just before the event and only at a higher rate if unavoidable, one block not start/stop. Plan review found NWS retired Hard Freeze/Wind Chill so frost nights had no hold. Tier 3: 4 reviews + D re-pass SHIP, orchestrator drills 5/5, full name-diff CLEAN.",
+  "implications": "Shipped EC-STORM-PRODUCT-SELECTION-EXTERNAL-1, EC-STORM-PREONSET-TIMING-1 at v5.103.70; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.70.md (Live criteria).",
+  "revisit_trigger": "Live: 0 URA ERRORs; inclement_selection attr present; preonset null with no alert; Envoy reconnects cleanly after restart; first hold-class alert schedules the cheapest contiguous block before onset",
+  "refs": {
+    "cards": [
+      "EC-STORM-PRODUCT-SELECTION-EXTERNAL-1",
+      "EC-STORM-PREONSET-TIMING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.70.md"
+    ],
+    "release_notes": "Freeze Warning/Watch now hold (NWS retired Hard Freeze/Wind Chill). Operator picks which alert types hold or may buy (simple lists over the reviewed internal table; only changes stored; added types never buy). Pre-storm grid buy is one contiguous block of the cheapest hours closest to the event, floor from the block start to onset (4 h before onset with no buy); NWS updates carry the plan over; grid pre-charge remains OFF until enabled. Forecast fetches time out at 20 s. Details: docs/readmes/README_v5.103.70.md"
+  }
+}

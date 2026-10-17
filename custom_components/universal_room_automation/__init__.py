@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.69
+# Universal Room Automation vv5.103.70
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -7461,6 +7461,14 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     # EC storm Stage B D-B6 — `InclementPreonsetFloorNumber` (==
     # energy_const.CONF_INCLEMENT_PREONSET_FLOOR), same options-read path.
     "inclement_preonset_floor",
+    # EC storm Stage E E1.6 — operator alert selection overrides (==
+    # energy_const.CONF_INCLEMENT_{HOLD,BUY}_{ADDED,REMOVED}). Read per tick
+    # by `_inclement_config()` and the outage ledger; no live-attr push.
+    # Also in OPTIONS_RELOAD_SUPPRESS_KEYS below (a save never reloads).
+    "inclement_hold_added",
+    "inclement_hold_removed",
+    "inclement_buy_added",
+    "inclement_buy_removed",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7504,6 +7512,12 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "inclement_blind_full_hold_floor",
     # EC storm Stage B D-B6 — pre-onset floor slider (options-read path).
     "inclement_preonset_floor",
+    # EC storm Stage E E1.6 — operator alert selection overrides (options-
+    # read path per tick). Saving a changed selection must NOT reload the CM.
+    "inclement_hold_added",
+    "inclement_hold_removed",
+    "inclement_buy_added",
+    "inclement_buy_removed",
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
