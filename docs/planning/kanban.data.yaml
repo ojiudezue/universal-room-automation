@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1@2026-10-17T02:15:52"
+    at: "2026-10-17T02:15:52"
+    outcome: "parked"
+    headline: "Measured the startup gap where a detector could page before the notifier has reloaded: over the last 19 restarts no smoke, leak, gas or CO sensor went off in the first 2 minutes (none went off at all in 8 days). Parked it, and made it a must-handle rule on the 'check sensors at startup' safety plan, the one change that would put events in that gap."
+    acknowledged: false
   - fid: "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-17T02:10:11"
     at: "2026-10-17T02:10:11"
     outcome: "escalated"
@@ -135,12 +140,13 @@ cards:
   origin: {date: '2026-10-16', gist: 'Outage-ledger (Stage L) full-suite name-diff; root-caused by the builder, confirmed on base by orchestrator.'}
   why: 'Pollutes every name-diff by time of day, so real regressions hide behind it.'
 - id: SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1
+  measured_2026_10_17_overnight: "MEASURED 2026-10-17 02:15 CDT (read-only, HA recorder, full retention 10-09..10-17): 19 homeassistant_start events; 35 binary_sensors with device_class smoke/moisture/gas/carbon_monoxide; ZERO of them recorded state 'on' within 120 s of any start, and none of the real detectors was 'on' at any time in 8 days (only 'on' rows: two weather is_raining sensors and master_bath_humidity_spike_detected, which are moisture-class but not Safety detectors). So the gap is real by code but its base rate here is 0/19. Consequence if hit: a page that may ignore an existing cooldown/ack (over-page), per the card. Parsimony: PARK - not worth a cycle alone; the one change that raises the base rate is SAFETY-NO-INITIAL-SENSOR-PASS-1 (evaluates detectors at setup, i.e. inside this window), so it is carried there as a plan constraint."
   title: "A fast detector event during startup can reach the Notification Manager before it has restored its saved state"
   thread: safety
-  status: inbox
+  status: "parked"
   created: '2026-10-16 02:25'
-  updated: '2026-10-16 02:25'
-  refinement_status: initial
+  updated: "2026-10-17 02:15"
+  refinement_status: "refined"
   approval: unreviewed
   tags: [found-during-probe, measure-before-build, no-fabrication-verify]
   rank: {value: 6, time_criticality: 3, effort: 3}
@@ -151,7 +157,7 @@ cards:
   links:
     related: [SAFETY-NO-INITIAL-SENSOR-PASS-1, SAFETY-NM-REFIRE-UNWIRED-1]
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
-  next: 'Me: measure over the last 20 restarts whether any safety sensor changed state between Safety subscribing and NM async_setup completing (recorder timestamps vs URA startup log), then decide queue-until-ready vs accept.'
+  next: "REVIVE when (a) SAFETY-NO-INITIAL-SENSOR-PASS-1 is approved for build (its startup pass fires exactly in this gap: the plan must order the pass after NM has restored, or queue until NM ready - carry this as a constraint into that plan), or (b) any smoke/leak/gas/CO sensor reads 'on' within 120 s of a homeassistant_start (re-run .claude/tmp/safety_boot_race_probe.sql against the recorder). Then Tier-2 plan: queue safety events until NM ready."
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
   reverified_2026_10_17_overnight: "STILL-REAL 02:10 CDT: all six binary_sensor.smoke_sensor_s1_* (the Heiman kitchen smoke detector) read unavailable. Still waits on the physical re-pair."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
@@ -187,6 +193,7 @@ cards:
   next: "APPROVE at the next attended deploy: merge fix/s10-latch-nm-high into develop and ship with the next batch (README written at deploy; release_notes on this card). Takes effect only after an HA restart."
   related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
+  constraint_2026_10_17_overnight: "From SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1 (parked): the startup pass runs inside the window where NM may not yet have restored its saved alert state (ack/cooldown). The plan must either run the pass after NM restore completes or queue the resulting events until NM is ready, with a test. Measured base rate today without the pass: 0 of 19 restarts had a detector 'on' within 120 s."
   plan_rev2_2026_10_16_overnight: "Tier-2 plan review (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md): FIX-PLAN (light), no CRITICAL/HIGH; ordering and double-page claims verified (second raise of the same key returns early, safety.py:2487-2499). Rev 2 folds all 7 findings: D3 duplicate-row guard now REQUIRED (ack covers only the latest row, database.py:4628-4651); new PICK 1 option (c) - wait out a recovered cooldown silently, page once if NM has no state; stuck-ON egress-unlock-on-every-reload risk named + new D5 trip-wire (SAFETY_INITIAL_PASS_STUCK_SENSOR_H = 24 h, module constant, 0 disables); pre-NM startup race carded as SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1. Plan ready for operator."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
   updated: "2026-10-16 02:25"
@@ -379,6 +386,7 @@ cards:
   related: [EC-EVALUATE-PATH-LEDGER-GAP-1]
   next: "Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive alone only if a tou_transition decision goes missing at a boundary."
 - id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  paged_2026_10_17_overnight: "Paged 2026-10-17 02:13 CDT in one quiet notification (notify.madronehapushover, priority -1, wakes nobody)."
   log_evidence_2026_10_17_overnight: "HA system_log (ha_get_logs source=system, 02:11 CDT): 'WriteVerifier: reserve_soc pending watchdog \u2014 HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-driven desire change, or cool-off expiry (3h).' (energy_write_verify.py:2310), once this boot, at 2026-10-16 23:42 CDT. So the false episodes are not only noise: each one makes the _result leg skip same-value re-dispatch of the reserve (energy_battery.py:~6487) until desire changes or 3 h pass. The skip only blocks re-sending a value the battery already has, so harm is bounded, but it is a real behavioural effect, not just pages."
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
