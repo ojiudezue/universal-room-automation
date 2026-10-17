@@ -115,7 +115,9 @@
 >
 > **Stated non-guarantees:**
 > - A restart mid-buy loses the latch and schedule (RAM). The floor falls back to (i) until the schedule is recomputed on the next tick.
-> - In observation mode the latch is rolled back each tick (`energy.py:9420`), so (ii) never applies there.
+> - In observation mode (ii) is re-derived each tick and never persists across ticks: the decision freezes S and may register floor (ii) within the tick, then `_grid_buy_notify_tick` clears the schedule and rolls back the latch (`energy.py:9420`); nothing is dispatched (Reviews B B1 / D D-LOW-1).
+- Restart mid-buy (Review D D-LOW-2, accepted): with the latch and S lost, a re-freeze after the restart may place S later, so bought energy can discharge until min(new S) or T − 4 h.
+- The ledger's `nws_alert.ura_class` is written once, at the first sighting of an alert ID; a selection change mid-alert is not re-recorded (Review B B6).
 >
 > **Falsifiers:**
 > - a `reserve_write` row with non-null `tick_preonset_floor` before `min(T − floor_lead, min(S))`;
@@ -130,7 +132,7 @@
 > **Falsifiers:**
 > - a pre-onset CFG on in a rank > 0 hour while ≥ `h_req` rank-0 hours remained before `T` at schedule time;
 > - a pre-onset CFG on at a rank-0 hour farther from `T` than an unscheduled rank-0 hour closer to `T`;
-> - more than one CFG on→off per frozen schedule over D-B6-owned ticks (parent H2 scoping).
+> - ~~more than one CFG on→off per frozen schedule~~ (amended by the fix-up, operator default 2026-10-17, Review D D-MED-2): a frozen S may be NON-CONTIGUOUS (cheapest hours closest to T; a higher rate only if unavoidable), giving one on→off per contiguous run of S. The floor holds through the gap (INV-8(ii) registers from min(S)), so nothing bought is drained. Falsifier now: a CFG on outside S, or a reserve write below the target between min(S) and T.
 >
 > **Repro:** winter WSW, Onset 21:00, SOC 30 at 06:00, target 80, rate 50 pp/h, margin 1 → `h_req = 1 + 1 = 2` → `S = {15:00, 16:00}`. Those are the last bottom-rate hours before the 17-21 top block, and the floor starts 15:00 (INV-8(ii)). Today the buy fires at the first bottom-rate tick (09:00, after the 05-09 block), the floor runs from 09:00, and the latch keeps it there.
 
@@ -434,6 +436,7 @@ Otherwise **NO-GO**: E2b parks with the ledger trigger (≥ 3 ledger HOLD events
   - Example: winter 21:00 Onset, `S = {15:00, 16:00}`, floor 15:00-21:00 (6 h, covering 17-21).
   - Price: the same ~$1 forgone discharge plus the buy (~20 kWh × 0.0435 ≈ $0.9).
   - Versus buying at 09:00 and holding 12 h (today): the same buy cost, plus the same forgone discharge, plus 6 more held hours. So E2 is never worse than today.
+- **Gaps inside one frozen S are allowed** (fix-up, operator default, Review D D-MED-2): S is the h_req cheapest slots closest to T, which may straddle a top block (e.g. WSW 23:00, SOC 20 at 12:00 → S = {16, 21, 22}); CFG turns off through the block while the floor holds at the target. This is not the parked rebuy: nothing is discharged in the gap.
 - **Not built:** "discharge through the top block, then rebuy after it". It only pays when bottom-rate hours exist **between** the last top block and `T` (rare in winter: the 21:00-onward and 09:00-17:00 slots). It saves the spread minus ~10 % round-trip loss, ≈ $0.9/event, but it adds a second buy per event and a dependence on the rebuy succeeding. Parked (trigger: E2-P or the ledger shows ≥ 3 events/yr with a top block followed by ≥ `h_req` bottom hours before `T`).
 
 **E2.4 Field split (Reviews 1 F1 / 2 C1).**
@@ -669,3 +672,11 @@ Commits: golden 2288eb4d2 → E0 42a5f188b → E1 8e094e5f2 → E2 777e9edbd →
 - Forecast corroboration leg requires the CONFIRMED record itself to be corroborable (stricter than "ANDed with any(corroborable)"), so a confirmed widened row cannot corroborate a co-active table watch (INV-7(c)).
 
 **Not done / deferred:** E2-P probe and E2b (separate, per plan); README (orchestrator); deploy (orchestrator); inventory rows 8/14/15 dispositions (one-query, orchestrator/session); §9 parks unchanged.
+
+### Review fix-up (2026-10-17; reviews A/B/C/D on the branch)
+- D-HIGH-1 + D-MED-1: T, key row and class from corroborable records only; a frozen S whose stored T differs from the current T is re-planned.
+- D-MED-2: non-contiguous S allowed (operator default); INV-9 falsifier #3 and §E2.3 amended; gapped case pinned.
+- A-LOW-1 / B3: only a non-empty S is frozen. B2: non-key schedule entries purged every tick (option-off / unconfirm already deletes the key's).
+- A-LOW-2: the form re-shows the submitted lists on a validation error.
+- Review C X6, H3/H3b, D6/D7, the family/polygon clamp, G8, K5, V10: anchored.
+- B1 / D-LOW-1 / D-LOW-2 / B6: INV-8 non-guarantees updated.
