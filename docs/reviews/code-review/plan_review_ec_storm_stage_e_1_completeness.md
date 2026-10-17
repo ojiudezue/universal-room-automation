@@ -106,3 +106,60 @@ Correct: rows 4, 5 (`_event_matches_threat` has 0 readers), 6, 8 (EC-OBSERVATION
 | LOW | 6 | F12-F17 |
 
 Bug classes: #53 computed-but-not-consumed (F1, F2), overloaded field / coincidental equality masking a concept split (F1), suppression without discharge (F5), config-free pure function needing config (F3), reload-suppress/live-attr pairing (F7).
+
+---
+
+## Re-check Rev 2 (a181ae959, 2026-10-17)
+
+**Verdict: FIX-PLAN.** 1 HIGH, 3 MED, 1 LOW, all new. Every Rev-1 finding is resolved in the plan text. N1 changes INV-7(c), so it has to be fixed before build dispatch. N2-N5 are spec gaps that a builder would otherwise fill in its own way.
+
+### Rev-1 findings, verified in the plan text (not just in the §12 mapping)
+- **F1:** resolved. §E2.4 splits the field and §4.3 lists the seven readers. My independent grep found exactly seven source readers (`energy_battery.py:2835, 3137-3140, 6352, 6385, 6839, 7057`; `energy.py:9545`), plus the producer (`inclement.py:1009`) and config/knob sites (`:794, 859-864`, `energy_battery.py:2693, 2798`, `number.py:1699`, `__init__.py:7463, 7506`). There is no eighth source reader. `energy.py:9548` (`preonset_event`) derives from the registered floor, which is consistent. `sensor.py:9389` passes the attr through, so it isn't a field reader.
+- **F2:** resolved (§4.1).
+- **F3:** resolved (§E1.3, §4.1; no global). Callers re-enumerated:
+  - `match_product`: `inclement.py:326, 495`; `energy_outage_ledger.py:271`.
+  - `build_record`: `:403, :502`.
+  - `update_alert_memory`: `energy_battery.py:2753` only.
+  - `AlertClassifier(`: `energy_battery.py:2749` only in source. The test constructions (`test_ec_stage_b_*` ×8, `test_inclement_alert_classifier.py:111`) stay valid through the `TABLE_SELECTION` default, except `:111`, which is listed.
+  - `security.py:404` is an unrelated `_build_record_action`.
+- **F4:** resolved (§4.2). The conjunct covers all three legs and `watch_requires_corroboration` both ways.
+- **F5, F7, F8, F9, F10, F12-F17:** resolved as written.
+- **F6:** resolved in principle. N2 covers what is still missing.
+- **F11:** partly resolved. N3 covers the rest.
+- **Inventory misses:** resolved (rows 14, 15, 26-30; limits 21/23/25 restated in §E2).
+
+### N1 (HIGH): a non-corroborable record can still BUY, on two paths
+INV-7(c) caps non-corroborable records at partial hold, but it doesn't stop them buying. After E0, `Cold Weather Advisory` has the `freeze` family, so a CWA widened to hold+buy passes `buy_needs_forecast` and `build_selection`'s `∩ hold ∩ family`.
+- **Prepare path.** Repro: CWA prepare record 3 h out, SOC 30, hour ∈ S (or bottom rate today), apparent-temp forecast ≤ 28, option True.
+  - `high` is False (E1.4), so the floor is `lower` = 50.
+  - `pre` (`inclement.py:984-993`) gates only on `_zone_buy_confirmed(prows, confirmed)` and `soc < floor`, so `pre = True` and CFG turns on.
+  - The same record in its active window is capped at partial and can never buy. So the pre-onset buy exists only because nothing gates it.
+- **Co-active full-hold path, which breaks INV-7(f).** Repro: Tornado Watch (table, `eligible=False`, `energy_const.py:712`) is corroborated by lightning with 2 providers, at bottom rate, with SOC 50. Alone, it gives `full_hold` and no buy. Adding the widened CWA (hold+buy, confirmed) means `_zone_buy_confirmed(hold_alerts)` (`:929-933`, `:1131-1133`) picks the CWA record, so `grid_precharge` becomes True. The decision now differs from the table product alone. This happens under both `watch_requires_corroboration` values.
+- **Fix:** add `buy ⊆ corroborable` to `build_selection` (`buy = … ∩ hold ∩ family-or-polygon ∩ corroborable_names`), and add a `buy_needs_table_hold` validation error (strings and translations). Restate INV-7(c) as "never counts toward corroboration **and never buys**". Add these tests:
+  - `test_widened_prepare_never_buys`;
+  - `test_widened_buy_does_not_change_coactive_table_decision[req_true|req_false]`.
+
+  Add a drill that drops the new `∩ corroborable`. The alternative is to filter `_zone_buy_confirmed` on `r.corroborable`, but the selection-level cut is simpler: the form never offers a buy that can't happen.
+
+### N2 (MED): the §E1.10 golden can't be built as specified
+- **No harness contract.**
+  - The plan doesn't name the entry point (`InclementFusion.decide(…, bottom_rate=…, preonset_latch=…)`, `inclement.py:877`).
+  - It doesn't say how a cell becomes concrete `now`/Onset datetimes, or which fake battery and TOU are used. The scheduler needs `tou.period_rank`/`get_current_period` per hour (via `battery._tou`, `energy_battery.py:735`), while v5.103.69 takes a bare `bottom_rate` bool. The fake TOU's ranks must agree with the bottom/top axis.
+  - It doesn't fix `_expected_solar_surplus_pct`, the starting latch state (fresh, single tick) or the `GRID_CHARGE_PP_PER_H` and margin values that define S.
+- **Circular allowed-diff rule.** If the "rule in the script" that generates the allowed diff calls the build's `schedule_buy_hours`, a broken scheduler excuses its own diffs. The rule needs an independent reimplementation of the §E2.2 formula, or explicitly enumerated cells.
+- **Incomplete allowed-diff list.** It lists only removed buys (a bottom-rate hour outside S). E2 also adds buys at rank > 0 hours inside S (the "unavoidable top rate" case, §E2 acceptance). Both directions must be in the rule. Otherwise the golden goes RED on correct code, or someone loosens it by hand.
+
+### N3 (MED): tests pinning changed surfaces are still under-listed (F11 residual)
+- **`test_ec_stage_b_preonset_precharge.py`.** About 45 `.preonset_floor` references (`:552-638, 719-760, 917-1049, 1330-1334, 1685`). The plan names only `:569-590` plus a generic "D-B6 timing tests move". Classify each reference as target or registered, the same discipline as §4.3, so no assertion silently weakens.
+- **`test_inclement_preonset_attr_shape` (`:948-960`)** asserts an exact dict. The new fields `active`/`floor_from`/`buy_hours`/`event_time*` break it, and the "emitted whenever target non-None" change alters when it is None.
+- **`test_part2_ec_hc_writeback.py:218` (key set) and `:374` (`len == 104`).** Four new keys take the count to 108.
+
+### N4 (MED): the `inclement_selection` attr has no path to the entity
+`sensor.py:9376-9393` is an explicit key allowlist, and `test_inclement_state_sensor.py:35-48` pins the key set. E1.7 doesn't add `inclement_selection` to either, so the attr would exist only in `battery_status` (Bug Class #53). Add both to E1.7 and its tests.
+
+### N5 (LOW): the shape of the effective row is unstated
+"Adds `corroborable`" to a row that readers index positionally: `build_record` reads `row[2..4]` (`inclement.py:338-340`), and the ledger reads `_row[2]`, `_row[3]` and `_effective_tier(_row)` (`energy_outage_ledger.py:272-274`). State the return shape (positions 0-4 unchanged, `corroborable` appended or returned separately) so the index readers stay correct.
+
+### Selection widening: hold depth checked (task item 2)
+- **Widened or unlisted alone.** A widened or unlisted record is always `watch`, never `warn`. So the warn full-hold leg is unreachable. The only full-hold path is a corroborated watch (`:1095-1151` plus the recoverability branch `:1153-1172`), which is closed by §4.2 under both `watch_requires_corroboration` values. The prepare floor is capped at `lower` by E1.4. A partial-hold ceiling holds for widened records alone, and for mixed sets via the table record.
+- **Buy.** It does not hold. See N1.
