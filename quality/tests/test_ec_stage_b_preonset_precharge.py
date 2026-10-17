@@ -657,6 +657,10 @@ def _gate_case(clock, case):
                         id_="wsw")]
     elif case == "soc_at_floor":
         kw["soc"] = "85"
+        # A non-positive solar term must not let SOC >= floor through the
+        # solar test: the SOC < floor conjunct alone refuses.
+        pre_tick = lambda s: setattr(s, "_expected_solar_surplus_pct",
+                                     lambda n, m: -10.0)
     elif case == "solar_closes":
         pre_tick = lambda s: setattr(s, "_expected_solar_surplus_pct",
                                      lambda n, m: 45.0)
@@ -929,7 +933,9 @@ def test_preonset_latch_interleaved_with_fullhold_topup(clock):
         assert s._last_inclement_decision.precharge_leg == "polygon"
         assert "— pre-charging" in d["reason"]
         feed(c, [WSW])
-        d = tick(clock, c, s, T(16, 3, 40), soc="85" if crossed else "70")
+        # Crossed: SOC sags back below the floor once the shadow ends — the
+        # latch must already read "reached" (advanced DURING the shadow).
+        d = tick(clock, c, s, T(16, 3, 40), soc="79" if crossed else "70")
         if crossed:
             assert s._preonset_precharge_latch["wsw"] == "reached"
             assert not preonset_emitted(d)
@@ -1245,3 +1251,18 @@ def test_preonset_degraded_fresh_decision_control(clock):
     d = s.determine_mode("off_peak", "shoulder", now=now)
     assert d["envoy_available"] is False
     assert preonset_emitted(d) and "(degraded telemetry:" in d["reason"]
+
+
+def test_polygon_topup_requires_eligible_row(monkeypatch):
+    """A polygon row flipped ineligible in the table never tops up."""
+    mod = _inc()
+    table = tuple(
+        (r[0], r[1], r[2], r[3], False if r[0] == "SVW" else r[4])
+        for r in mod.INCLEMENT_PRODUCT_TABLE
+    )
+    start = T(16, 15)
+    svw = alert("Severe Thunderstorm Warning", code="SVW", onset=start,
+                ends=start + timedelta(minutes=60), id_="svw")
+    assert _poly_flag(svw, start + timedelta(minutes=5)) is True
+    monkeypatch.setattr(mod, "INCLEMENT_PRODUCT_TABLE", table)
+    assert _poly_flag(svw, start + timedelta(minutes=5)) is False

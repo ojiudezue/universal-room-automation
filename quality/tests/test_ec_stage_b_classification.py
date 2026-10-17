@@ -139,6 +139,10 @@ def test_freeze_products_hold():
     assert c.tier == "watch"
     assert f.decide(None, c, False, 0, "off_peak", now, 50).hold_depth == "partial_hold"
     assert classify([fzw], now).tier == "notice"
+    # Exact name, not substring: "Freeze Warning" (no code) must not match
+    # the "Hard Freeze Warning" row.
+    fzw_name = alert("Freeze Warning", onset=T(16, 0), ends=T(16, 10))
+    assert classify([fzw_name], now).tier == "notice"
     c = classify([flood], now)
     assert c.tier == "none" and "Flood Watch" in c.gated_out_events
     assert classify([wsw_name_only], now).tier == "warn"
