@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "217",
+  "author": "ojiudezue",
+  "session_id": "claude_20261017_035012_ship_v5_103_68",
+  "timestamp": "2026-10-17T03:50:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.68 shipped: EC storm Stage A: one raise-only storm floor + blind decisions",
+  "summary": "EC storm Stage A: one raise-only storm floor + blind decisions",
+  "why": "Chose a single raise-only fold point (_reserve_action) over clamping each emission site, because Bug Class #53 (one missed site) is the failure mode for floors; Stage A ships before B+C so any later pre-charge can't be undone by arbitrage/EVSE draining below the floor. Review D first pass caught D-HIGH-1 (hold-current path bypassed the fold: EVSE 40 under floor 50) that A/B/C all missed; D re-pass caught D-MED-1 (unreadable reserve lowered in-flight 80 to F) \u2014 fixed with stamp/ledger fallback. Orchestrator mutation of the fold: 8 RED. Governor dependency met on common paths (live rows 10-16); rare paths suite-only, operator approved. Installed overnight with no restart; activates at the single daytime restart 10-17 with v5.103.67.",
+  "implications": "Shipped EC-INCLEMENT-HARDENING-1 at v5.103.68; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.68.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log reserve_write rows during the first inclement hold have non-null inclement_floor and value >= inclement_floor; with no alert, inclement_floor null on all rows after the 10-17 restart",
+  "refs": {
+    "cards": [
+      "EC-INCLEMENT-HARDENING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.68.md"
+    ],
+    "release_notes": "Tier 3 (4 reviews + D re-pass, all fixed). _reserve_action is the sole reserve writer; tick floor registered on sighted+blind; blind full-hold floor Number (60). No-floor behaviour byte-identical (210-case golden). 0 new suite failures. See docs/readmes/README_v5.103.68.md"
+  }
+}

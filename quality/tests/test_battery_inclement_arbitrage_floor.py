@@ -594,6 +594,11 @@ def test_mutation_mid_peak_summer_hold_clamp_required(monkeypatch):
     strat_mut = _build()
     monkeypatch.setattr(type(strat_mut), "_floor_reserve",
                         staticmethod(_floor_passthrough))
+    # EC storm/blind Stage A: the `_reserve_action` fold now floors this
+    # emission too (defense in depth). Disable the registration so this
+    # test keeps proving the per-branch wrap is load-bearing on its own.
+    monkeypatch.setattr(type(strat_mut), "_registered_floor",
+                        staticmethod(lambda decision: None))
     r_mut = strat_mut.determine_mode("mid_peak", "summer", now=now)
     assert _reserve_value(r_mut) == 45  # bare int(soc) — the leak
     assert _reserve_value(r_mut) != 60
@@ -719,6 +724,10 @@ def test_mutation_arbitrage_clamps_required(monkeypatch, site_setup,
         _force_charge_window(strat2)
     monkeypatch.setattr(type(strat2), "_floor_reserve",
                         staticmethod(_floor_passthrough))
+    # EC storm/blind Stage A: disable the `_reserve_action` fold so the
+    # wrap is proven load-bearing as its own layer (both layers are kept).
+    monkeypatch.setattr(type(strat2), "_registered_floor",
+                        staticmethod(lambda decision: None))
     r_mut = strat2.determine_mode("off_peak", "summer", now=now)
     # Mutation regresses the emission below the floor — the clamp was required.
     assert _reserve_value(r_mut) == expected_bare, (site_setup, r_mut)

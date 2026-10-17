@@ -477,6 +477,60 @@ class TOURateEngine:
         period = self.get_current_period(now)
         return self._rates[season]["periods"][period]["import_rate"]
 
+    # ── EC storm/blind Stage A D-A1 — rate-rank primitive ──────────────
+    # "Top rate" means the season's highest DISTINCT import rate, not the
+    # period NAME (shoulder/winter have no "peak"; their top is mid_peak).
+    # Rank 0 = the season's lowest distinct import rate; periods sharing a
+    # rate share a rank. A single-rate season has every hour bottom and no
+    # hour top (INV-4).
+
+    def _season_distinct_rates(self, season: str) -> list[float]:
+        periods = self._rates[season]["periods"]
+        return sorted({float(p["import_rate"]) for p in periods.values()})
+
+    def period_rank(self, season: str, period: str | None) -> int | None:
+        """Rank of ``period``'s import rate within ``season`` (0 = lowest).
+
+        None for an unknown season/period or a non-numeric rate anywhere in
+        the season (Review A LOW-3: same unknown-period guard as
+        ``is_top_period``; callers treat None as "not ranked").
+        """
+        try:
+            # Unknown season/period (incl. None) → KeyError → None.
+            rate = float(self._rates[season]["periods"][period]["import_rate"])
+            return self._season_distinct_rates(season).index(rate)
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def is_top_period(self, season: str, period: str | None) -> bool:
+        """True iff ``period`` carries the season's maximum distinct import
+        rate AND the season has at least two distinct rates."""
+        rank = self.period_rank(season, period)
+        if rank is None:
+            return False
+        rates = self._season_distinct_rates(season)
+        if len(rates) < 2:
+            return False
+        return rank == len(rates) - 1
+
+    def rate_rank(self, now: datetime | None = None) -> int | None:
+        """Rank of the active period's import rate (0 = season bottom);
+        None when the active period cannot be ranked."""
+        if now is None:
+            now = dt_util.now()
+        return self.period_rank(self.get_season(now), self.get_current_period(now))
+
+    def is_top_rate(self, now: datetime | None = None) -> bool:
+        """INV-4: active period's rate == season max distinct rate, and the
+        season has >= 2 distinct rates."""
+        if now is None:
+            now = dt_util.now()
+        return self.is_top_period(self.get_season(now), self.get_current_period(now))
+
+    def is_bottom_rate(self, now: datetime | None = None) -> bool:
+        """Active period's rate == the season's lowest distinct rate."""
+        return self.rate_rank(now) == 0
+
     def get_export_rate(self, now: datetime | None = None) -> float:
         """Return the current export credit rate in $/kWh."""
         if now is None:

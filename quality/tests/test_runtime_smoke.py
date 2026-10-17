@@ -308,3 +308,26 @@ async def test_database_init_creates_v4511_tables(tmp_path):
         # Best-effort cleanup
         if db._write_task and not db._write_task.done():
             db._write_task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_number_platform_registers_inclement_blind_floor(smoke_hass):
+    """EC storm/blind Stage A D-A5 wire-in: the CM number platform setup
+    registers exactly one `InclementBlindFullHoldFloorNumber` (Live (e):
+    missing entity = platform wiring broken)."""
+    from custom_components.universal_room_automation.number import (
+        InclementBlindFullHoldFloorNumber,
+        async_setup_entry,
+    )
+
+    cm_entry = next(
+        e for e in smoke_hass.config_entries.async_entries()
+        if e.title == "coordinator_manager_entry"
+    )
+    added: list = []
+    await async_setup_entry(
+        smoke_hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+    )
+    found = [e for e in added if isinstance(e, InclementBlindFullHoldFloorNumber)]
+    assert len(found) == 1
+    assert found[0].native_value == 60

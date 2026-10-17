@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.67
+# Universal Room Automation vv5.103.68
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -7445,6 +7445,13 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "_ec_defaults_pinned",
     "_ec_defaults_pinned_version",
     "_ec_defaults_pinned_at",
+    # EC storm/blind Stage A D-A5 — `InclementBlindFullHoldFloorNumber`
+    # (== energy_const.CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR; string literal
+    # so the AST-slice test loaders need no extra symbol; the value is pinned
+    # behaviourally by test_ec_stage_a_blind_floor_slider.py). The battery
+    # re-reads entry.options every tick in `_inclement_config()`, so there
+    # is no live-attr push. Also in OPTIONS_RELOAD_SUPPRESS_KEYS below.
+    "inclement_blind_full_hold_floor",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7482,6 +7489,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # LKG wave 1 D2 — solar nameplate for the production upper envelope.
     # Read fresh on every solar_production_w_envelope() call; no CM reload.
     _CONF_ENERGY_SOLAR_NAMEPLATE_W,
+    # EC storm/blind Stage A D-A5 — blind full-hold floor slider (options-
+    # read path, no setter). A slider move must NOT reload the CM. Literal
+    # == energy_const.CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR (see above).
+    "inclement_blind_full_hold_floor",
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,

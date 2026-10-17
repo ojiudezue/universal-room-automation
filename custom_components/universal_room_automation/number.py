@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.67
+# Universal Room Automation vv5.103.68
 # Build: 2026-01-02
 # File: number.py
 #
@@ -79,6 +79,9 @@ async def async_setup_entry(
             # The arbitrage_trigger slider is removed entirely — the gate is
             # now forecast-class only (no SOC trigger).
             PeakBufferTargetNumber(hass, entry, 80, 30, 95),
+            # EC storm/blind Stage A D-A5: blind full-hold floor slider
+            # (options-read; no coordinator setter).
+            InclementBlindFullHoldFloorNumber(hass, entry),
             # v4.5.0 D2: live-tunable charge lead time (NumberMode.BOX, not
             # slider — user has slider fatigue; minute-precision values are
             # easier to type than drag). Hard min 120 (physics floor + safety).
@@ -1581,6 +1584,96 @@ class PeakBufferTargetNumber(NumberEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Peak buffer target set to %d%%", int(value))
+
+
+class InclementBlindFullHoldFloorNumber(NumberEntity):
+    """EC storm/blind Stage A D-A5 — blind full-hold floor slider (rung 3).
+
+    While fully blind (Envoy down AND SOC unknown on every tier), an
+    inclement full hold floors the reserve at
+    ``max(reserve_soc, partial_floor, <this value>)``.
+
+    Options-read path (PLANNING_ec_storm_and_blind_decisions.md Rev 3.1):
+    ``entry.options[CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR]`` is the SOLE
+    source of truth. The setter writes ONLY ``entry.options`` (no
+    coordinator setter, no ``_EC_SETTER_DISPATCH`` row, no RestoreEntity);
+    ``BatteryStrategy._inclement_config()`` re-reads it every tick, so a
+    move applies on the next tick and survives restart. The key is in
+    ``_NO_LIVE_ATTR_KEYS`` and ``OPTIONS_RELOAD_SUPPRESS_KEYS`` so a move is
+    not a CM reload. Kill semantics: 100 = legacy pin (blind full holds pin
+    100); 0 = no extra blind floor.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-lightning-rainy"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 5
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        from .domain_coordinators.energy_const import (
+            CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
+            INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_inclement_blind_full_hold_floor"
+        self._attr_name = "Inclement Blind Full Hold Floor"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+        )
+        # Review A LOW-4 (adjudicated): this `{**data, **options}` merge is
+        # the SAME source the battery reads every tick (energy_battery
+        # `_inclement_config` merges the CM entry identically), so the
+        # displayed value and the acting value cannot disagree.
+        config = {**entry.data, **entry.options}
+        try:
+            seeded = int(config.get(
+                CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
+                INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT,
+            ))
+        except (TypeError, ValueError):
+            seeded = INCLEMENT_BLIND_FULL_HOLD_FLOOR_PCT
+        self._value = max(0, min(100, seeded))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return bool(manager and manager.coordinators.get("energy") is not None)
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.energy_const import (
+            CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR,
+        )
+        self._value = max(0, min(100, int(value)))
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_INCLEMENT_BLIND_FULL_HOLD_FLOOR: self._value,
+                },
+            )
+        except Exception:  # noqa: BLE001 — best-effort persist
+            _LOGGER.debug(
+                "InclementBlindFullHoldFloor options-writeback failed",
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Inclement blind full-hold floor set to %d%%", self._value)
 
 
 class ArbitrageChargeLeadTimeNumber(NumberEntity):

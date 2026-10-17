@@ -133,6 +133,34 @@ def _load_golden() -> dict:
     return json.loads(GOLDEN.read_text())
 
 
+# EC storm/blind Stage A (PLANNING_ec_storm_and_blind_decisions.md Stage A
+# acceptance, Rev 3.1 M4): the comparison base is the golden AS COMMITTED
+# before Stage A (never regenerated after it). The seven sighted branches
+# must match exactly. The `blind` branch has exactly this expected diff:
+#   (1) `last_reserve_level_desired` null -> the stamped (folded) value;
+#   (2) the de-escalation set_value is behind the >=2 deadband/stand-down —
+#       ABSENT only when the fixture's hardware reserve is within 2 of
+#       reserve_soc (here hardware 0 vs reserve_soc 10: still present, so
+#       actions/calls/schedules are unchanged);
+#   (3) the reason string's wording after the "Blind de-escalation — "
+#       prefix.
+# Any other diff is a pre-existing floor leak (D-HIGH-1 class): stop.
+_BLIND_EXPECTED_DIFF_KEYS = {"last_reserve_level_desired", "reason"}
+
+
+def _assert_matches_golden(branch: str, observed: dict, golden: dict) -> None:
+    obs = json.loads(json.dumps(observed))
+    gold = golden[branch]
+    if branch != "blind":
+        assert obs == gold
+        return
+    diff = {k for k in set(obs) | set(gold) if obs.get(k) != gold.get(k)}
+    assert diff == _BLIND_EXPECTED_DIFF_KEYS, diff
+    assert gold["last_reserve_level_desired"] is None
+    assert obs["last_reserve_level_desired"] == 10  # folded reserve_soc
+    assert obs["reason"].startswith("Blind de-escalation — ")
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -149,7 +177,7 @@ async def test_ab_golden_matches(branch, clock):
         return
     golden = _load_golden()
     assert branch in golden, f"golden has no branch {branch!r}"
-    assert json.loads(json.dumps(observed)) == golden[branch]
+    _assert_matches_golden(branch, observed, golden)
     del run_branch_result
 
 
@@ -167,7 +195,17 @@ async def test_ab_golden_matches_with_row_writer_noop(branch, clock, monkeypatch
     )
     observed = await run_branch(branch, clock)
     golden = _load_golden()
-    assert json.loads(json.dumps(observed)) == golden[branch]
+    _assert_matches_golden(branch, observed, golden)
+
+
+@pytest.mark.asyncio
+async def test_governor_golden_sighted_unchanged_blind_expected_diff(clock):
+    """Stage A acceptance: all seven sighted branches byte-identical to the
+    pre-Stage-A golden; `blind` differs in exactly the expected key set."""
+    golden = _load_golden()
+    for branch in BRANCHES:
+        observed = await run_branch(branch, clock)
+        _assert_matches_golden(branch, observed, golden)
 
 
 def test_golden_covers_every_branch():
