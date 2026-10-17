@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T07:15:12-05:00_ - _Data commit: `832d154692a0`_ - _last_reconciled: 2026-10-16_
+_Generated: 2026-10-17T07:17:24-05:00_ - _Data commit: `00a58625908f`_ - _last_reconciled: 2026-10-16_
 
 
 ## Columns
@@ -1153,7 +1153,8 @@ _created 2026-09-27 02:40 · updated 2026-10-16 02:12 · refined ×1_
 thread: **energy** - status: **shipped_organic**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `stage_bc_recovery_2026_10_17`: Crash recovery 07:40. feature/ec-stage-b (15 commits ahead, 21 behind develop, docs-only drift) state verified from git: Review A + D fixed (9ff82272b); Review B FIX-REQUIRED (B-MED-1 boot hourly-refresh gap, B-LOW-1/2/3) UNFIXED at cras...
   - `operator_2026_10_16_joint`: "Keep them together and plan them together so they fit like jigsaw and not discordant" -> steps 2-7 of ARC_energy_coordinator_resilience.md get ONE integrated plan (PLANNING_ec_storm_and_blind_decisions.md) after the governor ships.
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `correlation_2026_10_16`: AUDIT_outage_alert_correlation.md: 5 documented Lakeway-area outages 2021-26 (Uri 2021, ice storm 2023, Jan 2026 arctic, Jul 2025 storms unconfirmed, Jun 2026 transmission fault no alert). Wind Advisory 33 windows / 0 outages; SVR point-...
