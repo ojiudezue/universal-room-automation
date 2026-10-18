@@ -4208,21 +4208,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 f"URA is using built-in PEC rates.\n  - "
                                 + "\n  - ".join(_tou_errs)
                             )
-                            hass.async_create_task(fire_stuck_signal(
+                            # Tracked (entry-bound) so it is cancelled on
+                            # unload/reload — setup/unload symmetry invariant.
+                            entry.async_create_background_task(
                                 hass,
-                                "tou_rate_file_rejected",
-                                (tou_engine.rejected_filepath or "tou_rates.json",),
-                                _tou_diag,
-                                remedy=(
-                                    "Fix the listed validation errors in "
-                                    "tou_rates.json, or set the TOU Rate File "
-                                    "Enabled toggle to OFF to explicitly use "
-                                    "built-in PEC rates."
+                                fire_stuck_signal(
+                                    hass,
+                                    "tou_rate_file_rejected",
+                                    (tou_engine.rejected_filepath or "tou_rates.json",),
+                                    _tou_diag,
+                                    remedy=(
+                                        "Fix the listed validation errors in "
+                                        "tou_rates.json, or set the TOU Rate File "
+                                        "Enabled toggle to OFF to explicitly use "
+                                        "built-in PEC rates."
+                                    ),
+                                    title_override=(
+                                        "TOU rate file rejected — using built-in PEC rates"
+                                    ),
                                 ),
-                                title_override=(
-                                    "TOU rate file rejected — using built-in PEC rates"
-                                ),
-                            ))
+                                name=f"tou_rate_file_rejected_nm[{entry.entry_id}]",
+                            )
                             _LOGGER.info(
                                 "TOU rate file rejected (%d errors) — NM stuck_signal scheduled",
                                 len(_tou_errs),
