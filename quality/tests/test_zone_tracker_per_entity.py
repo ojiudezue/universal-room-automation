@@ -803,6 +803,114 @@ def test_manual_occupied_zone_override_does_not_force_waking_gate(monkeypatch, c
 
 
 # ===========================================================================
+# Build-review fix-up (rev32 reviews A/B/C/D)
+# ===========================================================================
+
+@ON
+def test_reconcile_multi_zone_room_only_owner_written(monkeypatch, clock):
+    """B-H1 / A-M1 / D-M1 repro: the same room listed in TWO zones; its
+    sensor is on at release then goes off. Only the owning tracker
+    (`tracker_for_room`, first zone) gets the replay, the reconcile and the
+    live edges; the second zone must NOT stick occupied."""
+    w = SubstrateWorld(
+        monkeypatch, zones={"Z1": ["Hall"], "Z2": ["Hall"]},
+        entries=[_room_entry("Hall", presence=[ZX])],
+        states={ZX: _State("on")})
+    assert w.coord.tracker_for_room("Hall") is w.trackers["Z1"]
+    w.coord._boot_settle_done = False
+    w.coord._release_boot_settle("test")
+    assert w.trackers["Z2"].raw_occupied is False      # never written
+    w.fire(ZX, "off")
+    assert w.trackers["Z1"].raw_occupied is False
+    assert w.trackers["Z2"].raw_occupied is False      # not stuck occupied
+
+
+@OFF
+def test_switch_off_release_does_not_reconcile(monkeypatch, clock):
+    """C row 16: switch off -> the boot-release reconcile does NOT run; a
+    kind that went off during settle stays True in the tracker exactly as on
+    dad3bf6e7 (the release replays True slots only)."""
+    w = _master(monkeypatch, on=(ZX,), release=False)
+    w.fire(ZX, "off")
+    w.coord._boot_settle_done = False
+    w.coord._release_boot_settle("test")
+    assert w.trackers["Master Suite"].raw_occupied is True   # dad3bf6e7
+
+
+@OFF
+def test_switch_off_refresh_seeds_in_place(monkeypatch, clock):
+    """C row 25: switch off -> no scratch copy; a failed subscribe leaves
+    `_raw_state` already reseeded in place (dad3bf6e7 behaviour)."""
+    w = _master(monkeypatch, presence=(ZX,), motion=(PIR,), on=(ZX,))
+    w.entries[0].options = {CONST.CONF_MMWAVE_SENSORS: []}
+    w.fail_subscribe = 1
+    w.refresh()
+    assert w.sub._raw_state["Master Bedroom"]["mmwave"] is False   # mutated
+    assert ZX in w.sub._entity_to_room_kind                        # old map
+
+
+@ON
+def test_switch_on_night_limb_skipped_with_divergent_tracker(monkeypatch, clock):
+    """C row 19: with the switch ON the D-H1 live-sensor limb is skipped.
+    Divergent state on purpose: a registered sensor reads `on` live while
+    the tracker holds nothing -> the night input is empty."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[ZX])],
+              states={ZX: _State("on")})
+    t = w.trackers["Master Suite"]
+    assert t._entity_to_room.get(ZX) == "Master Bedroom"
+    assert t.raw_occupied is False
+    assert w.coord._zone_night_rooms(t) == []
+
+
+def _remove_entry_dispatches(monkeypatch):
+    import homeassistant.helpers.dispatcher as disp  # noqa: PLC0415 — runtime module
+    sent = []
+    monkeypatch.setattr(disp, "async_dispatcher_send",
+                        lambda hass, *args: sent.append(args))
+    init = _load_ura_init()
+    entry = types.SimpleNamespace(entry_id="e1", data={
+        CONST.CONF_ENTRY_TYPE: CONST.ENTRY_TYPE_ROOM, "room_name": "Hall"})
+    _run(init.async_remove_entry(MagicMock(), entry))
+    return sent
+
+
+@ON
+def test_async_remove_entry_dispatches_removed_when_on(monkeypatch, clock):
+    sent = _remove_entry_dispatches(monkeypatch)
+    sig = importlib.import_module(f"{SM._PKG}.domain_coordinators.signals")
+    assert sent == [(sig.SIGNAL_ROOM_ENTRY_LIFECYCLE, "e1", "Hall", "removed")]
+
+
+@OFF
+def test_async_remove_entry_silent_when_off(monkeypatch, clock):
+    """C row 13: switch off -> async_remove_entry dispatches nothing."""
+    assert _remove_entry_dispatches(monkeypatch) == []
+
+
+@ON
+def test_zone_hold_all_away_silent_when_holder_zone_is_away_overridden(monkeypatch, clock):
+    """A-L3 / B-L2: zone A is OCCUPIED by camera only; zone B is
+    AWAY-overridden but carries a stale Tier-1 True slot. No OCCUPIED zone
+    has a Tier-1 holder -> silent."""
+    fired = SM._capture_stuck(monkeypatch)
+    clock.t = DAY
+    w = World(monkeypatch, zones={"Living": ["Living Room"], "Bed": ["Bedroom"]},
+              entries=[_room_entry("Bedroom", presence=[ZX])],
+              states={ZX: _State("on")}, state=HS.HOME_DAY, camera_dark=True)
+    w.occupy("Bed", "Bedroom", kind="mmwave")
+    w.trackers["Bed"].set_override(ZPM.AWAY)            # stale True slot kept
+    w.trackers["Living"].update_camera_detection("camera.living_person", True)
+    w.persons({"oji": {"location": "away",
+                       "tracking_status": CONST.TRACKING_STATUS_ACTIVE}})
+    w.hass.async_create_task = SM._pending(w)
+    w.sm.transition = lambda *a, **k: False
+    SM._drive_hold(w, clock, 200)
+    assert w.trackers["Bed"]._room_provenance["Bedroom"].get("mmwave") is True
+    assert fired == []
+
+
+# ===========================================================================
 # Lints (R3.2.2)
 # ===========================================================================
 
