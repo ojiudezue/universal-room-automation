@@ -249,13 +249,62 @@ class TestD1AllTrackedPersonsAwayComputation:
         adds another ~600 chars between the person_coordinator lookup and
         the all(...) reduction (Reviewer C C3 widening pattern). Window
         widened 5000 -> 7000.
+
+        Sleep-mask cycle 2026-10-18 (DoD 7): converted from a source-window
+        grep (which the cycle's added comments pushed past 7000 chars) to a
+        behavioural test — drive the REAL `_run_inference` with and without
+        `hass.data[DOMAIN]['person_coordinator']` and assert the veto
+        denominator follows it.
         """
-        idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
-        assert idx >= 0, "veto computation block not found"
-        block = PRESENCE_SRC[max(0, idx - 7000): idx + 200]
-        assert '"person_coordinator"' in block, (
-            "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
-        )
+        import asyncio
+        import importlib
+
+        pkg_name = "ura_v4714_pc_key_pkg"
+        root = Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+        if f"{pkg_name}.domain_coordinators.presence" not in sys.modules:
+            pkg = types.ModuleType(pkg_name)
+            pkg.__path__ = [str(root)]
+            sys.modules[pkg_name] = pkg
+            dc = types.ModuleType(f"{pkg_name}.domain_coordinators")
+            dc.__path__ = [str(root / "domain_coordinators")]
+            sys.modules[f"{pkg_name}.domain_coordinators"] = dc
+        pr = importlib.import_module(f"{pkg_name}.domain_coordinators.presence")
+        hsm = importlib.import_module(f"{pkg_name}.domain_coordinators.house_state")
+        domain = importlib.import_module(f"{pkg_name}.const").DOMAIN
+
+        def _run(with_pc):
+            hass = MagicMock()
+            hass.states.get = lambda eid: None
+            hass.config_entries.async_entries = lambda domain=None: []
+            hass.async_create_task = lambda coro, *a, **k: coro.close()
+            manager = MagicMock()
+            manager.house_state_machine = hsm.HouseStateMachine(
+                initial_state=hsm.HouseState.AWAY)
+            manager.coordinators = {}
+            hass.data = {domain: {"coordinator_manager": manager}}
+            if with_pc:
+                pc = MagicMock()
+                pc.data = {"alice": {"location": "away",
+                                     "tracking_status": "active"}}
+                pc._lost_away_since = {}
+                hass.data[domain]["person_coordinator"] = pc
+            coord = pr.PresenceCoordinator(hass)
+            coord._enabled = True
+            coord._boot_settle_done = True
+            coord._zone_trackers = {}
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(coord._run_inference("test"))
+            finally:
+                loop.close()
+            return coord
+
+        with_key = _run(True)
+        assert with_key._tracked_persons_count == 1
+        assert with_key._all_tracked_persons_away is True
+        without_key = _run(False)
+        assert without_key._tracked_persons_count == 0
+        assert without_key._all_tracked_persons_away is False
 
     def test_diagnostic_attributes_stored_on_self(self):
         """The computed values must be stored on self for D3 diagnostics."""

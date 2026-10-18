@@ -90,8 +90,15 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
    (`presence.py:5975-5978`), and house SLEEP pins every zone tracker to `SLEEP` via `set_sleep`
    (`presence.py:930`), so during SLEEP this branch reads every zone as empty and can fire AWAY on
    `census_count == 0` alone (e.g. a phoneless sleeper). Wigton replay: 216 of 251 stress-case false
-   AWAYs (`AUDIT_wigton_away_replay_2026_10_18.md`). Fix planned in
-   `PLANNING_house_state_sleep_mask_ble_memory_observability.md` (D1).
+   AWAYs (`AUDIT_wigton_away_replay_2026_10_18.md`).
+   **FIXED on branch `feature/house-state-sleep-mask-ble-memory` (sleep-mask cycle, NOT deployed):**
+   - **D1.** `_run_inference` computes `any_zone_occupied_for_empty`, in which a SLEEP-mode tracker contributes its raw night occupancy (`PresenceCoordinator._zone_night_raw` = BLE OR occupied room OR camera in its timeout; no fan test). It is passed to `infer(any_zone_occupied_for_empty=...)`, and only nobody-home reads it.
+     - The input is keyed on tracker mode, not house state, so zones still SLEEP-pinned under a HOME_* override also read raw.
+     - A zone under a manual AWAY override still reads empty (carve-out).
+   - **D1b.** After the sleep window ends, raw night occupancy counts as `has_people`, so SLEEP discharges via WAKING.
+   - **Trip-wire.** SLEEP held only by raw occupancy with census 0 for more than `SLEEP_RAW_HOLD_NM_BOUND_S` (5400 s; 0 = off) fires one stuck-signal NM (`kind=sleep_raw_hold`).
+   - **Kill switch:** `PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP` (rung 1).
+   - **Labels:** nobody-home now sets `_veto_path = "nobody_home"` on the FIRING return only; the already-AWAY return keeps `none`.
 1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded
    AND all_tracked_persons_away AND unidentified_count == 0 AND face_recognized_count == 0`
    (`presence.py:1169-1180`, re-read 2026-10-16). It does NOT check `census_count` or zone/room
@@ -116,6 +123,14 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 `camera_input_degraded`): when the camera input fleet is dark (Frigate configured AND
 status bad), path α SKIPS because the "0 unidentified" denominator becomes unreliable;
 control falls through to path β / GUEST / SLEEP.
+
+**AWAY observability (sleep-mask cycle D3, branch, NOT deployed).** These are attributes on the house-state sensor:
+- `last_away_branch`: `_veto_path` at the inference edge, or `override` for `override_adapter` / `boot_settle_override`; there is no `restore` source.
+- `last_away_at`.
+- `away_entries_today`: counted in `_dispatch_house_state_change` after the boot-settle and observation gates, next to the `house_state_log` write. The getter reads 0 on a new local day. At setup it is hydrated with a naive-UTC `start_of_local_day` bound, via `count_house_state_changes_since(..., state="away", exclude_same_previous=True)`.
+- `guest_reason`: `guest_room:<room>` > `unidentified_persistent` > `override` > `none`.
+
+`stale_counted_home` and `nobody_home_zone_input` are in `_unrecorded_attributes`.
 
 **Veto-path verdict** (corrected 2026-10-18, §10 #16): the house-state sensor attribute
 `veto_path` (`sensor.py:5661`) mirrors the engine's `_veto_path` (`presence.py:6518`), values
@@ -179,8 +194,12 @@ should replace last-wins (carded in the sleep-mask/BLE-memory plan).
 **All three AWAY branches already need residents' phones/BLE gone** (2026-10-18 verify): nobody-home
 via `census_count` (includes BLE ids), α via `all_tracked_persons_away`, β via the trusted-or-lost
 denominator plus `census_count == 0`. A resident Bermuda resolved within 300 s but not this tick is
-stamped STALE and EXCLUDED from the denominator (`presence.py:5905-5925`) instead of counting as home
-— the gap the 5-min BLE-memory deliverable closes. Measured (P4, `AUDIT_census_arc_and_away_holistic.md`):
+stamped STALE and was EXCLUDED from the denominator instead of counting as home. **Sleep-mask cycle D2 (branch, NOT deployed):**
+- `_tracking_active` now also admits STALE while `PRESENCE_STALE_RESIDENT_COUNTS_HOME` is True (rung 1). The hold lasts at most last fix + `CONF_PERSON_DECAY_TIMEOUT` + 30 s + 60 s.
+- `phone_left_behind` precedence is unchanged.
+- STALE persons counted home are listed in the unrecorded attribute `stale_counted_home`.
+- STALE is not restored across a restart.
+- Readers that shift toward "home": NM `persons_home`, HVAC Wait-for-Presence consensus (−0.4 term), the compliance consensus defer gate (`coordinator_diagnostics.py:667`, not in plan §3.2 but the same direction), the arriving re-arm bypass, and the episode labels. Measured (P4, `AUDIT_census_arc_and_away_holistic.md`):
 real resident someone-home AWAYs ≈ 0.27–0.31/day on ordinary days; most "someone-home AWAYs" in
 earlier probes were residents actually leaving while a room's 300 s hold tail was still on.
 
@@ -554,6 +573,10 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    (`presence.py:6548-6561`); the sensor carries the engine values (`presence.py:1124-1277`, mirrored
    `:6518`). The v8 People "Decided by" row maps the D5 vocabulary, so it never matches a live value.
 
+17. **"SLEEP stops nobody-home AWAY."** FALSE before the sleep-mask cycle (2026-10-18): SLEEP-pinned zones read `mode == SLEEP`, so nobody-home saw every zone empty and fired on `census_count == 0` alone. Fixed by D1 on `feature/house-state-sleep-mask-ble-memory`.
+
+18. **"Drop fan-on radar-sole rooms from the night input (fan-loop breaker)."** REJECTED 2026-10-18 by stress test P5 (`AUDIT_census_arc_and_away_holistic.md` §P5): it blanks real sleepers (Jaya 76 % of occupied minutes) and had zero measured need in 220 days. It is parked; revive it only if the `sleep_raw_hold` trip-wire fires on a night a prober proves was empty and held by a fan-on radar-sole room.
+
 ## 11. Read before you touch — agent checklist
 
 Before planning, building, reviewing or diagnosing anything presence-adjacent:
@@ -607,6 +630,8 @@ Reuse these before building anything new (order: reuse > extend > build only if 
 | **Kill-switch constant + knob ladder** | `FAN_TRANSITION_SUSPECT_WINDOW_S` module constant; `CONF_FAN_RECHECK_*` CM-entry Numbers; `CONF_ROOM_FAN_RECHECK_ENABLED` per-room switch | Rung 1 for review-only (safety / fitted); rung 2 for per-deployment structure; rung 3 for live operator tuning. |
 | **Memory-episode adjudication write** | `coordinator.py:3701-3729` log_memory_episode `fan_transition_suppressed` → adjudication `phantom` | Durable per-event observability for a gated suppression. |
 | **Capability-radar-sole boolean** | `coordinator.py` producer (`_radar_sole_on_set` → `data[STATE_RADAR_SOLE_TICK]`) + `_recent_radar_sole_ring` + `any_radar_bearing_on_now`; `presence.PresenceCoordinator._room_radar_sole_capable`; classifier `fan_veto.is_radar_entity` / `sensor_capability.is_radar_capability` | Any trust decision that must distinguish "a radar is the sole tick driver" from "a radar-list entity fired" — never use the `occupancy_source` string for this. |
+| **night_raw (sleep-mask D1)** | `PresenceCoordinator._zone_night_raw` / `_zone_night_rooms` | "Is a SLEEP-pinned zone really occupied?" = raw zone occupancy (BLE / room / camera) with NO fan test. Read by nobody-home + the D1b wake disjunct + the sleep_raw_hold trip-wire only. |
+| **STALE concept split (deliberate, Bug Class #63)** | D2 `_tracking_active` (STALE = home) vs `fan_veto._ble_present_in_room`, `camera_census._ble_home_by_area`, `aggregation.py` per-zone status (STALE = not present) | Do NOT align them: a frozen tracker must not defeat the fan veto or cancel a real guest, but must not vote a resident away within the decay window. |
 | **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |
 
 ---

@@ -649,6 +649,29 @@ D2_PIR_STALENESS_MULTIPLIER: Final = 2
 # performance kill-switch, not a user-facing knob.
 D3_DIAGNOSTIC_ENABLED: Final = True
 
+# HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 (plan
+# PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 2).
+# Rung 1 (review-only): both change the house-state AWAY decision, so a
+# flip must go through review, not a dashboard slider.
+#
+# D1 kill switch. True: the nobody-home branch of the inference engine
+# reads a SLEEP-mode zone's raw ("night") occupancy instead of treating
+# the SLEEP-pinned zone as empty, and (D1b) after the sleep window ends
+# that raw occupancy counts as people so SLEEP can discharge via WAKING.
+# False: today's masked behaviour (every SLEEP-pinned zone reads empty).
+# The Rev 2 fan-loop breaker was dropped by stress test P5 (parked).
+PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP: Final = True
+# D1 trip-wire (Rev 2.1, AUDIT_census_arc_and_away_holistic.md §P5): one
+# stuck-signal NM when the house has sat in SLEEP with census 0, held ONLY
+# by raw night occupancy (nobody-home suppressed by D1), for longer than
+# this bound. Rung 1: a review-only safety bound. Kill switch: 0 disables.
+SLEEP_RAW_HOLD_NM_BOUND_S: Final = 5400
+# D2 kill switch. True: a person whose Bermuda room fix is STALE (younger
+# than CONF_PERSON_DECAY_TIMEOUT) counts as home in the path-α/β trusted
+# denominator. False: STALE persons are excluded (pre-cycle behaviour).
+# CONF_PERSON_DECAY_TIMEOUT = 0 also makes D2 inert (STALE never assigned).
+PRESENCE_STALE_RESIDENT_COUNTS_HOME: Final = True
+
 # Fan-noise mitigation D1 (Layer-1 silent interference-conditioned discount
 # + decay). Per-Presence-Coordinator hold duration applied when a room is
 # fan-interference-suspect AND the BLE corroboration ladder says

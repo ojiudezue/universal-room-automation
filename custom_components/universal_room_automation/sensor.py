@@ -5563,6 +5563,13 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:home-account"
+    # Sleep-mask cycle D3: per-tick churn attributes stay out of the
+    # recorder (HA Entity._unrecorded_attributes). The low-churn D3 fields
+    # (last_away_branch, last_away_at, away_entries_today, guest_reason)
+    # ARE recorded — the day-7 scorecard reads them.
+    _unrecorded_attributes = frozenset(
+        {"stale_counted_home", "nobody_home_zone_input"}
+    )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -5659,6 +5666,31 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             # that read it should switch to `excluded_persons` for the
             # per-person exclusion-reason map.
             attrs["veto_path"] = str(getattr(presence, "_veto_path", "none"))
+            # Sleep-mask cycle D3 (display only). last_away_branch = the
+            # branch that made the last AWAY entry (nobody_home / active /
+            # lost_admitted[_immediate] / override); away_entries_today =
+            # entries since local midnight (0 after midnight whatever the
+            # tick phase); guest_reason = guest_room:<room> /
+            # unidentified_persistent / override / none.
+            attrs["last_away_branch"] = getattr(
+                presence, "_last_away_branch", None
+            )
+            attrs["last_away_at"] = getattr(presence, "_last_away_at", None)
+            _away_getter = getattr(presence, "get_away_entries_today", None)
+            attrs["away_entries_today"] = (
+                int(_away_getter()) if callable(_away_getter) else 0
+            )
+            attrs["guest_reason"] = str(
+                getattr(presence, "_guest_reason", "none") or "none"
+            )
+            # Unrecorded (per-tick churn): D2 STALE persons counted home;
+            # D1 nobody-home zone input (None = kill switch off).
+            attrs["stale_counted_home"] = list(
+                getattr(presence, "_stale_counted_home", []) or []
+            )
+            attrs["nobody_home_zone_input"] = getattr(
+                presence, "_nobody_home_zone_input", None
+            )
             _grace_rem = getattr(presence, "_lost_away_grace_remaining_s", None)
             attrs["lost_away_grace_remaining_s"] = (
                 int(_grace_rem) if _grace_rem is not None else None

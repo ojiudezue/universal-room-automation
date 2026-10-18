@@ -530,3 +530,26 @@ Rejected: none. Adapted: R2 H1 offered "operator acceptance" as an alternative. 
   - §10: ledger row "SLEEP stops nobody-home AWAY" was false before this cycle.
   - Gold patterns: "night_raw = raw zone occupancy minus fan-phantom rooms", and the STALE concept split.
 - **README:** the §10 baseline and the day-7 table, written back.
+
+---
+
+## Rev 2.1 build delta (2026-10-18, decided by stress test P5)
+
+Source: `docs/planning/AUDIT_census_arc_and_away_holistic.md` §P5 (commit `1c74b467b`). The build applies three changes to Rev 2:
+
+1. **Fan-loop breaker DROPPED from D1 (parked, not built).** P5 measured that the breaker blanks real sleepers. Jaya's room is radar-sole with the fan on in 76 % of her occupied minutes (Master 30 %, Study A 69 %), and there were 0 genuine night departures in 220 days. `night_raw` is now the §2 formula without the `fan_phantom` term, and no constant was left behind.
+   - **Revival trigger:** the D1 trip-wire (item 3) fires on a night that a prober proves was an empty house held in SLEEP by a fan-on radar-sole room.
+2. **D1b, wake-time discharge (P5 item 4 gap).** With census 0 and zones pinned, `has_people` stayed False, so `infer()` returned None and never reached SLEEP→WAKING. The house could then sit in SLEEP all day.
+   - **Change:** one disjunct in `infer()`. When `current_state == SLEEP`, the hour is no longer a sleep hour, and `any_zone_occupied_for_empty is True`, then `has_people = True`, so the existing WAKING branch runs; the 90 s raw WAKING gate still applies.
+   - **Kill switch:** it is gated by the same D1 kill switch (the kwarg is None when off).
+3. **Trip-wire.** `SLEEP_RAW_HOLD_NM_BOUND_S = 5400` (rung 1; `0` disables). When SLEEP has been held only by raw occupancy with census 0 (masked zones empty, night input true) for longer than the bound, it fires one `fire_stuck_signal(kind="sleep_raw_hold", key=("house",))` per hold episode, plus that path's per-day latch. The diagnosis names the holding rooms. There is no new notifier.
+
+**New invariant: INV-SLEEP-HOLD-BOUNDED** (P5 wording, in the test header).
+- Holds when census is 0, the house state is SLEEP, and `night_raw` is true only through sensor-occupied rooms. Then:
+  - (a) nobody-home never returns AWAY while a pinned zone has an occupied room;
+  - (b) the house is out of SLEEP by the first tick after the end of the sleep window plus the dwell.
+- **Anchors:** `test_sleep_leaves_after_window_with_raw_occupancy` and `test_infer_wake_disjunct_engine_level`.
+- **Drills:** `d1b_disjunct_removed`, `d1b_sleep_state_conjunct_dropped`, and the `tripwire_*` set.
+- **Equivalent mutant (recorded):** dropping the sleep-hour conjunct of D1b changes nothing, because inside sleep hours a SLEEP house already returns None from the sleep-hours branch. The conjunct is kept as documentation.
+
+Scope note: P5 also proposed a diagnostic attribute naming the holding room. The coordinator's directive was NM-only, so the room names go in the NM diagnosis and no attribute was added.
