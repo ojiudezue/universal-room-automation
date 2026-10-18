@@ -41,6 +41,10 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.helpers.event", "async_track_state_change_event", "ha"),
         ("homeassistant.util.dt", "utcnow", "ha"),
     ],
+    "test_identity_fusion_d2_d3_d4.py": [
+        ("homeassistant.helpers.entity_registry", "async_get", "ha"),
+        ("homeassistant.util.dt", "utcnow", "ha"),
+    ],
 }
 
 
@@ -111,6 +115,11 @@ def test_donor_leaves_no_residue(donor):
 _DRILLS = {
     # Revert the module-scoped, undone install to a never-undone one.
     "test_chatter_detector.py": ("    yield\n    mp.undo()\n", "    yield\n"),
+    # Disable the restoring fixture.
+    "test_identity_fusion_d2_d3_d4.py": (
+        "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
+        "def _scope_real_ha_patches",
+    ),
 }
 
 

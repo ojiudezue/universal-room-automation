@@ -507,6 +507,24 @@ class _StubEntityRegistry:
         return None
 
 
+@pytest.fixture(autouse=True)
+def _scope_real_ha_patches(monkeypatch):
+    """TEST-HARNESS D7: undo this file's writes to shared HA helpers.
+
+    ``_install_ent_reg`` (entity_registry.async_get) and ``_ensure_loop``
+    (dt_util.utcnow -> naive ``datetime.utcnow``) assign onto the shared
+    modules and never restored them, so every later file in the session saw
+    a ``_StubEntityRegistry`` and a naive clock (D7 donor). Registering the
+    CURRENT values with monkeypatch makes teardown put them back, whatever
+    the helpers assign during the test.
+    """
+    import homeassistant.helpers.entity_registry as _er
+    import homeassistant.util.dt as _dtu
+    monkeypatch.setattr(_er, "async_get", _er.async_get)
+    monkeypatch.setattr(_dtu, "utcnow", _dtu.utcnow)
+    yield
+
+
 def _install_ent_reg(present):
     """Patch `homeassistant.helpers.entity_registry.async_get` to
     return the given `_StubEntityRegistry`."""
