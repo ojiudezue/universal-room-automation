@@ -3,7 +3,7 @@
 **Card:** HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 (the simple cycle; replaces Rev 4 as the build target).
 **Status:** **Rev 3**, 2026-10-18. Operator chose Option A: "Go with A. Be careful."
 - **Rev 3 adds D4**, the proper fix for ZONE-TRACKER-PER-SENSOR-WIPE-1 (build review D-H1). It also **simplifies D1** by deleting the D-H1 live-sensor workaround.
-- **Rev 3 is the binding build spec.** Read **§R3 (end of file)** first. It overrides any earlier section it contradicts.
+- **Rev 3.1 (2026-10-18) folds both Rev 3 plan reviews; §R3.1 (end of file) overrides §R3, which overrides everything earlier.**
 - Everything else is kept unchanged as the reviewed baseline: Rev 2, the Rev 2.1 build delta, and the review fix-up.
 - **Build base:** `feature/house-state-sleep-mask-ble-memory` @ `dad3bf6e7`. It is fully reviewed (four Tier-3 build reviews plus a fix-up) and NOT deployed. The rebuild is a delta on that branch (§R3.9), not a rewrite.
 - **Next step:** two Tier-3 plan reviews of Rev 3 (completeness, then adversarial build-prediction). Then the operator answers the §R3.11 PICKs. Then the build.
@@ -1042,3 +1042,220 @@ No other new number. D4a/b/c have no thresholds.
   - Gold patterns: `_kind_on_now` is the one per-kind rule for seed and live.
 - **HVAC state of play:** one line in §3 ("HVAC occupancy does not read the presence zone tracker; D4 changes HVAC only via house state and the `_signal_consensus` defer gate").
 - **README:** D0 baseline + the day-7 rows: P6 wipe-gap replay = 0, D4d pages adjudicated, and the scorecard rows from §10 re-run.
+
+---
+
+# §R3.1 — Rev 3.1 (2026-10-18): fold of the two Rev 3 plan reviews
+
+**Reviews folded:** R1 (completeness, `docs/reviews/plan-review/PLAN_REVIEW_sleep_mask_rev3_R1_completeness.md`, `0d09d4971`): 3 HIGH, 4 MED, 4 LOW. R2 (build prediction, `docs/reviews/plan-review/PLAN_REVIEW_sleep_mask_rev3_R2_build_prediction.md`, `0341c2156`): 2 HIGH, 4 MED, 4 LOW. Every finding is resolved below.
+
+**Precedence.** §R3.1 overrides §R3 wherever they conflict. It also corrects four §R3 claims that were wrong:
+- R3.8.2: a failed refresh "keeps tracker state coherent".
+- R3.8.2: the boot-settle replay covers every change.
+- R3.4.2 row 13: the HVAC gate is "bounded by its hysteresis".
+- D4d coverage.
+
+Lines cite `dad3bf6e7` unless marked.
+
+## R3.1.1 Kill switch: the full matrix (R1-F2, R2-1)
+
+**Decision: option (a), true byte-identity.** One constant, `ZONE_OCCUPANCY_PER_ENTITY_ENABLED` (rung 1), gates **every** Rev-3 site. The D1-S "deletions" become **gates**: the D-H1 live limb and the WAKING forcing line run only when the constant is False. With False, the code is byte-identical to `dad3bf6e7`, workaround included.
+
+| Site | Constant True | Constant False (= `dad3bf6e7`) |
+|---|---|---|
+| D4a substrate live OR | per-kind OR (event state + siblings) | last-writer (event state) |
+| D4a seed through `_kind_on_now` | helper with the passed map | same rule (the seed was always an OR). The map-passing is behaviour-neutral, so this row is identical in both states. |
+| D4b tracker off-edge | pop only that kind | full-room clear |
+| D4c.1 entity deleted from HA (`new_state None`) | counts off, dispatches if the kind flips | early return (today) |
+| D4c.2 room deleted (`async_remove_entry` dispatch + snapshot-room walk) | False edges for the vanished room | `async_remove_entry` returns immediately; walk skipped |
+| D4c.3' boot-settle reconcile (R3.1.3) | exact per-kind tracker resync at release | not run |
+| Refresh-failure restore (R3.1.5) | `_raw_state` restored from the snapshot | not run (today) |
+| D4d trip-wire | runs (bound 7200; 0 disables) | not run |
+| D1-S live limb in `_zone_night_rooms` | skipped | **runs (kept)** |
+| D1-S WAKING forcing line `any_zone_raw_occupied = True` | skipped | **runs (kept)** |
+| R3-F1 manual-OCCUPIED-override leak | fixed (line skipped) | present (as `dad3bf6e7`) |
+
+**Tests:**
+- `test_kill_switch_off_dh1_repro_holds_sleep`: constant False, D1 True, ZX on, ZV pulses then clears, census 0. Expect SLEEP held via the live limb.
+- `test_kill_switch_off_matches_branch_trace`: a scripted event sequence, run with the constant False, gives the same dispatches, tracker states and inference results as the `dad3bf6e7` expectations already in the branch suite. The whole existing branch suite also runs green with the constant monkeypatched False (one parametrised conftest pass in CI, documented in the PR).
+- **Drills:**
+  - `ks_limb_gate_inverted` (limb runs only when True) → RED on the first test;
+  - `ks_d4b_ungated` (per-kind clear ignores the constant) → RED on the second;
+  - `ks_d4d_ungated` → RED on `test_d4d_silent_when_kill_switch_off`.
+
+## R3.1.2 `_kind_on_now` takes the map; event state comes from the payload (R1-F3, R2-2, R1-F4, R2-9)
+
+**Signature:** `_kind_on_now(room, kind, entity_to_room_kind, *, event_entity=None, event_state=None) -> bool`.
+- **Map:** always passed explicitly. The live handler passes `self._entity_to_room_kind`. `_reset_and_seed_room_bucket` passes `desired_entity_to_room_kind`, which it already receives, from both `async_setup` and `refresh_subscriptions` step 4. Any cached index is built from the passed map, never from `self`.
+- **Event entity:** its state comes from `event_state`, i.e. `event.data["new_state"]`, where `None` means removed and counts as off. Only the **siblings** (other entities of the same (room, kind) in the passed map) are read from `hass.states`. With no siblings, `hass.states` is never read, so a single-sensor kind is byte-identical by construction and the existing MagicMock harnesses stay valid. Real HA ordering is still verified (§R3.6 D4a); it is no longer relied on.
+- **Drills:**
+  - `d4a_seed_uses_live_map`: the seed passes `self._entity_to_room_kind` → RED on `test_options_save_removing_on_sensor_releases_room` and on `test_options_save_adding_on_sensor_sets_kind`.
+  - `d4a_event_from_states`: read the event entity from `hass.states` → RED on `test_callback_before_state_store_uses_payload` (a fake that fires before updating its store).
+- **Single-entity oracle (R2-9):** `test_substrate_single_entity_dispatch_sequence_identical` runs the same script twice in one test, constant True and constant False, and compares. No golden captured from the new code.
+
+## R3.1.3 Boot-settle release: exact reconcile (R1-F1, R2-4, R1-F8)
+
+- **D4c.3 as written is dropped.** `_discover_room_sensors` has one call site (presence `async_setup`, `presence.py:2938`) on fresh trackers, so the reseed it targeted never happens (R1-F8). Its exact per-kind writer moves to the release.
+- **New D4c.3' (gated):**
+  - In `_release_boot_settle` (`presence.py:2327-2351`), right after `self._substrate.release_boot_settle()`, call `self._reconcile_trackers_to_substrate()`.
+  - For every tracker room, read `substrate.get_room_kinds(room)` (a room absent from the substrate reads all False) and call `tracker.update_room_occupancy(room, v, kind=k)` for each k in TIER1_KINDS. A False pops the slot (R3.1.8), so a still-empty room stays `{}`.
+  - It is synchronous (no await) and runs before the release path's next `_run_inference`.
+  - The same helper is the one writer for any future full resync.
+- **Tests:**
+  - `test_release_clears_kind_that_went_off_during_settle`: seed ZX True, the ZX goes off pre-release, release → `tracker_room` False. Drill `d4c3_reconcile_dropped` → RED.
+  - `test_release_reconcile_removed_room_during_settle`: a room deleted during settle reads False after release.
+  - **`test_boot_settle_replay_unchanged` is rewritten:** the substrate's True-slot replay is unchanged (same dispatches), AND the trackers equal the substrate per kind after release. It no longer pins the defect.
+
+## R3.1.4 Room deletion actually reaches the walk (R1-F6, R2-3)
+
+- **Why it is dead today:** HA unloads the entry, then `del self._entries[...]` (`.venv-ha/.../config_entries.py:2148`), then `await entry.async_remove(hass)` (`:2149`). That calls the integration's `async_remove_entry` (`:1053-1060`) *after* the entry is gone. URA defines no `async_remove_entry` (grep: 0 hits). The "unloaded" lifecycle refresh runs eagerly inside the unload, still sees the room, and is a no-op.
+- **Change (gated):**
+  - Add `async_remove_entry(hass, entry)` to `__init__.py`. For ROOM entries it dispatches `SIGNAL_ROOM_ENTRY_LIFECYCLE` with action `"removed"`. Presence's handler already schedules `refresh_subscriptions` for any action.
+  - That refresh no longer enumerates the room. Step 7 is extended (D4c.2) to walk snapshot rooms absent from `desired_rooms` and dispatch False for each True kind, post-settle.
+  - During settle, R3.1.3 covers it.
+- **Disabled-but-not-deleted rooms** keep contributing; that is the §R3.12 non-goal, now stated in INV-NO-STUCK-THROUGH-REMOVAL. The latency for a deletion is one refresh task after `async_remove`.
+- **Test:** `test_room_delete_via_config_entries_async_remove_releases_kinds` drives a real `hass` fixture (`pytest-homeassistant-custom-component`) through `hass.config_entries.async_remove(entry_id)` with a ROOM whose radar is `on`. It is not a mocked entry list. Drill `d4c2_no_remove_hook` (the hook returns early) → RED.
+
+## R3.1.5 Failed re-subscribe self-heals (R1-F5, R2-6)
+
+- **Order chosen:** step 4 seeds into a **scratch** copy, `new_raw`. Step 5 subscribes. Only when the subscribe succeeds are `_raw_state = new_raw` and the map swapped, then step 7's edges are computed against the untouched `snapshot`.
+- **On subscribe failure:** return with `_raw_state`, the map and the listener all untouched (the old, coherent state), and schedule the retry (existing). The retry recomputes against the same snapshot and emits the edges.
+- Gated: with the constant False, today's order runs (step 4 mutates in place).
+- Strikes the R3.8.2 "stays coherent" claim.
+- **Tests:**
+  - `test_refresh_subscribe_failure_leaves_state_untouched`: substrate and tracker unchanged after the raise.
+  - `test_refresh_retry_after_failure_emits_edges`: an options save removes an `on` sensor, the first subscribe raises, the retry succeeds → the kind goes False in both substrate and tracker.
+  - Drill `d4_refresh_mutates_before_subscribe` → RED.
+
+## R3.1.6 HVAC "Wait for Presence" gate: claim corrected and priced (R2-5)
+
+**Corrected row 13.**
+- The D6 defer gate (`hvac.py:2711-2752`) engages at consensus < 0.5 within 30 s of a house transition. Once engaged it releases only at ≥ 0.7, and while engaged it skips `_apply_house_state_presets` for **every** zone.
+- A zone held by Tier-1 while all phones are away keeps the −0.4 term, so consensus stays ≤ 0.6 and an engaged gate cannot release for as long as the sensor holds.
+- D4 cannot *engage* the gate by itself: a Tier-1-held zone removes the −0.15 "cameras without Tier-1" term, so 1 − 0.4 − 0.1 = 0.5, which is not < 0.5. It can *pin* a gate that another cause engaged. Before D4, wipe gaps released it by accident.
+
+**Priced.**
+- The Jaya LD2410 fan phantom held a zone while all phones were away for up to 357 min continuous, with 5 intervals over 4 h in 7.6 days (D0, §R3.5.3).
+- If D6 engaged at the AWAY transition (for example a camera-only zone at that instant), HVAC preset writes for all three zones would be deferred for that whole hold. That is up to ~6 h of no away/home preset change. **Material.**
+- **Bound (proposed, PICK R3-4):** `HVAC_D6_MAX_ENGAGED_S: Final = 1800` (rung 1; 0 disables the cap). An engaged gate releases after 30 min regardless of consensus, with one INFO line and the existing `_d6_deferrals_today` counter. It is HVAC code, so the build touches `hvac.py` and updates the HVAC state of play §9/§10 in the same commit. It is an independent cap, so it is gated by its own constant, not by `ZONE_OCCUPANCY_PER_ENTITY_ENABLED`.
+- **Tests and drill:**
+  - `test_d6_gate_releases_after_max_engaged`;
+  - `test_d6_gate_cap_zero_preserves_hysteresis`;
+  - drill `d6_cap_dropped` → RED.
+- **Live:** count D6 engagements and their durations over 7 days (from `_d6_deferrals_today` and INFO lines). Expected: none longer than 30 min.
+- The alternative, "accept by name with the Jaya hardware card as the remedy", is the PICK's other option.
+
+## R3.1.7 D4d coverage, stated honestly (R1-F7, R2-10)
+
+- **When it can fire.** `census_count = max(camera_total, |face ∪ ble|)`, so an unidentified body or a recent face makes census ≥ 1. With `census_count == 0` in `held`, **D4d fires only when α is blocked by `camera_input_degraded` (Frigate fleet dark)**. The §R3.3 and §R3.8.1 claims about "unidentified or face hit" are withdrawn.
+- **Camera-less homes** (Generic): never degraded, so α runs, and an empty house with GPS phones away reaches AWAY through α whatever a stuck sensor says. **No page is needed there.**
+- **Wigton:** with no trusted tracker (S0), α is starved and D4d is inert. Nobody can tell that the house is empty, so there is no sound page condition.
+- **No camera-less variant is built.** The Wigton stuck-ZX case is carded as **WIGTON-STUCK-ZX-NO-PAGE-1** (revival: Wigton enabled and a recorder-proven empty-house hold).
+- **Tightened `held`:** at least one zone room has Tier-1 provenance True (`any(provenance)`), so camera-tier, fan-hold and BLE-only holds do not page.
+- **Diagnosis:** reuses the `_zone_night_rooms` labels, so `(hold)` / `<camera>` rooms are named.
+- **Reset:** the clock resets on any single non-held tick. A one-tick census or BLE blip restarts the 7200 s; this is stated, deliberate (fail quiet) and tested (`test_d4d_clock_resets_on_blip`).
+- Outdoor-zone radars (Patio) can page while Frigate is dark. That is accepted, because nobody-home reads outdoor zones too.
+
+## R3.1.8 LOWs and wire-ins
+
+- **R2-7 (shape).** D4b uses `bucket.pop(kind, None)`, so a single-sensor room's off-edge leaves `{}` exactly as today. INV-BYTE-ID-SINGLE now holds for `rooms_provenance` and `sensor.py:5872`. The reconcile writes False through the same pop. Test: `test_single_sensor_provenance_shape_identical`.
+- **R1-F9 / R2-8 wire-in rows added:**
+  - `presence.py:5030-5079` `_handle_occupancy_change`, a **dead writer** (no listener; only tests reference it). **KEEP + DOCUMENT**: the build adds a docstring line, "DEAD — not subscribed; reviving it reintroduces last-writer per entity + full clear; route through the substrate instead". Not deleted, because 4 test files import it.
+  - `coordinator.py:1837` substrate-gap canary, which reads `substrate._entity_to_room_kind` as a dict for membership. **The dict stays**; any `(room, kind)` index is additive.
+- **R1-F4 extra suites** that call `_handle_state_change`, listed and run by the builder, with hits recorded in the PR:
+  - `test_presence_guest_latch_and_veto_gap.py` (`:620-660`);
+  - `test_lighting_slice_c_manual_hold.py`;
+  - `test_reconcile_on_return.py` + `_reconcile_harness.py`;
+  - `test_room_substrate_integration.py`;
+  - `test_substrate_boot_settle.py`;
+  - plus `test_substrate_backcompat.py`. Its single global `hass.states.get.return_value` cannot express siblings, so it is noted as giving no D4a evidence.
+
+  With R3.1.2's payload read, all of these are expected green unchanged.
+- **R1-F10 harness (specified):**
+  - **Drill table:** the runner tuple grows a per-drill anchor-file column, `(id, file, swap_from, swap_to, anchor_file, anchor)`, with path constants `PRES`, `SUB` (`occupancy_substrate.py`), `INIT` (`__init__.py`) and `HVAC` (`hvac.py`).
+  - **New fixture `SubstrateWorld`** (in `test_zone_tracker_per_entity.py`, reused by the re-driven D-H1 tests):
+    - a real `OccupancySubstrate(hass)` with a dict-backed `hass.states`;
+    - `async_track_state_change_event` patched to capture the callback;
+    - `occupancy_substrate.async_dispatcher_send` patched to route `SIGNAL_SUBSTRATE_KIND_CHANGED` to the real `coord._on_substrate_kind_changed`, so the tracker is never written directly;
+    - `release_boot_settle()` called before driving events;
+    - a helper `fire(entity, new_state)` that builds the event with `new_state` (or `None`).
+  - `World.clear()` stays for tracker-only tests.
+- **R1-F11** (room rename drops the zone tier's view, pre-existing): carded as **ZONE-ROOM-NAME-DRIFT-1**. D4c.2 releases the old name's kinds, a strict improvement.
+- **Cards to mint** (the coordinator owns the board): ZONE-ROOM-NAME-DRIFT-1, WIGTON-STUCK-ZX-NO-PAGE-1.
+
+## R3.1.9 Invariants restated
+
+- **INV-ZONE-ROOM-TRUTH:** the precondition "boot-settle released" now includes "the release reconcile ran" (R3.1.3). Refresh-failure is covered by R3.1.5.
+- **INV-NO-STUCK-THROUGH-REMOVAL:** the three routes are bound to concrete triggers.
+  - Entity deleted: the substrate callback (R3.1.2, payload `None`).
+  - Sensor removed from CONF: the options-save refresh, with the new map (R3.1.2).
+  - Room deleted: the `async_remove_entry` → "removed" refresh (R3.1.4).
+  - Each route clears within one refresh/callback. **Exceptions:** a disabled room is not removed (non-goal), and a rename is ZONE-ROOM-NAME-DRIFT-1.
+- **INV-BYTE-ID-SINGLE:** holds by construction: no sibling read, pop semantics.
+- **INV-KILL-BYTE-ID (new):** with `ZONE_OCCUPANCY_PER_ENTITY_ENABLED = False`, every dispatch, tracker state, inference result and NM is identical to `dad3bf6e7`. The HVAC D6 cap is separate (its own constant).
+
+## R3.1.10 Delta vs `dad3bf6e7`, as amended (replaces §R3.9 items 2–3)
+
+1. **`const.py`:**
+   - `ZONE_OCCUPANCY_PER_ENTITY_ENABLED`;
+   - `ZONE_HOLD_ALL_AWAY_NM_BOUND_S = 7200`;
+   - `HVAC_D6_MAX_ENGAGED_S = 1800`, which goes in `hvac_const.py` if that is where the D6 constants live; the builder checks.
+2. **`occupancy_substrate.py`:**
+   - `_kind_on_now` with the passed map and payload;
+   - live OR;
+   - D4c.1;
+   - scratch-seed refresh (R3.1.5);
+   - snapshot-room walk (D4c.2).
+
+   All gated.
+3. **`__init__.py`:** `async_remove_entry` → "removed" lifecycle dispatch, gated.
+4. **`presence.py`:**
+   - D4b pop;
+   - `_reconcile_trackers_to_substrate` + its call in `_release_boot_settle`;
+   - D1-S limb and forcing line put under `if not ZONE_OCCUPANCY_PER_ENTITY_ENABLED`;
+   - D4d `_check_zone_hold_all_away` + its call;
+   - dead-writer docstring.
+
+   `_discover_room_sensors` is unchanged (D4c.3 dropped).
+5. **`hvac.py`:** the D6 max-engaged cap (R3.1.6).
+6. **Tests:** as §R3.6 plus R3.1.1–R3.1.8. The deleted `dh1_*` drills become **kept-and-retargeted** drills, because the limb survives under the gate. For example, `dh1_live_limb_dropped` stays valid with the constant monkeypatched False.
+7. **Docs:**
+   - §R3.13;
+   - HVAC state of play: the D6 cap row and a §10 correction ("D6 hysteresis bounds the deferral" — false);
+   - presence state of play: the D4d coverage line.
+
+Everything else in §R3.9 "Unchanged" stands.
+
+## R3.1.11 PICKs (changed)
+
+| PICK | Rev 3 | Rev 3.1 |
+|---|---|---|
+| R3-1 ship D4 in this cycle | default yes | unchanged |
+| R3-2 zone tier ignores room-tier exclusions | default keep STEP-EXCLUDE-4 | unchanged |
+| R3-3 D4d bound | 7200 s | unchanged value. **Coverage restated:** it pages only while Frigate is dark. Operator ack requested that this is the intended page surface. |
+| **R3-4 (new)** HVAC D6 gate max-engaged cap | — | default **ON, `HVAC_D6_MAX_ENGAGED_S = 1800`** (30 min). Alternative: accept the pinned-gate residual by name, with the Jaya LD2410 hardware card as the remedy. |
+| **R3-5 (new)** kill-switch semantics | (implicit) | default **option (a): true byte-identity**. The D1-S workaround is kept under the gate. Alternative (b): the constant is coupled to D1 and the workaround is deleted. Rejected, because the backout lever would reopen D-H1. |
+
+## R3.1.12 Findings → resolution
+
+| ID | Sev | Finding | Resolution | Where |
+|---|---|---|---|---|
+| R1-F1 / R2-4 | HIGH / MED | A kind goes off during boot settle; the release replays True only, so the kind stays stuck True | Exact per-kind reconcile at `_release_boot_settle`; test rewritten; drill | R3.1.3 |
+| R1-F2 / R2-1 | HIGH | Kill switch False not byte-identical; D1-S deletion reopens D-H1 | Every site gated; limb and forcing line kept under `not` constant; matrix; off-state tests and drills; INV-KILL-BYTE-ID | R3.1.1, R3.1.9 |
+| R1-F3 / R2-2 | HIGH | `_kind_on_now` reads the old map during the refresh seed | Map passed explicitly; seed uses the desired map; drill | R3.1.2 |
+| R1-F4 | MED | Reading the event entity from `hass.states` breaks harnesses; 5 suites unlisted | Payload for the event entity, siblings only from states; suites listed | R3.1.2, R3.1.8 |
+| R1-F5 / R2-6 | MED | Failed subscribe leaves the tracker desynced; retry silent | Scratch-seed, swap on success, retry emits; tests and drill; R3.8.2 claim struck | R3.1.5 |
+| R1-F6 / R2-3 | MED | Removed-room walk never runs on a real delete | `async_remove_entry` "removed" dispatch after `del _entries`; test via real `async_remove` | R3.1.4 |
+| R2-5 | MED | HVAC D6 gate claim wrong; Jaya phantom pins an engaged gate | Row corrected; priced (≤ 357 min); cap PICK R3-4 | R3.1.6 |
+| R1-F7 / R2-10 | MED / LOW | D4d coverage overstated; empty diagnosis; reset | Frigate-dark only, stated; Tier-1 holder required; labels reused; reset stated and tested; Wigton carded | R3.1.7 |
+| R1-F8 | LOW | D4c.3 premise false (fresh trackers) | Dropped; writer reused at release | R3.1.3 |
+| R1-F9 / R2-8 | LOW | Dead `_handle_occupancy_change` writer; `coordinator.py:1837` dict reader | KEEP + DOCUMENT; dict kept, index additive | R3.1.8 |
+| R1-F10 | LOW | Harness and drill schema unspecified | Anchor-file column, path constants, `SubstrateWorld` | R3.1.8 |
+| R1-F11 | LOW | Room rename drops the zone view (pre-existing) | Card ZONE-ROOM-NAME-DRIFT-1 | R3.1.8 |
+| R2-7 | LOW | `{kind: False}` vs `{}` shape | Pop semantics; shape test | R3.1.8 |
+| R2-9 | LOW | Fake ordering; hollow golden oracle | Payload read; same-test True/False oracle | R3.1.2 |
+| R2 probe 3 | — | Wigton stuck ZX unpaged | Card WIGTON-STUCK-ZX-NO-PAGE-1 | R3.1.7 |
+
+Rejected: none. Adapted:
+- R2-5 offered measure, trip-wire or accept. Rev 3.1 proposes a cap, because a cap bounds the harm directly while a trip-wire would only report it. The accept option stays as the PICK alternative.
+- R1-F2 offered (a) or (b). (a) was chosen, because the backout lever must stay safe.
