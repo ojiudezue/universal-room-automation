@@ -503,19 +503,6 @@ class _ThreadRecordingConn(_FakeConn):
         super().send_message(msg)
 
 
-@pytest.mark.quarantine(
-    "WS-SUBSCRIBE-SCHEMA-REALHA-1",
-    reason=(
-        "Under the harness's REAL HA 2026.2.3, importing websocket_api.py "
-        "raises AttributeError: websocket_command() reads "
-        "schema.validators[0] for any non-dict schema, and URA passes a bare "
-        "BASE_COMMAND_MESSAGE_SCHEMA.extend(...) vol.Schema (HA core wraps "
-        "these in vol.All). Live HA 2026.9 shows no 'observability WS "
-        "commands registration failed' warning in system_log, so it may be "
-        "harness-version drift rather than a live defect -- the card decides."
-    ),
-    cls="real-ha-exposed",
-)
 class TestSubscribeHandler:
     """B-H1 / B-H2 / B-H3 — behavioral tests on _handle_subscribe, driven
     through the REAL websocket_api decorators and the REAL HA dispatcher."""
@@ -551,18 +538,6 @@ class TestSubscribeHandler:
         for unsub in conn.subscriptions.values():
             unsub()
 
-    @pytest.mark.quarantine(
-        "WS-SUBSCRIBE-SEND-OFF-LOOP-1",
-        reason=(
-            "Real HA exposes a production defect: _send_on_loop is not "
-            "@callback, and HomeAssistant.add_job runs a non-@callback "
-            "target in the EXECUTOR (core.py add_job docstring + "
-            "get_hassjob_callable_job_type), so connection.send_message is "
-            "called off the event loop -- the exact hazard B-H1 meant to "
-            "close. Observed: send thread != loop thread."
-        ),
-        cls="real-ha-exposed",
-    )
     @pytest.mark.asyncio
     async def test_callback_defers_via_add_job_not_direct_send(self, real_hass):
         """B-H1 mutation anchor: replace ``hass.add_job(_send_on_loop, payload)``
