@@ -662,9 +662,11 @@ D3_DIAGNOSTIC_ENABLED: Final = True
 # The Rev 2 fan-loop breaker was dropped by stress test P5 (parked).
 PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP: Final = True
 # D1 trip-wire (Rev 2.1, AUDIT_census_arc_and_away_holistic.md §P5): one
-# stuck-signal NM when the house has sat in SLEEP with census 0, held ONLY
-# by raw night occupancy (nobody-home suppressed by D1), for longer than
-# this bound. Rung 1: a review-only safety bound. Kill switch: 0 disables.
+# stuck-signal NM when the house is STILL in SLEEP, census 0, held ONLY by
+# raw occupancy, more than this many seconds after the sleep window ENDS
+# (the D1b wake discharge failed). An overnight raw hold is normal on a
+# census-0 house and never fires. Rung 1: review-only safety bound.
+# Kill switch: 0 disables.
 SLEEP_RAW_HOLD_NM_BOUND_S: Final = 5400
 # D2 kill switch. True: a person whose Bermuda room fix is STALE (younger
 # than CONF_PERSON_DECAY_TIMEOUT) counts as home in the path-α/β trusted

@@ -96,7 +96,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
      - The input is keyed on tracker mode, not house state, so zones still SLEEP-pinned under a HOME_* override also read raw.
      - A zone under a manual AWAY override still reads empty (carve-out).
    - **D1b.** After the sleep window ends, raw night occupancy counts as `has_people`, so SLEEP discharges via WAKING.
-   - **Trip-wire.** SLEEP held only by raw occupancy with census 0 for more than `SLEEP_RAW_HOLD_NM_BOUND_S` (5400 s; 0 = off) fires one stuck-signal NM (`kind=sleep_raw_hold`).
+   - **Trip-wire.** It fires one stuck-signal NM (`kind=sleep_raw_hold`) when SLEEP is still held only by raw occupancy with census 0 more than `SLEEP_RAW_HOLD_NM_BOUND_S` (5400 s; 0 = off) after the sleep window ENDS, meaning the D1b discharge failed. An overnight raw hold inside the window is normal and never fires.
    - **Kill switch:** `PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP` (rung 1).
    - **Labels:** nobody-home now sets `_veto_path = "nobody_home"` on the FIRING return only; the already-AWAY return keeps `none`.
 1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded

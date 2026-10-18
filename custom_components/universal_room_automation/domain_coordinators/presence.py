@@ -4064,14 +4064,26 @@ class PresenceCoordinator(BaseCoordinator):
             self._sleep_raw_hold_since = None
             self._sleep_raw_hold_nm_fired = False
             return
-        now = dt_util.utcnow()
-        if self._sleep_raw_hold_since is None:
-            self._sleep_raw_hold_since = now
+        # Retargeted (coordinator 2026-10-18): an overnight raw-only hold is
+        # the NORMAL state on a census-0 house (Wigton), so the clock runs
+        # only AFTER the sleep window ends — a hold past window end + bound
+        # means the D1b wake discharge failed.
+        engine = self._inference_engine
+        now_local = dt_util.now()
+        if engine._is_sleep_hour(now_local.hour):
+            self._sleep_raw_hold_since = None
             return
+        window_end = now_local.replace(
+            hour=int(engine.sleep_end_hour), minute=0, second=0, microsecond=0,
+        )
+        if window_end > now_local:  # sleep_end later today -> yesterday's end
+            window_end = window_end - timedelta(days=1)
+        if self._sleep_raw_hold_since is None:
+            self._sleep_raw_hold_since = window_end
         bound = SLEEP_RAW_HOLD_NM_BOUND_S
         if bound <= 0 or self._sleep_raw_hold_nm_fired:
             return
-        held_s = (now - self._sleep_raw_hold_since).total_seconds()
+        held_s = (now_local - window_end).total_seconds()
         if held_s <= bound:
             return
         self._sleep_raw_hold_nm_fired = True
@@ -4086,10 +4098,11 @@ class PresenceCoordinator(BaseCoordinator):
                 kind="sleep_raw_hold",
                 key=("house",),
                 diagnosis=(
-                    f"House held in SLEEP for {held_s / 60:.0f} min with "
-                    f"census 0, only by raw room occupancy "
+                    f"House still in SLEEP {held_s / 60:.0f} min after the "
+                    f"sleep window ended, census 0, held only by raw room "
+                    f"occupancy "
                     f"({', '.join(sorted(set(rooms))) or 'unknown'}); "
-                    "nobody-home AWAY suppressed by the sleep-mask fix"
+                    "the wake-time discharge (D1b) did not release it"
                 ),
                 remedy=(
                     "Check whether someone untracked is asleep there, or "
@@ -6756,9 +6769,10 @@ class PresenceCoordinator(BaseCoordinator):
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
 
-        # Sleep-mask cycle D1 trip-wire (Rev 2.1, P5): SLEEP held ONLY by
-        # raw night occupancy with census 0 for longer than
-        # SLEEP_RAW_HOLD_NM_BOUND_S -> one stuck-signal NM per episode
+        # Sleep-mask cycle D1 trip-wire (Rev 2.1, P5, retargeted): SLEEP
+        # still held ONLY by raw occupancy with census 0 more than
+        # SLEEP_RAW_HOLD_NM_BOUND_S after the sleep window ENDS -> one
+        # stuck-signal NM per episode
         # (plus fire_stuck_signal's own per-day latch). 0 disables.
         try:
             self._check_sleep_raw_hold(

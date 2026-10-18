@@ -542,14 +542,16 @@ Source: `docs/planning/AUDIT_census_arc_and_away_holistic.md` §P5 (commit `1c74
 2. **D1b, wake-time discharge (P5 item 4 gap).** With census 0 and zones pinned, `has_people` stayed False, so `infer()` returned None and never reached SLEEP→WAKING. The house could then sit in SLEEP all day.
    - **Change:** one disjunct in `infer()`. When `current_state == SLEEP`, the hour is no longer a sleep hour, and `any_zone_occupied_for_empty is True`, then `has_people = True`, so the existing WAKING branch runs; the 90 s raw WAKING gate still applies.
    - **Kill switch:** it is gated by the same D1 kill switch (the kwarg is None when off).
-3. **Trip-wire.** `SLEEP_RAW_HOLD_NM_BOUND_S = 5400` (rung 1; `0` disables). When SLEEP has been held only by raw occupancy with census 0 (masked zones empty, night input true) for longer than the bound, it fires one `fire_stuck_signal(kind="sleep_raw_hold", key=("house",))` per hold episode, plus that path's per-day latch. The diagnosis names the holding rooms. There is no new notifier.
+3. **Trip-wire, retargeted to the window end (coordinator, 2026-10-18).** It fires when SLEEP is still held only by raw occupancy with census 0 more than `SLEEP_RAW_HOLD_NM_BOUND_S = 5400` after the sleep window ENDS (07:30 with the 06:00 default). That case means the D1b wake discharge failed.
+   - An overnight raw-only hold inside the window is the normal state on a census-0 house such as Wigton, and it never fires. The first draft measured 90 min from the start of the hold and would have paged every night there.
+   - It fires one `fire_stuck_signal(kind="sleep_raw_hold", key=("house",))` per hold episode, plus that path's per-day latch. Rung 1; `0` disables. The diagnosis names the holding rooms. There is no new notifier.
 
 **New invariant: INV-SLEEP-HOLD-BOUNDED** (P5 wording, in the test header).
 - Holds when census is 0, the house state is SLEEP, and `night_raw` is true only through sensor-occupied rooms. Then:
   - (a) nobody-home never returns AWAY while a pinned zone has an occupied room;
   - (b) the house is out of SLEEP by the first tick after the end of the sleep window plus the dwell.
 - **Anchors:** `test_sleep_leaves_after_window_with_raw_occupancy` and `test_infer_wake_disjunct_engine_level`.
-- **Drills:** `d1b_disjunct_removed`, `d1b_sleep_state_conjunct_dropped`, and the `tripwire_*` set.
+- **Drills:** `d1b_disjunct_removed`, `d1b_sleep_state_conjunct_dropped`, and the `tripwire_*` set (incl. `tripwire_window_gate_dropped` and `tripwire_clock_from_hold_not_window_end`). Wigton test: `test_wigton_shape_tripwire_full_night_silent_then_fires_past_window`.
 - **Equivalent mutant (recorded):** dropping the sleep-hour conjunct of D1b changes nothing, because inside sleep hours a SLEEP house already returns None from the sleep-hours branch. The conjunct is kept as documentation.
 
 Scope note: P5 also proposed a diagnostic attribute naming the holding room. The coordinator's directive was NM-only, so the room names go in the NM diagnosis and no attribute was added.

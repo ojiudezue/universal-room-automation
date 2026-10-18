@@ -34,8 +34,10 @@ INV-SLEEP-HOLD-BOUNDED (Rev 2.1, AUDIT_census_arc_and_away_holistic.md
     AWAY if the room cleared. Falsified by a tick at local 06:00 + 2 min with
     SLEEP, census 0, raw occupied, no override, state still SLEEP; or by a
     nobody-home AWAY with a pinned zone whose room is occupied.
-    Trip-wire: SLEEP held only by raw occupancy with census 0 for more than
-    SLEEP_RAW_HOLD_NM_BOUND_S (5400 s) fires ONE stuck-signal NM.
+    Trip-wire: SLEEP still held only by raw occupancy with census 0 more
+    than SLEEP_RAW_HOLD_NM_BOUND_S (5400 s) after the sleep window ENDS
+    (i.e. (b) failed) fires ONE stuck-signal NM per episode; an overnight
+    raw hold inside the window never fires.
 INV-COUNTER-MATCHES-LOG  away_entries_today == COUNT of house_state_log
     rows with state='away' AND previous_state<>'away' since local midnight
     (naive UTC bound), incl. after a restart.
@@ -572,14 +574,23 @@ def _drive_hold(w, clock, minutes):
             _run(w.pending.pop(0))
 
 
-def test_sleep_raw_hold_tripwire_fires_once_after_bound(monkeypatch, clock):
+def _block_transitions(w):
+    """Simulate a FAILED D1b discharge: the state machine refuses every
+    transition, so SLEEP is held past the window end."""
+    w.sm.transition = lambda *a, **k: False
+
+
+def test_sleep_raw_hold_tripwire_fires_once_after_window_end_plus_bound(monkeypatch, clock):
+    """SLEEP still raw-held with census 0 more than 5400 s after the 06:00
+    window end -> exactly one NM (window end + 90 min = 07:30)."""
     fired = _capture_stuck(monkeypatch)
     w = _raw_held_world(monkeypatch)
     w.hass.async_create_task = _pending(w)
-    clock.t = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
-    _drive_hold(w, clock, 90)      # t = 0..89 min: within the 5400 s bound
+    _block_transitions(w)
+    clock.t = datetime(2026, 10, 18, 5, 50, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 100)     # 05:50 .. 07:29
     assert fired == []
-    _drive_hold(w, clock, 3)       # past 90 min
+    _drive_hold(w, clock, 3)       # 07:30, 07:31, 07:32
     assert len(fired) == 1
     kind, key, diag = fired[0]
     assert kind == "sleep_raw_hold" and key == ("house",)
@@ -588,13 +599,26 @@ def test_sleep_raw_hold_tripwire_fires_once_after_bound(monkeypatch, clock):
     assert len(fired) == 1
 
 
+def test_sleep_raw_hold_tripwire_silent_during_sleep_window(monkeypatch, clock):
+    """An overnight raw-only hold (23:00 -> 05:59) is NORMAL: no NM."""
+    fired = _capture_stuck(monkeypatch)
+    w = _raw_held_world(monkeypatch)
+    w.hass.async_create_task = _pending(w)
+    _block_transitions(w)
+    clock.t = datetime(2026, 10, 17, 23, 0, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 7 * 60)  # through 05:59
+    assert fired == []
+    assert w.coord._sleep_raw_hold_since is None
+
+
 def test_sleep_raw_hold_tripwire_not_when_census_positive(monkeypatch, clock):
     fired = _capture_stuck(monkeypatch)
     w = _raw_held_world(monkeypatch)
     w.hass.async_create_task = _pending(w)
+    _block_transitions(w)
     w.coord._census_count = 1
-    clock.t = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
-    _drive_hold(w, clock, 120)
+    clock.t = datetime(2026, 10, 18, 5, 50, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 200)
     assert fired == []
 
 
@@ -603,7 +627,8 @@ def test_sleep_raw_hold_tripwire_kill_switch_zero(monkeypatch, clock):
     monkeypatch.setattr(PR, "SLEEP_RAW_HOLD_NM_BOUND_S", 0)
     w = _raw_held_world(monkeypatch)
     w.hass.async_create_task = _pending(w)
-    clock.t = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
+    _block_transitions(w)
+    clock.t = datetime(2026, 10, 18, 5, 50, tzinfo=timezone.utc)
     _drive_hold(w, clock, 200)
     assert fired == []
 
@@ -612,9 +637,11 @@ def test_sleep_raw_hold_tripwire_episode_resets_when_room_clears(monkeypatch, cl
     fired = _capture_stuck(monkeypatch)
     w = _raw_held_world(monkeypatch)
     w.hass.async_create_task = _pending(w)
-    clock.t = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
-    _drive_hold(w, clock, 60)
+    clock.t = datetime(2026, 10, 18, 6, 0, tzinfo=timezone.utc)
+    w.sm.transition = lambda *a, **k: False
+    _drive_hold(w, clock, 30)
     assert w.coord._sleep_raw_hold_since is not None
+    del w.sm.transition            # restore the real bound method
     w.clear("Master Suite", "Master Bedroom")
     w.tick()                       # nobody-home AWAY; hold ends
     assert w.coord._sleep_raw_hold_since is None
@@ -1338,6 +1365,23 @@ def test_wigton_shape_sleep_ends_via_waking(monkeypatch, clock):
         states.append(w.tick())
         clock.advance(60)
     assert HS.WAKING in states or HS.HOME_DAY in states
+
+
+def test_wigton_shape_tripwire_full_night_silent_then_fires_past_window(monkeypatch, clock):
+    """Wigton S0 (census 0, ZX holding Master Suite): a full night held by
+    raw occupancy fires NO NM; a SLEEP still held past window end + bound
+    (discharge failed) fires exactly once."""
+    fired = _capture_stuck(monkeypatch)
+    w, h = _wigton(monkeypatch, clock, master_on=True)
+    w.hass.async_create_task = _pending(w)
+    _block_transitions(w)
+    clock.t = datetime(2026, 10, 17, 23, 0, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 7 * 60)        # 23:00 .. 05:59
+    assert fired == [] and w.sm.state == HS.SLEEP
+    _drive_hold(w, clock, 90)            # 06:00 .. 07:29
+    assert fired == []
+    _drive_hold(w, clock, 5)             # past 07:30
+    assert len(fired) == 1
 
 
 def test_wigton_shape_no_bermuda_inert(monkeypatch, clock):
