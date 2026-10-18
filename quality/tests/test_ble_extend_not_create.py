@@ -749,6 +749,7 @@ def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_m1_direct_ble_bypass_restored_makes_masterbath_fixture_red():
     """Restore the pre-v5.22.0 Tier-1 bypass by ORing `direct_ble` into
     the chain-only admission. This reproduces the pre-fix behavior where
@@ -770,6 +771,7 @@ def test_MUTATION_m1_direct_ble_bypass_restored_makes_masterbath_fixture_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_m3_chain_leg_removed_makes_sleep_hold_test_red():
     """Remove the CHAIN leg by forcing chain_unbroken=False. The
     still-body sleep-hold test (motion_age past window + prev-tick
@@ -784,6 +786,7 @@ def test_MUTATION_m3_chain_leg_removed_makes_sleep_hold_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_m2_seeding_hoisted_above_predicate_makes_order_test_red():
     """Hoist `_last_motion_time` seeding to the top of the BLE block —
     BEFORE the predicate — enabling BLE self-confirmation on the next

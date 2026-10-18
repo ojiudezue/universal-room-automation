@@ -39,6 +39,8 @@ import asyncio
 import importlib
 import importlib.util
 import os
+
+import pytest
 import subprocess
 import sys
 import types
@@ -602,6 +604,7 @@ def _run_named_test_under_mutation(
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_inv_dp3_raw_drain_target_breaks_composition():
     """Mutation (a) — INV-DP3 fit-supremacy: replace the composed
     `max(existing_val, hold_reserve, _dp_soc)` with the raw `_dp_soc`
@@ -631,6 +634,7 @@ def test_mutation_inv_dp3_raw_drain_target_breaks_composition():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_ownership_dp_swapped_to_battery_drain_breaks_attribution():
     """Mutation (b) — Ownership: swap the `_paused_by_dp.add` in
     `_apply_dp_transition` for `_paused_by_battery_drain.add`. Then

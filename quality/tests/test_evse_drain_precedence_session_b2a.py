@@ -572,6 +572,7 @@ def _run_named_test_under_mutation(
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_fits_inverted_breaks_p4_night():
     """Invert the `fits` boolean → all P4 nights would flip to HOLD →
     test_p4_counterfactual_all_seven_nights_transition fails."""
@@ -590,6 +591,7 @@ def test_mutation_fits_inverted_breaks_p4_night():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_l1_branch_removed_falls_through_to_arithmetic():
     """Remove the L1-only auto-hold branch. With rate=1.4 kW + huge SOC,
     the arithmetic-fits branch might accept and return FITS instead of
@@ -606,6 +608,7 @@ def test_mutation_l1_branch_removed_falls_through_to_arithmetic():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_blind_gate_removed_lets_perfect_fit_through():
     """Remove the INV-DP4 blind-hold top gate. A blind_hold=True eval
     with an otherwise-fitting scenario would then return FITS →
@@ -619,6 +622,7 @@ def test_mutation_blind_gate_removed_lets_perfect_fit_through():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_force_charge_yield_removed_lets_transition_through():
     """Remove the force-charge yield. force_charge=True on a fitting
     scenario would then return FITS → test_eval_force_charge_active_yields
