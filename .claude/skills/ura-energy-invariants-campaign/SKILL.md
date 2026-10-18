@@ -161,7 +161,7 @@ Protocol (do this yourself; no fleet required):
 
 1. Pick a site from Phase 1a (e.g. `energy_battery.py:1617-1619` — WAIT floor).
 2. Neuter *that one site* in the source: replace `floored = self._floor_reserve(...)` with `floored = self.reserve_soc` (or the raw pre-clamp value).
-3. Run: `PYTHONPATH=quality python3 -m pytest quality/tests/ -v -k "battery or arbitr or inclem" 2>&1 | tail -60`.
+3. Run: `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v -k "battery or arbitr or inclem" 2>&1 | tail -60`.
 4. **Expect ≥1 failure whose message names this site's semantics** (e.g. "WAIT should honor partial_hold floor"). A green suite here = untested site = fail this gate.
 5. Restore the source. Move to the next site.
 6. Repeat for every site in the Phase 1d list. Record the anchoring test name per site in a table in the planning doc.

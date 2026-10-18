@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
-import subprocess
-import sys
 import time
 
 import pytest
@@ -168,75 +165,46 @@ def test_db_source_has_noted_guard_at_release_site():
 # ---------------------------------------------------------------------------
 # Mutation drill on the per-episode-latch site in database.py.
 # ---------------------------------------------------------------------------
-_SRC_PATH = db_mod.__file__
+# TEST-HARNESS D1: drills run against a tmp COPY of the repo via
+# apply_mutation_in_sandbox — the real database.py is never opened for write
+# (the old in-place _mutate wrote before its try and could leak the mutant).
+from pathlib import Path as _Path  # noqa: E402
+
+from _mutation_sandbox import apply_mutation_in_sandbox  # noqa: E402
+
+_SRC_PATH = _Path(db_mod.__file__).resolve()
+_THIS_TEST = _Path(__file__).resolve()
 
 
-def _mutate(pairs):
-    original = open(_SRC_PATH, "rb").read()
-    text = original.decode("utf-8")
-    for a, b in pairs:
-        assert a in text, f"mutation target not found: {a!r}"
-        text = text.replace(a, b, 1)
-    open(_SRC_PATH, "wb").write(text.encode("utf-8"))
-    pycache = _SRC_PATH.rsplit("/", 1)[0] + "/__pycache__"
-    try:
-        shutil.rmtree(pycache)
-    except FileNotFoundError:
-        pass
-    return original
-
-
-def _restore(original):
-    open(_SRC_PATH, "wb").write(original)
-    pycache = _SRC_PATH.rsplit("/", 1)[0] + "/__pycache__"
-    try:
-        shutil.rmtree(pycache)
-    except FileNotFoundError:
-        pass
-
-
-def _run(name):
-    p = subprocess.run(
-        [sys.executable, "-m", "pytest",
-         "quality/tests/test_db_wait_episode_logging.py::" + name,
-         "-q", "--no-header", "-x", "-p", "no:cacheprovider"],
-        env={"PYTHONPATH": "quality", "PYTHONDONTWRITEBYTECODE": "1",
-             "PATH": "/usr/bin:/bin"},
-        capture_output=True, text=True, timeout=60,
+def _drill(swap_from, swap_to, anchor):
+    apply_mutation_in_sandbox(
+        prod_path=_SRC_PATH,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=_THIS_TEST,
+        anchor_test_name=anchor,
+        expect="KILLED",
+        timeout=120.0,
     )
-    return p.returncode, p.stdout + p.stderr
 
 
 def test_mutation_drill_removes_noted_guard():
     """Neuter the `_noted` guard: fast waiters release() unconditionally.
     The overlap test MUST turn red (premature clear / extra warning)."""
-    original = _mutate([
+    _drill(
         # Force _noted to always evaluate True so the fast waiter also
         # invokes release() from its finally.
-        ("if _noted:\n                self._wait_episode_release(dropped=_dropped)",
-         "if True:  # MUTATION\n                self._wait_episode_release(dropped=_dropped)"),
-    ])
-    try:
-        rc, out = _run("test_db_source_has_noted_guard_at_release_site")
-        assert rc != 0, f"mutation should turn test red:\n{out[-1200:]}"
-    finally:
-        _restore(original)
-        after = open(_SRC_PATH, "rb").read()
-        assert after == original, "restore failed to reproduce original bytes"
+        "if _noted:\n                self._wait_episode_release(dropped=_dropped)",
+        "if True:  # MUTATION\n                self._wait_episode_release(dropped=_dropped)",
+        "test_db_source_has_noted_guard_at_release_site",
+    )
 
 
 def test_mutation_drill_removes_episode_latch():
     """Neuter the 'already active -> return' guard; the many-waiters test
     MUST turn red (many warnings instead of one)."""
-    original = _mutate([
-        ("if self._wait_episode_active:\n            return  # already logged this episode",
-         "if False:  # MUTATION\n            return"),
-    ])
-    try:
-        rc, out = _run("test_many_waiters_produce_one_warning_and_one_summary")
-        assert rc != 0, f"mutation should turn test red:\n{out[-800:]}"
-    finally:
-        _restore(original)
-        # Byte-compare: restore MUST reproduce pre-mutation content.
-        after = open(_SRC_PATH, "rb").read()
-        assert after == original, "restore failed to reproduce original bytes"
+    _drill(
+        "if self._wait_episode_active:\n            return  # already logged this episode",
+        "if False:  # MUTATION\n            return",
+        "test_many_waiters_produce_one_warning_and_one_summary",
+    )

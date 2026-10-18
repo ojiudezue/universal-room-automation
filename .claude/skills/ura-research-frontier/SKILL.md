@@ -104,7 +104,7 @@ Bayesian occupancy + routine forecasting + regime detection, learned per-house o
 
 ### First three concrete steps IN THIS REPO
 1. **Nail the offline evaluation harness.** A read-only script that pulls the last 30 days from `occupancy_events` (or `person_visits`), replays through `BayesianPredictor` in a sandbox instance, and reports per-room Brier score + calibration curve. Start from `bayesian_predictor.py:132` and the `LearningStatus` enum (`:58`). Do NOT touch the live predictor — write the replay path first, verify it recomputes yesterday's known predictions bit-identical, then start comparing variants.
-2. **Cross-validate the shared bin/day-type invariant.** Add a unit-level test that asserts `bayesian_predictor._hour_to_time_bin == routine_forecaster._hour_to_time_bin` and same for `_day_type`. Drift here silently breaks joint reasoning. Test lives in `quality/tests/` per the project test convention (`PYTHONPATH=quality python3 -m pytest quality/tests/ -v`).
+2. **Cross-validate the shared bin/day-type invariant.** Add a unit-level test that asserts `bayesian_predictor._hour_to_time_bin == routine_forecaster._hour_to_time_bin` and same for `_day_type`. Drift here silently breaks joint reasoning. Test lives in `quality/tests/` per the project test convention (`PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v`).
 3. **Publish a "predictive accuracy" diagnostic sensor** (advisory only). Rolling 7-day Brier vs a persistence baseline (baseline = "next hour looks like this hour last week"). Sensor is diagnostic-only until it clears an operator-set threshold — the same shadow-graduation pattern the optimizer uses.
 
 ### You have a result when…

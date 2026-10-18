@@ -147,7 +147,7 @@
   and the failure count drifts (the exact trap of tech debt #0).
 - [ ] **Run quality tests before every commit.**
   ```bash
-  PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+  PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
   ```
   Do not skip this because "it's a small change" — the v3.4.1 strings omission was a small change too.
 - [ ] **Run the isolation check before merging.** Bulk pytest runs are

@@ -1221,9 +1221,9 @@ from pathlib import Path as _Path
 # ------------------------------------------------------------------
 def _mutate_source(rel_path: str, old: str, new: str, module_dotted: str,
                     callback):
-    """Replace ``old`` with ``new`` in the on-disk file at ``rel_path``,
-    reload ``module_dotted``, invoke ``callback()``, then restore the
-    original file contents.
+    """Execute ``rel_path``'s source with ``old`` replaced by ``new`` into
+    ``module_dotted`` (in memory), invoke ``callback()``, then reload the
+    pristine on-disk source.
 
     Returns whatever ``callback()`` returns. Guarantees restoration on
     exception (Bug Class #38 — no leaked mutated source on disk).
@@ -1235,13 +1235,19 @@ def _mutate_source(rel_path: str, old: str, new: str, module_dotted: str,
         raise AssertionError(
             f"mutation anchor stale: substring not found in {rel_path}: {old!r}"
         )
-    file_path.write_text(original.replace(old, new, 1))
+    # TEST-HARNESS D1: the mutant is executed into the module namespace in
+    # memory (reload semantics) — the production file is NEVER written, so
+    # an exception or a hard kill cannot leave it mutated on disk.
+    mod = sys.modules[module_dotted]
     try:
-        mod = _importlib.reload(sys.modules[module_dotted])
+        exec(compile(original.replace(old, new, 1), str(file_path), "exec"),
+             mod.__dict__)
         return callback(mod)
     finally:
-        file_path.write_text(original)
         _importlib.reload(sys.modules[module_dotted])
+        assert file_path.read_text() == original, (
+            f"{rel_path} changed on disk during an in-memory mutation"
+        )
 
 
 # ------------------------------------------------------------------
