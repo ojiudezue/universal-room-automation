@@ -75,7 +75,41 @@ _URA_ROOT = (
 _PKG = "ura_sleepmask_pkg"
 
 
+_POLLUTABLE = ("homeassistant", "aiosqlite")
+
+
 def _load():
+    """Import the alias package against a FRESH copy of homeassistant /
+    aiosqlite.
+
+    Suite-order hygiene (validator name-diff 2026-10-18): earlier test files
+    both replace ``sys.modules`` entries with hand-made stubs (e.g.
+    ``homeassistant.util.dt`` without DEFAULT_TIME_ZONE) AND overwrite
+    attributes on REAL modules (DataUpdateCoordinator, SensorEntity), and
+    conftest restores only sys.modules values, not package attributes.
+    So: hide EVERY entry of those namespaces, import the alias stack (it
+    re-imports clean library modules from site-packages and binds them),
+    then put every original entry back exactly as it was. Nothing in
+    sys.modules is permanently changed (DoD 8); only the alias package and
+    its private bindings persist.
+    """
+    if f"{_PKG}.domain_coordinators.presence" in sys.modules:
+        return _import_names()
+    saved = {
+        k: v for k, v in sys.modules.items()
+        if k.split(".")[0] in _POLLUTABLE
+    }
+    for k in saved:
+        del sys.modules[k]
+    try:
+        return _import_names()
+    finally:
+        for k in [k for k in sys.modules if k.split(".")[0] in _POLLUTABLE]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+
+
+def _import_names():
     if f"{_PKG}.domain_coordinators.presence" not in sys.modules:
         pkg = types.ModuleType(_PKG)
         pkg.__path__ = [str(_URA_ROOT)]
@@ -1265,13 +1299,16 @@ def test_unrecorded_attributes_set(monkeypatch, clock):
         {"stale_counted_home", "nobody_home_zone_input"}
     )
     # HA's recorder strips exactly the merged set (Entity base + class).
-    from homeassistant.helpers.entity import Entity  # noqa: PLC0415
     s = object.__new__(SE.PresenceHouseStateSensor)
     merged = s._Entity__combined_unrecorded_attributes if hasattr(
         s, "_Entity__combined_unrecorded_attributes") else None
     if merged is not None:
         assert {"stale_counted_home", "nobody_home_zone_input"} <= set(merged)
-    assert issubclass(SE.PresenceHouseStateSensor, Entity)
+    # The REAL HA Entity base (bound at alias import), not a sibling stub.
+    assert any(
+        c.__name__ == "Entity" and c.__module__ == "homeassistant.helpers.entity"
+        for c in SE.PresenceHouseStateSensor.__mro__
+    )
 
 
 def test_sensor_publishes_d3_attributes(monkeypatch, clock):
