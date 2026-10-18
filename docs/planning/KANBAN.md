@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T23:16:45-05:00_ - _Data commit: `703a9cb512bc`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T23:25:12-05:00_ - _Data commit: `c7436fc03c5a`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -993,7 +993,8 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Tags:** tier-3, measure-before-build, found-during-probe, no-fabrication-verify
 - **Parsimony:** [BUILD (plan first; Tier 3 - house-state machine is a shared primitive consumed by HVAC, lighting, security, EVSE, battery)] With every tracker away and an untracked occupant home, path alpha toggles AWAY on single census drops (33/day on 10-14).
 - **Refs:** docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `measured_2026_10_18`: Per operator instruct (AUDIT_away_flap_untracked_occupant_would_have.md): trip 65 AWAY entries (~20/day vs 3.2 baseline), 51 with no door crossing. Camera-recency guard W=20 absorbs 34/65 entries but protects only 529/2,314 occupant-AWAY...
   - `operator_instruction_2026_10_17`: I want HVAC to go away fast. As long as that happens, house to be more careful. Also unclear if this works well? Rooms have no cameras only common areas. Measure when this would have helped if engaged first (board, 2026-10-18T03:58:33.755Z)
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `plan_rev2_2026_10_16_overnight`: Two Tier-3 plan reviews ran (2026-10-16 02:17 CDT): R1 completeness FIX-PLAN (1 HIGH: the reused deferred-retry timer shares one slot with the hysteresis retry and can drop the AWAY), R2 build-prediction FIX-PLAN (2 HIGH: stamping on cen...
