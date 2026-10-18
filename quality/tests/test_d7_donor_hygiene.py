@@ -94,6 +94,10 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_pc_observability_kill_switches.py": [
         ("homeassistant.util.dt", None, "ha"),
     ],
+    "test_oc_pillar_b_admin_surface.py": [
+        ("custom_components.universal_room_automation.domain_coordinators.presence", None, "ident"),
+        ("custom_components.universal_room_automation.const", None, "ident"),
+    ],
     # Borrows onboarding's _install_registries (and now its restore fixture).
     "test_room_create_prefill_filter.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
@@ -256,6 +260,12 @@ DONOR_VICTIMS: dict[str, list[str]] = {
         "test_evse_drain_precedence_session_b2b_ii.py::test_must_start_by_arm_skipped_when_fire_at_in_past",
         "test_evse_drain_precedence_session_b2c2_fixup.py::test_transition_entry_pauses_only_charging_evse_ids_multi_evse",
     ],
+    # Slice 2, run-time donor (evicts every URA module per test, never
+    # restored). Bisected single-file donor of both.
+    "test_oc_pillar_b_admin_surface.py": [
+        "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
+        "test_sleep_fans_and_flash.py::TestFixup_CheckAutoOffWarning_Drive::test_switch_only_room_triggers_warning_flash",
+    ],
     # Reproduced pre-fix: 15 weather_manager + 4 dpm_drift_guard + 1 v5110.
     "test_identity_fusion_d2_d3_d4.py": [
         "test_v47x_weather_manager.py::TestApparentFallback::test_apparent_fallback_to_raw",
@@ -359,6 +369,10 @@ _DRILLS = {
         "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
         "        if False:\n            if saved_parent_dt is _absent:",
     ),
+    "test_oc_pillar_b_admin_surface.py": (
+        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
+        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
+    ),
     # Un-scope the import block: restore nothing on exit.
     "test_hvac_fan_control.py": (
         "with _d7_import_scope() as _D7_INSTALLED:",
@@ -370,6 +384,10 @@ _DRILLS = {
 # Drills whose anchor is a donor->victim pair (the reviewer-C shape:
 # neuter the donor fix -> the victim goes red).
 _PAIR_DRILLS = {
+    "test_oc_pillar_b_admin_surface.py": (
+        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
+        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
+    ),
     "test_comfort_fan_away_veto_behavioral.py": (
         "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
