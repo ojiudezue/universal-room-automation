@@ -242,6 +242,19 @@ module (no HA imports). Operator declares ambiguous cases via `CONF_SENSOR_CAPAB
 CORROBORATOR_FOR_ROOM, CREATOR_VS_EXTENDER). Current wired consumer:
 `coordinator._detect_duty_cycle_stuck` (`sensor_role.py:17-18`).
 
+**Zone tier (presence `ZonePresenceTracker`) — per-sensor rule (sleep-mask cycle Rev 3, branch `feature/house-state-sleep-mask-ble-memory`, NOT deployed; switch `const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED`, rung 1, default True):**
+- A zone room is occupied iff ANY registered Tier-1 sensor reads `on`. Unavailable, unknown and missing all count as off.
+- **Substrate (D4a).** `OccupancySubstrate._kind_on_now(room, kind, map, *, event_entity, event_state)` is the ONE per-kind rule for seed and live. It ORs every entity mapped to (room, kind); the event entity's state comes from the payload and only siblings are read from `hass.states`. Single-sensor kinds are therefore byte-identical.
+- **Tracker (D4b).** An off-edge for kind k pops only k. A `kind=None` False is still a full clear.
+- **Discharges:**
+  - an entity deleted from HA (payload `None`) counts as off;
+  - a removed ROOM entry releases its kinds through `async_remove_entry` → lifecycle `"removed"` → the refresh's snapshot-room walk;
+  - a refresh seeds into a scratch copy and swaps only after the subscribe succeeds (one retry, then coherent-old);
+  - boot-settle release reconciles every tracker room to the substrate, writing differing slots only.
+- **Switch False:** byte-identical to `dad3bf6e7`, including the D-H1 night live-sensor limb and the WAKING forcing line, which run only while it is False.
+- **Read rule:** the switch is read as the `const` module attribute only, in `presence.py`, `occupancy_substrate.py` and `__init__.py` (lint-enforced). Tests flip it with the `per_entity_off` fixture or `--per-entity-off`.
+- The zone tier still ignores room-tier stuck exclusions and D2 demotion (STEP-EXCLUDE-4, PICK R3-2). A stuck or phantom sensor in any room holds its zone while it reads `on`.
+
 **Combination into `STATE_OCCUPIED`** — `coordinator._async_update_data` evaluates
 `motion_detected`, `occupancy_detected`, `presence_detected`, applies mmwave-sole gate
 (§4.1), debounce (§4.2), fan-transition CREATION gate (§4.3), chatter / stuck exclusions
@@ -454,6 +467,10 @@ each; verify current status in the board):
   `IDENTITY_FUSION_CAMERAS_MANUAL.md`.
 - **ROOM-ENERGY-SENSOR-MISPICKS-1** (2026-10-11) — sensor-mispick class (adjacent).
 
+- **Rev 3 D4d trip-wire `zone_hold_all_away` (branch, NOT deployed).**
+  - **When it fires:** one HIGH stuck-signal NM when the house is held out of AWAY by Tier-1 room sensors alone for more than `ZONE_HOLD_ALL_AWAY_NM_BOUND_S` (7200 s; 0 = off). "Alone" means all of: not AWAY/VACATION/SLEEP; no override; census 0; every trusted tracker away; a zone occupied; no BLE-occupied zone; a Tier-1 holder room.
+  - **Coverage:** in practice it pages only while the Frigate fleet is dark, since otherwise α discharges an empty house. It is inert with no trusted tracker (Wigton S0: card WIGTON-STUCK-ZX-NO-PAGE-1).
+  - **Other cards:** ZONE-ROOM-NAME-DRIFT-1 (a room renamed through options drops out of the zone tier).
 - **HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1** (2026-10-18) — operator approved the SMALL cycle
   (SLEEP-mask fix + 5-min resident BLE memory + AWAY-branch/flip-count/guest-reason observability);
   Rev 4 camera guard + guest-room veto PARKED (revive when guest accuracy is a priority). Must
@@ -581,6 +598,16 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
 
 19. **"A zone tracker's room view says whether the room is occupied."** FALSE for multi-sensor rooms (review D-H1, 2026-10-18): `update_room_occupancy(room, False, kind)` clears every kind, and the substrate is last-writer per (room, kind). A ZX still holding a sleeper reads empty after a ZV pulse clears. The night input works around it with live sensor state; daytime readers still have the gap (card ZONE-TRACKER-PER-SENSOR-WIPE-1).
 
+20. **"The tracker's derived room view is 'stronger on True, equivalent on False'"** (provenance-split plan). WRONG for multi-sensor rooms (review D-H1; P6: Jaya 56 h, Master 22 h and Kitchen 11 h of wiped-while-on per 7 days). Fixed by Rev 3 D4b (per-kind clear).
+
+21. **"The substrate's per-kind bool is the room's raw kind state."** WRONG before Rev 3 D4a. The live path was last-writer per (room, kind), so one of two same-kind sensors going off reported the kind False while the other was on. Only the seed ORed.
+
+22. **"The HVAC 'Wait for Presence' consensus defer gate's hysteresis bounds its deferral"** (sleep-mask plan §R3.4.2 row 13, first draft). WRONG (plan reviews R2-5 / Rev 3.1 recheck M1):
+   - The gate engages at < 0.5 within 30 s of a transition and releases only at ≥ 0.7.
+   - A zone held by Tier-1 while all phones are away keeps consensus ≤ 0.6, so it pins an already-engaged gate for the length of the hold.
+   - D4 cannot engage the gate alone (1 − 0.4 − 0.1 = 0.5).
+   - Accepted by name (PICK R3-4); card HVAC-CONSENSUS-GATE-PIN-1 (probe first). No HVAC code change.
+
 ## 11. Read before you touch — agent checklist
 
 Before planning, building, reviewing or diagnosing anything presence-adjacent:
@@ -636,6 +663,7 @@ Reuse these before building anything new (order: reuse > extend > build only if 
 | **Capability-radar-sole boolean** | `coordinator.py` producer (`_radar_sole_on_set` → `data[STATE_RADAR_SOLE_TICK]`) + `_recent_radar_sole_ring` + `any_radar_bearing_on_now`; `presence.PresenceCoordinator._room_radar_sole_capable`; classifier `fan_veto.is_radar_entity` / `sensor_capability.is_radar_capability` | Any trust decision that must distinguish "a radar is the sole tick driver" from "a radar-list entity fired" — never use the `occupancy_source` string for this. |
 | **night_raw (sleep-mask D1)** | `PresenceCoordinator._zone_night_raw` / `_zone_night_rooms` | "Is a SLEEP-pinned zone really occupied?" = raw zone occupancy (BLE / room / camera) with NO fan test. Read by nobody-home + the D1b wake disjunct + the sleep_raw_hold trip-wire only. |
 | **STALE concept split (deliberate, Bug Class #63)** | D2 `_tracking_active` (STALE = home) vs `fan_veto._ble_present_in_room`, `camera_census._ble_home_by_area`, `aggregation.py` per-zone status (STALE = not present) | Do NOT align them: a frozen tracker must not defeat the fan veto or cancel a real guest, but must not vote a resident away within the decay window. |
+| **`_kind_on_now` — one per-kind rule (Rev 3 D4a)** | `occupancy_substrate.OccupancySubstrate._kind_on_now(room, kind, map, *, event_entity, event_state)` | Any per-(room, kind) occupancy bool, seed or live. Pass the map explicitly (a refresh seed uses the DESIRED map); take the event entity from the payload, siblings from `hass.states`. Never re-derive a second rule. |
 | **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |
 
 ---

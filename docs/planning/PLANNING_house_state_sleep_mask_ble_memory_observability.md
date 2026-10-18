@@ -1377,3 +1377,28 @@ No helper function: the attribute read is the accessor. The other Rev-2 constant
 | L2 | LOW | `target` parameter; "one retry, then coherent-old" | R3.2.3 |
 | L3 | LOW | Subscribers recorded no-op; unknown-action rule; HA cites `:2149`/`:2150` | R3.2.3 |
 | L4 | LOW | `dh1_*` drills `switch=off` on off-only anchors | R3.2.3 |
+
+
+---
+
+## Rev 3.2 build notes (builder, 2026-10-18)
+
+The build follows §R3.2.4 (binding) > §R3.1 > §R3. No `hvac.py` change. Deviations and clarifications, each with its reason:
+
+1. **The seed always runs through `_kind_on_now`, in both switch states.** It is the same OR the seed always computed (R3.1.1 row 2: "identical in both states"). The 18 existing substrate/presence suites are name-identical to `dad3bf6e7` under `--per-entity-off`.
+2. **The D4d diagnosis reads `on` entities through `substrate._entity_to_room_kind`.** Room labels reuse `_zone_night_rooms`.
+3. **Extra discriminating anchors**, written where the plan's named anchor could not go RED on a single conjunct:
+   - `test_substrate_unavailable_sibling_counts_off`
+   - `test_tracker_ignores_foreign_room`
+   - `test_zone_hold_all_away_silent_for_camera_only_hold`
+   - `_silent_when_zone_not_occupied`
+   - `_silent_with_ble_presence`
+   - the SLEEP-exclusion anchor now uses a zone overridden OCCUPIED
+   - `test_boot_settle_replay_unchanged` adds a kind that goes off during settle, so its reconcile half discriminates
+4. **Equivalent mutants (recorded, conjunct kept):**
+   - D4d `tracked_count > 0`: the producer sets `all_tracked_persons_away` True only when `tracked_count > 0`.
+   - The earlier D1b sleep-hour conjunct.
+5. **`test_room_delete_via_config_entries_async_remove_releases_kinds`** drives a real phcc HA config-entries manager. URA's real `async_remove_entry` is registered through `mock_integration`. If the in-process HA is poisoned by earlier modules (full suite), it skips, and `test_zz_real_ha_clean_interpreter` re-runs it in a clean interpreter and requires a pass. This is the `test_room_rename_writethrough` precedent.
+6. **The drills file is marked `source_mutation`.** It is out of the default run, per the Wave 1 convention; run it with `-m ""`, and add `URA_DRILL_REVERSE=1` for the reverse order. `switch=off` drills pass `--per-entity-off` to their anchor.
+7. **`test_v47181_sleep_wake_deadlock.py::test_backstop_falls_through_in_branch_else_suppresses`** was a fixed-size source window that the Rev-3 additions overflowed. It is converted to a behavioural test (DoD 7).
+8. **README:** not written. The deploy is a separate operator checkpoint, and the README is written with the deploy.
