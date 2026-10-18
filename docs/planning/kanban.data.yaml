@@ -32300,11 +32300,10 @@ cards:
   status_note: "moved to waiting_operator"
   next: "VERIFY: stand still in the Exercise Room for ~1 min and see if binary_sensor.mmwave_zigbee_gameroom_presence goes on (or re-pair / power-cycle it, hardware) -> if it never fires I card a replacement; if it fires I re-run P3 for the room."
 - id: MASTER-BATH-NO-TRUSTED-PRESENCE-1
-  operator_question_2026_10_18: "For master bathroom is the InvisOutlet not working? It's a radar." FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion (motion_sensors) + occupancy (presence_sensors). Probe P3 wrongly extended the ruling to Master Bathroom by device model. -> premise of this card is likely WRONG; next: measure A788 occupancy reliability (holds a still person? false holds?) before any hardware. Also: A788 publishes its nightlight discovery payload onto the temperature topic (MQTT ValueError at boot) - minor device/firmware config issue."
-  status: investigating
+  operator_question_2026_10_18: "Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion (motion_sensors) + occupancy (presence_sensors). Probe P3 wrongly extended the ruling to Master Bathroom by device model. -> premise of this card is likely WRONG; next: measure A788 occupancy reliability (holds a still person? false holds?) before any hardware. Also: A788 publishes its nightlight discovery payload onto the temperature topic (MQTT ValueError at boot) - minor device/firmware config issue."
   title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
   thread: presence
-  status: waiting_operator
+  status: investigating
   tier: 1
   created: "2026-10-18"
   refinement_status: refined
