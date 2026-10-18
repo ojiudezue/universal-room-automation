@@ -117,9 +117,11 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 status bad), path α SKIPS because the "0 unidentified" denominator becomes unreliable;
 control falls through to path β / GUEST / SLEEP.
 
-**Veto-path verdict** mirrored to a sensor surface at `presence.py:6391` (values:
-`alpha_starved` / `alpha_denies` / `beta_only` / `none`). Memory-writers log a `blocked`
-episode (`presence.py:6393-6440`).
+**Veto-path verdict** (corrected 2026-10-18, §10 #16): the house-state sensor attribute
+`veto_path` (`sensor.py:5661`) mirrors the engine's `_veto_path` (`presence.py:6518`), values
+`none` / `active` / `lost_admitted` / `lost_admitted_immediate` (`none` also covers a
+nobody-home AWAY today). The labels `alpha_starved` / `alpha_denies` / `beta_only` exist only in
+the D5 `away_transition_blocked` memory-episode payload (`presence.py:6548-6561`).
 
 **HouseState enum** (`house_state.py:56-67`): `AWAY, ARRIVING, HOME_DAY, HOME_EVENING,
 HOME_NIGHT, SLEEP, WAKING, GUEST, VACATION`. `VALID_TRANSITIONS` at `house_state.py:71+`.
@@ -546,6 +548,11 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
 15. **"An entity_id naming a room identifies the room."** Not for `binary_sensor.mmwave_zigbee_gameroom_presence`
    (2026-10-18): it is the Exercise Room's radar (device and area say so). Classify by device/area,
    never entity name — consistent with SENSOR_FLEET_CLASSES Rule 3.
+
+16. **"The sensor's `veto_path` takes `alpha_starved` / `alpha_denies` / `beta_only` / `none`."**
+   WRONG (2026-10-18, plan review R1 of the SLEEP-mask cycle). Those are D5 episode labels
+   (`presence.py:6548-6561`); the sensor carries the engine values (`presence.py:1124-1277`, mirrored
+   `:6518`). The v8 People "Decided by" row maps the D5 vocabulary, so it never matches a live value.
 
 ## 11. Read before you touch — agent checklist
 
