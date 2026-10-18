@@ -101,7 +101,10 @@ No new timer, entity, store, schema, signal or config-flow field. One rung-1 kil
 - `night_raw(z)` = `z._ble_occupied` OR (`z._has_sensors` AND (any room r with `_room_occupied[r]` AND NOT `fan_phantom(r)`, OR `z._any_camera_occupied()`)).
 - N = live `decay_timeout`. I = `UPDATE_INTERVAL` = 30 s. T = presence tick ≤ 60 s.
 
-> **INV-SLEEP-NOT-EMPTY:** the nobody-home branch never returns AWAY while some zone has `sleep_zone(z) AND night_raw(z)`. **Carve-out (PICK 1 default):** a zone with `away_pinned(z)` counts as empty, as today.
+> **INV-SLEEP-NOT-EMPTY:** the nobody-home branch (and, after the review fix-up, path β's indoor guard) never returns AWAY while some zone has `sleep_zone(z) AND night_raw(z)`. **Carve-out (PICK 1 default):** a zone with `away_pinned(z)` counts as empty, as today.
+> **Scope limits, named by review D (not guaranteed by this cycle):**
+> - **S-1, path α (ledger #12):** suppose three trackers are ACTIVE-away and the sleeper's phone is dead (LOST, so it drops out of the denominator), with cameras healthy and no interior view of the sleeper. Then α returns AWAY over a raw-occupied pinned zone. That is Rev 4 guard A, which is parked.
+> - **S-2, PICK 1:** a mistaken house AWAY override followed by `auto` leaves zones AWAY-pinned when the sleeper's radar makes no new edge. Those zones count as empty.
 
 > **INV-EMPTY-REACHES-AWAY (precondition stated openly, R2 H1):** suppose that from t0:
 > - the house is physically empty and census is 0;
@@ -169,7 +172,7 @@ any_zone_occupied_for_empty = any(
 |---|---|---|---|---|---|
 | a | NM perimeter severity, `persons_home` | `perimeter_alert.py:1700-1705` reads `_tracked_persons_count_trusted`; table `:1660-1665` → `const.py:2338+` | trust (NM) | count +1, so a daytime exterior person is no longer "nobody home" → HIGH | **Yes.** A BLE-seen resident is home. |
 | b | HVAC "Wait for Presence" consensus | `_signal_consensus` `presence.py:7270-7272` loses its −0.4 term when `all_tracked_persons_away` flips; read by `hvac.py:2717` | trust (HVAC defer) | consensus rises, so HVAC defers less on a resident who is home | **Yes.** Same direction as the house state. |
-| c | Arriving re-arm bypass | `_arriving_rearm_bypass(tracked_count, all_tracked_persons_away)` `presence.py:5646-5669`; callers `:6915`, `:6982` | internal | bypass is less likely while a resident is STALE-home | **Yes.** Bypass exists for "all away". |
+| c | Arriving re-arm bypass | `_arriving_rearm_bypass(tracked_count, all_tracked_persons_away)` `presence.py:5646-5669`; callers `:6915`, `:6982` | internal | bypass is MORE likely while a resident is STALE-home (`tracked_count > 0 and not all_tracked_persons_away` → True; corrected per review B-L5) | **Yes.** Safe direction: a real arrival is never delayed. |
 | d | Zone `room_level_weighted` veto context | `presence.py:6235-6236` | internal | context sees the resident as home | **Yes** |
 | e | D5 episode labels `alpha_starved`/`alpha_denies` | `presence.py:6538-6553` | display (memory) | fewer `alpha_starved` labels during dropouts | **Yes** (display) |
 | f | `excluded_persons`: house-state sensor `sensor.py` and `PresenceDiagnosticSensor` `sensor.py:6295`; v8 Presence Diagnostics row | display | STALE persons stop appearing; they appear in `stale_counted_home` instead | **Yes** |
@@ -472,6 +475,10 @@ Each test asserts the state **and** `_veto_path`:
 - D2 does not change this path. A flickering phone re-arms STALE, but the hold is sustained by its ACTIVE ticks, which hold today anyway, and D2's own extension stays ≤ N+I+T from the last fix (`test_stale_flicker_hold_bounded_by_last_fix`).
 
 | Item | Status | Revival trigger |
+| **ZONE-TRACKER-PER-SENSOR-WIPE-1** (review D-H1, pre-existing). `ZonePresenceTracker.update_room_occupancy(room, False, kind)` clears every kind for the room, and the substrate is last-writer per (room, kind), so a multi-sensor room's tracker view drops while a sensor is still on. The night input works around it by ORing in the live state of registered sensors (`_zone_night_rooms`). Daytime `any_zone_occupied` and everything downstream of WAKING still read the lossy view (anchored as a known gap in `test_wigton_shape_multi_sensor_master_ends_via_waking`). | Card (own cycle; it touches every zone consumer) | Any reviewed plan to make zone occupancy per-sensor |
+| **B-L4** (review B): auto-follow precondition. D1b adds a census-0 SLEEP→WAKING path, and `security.py` maps `waking` to DISARMED. Before enabling `security_auto_follow`, check that an empty house held in SLEEP by a phantom is not disarmed at window end. | Card (inert today: auto-follow off) | Operator enables security auto-follow |
+| **D-P1** (review D, pre-existing): the zone SLEEP pin survives a HOME_* override. The unpin is keyed on the effective `current_state == SLEEP`, so an override then an AWAY transition leaves zones pinned with the house AWAY and occupants home. | Card | Unpin on any transition whose underlying previous state was SLEEP, or whenever the new state is not SLEEP |
+| **B-L3** (review B): trip-wire = one NM per episode, by design. An emit the NM path drops (NM missing at boot, kill switch, same-day latch) is not retried in that episode. | Documented, no change | — |
 |---|---|---|
 | Rev 4 guard A + veto B | **PARKED by operator 2026-10-18** | Guest accuracy becomes a priority (a long stay or a party) |
 | L(N > 300 s) with a new last-seen stamp | PARKED | A Bermuda-history probe shows ≥ 3 resident misses/month with BLE last seen 5–15 min before AWAY and no departure cost |
@@ -543,6 +550,10 @@ Source: `docs/planning/AUDIT_census_arc_and_away_holistic.md` §P5 (commit `1c74
    - **Change:** one disjunct in `infer()`. When `current_state == SLEEP`, the hour is no longer a sleep hour, and `any_zone_occupied_for_empty is True`, then `has_people = True`, so the existing WAKING branch runs; the 90 s raw WAKING gate still applies.
    - **Kill switch:** it is gated by the same D1 kill switch (the kwarg is None when off).
 3. **Trip-wire, retargeted to the window end (coordinator, 2026-10-18).** It fires when SLEEP is still held only by raw occupancy with census 0 more than `SLEEP_RAW_HOLD_NM_BOUND_S = 5400` after the sleep window ENDS (07:30 with the 06:00 default). That case means the D1b wake discharge failed.
+   - **Review fix-up:**
+     - It never fires while the house state is overridden (A-M1 / B-L1 / D-M2: a 21:30 early-bedtime or 14:00 nap override is the operator's hold, not a failed discharge).
+     - The clock is anchored at max(window end, SLEEP entry), using the tick's own `now` (A-L3).
+     - The NM goes out at **HIGH** through a new optional `severity` kwarg on `fire_stuck_signal` (A-M2 / B-L2). It reuses the S10 latches' per-call severity pattern. Other callers stay MEDIUM.
    - An overnight raw-only hold inside the window is the normal state on a census-0 house such as Wigton, and it never fires. The first draft measured 90 min from the start of the hold and would have paged every night there.
    - It fires one `fire_stuck_signal(kind="sleep_raw_hold", key=("house",))` per hold episode, plus that path's per-day latch. Rung 1; `0` disables. The diagnosis names the holding rooms. There is no new notifier.
 
@@ -555,3 +566,24 @@ Source: `docs/planning/AUDIT_census_arc_and_away_holistic.md` §P5 (commit `1c74
 - **Equivalent mutant (recorded):** dropping the sleep-hour conjunct of D1b changes nothing, because inside sleep hours a SLEEP house already returns None from the sleep-hours branch. The conjunct is kept as documentation.
 
 Scope note: P5 also proposed a diagnostic attribute naming the holding room. The coordinator's directive was NM-only, so the room names go in the NM diagnosis and no attribute was added.
+
+
+## Review fix-up (2026-10-18, four Tier-3 reviews A/B/C/D)
+
+| Finding | Fix |
+|---|---|
+| D-H1 HIGH: multi-sensor room reads empty while a radar is on | `_zone_night_rooms` ORs the live `on` state of every Tier-1 sensor registered to the room (`tracker._entity_to_room`) into the room limb. The WAKING sustained gate is fed the same night signal, so INV-SLEEP-HOLD-BOUNDED (b) still holds. The tracker/substrate semantics are carded as ZONE-TRACKER-PER-SENSOR-WIPE-1. |
+| D-M1 / B-M1: label read after an await | `tick_veto_path` is captured right after `infer()` and passed to `_dispatch_house_state_change(veto_path=)`. Both the counter's branch and the D7 payload use it. |
+| A-M1 / B-L1 / D-M2: trip-wire false page under an override | `held` requires `not is_overridden`; the anchor is max(window end, SLEEP entry). |
+| A-M2 / B-L2: MEDIUM reaches no channel | `fire_stuck_signal(severity="HIGH")`. |
+| C M5b: window roll-back untested | Non-wrapping 01→07 test at 00:30. |
+| D-M3: β reads the masked indoor input when the sleep exemption is off | The non-outdoor SLEEP-mode night signal is ORed into `any_indoor_zone_occupied` (β guard and FIX-2b debounce), only when a SLEEP-mode zone is night-occupied. |
+| S-1 / S-2 | Named as scope limits under INV-SLEEP-NOT-EMPTY. |
+| B-L5 | §3.2 row c wording corrected. |
+| A-L1 | `guest_reason` value `unidentified_corroborator_only` (Path A arms nothing by itself since GUEST-CENSUS D2). |
+| A-L2 | Stale "fan-phantom rooms dropped" docstring corrected. |
+| A-L3 | The trip-wire uses the tick's `now`. |
+| D-L1 | Unused `_sleep_raw_hold_since` removed. |
+| D-L2 (DST) | Noted in the trip-wire docstring. |
+| B-L3 / B-L4 / D-P1 | Carded or documented in §12. |
+| B-L6, D-L3 | Accepted: an `<error>` room limb is covered by the trip-wire. INV-NO-BLE-HOLD is stated in URA's frame (last poll with a valid area). |

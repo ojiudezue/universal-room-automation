@@ -92,11 +92,13 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
    `census_count == 0` alone (e.g. a phoneless sleeper). Wigton replay: 216 of 251 stress-case false
    AWAYs (`AUDIT_wigton_away_replay_2026_10_18.md`).
    **FIXED on branch `feature/house-state-sleep-mask-ble-memory` (sleep-mask cycle, NOT deployed):**
-   - **D1.** `_run_inference` computes `any_zone_occupied_for_empty`, in which a SLEEP-mode tracker contributes its raw night occupancy (`PresenceCoordinator._zone_night_raw` = BLE OR occupied room OR camera in its timeout; no fan test). It is passed to `infer(any_zone_occupied_for_empty=...)`, and only nobody-home reads it.
+   - **D1.** `_run_inference` computes `any_zone_occupied_for_empty`, in which a SLEEP-mode tracker contributes its raw night occupancy. That is `PresenceCoordinator._zone_night_raw`: BLE, OR an occupied room, OR a camera in its timeout; there is no fan test.
+     - The room limb is the tracker's room view OR the live `on` state of any Tier-1 sensor registered to the room (review D-H1). The tracker view is lossy in multi-sensor rooms, because one off-edge clears every kind.
+     - The value is passed to `infer(any_zone_occupied_for_empty=...)` and read by nobody-home and D1b. The same signal also feeds the WAKING sustained gate, and path β's indoor guard while a SLEEP zone is night-occupied (review D-M3).
      - The input is keyed on tracker mode, not house state, so zones still SLEEP-pinned under a HOME_* override also read raw.
      - A zone under a manual AWAY override still reads empty (carve-out).
    - **D1b.** After the sleep window ends, raw night occupancy counts as `has_people`, so SLEEP discharges via WAKING.
-   - **Trip-wire.** It fires one stuck-signal NM (`kind=sleep_raw_hold`) when SLEEP is still held only by raw occupancy with census 0 more than `SLEEP_RAW_HOLD_NM_BOUND_S` (5400 s; 0 = off) after the sleep window ENDS, meaning the D1b discharge failed. An overnight raw hold inside the window is normal and never fires.
+   - **Trip-wire.** It fires one **HIGH** stuck-signal NM (`kind=sleep_raw_hold`) when INFERRED SLEEP (not an override) is still held only by raw occupancy with census 0 more than `SLEEP_RAW_HOLD_NM_BOUND_S` (5400 s; 0 = off) after max(sleep-window end, SLEEP entry). That means the D1b discharge failed. An overnight raw hold inside the window is normal and never fires.
    - **Kill switch:** `PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP` (rung 1).
    - **Labels:** nobody-home now sets `_veto_path = "nobody_home"` on the FIRING return only; the already-AWAY return keeps `none`.
 1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded
@@ -576,6 +578,8 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
 17. **"SLEEP stops nobody-home AWAY."** FALSE before the sleep-mask cycle (2026-10-18): SLEEP-pinned zones read `mode == SLEEP`, so nobody-home saw every zone empty and fired on `census_count == 0` alone. Fixed by D1 on `feature/house-state-sleep-mask-ble-memory`.
 
 18. **"Drop fan-on radar-sole rooms from the night input (fan-loop breaker)."** REJECTED 2026-10-18 by stress test P5 (`AUDIT_census_arc_and_away_holistic.md` §P5): it blanks real sleepers (Jaya 76 % of occupied minutes) and had zero measured need in 220 days. It is parked; revive it only if the `sleep_raw_hold` trip-wire fires on a night a prober proves was empty and held by a fan-on radar-sole room.
+
+19. **"A zone tracker's room view says whether the room is occupied."** FALSE for multi-sensor rooms (review D-H1, 2026-10-18): `update_room_occupancy(room, False, kind)` clears every kind, and the substrate is last-writer per (room, kind). A ZX still holding a sleeper reads empty after a ZV pulse clears. The night input works around it with live sensor state; daytime readers still have the gap (card ZONE-TRACKER-PER-SENSOR-WIPE-1).
 
 ## 11. Read before you touch — agent checklist
 
