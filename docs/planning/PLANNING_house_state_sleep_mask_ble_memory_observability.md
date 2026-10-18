@@ -3,7 +3,7 @@
 **Card:** HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 (the simple cycle; replaces Rev 4 as the build target).
 **Status:** **Rev 3**, 2026-10-18. Operator chose Option A: "Go with A. Be careful."
 - **Rev 3 adds D4**, the proper fix for ZONE-TRACKER-PER-SENSOR-WIPE-1 (build review D-H1). It also **simplifies D1** by deleting the D-H1 live-sensor workaround.
-- **Rev 3.1 (2026-10-18) folds both Rev 3 plan reviews; §R3.1 (end of file) overrides §R3, which overrides everything earlier.**
+- **Rev 3.2 (2026-10-18) is the binding spec: §R3.2 overrides §R3.1, which overrides §R3, which overrides everything earlier. Build from §R3.2.4.**
 - Everything else is kept unchanged as the reviewed baseline: Rev 2, the Rev 2.1 build delta, and the review fix-up.
 - **Build base:** `feature/house-state-sleep-mask-ble-memory` @ `dad3bf6e7`. It is fully reviewed (four Tier-3 build reviews plus a fix-up) and NOT deployed. The rebuild is a delta on that branch (§R3.9), not a rewrite.
 - **Next step:** two Tier-3 plan reviews of Rev 3 (completeness, then adversarial build-prediction). Then the operator answers the §R3.11 PICKs. Then the build.
@@ -1259,3 +1259,121 @@ Everything else in §R3.9 "Unchanged" stands.
 Rejected: none. Adapted:
 - R2-5 offered measure, trip-wire or accept. Rev 3.1 proposes a cap, because a cap bounds the harm directly while a trip-wire would only report it. The accept option stays as the PICK alternative.
 - R1-F2 offered (a) or (b). (a) was chosen, because the backout lever must stay safe.
+
+---
+
+# §R3.2 — Rev 3.2 (2026-10-18): fold of the Rev 3.1 re-check
+
+**Review:** `docs/reviews/plan-review/PLAN_REVIEW_sleep_mask_rev3_1_recheck.md` (`a319f2748`): FIX-PLAN, no HIGH. All six Rev-3 fixes are verified closed. Remaining: M1, M2, L1–L4. §R3.2 overrides §R3.1 and §R3 where they conflict.
+
+## R3.2.1 M1: the HVAC cap is removed from this cycle
+- **R3.1.6's cap is withdrawn entirely.** No `HVAC_D6_MAX_ENGAGED_S`, no `hvac.py` change, no HVAC tests, no HVAC state-of-play edit. **This cycle does not touch `hvac.py`.**
+- **The R3.1.6 *correction* stands as documentation:**
+  - row 13 of §R3.4.2 now reads: "The consensus defer gate engages at < 0.5 within 30 s of a transition and releases at ≥ 0.7. D4 cannot engage it alone (Tier-1 hold removes the −0.15 term: 1 − 0.4 − 0.1 = 0.5), but a zone held by Tier-1 while all phones are away keeps consensus ≤ 0.6 and so pins an already-engaged gate for the length of the hold."
+  - The hysteresis does NOT bound it.
+- **PICK R3-4 default is now "accept the residual by name."**
+  - The exposure is the Jaya LD2410 fan phantom pinning an engaged gate (≤ 357 min measured hold; gate engagement itself never measured).
+  - Remedy path: card **HVAC-CONSENSUS-GATE-PIN-1** (coordinator minting). Its first step is a recorder probe of `sensor.ura_signal_consensus_confidence` against house state and gate engagement.
+  - Also the Jaya hardware card (state of play §9).
+- **Why the cap was wrong here (re-check M1):**
+  - it would write Away over a real phoneless occupant;
+  - it sits outside the kill switch;
+  - "D6" collides with an existing name;
+  - the engagement rate is unmeasured.
+- §R3.1.10 items 1 (HVAC constant) and 5 (`hvac.py`) and the HVAC doc bullet in item 7 are **struck**.
+
+## R3.2.2 M2: one switch, read and patched one way
+
+**How it is read.** `ZONE_OCCUPANCY_PER_ENTITY_ENABLED` is defined once in `const.py`. Every gate reads it **as a module attribute at call time**, never `from ..const import ZONE_OCCUPANCY_PER_ENTITY_ENABLED`:
+- `presence.py` and `occupancy_substrate.py` (both in `domain_coordinators/`): `from .. import const as _ura_const` and `if _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:`;
+- `__init__.py`: `from . import const as _ura_const` (or its existing `const` module import if one exists; builder checks) and the same attribute read inside `async_remove_entry`.
+
+No helper function: the attribute read is the accessor. The other Rev-2 constants (`PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP` etc.) keep their name imports; this rule applies to the new constant only.
+
+**Lint.** `test_zone_per_entity_switch_read_by_attribute`: an AST scan of `custom_components/universal_room_automation/**/*.py` asserts:
+- zero `ImportFrom` nodes importing `ZONE_OCCUPANCY_PER_ENTITY_ENABLED`;
+- every `Name`/`Attribute` reference to it is `<alias>.ZONE_OCCUPANCY_PER_ENTITY_ENABLED` where `<alias>` binds to the `const` module;
+- the set of modules referencing it is exactly {`presence.py`, `occupancy_substrate.py`, `__init__.py`}. A new reader fails the lint until added deliberately.
+
+**How tests patch it.** One fixture in `quality/tests/conftest.py`:
+- `per_entity_off` = `monkeypatch.setattr(<pkg>.const, "ZONE_OCCUPANCY_PER_ENTITY_ENABLED", False)`. A single patch reaches all three modules because they read the attribute.
+- `per_entity_on` is the default (no patch).
+- Tests never patch the name on `presence` / `occupancy_substrate` / `__init__` modules (the lint's companion grep over `quality/tests` forbids `setattr(PR, "ZONE_OCCUPANCY_PER_ENTITY_ENABLED"` and similar).
+
+**The switch-off run.**
+- CI runs the branch-era suites once more under `per_entity_off`, selected by a marker or `-p` plugin option the builder documents in the PR: `test_house_state_sleep_mask_ble_memory.py`, `test_house_state_sleep_mask_mutation_drills.py` and every existing suite listed in §R3.1.8 / §R3.6 "Existing suites".
+- **Excluded from the switch-off run (they assert Rev-3 behaviour by design and are marked `@pytest.mark.per_entity_on_only`):**
+  - everything in the new `test_zone_tracker_per_entity.py` except the explicit kill-switch tests, which set the fixture themselves;
+  - the re-driven / inverted D-H1 tests: `test_two_kind_room_zv_pulse_then_clear_keeps_zx_sleeper` (inverted defect line), `test_same_kind_two_sensor_room_one_off_keeps_sleeper` (substrate-driven), `test_multi_sensor_room_really_empty_still_reaches_away`, `test_unavailable_sibling_and_foreign_room_do_not_hold` (renamed), `test_wigton_shape_multi_sensor_master_ends_via_waking` (inverted + daytime extension);
+  - the rewritten `test_boot_settle_replay_unchanged` and `test_release_clears_kind_that_went_off_during_settle`, `test_release_reconcile_removed_room_during_settle`;
+  - `test_refresh_subscribe_failure_leaves_state_untouched`, `test_refresh_retry_after_failure_emits_edges`;
+  - `test_room_delete_via_config_entries_async_remove_releases_kinds`;
+  - all D4d tests (except `test_d4d_silent_when_kill_switch_off`);
+  - `test_manual_occupied_zone_override_does_not_force_waking_gate` (R3-F1);
+  - `test_night_raw_equals_raw_occupied_property` (holds only with the limb skipped);
+  - `test_single_sensor_provenance_shape_identical` (runs in both; kept in).
+- **Required in the switch-off run** (prove INV-KILL-BYTE-ID): `test_kill_switch_off_dh1_repro_holds_sleep`, `test_kill_switch_off_matches_branch_trace`, the original `dad3bf6e7` versions of the D-H1 tests (`test_live_limb_ignores_unavailable_and_other_rooms`, the pre-inversion `test_two_kind_room_…` / `test_wigton_shape_multi_sensor_master_ends_via_waking` assertions). These are kept as `@pytest.mark.per_entity_off_only` copies so the workaround stays anchored.
+- **Lint:** `test_switch_off_markers_partition` asserts every test in the touched files carries at most one of the two markers, and that the `per_entity_off_only` set is non-empty.
+
+**Drills.** The drill runner gains a per-drill `switch` column (`on` / `off`). An `off` drill runs its anchor under `per_entity_off`.
+
+## R3.2.3 L1–L4
+- **L1, boot reconcile.** `_reconcile_trackers_to_substrate()` writes **only slots that differ**: for each tracker room and each kind, if `bool(tracker._room_provenance.get(room, {}).get(k))` differs from `substrate.get_room_kinds(room)[k]`, it calls `update_room_occupancy(room, v, kind=k)`. In practice that means True→False pops. A room with no difference gets no write, so `_has_sensors` / `_last_activity` / AWAY-override side effects never fire for it, and a sensor-less zone is not flipped UNKNOWN→AWAY. The call in `_release_boot_settle` is wrapped in its own `try/except Exception` with a DEBUG log, like its neighbour (`presence.py:2344-2351`), because on the `real_input` path it runs inside `_run_inference`. Tests: `test_release_reconcile_writes_only_differing_slots` (spy on `update_room_occupancy`; a renamed/unwalked room stays UNKNOWN) and `test_release_reconcile_exception_does_not_abort_tick`.
+- **L2, seed target.** `_reset_and_seed_room_bucket(room, entity_map, desired_entity_to_room_kind, target)`: the bucket is `target.setdefault(room, {})`.
+  - `async_setup` passes `self._raw_state`.
+  - `refresh_subscriptions` (switch on) passes a scratch `new_raw` that starts as a shallow per-room copy of `self._raw_state`, so rooms not in the desired set still prune at step 6.
+  - Switch off passes `self._raw_state` (today).
+  - "Self-heals" is restated as **one retry, then coherent-old**. The retry is one-shot (`_refresh_retry_pending`, `occupancy_substrate.py:566-568`). A second failure leaves the old map, listener and raw state, which are coherent but stale until the next lifecycle event.
+- **L3, other lifecycle subscribers and HA cites.**
+  - Verified no-op on the new `"removed"` action: `hvac.py:5441-5449` `_on_room_lifecycle` acts only on `unloaded` / `loaded` / `options_updated`; `binary_sensor.py:~1756` `_on_lifecycle` returns unless the entry id is its own, and the deleted room's entity was already removed at unload.
+  - Rule recorded in the `SIGNAL_ROOM_ENTRY_LIFECYCLE` docstring (`signals.py`): **any subscriber must treat an unknown action as a no-op.**
+  - HA cites corrected for the installed core (HA 2026.2.3): `del self._entries[...]` at `config_entries.py:2149`, `await entry.async_remove(hass)` at `:2150`, `async_remove_entry` call `:1053-1056`.
+  - `async_remove_entry` also runs for a non-recoverable entry whose unload was skipped (`:2145-2147`), which covers deleting a room that was in SETUP_ERROR.
+- **L4, D-H1 drills under the switch.** The kept `dh1_*` drills (`dh1_live_limb_dropped`, `_same_kind`, `_wigton`, `dh1_live_limb_counts_unavailable`, `dh1_live_limb_ignores_zone_membership`, `dh1_waking_gate_not_fed`) get `switch=off`. Their anchors are the `per_entity_off_only` copies (R3.2.2), so each goes RED for the right reason. A drill whose anchor passes under `on` cannot count.
+
+## R3.2.4 Delta vs `dad3bf6e7` (final; replaces §R3.1.10)
+1. `const.py`: `ZONE_OCCUPANCY_PER_ENTITY_ENABLED = True`, `ZONE_HOLD_ALL_AWAY_NM_BOUND_S = 7200`.
+2. `occupancy_substrate.py` (all gated, attribute read):
+   - `_kind_on_now(room, kind, map, *, event_entity, event_state)`;
+   - live OR;
+   - D4c.1 (payload `None` = off);
+   - `_reset_and_seed_room_bucket(..., target)`;
+   - scratch-seed refresh with one retry;
+   - snapshot-room walk at step 7.
+3. `__init__.py`: `async_remove_entry` → `SIGNAL_ROOM_ENTRY_LIFECYCLE` `"removed"` for ROOM entries (gated).
+4. `signals.py`: the unknown-action docstring rule.
+5. `presence.py`:
+   - D4b pop;
+   - `_reconcile_trackers_to_substrate` (differing slots only) + its guarded call in `_release_boot_settle`;
+   - D-H1 limb and forcing line under `if not _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED`;
+   - D4d `_check_zone_hold_all_away` + its call;
+   - dead-writer docstring on `_handle_occupancy_change`.
+6. Tests:
+   - new `test_zone_tracker_per_entity.py` with `SubstrateWorld`;
+   - conftest `per_entity_off` fixture + markers;
+   - the attribute-read lint;
+   - edits and marker splits per R3.2.2;
+   - drill runner gains `anchor_file` and `switch` columns.
+7. Docs:
+   - presence state of play (§4/§1 per-sensor rule; §10 two ledger rows; D4d Frigate-dark coverage; gold pattern `_kind_on_now`);
+   - README.
+   - **No HVAC code or doc change** except the presence-side row-13 correction, which lives in the presence doc.
+
+## R3.2.5 PICKs (current)
+| PICK | Default |
+|---|---|
+| R3-1 ship D4 in this cycle | yes |
+| R3-2 zone tier ignores room-tier exclusions | keep STEP-EXCLUDE-4 |
+| R3-3 D4d bound / surface | 7200 s; pages only while Frigate is dark (ack requested) |
+| **R3-4 HVAC consensus-gate pin** | **CHANGED → accept by name; card HVAC-CONSENSUS-GATE-PIN-1 (probe first); no cap** |
+| R3-5 kill-switch semantics | true byte-identity (workaround kept under the gate) |
+
+## R3.2.6 Findings → resolution
+| ID | Sev | Resolution | Where |
+|---|---|---|---|
+| M1 | MED | Cap removed; R3-4 → accept; card HVAC-CONSENSUS-GATE-PIN-1; no `hvac.py` change | R3.2.1 |
+| M2 | MED | Attribute-read rule + AST lint; single conftest patch; explicit on-only / off-only markers and lists | R3.2.2 |
+| L1 | LOW | Differing-slot writes only; guarded call; two tests | R3.2.3 |
+| L2 | LOW | `target` parameter; "one retry, then coherent-old" | R3.2.3 |
+| L3 | LOW | Subscribers recorded no-op; unknown-action rule; HA cites `:2149`/`:2150` | R3.2.3 |
+| L4 | LOW | `dh1_*` drills `switch=off` on off-only anchors | R3.2.3 |
