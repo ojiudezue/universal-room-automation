@@ -394,7 +394,13 @@ def test_snapshot_resolver_strips_underscore_2_before_person_suffix():
     hass, _ = _make_hass()
     mgr = _run(_pa_mod._setup_mgr(hass))
     # Seed a cached frigate event id for the base camera name.
-    mgr._frigate_last_event_id["front_yard"] = "evt-42"
+    # D4c (2026-10-17): since 193bf8dc7 (2026-08-07 hotfix, TTL-gated
+    # Frigate snapshot id) the cache value is ``(event_id, stamped_at)``;
+    # a bare string unpacked into ValueError. Same seed shape as the
+    # sibling test_perimeter_alert_nm_routing.py fixtures.
+    mgr._frigate_last_event_id["front_yard"] = (
+        "evt-42", _pa_mod._perimeter.dt_util.utcnow(),
+    )
     # Manually flag both source sensors as Frigate-platform-owned.
     mgr._sensor_platforms["binary_sensor.front_yard_person_occupancy"] = (
         _const.CAMERA_PLATFORM_FRIGATE

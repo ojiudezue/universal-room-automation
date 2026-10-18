@@ -380,7 +380,7 @@ def test_h2_resident_ble_plus_guest_face_abstains():
 # ---------------------------------------------------------------------------
 
 
-def test_d4_face_legs_dropped_when_producer_dead():
+def test_d4_face_legs_dropped_when_producer_dead(monkeypatch):
     """Frigate `binary_sensor.frigate_status_2 = unavailable` +
     STRICT -> resolver drops the face leg; no attach on the face
     path. `_resolve_face_legs` still returns the leg (fail-safe lives
@@ -396,6 +396,18 @@ def test_d4_face_legs_dropped_when_producer_dead():
         "binary_sensor.frigate_status_2": _make_state("unavailable"),
     }
     census, hass, _ = _make_census(states, frigate_status="unavailable")
+    # D4c (2026-10-17): since 9f5b7a8f9 (FS-1) the health entity resolves
+    # only through the ENTITY REGISTRY (+ a live state). `_make_census`
+    # seeds states but no registry, so run alone the lookup missed, the
+    # stub camera manager reports no Frigate cameras, and the gate went
+    # INERT (live) — the face leg attached. It passed only after a sibling
+    # test leaked a registry stub. Install the registry for THIS test,
+    # scoped (monkeypatch restores it).
+    import homeassistant.helpers.entity_registry as _er
+    monkeypatch.setattr(
+        _er, "async_get",
+        lambda _hass: _StubEntityRegistry(("sensor.frigate_status_2",)),
+    )
     # Drive REAL _resolve_face_legs (not monkeypatched): accessor
     # STILL enumerates the leg (proves the leg is there to be dropped),
     # then the resolver's D4 gate refuses to consume it.

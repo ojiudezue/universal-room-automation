@@ -798,10 +798,49 @@ class TestDiagnosticsConstants:
         assert CONF_COMFORT_ENABLED == "comfort_coordinator_enabled"
 
     def test_coordinator_enabled_keys_mapping(self):
-        assert COORDINATOR_ENABLED_KEYS["presence"] == "presence_coordinator_enabled"
-        assert COORDINATOR_ENABLED_KEYS["energy"] == "energy_coordinator_enabled"
-        assert COORDINATOR_ENABLED_KEYS["music_following"] == "music_following_coordinator_enabled"
-        assert len(COORDINATOR_ENABLED_KEYS) == 8
+        # D4a (test-harness Wave 1): was `len(...) == 8`, stale since
+        # appliance (566090d4d) + notification_manager (7c7cc09b4) joined.
+        # Pin every entry exactly (independent literal oracle) instead of a
+        # count, then drive the production reader for each one.
+        expected = {
+            "presence": "presence_coordinator_enabled",
+            "safety": "safety_coordinator_enabled",
+            "security": "security_coordinator_enabled",
+            "energy": "energy_coordinator_enabled",
+            "hvac": "hvac_coordinator_enabled",
+            "comfort": "comfort_coordinator_enabled",
+            "music_following": "music_following_coordinator_enabled",
+            "appliance": "appliance_coordinator_enabled",
+            "notification_manager": "notification_manager_enabled",
+        }
+        assert dict(COORDINATOR_ENABLED_KEYS) == expected
+
+    def test_enabled_setting_reads_each_coordinators_own_key(self):
+        """Behaviour: coordinator_gate reads the stored key for every id.
+
+        For each coordinator, an explicit False under ITS literal key turns
+        it off and an explicit True turns it on, regardless of the default
+        table. A wrong/missing mapping entry breaks this for that id.
+        Covers every coordinator that has a registration site.
+        """
+        from custom_components.universal_room_automation.coordinator_gate import (
+            coordinator_enabled_setting,
+        )
+        literal_keys = {
+            "presence": "presence_coordinator_enabled",
+            "safety": "safety_coordinator_enabled",
+            "security": "security_coordinator_enabled",
+            "energy": "energy_coordinator_enabled",
+            "hvac": "hvac_coordinator_enabled",
+            # comfort omitted: it has no registration site, so it is not in
+            # COORDINATOR_ENABLED_DEFAULTS (const.py comment above that table).
+            "music_following": "music_following_coordinator_enabled",
+            "appliance": "appliance_coordinator_enabled",
+            "notification_manager": "notification_manager_enabled",
+        }
+        for cid, key in literal_keys.items():
+            assert coordinator_enabled_setting({key: False}, cid) is False, cid
+            assert coordinator_enabled_setting({key: True}, cid) is True, cid
 
     def test_retention_constants(self):
         assert RETENTION_ANOMALY_LOG == 90

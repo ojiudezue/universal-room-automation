@@ -857,28 +857,25 @@ class TestD3_ZonePresetPersonTrust:
         assert "StateInferenceEngine" not in body
 
 
-# -------------------------------- D4: Mode-2 BLE recheck stays sleep-only
-
-
-class TestD4_Mode2BleGate:
-    @pytest.fixture(scope="class")
-    def src(self) -> str:
-        with open(
-            "custom_components/universal_room_automation/"
-            "domain_coordinators/presence_fan_recheck.py"
-        ) as f:
-            return f.read()
-
-    def test_gate_remains_sleep_only(self, src: str) -> None:
-        assert "if house_state == HouseState.SLEEP:" in src
-
-    def test_comment_cross_references_planning_doc(self, src: str) -> None:
-        assert "PLANNING_fan_trust_state_extension.md" in src
-        assert "§D-MODE2" in src or "D-MODE2" in src
-
-    def test_does_not_extend_to_fan_trust_states(self, src: str) -> None:
-        """No FAN_TRUST_STATES membership check in this file."""
-        assert "FAN_TRUST_STATES" not in src
+# -------------------------------- D4: Mode-2 BLE recheck sleep gate — RETIRED
+#
+# D4a (test-harness Wave 1, Bug Class #62): the three source-text greps that
+# lived here (`if house_state == HouseState.SLEEP:` present, planning-doc
+# cross-reference present, `FAN_TRUST_STATES` absent from
+# presence_fan_recheck.py) asserted a contract that was DELIBERATELY
+# superseded by ce4437c69 (FAN-RECHECK-D2-DEADLOCK-1, folding in
+# FAN-RECHECK-SLEEP-VETO-SCOPE-1, 2026-08-19): the unconditional SLEEP veto
+# was narrowed to bedrooms only, across FAN_TRUST_STATES
+# {home_night, sleep, waking}, at both eligibility sites.
+#
+# The current contract is anchored BEHAVIOURALLY (driving the real
+# FanRecheckManager) in quality/tests/test_fan_recheck_mode2_cycle.py:
+#   test_sleep_bedroom_preserved_v4_7_13_contract
+#   test_home_night_bedroom_vetoed_by_scoped_predicate
+#   test_sleep_non_bedroom_arms_post_scope_fix
+#   test_waking_house_state_does_not_block_non_bedroom
+#   test_sleep_begins_during_arm_delay_aborts_before_pause_bedroom
+# so nothing is re-asserted here.
 
 
 # ------------------------ D5: automation.py per-room time-window unchanged

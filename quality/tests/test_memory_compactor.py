@@ -839,7 +839,13 @@ async def test_phantom_rule_spot(tmp_path, monkeypatch):
     from custom_components.universal_room_automation.memory_compactor import (
         MemoryCompactor,
     )
-    stats = await MemoryCompactor(db).run(triggered_by="t")
+    # D4c (2026-10-17): pin the rolling-window anchor (run(now=...), the
+    # engine's documented test seam) — the fixed Aug-2026 fixture dates fell
+    # out of the wall-clock window as the calendar advanced.
+    stats = await MemoryCompactor(db).run(
+        triggered_by="t",
+        now=datetime(2026, 8, 14, 12, 0, 0, tzinfo=timezone.utc),
+    )
     assert stats["aborted_reason"] is None
     facts = await db.read_memory_facts(
         "room:jaya", topic="phantom_recurrence",
@@ -885,7 +891,11 @@ async def test_actuation_conflict_rule_spot(tmp_path):
     from custom_components.universal_room_automation.memory_compactor import (
         MemoryCompactor,
     )
-    stats = await MemoryCompactor(db).run(triggered_by="t")
+    # D4c (2026-10-17): pinned window anchor (see test_phantom_rule_spot).
+    stats = await MemoryCompactor(db).run(
+        triggered_by="t",
+        now=datetime(2026, 8, 14, 12, 0, 0, tzinfo=timezone.utc),
+    )
     assert stats["aborted_reason"] is None
     facts = await db.read_memory_facts(
         "room:study_a", topic="actuation_conflict_summary",

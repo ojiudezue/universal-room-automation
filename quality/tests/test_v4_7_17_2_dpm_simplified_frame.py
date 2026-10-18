@@ -310,15 +310,35 @@ class TestEvaluateWiring:
 
 class TestConfigFlowSurface:
 
-    def test_new_knobs_added_to_schema(self, config_flow_src):
-        """The two new operator knobs must appear in the DPM Surface 1
-        schema with range 0.0-3.0 and the right default helpers."""
-        # Located near _build_hvac_dynamic_preset_schema
-        idx = config_flow_src.find("_build_hvac_dynamic_preset_schema")
-        body = config_flow_src[idx: idx + 5000]
-        assert "CONF_DPM_COOL_DAY_RELAX_F" in body
-        assert "CONF_DPM_HOT_DAY_TIGHTEN_F" in body
-        assert "vol.Range(min=0.0, max=3.0)" in body
+    def test_new_knobs_added_to_schema(self):
+        """The two new operator knobs are in the DPM Surface 1 schema with
+        range 0.0-3.0 and default 1.0 °F.
+
+        D4a (test-harness Wave 1): was a 5000-char source window grep for
+        ``vol.Range(min=0.0, max=3.0)`` (stale as the builder grew). Now
+        builds the REAL schema and validates boundary values through it
+        (hardcoded literals, not the imported constants).
+        """
+        import voluptuous as vol
+
+        from _room_menu_helpers import StubEntry, make_hass
+        from custom_components.universal_room_automation import config_flow as cf
+
+        flow = cf.UniversalRoomAutomationOptionsFlow(
+            StubEntry(data={}, options={}, entry_id="cm"),
+        )
+        flow.hass = make_hass()
+        schema = flow._build_hvac_dynamic_preset_schema(None)
+
+        filled = schema({})
+        assert filled["dpm_cool_day_relax_f"] == 1.0
+        assert filled["dpm_hot_day_tighten_f"] == 1.0
+        for key in ("dpm_cool_day_relax_f", "dpm_hot_day_tighten_f"):
+            assert schema({key: 0.0})[key] == 0.0
+            assert schema({key: 3.0})[key] == 3.0
+            for bad in (-0.1, 3.1):
+                with pytest.raises(vol.Invalid):
+                    schema({key: bad})
 
     def test_bucket_boundary_validation_removed(self, config_flow_src):
         """The cool_max < mild_max < hot_max check no longer applies (CONFs
