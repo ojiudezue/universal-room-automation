@@ -67,3 +67,11 @@ Earlier dropouts (2026-09-25, core log, repeating): traceback through `enphase_e
 - Possible contention: a second local client (an Envoy-to-MQTT add-on) was running during part of the September data. It was stopped on 2026-09-28, and the rate fell but did not reach zero, so it is a confound rather than a cause.
 - The integration is the only thing touching the Envoy API from HA; no custom component reloads or calls it.
 - Suggested fixes: (a) a total time budget on setup/probe so it raises `ConfigEntryNotReady`; (b) catch `EnvoyClientClosedError` (or `RuntimeError`) in `_async_try_refresh_firmware` and `_async_fetch_and_compare_mac`, or have pyenphase raise an `EnvoyError` subclass.
+
+---
+
+## Addendum 2026-10-18 (overnight pass) - fresher numbers you may want in the comment
+
+Source: `docs/planning/AUDIT_envoy_reliability_recount_and_witness_reconcile.md` section 3.1 (HA recorder, `sensor.envoy_482543015950_battery`, restart-adjacent episodes excluded). Since the host moved to Ethernet and HA's GC pauses were tamed on 10-15, short blips nearly stopped (24 in 5 days down to 2 in 3 days), but the integration now goes down for hours at a time: 587 min (10-15 17:38 to 10-16 03:25), 714 min (10-16 06:43 to 18:37), and another opened 10-17 23:08. Our own notes from 10-16 say that during one of these the Envoy's `/info` endpoint answered while the authenticated `/ivp/pdm/device_data` call hung, and a gateway reboot was needed. That fits leg 1 here (setup / first refresh with no timeout) better than random network loss, so it is worth one sentence in the comment: "after mitigating host-side stalls, the remaining failure is multi-hour hangs, consistent with a missing timeout in setup/first refresh."
+
+Still to fill before posting (operator): Envoy firmware version, pyenphase version from the running core, a debug-log excerpt covering one long hang. Re-check core PR #183172 status first.

@@ -17,6 +17,8 @@ by direct-import tests against ``PresenceCoordinator._handle_fan_change``.
 
 from __future__ import annotations
 
+import pytest
+
 import logging
 import os
 import shutil
@@ -492,6 +494,7 @@ def _run_pytest_in_subprocess(test_id: str, expect_fail: bool) -> str:
     return result.stdout + result.stderr
 
 
+@pytest.mark.source_mutation
 def test_mutation_neuter_suppression_causes_incident_test_to_fail(tmp_path):
     # SIGKILL-safe: mutate a COPY under tmp; real _COORD_SRC never
     # opened for write. See _mutation_sandbox.py.

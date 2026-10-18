@@ -229,10 +229,9 @@ def test_mutation_remove_buffering_makes_test_red(tmp_path):
     mutated = original.replace(old_block, new_block, 1)
 
     try:
-        with open(src_path, "wb") as fh:
-            fh.write(mutated)
-        # Force reload so the mutated source is executed.
-        importlib.reload(ura_db)
+        # TEST-HARNESS D1: execute the mutant into the module namespace in
+        # memory (reload semantics) — the production file is NEVER written.
+        exec(compile(mutated, src_path, "exec"), ura_db.__dict__)
         MutatedDB = ura_db.UniversalRoomDatabase
 
         # Rebuild the DB fixture against the mutated module.
@@ -255,7 +254,8 @@ def test_mutation_remove_buffering_makes_test_red(tmp_path):
 
         asyncio.get_event_loop().run_until_complete(_scenario())
     finally:
-        # Restore the file byte-for-byte and reload so subsequent tests see the fix.
-        with open(src_path, "wb") as fh:
-            fh.write(original)
+        # Re-execute the untouched on-disk source (reload) so later tests see
+        # the real module; then prove the file was never modified.
         importlib.reload(ura_db)
+        with open(src_path, "rb") as fh:
+            assert fh.read() == original, "production database.py changed on disk"

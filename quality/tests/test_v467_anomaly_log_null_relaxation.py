@@ -171,6 +171,7 @@ def test_v467_null_metric_row_persists_and_round_trips(real_schema_db):
         0, None,
         "point_in_time",
         None, None, None, None, None,
+        "point_in_time",  # anomaly_type (canonical; v4.7.12 9d83d1169 added the 21st column)
     ))
     conn.commit()
 
@@ -220,6 +221,7 @@ def test_v467_real_metric_values_still_round_trip(real_schema_db):
         0, None,
         "point_in_time",
         None, None, None, None, None,
+        "point_in_time",  # anomaly_type (canonical; v4.7.12 9d83d1169 added the 21st column)
     ))
     conn.commit()
 

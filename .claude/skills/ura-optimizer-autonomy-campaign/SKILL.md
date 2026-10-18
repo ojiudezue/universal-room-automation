@@ -72,13 +72,13 @@ Re-verify with the "Provenance and maintenance" section at the bottom before tru
 Suite command (from CLAUDE.md):
 
 ```
-PYTHONPATH=quality python3 -m pytest quality/tests/test_optimization_coordinator.py -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_optimization_coordinator.py -v
 ```
 
 Full suite (for baseline-diff):
 
 ```
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 ```
 
 ### Fenced-off failure pattern — DO NOT RECREATE
@@ -131,7 +131,7 @@ Do this before proposing or writing any code.
 
    Expect `optimizer_autonomy_level: "shadow"` on the reasoning-sensor attributes. If it is not shadow, **STOP** and reconcile with the operator before proceeding.
 5. **Snapshot the current baseline**. Both files should be captured to a working note (paste into the cycle's planning doc):
-   - Full-suite pass count from `PYTHONPATH=quality python3 -m pytest quality/tests/ -q --tb=no 2>&1 | tail -20`.
+   - Full-suite pass count from `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q --tb=no 2>&1 | tail -20`.
    - OC DB row-rate baseline (see Phase 3 snapshot script below) even if you are only planning Phase 1 — you will need it before deploy.
 6. **Tag the pre-review baseline** (CLAUDE.md requirement):
 
@@ -340,7 +340,7 @@ When Samba mount is down or MCP tools are unreachable:
 Fact-home: `ura-change-control` §Pre-Deploy Zero-Bugs Gate (conflict-marker grep, `py_compile` every changed file, cycle tests, full-suite baseline-diff vs `pre-review-v<version>`). Cycle-specific test target for this campaign:
 
 ```
-PYTHONPATH=quality python3 -m pytest quality/tests/test_optimization_coordinator.py -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_optimization_coordinator.py -v
 ```
 
 If any gate item fails: fix, re-run, do not deploy with a red suite, do not `--no-verify`, and never amend an older commit — create a new one.

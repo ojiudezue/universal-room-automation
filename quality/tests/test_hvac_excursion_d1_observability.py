@@ -200,9 +200,12 @@ async def test_d1_schema_has_observability_columns(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # Production order (__init__.py): initialize() BEFORE the write worker
+    # opens its persistent connection — the reverse order hits
+    # "database is locked" on the WAL/auto_vacuum pragmas.
+    assert await db.initialize()
     await db.start_write_worker()
     try:
-        assert await db.init_db()
 
         import aiosqlite
         async with aiosqlite.connect(db.db_file) as conn:
@@ -215,8 +218,8 @@ async def test_d1_schema_has_observability_columns(tmp_path):
         ):
             assert expected in cols, f"missing column {expected}"
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        # stop_write_worker cancels AND awaits the worker (no lingering task).
+        await db.stop_write_worker()
 
 
 @_ha_only
@@ -230,9 +233,12 @@ async def test_d1_dao_round_trips_new_columns(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # Production order (__init__.py): initialize() BEFORE the write worker
+    # opens its persistent connection — the reverse order hits
+    # "database is locked" on the WAL/auto_vacuum pragmas.
+    assert await db.initialize()
     await db.start_write_worker()
     try:
-        assert await db.init_db()
 
         # Row A: nudge_started with pre-write state captured.
         await db.log_ac_ramp_event(
@@ -288,8 +294,8 @@ async def test_d1_dao_round_trips_new_columns(tmp_path):
         d = by_zone[("zone_c", "nudge_restored")]
         assert d[6] is None, "self-disarm intent must persist as NULL"
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        # stop_write_worker cancels AND awaits the worker (no lingering task).
+        await db.stop_write_worker()
 
 
 # ---------------------------------------------------------------------------
@@ -299,24 +305,31 @@ async def test_d1_dao_round_trips_new_columns(tmp_path):
 
 
 class _CapturingDB:
-    """Stand-in for URADatabase that records log_ac_ramp_event kwargs."""
+    """Stand-in for URADatabase that records log_ac_ramp_event kwargs.
+
+    D4c (2026-10-17): surface updated to what the CURRENT
+    _perform_soft_nudge / _restore_after_nudge touch
+    (set_ac_in_flight_nudge, update_ac_ramp_restore_settled).
+    """
     def __init__(self):
         self.calls: list[dict] = []
 
     async def log_ac_ramp_event(self, **kwargs):
         self.calls.append(kwargs)
 
-    # Minimal surface that _perform_soft_nudge / _restore_after_nudge touch.
     async def get_ac_reset_state(self, zone_id):
         return {"soft_nudge_count": 0}
 
     async def save_ac_reset_state(self, state):
         return None
 
-    async def save_ac_in_flight_nudge(self, *a, **kw):
+    async def set_ac_in_flight_nudge(self, **kw):
         return None
 
     async def clear_ac_in_flight_nudge(self, *a, **kw):
+        return None
+
+    async def update_ac_ramp_restore_settled(self, **kw):
         return None
 
 
@@ -327,6 +340,48 @@ def _make_state(preset: str | None, mode: str | None):
     return SimpleNamespace(state=mode, attributes=attrs)
 
 
+def _make_arrester(monkeypatch, state):
+    """Real OverrideArrester (D4c 2026-10-17: the original tests named a
+    class ``HVACOverrideCoordinator`` that never existed in hvac_override.py
+    and a pre-v4.5.11-D2 ``_perform_soft_nudge`` signature; they only ever
+    "passed" by being skipped where real HA was absent)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.universal_room_automation.domain_coordinators \
+        import hvac_excursion as ex
+    from custom_components.universal_room_automation.domain_coordinators \
+        import hvac_override as ho
+    from custom_components.universal_room_automation.domain_coordinators \
+        .hvac_zones import ZoneState
+
+    ex._test_clear_leases()
+    ex._test_bind(hass=None, db=None)
+    monkeypatch.setattr(ho, "emit_set_temperature", AsyncMock(return_value=True))
+    monkeypatch.setattr(ho, "emit_set_preset_mode", AsyncMock(return_value=True))
+    monkeypatch.setattr(ho, "async_call_later", MagicMock(return_value=lambda: None))
+
+    zone = ZoneState(zone_id="z1", zone_name="Test", climate_entity="climate.test")
+    zone.hvac_mode = "cool"
+    zone.target_temp_low = 68.0
+    zone.target_temp_high = 76.0
+    zone.current_temperature = 78.0
+    zone.nudge_kwh_rate_before = 1.5
+    zm = MagicMock()
+    zm.zones = {"z1": zone}
+    hass = MagicMock()
+    hass.async_create_task = (
+        lambda coro, *a, **kw: coro.close() if hasattr(coro, "close") else None
+    )
+    hass.states.get = MagicMock(return_value=state)
+    a = ho.OverrideArrester(
+        hass=hass, zone_manager=zm,
+        compromise_minutes=30, ac_reset_timeout=60, enabled=True,
+    )
+    a._db = _CapturingDB()
+    a._track_zone_action = lambda *args, **kw: None
+    return a, zone, ex
+
+
 @_ha_only
 @pytest.mark.asyncio
 async def test_d1_wirein_nudge_started_populates_pre_state(monkeypatch):
@@ -335,54 +390,13 @@ async def test_d1_wirein_nudge_started_populates_pre_state(monkeypatch):
     Deleting the two kwargs at the call-site (not just the DAO signature)
     causes this test to fail.
     """
-    from custom_components.universal_room_automation.domain_coordinators \
-        import hvac_override as ho
+    a, zone, ex = _make_arrester(monkeypatch, _make_state(preset="sleep", mode="cool"))
+    try:
+        await a._perform_soft_nudge(zone, kwh_rate_before=1.5, triggered_by="auto")
+    finally:
+        ex._test_clear_leases()
 
-    # Neuter external side effects that the method reaches for.
-    async def _noop(*a, **kw): return True
-    monkeypatch.setattr(ho, "emit_set_temperature", _noop)
-
-    coord = ho.HVACOverrideCoordinator.__new__(ho.HVACOverrideCoordinator)
-    # Minimal attribute surface required by _perform_soft_nudge.
-    captured_state = _make_state(preset="sleep", mode="cool")
-    hass = SimpleNamespace(
-        states=SimpleNamespace(get=lambda eid: captured_state),
-        async_create_task=lambda coro: coro.close(),
-    )
-    coord.hass = hass
-    coord._db = _CapturingDB()
-    coord._nudge_pre_preset = {}
-    coord._nudge_in_flight = set()
-    coord._nudge_restore_timers = {}
-    coord._nudge_duration_min = 10
-    coord._corrective_writes_suppressed = lambda z: False
-    coord._freeze_active = lambda: False
-    coord.comfort_delay_active = lambda z: False
-    coord.suppress = lambda *a, **kw: None
-    coord._track_zone_action = lambda *a, **kw: None
-
-    zone = SimpleNamespace(
-        zone_id="z1",
-        zone_name="Test",
-        climate_entity="climate.test",
-        target_temp_low=68.0,
-        target_temp_high=76.0,
-        current_temperature=78.0,
-        ramp_state="",
-        nudge_kwh_rate_before=0.0,
-        last_overshoot_started="",
-        kwh_samples_above_threshold=0,
-    )
-
-    # Patch async_call_later to a no-op so the restore timer doesn't fire.
-    monkeypatch.setattr(ho, "async_call_later", lambda *a, **kw: (lambda: None))
-
-    await coord._perform_soft_nudge(
-        zone, new_target=78.0, kwh_rate_before=1.5, triggered_by="auto",
-        original_target=76.0, started_ts="2026-08-21T00:00:00", duration_s=600,
-    )
-
-    started = [c for c in coord._db.calls if c.get("event_type") == "nudge_started"]
+    started = [c for c in a._db.calls if c.get("event_type") == "nudge_started"]
     assert started, "nudge_started log call missing (WIRE-IN)"
     row = started[0]
     assert row.get("preset_before") == "sleep", (
@@ -399,68 +413,56 @@ async def test_d1_wirein_nudge_restored_populates_post_state_and_restore_ok(
     monkeypatch,
 ):
     """WIRE-IN ANCHOR (nudge_restored): the log call at _restore_after_nudge
-    MUST carry preset_after + mode_after + restore_ok. Deleting them at
-    the call-site fails this test.
+    MUST carry preset_after + mode_after + the IMMEDIATE verdict.
 
-    Also asserts the semantic behaviour we want to measure:
-      - intent=sleep + observed preset_after=manual -> restore_ok=False
-        (the ordering-race / cloud-clobber signature).
-      - intent absent (self-disarm) -> restore_ok=None.
+    D4c (2026-10-17): b97fc3ab8 (HVAC-GOVERNED-EXCURSION-1 D1, paired
+    IMMEDIATE/SETTLED verdict) moved the immediate verdict to
+    ``restore_ok_immediate`` and leaves ``restore_ok`` NULL for the settled
+    callback. Semantics asserted:
+      - intent=sleep + observed preset_after=manual -> restore_ok_immediate
+        False (the ordering-race / cloud-clobber signature), restore_ok NULL.
+      - intent absent (self-disarm) -> restore_ok_immediate None.
     """
-    from custom_components.universal_room_automation.domain_coordinators \
-        import hvac_override as ho
+    a, zone, ex = _make_arrester(monkeypatch, _make_state(preset="manual", mode="cool"))
+    a._nudge_pre_preset = {"z1": "sleep"}  # intent captured
+    a._nudge_in_flight = {"z1"}
+    try:
+        await a._restore_after_nudge(zone, original_target=76.0)
+    finally:
+        ex._test_clear_leases()
 
-    async def _noop(*a, **kw): return True
-    monkeypatch.setattr(ho, "emit_set_temperature", _noop)
-    monkeypatch.setattr(ho, "emit_set_preset_mode", _noop)
-
-    coord = ho.HVACOverrideCoordinator.__new__(ho.HVACOverrideCoordinator)
-    # After restore reads: preset still "manual" (defect signature).
-    post_state = _make_state(preset="manual", mode="cool")
-    hass = SimpleNamespace(
-        states=SimpleNamespace(get=lambda eid: post_state),
-    )
-    coord.hass = hass
-    coord._db = _CapturingDB()
-    coord._nudge_pre_preset = {"z1": "sleep"}  # intent captured
-    coord._nudge_in_flight = {"z1"}
-    coord._nudge_restore_timers = {}
-    coord._freeze_active = lambda: False
-    coord.suppress = lambda *a, **kw: None
-    coord._track_zone_action = lambda *a, **kw: None
-
-    zone = SimpleNamespace(
-        zone_id="z1",
-        zone_name="Test",
-        climate_entity="climate.test",
-        target_temp_low=68.0,
-        target_temp_high=76.0,
-        nudge_kwh_rate_before=1.5,
-    )
-    await coord._restore_after_nudge(zone, original_target=76.0)
-
-    restored = [
-        c for c in coord._db.calls if c.get("event_type") == "nudge_restored"
-    ]
+    restored = [c for c in a._db.calls if c.get("event_type") == "nudge_restored"]
     assert restored, "nudge_restored log call missing (WIRE-IN)"
     row = restored[0]
     assert row.get("preset_after") == "manual", "preset_after not populated"
     assert row.get("mode_after") == "cool", "mode_after not populated"
-    assert row.get("restore_ok") is False, (
-        "restore_ok must be False when intent=sleep but preset stayed manual "
-        "(ordering-race / cloud-clobber signature)"
+    assert row.get("restore_ok_immediate") is False, (
+        "restore_ok_immediate must be False when intent=sleep but preset "
+        "stayed manual (ordering-race / cloud-clobber signature)"
+    )
+    assert row.get("restore_ok") is None, (
+        "restore_ok is the SETTLED verdict — NULL at immediate log time"
     )
 
-    # Self-disarm case: no intent stashed -> restore_ok must be None.
-    coord._db = _CapturingDB()
-    coord._nudge_pre_preset = {}  # self-disarm (preset was already "manual")
-    coord._nudge_in_flight = {"z1"}
-    await coord._restore_after_nudge(zone, original_target=76.0)
+    # Clean restore: intent=sleep and the preset reads sleep -> True.
+    a._db = _CapturingDB()
+    a.hass.states.get.return_value = _make_state(preset="sleep", mode="cool")
+    a._nudge_pre_preset = {"z1": "sleep"}
+    a._nudge_in_flight = {"z1"}
+    await a._restore_after_nudge(zone, original_target=76.0)
+    row_ok = [c for c in a._db.calls if c.get("event_type") == "nudge_restored"][0]
+    assert row_ok.get("restore_ok_immediate") is True
+
+    # Self-disarm case: no intent stashed -> verdict must be None.
+    a._db = _CapturingDB()
+    a._nudge_pre_preset = {}
+    a._nudge_in_flight = {"z1"}
+    await a._restore_after_nudge(zone, original_target=76.0)
     row2 = [
-        c for c in coord._db.calls if c.get("event_type") == "nudge_restored"
+        c for c in a._db.calls if c.get("event_type") == "nudge_restored"
     ][0]
-    assert row2.get("restore_ok") is None, (
-        "self-disarm must log restore_ok=NULL, never guess"
+    assert row2.get("restore_ok_immediate") is None, (
+        "self-disarm must log a NULL verdict, never guess"
     )
 
 
@@ -697,9 +699,12 @@ async def test_d1_paired_sample_distinguishes_clobber_from_clean(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # Production order (__init__.py): initialize() BEFORE the write worker
+    # opens its persistent connection — the reverse order hits
+    # "database is locked" on the WAL/auto_vacuum pragmas.
+    assert await db.initialize()
     await db.start_write_worker()
     try:
-        assert await db.init_db()
 
         # A — insert immediate=1 with restore_ok=NULL, then settled UPDATE
         # writes restore_ok=0 (the clobber).
@@ -830,9 +835,35 @@ async def test_d1_paired_sample_distinguishes_clobber_from_clean(tmp_path):
             "settled row"
         )
         assert two[1] == (1, 1), "second row settled cleanly"
+
+        # D4c (2026-10-17): the step above cannot discriminate the
+        # ``restore_ok IS NULL`` guard (ORDER BY event_id DESC already picks
+        # the newest row). A late settled callback arriving when EVERY row
+        # is already settled must be a no-op — without the guard it
+        # overwrites the newest row.
+        await db.update_ac_ramp_restore_settled(
+            zone_id="clobber_zone",
+            preset_settled="manual",
+            mode_settled="cool",
+            restore_ok=False,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+        async with aiosqlite.connect(db.db_file) as conn:
+            cur = await conn.execute(
+                "SELECT restore_ok, restore_ok_immediate FROM ac_ramp_events "
+                "WHERE zone_id='clobber_zone' AND event_type='nudge_restored' "
+                "ORDER BY event_id"
+            )
+            after = await cur.fetchall()
+        assert after == [(0, 1), (1, 1)], (
+            "a settled UPDATE with no NULL row left must not touch any row"
+        )
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        # stop_write_worker cancels AND awaits the worker (no lingering task).
+        await db.stop_write_worker()
 
 
 @_ha_only
@@ -848,9 +879,12 @@ async def test_d1_settled_update_no_row_is_silent_noop(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # Production order (__init__.py): initialize() BEFORE the write worker
+    # opens its persistent connection — the reverse order hits
+    # "database is locked" on the WAL/auto_vacuum pragmas.
+    assert await db.initialize()
     await db.start_write_worker()
     try:
-        assert await db.init_db()
         # No row exists for this zone.
         await db.update_ac_ramp_restore_settled(
             zone_id="ghost",
@@ -870,5 +904,5 @@ async def test_d1_settled_update_no_row_is_silent_noop(tmp_path):
             (n,) = await cur.fetchone()
         assert n == 0, "settled UPDATE must not insert a phantom row"
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        # stop_write_worker cancels AND awaits the worker (no lingering task).
+        await db.stop_write_worker()

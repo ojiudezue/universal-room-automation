@@ -53,6 +53,8 @@ import asyncio
 import importlib
 import importlib.util
 import os
+
+import pytest
 import subprocess
 import sys
 import types
@@ -793,6 +795,7 @@ def _run_named_test_under_mutation(
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_append_leg_drops_dp_fold_breaks_supremacy():
     """Mutation (a) — Append-leg supremacy: drop the `_dp_soc_append`
     fold; the append leg no longer composes DP → `test_composed_reserve
@@ -817,6 +820,7 @@ def test_mutation_append_leg_drops_dp_fold_breaks_supremacy():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_must_start_by_arm_skipped_breaks_liveness_arm():
     """Mutation (b) — Must-start-by arm skipped: replace the
     `async_track_point_in_time(...)` assignment with `None`; the FakeATP
@@ -838,6 +842,7 @@ def test_mutation_must_start_by_arm_skipped_breaks_liveness_arm():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_reversion_sweep_skipped_breaks_cleanup():
     """Mutation (d) — Reversion sweep skipped: replace the DP-clear
     body with an early return; `_paused_by_dp` stays populated after

@@ -213,16 +213,16 @@ CHANGED_PY=$(git diff --name-only --diff-filter=ACMR HEAD~1 -- '*.py')
 [ -z "$CHANGED_PY" ] || python3 -m py_compile $CHANGED_PY
 
 # 3. Full cycle test suite passes.
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 
 # 4. Baseline-diff — no NEW failures vs pre-review-v<version>.
 #    (ura-validator agent automates this when the fleet is available;
 #     solo version below.)
 git stash push -u -m gate-baseline
-PYTHONPATH=quality python3 -m pytest quality/tests/ 2>&1 \
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ 2>&1 \
   | grep -E '^FAILED' | sort > /tmp/head.failed
 git checkout pre-review-v<version>
-PYTHONPATH=quality python3 -m pytest quality/tests/ 2>&1 \
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ 2>&1 \
   | grep -E '^FAILED' | sort > /tmp/baseline.failed
 git checkout -
 git stash pop
@@ -295,7 +295,7 @@ After writing the summary, check whether any new bug classes should be added to 
 [ ] Deliverables have Verify / Sensor / Test / Live acceptance criteria (§3)
 [ ] Tier 3 only: falsifiable invariant stated up front (§3)
 [ ] Build lands on feature branch; `git log` verified from main checkout
-[ ] Full test suite green: PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+[ ] Full test suite green: PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 [ ] git tag pre-review-v<version> created (§4)
 [ ] Reviews run SEQUENTIALLY with disjoint framings, one file per review (§5)
 [ ] Tier 3 only: reviewer C ran real per-site source mutations (§5)

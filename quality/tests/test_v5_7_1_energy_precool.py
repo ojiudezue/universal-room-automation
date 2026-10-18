@@ -975,7 +975,7 @@ class TestD5Migration:
         e.entry_id = "test-entry"
         return e
 
-    def _make_hass(self, *, restore_state=None, legacy_entity_id=None):
+    def _make_hass(self, monkeypatch, *, restore_state=None, legacy_entity_id=None):
         """Build a hass mock.
 
         ``restore_state`` is one of {None, "on", "off"} — the persisted
@@ -1013,7 +1013,13 @@ class TestD5Migration:
             "homeassistant.helpers.entity_registry"
         )
         er_mod.async_get = MagicMock(return_value=registry)
-        sys.modules["homeassistant.helpers.entity_registry"] = er_mod
+        import homeassistant.helpers as _ha_helpers
+        monkeypatch.setitem(
+            sys.modules, "homeassistant.helpers.entity_registry", er_mod,
+        )
+        monkeypatch.setattr(
+            _ha_helpers, "entity_registry", er_mod, raising=False,
+        )
 
         rs_mod = types.ModuleType(
             "homeassistant.helpers.restore_state"
@@ -1060,13 +1066,18 @@ class TestD5Migration:
             "RestoreEntity",
             type("RestoreEntity", (), {}),
         )
-        sys.modules["homeassistant.helpers.restore_state"] = rs_mod
+        monkeypatch.setitem(
+            sys.modules, "homeassistant.helpers.restore_state", rs_mod,
+        )
+        monkeypatch.setattr(
+            _ha_helpers, "restore_state", rs_mod, raising=False,
+        )
 
         return h
 
-    def test_legacy_true_migrates_to_new_true(self):
+    def test_legacy_true_migrates_to_new_true(self, monkeypatch):
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         entry = self._make_entry({"hvac_solar_bank_enabled": True})
         _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]
@@ -1075,11 +1086,11 @@ class TestD5Migration:
             "energy_precool_migration_done": True,
         }
 
-    def test_legacy_false_migrates_to_new_false(self):
+    def test_legacy_false_migrates_to_new_false(self, monkeypatch):
         """Mutation: bool(new_options.pop(OLD_KEY)) -> True default would
         flip an OFF user back to ON. Verify the OFF→OFF path."""
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         entry = self._make_entry({"hvac_solar_bank_enabled": False})
         _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]
@@ -1090,26 +1101,26 @@ class TestD5Migration:
             "OFF operator MUST NOT be silently re-enabled on upgrade"
         )
 
-    def test_fresh_install_is_no_op(self):
+    def test_fresh_install_is_no_op(self, monkeypatch):
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         entry = self._make_entry({})  # neither key
         _run_coro(migrate(hass, entry))
         assert "options" not in hass._captured
 
-    def test_already_migrated_is_no_op(self):
+    def test_already_migrated_is_no_op(self, monkeypatch):
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         # New key alone (no legacy key, no done marker) → no-op.
         entry = self._make_entry({"energy_precool_enabled": True})
         _run_coro(migrate(hass, entry))
         assert "options" not in hass._captured
 
-    def test_done_marker_blocks_re_run(self):
+    def test_done_marker_blocks_re_run(self, monkeypatch):
         """Idempotency via DONE_KEY: a previously-migrated entry must
         NEVER re-run the migration (e.g. on every restart)."""
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         entry = self._make_entry({
             "hvac_solar_bank_enabled": True,  # would normally migrate
             "energy_precool_migration_done": True,
@@ -1121,11 +1132,11 @@ class TestD5Migration:
             "and risks reload-during-setup (Bug Class #46/MED B-4)."
         )
 
-    def test_both_present_keeps_new_drops_old(self):
+    def test_both_present_keeps_new_drops_old(self, monkeypatch):
         """Idempotency: if cycle ran once but the legacy key reappeared
         (shouldn't, but defend), drop the legacy key, keep the new value."""
         migrate = self._load_init_helper()
-        hass = self._make_hass()
+        hass = self._make_hass(monkeypatch)
         entry = self._make_entry({
             "hvac_solar_bank_enabled": True,
             "energy_precool_enabled": False,
@@ -1143,11 +1154,12 @@ class TestD5Migration:
     # in entry.options. A runtime OFF leaves options[OLD_KEY]=True (the
     # install seed) and a RestoreEntity state of "off". Migration MUST
     # consult RestoreStateData and force NEW_KEY=False in that case.
-    def test_restore_entity_off_overrides_options_true(self):
+    def test_restore_entity_off_overrides_options_true(self, monkeypatch):
         """Mutation: delete the `restore_off` override branch (always honor
         options) -> this test fails (NEW_KEY would land True)."""
         migrate = self._load_init_helper()
         hass = self._make_hass(
+            monkeypatch,
             restore_state="off",
             legacy_entity_id="switch.ura_solar_banking",
         )
@@ -1163,11 +1175,12 @@ class TestD5Migration:
         )
         assert opts["energy_precool_migration_done"] is True
 
-    def test_restore_entity_on_honors_options_true(self):
+    def test_restore_entity_on_honors_options_true(self, monkeypatch):
         """RestoreEntity ON (or matching options): options value flows
         through unchanged."""
         migrate = self._load_init_helper()
         hass = self._make_hass(
+            monkeypatch,
             restore_state="on",
             legacy_entity_id="switch.ura_solar_banking",
         )
@@ -1176,12 +1189,12 @@ class TestD5Migration:
         opts = hass._captured["options"]
         assert opts["energy_precool_enabled"] is True
 
-    def test_restore_entity_missing_falls_back_to_options(self):
+    def test_restore_entity_missing_falls_back_to_options(self, monkeypatch):
         """If the legacy entity_id isn't in the registry (e.g. user
         deleted it manually pre-migration), the migration must NOT crash;
         the options value flows through."""
         migrate = self._load_init_helper()
-        hass = self._make_hass()  # no registry entry, no restore state
+        hass = self._make_hass(monkeypatch)  # no registry entry, no restore state
         entry = self._make_entry({"hvac_solar_bank_enabled": True})
         _run_coro(migrate(hass, entry))
         opts = hass._captured["options"]

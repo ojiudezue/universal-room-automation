@@ -21,7 +21,7 @@ When invoked, execute these steps IN ORDER. Stop on any failure.
 
 ### Step 1: Run Tests
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 ```
 If any tests fail, STOP and report the failures. Do not proceed.
 

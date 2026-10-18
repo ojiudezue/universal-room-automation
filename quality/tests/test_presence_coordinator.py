@@ -149,6 +149,21 @@ from custom_components.universal_room_automation.domain_coordinators.presence im
     _CAMERA_OCCUPANCY_TIMEOUT_SECONDS,
     _UNAVAILABLE_STATES,
 )
+from custom_components.universal_room_automation.domain_coordinators import (
+    presence as _presence_mod,
+)
+
+
+def _prod_now():
+    """The SAME clock production reads (``presence.dt_util.utcnow``).
+
+    TEST-HARNESS D4b: seeds used tz-naive ``datetime.utcnow()``, which only
+    matched this file's naive ``homeassistant.util.dt`` stub (a
+    ``setdefault`` that is inert once real HA is loaded). Under real HA the
+    production clock is tz-aware and the subtraction raised TypeError."""
+    return _presence_mod.dt_util.utcnow()
+
+
 from custom_components.universal_room_automation.domain_coordinators.house_state import (
     HouseState,
     HouseStateMachine,
@@ -628,7 +643,7 @@ class TestZoneCameraSignals:
         # Person detected
         tracker.update_camera_detection("binary_sensor.living_person_occupancy", True)
         # Manually set last_seen to the past
-        past_time = datetime.utcnow() - timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS + 60)
+        past_time = _prod_now() - timedelta(seconds=_CAMERA_OCCUPANCY_TIMEOUT_SECONDS + 60)
         tracker._camera_last_seen["binary_sensor.living_person_occupancy"] = past_time
         tracker._camera_occupied["binary_sensor.living_person_occupancy"] = False
 
@@ -804,7 +819,7 @@ class TestOutcomeMeasurement:
         coord = PresenceCoordinator(hass)
         # Simulate a transition that lasted more than 2 minutes
         coord._last_transition_state = HouseState.AWAY
-        coord._last_transition_time = datetime.utcnow() - timedelta(minutes=5)
+        coord._last_transition_time = _prod_now() - timedelta(minutes=5)
         coord._record_outcome(HouseState.AWAY, HouseState.ARRIVING, "census")
         assert coord._outcome_true_positives == 1
         assert coord._outcome_false_positives == 0
@@ -814,7 +829,7 @@ class TestOutcomeMeasurement:
         coord = PresenceCoordinator(hass)
         # Simulate a transition that was contradicted within 2 minutes
         coord._last_transition_state = HouseState.ARRIVING
-        coord._last_transition_time = datetime.utcnow() - timedelta(seconds=30)
+        coord._last_transition_time = _prod_now() - timedelta(seconds=30)
         coord._record_outcome(HouseState.ARRIVING, HouseState.AWAY, "census")
         assert coord._outcome_false_positives == 1
         assert coord._outcome_true_positives == 0

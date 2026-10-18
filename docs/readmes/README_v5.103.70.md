@@ -47,12 +47,21 @@ Operator deploy go: 2026-10-17. **Deploy risk: HIGH** (it changes battery reserv
 - Cycle files: 2819 pass, in forward and reverse order.
 - Full-suite name-diff vs fa7e1ffe2 at e2de7f4e1: CLEAN, 0 NEW / 0 GONE (118 failing names both sides; +97 passed = new tests). Isolated pass over 121 importing files: CLEAN. The 3 soc-ladder NEW at e4bdcecc9 were a fixture building an unreachable watch-without-record state (fixed, assertions unchanged).
 
-## Live validation (prospective)
-- **Live:** 0 URA ERRORs after restart.
-- **Live:** strategy-sensor attribute `inclement_selection` exists, with no overrides.
-- **Live:** with no alert, `inclement_preonset` is null.
-- **Live:** `inclement_forecast.fetched_at` advances about every 30 min.
-- **Live:** CM options are unchanged (`inclement_grid_precharge_on_hold` False; no override keys written).
-- **Live:** `reserve_write` rows match the pre-restart pattern.
-- **Live (operator ask):** Envoy stability and reassociation after restart — the Envoy telemetry and write-path reconnect cleanly, the reserve/CFG oracles read back, and there is no new reconnect/unavailable churn vs the pre-restart rate.
-- **Live (event-gated):** the first Freeze Warning or hold-class alert produces a schedule in the cheapest contiguous block before Onset, recorded in `inclement_preonset.buy_hours`.
+## Validated 2026-10-17 (restart 18:00 CDT; read through 20:29 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and loaded | PASS | manifest v5.103.70; 50/50 URA entries loaded |
+| 0 URA ERRORs | PASS | system log after restart: no `universal_room_automation` ERRORs; WARNINGs pre-existing (consumption cross-check, optimization cap, post-restart coverage) |
+| `inclement_selection` present, no overrides | PASS | `{"alerts":[],"overrides":{all empty}}` on `sensor.ura_energy_coordinator_battery_strategy` |
+| `inclement_preonset` null, `inclement_alerts_stale` false | PASS | both as expected, no active alert |
+| `inclement_forecast.fetched_at` advances | PASS | 01:01:33Z → 01:21:33Z (20 min; README said ~30) |
+| CM options unchanged | PASS | `inclement_grid_precharge_on_hold: False`; no `*_added/_removed` keys |
+| `reserve_write` pattern | PASS | 1 row 18:01:32, applied, value 10, `inclement_floor` null, no failures |
+| Envoy stability / reassociation (operator ask) | STABLE | battery entity: 0 unavailable transitions in 2 h before 13:23, 2 h before 18:00, and 18:00–20:05; entry loaded ~2 min after restart; no reauth/reconnect log lines; write-verify `ok`, 0 mismatches 24 h |
+| First hold-class alert schedules a buy block | NOT OBSERVABLE | no alert active; event-gated |
+
+Caveats found during validation (not regressions):
+- Envoy MQTT stream sensors unavailable all day, before the restart too (`stream_trust` disabled).
+- `sensor.envoy_482543015950_grid_power` has no state object.
+- Cloud reserve oracle `number.iq_battery_hacs_battery_reserve` reads 9.0 against a commanded 10, while write-verify says `ok`. To be investigated (tolerance or rounding).

@@ -25,6 +25,8 @@ import hashlib
 import importlib
 import importlib.util
 import os
+
+import pytest
 import shutil
 import subprocess
 import sys
@@ -605,6 +607,7 @@ def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_M1_remove_hold_only_condition_makes_INV_YIELD_2_red():
     """M1: relax the HOLD_ONLY condition (make yield fire under any DP
     state). The TRANSITIONED negative test MUST go RED — the guard is
@@ -625,6 +628,7 @@ def test_MUTATION_M1_remove_hold_only_condition_makes_INV_YIELD_2_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_M2_remove_yield_entirely_makes_garage_a_fixture_red():
     """M2: restore the flat `_paused_by_dp` skip (kill the yield). The
     garage-A day fixture MUST go RED — garage_a stays skipped and no
@@ -950,6 +954,7 @@ def test_Cb8_stronger_peer_helper_covers_five_owners():
         assert ev2._stronger_peer_holds("garage_a") is True, peer
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_M4_remove_orphan_floor_clear_makes_AHIGH1_red():
     """M4 (A-HIGH-1 anchor): drop the `_dp_decision_soc = None` clear
     from the post-yield bookkeeping ⇒ the AHIGH1 test goes RED."""
@@ -975,6 +980,7 @@ def test_MUTATION_M4_remove_orphan_floor_clear_makes_AHIGH1_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_M3_break_owner_handoff_makes_ownerless_gap_test_red():
     """M3: drop `_paused_by_dp` membership WITHOUT releasing the "dp"
     dispatch owner. The ownerless-gap test asserts "dp" is gone

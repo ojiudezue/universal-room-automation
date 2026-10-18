@@ -46,26 +46,26 @@ A cycle is not closed until the README carries the post-restart validation table
 Always run from the repo root (`/Users/okosisi/Code/universal-room-automation`):
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 ```
 
 Focus a single file or test:
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/test_energy_battery.py -v
-PYTHONPATH=quality python3 -m pytest quality/tests/test_energy_battery.py::test_reserve_floor_clamps -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_energy_battery.py -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_energy_battery.py::test_reserve_floor_clamps -v
 ```
 
 Rerun only failures:
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ --lf -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ --lf -v
 ```
 
 Short traceback for suite baselining:
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ --tb=short -q > /tmp/ura_suite.out 2>&1; tail -30 /tmp/ura_suite.out
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ --tb=short -q > /tmp/ura_suite.out 2>&1; tail -30 /tmp/ura_suite.out
 ```
 
 > `PYTHONPATH=quality` is required — the tests do `from tests.conftest import ...` style imports resolved relative to `quality/`.
@@ -169,7 +169,7 @@ This lets you isolate what your fixes changed: `git diff pre-review-v<version>..
 ### 4.2 Capture the pre-review pytest output
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ --tb=short -q > /tmp/pre_review_v<version>.out 2>&1
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ --tb=short -q > /tmp/pre_review_v<version>.out 2>&1
 ```
 
 Note the pass / fail counts on the last line. That is your baseline failure count.
@@ -177,7 +177,7 @@ Note the pass / fail counts on the last line. That is your baseline failure coun
 ### 4.3 After review fixes, re-run and diff
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ --tb=short -q > /tmp/post_review_v<version>.out 2>&1
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ --tb=short -q > /tmp/post_review_v<version>.out 2>&1
 diff <(tail -5 /tmp/pre_review_v<version>.out) <(tail -5 /tmp/post_review_v<version>.out)
 ```
 
@@ -196,7 +196,7 @@ Immediately before `scripts/deploy.sh`, always run:
 ```bash
 grep -rn "<<<<<<< \|=======$\|>>>>>>> " custom_components/universal_room_automation/ && echo "CONFLICT MARKERS" || echo "clean"
 python3 -m py_compile $(git diff --name-only develop..HEAD -- '*.py')
-PYTHONPATH=quality python3 -m pytest quality/tests/ -q
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q
 ```
 
 Source-grep AST tests DO NOT catch syntax errors — `py_compile` is the one that does.
@@ -282,7 +282,7 @@ For each load-bearing production site (each place the invariant must hold):
 2. **Neuter ONE site** — edit `custom_components/universal_room_automation/<file>.py` to bypass the guard at that single call: e.g. inline the raw value instead of the clamped value, or comment out the helper call and use the unguarded input.
 3. **Run the suite**:
    ```bash
-   PYTHONPATH=quality python3 -m pytest quality/tests/ --tb=short -q
+   PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ --tb=short -q
    ```
 4. **Assertion:** at least one SPECIFIC test must fail, and it must be a test that names or exercises this site. If the suite stays green, the site is untested and **unacceptable** — file a NEW test that fails on this mutation before continuing.
 5. **Restore the source** (`git checkout -- <file>.py` or unapply the diff) BEFORE moving to the next site. Never commit a mutated tree.
@@ -351,7 +351,7 @@ grep -rln "<coord_name>\|<feature_name>" quality/tests/ | sort
 Diagnose in this order before blaming code:
 
 1. **Fresh env?** `python3 -m pip install -r quality/requirements_test.txt`. Missing `pytest-asyncio` fakes ~180 fails; missing `aiosqlite` fakes ~30. See §2.2.
-2. **Test importable?** `PYTHONPATH=quality python3 -c "import tests.test_<name>"`. Import-time failure looks like a runtime failure but is really a syntax / import bug.
+2. **Test importable?** `PYTHONPATH=quality .venv-ha/bin/python -c "import tests.test_<name>"`. Import-time failure looks like a runtime failure but is really a syntax / import bug.
 3. **Baseline drift?** `git tag -l 'pre-review-v*' | tail -5` — is your baseline recent? If you're comparing against a months-old tag, expect noise.
 4. **`MockHass` silent-pass?** If a test asserts on an attribute of a state you never called `hass.set_state(...)` for, you're comparing `MagicMock() == MagicMock()` which is always truthy (§2.3). Add the explicit `set_state`.
 5. **`aiosqlite` mocked?** `python3 -c "import aiosqlite; print(aiosqlite.__version__)"`. If it errors, DB tests are running against `MagicMock` no-ops.

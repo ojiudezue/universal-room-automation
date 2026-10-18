@@ -58,16 +58,31 @@ _dp_spec.loader.exec_module(_dp_mod)
 # ==========================================================================
 
 
-def test_dp_enable_switch_registered_in_setup_entry():
-    """The DP master switch factory must be wired into the CM setup_entry."""
-    src = (PKG / "switch.py").read_text()
-    assert "ECDrainPrecedenceEnableSwitch = _ec_switch_factory(" in src, (
-        "Switch factory instance not declared"
+@pytest.mark.asyncio
+async def test_dp_enable_switch_registered_in_setup_entry():
+    """The DP master switch is built by the REAL CM switch setup_entry.
+
+    D4a (test-harness Wave 1): replaces a source-text window grep of
+    switch.py (stale once async_setup_entry grew past 6000 chars). Drives
+    ``switch.async_setup_entry`` for the Coordinator Manager entry and
+    checks the added entities carry the DP switch's literal unique_id.
+    """
+    from runtime_harness import build_smoke_hass
+    from custom_components.universal_room_automation.switch import (
+        async_setup_entry,
     )
-    idx = src.find("async def async_setup_entry(")
-    assert idx != -1
-    body = src[idx:idx + 6000]
-    assert "ECDrainPrecedenceEnableSwitch(hass, entry)" in body, (
+
+    hass = build_smoke_hass(zones_count=3)
+    cm_entry = next(
+        e for e in hass.config_entries.async_entries()
+        if e.title == "coordinator_manager_entry"
+    )
+    added: list = []
+    await async_setup_entry(
+        hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+    )
+    uids = {getattr(e, "_attr_unique_id", None) for e in added}
+    assert "universal_room_automation_energy_drain_precedence_enable" in uids, (
         "DP master switch not instantiated in setup_entry"
     )
 

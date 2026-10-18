@@ -25,8 +25,14 @@ To add a new coordinator smoke test:
 
 from __future__ import annotations
 
+import contextlib
+import sys
+import os
+
 import asyncio
+
 import pytest
+import pytest_asyncio
 
 # Smoke tests load the actual URA integration code, which imports
 # homeassistant.*. Skip cleanly when HA isn't installed (e.g., dev env
@@ -42,98 +48,146 @@ ha_available = pytest.importorskip(
     ),
 )
 
-from runtime_harness import build_smoke_hass  # noqa: E402
+from pytest_homeassistant_custom_component.common import (  # noqa: E402
+    MockConfigEntry,
+    async_test_home_assistant,
+)
+
+from custom_components.universal_room_automation.const import (  # noqa: E402
+    CONF_ENTRY_TYPE,
+    DOMAIN,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
+    ENTRY_TYPE_ZONE_MANAGER,
+)
+
+# TEST-HARNESS D4b: migrated off runtime_harness.StubHass onto the REAL
+# Home Assistant ``hass`` fixture (pytest_homeassistant_custom_component).
+# The hand-built StubBus.async_listen() had no ``event_filter`` kwarg, so the
+# HVAC setup path that real HA accepts raised TypeError inside the stub --
+# a fake-drift failure, not a production defect.
+
+_CANONICAL_ZONES = {
+    "Back Hallway": {
+        "zone_thermostat": "climate.back_hallway_zone_3",
+        "zone_rooms": [],
+    },
+    "Entertainment": {
+        "zone_thermostat": "climate.entertainment_zone_1",
+        "zone_rooms": [],
+    },
+    "Upstairs": {
+        "zone_thermostat": "climate.upstairs_zone_2",
+        "zone_rooms": [],
+    },
+}
 
 
-# =============================================================================
-# HVAC Coordinator — the one that crashed in v4.5.11
-# =============================================================================
+def _install_canonical_entries(hass, zones_count: int = 3) -> None:
+    """Register the canonical CM + ZM config entries on a REAL hass."""
+    zones = dict(list(_CANONICAL_ZONES.items())[:zones_count])
+    MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="coordinator_manager_entry",
+        title="coordinator_manager_entry",
+        data={CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER},
+        options={},
+    ).add_to_hass(hass)
+    MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="zone_manager_entry",
+        title="zone_manager_entry",
+        data={CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE_MANAGER},
+        options={"zones": zones},
+    ).add_to_hass(hass)
 
 
-@pytest.fixture
-def smoke_hass():
-    """3-zone canonical install stub."""
-    return build_smoke_hass(zones_count=3)
+async def _setup_hvac_and_teardown(hass):
+    from custom_components.universal_room_automation.domain_coordinators.hvac import (
+        HVACCoordinator,
+    )
+
+    coord = HVACCoordinator(hass)
+    assert coord.coordinator_id == "hvac"
+    try:
+        await asyncio.wait_for(coord.async_setup(), timeout=10.0)
+    finally:
+        await coord.async_teardown()
+        await hass.async_block_till_done()
+    return coord
+
+
+# ---------------------------------------------------------------------------
+# TEST-HARNESS D4b: REAL-HA fixture + clean-interpreter guard.
+#
+# phcc's own ``hass`` fixture only resolves under ``asyncio_mode=auto``; this
+# suite runs ``strict``, so the same phcc factory (``async_test_home_assistant``)
+# is wrapped in a ``pytest_asyncio`` fixture; teardown mirrors phcc's.
+#
+# In a full-suite run, ~200 fake-HA test modules mutate the REAL
+# ``homeassistant.*`` modules at IMPORT time (e.g. ``er.async_get = ...``,
+# ``ha_core.HomeAssistant = MagicMock``), before any test runs. A real hass
+# then cannot even be constructed. Fixing those donors is D7. Until then: if
+# construction fails in-process, the test is skipped with an explicit reason
+# AND recorded, and the file's last test re-runs the whole file in a CLEAN
+# interpreter and asserts it passes there with zero such skips -- so the
+# behaviour is still executed (never silently dropped).
+# ---------------------------------------------------------------------------
+_D4B_CLEAN_ENV = "URA_D4B_CLEAN_INTERPRETER"
+_D4B_POISON_SKIPS: list[str] = []
+_D4B_SKIP_PREFIX = "D4B-REAL-HA-POISONED"
+
+
+@pytest_asyncio.fixture
+async def hass(tmp_path, request):
+    stack = contextlib.AsyncExitStack()
+    try:
+        hass = await stack.enter_async_context(
+            async_test_home_assistant(config_dir=str(tmp_path))
+        )
+    except Exception as exc:  # noqa: BLE001 -- poisoned in-process HA
+        await stack.aclose()
+        if os.environ.get(_D4B_CLEAN_ENV):
+            raise  # in the clean interpreter this is a real failure
+        _D4B_POISON_SKIPS.append(request.node.nodeid)
+        pytest.skip(
+            f"{_D4B_SKIP_PREFIX}: real HA could not be constructed in-process "
+            f"({type(exc).__name__}: {exc}); an earlier test module mutated "
+            f"homeassistant.* at import (D7 donor). Executed instead by "
+            f"test_zz_d4b_real_ha_clean_interpreter."
+        )
+    try:
+        yield hass
+        await hass.async_block_till_done()
+        await hass.async_stop(force=True)
+    finally:
+        await stack.aclose()
+
+
+
+@pytest_asyncio.fixture
+async def smoke_hass(hass):
+    """3-zone canonical install on a REAL hass."""
+    _install_canonical_entries(hass, zones_count=3)
+    return hass
 
 
 @pytest.mark.asyncio
 async def test_hvac_coordinator_async_setup_does_not_raise(smoke_hass):
     """v4.5.11.2 regression: HVAC coord async_setup must complete
-    without raising. This is the smoke test that would have caught
-    the UnboundLocalError on `DOMAIN` at hvac.py:356 in <1 second.
-
-    Specifically guards against:
-    - Bug Class #34 (function-local import shadows module-level)
-    - Any AttributeError or ImportError from a code path that's
-      reached by async_setup but not by source-grep tests
-    """
-    from custom_components.universal_room_automation.domain_coordinators.hvac import (
-        HVACCoordinator,
-    )
-
-    coord = HVACCoordinator(smoke_hass)
-
-    # Sanity: construction itself shouldn't raise (no I/O in __init__).
-    assert coord is not None
-    assert coord.coordinator_id == "hvac"
-
-    # The smoke check: async_setup() must execute its body without
-    # an exception escaping. We do NOT assert on outcome (no zones
-    # discovered, no real entities — the stub hass is intentionally
-    # bare). We only assert "no crash".
-    #
-    # NOTE: HVAC's async_setup wires up event listeners, queries
-    # config entries, builds zone manager state, etc. With a stub
-    # hass and no real climate entities, much of that returns empty.
-    # That's fine — we're testing for crashes, not behavior.
-    try:
-        await asyncio.wait_for(coord.async_setup(), timeout=10.0)
-    except asyncio.TimeoutError:
-        pytest.fail(
-            "HVAC coord async_setup did not complete in 10s — possible "
-            "deadlock or infinite loop in the setup path"
-        )
-    except Exception as e:
-        pytest.fail(
-            f"HVAC coord async_setup raised {type(e).__name__}: {e}\n"
-            f"This indicates a runtime bug in the setup path — source-grep "
-            f"tests cannot catch this class of issue. See Bug Class #34 "
-            f"in QUALITY_CONTEXT.md for the v4.5.11.2 case."
-        )
-
-    # Cleanup: cancel any background tasks the coord spawned
-    for task in smoke_hass._stub_tasks:
-        if not task.done():
-            task.cancel()
+    without raising on a REAL hass (Bug Class #34 guard). Behavioural
+    anchor: the 3 configured thermostat zones must be discovered."""
+    coord = await _setup_hvac_and_teardown(smoke_hass)
+    zm = coord._zone_manager
+    assert sorted(zm.zones) == ["zone_1", "zone_2", "zone_3"]
 
 
 @pytest.mark.asyncio
-async def test_hvac_coordinator_async_setup_with_zero_zones(smoke_hass):
-    """Edge case: install with no AC zones configured.
-
-    URA must handle this gracefully — no zones means no AC ramp-down,
-    but the coord should still start and the integration should remain
-    usable. v4.5.11's _discover_ac_zones helper specifically iterates
-    config_entries; if it had a divide-by-zero or empty-list crash,
-    this test catches it.
-    """
-    from custom_components.universal_room_automation.domain_coordinators.hvac import (
-        HVACCoordinator,
-    )
-    # Wipe out zones
-    hass_no_zones = build_smoke_hass(zones_count=0)
-    coord = HVACCoordinator(hass_no_zones)
-    try:
-        await asyncio.wait_for(coord.async_setup(), timeout=10.0)
-    except Exception as e:
-        pytest.fail(
-            f"HVAC coord async_setup raised {type(e).__name__} with zero "
-            f"zones: {e}. The coord must handle the no-AC-zones case "
-            f"gracefully."
-        )
-    for task in hass_no_zones._stub_tasks:
-        if not task.done():
-            task.cancel()
+async def test_hvac_coordinator_async_setup_with_zero_zones(hass):
+    """Edge case: install with no AC zones configured -- setup must still
+    complete, and zero zones are discovered."""
+    _install_canonical_entries(hass, zones_count=0)
+    coord = await _setup_hvac_and_teardown(hass)
+    assert len(coord._zone_manager.zones) == 0
 
 
 # =============================================================================
@@ -268,8 +322,8 @@ async def test_switch_platform_setup_does_not_raise(smoke_hass):
 
 
 @pytest.mark.asyncio
-async def test_database_init_creates_v4511_tables(tmp_path):
-    """v4.5.11 D4 regression: UniversalRoomDatabase.init_db must
+async def test_database_init_creates_v4511_tables(hass, tmp_path):
+    """v4.5.11 D4 regression: UniversalRoomDatabase.initialize must
     create the ac_reset_state and ac_ramp_events tables on a fresh
     database file. If init_db raises (CREATE TABLE syntax error,
     schema constraint failure), this test catches it.
@@ -277,17 +331,19 @@ async def test_database_init_creates_v4511_tables(tmp_path):
     from custom_components.universal_room_automation.database import (
         UniversalRoomDatabase,
     )
-    from runtime_harness import StubHass
-
-    # Build a stub hass pointing at a temp config dir
-    hass = StubHass(config_dir=str(tmp_path))
+    # Real hass; its config dir is already tmp_path (see ``hass`` fixture).
+    assert hass.config.config_dir == str(tmp_path)
     db = UniversalRoomDatabase(hass)
 
-    # Start write worker (URA's pattern)
-    await db.start_write_worker()
+    # Production order (__init__.py:2648-2649): initialize() FIRST, then
+    # start the write worker. (The old test started the worker first; on a
+    # real hass the background task starts eagerly and its connection can
+    # hold the fresh file locked while initialize() sets PRAGMAs.) The
+    # production entry point is ``initialize()``; ``init_db`` never existed.
     try:
-        ok = await db.init_db()
-        assert ok, "init_db returned False — see logs for failed_tables list"
+        ok = await db.initialize()
+        assert ok, "initialize() returned False — see logs for failed_tables list"
+        await db.start_write_worker()
 
         # Confirm v4.5.11 tables exist
         async with db._db_read() as conn:
@@ -305,9 +361,7 @@ async def test_database_init_creates_v4511_tables(tmp_path):
                 "ac_ramp_events table not created"
             )
     finally:
-        # Best-effort cleanup
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        await db.stop_write_worker()
 
 
 @pytest.mark.asyncio
@@ -354,3 +408,26 @@ async def test_number_platform_registers_inclement_preonset_floor(smoke_hass):
     found = [e for e in added if type(e) is InclementPreonsetFloorNumber]
     assert len(found) == 1
     assert found[0].native_value == 80
+
+def test_zz_d4b_real_ha_clean_interpreter():
+    """Runs LAST in this file. If any real-HA test was skipped because the
+    in-process HA was poisoned, re-run this whole file in a clean interpreter
+    and require it to pass with no poison skips."""
+    if os.environ.get(_D4B_CLEAN_ENV) or not _D4B_POISON_SKIPS:
+        return  # nothing skipped in-process (or we ARE the clean run)
+    import subprocess
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    env[_D4B_CLEAN_ENV] = "1"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [os.path.join(repo, "quality")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", os.path.abspath(__file__), "-q",
+         "-p", "no:cacheprovider", "-rs"],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=600,
+    )
+    out = r.stdout + r.stderr
+    print("D4B clean-interpreter run:", r.returncode, out.strip().splitlines()[-1:])
+    assert r.returncode == 0, f"clean-interpreter run failed:\n{out[-4000:]}"
+    assert _D4B_SKIP_PREFIX not in out, out[-4000:]

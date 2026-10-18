@@ -37,6 +37,8 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import os
+
+import pytest
 import re
 import subprocess
 import sys
@@ -800,6 +802,7 @@ def test_capture_is_last_binding_before_dp_tick_call():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_capture_override_makes_capture_wire_test_red():
     """Mutating the CAPTURE (append `_drain_target = 999`) makes
     test_capture_is_last_binding_before_dp_tick_call RED (two rebindings
@@ -810,6 +813,7 @@ def test_MUTATION_capture_override_makes_capture_wire_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_r2_fresh_actuation_offset_makes_stamp_test_red():
     """Mutating R2 fresh-actuation (`int(drain_target_soc)+7`) makes the
     stamp anchor RED (expects 40, gets 47)."""
@@ -819,6 +823,7 @@ def test_MUTATION_r2_fresh_actuation_offset_makes_stamp_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_1e_no_debounce_makes_debounce_test_red():
     """Mutating the 1e branch to release on the FIRST None tick (`>= 1`
     instead of `>= 2`) makes test_debounce_first_none_tick_holds_pause

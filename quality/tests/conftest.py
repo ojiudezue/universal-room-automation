@@ -2,6 +2,21 @@
 import os
 import sys
 import pytest
+
+# =============================================================================
+# TEST-HARNESS D0: interpreter guard — MUST stay the first executable block.
+# =============================================================================
+# See quality/tests/_interpreter_guard.py. Abort before any collection when
+# not running under .venv-ha (bare python3 = 3.9 without phcc).
+from _interpreter_guard import (  # noqa: E402
+    interpreter_problem as _ura_interpreter_problem,
+    wrong_interpreter_message as _ura_wrong_interpreter_message,
+)
+
+_URA_INTERPRETER_PROBLEM = _ura_interpreter_problem()
+if _URA_INTERPRETER_PROBLEM is not None:
+    pytest.exit(_ura_wrong_interpreter_message(_URA_INTERPRETER_PROBLEM), returncode=4)
+
 from unittest.mock import MagicMock, Mock
 from datetime import datetime, time, timedelta
 
@@ -111,7 +126,10 @@ def _ura_sys_modules_snapshot(request):
 # v4.6.3 D1: Register real-schema sqlite conftest as a pytest plugin.
 # pytest only auto-discovers conftest.py by name; conftest_db.py fixtures
 # (real_schema_db, real_schema_db_session) must be registered explicitly.
-pytest_plugins = ["conftest_db"]
+# TEST-HARNESS D1: production-tree integrity guard (restores + fails the
+# session if any test leaves custom_components/ modified).
+# TEST-HARNESS Wave 1 D3/D6: quarantine + source_mutation markers.
+pytest_plugins = ["conftest_db", "_tree_integrity_guard", "_markers"]
 
 
 # =============================================================================

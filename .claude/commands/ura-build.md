@@ -19,7 +19,7 @@ Use the `ura-builder` agent to implement the cycle described in the planning doc
 - `strings.json` and `translations/en.json` MUST be kept in sync byte-for-byte
 
 **Before declaring done:**
-1. Run `PYTHONPATH=quality python3 -m pytest quality/tests/ -v` — confirm new tests pass + bulk failure count matches `pre-review-v<version>` baseline
+1. Run `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v` — confirm new tests pass + bulk failure count matches `pre-review-v<version>` baseline
 2. `git log feature/v<version>-<topic> --oneline -5` includes the build commit
 3. `git status` shows zero modified/staged
 

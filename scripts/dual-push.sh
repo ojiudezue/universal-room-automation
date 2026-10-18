@@ -77,10 +77,25 @@ restore_gitea_url() {
     git remote set-url gitea "$GITEA_CLEAN_URL" 2>/dev/null || true
   fi
 }
-# Trap fires on both INT and EXIT (and TERM). On SIGINT the handler runs
-# twice (once for INT, once for the implicit EXIT). restore_gitea_url is
-# idempotent — repeated `set-url` to the same clean URL is a no-op. A-L1.
-trap restore_gitea_url EXIT INT TERM
+# restore_gitea_url runs on EXIT, and again from _on_signal on INT/TERM (so
+# twice on a signal). It is idempotent — repeated `set-url` to the same clean
+# URL is a no-op. A-L1.
+trap restore_gitea_url EXIT
+# DEPLOY-DUALPUSH-SIGINT-TRAP-1: INT/TERM also stop an in-flight push (it runs
+# in the timeout wrapper's own process group, which terminal ^C never reaches)
+# and exit with the contract code at once, instead of bash deferring the trap
+# until the push finishes or times out.
+_ACTIVE_PUSH_PID=""
+_on_signal() {
+  local rc="$1"
+  if [[ -n "$_ACTIVE_PUSH_PID" ]]; then
+    kill -TERM "$_ACTIVE_PUSH_PID" 2>/dev/null || true
+  fi
+  restore_gitea_url
+  exit "$rc"
+}
+trap '_on_signal 130' INT
+trap '_on_signal 143' TERM
 
 # ---- Timeout wrapper resolver ----------------------------------------------
 # B-M1 fix-up: a network blackhole on `git push gitea ...` can hang forever,
@@ -104,7 +119,14 @@ _resolve_timeout_bin() {
 # so deploy.sh's catch-all branch warns + continues (gitea is mirror-only).
 _push_with_timeout() {
   if [[ -n "$_TIMEOUT_BIN" && "$GITEA_PUSH_TIMEOUT_SECS" -gt 0 ]]; then
-    "$_TIMEOUT_BIN" "$GITEA_PUSH_TIMEOUT_SECS" "$@"
+    # Background + wait: `wait` returns as soon as a trapped signal arrives,
+    # so _on_signal runs immediately (see DEPLOY-DUALPUSH-SIGINT-TRAP-1).
+    local rc=0
+    "$_TIMEOUT_BIN" "$GITEA_PUSH_TIMEOUT_SECS" "$@" &
+    _ACTIVE_PUSH_PID=$!
+    wait "$_ACTIVE_PUSH_PID" || rc=$?
+    _ACTIVE_PUSH_PID=""
+    return "$rc"
   else
     "$@"
   fi

@@ -82,7 +82,10 @@ _SEVERITY_INPUTS = tuple(WS_ANOMALY_SEVERITY_NUMBERS) + tuple(
     WS_ANOMALY_SEVERITY_NAME_TO_NUMBER.keys()
 )
 
-_ANOMALIES_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
+# WS-SUBSCRIBE-SCHEMA-REALHA-1: plain dicts (the decorator's documented form;
+# it extends them with BASE_COMMAND_MESSAGE_SCHEMA itself). A bare vol.Schema
+# makes websocket_command() read schema.validators[0] and raise at import.
+_ANOMALIES_SCHEMA = {
     vol.Required("type"): WS_COMMAND_ANOMALIES,
     vol.Optional("since"): str,
     vol.Optional("until"): str,
@@ -93,9 +96,9 @@ _ANOMALIES_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
     vol.Optional("cursor"): vol.All(int, vol.Range(min=0)),
     vol.Optional("limit"): vol.All(int, vol.Range(min=1, max=WS_MAX_PAGE_SIZE)),
     vol.Optional("columns"): vol.All(list, [str]),
-})
+}
 
-_ACTIVITY_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
+_ACTIVITY_SCHEMA = {
     vol.Required("type"): WS_COMMAND_ACTIVITY,
     vol.Optional("since"): str,
     vol.Optional("until"): str,
@@ -106,9 +109,9 @@ _ACTIVITY_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
     vol.Optional("cursor"): vol.All(int, vol.Range(min=0)),
     vol.Optional("limit"): vol.All(int, vol.Range(min=1, max=WS_MAX_PAGE_SIZE)),
     vol.Optional("columns"): vol.All(list, [str]),
-})
+}
 
-_SUBSCRIBE_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
+_SUBSCRIBE_SCHEMA = {
     vol.Required("type"): WS_COMMAND_SUBSCRIBE,
     vol.Optional("streams"): vol.All(list, [vol.In(("anomalies", "activity"))]),
     vol.Optional("coordinator"): str,
@@ -118,7 +121,7 @@ _SUBSCRIBE_SCHEMA = websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend({
     # surface honesty. Live anomaly-severity filtering is NOT available on
     # this channel today (see docs — future work note).
     vol.Optional("min_importance"): vol.In(tuple(_IMPORTANCE_ORDINAL.keys())),
-})
+}
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +231,12 @@ def _handle_subscribe(
     # broken client doesn't spam the log.
     push_failed_once: dict[str, bool] = {"seen": False}
 
+    @callback
     def _send_on_loop(payload: Any) -> None:
         # Loop-affine: connection.send_message MUST be called on the event
         # loop. See websocket precedent at sensor.py:12660 (v4.6.3.2 fix).
+        # WS-SUBSCRIBE-SEND-OFF-LOOP-1: @callback is load-bearing — without
+        # it hass.add_job runs this in an executor thread, i.e. OFF the loop.
         try:
             connection.send_message(
                 websocket_api.event_message(msg_id, {"event": payload})

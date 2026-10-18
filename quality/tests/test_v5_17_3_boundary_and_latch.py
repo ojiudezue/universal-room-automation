@@ -28,10 +28,7 @@ runs; source is restored via md5 hash guard.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
-import shutil
-import subprocess
 import sys
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -64,43 +61,23 @@ _ENERGY_PATH = os.path.join(
 )
 
 
-def _clear_pycache() -> None:
-    """Wipe every __pycache__ (incl. custom_components) between mutations."""
-    for root, dirs, _files in os.walk(_REPO_ROOT):
-        if "__pycache__" in dirs:
-            shutil.rmtree(os.path.join(root, "__pycache__"), ignore_errors=True)
-
-
 def _mutate_energy(replacement_fn):
-    """Return a context manager that mutates energy.py on disk.
+    """Context manager: run energy.py's source, mutated by
+    ``replacement_fn(text) -> text``, in the live module namespace.
 
-    replacement_fn(text) -> mutated_text. Original restored via md5 guard
-    even if mutation fn returns unchanged (test explicitly asserts change).
+    Yields ``(module, mutated_text)``. TEST-HARNESS D1: the mutant is
+    executed IN MEMORY (reload semantics) via mutated_module_in_memory —
+    energy.py on disk is never written, so a failure or hard kill cannot
+    leave it mutated. On exit the pristine on-disk source is re-executed and
+    the file's md5 is asserted unchanged.
     """
-    class _Mutator:
-        def __enter__(self):
-            with open(_ENERGY_PATH, "rb") as f:
-                self._original = f.read()
-            self._md5 = hashlib.md5(self._original).hexdigest()
-            new = replacement_fn(self._original.decode("utf-8"))
-            assert isinstance(new, str)
-            with open(_ENERGY_PATH, "w") as f:
-                f.write(new)
-            _clear_pycache()
-            return self
+    import importlib
 
-        def __exit__(self, *_exc):
-            with open(_ENERGY_PATH, "wb") as f:
-                f.write(self._original)
-            # Post-condition: bytes match original md5.
-            with open(_ENERGY_PATH, "rb") as f:
-                restored = hashlib.md5(f.read()).hexdigest()
-            assert restored == self._md5, (
-                "energy.py md5 restore failed after mutation"
-            )
-            _clear_pycache()
+    from _mutation_sandbox import mutated_module_in_memory
 
-    return _Mutator()
+    _mod_name = _energy_mod.__name__
+    mod = sys.modules.get(_mod_name) or importlib.import_module(_mod_name)
+    return mutated_module_in_memory(mod, replacement_fn)
 
 
 # =====================================================================
@@ -357,15 +334,7 @@ class TestD1MutationRearmRemoved:
             assert marker in src, "expected re-arm marker present"
             return src.replace(marker, replacement, 1)
 
-        with _mutate_energy(_strip):
-            # Reload the module so the mutation is live.
-            import importlib
-            # Robust vs sibling tests that may have popped the module.
-            _mod_name = _energy_mod.__name__
-            if _mod_name in sys.modules:
-                em = importlib.reload(sys.modules[_mod_name])
-            else:
-                em = importlib.import_module(_mod_name)
+        with _mutate_energy(_strip) as (em, _mutated_src):
 
             registered = []
             monkeypatch.setattr(
@@ -486,15 +455,7 @@ class TestD2ResetPersistEdge:
             assert marker in src, "expected reset-edge persist marker present"
             return src.replace(marker, 'elif False:\n                    pass', 1)
 
-        with _mutate_energy(_strip):
-            import importlib
-            # Robust vs sibling tests that may have popped the module.
-            _mod_name = _energy_mod.__name__
-            if _mod_name in sys.modules:
-                importlib.reload(sys.modules[_mod_name])
-            else:
-                importlib.import_module(_mod_name)
-            src = open(_ENERGY_PATH).read()
+        with _mutate_energy(_strip) as (_em, src):
             assert "elif False:" in src, "mutation must have landed"
             assert "elif _last_completed and not _completed_now:" not in src, (
                 "reset-edge branch must be gone under mutation"
@@ -555,8 +516,7 @@ class TestD3EvseHoldClampFallback:
             )
             return src.replace(marker, replacement, 1)
 
-        with _mutate_energy(_strip):
-            src = open(_ENERGY_PATH).read()
+        with _mutate_energy(_strip) as (_em, src):
             assert "MUTATED — ledger fallback removed" in src
             # Under mutation, replaying the block with desired=None yields 45.
             _desired = None

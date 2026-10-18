@@ -85,11 +85,34 @@ cp "$WORK_DIR"/*.json custom_components/universal_room_automation/
 cd "$TEST_DIR"
 
 # Run with pytest
-python3 -m pytest -v --tb=short
+# NOTE: must be .venv-ha/bin/python (bare python3 = 3.9, no phcc) — run from repo root
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v --tb=short
 
 # Or use run_tests.py if available
 python3 run_tests.py
 ```
+
+## Default run vs opt-in suites (TEST-HARNESS Wave 1 D3 + D6, 2026-10-17)
+
+Implemented in `quality/tests/_markers.py`; markers declared in `pytest.ini`.
+
+- **Source-mutation drills are OUT of the default run.** Tests marked
+  `@pytest.mark.source_mutation` (67 tests in 14 files: subprocess pytest against a
+  mutated sandbox copy of production source, ~4 min serial) are deselected by
+  `addopts = -m "not source_mutation"`. A plain run therefore no longer exercises them.
+  Opt in:
+  - drills only: `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests -m source_mutation`
+  - everything: add `-m ""`
+  - env: `URA_SOURCE_MUTATION=1` clears the default exclusion (any explicit `-m` still wins);
+    it is inherited by `scripts/suite_namediff.py`, so the **pre-merge gate** runs
+    `URA_SOURCE_MUTATION=1 python3 scripts/suite_namediff.py --branch-dir <worktree>`.
+  - Running one drill file directly (`pytest quality/tests/test_chatter_wire_in.py`) DESELECTS
+    its drills unless you opt in. New drill tests must carry the marker.
+- **Quarantine.** `@pytest.mark.quarantine("CARD-ID", reason="...", cls="...")` carries a known
+  failure on a kanban card. The card id is mandatory (`ABC-DEF-1` shape) — a missing or malformed
+  id is a collection error (exit 4). Quarantined tests are skipped and counted in a
+  `quarantine ledger` summary line. `--quarantine-ledger` lists card, class, node id, reason;
+  `URA_RUN_QUARANTINED=1` runs them normally (to see whether they now pass).
 
 ### Step 4: Report Results
 ```
@@ -140,7 +163,8 @@ cp "$WORK_DIR"/*.json custom_components/universal_room_automation/ 2>/dev/null |
 
 # 4. Run tests
 echo "🧪 Running test suite..."
-python3 -m pytest -v --tb=short
+# NOTE: must be .venv-ha/bin/python (bare python3 = 3.9, no phcc) — run from repo root
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v --tb=short
 
 # 5. Report
 if [ $? -eq 0 ]; then

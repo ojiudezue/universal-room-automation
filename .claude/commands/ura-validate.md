@@ -10,13 +10,13 @@ Use the `ura-validator` agent to run the URA test suite and compare against the 
 
 1. Run new cycle-specific tests in isolation:
    ```bash
-   PYTHONPATH=quality python3 -m pytest quality/tests/test_v<version>_<topic>.py -v
+   PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_v<version>_<topic>.py -v
    ```
    Report pass/fail count.
 
 2. Run full bulk suite on the current (feature) branch:
    ```bash
-   PYTHONPATH=quality python3 -m pytest quality/tests/ 2>&1 | tail -3
+   PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ 2>&1 | tail -3
    ```
    Record: total passed / failed / errors.
 
@@ -24,7 +24,7 @@ Use the `ura-validator` agent to run the URA test suite and compare against the 
    ```bash
    git stash -u
    git checkout $ARGUMENTS -- custom_components quality
-   PYTHONPATH=quality python3 -m pytest quality/tests/ 2>&1 | tail -3
+   PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ 2>&1 | tail -3
    git checkout - -- custom_components quality
    git stash pop
    ```

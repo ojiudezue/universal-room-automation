@@ -41,6 +41,7 @@ Read the branch in your worktree (`git checkout <branch>`); diff base is `git di
   batch of GREEN rows after a fix-up, run ALL the rows' target tests in ONE pytest process per mutation, or better,
   apply one mutation, run the targeted set once, restore, next — do not re-run unchanged rows. The full-suite name-diff
   is the validator's job via `scripts/suite_namediff.py` (cached baseline), not yours.
+  **Drill tests are opt-in (2026-10-17):** in-suite subprocess drills carry `@pytest.mark.source_mutation` and are deselected by default. When your target set includes them, pass `-m source_mutation` (drills only), `-m ""` (all) or set `URA_SOURCE_MUTATION=1`; otherwise a drill file reports "N deselected" and proves nothing. New drill tests you ask for must carry the marker.
 - **D — adversarial completeness / diff-blind.** State the cycle's load-bearing invariant in FALSIFIABLE form ("under X, Y can never happen in ANY reachable path"), then BREAK it. Re-enumerate the ENTIRE surface including pre-existing code (real leaks predate the diff). Every flagged leak needs a concrete **legal-config reachable repro** (the exact values + state that trigger it). Confirm any "deferred/non-goal" sibling is genuinely untouched, not silently broken.
 
 ## Bug classes to weigh (docs/QUALITY_CONTEXT.md)
