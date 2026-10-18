@@ -673,6 +673,29 @@ SLEEP_RAW_HOLD_NM_BOUND_S: Final = 5400
 # denominator. False: STALE persons are excluded (pre-cycle behaviour).
 # CONF_PERSON_DECAY_TIMEOUT = 0 also makes D2 inert (STALE never assigned).
 PRESENCE_STALE_RESIDENT_COUNTS_HOME: Final = True
+# Sleep-mask cycle Rev 3 (plan §R3 / §R3.1 / §R3.2, ZONE-TRACKER-PER-SENSOR-
+# WIPE-1). Rung 1: a correctness fix on a SHARED primitive (occupancy
+# substrate + zone tracker); flipping it must be reviewed.
+# True: a zone room is occupied iff ANY registered Tier-1 sensor reads `on`
+#   — the substrate's per-kind bool is the OR over the room's entities of
+#   that kind (seed AND live, one rule `_kind_on_now`), an off-edge clears
+#   only its own kind in the tracker, a deleted entity / removed room /
+#   boot-settle change discharges exactly, and the D4d trip-wire runs.
+# False: byte-identical to the reviewed branch dad3bf6e7 — last-writer per
+#   (room, kind), full-room clear on any off-edge, and the D-H1 night
+#   live-sensor limb + WAKING forcing line in presence.py (the workaround).
+# READ RULE (plan §R3.2.2): every reader does `_ura_const.
+# ZONE_OCCUPANCY_PER_ENTITY_ENABLED` at call time (attribute read on the
+# const module) — never `from ..const import` — so ONE test patch reaches
+# presence.py, occupancy_substrate.py and __init__.py. Lint-enforced.
+ZONE_OCCUPANCY_PER_ENTITY_ENABLED: Final = True
+# D4d trip-wire bound (plan §R3.6 / §R3.1.7, PICK R3-3): one HIGH
+# stuck-signal NM when the house is held out of AWAY by Tier-1 room sensors
+# alone (census 0, every trusted tracker away, no BLE) for longer than this.
+# In practice it pages only while the Frigate fleet is dark (otherwise path
+# alpha discharges the empty house). Rung 1 (review-only safety bound).
+# Kill switch: 0 disables. Only runs while ZONE_OCCUPANCY_PER_ENTITY_ENABLED.
+ZONE_HOLD_ALL_AWAY_NM_BOUND_S: Final = 7200
 
 # Fan-noise mitigation D1 (Layer-1 silent interference-conditioned discount
 # + decay). Per-Presence-Coordinator hold duration applied when a room is

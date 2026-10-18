@@ -22,6 +22,10 @@ Responsibilities (per planning doc D1):
 3. **Per-kind raw state.** ``_raw_state[room_name][kind] -> bool``. Updated
    synchronously on every state-change callback. Unavailable / unknown
    states map to ``False`` (matches ``_handle_occupancy_change`` semantics).
+   Sleep-mask Rev 3 D4a (``const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED``): the
+   per-kind bool is the OR over EVERY entity mapped to (room, kind) —
+   ``_kind_on_now`` is the ONE rule for seed and live. With the switch off
+   the live path is last-writer per (room, kind), as before.
 4. **Publish.** On every per-kind edge, dispatch
    ``SIGNAL_SUBSTRATE_KIND_CHANGED(room_name, kind, new_state)``. Suppressed
    during the boot-settle window (``PresenceCoordinator._boot_settle_done``);
@@ -53,6 +57,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
 
+from .. import const as _ura_const  # ZONE_OCCUPANCY_PER_ENTITY_ENABLED (attr read)
 from ..const import (
     CONF_ENTRY_TYPE,
     CONF_MMWAVE_SENSORS,
@@ -268,11 +273,49 @@ class OccupancySubstrate:
 
         return room_entities, entity_to_room_kind
 
+    def _kind_on_now(
+        self,
+        room_name: str,
+        kind: str,
+        entity_to_room_kind: Dict[str, tuple],
+        *,
+        event_entity: Optional[str] = None,
+        event_state: Any = None,
+    ) -> bool:
+        """Sleep-mask Rev 3 D4a: is ANY entity mapped to (room, kind) on?
+
+        The ONE per-kind rule shared by the seed and the live handler.
+        ``entity_to_room_kind`` is passed explicitly (the live handler
+        passes the current map; a refresh seed passes the DESIRED map —
+        never ``self``'s, which is stale until the swap).
+        ``event_entity`` takes its state from ``event_state`` (the event
+        payload; ``None`` = removed = off); only SIBLINGS are read from
+        ``hass.states``. With no siblings ``hass.states`` is never read, so
+        a single-sensor kind is byte-identical to last-writer by
+        construction. unavailable / unknown / missing count as off.
+        """
+        if event_entity is not None:
+            if event_state is not None and getattr(event_state, "state", None) == "on":
+                return True
+        for entity_id, mapping in entity_to_room_kind.items():
+            if entity_id == event_entity:
+                continue
+            if mapping[0] != room_name or mapping[1] != kind:
+                continue
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:  # pragma: no cover — defensive
+                state = None
+            if state is not None and state.state == "on":
+                return True
+        return False
+
     def _reset_and_seed_room_bucket(
         self,
         room_name: str,
         entity_map: Dict[str, str],
         desired_entity_to_room_kind: Dict[str, tuple],
+        target: Optional[Dict[str, Dict[str, bool]]] = None,
     ) -> Dict[str, bool]:
         """Reset every kind bucket for ``room_name`` to False, then re-seed
         from live state across each entity mapped to this room.
@@ -284,31 +327,29 @@ class OccupancySubstrate:
         on every refresh. Guarantees: shrinking a CONF list clears the
         stuck-True bucket; reclassifying an entity clears the OLD-kind
         stuck-True bucket.
+
+        Sleep-mask Rev 3.2 L2: ``target`` is the raw-state dict to write
+        (default ``self._raw_state``); a refresh with the per-entity switch
+        on seeds a scratch copy and swaps it in only after the subscribe
+        succeeds. The seed always applies ``_kind_on_now`` over the passed
+        (desired) map — the same OR the seed has always computed.
         """
-        bucket = self._raw_state.setdefault(room_name, {})
+        if target is None:
+            target = self._raw_state
+        bucket = target.setdefault(room_name, {})
         # Snapshot BEFORE reset so callers can dispatch True→False edges.
         pre_reset = {k: bool(bucket.get(k, False)) for k in TIER1_KINDS}
+        # Re-seed from live state across this room's FULL sensor set: the
+        # kind for THIS room comes from the desired canonical map (post
+        # cross-room duplicate filtering), so an entity claimed by another
+        # room contributes nothing here. ``entity_map`` (this room's
+        # entities) and the desired map's (room, kind) entries are the
+        # same set; ``_kind_on_now`` is the shared rule (Rev 3 D4a).
+        del entity_map  # the desired map is authoritative
         for k in TIER1_KINDS:
-            bucket[k] = False
-        # Re-seed from live state across this room's FULL sensor set.
-        for entity_id, _entity_kind in entity_map.items():
-            # Kind for THIS room comes from the desired canonical map
-            # (post cross-room duplicate filtering); an entity claimed by
-            # another room contributes nothing here.
-            mapping = desired_entity_to_room_kind.get(entity_id)
-            if mapping is None or mapping[0] != room_name:
-                continue
-            _r, canonical_kind = mapping
-            try:
-                state = self.hass.states.get(entity_id)
-            except Exception:  # pragma: no cover — defensive
-                state = None
-            if state is None:
-                continue
-            if state.state in _UNAVAILABLE_STATES:
-                continue
-            if state.state == "on":
-                bucket[canonical_kind] = True
+            bucket[k] = self._kind_on_now(
+                room_name, k, desired_entity_to_room_kind,
+            )
         return pre_reset
 
     async def async_setup(self) -> None:
@@ -479,9 +520,23 @@ class OccupancySubstrate:
             # Seeding BEFORE the swap means an in-flight added-entity
             # event that hits the NEW listener AFTER swap will see
             # `prior == occupied` and short-circuit — no double dispatch.
+            # Sleep-mask Rev 3.1 R3.1.5 / 3.2 L2 (switch on): seed into a
+            # SCRATCH copy and swap it in only after the subscribe below
+            # succeeds, so a failed subscribe leaves raw state, map and
+            # listener all old and coherent, and the one retry still sees a
+            # diff and emits the edges ("one retry, then coherent-old").
+            per_entity = bool(_ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED)
+            if per_entity:
+                seed_target = {
+                    room: dict(bucket)
+                    for room, bucket in self._raw_state.items()
+                }
+            else:
+                seed_target = self._raw_state
             for room_name, entity_map in room_entities.items():
                 self._reset_and_seed_room_bucket(
                     room_name, entity_map, desired_entity_to_room_kind,
+                    seed_target,
                 )
 
             # ---- Step 5: atomic swap ----
@@ -507,6 +562,8 @@ class OccupancySubstrate:
 
             # Repoint the entity->room/kind map after the new listener is
             # up and before old are released.
+            if per_entity:
+                self._raw_state = seed_target
             self._entity_to_room_kind = desired_entity_to_room_kind
 
             self._unsub_listeners = []
@@ -535,7 +592,13 @@ class OccupancySubstrate:
             if self._boot_settle_done:
                 emitted_true = 0
                 emitted_false = 0
-                for room_name in desired_rooms:
+                walk_rooms = desired_rooms
+                if per_entity:
+                    # Sleep-mask Rev 3 D4c.2: a room whose entry is gone
+                    # (pruned at step 6) sends a False edge for every kind
+                    # that was True, so the zone tracker releases it.
+                    walk_rooms = desired_rooms | set(snapshot.keys())
+                for room_name in walk_rooms:
                     bucket = self._raw_state.get(room_name, {})
                     prior_bucket = snapshot.get(room_name, {})
                     for kind in TIER1_KINDS:
@@ -669,7 +732,10 @@ class OccupancySubstrate:
             new_state = event.data.get("new_state")
         except Exception:  # noqa: BLE001 — defensive
             return
-        if not entity_id or new_state is None:
+        per_entity = bool(_ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED)
+        if not entity_id:
+            return
+        if new_state is None and not per_entity:
             return
 
         mapping = self._entity_to_room_kind.get(entity_id)
@@ -677,7 +743,16 @@ class OccupancySubstrate:
             return  # Unsolicited event for an entity we no longer track.
         room_name, kind = mapping
 
-        if new_state.state in _UNAVAILABLE_STATES:
+        if per_entity:
+            # Sleep-mask Rev 3 D4a + D4c.1: the kind is on while ANY entity
+            # mapped to (room, kind) is on (event entity from the payload;
+            # siblings from hass.states). A deleted entity (new_state None)
+            # counts as off, so it can no longer hold the kind True.
+            occupied = self._kind_on_now(
+                room_name, kind, self._entity_to_room_kind,
+                event_entity=entity_id, event_state=new_state,
+            )
+        elif new_state.state in _UNAVAILABLE_STATES:
             occupied = False
         else:
             occupied = new_state.state == "on"
