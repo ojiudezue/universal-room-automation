@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-18T14:42:57-05:00_ - _Data commit: `59cdf0ac2140`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-18T14:51:40-05:00_ - _Data commit: `b000acaf8a2a`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-10-18T14:42:57-05:00_ - _Data commit: `59cdf0ac2140`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 15 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 29 |
 | ⏳ Waiting on me (Claude) | 4 |
@@ -492,10 +492,17 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `ZONE-TRACKER-PER-SENSOR-WIPE-1` - Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **in_progress**
+_created 2026-10-18 · refined_
+- **Next:** Two Tier-3 plan reviews on Rev 3 -> delta build on the reviewed branch -> 4 build reviews -> operator checkpoint -> one awake-window deploy.
+- **Forensic keys (3):**
+  - `tier`: 3
+  - `operator_instruction_2026_10_18`: Go with A. Be careful. (fix the tracker properly, ship together with the sleep-mask cycle)
+  - `folded_into`: PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 3 D4 (af238dc53); one Tier-3 cycle with the reviewed branch dad3bf6e7.
 
 ## 🔍 Review (0)
 _under review_
