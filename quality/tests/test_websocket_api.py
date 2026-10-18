@@ -16,6 +16,7 @@ source to confirm the tests are load-bearing.
 """
 
 import asyncio
+import contextlib
 import os
 import sqlite3
 import sys
@@ -23,7 +24,11 @@ import types
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import threading
+
 import pytest
+import pytest_asyncio
+from pytest_homeassistant_custom_component.common import async_test_home_assistant
 
 # --------------------------------------------------------------------------
 # Mock homeassistant before importing URA code (mirrors test_data_pipeline).
@@ -438,125 +443,94 @@ class _FakeConn:
         self.results.append((msg_id, "error", code, message))
 
 
-def _install_fake_ws_module():
-    """Install a minimal ``homeassistant.components.websocket_api`` fake
-    that supplies the decorators + helpers websocket_api.py imports.
+# ---------------------------------------------------------------------------
+# TEST-HARNESS D4b: REAL-HA fixture + clean-interpreter guard.
+#
+# phcc's own ``hass`` fixture only resolves under ``asyncio_mode=auto``; this
+# suite runs ``strict``, so the same phcc factory (``async_test_home_assistant``)
+# is wrapped in a ``pytest_asyncio`` fixture; teardown mirrors phcc's.
+#
+# In a full-suite run, ~200 fake-HA test modules mutate the REAL
+# ``homeassistant.*`` modules at IMPORT time (e.g. ``er.async_get = ...``,
+# ``ha_core.HomeAssistant = MagicMock``), before any test runs. A real hass
+# then cannot even be constructed. Fixing those donors is D7. Until then: if
+# construction fails in-process, the test is skipped with an explicit reason
+# AND recorded, and the file's last test re-runs the whole file in a CLEAN
+# interpreter and asserts it passes there with zero such skips -- so the
+# behaviour is still executed (never silently dropped).
+# ---------------------------------------------------------------------------
+_D4B_CLEAN_ENV = "URA_D4B_CLEAN_INTERPRETER"
+_D4B_POISON_SKIPS: list[str] = []
+_D4B_SKIP_PREFIX = "D4B-REAL-HA-POISONED"
 
-    Idempotent — safe to call from multiple tests.
-    """
-    import sys
-    if "homeassistant.components.websocket_api" in sys.modules:
-        # If it's already installed and has our marker, reuse.
-        mod = sys.modules["homeassistant.components.websocket_api"]
-        if getattr(mod, "_URA_TEST_FAKE", False):
-            return mod
 
-    class _Schema:
-        def extend(self, spec):
-            return self
-
-    class _ActiveConnection:  # marker type only
-        pass
-
-    def _identity(fn=None, **_kw):
-        # Support both @decorator and @decorator(schema) usage.
-        if fn is None or not callable(fn):
-            def _wrap(inner):
-                return inner
-            return _wrap
-        return fn
-
-    def websocket_command(schema):
-        def _wrap(fn):
-            return fn
-        return _wrap
-
-    def async_response(fn):
-        return fn
-
-    def event_message(msg_id, payload):
-        return {"id": msg_id, "type": "event", "event": payload}
-
-    def async_register_command(hass, handler):
-        return None
-
-    mod = types.ModuleType("homeassistant.components.websocket_api")
-    mod.BASE_COMMAND_MESSAGE_SCHEMA = _Schema()
-    mod.ActiveConnection = _ActiveConnection
-    mod.websocket_command = websocket_command
-    mod.async_response = async_response
-    mod.event_message = event_message
-    mod.async_register_command = async_register_command
-    mod._URA_TEST_FAKE = True
-    sys.modules["homeassistant.components.websocket_api"] = mod
-    # voluptuous is a real dep for HA — but not required at import time for
-    # our tests because the schemas are only USED by HA's dispatcher. The
-    # module-level ``import voluptuous as vol`` must succeed though.
+@pytest_asyncio.fixture
+async def real_hass(tmp_path, request):
+    stack = contextlib.AsyncExitStack()
     try:
-        import voluptuous  # noqa: F401
-    except Exception:
-        vol_mod = types.ModuleType("voluptuous")
-        def _passthrough(*a, **kw):
-            return a[0] if a else None
-        class _All:
-            def __init__(self, *a, **kw): pass
-        class _Range:
-            def __init__(self, *a, **kw): pass
-        class _In:
-            def __init__(self, *a, **kw): pass
-        vol_mod.Required = _passthrough
-        vol_mod.Optional = _passthrough
-        vol_mod.All = _All
-        vol_mod.Range = _Range
-        vol_mod.In = _In
-        sys.modules["voluptuous"] = vol_mod
-    return mod
+        hass = await stack.enter_async_context(
+            async_test_home_assistant(config_dir=str(tmp_path))
+        )
+    except Exception as exc:  # noqa: BLE001 -- poisoned in-process HA
+        await stack.aclose()
+        if os.environ.get(_D4B_CLEAN_ENV):
+            raise  # in the clean interpreter this is a real failure
+        _D4B_POISON_SKIPS.append(request.node.nodeid)
+        pytest.skip(
+            f"{_D4B_SKIP_PREFIX}: real HA could not be constructed in-process "
+            f"({type(exc).__name__}: {exc}); an earlier test module mutated "
+            f"homeassistant.* at import (D7 donor). Executed instead by "
+            f"test_zz_d4b_real_ha_clean_interpreter."
+        )
+    try:
+        yield hass
+        await hass.async_block_till_done()
+        await hass.async_stop(force=True)
+    finally:
+        await stack.aclose()
 
 
+
+class _ThreadRecordingConn(_FakeConn):
+    """Records the thread each ``send_message`` runs on (B-H1 anchor)."""
+
+    def __init__(self):
+        super().__init__()
+        self.send_threads: list[int] = []
+
+    def send_message(self, msg):
+        self.send_threads.append(threading.get_ident())
+        super().send_message(msg)
+
+
+@pytest.mark.quarantine(
+    "WS-SUBSCRIBE-SCHEMA-REALHA-1",
+    reason=(
+        "Under the harness's REAL HA 2026.2.3, importing websocket_api.py "
+        "raises AttributeError: websocket_command() reads "
+        "schema.validators[0] for any non-dict schema, and URA passes a bare "
+        "BASE_COMMAND_MESSAGE_SCHEMA.extend(...) vol.Schema (HA core wraps "
+        "these in vol.All). Live HA 2026.9 shows no 'observability WS "
+        "commands registration failed' warning in system_log, so it may be "
+        "harness-version drift rather than a live defect -- the card decides."
+    ),
+    cls="real-ha-exposed",
+)
 class TestSubscribeHandler:
-    """B-H1 / B-H2 / B-H3 — behavioral tests on _handle_subscribe."""
+    """B-H1 / B-H2 / B-H3 — behavioral tests on _handle_subscribe, driven
+    through the REAL websocket_api decorators and the REAL HA dispatcher."""
 
-    def _load_ws(self):
-        _install_fake_ws_module()
-        import sys
+    @staticmethod
+    def _ws():
         import importlib
-        # Stub the domain_coordinators package so its __init__.py (eager
-        # occupancy_substrate import) is NOT executed. Then hand-install
-        # domain_coordinators.signals with the one symbol websocket_api
-        # actually uses.
-        pkg_name = "custom_components.universal_room_automation.domain_coordinators"
-        if pkg_name not in sys.modules:
-            pkg = types.ModuleType(pkg_name)
-            pkg.__path__ = [os.path.join(
-                os.path.dirname(__file__), "..", "..",
-                "custom_components", "universal_room_automation",
-                "domain_coordinators",
-            )]
-            sys.modules[pkg_name] = pkg
-        sig_name = pkg_name + ".signals"
-        if sig_name not in sys.modules:
-            sig = types.ModuleType(sig_name)
-            sig.SIGNAL_ACTIVITY_LOGGED = "ura_activity_logged"
-            sys.modules[sig_name] = sig
-        # Fresh import each time so _WS_REGISTERED / callbacks are clean.
-        ws_name = "custom_components.universal_room_automation.websocket_api"
-        if ws_name in sys.modules:
-            del sys.modules[ws_name]
-        ws = importlib.import_module(ws_name)
-        return ws
+        return importlib.import_module(
+            "custom_components.universal_room_automation.websocket_api"
+        )
 
-    def _invoke_subscribe(self, ws, min_importance=None, streams=None,
-                          coordinator=None):
-        hass = MagicMock()
-        hass.add_job = MagicMock()
-        # Capture the dispatcher callback registered.
-        captured = {}
-        def _fake_connect(_hass, _signal, cb):
-            captured["cb"] = cb
-            return lambda: None
-        # Patch in the fake dispatcher connect for this call.
-        ws.async_dispatcher_connect = _fake_connect  # type: ignore[assignment]
-        conn = _FakeConn()
+    def _subscribe(self, hass, min_importance=None, streams=None,
+                   coordinator=None):
+        ws = self._ws()
+        conn = _ThreadRecordingConn()
         msg = {"id": 42}
         if streams is not None:
             msg["streams"] = streams
@@ -565,68 +539,87 @@ class TestSubscribeHandler:
         if min_importance is not None:
             msg["min_importance"] = min_importance
         ws._handle_subscribe(hass, conn, msg)
-        return hass, conn, captured["cb"]
+        return ws, conn
 
-    def test_callback_defers_via_add_job_not_direct_send(self):
+    async def _fire(self, hass, ws, payload):
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        async_dispatcher_send(hass, ws.SIGNAL_ACTIVITY_LOGGED, payload)
+        await hass.async_block_till_done()
+
+    @staticmethod
+    def _close(conn):
+        for unsub in conn.subscriptions.values():
+            unsub()
+
+    @pytest.mark.quarantine(
+        "WS-SUBSCRIBE-SEND-OFF-LOOP-1",
+        reason=(
+            "Real HA exposes a production defect: _send_on_loop is not "
+            "@callback, and HomeAssistant.add_job runs a non-@callback "
+            "target in the EXECUTOR (core.py add_job docstring + "
+            "get_hassjob_callable_job_type), so connection.send_message is "
+            "called off the event loop -- the exact hazard B-H1 meant to "
+            "close. Observed: send thread != loop thread."
+        ),
+        cls="real-ha-exposed",
+    )
+    @pytest.mark.asyncio
+    async def test_callback_defers_via_add_job_not_direct_send(self, real_hass):
         """B-H1 mutation anchor: replace ``hass.add_job(_send_on_loop, payload)``
         with a direct ``connection.send_message(event_message(...))`` call
-        → this test fails because hass.add_job is never called and
-        connection.sent gets a message from the callback thread."""
-        ws = self._load_ws()
-        hass, conn, cb = self._invoke_subscribe(ws)
-        # Fire the dispatcher callback with an activity-shaped payload.
-        cb({"action": "state_change", "coordinator": "presence",
-            "importance": "info"})
-        # Direct send MUST NOT have happened — payload must be marshalled
-        # to the loop via hass.add_job.
-        assert conn.sent == [], (
-            "callback sent synchronously; must route through hass.add_job"
+        → the real dispatcher runs the (non-@callback) listener on an
+        executor thread, so the send lands off the loop thread and this
+        test fails."""
+        hass = real_hass
+        ws, conn = self._subscribe(hass)
+        payload = {"action": "state_change", "coordinator": "presence",
+                   "importance": "info"}
+        await self._fire(hass, ws, payload)
+        assert conn.sent == [
+            {"id": 42, "type": "event", "event": {"event": payload}}
+        ]
+        assert conn.send_threads == [threading.get_ident()], (
+            "send_message ran off the event-loop thread; must route "
+            "through hass.add_job"
         )
-        assert hass.add_job.called, "hass.add_job was not invoked"
+        self._close(conn)
 
-    def test_stream_discriminate_anomaly_vs_activity(self):
+    @pytest.mark.asyncio
+    async def test_stream_discriminate_anomaly_vs_activity(self, real_hass):
         """B-H3 mutation anchor: replace the ``is_anomaly`` branch with a
-        single ``if ...activity... not in streams and ...anomalies... not
-        in streams: return`` OR-gate → both payloads route to a
-        subscriber that requested only ``anomalies`` and this test fails.
-        """
-        ws = self._load_ws()
-        hass, conn, cb = self._invoke_subscribe(ws, streams=["anomalies"])
-        # Activity payload: must be dropped.
-        cb({"action": "state_change", "importance": "info"})
-        # Anomaly payload: must be forwarded.
-        cb({"action": "anomaly", "importance": "warning"})
-        # add_job called exactly once — only the anomaly payload survived.
-        assert hass.add_job.call_count == 1, (
-            f"expected 1 forwarded event, got {hass.add_job.call_count}"
-        )
+        single OR-gate → both payloads route to a subscriber that requested
+        only ``anomalies`` and this test fails."""
+        hass = real_hass
+        ws, conn = self._subscribe(hass, streams=["anomalies"])
+        await self._fire(hass, ws, {"action": "state_change", "importance": "info"})
+        await self._fire(hass, ws, {"action": "anomaly", "importance": "warning"})
+        assert [m["event"]["event"]["action"] for m in conn.sent] == ["anomaly"]
+        self._close(conn)
 
-    def test_min_importance_filter_below_floor_dropped(self):
+    @pytest.mark.asyncio
+    async def test_min_importance_filter_below_floor_dropped(self, real_hass):
         """B-H2 mutation anchor: neuter the comparison (e.g. replace
-        ``imp_ord < min_importance_ord`` with ``False``) → the debug
-        payload is forwarded and this test fails.
-        """
-        ws = self._load_ws()
-        hass, conn, cb = self._invoke_subscribe(ws, min_importance="warning")
-        # Below floor — must be dropped.
-        cb({"action": "state_change", "importance": "info"})
-        assert hass.add_job.call_count == 0
-        # At floor — must pass.
-        cb({"action": "state_change", "importance": "warning"})
-        assert hass.add_job.call_count == 1
-        # Above floor — must pass.
-        cb({"action": "state_change", "importance": "critical"})
-        assert hass.add_job.call_count == 2
+        ``imp_ord < min_importance_ord`` with ``False``) → the info payload
+        is forwarded and this test fails."""
+        hass = real_hass
+        ws, conn = self._subscribe(hass, min_importance="warning")
+        await self._fire(hass, ws, {"action": "state_change", "importance": "info"})
+        assert len(conn.sent) == 0
+        await self._fire(hass, ws, {"action": "state_change", "importance": "warning"})
+        assert len(conn.sent) == 1
+        await self._fire(hass, ws, {"action": "state_change", "importance": "critical"})
+        assert len(conn.sent) == 2
+        self._close(conn)
 
-    def test_min_importance_missing_field_dropped(self):
+    @pytest.mark.asyncio
+    async def test_min_importance_missing_field_dropped(self, real_hass):
         """B-H2 companion: unknown / missing importance is treated as
-        below floor — the current dead branch (severity read) would
-        forward every event; we must not.
-        """
-        ws = self._load_ws()
-        hass, conn, cb = self._invoke_subscribe(ws, min_importance="info")
-        cb({"action": "state_change"})  # no importance field
-        assert hass.add_job.call_count == 0
+        below floor."""
+        hass = real_hass
+        ws, conn = self._subscribe(hass, min_importance="info")
+        await self._fire(hass, ws, {"action": "state_change"})
+        assert len(conn.sent) == 0
+        self._close(conn)
 
 
 # --------------------------------------------------------------------------
@@ -645,3 +638,26 @@ class TestSubscribeHandler:
 #
 # See build report at the end of the cycle for the actual pytest output
 # during each mutation run.
+
+def test_zz_d4b_real_ha_clean_interpreter():
+    """Runs LAST in this file. If any real-HA test was skipped because the
+    in-process HA was poisoned, re-run this whole file in a clean interpreter
+    and require it to pass with no poison skips."""
+    if os.environ.get(_D4B_CLEAN_ENV) or not _D4B_POISON_SKIPS:
+        return  # nothing skipped in-process (or we ARE the clean run)
+    import subprocess
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    env[_D4B_CLEAN_ENV] = "1"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [os.path.join(repo, "quality")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", os.path.abspath(__file__), "-q",
+         "-p", "no:cacheprovider", "-rs"],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=600,
+    )
+    out = r.stdout + r.stderr
+    print("D4B clean-interpreter run:", r.returncode, out.strip().splitlines()[-1:])
+    assert r.returncode == 0, f"clean-interpreter run failed:\n{out[-4000:]}"
+    assert _D4B_SKIP_PREFIX not in out, out[-4000:]

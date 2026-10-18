@@ -35,6 +35,28 @@ import _w1b_harness as H  # noqa: E402
 from runtime_harness import StubConfigEntry  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _entity_registry_not_loaded(monkeypatch):
+    """Test-order self-sufficiency (TEST-HARNESS D4b follow-up).
+
+    These tests run on ``runtime_harness.StubHass`` (``hass.data`` is a plain
+    dict with no entity registry). Run ALONE, the real
+    ``entity_registry.async_get(hass)`` raises KeyError, so every
+    ``hvac_strategy`` registry read (``_entity_platform``,
+    ``_device_manufacturer``, ``_select_entity``) takes its registry-miss
+    branch. In suite order an earlier module may have replaced
+    ``er.async_get`` at import time (e.g. test_chatter_detector's ``_Reg``,
+    which answers ``hass._reg_map.get(...)`` -- a phantom entry on a
+    MagicMock-ish hass). Pin the alone-run behaviour, scoped and
+    auto-restored, instead of inheriting whatever a sibling leaked."""
+    from homeassistant.helpers import entity_registry as er
+
+    def _not_loaded(hass):
+        raise KeyError("entity registry not loaded on the StubHass")
+
+    monkeypatch.setattr(er, "async_get", _not_loaded)
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _scoped():
     baseline = H.snapshot_shims()

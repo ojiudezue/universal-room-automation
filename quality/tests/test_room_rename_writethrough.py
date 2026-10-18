@@ -30,10 +30,18 @@ Named per §D1 acceptance criteria:
 
 from __future__ import annotations
 
+import contextlib
+
 import os
 import sys
 import pytest
 from unittest.mock import MagicMock, AsyncMock
+
+import pytest_asyncio
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_test_home_assistant,
+)
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _COMPONENT_DIR = os.path.join(_REPO_ROOT, "custom_components", "universal_room_automation")
@@ -183,6 +191,54 @@ def _register_update_listener(entry, cb):
     entry._update_listeners.append(cb)
 
 
+# ---------------------------------------------------------------------------
+# TEST-HARNESS D4b: REAL-HA fixture + clean-interpreter guard.
+#
+# phcc's own ``hass`` fixture only resolves under ``asyncio_mode=auto``; this
+# suite runs ``strict``, so the same phcc factory (``async_test_home_assistant``)
+# is wrapped in a ``pytest_asyncio`` fixture; teardown mirrors phcc's.
+#
+# In a full-suite run, ~200 fake-HA test modules mutate the REAL
+# ``homeassistant.*`` modules at IMPORT time (e.g. ``er.async_get = ...``,
+# ``ha_core.HomeAssistant = MagicMock``), before any test runs. A real hass
+# then cannot even be constructed. Fixing those donors is D7. Until then: if
+# construction fails in-process, the test is skipped with an explicit reason
+# AND recorded, and the file's last test re-runs the whole file in a CLEAN
+# interpreter and asserts it passes there with zero such skips -- so the
+# behaviour is still executed (never silently dropped).
+# ---------------------------------------------------------------------------
+_D4B_CLEAN_ENV = "URA_D4B_CLEAN_INTERPRETER"
+_D4B_POISON_SKIPS: list[str] = []
+_D4B_SKIP_PREFIX = "D4B-REAL-HA-POISONED"
+
+
+@pytest_asyncio.fixture
+async def real_hass(tmp_path, request):
+    stack = contextlib.AsyncExitStack()
+    try:
+        hass = await stack.enter_async_context(
+            async_test_home_assistant(config_dir=str(tmp_path))
+        )
+    except Exception as exc:  # noqa: BLE001 -- poisoned in-process HA
+        await stack.aclose()
+        if os.environ.get(_D4B_CLEAN_ENV):
+            raise  # in the clean interpreter this is a real failure
+        _D4B_POISON_SKIPS.append(request.node.nodeid)
+        pytest.skip(
+            f"{_D4B_SKIP_PREFIX}: real HA could not be constructed in-process "
+            f"({type(exc).__name__}: {exc}); an earlier test module mutated "
+            f"homeassistant.* at import (D7 donor). Executed instead by "
+            f"test_zz_d4b_real_ha_clean_interpreter."
+        )
+    try:
+        yield hass
+        await hass.async_block_till_done()
+        await hass.async_stop(force=True)
+    finally:
+        await stack.aclose()
+
+
+
 # ===========================================================================
 # D1 site 1 — Room rename / zone reassign via async_step_basic_setup
 # ===========================================================================
@@ -294,17 +350,27 @@ class TestD1ZoneRenameWriteThrough:
         _attach_flow_stubs(flow)
         return flow
 
-    @pytest.mark.asyncio
-    async def test_zone_rename_update_branch_updates_data(self):
-        hass = _hass_with_mutating_update()
-        zone_entry = _FakeConfigEntry(
+    @staticmethod
+    def _real_zone_entry(hass):
+        """A REAL ConfigEntry registered on the real hass, so the real
+        ``config_entries.async_update_entry`` mutates it in place."""
+        entry = MockConfigEntry(
+            domain="universal_room_automation",
+            entry_id="zone_entry_1",
+            title="OldZone",
             data={
                 CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE,
                 CONF_ZONE_NAME: "OldZone",
             },
             options={CONF_ZONE_NAME: "OldZone"},
-            entry_id="zone_entry_1",
         )
+        entry.add_to_hass(hass)
+        return entry
+
+    @pytest.mark.asyncio
+    async def test_zone_rename_update_branch_updates_data(self, real_hass):
+        hass = real_hass
+        zone_entry = self._real_zone_entry(hass)
         flow = self._zone_flow(hass, "zone_entry_1", zone_entry)
         await flow.async_step_zone_rooms(
             user_input={
@@ -318,17 +384,10 @@ class TestD1ZoneRenameWriteThrough:
         assert zone_entry.title == "NewZone"
 
     @pytest.mark.asyncio
-    async def test_zone_rename_create_branch_updates_data(self):
+    async def test_zone_rename_create_branch_updates_data(self, real_hass):
         """§D1 site 3 — else-branch fires when _selected_zone_entry_id is falsy."""
-        hass = _hass_with_mutating_update()
-        zone_entry = _FakeConfigEntry(
-            data={
-                CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE,
-                CONF_ZONE_NAME: "OldZone",
-            },
-            options={CONF_ZONE_NAME: "OldZone"},
-            entry_id="zone_entry_1",
-        )
+        hass = real_hass
+        zone_entry = self._real_zone_entry(hass)
         # _selected_zone_entry_id = None + _get_zm_zone_data returns None
         # forces the site-3 else-branch.
         flow = self._zone_flow(hass, None, zone_entry)
@@ -754,3 +813,26 @@ class TestD3SubstrateReadInvariant:
             "aggregation.py:502 data-first reader would still see ZoneA if "
             "the D1 site-1 CONF_ZONE write-through were reverted"
         )
+
+def test_zz_d4b_real_ha_clean_interpreter():
+    """Runs LAST in this file. If any real-HA test was skipped because the
+    in-process HA was poisoned, re-run this whole file in a clean interpreter
+    and require it to pass with no poison skips."""
+    if os.environ.get(_D4B_CLEAN_ENV) or not _D4B_POISON_SKIPS:
+        return  # nothing skipped in-process (or we ARE the clean run)
+    import subprocess
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    env[_D4B_CLEAN_ENV] = "1"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [os.path.join(repo, "quality")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", os.path.abspath(__file__), "-q",
+         "-p", "no:cacheprovider", "-rs"],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=600,
+    )
+    out = r.stdout + r.stderr
+    print("D4B clean-interpreter run:", r.returncode, out.strip().splitlines()[-1:])
+    assert r.returncode == 0, f"clean-interpreter run failed:\n{out[-4000:]}"
+    assert _D4B_SKIP_PREFIX not in out, out[-4000:]
