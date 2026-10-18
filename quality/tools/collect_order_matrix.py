@@ -194,9 +194,15 @@ def victims_of(baseline: dict[str, str], other: dict[str, str]) -> list[str]:
     )
 
 
-def _victim_fails(prefix: list[str], victim: str, python: str, cwd: pathlib.Path) -> bool:
+def _victim_fails(
+    prefix: list[str], victim: str, python: str, cwd: pathlib.Path, import_only: bool = False
+) -> bool:
     vfile = file_of(victim)
-    res = run_order([f for f in prefix if f != vfile] + [vfile], python, cwd)
+    pre = [f for f in prefix if f != vfile]
+    # import_only: the prefix files are COLLECTED (imported, in order) but
+    # their tests are deselected — isolates import-time donors in seconds.
+    extra = tuple(f"--deselect={f}" for f in pre) if import_only else ()
+    res = run_order(pre + [vfile], python, cwd, extra)
     if victim in res:
         return res[victim] in FAILED_OUTCOMES
     # Victim vanished (its file failed to collect / crashed the session).
@@ -204,7 +210,8 @@ def _victim_fails(prefix: list[str], victim: str, python: str, cwd: pathlib.Path
 
 
 def find_donor(
-    prefix: list[str], victim: str, python: str, cwd: pathlib.Path = REPO_ROOT
+    prefix: list[str], victim: str, python: str, cwd: pathlib.Path = REPO_ROOT,
+    import_only: bool | None = None,
 ) -> list[str]:
     """Reduce ``prefix`` (files run before the victim's file) to the donor(s).
 
@@ -212,17 +219,29 @@ def find_donor(
     needs files from both halves (multi-donor), or [] when the victim does not
     fail after the full prefix (not reproduced). Halving bisection:
     ~log2(len(prefix)) pytest runs.
+
+    import_only=None (default) tries the fast import-only bisection first and
+    falls back to full execution when the failure needs the prefix's tests to
+    RUN (an execution-time leak).
     """
+    if import_only is None:
+        return find_donor(prefix, victim, python, cwd, True) or find_donor(
+            prefix, victim, python, cwd, False
+        )
     vfile = file_of(victim)
     cand = [f for f in prefix if f != vfile]
-    if not cand or not _victim_fails(cand, victim, python, cwd):
+
+    def fails(files):
+        return _victim_fails(files, victim, python, cwd, import_only)
+
+    if not cand or not fails(cand):
         return []
     while len(cand) > 1:
         mid = len(cand) // 2
         left, right = cand[:mid], cand[mid:]
-        if _victim_fails(left, victim, python, cwd):
+        if fails(left):
             cand = left
-        elif _victim_fails(right, victim, python, cwd):
+        elif fails(right):
             cand = right
         else:
             return cand

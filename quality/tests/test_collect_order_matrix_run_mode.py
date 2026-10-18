@@ -87,6 +87,33 @@ def test_find_donor_names_exactly_the_planted_donor(tool, planted):
     assert donor == ["test_d7_donor.py"]
 
 
+RUNTIME_DONOR = """
+import os
+
+def test_runtime_donor_leaks():
+    os.environ["D7_RUNTIME_LEAK"] = "1"   # leaked by a test BODY, not import
+"""
+
+RUNTIME_VICTIM = """
+import os
+
+def test_runtime_victim():
+    assert os.environ.get("D7_RUNTIME_LEAK") is None
+"""
+
+
+def test_find_donor_falls_back_to_execution_for_runtime_leak(tool, planted, monkeypatch):
+    monkeypatch.delenv("D7_RUNTIME_LEAK", raising=False)
+    (planted / "test_d7_rdonor.py").write_text(RUNTIME_DONOR)
+    (planted / "test_d7_rvictim.py").write_text(RUNTIME_VICTIM)
+    prefix = ["test_d7_filler0.py", "test_d7_rdonor.py", "test_d7_filler1.py"]
+    vic = "test_d7_rvictim.py::test_runtime_victim"
+    # import-only cannot see a test-body leak ...
+    assert tool.find_donor(prefix, vic, sys.executable, planted, import_only=True) == []
+    # ... the default (import-only, then execution) finds it.
+    assert tool.find_donor(prefix, vic, sys.executable, planted) == ["test_d7_rdonor.py"]
+
+
 def test_find_donor_not_reproduced_without_donor(tool, planted):
     prefix = ["test_d7_filler0.py", "test_d7_filler1.py"]
     assert tool.find_donor(
