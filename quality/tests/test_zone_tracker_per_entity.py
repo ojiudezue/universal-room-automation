@@ -324,11 +324,13 @@ def test_options_save_adding_on_sensor_sets_kind(monkeypatch, clock):
 def test_boot_settle_replay_unchanged(monkeypatch, clock):
     """Release replays the same True slots as before AND the trackers equal
     the substrate per kind afterwards (no longer pins the defect)."""
-    w = _master(monkeypatch, on=(ZX,), release=False)
+    w = _master(monkeypatch, on=(ZX, ZV), release=False)
+    w.fire(ZV, "off")                          # a kind goes off DURING settle
     w.coord._boot_settle_done = False
     w.coord._release_boot_settle("test")
-    assert w.edges == [("Master Bedroom", "mmwave", True)]
+    assert w.edges == [("Master Bedroom", "mmwave", True)]   # True slots only
     t = w.trackers["Master Suite"]
+    assert t.provenance_for("Master Bedroom")["motion"] is False
     assert {k: bool(_prov(w).get(k)) for k in CONST.TIER1_KINDS} == \
         w.sub.get_room_kinds("Master Bedroom")
 
