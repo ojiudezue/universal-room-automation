@@ -776,3 +776,68 @@ def test_drill_victim_fix_reverted_set_goes_red(victim):
         expect="KILLED",
         timeout=600,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 round 3 helper anchors (in-process, default run).
+# ---------------------------------------------------------------------------
+
+
+def test_other_dt_modules_returns_parent_attr_when_it_diverges(monkeypatch):
+    from _d7_isolation import other_dt_modules
+
+    util = types.ModuleType("homeassistant.util")
+    primary = types.ModuleType("homeassistant.util.dt")
+    parent_dt = types.ModuleType("homeassistant.util.dt")
+    util.dt = parent_dt
+    monkeypatch.setitem(sys.modules, "homeassistant.util", util)
+    monkeypatch.setitem(sys.modules, "homeassistant.util.dt", primary)
+    assert other_dt_modules() == [parent_dt]
+    util.dt = primary
+    assert other_dt_modules() == []
+
+
+def test_restore_clocks_after_test_undoes_set_now_writes():
+    from _d7_isolation import restore_clocks_after_test
+
+    def _orig_now():
+        return "orig-now"
+
+    def _orig_utcnow():
+        return "orig-utcnow"
+
+    clock = types.SimpleNamespace(now=_orig_now, utcnow=_orig_utcnow)
+    owner = types.SimpleNamespace(dt_util=clock)
+    mp = pytest.MonkeyPatch()
+    restore_clocks_after_test(mp, {"_automation_dt_util": clock, "_x_mod": owner})
+    clock.now = lambda: "frozen"
+    clock.utcnow = lambda: "frozen"
+    mp.undo()
+    assert clock.now is _orig_now
+    assert clock.utcnow is _orig_utcnow
+
+
+@pytest.mark.source_mutation
+def test_drill_restore_clocks_neutered_goes_red():
+    apply_mutation_in_sandbox(
+        _ISOLATION,
+        swap_from="                monkeypatch.setattr(t, attr, getattr(t, attr))\n",
+        swap_to="                pass\n",
+        anchor_test_file=_HERE,
+        anchor_test_name="test_restore_clocks_after_test_undoes_set_now_writes",
+        expect="KILLED",
+        timeout=600,
+    )
+
+
+@pytest.mark.source_mutation
+def test_drill_other_dt_modules_neutered_goes_red():
+    apply_mutation_in_sandbox(
+        _ISOLATION,
+        swap_from="    return [parent] if parent is not None and parent is not primary else []\n",
+        swap_to="    return []\n",
+        anchor_test_file=_HERE,
+        anchor_test_name="test_other_dt_modules_returns_parent_attr_when_it_diverges",
+        expect="KILLED",
+        timeout=600,
+    )

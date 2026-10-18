@@ -113,6 +113,15 @@ def _ensure_loop():
         _dtu.utcnow = datetime.utcnow
     except Exception:  # noqa: BLE001
         pass
+    # TEST-HARNESS D7 slice 2: and the clock camera_census itself reads (its
+    # module dt_util can be a different object than sys.modules' in the full
+    # suite). Restored per test by _scope_real_ha_patches.
+    _census_dt().utcnow = datetime.utcnow
+
+def _census_dt():
+    """The dt module camera_census's PersonCensus actually reads."""
+    return PersonCensus._resolve_face_legs.__globals__["dt_util"]
+
 
 def _make_state(value, last_changed=None, attributes=None):
     st = MagicMock()
@@ -522,6 +531,8 @@ def _scope_real_ha_patches(monkeypatch):
     import homeassistant.util.dt as _dtu
     monkeypatch.setattr(_er, "async_get", _er.async_get)
     monkeypatch.setattr(_dtu, "utcnow", _dtu.utcnow)
+    # TEST-HARNESS D7 slice 2: camera_census's own dt (see _census_dt).
+    monkeypatch.setattr(_census_dt(), "utcnow", _census_dt().utcnow)
     yield
 
 
@@ -843,6 +854,9 @@ def test_fs2_wall_clock_staleness_drops_stuck_face_leg():
     import homeassistant.util.dt as _dt_util
     _orig_utcnow = _dt_util.utcnow
     _dt_util.utcnow = lambda: now
+    _census_dt_mod = _census_dt()  # TEST-HARNESS D7 slice 2
+    _orig_census_utcnow = _census_dt_mod.utcnow
+    _census_dt_mod.utcnow = lambda: now
     try:
         # last_changed = 200s in the past (older than TTL 120s) but
         # still inside the FACE_MATCH_EXIT_WINDOW_BEFORE_S = 180s...
@@ -866,6 +880,7 @@ def test_fs2_wall_clock_staleness_drops_stuck_face_leg():
         assert labels[-1] == "no_leg"
         assert census._face_dropped_stale_count == stale_before + 1
     finally:
+        _census_dt_mod.utcnow = _orig_census_utcnow
         _dt_util.utcnow = _orig_utcnow
 
 
@@ -1205,12 +1220,22 @@ def test_rev5_fixup_failed_subscribe_leaves_map_empty_for_retry():
 
     # Patch the imported symbol at its call site.
     import homeassistant.helpers.event as _hae
-    orig = _hae.async_track_state_change_event
-    _hae.async_track_state_change_event = _raise
+    # TEST-HARNESS D7 slice 2: production's call-time `from
+    # homeassistant.helpers.event import ...` resolves through sys.modules;
+    # `import ... as` above can bind the parent package attribute instead.
+    # Patch every distinct object.
+    _targets = [_hae]
+    _sys_hae = _sys.modules.get("homeassistant.helpers.event")
+    if _sys_hae is not None and _sys_hae is not _hae:
+        _targets.append(_sys_hae)
+    _origs = [(m, getattr(m, "async_track_state_change_event", None)) for m in _targets]
+    for _m in _targets:
+        _m.async_track_state_change_event = _raise
     try:
         census._register_ble_transition_listeners()
     finally:
-        _hae.async_track_state_change_event = orig
+        for _m, _o in _origs:
+            _m.async_track_state_change_event = _o
     assert census._ble_tracker_slug_map == {}, (
         "failed subscribe must not latch the slug-map (would prevent "
         "retry on next refresh tick)"
