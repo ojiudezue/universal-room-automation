@@ -31126,8 +31126,8 @@ cards:
   thread: platform
   status: planned
   created: '2026-09-29 20:05'
-  updated: "2026-10-18 02:14"
-  refinement_status: refined
+  updated: "2026-10-18 02:16"
+  refinement_status: "refined"
   approval: "explicit"
   problem_solution:
   - 'Problem: three history tables (room temperature/humidity readings, room energy readings, room occupancy events) are
@@ -31150,10 +31150,12 @@ cards:
     learning / the forecaster), so it is yours.'
   knobs:
   - 'retention days for environmental_data / energy_snapshots / occupancy_events (module constant rung, like the other RETENTION_* - reuse RETENTION_ENERGY_HISTORY=90 if you pick 90)'
-  next: "Me: finish the adversarial plan review, fix the plan, then build to review (Tier 2-DB, three reviews) in a session when the review lane has room. Not urgent: nothing can be pruned before 2026-11-19, so the deadline is a deploy before then."
+  next: "Me: build to review (Tier 2-DB, three framing-disjoint reviews) once the review lane is under its WIP cap of 3; must ship before 2026-11-19 to matter. Offline DB backup step runs at deploy."
   links: {related: [DB-WAIT-WARNING-REWORK-1], context: 'Found by the same boot-freeze audit; DB size is not the cause of the boot freeze.'}
   rank: {value: 3, time_criticality: 1, effort: 5}
   planned_2026_10_18_overnight: "Plan written: docs/planning/PLANNING_db_retention_365d.md (c25a37849). Measured (live DB 02:10, read-only): file 1.45 GB, growing ~5.5 MB/day; the four tables are ~1.12 GB (78%). ZERO rows are older than 365 d today: first rows age out 2026-11-19 (environmental_data, energy_snapshots), 11-20 (occupancy_events), 2027-01-04 (room_transitions). So 365 d caps growth (file levels off ~1.55-1.65 GB) but never shrinks it. room_transitions: same 365 (longest reader is 90 d, bayesian_predictor.py:233,666). Watch items for review: per-table timestamp formats differ (UTC 'T' vs local offset) -> date-only cutoff; the cleanup op list exists twice in __init__.py (_cleanup_ops + deferred _cleanup_ops_d); new constant RETENTION_ROOM_HISTORY_DAYS=365 (0 = off). Plan review dispatched 10-18 overnight."
+  plan_reviewed_2026_10_18_overnight: "Adversarial plan review: READY-TO-BUILD (b33b2a66f). Fixed in plan: PR-1 HIGH cutoff must use the UTC date for the three UTC-stored tables and the local date for room_transitions (local-date cutoff deletes <365 d rows east of UTC; Sydney-TZ test added); PR-3 the 5-min nightly budget cannot stop a running op, batch cap is the only limit; PR-4 the 11-20 live check rewritten (oldest >= 2025-11-20 and day-over-day row delta ~0, not 'count drops'); PR-5 log even on 0 deletes. PR-2 (both _cleanup_ops lists only testable by source grep): I take the reviewer's recommendation, build the op list in one shared function both call sites use, which removes the recurring list-sync bug. PR-7 pre-existing harmless TZ skew in get_room_transition_counts (database.py:7255), noted, out of scope."
+  refinement: "Planner: date-only local cutoff 'keeps rows on error' -> plan review showed it deletes young rows east of UTC; cutoff now per-table UTC vs local date."
 - id: ROOM-DIALOGS-USABILITY-SWEEP-1
   disposition_2026_10_14: "done (Soak Exit sweep 10-14)."
   organic_evidence_2026_10_14: "Shipped in v5.103.26 (2026-09-29, \"room settings dialogs cleaned up\"), README Validated 2026-09-30 table PASS on the boot/watchdog items; the only not-re-checked row (L6 Fan Mode on Controls) belongs to a different item. Card next still said BUILD: CARD-WAS-WRONG (stale after the deploy auto-move). 15 days organic with no reported dialog regressions."
