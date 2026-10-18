@@ -478,8 +478,15 @@ class TestD1_HVACTier:
         # tests replace dt_util); 100y buffer swamps any wall-clock
         # skew that pollution might introduce.
         from datetime import timedelta
+        # TEST-HARNESS D7: really the SAME dt_util production reads — the
+        # controller's own module global — not this file's import-time
+        # binding, which differed (aware vs naive) once other files had
+        # swapped `homeassistant.util.dt`; the comparison then raised
+        # TypeError, production cleared the cooldown, and the fan turned on
+        # (red in the full suite, green alone).
+        _prod_dt = type(ctrl).update.__globals__["dt_util"]
         rf.manual_off_cooldown_until = (
-            dt_util.now() + timedelta(days=365 * 100)
+            _prod_dt.now() + timedelta(days=365 * 100)
         ).isoformat()
         ctrl._house_state = "home_night"
         _run(ctrl.update(None, house_state="sleep"))

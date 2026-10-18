@@ -383,6 +383,29 @@ class TestValidateEnvoyConfig:
     # any critical derived entity (V4 keys = NET_POWER, SOLAR, LIFETIME_*).
     GOOD_ENVOY = f"sensor.envoy_{SERIAL}_battery_capacity"
 
+    @pytest.fixture(autouse=True)
+    def _d7_truthy_entity_registry(self, monkeypatch):
+        """Pin the registry these tests are written against, per test.
+
+        TEST-HARNESS D7: the docstrings below rely on "this file's
+        MagicMock-stubbed entity_registry (every lookup returns truthy)",
+        but the stub was a `setdefault` that never lands under real HA — the
+        tests only saw a truthy registry by whatever another file left on
+        `entity_registry.async_get` (green alone, red in the suite once a
+        foreign `async_get` returning None was resident). Production's
+        `_entity_in_registry` still runs; only the registry it reads is pinned.
+        """
+        import homeassistant.helpers as _helpers
+
+        targets = []
+        for _m in (sys.modules.get("homeassistant.helpers.entity_registry"),
+                   getattr(_helpers, "entity_registry", None)):
+            if _m is not None and all(_m is not _t for _t in targets):
+                targets.append(_m)
+        for _m in targets:
+            monkeypatch.setattr(_m, "async_get", lambda hass: MagicMock(), raising=False)
+        yield
+
     def _all_critical_present(self) -> dict[str, str]:
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
             ENVOY_REQUIRED_DERIVED_KEYS,

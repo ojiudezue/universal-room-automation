@@ -142,102 +142,117 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
-for _name, _attrs in _ha_mods.items():
-    if isinstance(_attrs, dict):
-        _existing = sys.modules.get(_name)
-        if _existing is None:
-            sys.modules[_name] = _mock_module(_name, **_attrs)
+# TEST-HARNESS D7: everything below that installs into sys.modules OR writes
+# attributes onto pre-existing (real) HA modules is scoped: undone on exit of
+# the block, re-applied only while THIS module's tests run. It used to rewrite
+# real `homeassistant.core.callback`/`HomeAssistant`, `entity_registry.
+# async_get`, the event helpers, and replace `homeassistant.util.dt` for the
+# whole session — the collection-time donor of test_dp_drain_target_value_stamp
+# (5), test_evse_drain_precedence_session_b2b_i (1) / b2b_ii (1) / b2c2_fixup (2).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+with _d7_import_scope(attrs=True) as _D7_INSTALLED:
+    for _name, _attrs in _ha_mods.items():
+        if isinstance(_attrs, dict):
+            _existing = sys.modules.get(_name)
+            if _existing is None:
+                sys.modules[_name] = _mock_module(_name, **_attrs)
+            else:
+                for _k, _v in _attrs.items():
+                    setattr(_existing, _k, _v)
         else:
-            for _k, _v in _attrs.items():
-                setattr(_existing, _k, _v)
+            sys.modules.setdefault(_name, _attrs)
+
+    sys.modules["homeassistant.util.dt"] = _dt_mock
+
+    sys.modules.setdefault("aiosqlite", MagicMock())
+
+
+    # ---------------------------------------------------------------------------
+    # Load the REAL custom_components.universal_room_automation package by
+    # pointing the package stub's ``__path__`` at the on-disk directory so
+    # ``from .cover_ownership`` and friends resolve.
+    # ---------------------------------------------------------------------------
+
+    _project_root = os.path.join(os.path.dirname(__file__), "..", "..")
+    _ura_root = os.path.abspath(os.path.join(
+        _project_root, "custom_components", "universal_room_automation",
+    ))
+
+    _cc_pkg_name = "custom_components"
+    if _cc_pkg_name not in sys.modules:
+        _cc_pkg = _mock_module(_cc_pkg_name)
+        _cc_pkg.__path__ = [os.path.abspath(os.path.join(_project_root, "custom_components"))]
+        sys.modules[_cc_pkg_name] = _cc_pkg
     else:
-        sys.modules.setdefault(_name, _attrs)
+        sys.modules[_cc_pkg_name].__path__ = [
+            os.path.abspath(os.path.join(_project_root, "custom_components")),
+        ]
 
-sys.modules["homeassistant.util.dt"] = _dt_mock
-
-sys.modules.setdefault("aiosqlite", MagicMock())
-
-
-# ---------------------------------------------------------------------------
-# Load the REAL custom_components.universal_room_automation package by
-# pointing the package stub's ``__path__`` at the on-disk directory so
-# ``from .cover_ownership`` and friends resolve.
-# ---------------------------------------------------------------------------
-
-_project_root = os.path.join(os.path.dirname(__file__), "..", "..")
-_ura_root = os.path.abspath(os.path.join(
-    _project_root, "custom_components", "universal_room_automation",
-))
-
-_cc_pkg_name = "custom_components"
-if _cc_pkg_name not in sys.modules:
-    _cc_pkg = _mock_module(_cc_pkg_name)
-    _cc_pkg.__path__ = [os.path.abspath(os.path.join(_project_root, "custom_components"))]
-    sys.modules[_cc_pkg_name] = _cc_pkg
-else:
-    sys.modules[_cc_pkg_name].__path__ = [
-        os.path.abspath(os.path.join(_project_root, "custom_components")),
-    ]
-
-_ura_pkg_name = "custom_components.universal_room_automation"
-if _ura_pkg_name not in sys.modules:
-    _ura_pkg = _mock_module(_ura_pkg_name)
-    _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
-    _ura_pkg.__path__ = [_ura_root]
-    sys.modules[_ura_pkg_name] = _ura_pkg
-else:
-    sys.modules[_ura_pkg_name].__path__ = [_ura_root]
+    _ura_pkg_name = "custom_components.universal_room_automation"
+    if _ura_pkg_name not in sys.modules:
+        _ura_pkg = _mock_module(_ura_pkg_name)
+        _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+        _ura_pkg.__path__ = [_ura_root]
+        sys.modules[_ura_pkg_name] = _ura_pkg
+    else:
+        sys.modules[_ura_pkg_name].__path__ = [_ura_root]
 
 
-def _load_module(full_name: str, filepath: str) -> types.ModuleType:
-    spec = importlib.util.spec_from_file_location(full_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    def _load_module(full_name: str, filepath: str) -> types.ModuleType:
+        spec = importlib.util.spec_from_file_location(full_name, filepath)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[full_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
 
 
-_const_full = "custom_components.universal_room_automation.const"
-if _const_full not in sys.modules:
-    _load_module(_const_full, os.path.join(_ura_root, "const.py"))
+    _const_full = "custom_components.universal_room_automation.const"
+    if _const_full not in sys.modules:
+        _load_module(_const_full, os.path.join(_ura_root, "const.py"))
 
-_automation_full = "custom_components.universal_room_automation.automation"
-if _automation_full not in sys.modules:
-    _load_module(_automation_full, os.path.join(_ura_root, "automation.py"))
+    _automation_full = "custom_components.universal_room_automation.automation"
+    if _automation_full not in sys.modules:
+        _load_module(_automation_full, os.path.join(_ura_root, "automation.py"))
 
 
-import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
-from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402
-from custom_components.universal_room_automation._humidity_gate import (  # noqa: E402
-    humidity_venting_enabled,
-)
-from custom_components.universal_room_automation.const import (  # noqa: E402
-    CONF_HUMIDITY_FANS,
-    CONF_HUMIDITY_FAN_THRESHOLD,
-    CONF_HUMIDITY_FAN_TIMEOUT,
-    CONF_HUMIDITY_FAN_MAX_RUNTIME,
-    CONF_HUMIDITY_FAN_CONTROL_ENABLED,
-    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED,
-    CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
-    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
-    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
-    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
-    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
-    CONF_MOTION_SENSORS,
-    CONF_OCCUPANCY_SENSORS,
-    CONF_WET_ROOM,
-    CONF_FAN_SLEEP_POLICY,
-    FAN_SLEEP_OFF,
-    HUMIDITY_FAN_REASSERT_INTERVAL_S,
-    HUMIDITY_FAN_MANUAL_OFF_RESPECT_S,
-    DEFAULT_HUMIDITY_FAN_HYSTERESIS,
-)
+    import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
+    from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402
+    from custom_components.universal_room_automation._humidity_gate import (  # noqa: E402
+        humidity_venting_enabled,
+    )
+    from custom_components.universal_room_automation.const import (  # noqa: E402
+        CONF_HUMIDITY_FANS,
+        CONF_HUMIDITY_FAN_THRESHOLD,
+        CONF_HUMIDITY_FAN_TIMEOUT,
+        CONF_HUMIDITY_FAN_MAX_RUNTIME,
+        CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+        CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_ENABLED,
+        CONF_HUMIDITY_FAN_OCCUPANCY_DWELL_S,
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+        CONF_MOTION_SENSORS,
+        CONF_OCCUPANCY_SENSORS,
+        CONF_WET_ROOM,
+        CONF_FAN_SLEEP_POLICY,
+        FAN_SLEEP_OFF,
+        HUMIDITY_FAN_REASSERT_INTERVAL_S,
+        HUMIDITY_FAN_MANUAL_OFF_RESPECT_S,
+        DEFAULT_HUMIDITY_FAN_HYSTERESIS,
+    )
 
-_automation_dt_util = _automation_mod.dt_util
-_automation_mod.SERVICE_TURN_ON = "turn_on"
-_automation_mod.SERVICE_TURN_OFF = "turn_off"
-_automation_mod.STATE_ON = "on"
-_automation_mod.STATE_OFF = "off"
+    _automation_dt_util = _automation_mod.dt_util
+    _automation_mod.SERVICE_TURN_ON = "turn_on"
+    _automation_mod.SERVICE_TURN_OFF = "turn_off"
+    _automation_mod.STATE_ON = "on"
+    _automation_mod.STATE_OFF = "off"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 # ---------------------------------------------------------------------------

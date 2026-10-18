@@ -456,10 +456,6 @@ def _install_full_ha_stubs():
     _stub("homeassistant.components.switch", {"SwitchEntity": type("S", (), {})})
 
 
-_install_full_ha_stubs()
-_install_ura_stub_package()
-
-
 def _register_const_under_package_name():
     """Register the real const module under
     `custom_components.universal_room_automation.const` so relative
@@ -476,7 +472,23 @@ def _register_const_under_package_name():
             "const", mod)
 
 
-_register_const_under_package_name()
+# TEST-HARNESS D7: the stub install is scoped. It used to leave placeholder
+# `custom_components.universal_room_automation` / `.domain_coordinators`
+# packages (no __file__), a const and a transit_validator loaded against them
+# in sys.modules for every later file. Now restored on exit of the block and
+# re-installed only while THIS module's tests run (they load
+# transit_validator lazily against the same stubs).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+with _d7_import_scope() as _D7_INSTALLED:
+    _install_full_ha_stubs()
+    _install_ura_stub_package()
+    _register_const_under_package_name()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 def _load_transit_validator_module():

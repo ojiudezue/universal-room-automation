@@ -160,6 +160,11 @@ _ura_pkg_name = "custom_components.universal_room_automation"
 if _ura_pkg_name not in sys.modules:
     _ura_pkg = _mock_module(_ura_pkg_name)
     _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+    # TEST-HARNESS D7: a real __path__ so automation.py's relative imports
+    # (.cover_ownership, ...) resolve. The empty one only worked when an
+    # earlier file (test_ac_ramp_master_option_persistence) had left ITS
+    # package — with a usable __path__ — resident for the session.
+    _ura_pkg.__path__ = [_ura_root]
     sys.modules[_ura_pkg_name] = _ura_pkg
 
 _const_full = "custom_components.universal_room_automation.const"
