@@ -32281,15 +32281,17 @@ cards:
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "DO: revive or replace the Study A Athom (second sensor) and/or re-tune the ZK -> I re-run P3 for Study A; if phantom-free it can join the Away veto rooms. Default if no action: Study A stays excluded from the veto."
 - id: EXERCISE-ROOM-ZK-NEVER-ON-1
-  title: "Exercise Room's ZK presence radar never turned on in 7.2 days; the room's occupancy is motion-sourced only (31 of 33 entries), so a still person is not held"
+  title: "Exercise Room's 24 GHz presence radar never turned on in 7 days (reports, never detects); the room's occupancy is motion-sourced only (31 of 33 entries), so a still person is not held"
   thread: presence
-  status: investigating
+  status: waiting_operator
   tier: 1
   created: "2026-10-18"
   refinement_status: initial
   origin: "Probe P3 2026-10-18 (AUDIT_census_arc_and_away_holistic.md)"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "Measure: is the ZK entity alive (state history, linkquality, last_seen) and wired in room config? Then config fix or hardware DO for operator."
+  measured_2026_10_18: "Config is RIGHT: Exercise Room presence_sensors = binary_sensor.mmwave_zigbee_gameroom_presence, which is the Exercise Room's own 24 GHz radar (device Mmwave_Zigbee_ExcerciseRoom, area exercise_room; only the entity_id says gameroom). Recorder 10-11..10-17: 23 off / 25 unavailable / 14 unknown rows, ZERO on, last update 10-17 22:00. Only changes are restart unavailable/unknown cycles, so it reports but never detects: stuck-off or mis-tuned, not unwired. The ZV in the room is motion-class and filed correctly."
+  status_note: "moved to waiting_operator"
+  next: "VERIFY: stand still in the Exercise Room for ~1 min and see if binary_sensor.mmwave_zigbee_gameroom_presence goes on (or re-pair / power-cycle it, hardware) -> if it never fires I card a replacement; if it fires I re-run P3 for the room."
 - id: MASTER-BATH-NO-TRUSTED-PRESENCE-1
   title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
   thread: presence
