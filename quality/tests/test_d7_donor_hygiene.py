@@ -129,6 +129,12 @@ DONOR_VICTIMS: dict[str, list[str]] = {
     "test_perimeter_alert_nm_routing.py": [
         "test_exterior_cycle2.py::test_vehicle_in_flight_guard_dedups_fused_edges",
     ],
+    # Run-time donor: pops `...domain_coordinators.presence` from sys.modules,
+    # so a later `from ... import presence` yields a NEW module object. Fixed
+    # victim-side (v4715 now patches the coordinator's own globals).
+    "test_oc_pillar_a_handshake.py": [
+        "test_v4715_universalize_veto.py::TestD3InferenceOrchestration::test_guest_exit_fires_after_sustained_quiet",
+    ],
 }
 
 
@@ -232,6 +238,39 @@ def test_drill_beneficiary_fix_reverted_goes_red(target):
         swap_to=swap_to,
         anchor_test_file=_TESTS / target,
         anchor_test_name=anchor,
+        expect="KILLED",
+        timeout=600,
+    )
+
+
+# Victim-side fixes anchored by a donor->victim pair: revert the victim's fix
+# in a sandbox copy -> the pair goes RED.
+_V4715_FIX = (
+    'with _patch.dict(PresenceCoordinator._run_inference.__globals__, '
+    '{"dt_util": _mock_dt}):'
+)
+_V4715_REVERT = (
+    "from custom_components.universal_room_automation.domain_coordinators "
+    "import presence as _pm\n        with _patch.object(_pm, 'dt_util', _mock_dt):"
+)
+_VICTIM_SIDE_DRILLS = {
+    "test_v4715_universalize_veto.py": (
+        lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
+        "test_oc_pillar_a_handshake.py",
+    ),
+}
+
+
+@pytest.mark.source_mutation
+@pytest.mark.parametrize("target", sorted(_VICTIM_SIDE_DRILLS))
+def test_drill_victim_fix_reverted_pair_goes_red(target):
+    mutator, donor = _VICTIM_SIDE_DRILLS[target]
+    victim = next(v for v in DONOR_VICTIMS[donor] if v.startswith(target))
+    apply_mutation_in_sandbox(
+        _TESTS / target,
+        mutator=mutator,
+        anchor_test_file=_HERE,
+        anchor_test_name=f"test_victim_green_after_donor[{donor}-{victim}]",
         expect="KILLED",
         timeout=600,
     )
