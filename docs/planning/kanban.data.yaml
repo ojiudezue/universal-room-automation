@@ -125,6 +125,36 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: true
 cards:
+- id: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1
+  title: "Deleting a zone leaves 4 HVAC AC-reset/ramp sensors orphaned (and the delete preview undercounts)"
+  status: planned
+  tier: 1
+  thread: test-strategy
+  created: 2026-10-17 23:40
+  origin: "Test Wave 1 D5 audit (AUDIT_test_wave1_d5_possible_defects.md), a real defect hiding in the 120 failing tests"
+  why: "sensor.py:18658/18690/18721/18760 create hvac_ac_reset_{day_count,night_count,last_outcome}_{zone_id} + hvac_ac_ramp_durability_rate_{zone_id}; the cleanup prefix list at config_flow.py:11657 omits them. Live registry has 12 (4 per zone_1..3). Swept board: no duplicate (SENSCAP-ORPHAN-1 is a different surface)."
+  next: "Add the four prefixes with exact/delimited matching (zone_1 is a prefix of zone_10); un-fail the existing test; Tier 1."
+  links: {parent: TEST-STRATEGY-REARCH-1}
+- id: INIT-UNTRACKED-TASK-4211-1
+  title: "Untracked hass.async_create_task in async_setup_entry (__init__.py:~4211) is not cancelled on unload/reload"
+  status: planned
+  tier: 1
+  thread: test-strategy
+  created: 2026-10-17 23:40
+  origin: "Test Wave 1 D5 audit (AUDIT_test_wave1_d5_possible_defects.md), a real defect hiding in the 120 failing tests"
+  why: "Created inside async_setup_entry with entry in scope; file uses entry.async_create_background_task elsewhere. No user-visible effect found (needs a rejected tou_rates.json to fire)."
+  next: "Switch to entry.async_create_background_task; un-fail the existing test; Tier 1."
+  links: {parent: TEST-STRATEGY-REARCH-1}
+- id: DEPLOY-DUALPUSH-SIGINT-TRAP-1
+  title: "Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends"
+  status: planned
+  tier: 1
+  thread: test-strategy
+  created: 2026-10-17 23:40
+  origin: "Test Wave 1 D5 audit (AUDIT_test_wave1_d5_possible_defects.md), a real defect hiding in the 120 failing tests"
+  why: "test_deploy_scripts SIGINT-trap test fails whenever gtimeout is on PATH; likely gtimeout wrapper in dual-push.sh delays the trap until the sleep child exits (not traced)."
+  next: "Trace the trap under gtimeout; make the cleanup run on SIGINT regardless; Tier 1."
+  links: {parent: TEST-STRATEGY-REARCH-1}
 - id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
   title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
   thread: identity
