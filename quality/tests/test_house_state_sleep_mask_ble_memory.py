@@ -1679,6 +1679,34 @@ def test_wigton_shape_multi_sensor_master_rollover_holds(monkeypatch, clock):
         clock.advance(60)
 
 
+def test_wigton_shape_multi_sensor_master_ends_via_waking(monkeypatch, clock):
+    """INV-SLEEP-HOLD-BOUNDED (b) when the tracker view was WIPED by a ZV
+    off-edge but the ZX still holds: past 06:00 the WAKING gate sees the
+    same night signal and the house leaves SLEEP."""
+    w, h = _wigton(monkeypatch, clock)
+    t = w.trackers["Master Suite"]
+    t.register_entity(WIG_MASTER_ZV, "Master Bedroom")
+    w.states[WIG_MASTER] = _State("on")
+    w.states[WIG_MASTER_ZV] = _State("off")
+    t.update_room_occupancy("Master Bedroom", True, kind="motion")
+    t.update_room_occupancy("Master Bedroom", False, kind="motion")
+    assert t.raw_occupied is False          # tracker view lost the room
+    clock.t = datetime(2026, 10, 18, 5, 58, tzinfo=timezone.utc)
+    states = []
+    for _ in range(8):
+        h.tick()
+        states.append(w.tick())
+        clock.advance(60)
+    # SLEEP is left via WAKING (not via a nobody-home AWAY from SLEEP).
+    assert HS.WAKING in states
+    first_exit = next(s for s in states if s != HS.SLEEP)
+    assert first_exit == HS.WAKING
+    # NOTE (carded ZONE-TRACKER-PER-SENSOR-WIPE-1, out of scope): once the
+    # zones unpin, daytime nobody-home reads the same lossy tracker view and
+    # may go AWAY with the ZX still on — the pre-existing daytime half of
+    # review D-H1, deliberately not changed by this cycle.
+
+
 def test_wigton_shape_no_bermuda_inert(monkeypatch, clock):
     """D2 on/off give identical results (STALE needs a Bermuda fix)."""
     def _trace(kill):
