@@ -685,7 +685,12 @@ class ZonePresenceTracker:
             is omitted because the prior bool was a full-room clear
             too). See ``update_room_occupancy`` for the call-site
             comment.
-        Net: the derived OR is "stronger on True, equivalent on False"
+        Sleep-mask Rev 3 (ledger #20): "equivalent on False" was WRONG
+        for multi-sensor rooms. With ``const.ZONE_OCCUPANCY_PER_ENTITY_
+        ENABLED`` on, a kind-specific False clears only that kind, so this
+        view is occupied iff any registered sensor reads ``on`` (plus the
+        hold). The paragraph below describes the switch-off semantics.
+        Net (switch off): the derived OR is "stronger on True, equivalent on False"
         relative to the pre-split bool — NOT uniformly stronger. The
         original "strictly stronger" phrasing in
         ``PLANNING_presence_provenance_split_and_fan_diagnostic.md`` D2
@@ -845,8 +850,17 @@ class ZonePresenceTracker:
             pre-split "we don't know which kind" case while keeping the
             derived OR returning True. Used only by callers that have
             not (yet) classified the firing entity.
-          * ``occupied=False`` (any kind, including None): CLEAR ALL
-            kinds for the room. Matches today's collapse semantic.
+          * ``occupied=False``: with ``const.ZONE_OCCUPANCY_PER_ENTITY_
+            ENABLED`` on and ``kind`` in TIER1_KINDS, clears ONLY that kind
+            (sleep-mask Rev 3 D4b; the substrate sends kind k False only
+            when every sensor of kind k is off). ``kind=None`` False, or
+            the switch off, CLEARS ALL kinds for the room (the pre-Rev-3
+            collapse).
+          * ``_last_kind_per_room`` (display: ``last_kind_to_fire``) is
+            popped only when the room is fully empty; after a partial
+            clear it may still name the kind just cleared — accepted by
+            name (review A-L2): it means "last kind whose rising edge
+            fired", not "a kind that is on now".
 
         See :func:`_classify_entity_kind` for how the seed loop and
         ``_handle_occupancy_change`` derive ``kind``.
@@ -894,6 +908,7 @@ class ZonePresenceTracker:
             # distinguishably (the state-change callback only knows the
             # ENTITY that fired, not the type — and the prior bool was a
             # full-room clear too).
+            # (Switch-off / kind=None path only — see the D4b branch above.)
             # R1-H1 fix-up: the derived `_room_occupied` is therefore
             # "stronger on True, equivalent on False" relative to the
             # pre-split bool — see the `_room_occupied` docstring + the
@@ -2360,6 +2375,14 @@ class PresenceCoordinator(BaseCoordinator):
             return
         for tracker in self._zone_trackers.values():
             for room_name in list(tracker.room_names):
+                # Review B-H1 / A-M1 / D-M1: a room listed in TWO zones is
+                # owned by ONE tracker (`tracker_for_room`, first-writer over
+                # `_room_to_zone`) — the only one that receives its live
+                # edges, the boot replay and the discovery seed. Writing the
+                # other tracker would leave it stuck occupied (no later
+                # False edge ever reaches it).
+                if self.tracker_for_room(room_name) is not tracker:
+                    continue
                 want = substrate.get_room_kinds(room_name)
                 have = tracker._room_provenance.get(room_name, {})
                 for kind in TIER1_KINDS:
@@ -4100,15 +4123,13 @@ class PresenceCoordinator(BaseCoordinator):
             rooms = {r for r, occ in tracker._room_occupied.items() if occ}
         except Exception:  # noqa: BLE001 — fail toward holding
             return ["<error>"]
-        # Review D-H1: the tracker's room view is edge-maintained and LOSSY
-        # for multi-sensor rooms — one sensor's off-edge wipes every kind
-        # (update_room_occupancy False = full-room clear) and the substrate
-        # is last-writer per (room, kind). A ZX holding a still sleeper
-        # while a ZV pulses then clears would read empty. So the room limb
-        # ORs in the LIVE state of every Tier-1 entity registered to the
-        # room (tracker._entity_to_room, filled from the room's CONF lists
-        # at discovery). The tracker/substrate semantics are carded
-        # separately (ZONE-TRACKER-PER-SENSOR-WIPE-1).
+        # Review D-H1 workaround — SWITCH-OFF ONLY. With the per-entity
+        # switch off the tracker's room view is edge-maintained and lossy
+        # for multi-sensor rooms (full-room clear on any off-edge,
+        # last-writer substrate), so this limb ORs in the LIVE state of
+        # every Tier-1 entity registered to the room. With the switch on
+        # the tracker equals live sensor truth (INV-NIGHT-RAW-EQUALS-RAW)
+        # and the limb is skipped.
         # Rev 3.1 R3.1.1 (kill-switch byte-identity): with the per-entity
         # switch ON the tracker view IS live sensor truth (D4a/D4b,
         # INV-NIGHT-RAW-EQUALS-RAW), so this limb is skipped; with it OFF
@@ -4241,6 +4262,11 @@ class PresenceCoordinator(BaseCoordinator):
         overridden = bool(getattr(machine, "is_overridden", False))
         tier1_rooms: List[str] = []
         for tracker in self._zone_trackers.values():
+            # Reviews A-L3 / B-L2: only a zone that actually reads OCCUPIED
+            # (and so sets `any_zone_occupied`) can contribute its Tier-1
+            # holder — not an AWAY-overridden zone with a stale True slot.
+            if tracker.mode != ZonePresenceMode.OCCUPIED:
+                continue
             for room_name, kinds in tracker._room_provenance.items():
                 if any(bool(v) for v in kinds.values()):
                     tier1_rooms.append(room_name)
