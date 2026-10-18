@@ -12,7 +12,18 @@ import importlib.util
 import pathlib
 import sys
 
+import os
+
 import pytest
+
+# Cost gate (D7 slice 2): every case below spawns pytest subprocesses
+# (~6-19 s each). One planted-pair case stays in the default run as the
+# tool's smoke anchor; the rest are opt-in with URA_D7_HYGIENE=1 (the same
+# switch as the donor-hygiene subprocess anchors).
+_opt_in = pytest.mark.skipif(
+    os.environ.get("URA_D7_HYGIENE", "").strip().lower() not in ("1", "true", "yes", "on"),
+    reason="subprocess self-test of collect_order_matrix; opt in with URA_D7_HYGIENE=1",
+)
 
 _TOOL = pathlib.Path(__file__).resolve().parents[1] / "tools" / "collect_order_matrix.py"
 
@@ -76,6 +87,7 @@ def test_run_order_reports_victim_only_when_donor_precedes(tool, planted):
     assert tool.victims_of(before, after) == [vic]
 
 
+@_opt_in
 def test_find_donor_names_exactly_the_planted_donor(tool, planted):
     prefix = [
         "test_d7_filler0.py", "test_d7_filler1.py", "test_d7_filler2.py",
@@ -102,6 +114,7 @@ def test_runtime_victim():
 """
 
 
+@_opt_in
 def test_find_donor_falls_back_to_execution_for_runtime_leak(tool, planted, monkeypatch):
     monkeypatch.delenv("D7_RUNTIME_LEAK", raising=False)
     (planted / "test_d7_rdonor.py").write_text(RUNTIME_DONOR)
@@ -114,6 +127,7 @@ def test_find_donor_falls_back_to_execution_for_runtime_leak(tool, planted, monk
     assert tool.find_donor(prefix, vic, sys.executable, planted) == ["test_d7_rdonor.py"]
 
 
+@_opt_in
 def test_find_donor_not_reproduced_without_donor(tool, planted):
     prefix = ["test_d7_filler0.py", "test_d7_filler1.py"]
     assert tool.find_donor(
@@ -121,6 +135,7 @@ def test_find_donor_not_reproduced_without_donor(tool, planted):
     ) == []
 
 
+@_opt_in
 def test_collection_error_is_reported_as_failure(tool, planted):
     (planted / "test_d7_broken.py").write_text("import d7_module_that_does_not_exist\n")
     res = tool.run_order(["test_d7_broken.py", "test_d7_filler0.py"], sys.executable, planted)
@@ -128,6 +143,7 @@ def test_collection_error_is_reported_as_failure(tool, planted):
     assert res["test_d7_filler0.py::test_filler_0"] == "passed"
 
 
+@_opt_in
 def test_run_matrix_finds_donor_in_reversed_order(tool, planted):
     class A:
         seeds: list = []
@@ -174,6 +190,7 @@ def test_clean(monkeypatch):
 """
 
 
+@_opt_in
 def test_leak_census_names_planted_collect_and_run_leaks(tool, planted):
     (planted / "d7leakpkg").mkdir()
     (planted / "d7leakpkg" / "__init__.py").write_text(LEAK_PKG_INIT)
