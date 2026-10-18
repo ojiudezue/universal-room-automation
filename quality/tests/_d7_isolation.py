@@ -14,6 +14,15 @@ unaffected. Not a conftest fixture on purpose: the broad conftest-level
 restore was tried and reverted (exposed 87 failures); D7 fixes one donor
 file at a time.
 
+Known limit (review s1 A-LOW-2): the snapshot is by IDENTITY. An in-place
+mutation of an object that already existed (``const.SOME_DICT["k"] = v``,
+``some_list.append(x)``) keeps the same object id, so neither the sys.modules
+restore nor ``attrs=True`` sees it and it is NOT undone. A donor that
+mutates in place needs its own monkeypatch (``monkeypatch.setitem``) or a
+copy. ``import_scope(..., guard=True)`` turns the common case (a dict / list
+/ set attribute of a pre-existing module under the prefixes changed in
+place) into a loud ``RuntimeError`` at scope exit instead of a silent leak.
+
 ``installed`` (returned by the context manager) holds what the block put in,
 so a module-scoped fixture can re-install it while the file's tests run when
 production code does lazy imports at call time (``reinstall``).
@@ -50,8 +59,37 @@ def _vars(mod):
         return None
 
 
+_CONTAINERS = (dict, list, set)
+
+
+def _container_snapshot(mods: dict) -> dict:
+    snap = {}
+    for k, m in mods.items():
+        d = _vars(m)
+        if not d:
+            continue
+        for a, v in d.items():
+            if type(v) in _CONTAINERS:
+                try:
+                    snap[(k, a)] = (v, type(v)(v))
+                except Exception:  # noqa: BLE001 - unhashable/odd: skip
+                    continue
+    return snap
+
+
+def _container_changes(snap: dict) -> list[str]:
+    changed = []
+    for (k, a), (obj, copy) in snap.items():
+        try:
+            if obj != copy:
+                changed.append(f"{k}.{a}")
+        except Exception:  # noqa: BLE001
+            continue
+    return changed
+
+
 @contextmanager
-def import_scope(prefixes=DEFAULT_PREFIXES, attrs=False):
+def import_scope(prefixes=DEFAULT_PREFIXES, attrs=False, guard=False):
     """Restore sys.modules keys under ``prefixes`` on exit.
 
     attrs=True additionally restores ATTRIBUTE writes the block made onto
@@ -60,10 +98,12 @@ def import_scope(prefixes=DEFAULT_PREFIXES, attrs=False):
     """
     before = {k: v for k, v in list(sys.modules.items()) if _matches(k, prefixes)}
     before_vars = {k: _vars(m) for k, m in before.items()} if attrs else {}
+    containers = _container_snapshot(before) if guard else {}
     installed = Installed()
     try:
         yield installed
     finally:
+        mutated = _container_changes(containers) if guard else []
         after = {k: v for k, v in list(sys.modules.items()) if _matches(k, prefixes)}
         for k, v in after.items():
             if before.get(k) is not v:
@@ -90,6 +130,46 @@ def import_scope(prefixes=DEFAULT_PREFIXES, attrs=False):
         for k, v in before.items():
             if sys.modules.get(k) is not v:
                 sys.modules[k] = v
+        _restore_parent_attrs(before, after)
+        if mutated:
+            raise RuntimeError(
+                "import_scope(guard=True): in-place mutation of a pre-existing "
+                "module container is not restorable by import_scope: "
+                + ", ".join(sorted(mutated))
+            )
+
+
+def _restore_parent_attrs(before: dict, after: dict) -> None:
+    """Undo the submodule attribute the import system binds on a parent.
+
+    ``import a.b`` sets ``a.b`` as an attribute of package ``a``. Restoring
+    sys.modules alone leaves that attribute on a parent that outlives the
+    scope, so ``from a import b`` would bind a different object than
+    ``sys.modules['a.b']`` (review s1 B-LOW / A-LOW-1). Applies with
+    attrs=False too. Only an attribute that still points at the object the
+    scope left behind is touched.
+    """
+    for k, v in after.items():
+        if before.get(k) is v:
+            continue
+        parent_name, _, child = k.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is None or not child:
+            continue
+        try:
+            current = vars(parent).get(child, _MISSING)
+        except TypeError:
+            continue
+        if current is not v:
+            continue
+        old = before.get(k, _MISSING)
+        try:
+            if old is _MISSING:
+                delattr(parent, child)
+            else:
+                setattr(parent, child, old)
+        except (AttributeError, TypeError):
+            pass
 
 
 def reinstall(installed: dict, prefixes=DEFAULT_PREFIXES):

@@ -142,3 +142,50 @@ def test_run_matrix_finds_donor_in_reversed_order(tool, planted):
     assert table == [
         ("reverse", "test_d7_donor.py", "test_d7_victim.py::test_victim_needs_clean_env")
     ]
+
+
+# --- --leak-census (D7 slice 2) ---------------------------------------------
+
+LEAK_PKG_INIT = "VALUE = 1\nOTHER = 1\n"
+LEAK_FIRST = """
+import d7leakpkg  # noqa: F401  (pre-existing module for the donors below)
+
+def test_first():
+    assert True
+"""
+LEAK_COLLECT_DONOR = """
+import d7leakpkg
+d7leakpkg.VALUE = 2   # import-time write, never restored
+
+def test_c():
+    assert True
+"""
+LEAK_RUN_DONOR = """
+import d7leakpkg
+
+def test_r():
+    d7leakpkg.OTHER = 3   # test-body write, never restored
+"""
+LEAK_CLEAN = """
+import d7leakpkg
+
+def test_clean(monkeypatch):
+    monkeypatch.setattr(d7leakpkg, "VALUE", 9)   # restored by monkeypatch
+"""
+
+
+def test_leak_census_names_planted_collect_and_run_leaks(tool, planted):
+    (planted / "d7leakpkg").mkdir()
+    (planted / "d7leakpkg" / "__init__.py").write_text(LEAK_PKG_INIT)
+    (planted / "test_d7_lfirst.py").write_text(LEAK_FIRST)
+    (planted / "test_d7_lcollect.py").write_text(LEAK_COLLECT_DONOR)
+    (planted / "test_d7_lrun.py").write_text(LEAK_RUN_DONOR)
+    (planted / "test_d7_lclean.py").write_text(LEAK_CLEAN)
+    report = tool.leak_census(
+        ["test_d7_lfirst.py", "test_d7_lclean.py", "test_d7_lcollect.py", "test_d7_lrun.py"],
+        sys.executable, planted, prefixes=("d7leakpkg",),
+    )
+    assert report["test_d7_lcollect.py"] == {"collect": ["~attr d7leakpkg.VALUE"]}
+    assert report["test_d7_lrun.py"] == {"run": ["~attr d7leakpkg.OTHER"]}
+    assert report["test_d7_lfirst.py"] == {"collect": ["+mod d7leakpkg"]}
+    assert "test_d7_lclean.py" not in report

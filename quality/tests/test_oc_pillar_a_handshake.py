@@ -175,7 +175,19 @@ def _evict_ura_stubs():
     """Re-mirror the eviction fixture from
     ``test_optimization_coordinator.py`` so sibling-test stubs don't win
     when this file runs alongside ``test_bayesian_predictor`` et al.
+
+    TEST-HARNESS D7: the eviction (and the fresh modules this file's tests
+    import afterwards) is now undone after each test via ``import_scope`` --
+    it used to leave later files with a NEW ``...domain_coordinators.presence``
+    (etc.) object, so their patches on the old one missed.
     """
+    from _d7_isolation import import_scope as _d7_import_scope
+
+    with _d7_import_scope(prefixes=("custom_components",), attrs=True):
+        yield from _evict_ura_stubs_body()
+
+
+def _evict_ura_stubs_body():
     for _modname in list(sys.modules):
         if (
             _modname == "custom_components.universal_room_automation"

@@ -55,6 +55,18 @@ A victim whose failure needs several files is reported as ``<multi:N>`` with
 the reduced set. ``--victim NODEID --files A B ... V`` bisects one victim
 against an explicit prefix (the order given).
 
+Leak census (D7 slice 2)
+------------------------
+``--leak-census`` runs the selected files ONCE (default order) under
+``leak_census_plugin`` and lists, per file, what it left changed in
+``sys.modules`` / module attributes under ``homeassistant`` and
+``custom_components`` -- at collection time and at run time. It names donor
+CANDIDATES without needing a victim; ``--find-donors`` then confirms which
+ones actually turn a later file red::
+
+    ... collect_order_matrix.py --leak-census
+    ... collect_order_matrix.py --leak-census --files quality/tests/test_a.py
+
 Run mode executes tests but writes nothing to the repo (junit XML goes to a
 temporary directory) and never mutates source.
 """
@@ -146,6 +158,50 @@ def run_order(
         if m and not any(file_of(n) == m.group(1) for n in res):
             res[f"{m.group(1)}::<collection>"] = "error"
     return res
+
+
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+
+
+def leak_census(
+    files: list[str], python: str, cwd: pathlib.Path = REPO_ROOT, prefixes: tuple = ()
+) -> dict:
+    """Run ``files`` once under leak_census_plugin; return its JSON report
+    ({file: {"collect": [...], "run": [...]}})."""
+    import json
+    import os
+
+    with tempfile.TemporaryDirectory(prefix="leak_census_") as tmp:
+        out = pathlib.Path(tmp) / "leaks.json"
+        env = {
+            **_base_env(), "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join(["quality", str(TOOLS_DIR)]),
+            "LEAK_CENSUS_OUT": str(out),
+        }
+        if prefixes:
+            env["LEAK_CENSUS_PREFIXES"] = ",".join(prefixes)
+        subprocess.run(
+            [python, "-m", "pytest", *files, "-q", "-p", "no:cacheprovider",
+             "-p", "no:randomly", "-p", "leak_census_plugin",
+             "--continue-on-collection-errors"],
+            cwd=cwd, capture_output=True, text=True, env=env,
+        )
+        if not out.exists():
+            return {}
+        return json.loads(out.read_text())
+
+
+def run_leak_census(args, files: list[str]) -> int:
+    report = leak_census(files, args.python)
+    print(f"LEAK CENSUS · {len(files)} files · {len(report)} leave residue\n")
+    for f in sorted(report):
+        for phase in ("collect", "run"):
+            entries = report[f].get(phase) or []
+            if entries:
+                print(f"{f} [{phase}] {len(entries)}")
+                for e in entries:
+                    print(f"    {e}")
+    return 1 if report else 0
 
 
 def _parse_junit(xml_path: pathlib.Path) -> dict[str, str]:
@@ -328,6 +384,8 @@ def main() -> int:
     parser.add_argument("--reverse", action="store_true", help="Also run the reversed file order.")
     parser.add_argument("--find-donors", action="store_true", help="Bisect each victim to its donor file.")
     parser.add_argument("--files", nargs="+", help="Restrict to these files (repo-relative, order kept).")
+    parser.add_argument("--leak-census", action="store_true",
+                        help="Run once; list per-file sys.modules/attribute residue.")
     parser.add_argument("--victim", help="Bisect this nodeid against --files (the prefix, in order).")
     parser.add_argument(
         "--python",
@@ -345,6 +403,8 @@ def main() -> int:
         files = list(args.files)
     else:
         files = sorted(str(p.relative_to(REPO_ROOT)) for p in TESTS_DIR.glob("test_*.py"))
+    if args.leak_census:
+        return run_leak_census(args, files)
     if args.victim:
         return run_victim(args, files)
     if args.run or args.find_donors:

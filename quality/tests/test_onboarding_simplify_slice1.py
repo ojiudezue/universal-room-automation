@@ -93,6 +93,57 @@ class _FakeDevReg:
         return self._d.get(dev_id)
 
 
+_D7_REG_MODS = (
+    "homeassistant",
+    "homeassistant.helpers",
+    "homeassistant.helpers.entity_registry",
+    "homeassistant.helpers.device_registry",
+)
+_D7_ABSENT = object()
+
+
+@pytest.fixture(autouse=True)
+def _d7_restore_registries():
+    """TEST-HARNESS D7: undo ``_install_registries`` after each test.
+
+    It writes ``async_get`` onto the REAL entity/device registry modules (and
+    may add placeholder modules); left in place, every later file's
+    ``er.async_get(hass)`` returned this file's fake registry (victims:
+    test_envoy_auto_derive, test_ec_solar_entity_override). Also imported by
+    test_room_create_prefill_filter, which borrows ``_install_registries``.
+    """
+    mods = {k: sys.modules.get(k, _D7_ABSENT) for k in _D7_REG_MODS}
+    attrs = {}
+    for k in _D7_REG_MODS[2:]:
+        m = mods[k]
+        if m is not _D7_ABSENT:
+            attrs[k] = vars(m).get("async_get", _D7_ABSENT)
+    helpers = mods["homeassistant.helpers"]
+    parent_attrs = {}
+    if helpers is not _D7_ABSENT:
+        for child in ("entity_registry", "device_registry"):
+            parent_attrs[child] = vars(helpers).get(child, _D7_ABSENT)
+    yield
+    for k, m in mods.items():
+        if m is _D7_ABSENT:
+            sys.modules.pop(k, None)
+        else:
+            sys.modules[k] = m
+    for k, old in attrs.items():
+        m = mods[k]
+        if old is _D7_ABSENT:
+            if "async_get" in vars(m):
+                delattr(m, "async_get")
+        else:
+            m.async_get = old
+    for child, old in parent_attrs.items():
+        if old is _D7_ABSENT:
+            if child in vars(helpers):
+                delattr(helpers, child)
+        else:
+            setattr(helpers, child, old)
+
+
 def _install_registries(entries, devices=None):
     """Install fake ent/dev registries.
 

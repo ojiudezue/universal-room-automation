@@ -125,128 +125,146 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
-for _name, _attrs in _ha_mods.items():
-    if isinstance(_attrs, dict):
-        _existing = sys.modules.get(_name)
-        if _existing is None:
-            sys.modules[_name] = _mock_module(_name, **_attrs)
+# TEST-HARNESS D7 slice 2: everything below that installs into sys.modules OR
+# writes attributes onto pre-existing (real) HA modules is scoped: undone on
+# exit of the block, re-applied only while THIS module's tests run. It used to
+# rewrite real homeassistant.core / entity_registry.async_get / event helpers
+# and replace homeassistant.util.dt for the whole session -- the second
+# collection-time donor of test_dp_drain_target_value_stamp (5) and the
+# evse_drain_precedence b2b_i / b2b_ii / b2c2_fixup victims (4).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+with _d7_import_scope(attrs=True) as _D7_INSTALLED:
+    for _name, _attrs in _ha_mods.items():
+        if isinstance(_attrs, dict):
+            _existing = sys.modules.get(_name)
+            if _existing is None:
+                sys.modules[_name] = _mock_module(_name, **_attrs)
+            else:
+                for _k, _v in _attrs.items():
+                    setattr(_existing, _k, _v)
         else:
-            for _k, _v in _attrs.items():
-                setattr(_existing, _k, _v)
-    else:
-        sys.modules.setdefault(_name, _attrs)
+            sys.modules.setdefault(_name, _attrs)
 
-sys.modules["homeassistant.util.dt"] = _dt_mock
-sys.modules.setdefault("aiosqlite", MagicMock())
+    sys.modules["homeassistant.util.dt"] = _dt_mock
+    sys.modules.setdefault("aiosqlite", MagicMock())
 
 
-# ---------------------------------------------------------------------------
-# Load production modules
-# ---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Load production modules
+    # ---------------------------------------------------------------------------
 
-_project_root = os.path.join(os.path.dirname(__file__), "..", "..")
-_ura_root = os.path.join(_project_root, "custom_components", "universal_room_automation")
-_dc_root = os.path.join(_ura_root, "domain_coordinators")
+    _project_root = os.path.join(os.path.dirname(__file__), "..", "..")
+    _ura_root = os.path.join(_project_root, "custom_components", "universal_room_automation")
+    _dc_root = os.path.join(_ura_root, "domain_coordinators")
 
-sys.path.insert(0, os.path.abspath(_project_root))
-
-
-def _load_module(full_name: str, filepath: str) -> types.ModuleType:
-    spec = importlib.util.spec_from_file_location(full_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    sys.path.insert(0, os.path.abspath(_project_root))
 
 
-if "custom_components" not in sys.modules:
-    sys.modules["custom_components"] = _mock_module("custom_components")
-if "custom_components.universal_room_automation" not in sys.modules:
-    _ura_pkg = _mock_module("custom_components.universal_room_automation")
-    _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
-    _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
-    sys.modules["custom_components.universal_room_automation"] = _ura_pkg
-_ura_pkg = sys.modules["custom_components.universal_room_automation"]
-if not hasattr(_ura_pkg, "__path__"):
-    _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
+    def _load_module(full_name: str, filepath: str) -> types.ModuleType:
+        spec = importlib.util.spec_from_file_location(full_name, filepath)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[full_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
 
-if "custom_components.universal_room_automation.const" not in sys.modules:
-    _load_module(
-        "custom_components.universal_room_automation.const",
-        os.path.join(_ura_root, "const.py"),
+
+    if "custom_components" not in sys.modules:
+        sys.modules["custom_components"] = _mock_module("custom_components")
+    if "custom_components.universal_room_automation" not in sys.modules:
+        _ura_pkg = _mock_module("custom_components.universal_room_automation")
+        _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+        _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
+        sys.modules["custom_components.universal_room_automation"] = _ura_pkg
+    _ura_pkg = sys.modules["custom_components.universal_room_automation"]
+    if not hasattr(_ura_pkg, "__path__"):
+        _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
+
+    if "custom_components.universal_room_automation.const" not in sys.modules:
+        _load_module(
+            "custom_components.universal_room_automation.const",
+            os.path.join(_ura_root, "const.py"),
+        )
+
+    # domain_coordinators package
+    if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
+        _dc_pkg = _mock_module(
+            "custom_components.universal_room_automation.domain_coordinators",
+        )
+        _dc_pkg.__path__ = [os.path.abspath(_dc_root)]
+        sys.modules[
+            "custom_components.universal_room_automation.domain_coordinators"
+        ] = _dc_pkg
+
+    # Load dependency chain for hvac_fans + house_state (fan_veto needs it)
+    for _submod in ("house_state", "signals", "hvac_const", "hvac_zones", "hvac_fans"):
+        full = f"custom_components.universal_room_automation.domain_coordinators.{_submod}"
+        if full not in sys.modules:
+            _load_module(full, os.path.join(_dc_root, f"{_submod}.py"))
+
+    # fan_veto imports house_state — already loaded above.
+    if "custom_components.universal_room_automation.fan_veto" not in sys.modules:
+        _load_module(
+            "custom_components.universal_room_automation.fan_veto",
+            os.path.join(_ura_root, "fan_veto.py"),
+        )
+
+    # Load automation.py + actuator_reconciler.py
+    if "custom_components.universal_room_automation.automation" not in sys.modules:
+        _load_module(
+            "custom_components.universal_room_automation.automation",
+            os.path.join(_ura_root, "automation.py"),
+        )
+    if "custom_components.universal_room_automation.actuator_reconciler" not in sys.modules:
+        _load_module(
+            "custom_components.universal_room_automation.actuator_reconciler",
+            os.path.join(_ura_root, "actuator_reconciler.py"),
+        )
+
+    import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
+    import custom_components.universal_room_automation.actuator_reconciler as _recon_mod  # noqa: E402
+    import custom_components.universal_room_automation.fan_veto as _fan_veto_mod  # noqa: E402
+    from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402
+    from custom_components.universal_room_automation.actuator_reconciler import (  # noqa: E402
+        ActuatorReconciler,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (  # noqa: E402
+        FanController,
+        RoomFanState,
+    )
+    from custom_components.universal_room_automation.const import (  # noqa: E402
+        CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+        CONF_FAN_CONTROL_ENABLED,
+        CONF_FAN_TEMP_THRESHOLD,
+        CONF_FANS,
+        CONF_MOTION_SENSORS,
+        CONF_OCCUPANCY_TIMEOUT,
+        CONF_ROOM_NAME,
+        DOMAIN,
+        STATE_OCCUPIED,
+        STATE_TEMPERATURE,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E402
+        HouseState,
     )
 
-# domain_coordinators package
-if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
-    _dc_pkg = _mock_module(
-        "custom_components.universal_room_automation.domain_coordinators",
-    )
-    _dc_pkg.__path__ = [os.path.abspath(_dc_root)]
-    sys.modules[
-        "custom_components.universal_room_automation.domain_coordinators"
-    ] = _dc_pkg
+    # Fix the module-local STATE_ON/etc. references that fan_veto captured from
+    # the (now-fresh) homeassistant.const module — they resolve correctly, but
+    # be defensive for other test-file execution orders.
+    _fan_veto_mod.STATE_ON = "on"
+    _fan_veto_mod.STATE_OFF = "off"
+    _automation_mod.SERVICE_TURN_ON = "turn_on"
+    _automation_mod.SERVICE_TURN_OFF = "turn_off"
+    _automation_mod.STATE_ON = "on"
+    _automation_mod.STATE_OFF = "off"
 
-# Load dependency chain for hvac_fans + house_state (fan_veto needs it)
-for _submod in ("house_state", "signals", "hvac_const", "hvac_zones", "hvac_fans"):
-    full = f"custom_components.universal_room_automation.domain_coordinators.{_submod}"
-    if full not in sys.modules:
-        _load_module(full, os.path.join(_dc_root, f"{_submod}.py"))
 
-# fan_veto imports house_state — already loaded above.
-if "custom_components.universal_room_automation.fan_veto" not in sys.modules:
-    _load_module(
-        "custom_components.universal_room_automation.fan_veto",
-        os.path.join(_ura_root, "fan_veto.py"),
-    )
+import pytest as _d7_pytest  # noqa: E402
 
-# Load automation.py + actuator_reconciler.py
-if "custom_components.universal_room_automation.automation" not in sys.modules:
-    _load_module(
-        "custom_components.universal_room_automation.automation",
-        os.path.join(_ura_root, "automation.py"),
-    )
-if "custom_components.universal_room_automation.actuator_reconciler" not in sys.modules:
-    _load_module(
-        "custom_components.universal_room_automation.actuator_reconciler",
-        os.path.join(_ura_root, "actuator_reconciler.py"),
-    )
 
-import custom_components.universal_room_automation.automation as _automation_mod  # noqa: E402
-import custom_components.universal_room_automation.actuator_reconciler as _recon_mod  # noqa: E402
-import custom_components.universal_room_automation.fan_veto as _fan_veto_mod  # noqa: E402
-from custom_components.universal_room_automation.automation import RoomAutomation  # noqa: E402
-from custom_components.universal_room_automation.actuator_reconciler import (  # noqa: E402
-    ActuatorReconciler,
-)
-from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (  # noqa: E402
-    FanController,
-    RoomFanState,
-)
-from custom_components.universal_room_automation.const import (  # noqa: E402
-    CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
-    CONF_FAN_CONTROL_ENABLED,
-    CONF_FAN_TEMP_THRESHOLD,
-    CONF_FANS,
-    CONF_MOTION_SENSORS,
-    CONF_OCCUPANCY_TIMEOUT,
-    CONF_ROOM_NAME,
-    DOMAIN,
-    STATE_OCCUPIED,
-    STATE_TEMPERATURE,
-)
-from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E402
-    HouseState,
-)
-
-# Fix the module-local STATE_ON/etc. references that fan_veto captured from
-# the (now-fresh) homeassistant.const module — they resolve correctly, but
-# be defensive for other test-file execution orders.
-_fan_veto_mod.STATE_ON = "on"
-_fan_veto_mod.STATE_OFF = "off"
-_automation_mod.SERVICE_TURN_ON = "turn_on"
-_automation_mod.SERVICE_TURN_OFF = "turn_off"
-_automation_mod.STATE_ON = "on"
-_automation_mod.STATE_OFF = "off"
+@_d7_pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 # ---------------------------------------------------------------------------
