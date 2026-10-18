@@ -430,22 +430,51 @@ class TestD2BackstopBranchWiring:
         assert "sleep_end_hour" in gate_block
         assert "sleep_start_hour" in gate_block
 
-    def test_backstop_falls_through_in_branch_else_suppresses(self):
-        """The else branch must still increment _wake_blocked_ticks and set
-        new_state = None (the v4.7.15 D3 behavior). Backstop branch must NOT
-        set new_state = None.
+    def test_backstop_falls_through_in_branch_else_suppresses(self, monkeypatch):
+        """The else branch must still increment _wake_blocked_ticks and
+        suppress the transition (the v4.7.15 D3 behavior); the backstop
+        branch must NOT suppress and must emit its WARNING.
+
+        Sleep-mask cycle Rev 3.2 (DoD 7): converted from a fixed-size
+        source window (which the cycle's additions to `_run_inference`
+        pushed the gate out of) to a behavioural test driving the REAL
+        `_run_inference` through the sleep-mask harness.
         """
-        body = _run_inference_body()
-        fired_idx = body.find("if wake_decision.fired:")
-        gate_block = body[fired_idx: fired_idx + 4000]
-        # Existence of an else (or non-backstop fallthrough) that suppresses.
-        assert "new_state = None" in gate_block, (
-            "v4.7.18.1 D2: else branch must still suppress the transition"
-        )
-        # Backstop log marker.
-        assert "WAKING backstop fired" in gate_block, (
-            "v4.7.18.1 D2: backstop must emit a WARNING log on fire"
-        )
+        import logging
+        from datetime import datetime as _dt, timezone as _tz
+        import test_house_state_sleep_mask_ble_memory as SM
+
+        records = []
+
+        class _H(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        def _tick_at(hour):
+            now = _dt(2026, 10, 18, hour, 0, tzinfo=_tz.utc)
+            monkeypatch.setattr(SM._DT, "now", lambda *a, **k: now)
+            monkeypatch.setattr(SM._DT, "utcnow", lambda: now)
+            monkeypatch.setattr(SM._DT, "DEFAULT_TIME_ZONE", _tz.utc)
+            w = SM.World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+                         census=1)  # SLEEP, people home, NO raw occupancy
+            handler = _H()
+            SM.PR._LOGGER.addHandler(handler)
+            try:
+                return w, w.tick()
+            finally:
+                SM.PR._LOGGER.removeHandler(handler)
+
+        # 07:00 — not a sleep hour, before sleep_end + 3: the gate vetoes.
+        w, state = _tick_at(7)
+        assert state == SM.HS.SLEEP
+        assert w.coord._wake_blocked_ticks == 1
+        assert not any("WAKING backstop fired" in m for m in records)
+        # 10:00 — the daytime backstop falls through: WAKING + WARNING.
+        records.clear()
+        w, state = _tick_at(10)
+        assert state == SM.HS.WAKING
+        assert w.coord._wake_backstop_fires == 1
+        assert any("WAKING backstop fired" in m for m in records)
 
     def test_backstop_uses_local_hour_not_utc(self):
         """dt_util.now() (local) — sleep_start/end_hour are local hours."""
