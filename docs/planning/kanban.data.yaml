@@ -32,7 +32,7 @@ cards:
   links: {parent: TEST-STRATEGY-REARCH-1}
 - id: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1
   title: "Deleting a zone leaves 4 HVAC AC-reset/ramp sensors orphaned (and the delete preview undercounts)"
-  status: planned
+  status: "in_progress"
   tier: 1
   thread: test-strategy
   created: 2026-10-17 23:40
@@ -40,9 +40,11 @@ cards:
   why: "sensor.py:18658/18690/18721/18760 create hvac_ac_reset_{day_count,night_count,last_outcome}_{zone_id} + hvac_ac_ramp_durability_rate_{zone_id}; the cleanup prefix list at config_flow.py:11657 omits them. Live registry has 12 (4 per zone_1..3). Swept board: no duplicate (SENSCAP-ORPHAN-1 is a different surface)."
   next: "Add the four prefixes with exact/delimited matching (zone_1 is a prefix of zone_10); un-fail the existing test; Tier 1."
   links: {parent: TEST-STRATEGY-REARCH-1}
+  updated: "2026-10-18 02:03"
+  verify_2026_10_18_overnight: "STILL-REAL (grep on develop 6f38b9b9e/8dd2e9762): defect present at the cited site. Gate: Tier 1, reuse of existing pattern, BUILD. Dispatched to ura-builder in a worktree; overnight = build+review+validate to review only, no deploy."
 - id: INIT-UNTRACKED-TASK-4211-1
   title: "Untracked hass.async_create_task in async_setup_entry (__init__.py:~4211) is not cancelled on unload/reload"
-  status: planned
+  status: "in_progress"
   tier: 1
   thread: test-strategy
   created: 2026-10-17 23:40
@@ -50,6 +52,8 @@ cards:
   why: "Created inside async_setup_entry with entry in scope; file uses entry.async_create_background_task elsewhere. No user-visible effect found (needs a rejected tou_rates.json to fire)."
   next: "Switch to entry.async_create_background_task; un-fail the existing test; Tier 1."
   links: {parent: TEST-STRATEGY-REARCH-1}
+  updated: "2026-10-18 02:03"
+  verify_2026_10_18_overnight: "STILL-REAL (grep on develop 6f38b9b9e/8dd2e9762): defect present at the cited site. Gate: Tier 1, reuse of existing pattern, BUILD. Dispatched to ura-builder in a worktree; overnight = build+review+validate to review only, no deploy."
 - id: DEPLOY-DUALPUSH-SIGINT-TRAP-1
   title: "Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends"
   status: planned
