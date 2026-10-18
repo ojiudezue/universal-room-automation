@@ -41,6 +41,19 @@ def _fake_async_call_later(hass, delay, cb):
     return MagicMock()  # unsub
 
 
+@pytest.fixture(autouse=True)
+def _d7_drain_scheduled():
+    """TEST-HARNESS D7: never let a scheduled dispatch outlive its test.
+
+    ``_scheduled`` is module state SHARED with test_exterior_cycle2.py (it
+    imports this module for the stubs). A test here that schedules without
+    clearing left an entry behind, and exterior_cycle2's
+    ``len(_pa_mod._scheduled) == 1`` anchor then saw 2 (D7 donor -> victim).
+    """
+    yield
+    _scheduled.clear()
+
+
 def _fake_async_track_state_change_event(hass, entities, cb):
     return MagicMock()
 

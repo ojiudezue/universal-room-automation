@@ -331,7 +331,11 @@ def main() -> int:
     parser.add_argument("--victim", help="Bisect this nodeid against --files (the prefix, in order).")
     parser.add_argument(
         "--python",
-        default=str(REPO_ROOT / ".venv-ha" / "bin" / "python"),
+        # A git worktree has no .venv-ha of its own: fall back to the
+        # interpreter running this tool (invoke it with .venv-ha/bin/python).
+        default=str(REPO_ROOT / ".venv-ha" / "bin" / "python")
+        if (REPO_ROOT / ".venv-ha" / "bin" / "python").exists()
+        else sys.executable,
         help="Interpreter to use. MUST be the real-HA venv — bare python3 is 3.9 "
         "here and fails loudly but misleadingly (missing phcc fixtures).",
     )

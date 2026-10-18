@@ -122,6 +122,32 @@ def test_donor_leaves_no_residue(donor):
     assert "failed" not in summary[-1] and "skipped" not in summary[-1], out[-3000:]
 
 
+# donor file -> victim node ids that fail when the donor runs first (found
+# with collect_order_matrix.py --find-donors / --victim). Anchor: the pair
+# run in that order must be green.
+DONOR_VICTIMS: dict[str, list[str]] = {
+    "test_perimeter_alert_nm_routing.py": [
+        "test_exterior_cycle2.py::test_vehicle_in_flight_guard_dedups_fused_edges",
+    ],
+}
+
+
+def _pair_ids():
+    return [(d, v) for d, vs in sorted(DONOR_VICTIMS.items()) for v in vs]
+
+
+@pytest.mark.parametrize("donor,victim", _pair_ids())
+def test_victim_green_after_donor(donor, victim):
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+           "PYTHONPATH": str(_REPO / "quality")}
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", str(_TESTS / donor), str(_TESTS / victim),
+         "-q", "-p", "no:cacheprovider", "--tb=short"],
+        cwd=_REPO, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-3000:]
+
+
 # ---------------------------------------------------------------------------
 # Mutation drills: re-introduce each donor's leak in a sandbox copy -> the
 # matching anchor must go RED. (source_mutation: excluded from default run.)
@@ -141,6 +167,29 @@ _DRILLS = {
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
     ),
 }
+
+
+# Drills whose anchor is a donor->victim pair (the reviewer-C shape:
+# neuter the donor fix -> the victim goes red).
+_PAIR_DRILLS = {
+    "test_perimeter_alert_nm_routing.py": ("    yield\n    _scheduled.clear()\n", "    yield\n"),
+}
+
+
+@pytest.mark.source_mutation
+@pytest.mark.parametrize("donor", sorted(_PAIR_DRILLS))
+def test_drill_donor_fix_neutered_victim_goes_red(donor):
+    swap_from, swap_to = _PAIR_DRILLS[donor]
+    victim = DONOR_VICTIMS[donor][0]
+    apply_mutation_in_sandbox(
+        _TESTS / donor,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=_HERE,
+        anchor_test_name=f"test_victim_green_after_donor[{donor}-{victim}]",
+        expect="KILLED",
+        timeout=600,
+    )
 
 
 @pytest.mark.source_mutation
