@@ -34,6 +34,10 @@ from custom_components.universal_room_automation.const import (
     CONF_LIGHTS,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHTS,
+    CONF_ROOM_FAN_MODE,
+    FAN_MODE_FOLLOW_THERMOSTAT,
+    FAN_MODE_OFF,
+    FAN_MODE_ROOM_TEMPERATURE,
     LIGHT_ACTION_NONE,
     LIGHT_ACTION_TURN_OFF,
     LIGHT_ACTION_TURN_ON,
@@ -259,13 +263,31 @@ def test_light_reconcile_uses_night_brightness_when_in_sleep_mode():
 
 
 def test_fan_reconcile_respects_hvac_managed_defer():
+    """D4c (2026-10-17): since 65f784d27 (HVAC Batch D item 1, v5.103.24 —
+    one fan-ownership rule) the HVAC defer applies only to a room whose Fan
+    Mode is "Follow thermostat" (owner hvac). The old fixture configured
+    only the legacy ``fan_control_enabled`` toggle, which now maps to
+    "Room temperature" (room-owned) where HVAC-managing is irrelevant by
+    design. Fixture moved to Follow thermostat; the room-owned control row
+    proves the defer is the OWNER gate, not "any hot fan returns None"."""
     hass, coord, r = make_env(
-        data={CONF_FANS: ["fan.bedroom"], CONF_FAN_CONTROL_ENABLED: True,
+        data={CONF_FANS: ["fan.bedroom"],
+              CONF_ROOM_FAN_MODE: FAN_MODE_FOLLOW_THERMOSTAT,
               CONF_FAN_TEMP_THRESHOLD: 75},
         coordinator_data={STATE_OCCUPIED: True, STATE_TEMPERATURE: 80},
     )
     coord.automation._hvac_managing = True
     assert r.resolve_desired_state("fan.bedroom") is None
+
+    hass, coord, r = make_env(
+        data={CONF_FANS: ["fan.bedroom"],
+              CONF_ROOM_FAN_MODE: FAN_MODE_ROOM_TEMPERATURE,
+              CONF_FAN_TEMP_THRESHOLD: 75},
+        coordinator_data={STATE_OCCUPIED: True, STATE_TEMPERATURE: 80},
+    )
+    coord.automation._hvac_managing = True
+    desired = r.resolve_desired_state("fan.bedroom")
+    assert desired is not None and desired.state == "on"
 
 
 def test_fan_reconcile_defers_when_room_tier_cooldown_live():
@@ -815,7 +837,7 @@ def test_resolver_sleep_non_night_still_returns_off_via_else_arm():
     assert desired.reason == "sleep_non_night_off", desired.reason
 
 
-def _canonical_fan_decision(occupied, temp_above, hvac_managing, fan_enabled,
+def _canonical_fan_decision(occupied, temp_above, hvac_managing, fan_mode,
                             sleep):
     """Reference decision for a TEMPERATURE fan (CONF_FANS).
 
@@ -826,9 +848,13 @@ def _canonical_fan_decision(occupied, temp_above, hvac_managing, fan_enabled,
     resolver only asserts an opinion on the plain OCCUPIED, non-sleep cells:
     on when hot, off when cool.
     """
-    if not fan_enabled:
+    # D4c (2026-10-17): 65f784d27 (HVAC Batch D, v5.103.24) replaced the
+    # fan_control_enabled toggle with the per-room Fan Mode -> owner rule:
+    # Off = person-owned (write nothing); the HVAC defer applies only to a
+    # Follow-thermostat (hvac-owned) room.
+    if fan_mode == FAN_MODE_OFF:
         return None
-    if hvac_managing:
+    if hvac_managing and fan_mode == FAN_MODE_FOLLOW_THERMOSTAT:
         return None
     if sleep:
         return None  # defer — sleep policy is organic-only
@@ -841,13 +867,17 @@ def test_resolver_fan_branch_table_parity_with_temperature_handler():
     for occupied in (True, False):
         for temp_above in (True, False):
             for hvac_managing in (True, False):
-                for fan_enabled in (True, False):
+                for fan_mode in (
+                    FAN_MODE_FOLLOW_THERMOSTAT,
+                    FAN_MODE_ROOM_TEMPERATURE,
+                    FAN_MODE_OFF,
+                ):
                     for sleep in (True, False):
                         temp = 90 if temp_above else 60
                         hass, coord, r = make_env(
                             data={
                                 CONF_FANS: ["fan.bedroom"],
-                                CONF_FAN_CONTROL_ENABLED: fan_enabled,
+                                CONF_ROOM_FAN_MODE: fan_mode,
                                 CONF_FAN_TEMP_THRESHOLD: 75,
                             },
                             coordinator_data={
@@ -860,12 +890,12 @@ def test_resolver_fan_branch_table_parity_with_temperature_handler():
                         desired = r.resolve_desired_state("fan.bedroom")
                         got = desired.state if desired else None
                         expected = _canonical_fan_decision(
-                            occupied, temp_above, hvac_managing, fan_enabled,
+                            occupied, temp_above, hvac_managing, fan_mode,
                             sleep,
                         )
                         assert got == expected, (
                             f"occ={occupied} hot={temp_above} "
-                            f"hvac={hvac_managing} en={fan_enabled} "
+                            f"hvac={hvac_managing} mode={fan_mode} "
                             f"sleep={sleep}: got {got} expected {expected}"
                         )
 
