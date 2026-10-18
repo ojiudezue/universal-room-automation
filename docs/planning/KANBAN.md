@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T21:27:08-05:00_ - _Data commit: `aad6a3ead8a5`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T21:42:57-05:00_ - _Data commit: `6d355c97aaef`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -168,7 +168,8 @@ _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
 - **Next:** Waits on CENSUS-GROUND-TRUTH-CSV-FIX-1 (operator ANSWER on the 10-03 departure timeline). Then me: fix the fixture, re-run the 10-03 replay with the hybrid formula, and re-verify the plan against current code; replay passes -> plan revie...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/PLANNING_census_inputs_first.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_instruction_2026_10_17`: Make sure a) Its needed b) It solves the problem c)We can think through all the unintedned consequences. Also what does the held count solve? (board, 2026-10-18T03:50:31.843Z)
   - `subsumption_check_2026_10_16_overnight`: Operator asked 'Check the latest census work and approve if not subsumed'. NOT SUBSUMED. Checked every census change since the card was made (10-11): v5.103.51..64 commits touching camera_census.py / presence.py are fan-noise trust, occu...
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
   - `sweep_2026_10_11`: Board grep for OCCUPANCY-ESTIMATOR / occupancy_estimator: only references inside CENSUS-INPUTS-FIRST-1 refs; BACKLOG.md: none. The plan doc is the prior art (REUSE it). NEW card.
@@ -190,7 +191,8 @@ thread: **energy** - status: **pre_planning** - approval: **explicit**
 _created 2026-10-04 01:00 · updated 2026-10-16 02:03_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
 - **Next:** Me, after 10-18: one-shot re-count of Envoy dropouts (3 clean days after the Ethernet move + GC freeze). Then, once the governor ships, write the phase-2 Tier-3 plan with items (1) retire local write-failover, (2) pending-episode back-of...
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `operator_instruction_2026_10_17`: The governor is done. So finish the recount (board, 2026-10-18T03:47:24.313Z)
   - `correction_2026_10_17_overnight`: CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_leve...
   - `relevance_check_2026_10_16_overnight`: Operator asked 'Check for relevance then approve'. STILL-RELEVANT, narrowed. Checked 02:0x CDT against develop: (1) the dormant local write-failover still exists (energy_battery.py:551 _write_failover_by_surface, read at :831 and energy_...
   - `operator_instruction_2026_10_15_2`: Check for relevance then approve
@@ -231,7 +233,8 @@ _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
   - Problem: the Optimization Coordinator is supposed to build a track record of whether its suggestions would have been right before it is allowed to act on its own, but that record is empty: the checker only looks at suggestions made in th...
 - **Next:** PICK: (A) fold the validator fix + finding dedup into the FIRST SLICE of the OC redesign (OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1), because what gets scored (each re-emitted finding vs each deduped problem) is a redesign decision (my recomme...
 - **Parsimony:** [BUILD, but where is a PICK: standalone Tier 2-DB now vs first slice of the OC redesign] The OC shadow validator never scores a finding because it only looks at the current 5-minute cycle's findings and requires them to be 15 minutes old, so 0 samples exist and OC can never qualify to leave shadow.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_instruction_2026_10_17`: inside the redesign (board, 2026-10-18T03:51:55.526Z)
   - `triage_2026_10_17`: Default A taken: fold the shadow-validator fix into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1.
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
@@ -466,7 +469,8 @@ status: **planned** - approval: **explicit**
 _updated 2026-10-16 02:25_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
 - **Next:** PICK (recommended defaults: 1c wait out a recovered cooldown, page once if NM has no state; 2a actuators same as a live event, with the D5 stuck-sensor trip-wire; 3 D5 threshold 24 h). -> After feature/safety-nm-refire merges (Sun 10-18)...
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `operator_instruction_2026_10_17`: approved (board, 2026-10-18T03:59:46.122Z)
   - `triage_2026_10_17`: Default taken: card's recommended defaults; build after the Sun 10-18 merge.
   - `constraint_2026_10_17_overnight`: From SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1 (parked): the startup pass runs inside the window where NM may not yet have restored its saved alert state (ack/cooldown). The plan must either run the pass after NM restore completes or queue the r...
   - `plan_rev2_2026_10_16_overnight`: Tier-2 plan review (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md): FIX-PLAN (light), no CRITICAL/HIGH; ordering and double-page claims verified (second raise of the same key returns early, safety.py:2487-2499). Rev ...
@@ -661,7 +665,8 @@ _created 2026-10-16 02:20 · initial_
 - **Why:** Life-safety coverage gap while the family is away and a guest is home. Config/device actions, no code needed first (config-first).
 - **Next:** DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config f...
 - **Tags:** found-during-probe, no-fabrication-verify, life-safety
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_instruction_2026_10_17`: hardware stuff I will re-pair (board, 2026-10-18T03:59:25.122Z)
   - `reverified_2026_10_17_overnight`: STILL-REAL 02:10 CDT: all six binary_sensor.smoke_sensor_s1_* (the Heiman kitchen smoke detector) read unavailable. Still waits on the physical re-pair.
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: Live 02:20 CDT (HA MCP): binary_sensor.smoke_sensor_s1_smoke ('Smoke_Heiman_Matter_Kitchen Smoke') = unavailable since 2026-10-15 12:46:00. Planner's recorder read over the last 20 restarts (docs/planning/PLANNING_safety_initial_sensor_p...
@@ -872,7 +877,8 @@ _created 2026-10-16 · updated 2026-10-17 02:06 · refined_
   - Problem: URA double-checks every battery-reserve change against a 'local' reading from the house gateway, but the reading it was set up to use has been stuck at the same number (10%) since early August. So whenever URA sets any reserve o...
 - **Next:** PICK: (A) add a 'reserve witness' entity setting (options flow, blank = today's behaviour) and set it here to sensor.envoy_482543015950_reserve_battery_level (my recommendation: explicit, works for other homes, reversible by blanking); o...
 - **Parsimony:** [BUILD (small), but the witness choice is a PICK] The reserve write checker compares every command against number.enpower_*_reserve_battery_level, which has been frozen at 10.0 since 2026-08-05, so every non-10 reserve triggers 3 redundant re-sends, a stand-down and a CRITICAL page.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `operator_instruction_2026_10_17`: can we reconcile with the envoy reliability work first? (board, 2026-10-18T04:02:06.621Z)
   - `paged_2026_10_17_overnight`: Paged 2026-10-17 02:13 CDT in one quiet notification (notify.madronehapushover, priority -1, wakes nobody).
   - `log_evidence_2026_10_17_overnight`: HA system_log (ha_get_logs source=system, 02:11 CDT): 'WriteVerifier: reserve_soc pending watchdog — HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-...
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
@@ -961,7 +967,8 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Tags:** tier-3, measure-before-build, found-during-probe, no-fabrication-verify
 - **Parsimony:** [BUILD (plan first; Tier 3 - house-state machine is a shared primitive consumed by HVAC, lighting, security, EVSE, battery)] With every tracker away and an untracked occupant home, path alpha toggles AWAY on single census drops (33/day on 10-14).
 - **Refs:** docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `operator_instruction_2026_10_17`: I want HVAC to go away fast. As long as that happens, house to be more careful. Also unclear if this works well? Rooms have no cameras only common areas. Measure when this would have helped if engaged first (board, 2026-10-18T03:58:33.755Z)
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `plan_rev2_2026_10_16_overnight`: Two Tier-3 plan reviews ran (2026-10-16 02:17 CDT): R1 completeness FIX-PLAN (1 HIGH: the reused deferred-retry timer shares one slot with the hysteresis retry and can drop the AWAY), R2 build-prediction FIX-PLAN (2 HIGH: stamping on cen...
   - `plan_2026_10_16_overnight`: Per the operator instruction ('Tell me what the plan is. I want careful plans... context and prior art aware'), Tier-3 plan drafted: docs/planning/PLANNING_house_away_flap_untracked_occupant.md (ura-planner, after reading the presence, s...
@@ -2610,7 +2617,8 @@ thread: **health_monitor** - status: **done**
 _created 2026-10-14 02:10 · updated 2026-10-16 02:07 · refined_
 - **Why:** v2.1.0 (ha-health-monitor v2.1-wave1 @1b7f773) installed via Samba and live since restart ~01:00 10-14; boot clean. Live checks per PLAN_v2 R7 not yet run. GC timing decides whether the ~2 s/80 s house-wide pauses are GC (heap size) or a...
 - **Next:** DO (when back, any order) the operator-action checks W3/W10/W14/W15/W17 from ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md, or ACK to close the card and accept them as unverified. -> I write the result into the README Validated ...
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `operator_instruction_2026_10_17`: ack (board, 2026-10-18T03:52:20.427Z)
   - `triage_2026_10_17`: Closed: HM v2.1 no longer installed (live v2.2.0); W13 passed; operator-action checks accepted unverified.
   - `measured_2026_10_16_overnight`: W13 FINAL (read-only, 2026-10-16 02:07 CDT, config-entry diagnostics API; live is now HM v2.2.0, up since the 12:45 10-15 restart = 13.4 h, so the 24 h v2.1 window never happened and v2.1 is no longer installed). PASS: every marker backo...
   - `correction_2026_10_15_overnight`: WRONG earlier tonight (measured_2026_10_15_overnight 'W9 ANOMALY ... overflow' hypothesis). Refuted: sensor.hahm_active_problems = 12 with held_back = 0 (nothing in overflow), and diagnostics 'problems' is problems.rows(), which returns ...

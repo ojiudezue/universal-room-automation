@@ -13,117 +13,117 @@ meta:
     at: "2026-10-17T02:15:52"
     outcome: "parked"
     headline: "Measured the startup gap where a detector could page before the notifier has reloaded: over the last 19 restarts no smoke, leak, gas or CO sensor went off in the first 2 minutes (none went off at all in 8 days). Parked it, and made it a must-handle rule on the 'check sensors at startup' safety plan, the one change that would put events in that gap."
-    acknowledged: false
+    acknowledged: true
   - fid: "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-17T02:10:11"
     at: "2026-10-17T02:10:11"
     outcome: "escalated"
     headline: "Housekeeping: the safety 'rapid change' detector card was filed as planned work but is really waiting on your pick (retire it on purpose, recommended, or redesign). Moved it to your lane; no change to the house."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-OBSERVATION-MODE-RESERVE-BYPASS-1@2026-10-17T02:08:10"
     at: "2026-10-17T02:08:10"
     outcome: "measured"
     headline: "Confirmed: with energy 'observation mode' on, two paths would still send battery-reserve commands (the rate-change path and the checker's re-send). It has not been on here in 8 days, so no harm yet. Building the two small gates tonight, to review only (no deploy)."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-SELFHEAL-UNEXPLAINED-RESENDS-1@2026-10-17T02:08:10"
     at: "2026-10-17T02:08:10"
     outcome: "escalated"
     headline: "Found why the battery 'write stuck' pages keep coming: URA checks reserve changes against a gateway reading that has been frozen at 10% since early August, so any reserve other than 10 looks ignored -> 3 needless re-sends + a CRITICAL page, 1-5 a day (one fired at 02:02 tonight). The battery did take the settings. Fix is small; you pick how: a 'reserve witness' setting (recommended) or hard-code the right sensor."
-    acknowledged: false
+    acknowledged: true
   - fid: "SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1@2026-10-16T02:25:37"
     at: "2026-10-16T02:25:37"
     outcome: "measured"
     headline: "New card from the safety plan review: a fast detector event at startup can reach the notifier before it has reloaded its saved alert state. Pre-existing; to be measured before any fix."
-    acknowledged: false
+    acknowledged: true
   - fid: "SAFETY-NO-INITIAL-SENSOR-PASS-1@2026-10-16T02:21:40"
     at: "2026-10-16T02:21:40"
     outcome: "escalated"
     headline: "Plan written for Safety to check current detector states at startup (so a detector already going off is not missed after a restart or reload). Three small picks for you, with recommended defaults. Builds after the safety re-page cycle ships Sunday."
-    acknowledged: false
+    acknowledged: true
   - fid: "SAFETY-SENSOR-FLEET-HEALTH-1@2026-10-16T02:21:39"
     at: "2026-10-16T02:21:39"
     outcome: "escalated"
     headline: "Important: the house's only smoke detector (kitchen Heiman) has been invisible to Home Assistant since yesterday's 12:46 restart, so URA would not page on smoke. It still sounds locally. Also 4 leak sensors never come back after restarts and the gas sensor is filed as smoke. Needs a re-pair (Thread) and two config fixes."
-    acknowledged: false
+    acknowledged: true
   - fid: "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1@2026-10-16T02:17:16"
     at: "2026-10-16T02:17:16"
     outcome: "escalated"
     headline: "Your careful Away-flap plan is ready (reviewed twice, revised). It is a daily problem, not just the trip: ~2 brief false Aways a day normally, 33 on 10-14. Fix: don't go Away until the cameras have seen nobody for 20 minutes (a knob, 0 = off); phones never count, so a forgotten phone can't hold the house home. Cost: real departures go Away (and security arms) up to 20 min later. Needs your approval."
-    acknowledged: false
+    acknowledged: true
   - fid: "PATHBETA-VESTIGIAL-1@2026-10-16T02:16:08"
     at: "2026-10-16T02:16:08"
     outcome: "measured"
     headline: "Un-parked: its trigger (path alpha shipped) fired long ago. Paired it with the Away-flap plan, since that plan touches the same path-beta code."
-    acknowledged: false
+    acknowledged: true
   - fid: "GAP-A-CENSUS-HOLE-1@2026-10-16T02:16:06"
     at: "2026-10-16T02:16:06"
     outcome: "done"
     headline: "Closed a stale parked card: the forgotten-phone fix for the Away check shipped back in v5.78.0 and is in the code; the card still said 'build later'."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-EVALUATE-PATH-LEDGER-GAP-1@2026-10-16T02:15:05"
     at: "2026-10-16T02:15:05"
     outcome: "measured"
     headline: "The reserve path that skips the write ledger never ran in 10 days (0 of 20 rate changes). Fixing its sibling may make it dead code, so the cheapest fix could be deleting the call. Folded into the energy arc's joint plan."
-    acknowledged: false
+    acknowledged: true
   - fid: "NM-MULTI-ALERT-TRACKING-1@2026-10-16T02:15:03"
     at: "2026-10-16T02:15:03"
     outcome: "measured"
     headline: "Measured the one-alert-slot issue: in 30 days a different CRITICAL arrived while an earlier one was still open 92 times, but never involving a smoke/CO/leak alert. The real risk: perimeter alerts (~23 a day) could knock a repeating smoke alarm down to the slow repeat. Simple fix planned: life-safety alerts keep the slot. Sequenced after the safety re-page cycle (same file)."
-    acknowledged: false
+    acknowledged: true
   - fid: "HVAC-S10-NOTIFY-UNDELIVERED-1@2026-10-16T02:15:02"
     at: "2026-10-16T02:15:02"
     outcome: "built"
     headline: "Built (not deployed): when Custom Preset Ranges gives up on a thermostat, its notification is now HIGH so it reaches your phone; before it was MEDIUM and went nowhere. Reviewed SHIP, tests pass. Waiting in review for the next attended deploy."
-    acknowledged: false
+    acknowledged: true
   - fid: "HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1@2026-10-16T02:08:33"
     at: "2026-10-16T02:08:33"
     outcome: "measured"
     headline: "Board fix: v5.103.62-64 are installed but not running, because HA has not restarted since 12:45 yesterday. Moved the preset-range fix to shipped; it gets checked after the next daytime restart."
-    acknowledged: false
+    acknowledged: true
   - fid: "HM-V21-LIVE-VALIDATION-1@2026-10-16T02:08:32"
     at: "2026-10-16T02:08:32"
     outcome: "measured"
     headline: "Health Monitor self-timing check passed: every job stays under 10 ms except the one-off startup freeze. Only your hands-on checks (W3/W10/W14/W15/W17) are left; ack to skip them."
-    acknowledged: false
+    acknowledged: true
   - fid: "OC-SHADOW-SAMPLES-EMPTY-1@2026-10-16T02:08:30"
     at: "2026-10-16T02:08:30"
     outcome: "escalated"
     headline: "Found why the Optimization Coordinator never builds a track record: its checker only looks at suggestions a few seconds old but insists they be 15 minutes old, so nothing is ever scored. Also ~90% of its findings are the same ones repeated every 5 minutes. Need your pick: fix inside the OC redesign (recommended) or alone now."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-TOU-TRANSITION-DOUBLE-CONSUME-1@2026-10-16T02:08:29"
     at: "2026-10-16T02:08:29"
     outcome: "measured"
     headline: "Measured the 'two things grab the rate-period change' bug: in 10 days the right path won all 20 rate changes, so it has never bitten. Folded into the planned fix for the same code path after the reserve governor ships."
-    acknowledged: false
+    acknowledged: true
   - fid: "HA-GC-GEN2-PAUSES-1@2026-10-16T02:08:27"
     at: "2026-10-16T02:08:27"
     outcome: "escalated"
     headline: "The memory-cleanup freeze wears off: 13 hours after it, HA pauses ~50 times an hour for ~0.6 s (better than before, worse than right after). A setting fixes it: Health Monitor 're-freeze every N hours' is 0 (off). Recommend 4 hours; I'll set it next attended session unless you say no."
-    acknowledged: false
+    acknowledged: true
   - fid: "CENSUS-OCCUPANCY-ESTIMATOR-1@2026-10-16T02:08:26"
     at: "2026-10-16T02:08:26"
     outcome: "measured"
     headline: "Head-count estimator is not covered by any recent census work, so approved as you asked. Bonus: its 20-minute held count is exactly what would stop the house flipping to Away while the guest is home; I passed that to the Away-flap plan."
-    acknowledged: false
+    acknowledged: true
   - fid: "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-16T02:08:25"
     at: "2026-10-16T02:08:25"
     outcome: "measured"
     headline: "Enphase resilience card is still relevant, so approved as you asked. Two of its four items are still real in the code (old local write fallback; no back-off while Enphase holds a write pending). The streaming option is out. It now waits on the reserve write governor and the 10-18 dropout re-count."
-    acknowledged: false
+    acknowledged: true
   - fid: "WIFI-ACTUATOR-FLEET-FLAP-1@2026-10-16T02:08:23"
     at: "2026-10-16T02:08:23"
     outcome: "escalated"
     headline: "Sent your 'lock to the Pantry access point' request for the 5 flaky Dining/Receiving Shellys to the homelab board, with their addresses and one caution: the Pantry AP was 94% busy on 2.4 GHz at noon yesterday. I changed nothing on the network."
-    acknowledged: false
+    acknowledged: true
   - fid: "SONOFF-R4M-MULTICAST-AB-1@2026-10-16T02:08:22"
     at: "2026-10-16T02:08:22"
     outcome: "measured"
     headline: "Yes, the standard UniFi command leaks: 'unifi --help' prints the full UniFi API key whenever it is loaded (the CLI shows env values in its help). Checked without printing the key. Already on the homelab security card; I sent the verification and a one-line wrapper fix to the homelab board."
-    acknowledged: false
+    acknowledged: true
   - fid: "HA-TRUSTED-PROXIES-UI-MIGRATION-1@2026-10-15T02:13:59"
     at: "2026-10-15T02:13:59"
     outcome: "done"
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
-    acknowledged: false
+    acknowledged: true
 cards:
 - id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
   title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
@@ -262,6 +262,7 @@ cards:
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
   next: "REVIVE when (a) SAFETY-NO-INITIAL-SENSOR-PASS-1 is approved for build (its startup pass fires exactly in this gap: the plan must order the pass after NM has restored, or queue until NM ready - carry this as a constraint into that plan), or (b) any smoke/leak/gas/CO sensor reads 'on' within 120 s of a homeassistant_start (re-run .claude/tmp/safety_boot_race_probe.sql against the recorder). Then Tier-2 plan: queue safety events until NM ready."
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
+  operator_instruction_2026_10_17: "hardware stuff I will re-pair (board, 2026-10-18T03:59:25.122Z)"
   reverified_2026_10_17_overnight: "STILL-REAL 02:10 CDT: all six binary_sensor.smoke_sensor_s1_* (the Heiman kitchen smoke detector) read unavailable. Still waits on the physical re-pair."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
   title: "The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards"
@@ -297,6 +298,7 @@ cards:
   next: "APPROVE at the next attended deploy: merge fix/s10-latch-nm-high into develop and ship with the next batch (README written at deploy; release_notes on this card). Takes effect only after an HA restart."
   related: [HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1]
 - id: SAFETY-NO-INITIAL-SENSOR-PASS-1
+  operator_instruction_2026_10_17: "approved (board, 2026-10-18T03:59:46.122Z)"
   triage_2026_10_17: "Default taken: card's recommended defaults; build after the Sun 10-18 merge."
   constraint_2026_10_17_overnight: "From SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1 (parked): the startup pass runs inside the window where NM may not yet have restored its saved alert state (ack/cooldown). The plan must either run the pass after NM restore completes or queue the resulting events until NM is ready, with a test. Measured base rate today without the pass: 0 of 19 restarts had a detector 'on' within 120 s."
   plan_rev2_2026_10_16_overnight: "Tier-2 plan review (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md): FIX-PLAN (light), no CRITICAL/HIGH; ordering and double-page claims verified (second raise of the same key returns early, safety.py:2487-2499). Rev 2 folds all 7 findings: D3 duplicate-row guard now REQUIRED (ack covers only the latest row, database.py:4628-4651); new PICK 1 option (c) - wait out a recovered cooldown silently, page once if NM has no state; stuck-ON egress-unlock-on-every-reload risk named + new D5 trip-wire (SAFETY_INITIAL_PASS_STUCK_SENSOR_H = 24 h, module constant, 0 disables); pre-NM startup race carded as SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1. Plan ready for operator."
@@ -427,6 +429,7 @@ cards:
   next: 'Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.'
   rank: {value: 9, time_criticality: 3, effort: 8}
 - id: OC-SHADOW-SAMPLES-EMPTY-1
+  operator_instruction_2026_10_17: "inside the redesign (board, 2026-10-18T03:51:55.526Z)"
   triage_2026_10_17: "Default A taken: fold the shadow-validator fix into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
   created: "2026-10-16"
@@ -500,6 +503,7 @@ cards:
   related: [EC-EVALUATE-PATH-LEDGER-GAP-1]
   next: "Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive alone only if a tou_transition decision goes missing at a boundary."
 - id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  operator_instruction_2026_10_17: "can we reconcile with the envoy reliability work first? (board, 2026-10-18T04:02:06.621Z)"
   paged_2026_10_17_overnight: "Paged 2026-10-17 02:13 CDT in one quiet notification (notify.madronehapushover, priority -1, wakes nobody)."
   log_evidence_2026_10_17_overnight: "HA system_log (ha_get_logs source=system, 02:11 CDT): 'WriteVerifier: reserve_soc pending watchdog \u2014 HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-driven desire change, or cool-off expiry (3h).' (energy_write_verify.py:2310), once this boot, at 2026-10-16 23:42 CDT. So the false episodes are not only noise: each one makes the _result leg skip same-value re-dispatch of the reserve (energy_battery.py:~6487) until desire changes or 3 h pass. The skip only blocks re-sending a value the battery already has, so harm is bounded, but it is a real behavioural effect, not just pages."
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
@@ -572,6 +576,7 @@ cards:
   next: 'Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.'
   rank: {value: 7, time_criticality: 5, effort: 5}
 - id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  operator_instruction_2026_10_17: "The governor is done. So finish the recount (board, 2026-10-18T03:47:24.313Z)"
   correction_2026_10_17_overnight: "CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_level, frozen at 10.0 since 2026-08-05 (3,647 witness-divergence rows all 10.0). Those stand-downs are false positives; see EC-SELFHEAL-UNEXPLAINED-RESENDS-1. Do not cite them as evidence for this card."
   approved_by: "operator 2026-10-15 22:32 CDT (board instruct: 'Check for relevance then approve'; relevance confirmed overnight 10-16)"
   approval: "explicit"
@@ -771,6 +776,7 @@ cards:
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
 - id: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  operator_instruction_2026_10_17: "I want HVAC to go away fast. As long as that happens, house to be more careful. Also unclear if this works well? Rooms have no cameras only common areas. Measure when this would have helped if engaged first (board, 2026-10-18T03:58:33.755Z)"
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
   plan_rev2_2026_10_16_overnight: "Two Tier-3 plan reviews ran (2026-10-16 02:17 CDT): R1 completeness FIX-PLAN (1 HIGH: the reused deferred-retry timer shares one slot with the hysteresis retry and can drop the AWAY), R2 build-prediction FIX-PLAN (2 HIGH: stamping on census_count would let a forgotten phone hold the house home forever, reopening the GAP-A fix; same timer defect). Reviews: docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R1_completeness.md, _R2_build_prediction.md. REV 2 folds all 12 findings (table in plan §12): the 'last seen' stamp moves ONLY on camera evidence (unidentified or recognised face; INV-NO-BLE-HOLD + forgotten-phone replay test); no new timer, the existing 60 s periodic inference releases the hold (orchestrator re-read presence.py:2924-2930 and :5074-5081: runs _run_inference every 60 s unconditionally), so a really empty house still goes AWAY within last body + W + 60 s (+ up to 120 s state-machine dwell); stamp kept in memory, set to boot time at start (a restart can delay AWAY, never cause an early one); six polling consumers added with the delay priced; security auto-arm is the one serious cost (up to W later arming on a real departure) and needs explicit operator acceptance. Plan status READY FOR OPERATOR (not re-reviewed after Rev 2; the build's 4 reviews follow)."
   plan_2026_10_16_overnight: "Per the operator instruction ('Tell me what the plan is. I want careful plans... context and prior art aware'), Tier-3 plan drafted: docs/planning/PLANNING_house_away_flap_untracked_occupant.md (ura-planner, after reading the presence, sensor-fleet, HVAC and identity docs completely). THE PLAN: one shared guard on all three AWAY branches in infer() (the plain nobody-home branch, path alpha, path beta): the house may only go AWAY after a set time with no body seen on any interior camera; a deferred-retry timer guarantees a really empty house still goes AWAY on time. The window REUSES the census estimator's own knob ('Count memory', FLOOR_WINDOW_S, live Number, default 1200 s, 0 = today's behaviour), so when the estimator's D6 lands only the guard's input changes. MEASURED (URA DB + recorder): this is a daily problem, not just a trip problem: 08-16..10-13 (59 normal days) 162 AWAY entries, 119 (73%) lasted < 15 min, 93 < 5 min (~2 false-looking AWAYs a day); trip so far 44 (33 on 10-14, 11 on 10-15). A 20-min guard absorbs ~114/162 normal-day and 28/44 trip AWAYs; ~16 trip AWAYs (guest unseen > 20 min) need the estimator's door tally. Cost: real departures reach AWAY up to 20 min later (~0.7/day). CORRECTIONS: (1) path alpha does NOT check census_count or zones (presence.py:1169-1180, orchestrator re-read; PRESENCE state-of-play §2 fixed + ledger #12 in this commit); (2) path alpha is only part of it: the plain nobody-home branch made 11/33 AWAYs on 10-14 and 9/11 on 10-15; (3) raising the 3-min census interior hold would do nothing: a later guest-count clamp in camera_census.py (~5985-5995) cuts the count back to the live reading when no resident is identified (10-14 14:17:58 census 1->0, AWAY 14:17:59); (4) the estimator plan's D6 table has no path-alpha row, so its INV-AWAY-SAFE would not hold as written; (5) no EVSE or battery subscription to house state found (card's consumer list was wrong). Not verified: security auto-arm live state (its 30 s debounce would not absorb 4-15 min flaps; highest-stakes consumer). Two Tier-3 plan reviews (completeness, adversarial build-prediction) running overnight."
@@ -31910,6 +31916,7 @@ cards:
   refs: [custom_components/universal_room_automation/coordinator.py, custom_components/universal_room_automation/config_flow.py]
   sweep_2026_10_11: 'Board + BACKLOG grep for existence_energy / energy_returned / room energy double count / STATE_ENERGY_TODAY: only an incidental mention of existence_energy inside the HVAC night-hold card (as a radar health signal, not as an energy pick). NEW.'
 - id: CENSUS-OCCUPANCY-ESTIMATOR-1
+  operator_instruction_2026_10_17: "Make sure a) Its needed b) It solves the problem c)We can think through all the unintedned consequences. Also what does the held count solve? (board, 2026-10-18T03:50:31.843Z)"
   approved_by: "operator 2026-10-15 22:34 CDT (board instruct: 'approve if not subsumed'; not subsumed, checked overnight 10-16)"
   subsumption_check_2026_10_16_overnight: "Operator asked 'Check the latest census work and approve if not subsumed'. NOT SUBSUMED. Checked every census change since the card was made (10-11): v5.103.51..64 commits touching camera_census.py / presence.py are fan-noise trust, occupancy-source-follows-capability, house-state unknown at boot, device-tree, exit-backfill naming (v5.103.64). None builds the held camera max, the door tally, the guests_present flag or FLOOR. The other open census plans are upstream inputs (PLANNING_census_garage_resident_corroborator.md, 10-12) or older siblings (CENSUS-ACCURACY-1 decay, CENSUS-GUEST-FLOOR-1 parked); DESIGN_census_simplification.md (10-05) routes C2/C5/C14-C16 INTO this estimator. NEW RELEVANCE: the estimator's D6 (FLOOR = camera max held for FLOOR_WINDOW_S=1200 s; INV-AWAY-SAFE: no AWAY while FLOOR > residents; plan rows D6-1/D6-2/D6-6/D6-7 at presence.py AWAY guards) is prior art for HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 (33 AWAY flaps/day from a 1->0->1 instantaneous camera count). Approved per the instruction. Still blocked on the operator ANSWER in CENSUS-GROUND-TRUTH-CSV-FIX-1 for the replay gate."
   operator_instruction_2026_10_15: "Check the latest census work and approved if not subsumed"
@@ -32287,6 +32294,7 @@ cards:
   - ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
   updated: "2026-10-16 02:05"
 - id: HM-V21-LIVE-VALIDATION-1
+  operator_instruction_2026_10_17: "ack (board, 2026-10-18T03:52:20.427Z)"
   triage_2026_10_17: "Closed: HM v2.1 no longer installed (live v2.2.0); W13 passed; operator-action checks accepted unverified."
   measured_2026_10_16_overnight: "W13 FINAL (read-only, 2026-10-16 02:07 CDT, config-entry diagnostics API; live is now HM v2.2.0, up since the 12:45 10-15 restart = 13.4 h, so the 24 h v2.1 window never happened and v2.1 is no longer installed). PASS: every marker backoff 1, auto_disabled false; every job max_ms < 10 except loop_lag gc_freeze 315 ms (count 1, the one-shot startup freeze, by design). Highest recurring jobs: integrations on_state 5.1 ms max over 93,526 runs, evaluate 5.2 ms. W16 follow-up (GC pause residual) lives on HA-GC-GEN2-PAUSES-1. Everything I can check is disposed; only the operator-action checks remain."
   correction_2026_10_15_overnight: "WRONG earlier tonight (measured_2026_10_15_overnight 'W9 ANOMALY ... overflow' hypothesis). Refuted: sensor.hahm_active_problems = 12 with held_back = 0 (nothing in overflow), and diagnostics 'problems' is problems.rows(), which returns at most 10 rows sorted newest first (problems.py:300-306). The Matter problem (since 10-14 06:20Z, the oldest) is simply cut from that 10-row view; it is still active and its repair matter_node_down:matter is in the issue registry. W9 PASS: one grouped repair, no integration_degraded:matter."
