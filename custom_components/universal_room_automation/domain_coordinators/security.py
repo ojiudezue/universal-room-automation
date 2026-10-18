@@ -84,6 +84,16 @@ _LOGGER = logging.getLogger(__name__)
 # Metrics tracked by anomaly detection
 SECURITY_METRICS = ["alert_trigger_frequency", "entry_anomaly_score"]
 
+# Hazard types the NM post-cooldown re-fire path (_re_evaluate_hazard) may
+# re-evaluate against ``_active_alert``. "intruder" is what Security actually
+# emits (unknown-person + ALERT_HIGH entry); "intrusion"/"entry_alert"/
+# "unknown_person" kept for back-compat. "investigate" (MEDIUM, armed +
+# unrecognized entry) and "security_state_change" (informational) are
+# deliberately excluded: NM re-fires at CRITICAL, which would escalate them.
+SECURITY_REFIRE_HAZARD_TYPES: frozenset[str] = frozenset(
+    {"intruder", "intrusion", "entry_alert", "unknown_person"}
+)
+
 # v4.6.5.1 P2: Module-level suppression registry — every metric in
 # SECURITY_METRICS must be EITHER wired (have a record_observation call site
 # in security.py) OR listed here. Introspected by the parametric meta-test
@@ -824,7 +834,7 @@ class SecurityCoordinator(BaseCoordinator):
 
     def is_hazard_active(self, hazard_type: str, location: str) -> bool:
         """Check if a security hazard is still active (for NM re-fire logic)."""
-        if hazard_type in ("intrusion", "entry_alert", "unknown_person"):
+        if hazard_type in SECURITY_REFIRE_HAZARD_TYPES:
             return self._active_alert
         return False
 
