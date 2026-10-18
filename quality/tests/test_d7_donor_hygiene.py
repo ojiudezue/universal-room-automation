@@ -205,3 +205,33 @@ def test_drill_donor_leak_reintroduced_goes_red(donor):
         expect="KILLED",
         timeout=600,
     )
+
+
+# ---------------------------------------------------------------------------
+# Beneficiary fixes: files that passed only because a donor's leak happened
+# to suit them (exposed once the donor was scoped). Drill: undo the fix in a
+# sandbox copy -> the file's own anchor goes RED when run alone.
+# ---------------------------------------------------------------------------
+
+_SELF_DRILLS = {
+    "test_safeword_window.py": (
+        "remaining = nm._perimeter_silence_until - _now()",
+        "remaining = nm._perimeter_silence_until - datetime.utcnow()",
+        "test_duke_45m_parses",
+    ),
+}
+
+
+@pytest.mark.source_mutation
+@pytest.mark.parametrize("target", sorted(_SELF_DRILLS))
+def test_drill_beneficiary_fix_reverted_goes_red(target):
+    swap_from, swap_to, anchor = _SELF_DRILLS[target]
+    apply_mutation_in_sandbox(
+        _TESTS / target,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=_TESTS / target,
+        anchor_test_name=anchor,
+        expect="KILLED",
+        timeout=600,
+    )
