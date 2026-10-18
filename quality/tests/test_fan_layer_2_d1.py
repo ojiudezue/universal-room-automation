@@ -38,120 +38,127 @@ _FROZEN_NOW = datetime(2026, 8, 11, 10, 0, 0)
 # import the modules under test. Everything below uses the returned
 # namespace so no module-level side effects leak.
 # ---------------------------------------------------------------------------
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def d1_env():
-    _identity = lambda fn: fn  # noqa: E731
-    # Permissive MagicMock stubs — arbitrary attr access returns a
-    # MagicMock so a sibling test that would setdefault(a richer stub)
-    # AFTER us still succeeds on ``from homeassistant.core import Event``.
-    sys.modules.setdefault("homeassistant", MagicMock())
-    sys.modules.setdefault(
-        "homeassistant.core",
-        MagicMock(HomeAssistant=MagicMock, callback=_identity),
-    )
-    sys.modules.setdefault("homeassistant.util", MagicMock())
-    if "homeassistant.util.dt" not in sys.modules:
-        from datetime import datetime as _dt
+    # TEST-HARNESS D7 slice 2: was session-scoped and never undone, so its
+    # placeholder URA package / MagicMock homeassistant modules stayed in
+    # sys.modules for every later file (victims: zone_migration_mint_guard
+    # x3). Now module-scoped and everything it installs is restored.
+    from _d7_isolation import import_scope as _d7_import_scope
 
-        def _parse(s):
-            try:
-                return _dt.fromisoformat(s)
-            except Exception:
-                return None
-
-        mod = types.ModuleType("homeassistant.util.dt")
-        mod.now = lambda: _FROZEN_NOW
-        mod.utcnow = lambda: _FROZEN_NOW
-        mod.as_local = lambda dt: dt
-        mod.parse_datetime = _parse
-        sys.modules["homeassistant.util.dt"] = mod
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-    if "custom_components" not in sys.modules:
-        cc = types.ModuleType("custom_components")
-        cc.__path__ = [
-            os.path.join(os.path.dirname(__file__), "..", "..", "custom_components"),
-        ]
-        sys.modules["custom_components"] = cc
-    ura_path = os.path.join(
-        sys.modules["custom_components"].__path__[0], "universal_room_automation",
-    )
-    if "custom_components.universal_room_automation" not in sys.modules:
-        ura = types.ModuleType("custom_components.universal_room_automation")
-        ura.__path__ = [ura_path]
-        ura.__package__ = "custom_components.universal_room_automation"
-        sys.modules["custom_components.universal_room_automation"] = ura
-    if (
-        "custom_components.universal_room_automation.domain_coordinators"
-        not in sys.modules
-    ):
-        dc = types.ModuleType(
-            "custom_components.universal_room_automation.domain_coordinators",
+    with _d7_import_scope(attrs=True):
+        _identity = lambda fn: fn  # noqa: E731
+        # Permissive MagicMock stubs — arbitrary attr access returns a
+        # MagicMock so a sibling test that would setdefault(a richer stub)
+        # AFTER us still succeeds on ``from homeassistant.core import Event``.
+        sys.modules.setdefault("homeassistant", MagicMock())
+        sys.modules.setdefault(
+            "homeassistant.core",
+            MagicMock(HomeAssistant=MagicMock, callback=_identity),
         )
-        dc.__path__ = [os.path.join(ura_path, "domain_coordinators")]
-        sys.modules[
+        sys.modules.setdefault("homeassistant.util", MagicMock())
+        if "homeassistant.util.dt" not in sys.modules:
+            from datetime import datetime as _dt
+
+            def _parse(s):
+                try:
+                    return _dt.fromisoformat(s)
+                except Exception:
+                    return None
+
+            mod = types.ModuleType("homeassistant.util.dt")
+            mod.now = lambda: _FROZEN_NOW
+            mod.utcnow = lambda: _FROZEN_NOW
+            mod.as_local = lambda dt: dt
+            mod.parse_datetime = _parse
+            sys.modules["homeassistant.util.dt"] = mod
+
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+        if "custom_components" not in sys.modules:
+            cc = types.ModuleType("custom_components")
+            cc.__path__ = [
+                os.path.join(os.path.dirname(__file__), "..", "..", "custom_components"),
+            ]
+            sys.modules["custom_components"] = cc
+        ura_path = os.path.join(
+            sys.modules["custom_components"].__path__[0], "universal_room_automation",
+        )
+        if "custom_components.universal_room_automation" not in sys.modules:
+            ura = types.ModuleType("custom_components.universal_room_automation")
+            ura.__path__ = [ura_path]
+            ura.__package__ = "custom_components.universal_room_automation"
+            sys.modules["custom_components.universal_room_automation"] = ura
+        if (
             "custom_components.universal_room_automation.domain_coordinators"
-        ] = dc
+            not in sys.modules
+        ):
+            dc = types.ModuleType(
+                "custom_components.universal_room_automation.domain_coordinators",
+            )
+            dc.__path__ = [os.path.join(ura_path, "domain_coordinators")]
+            sys.modules[
+                "custom_components.universal_room_automation.domain_coordinators"
+            ] = dc
 
-    # Lazy imports — sibling stubs, if not already loaded, get sentinel
-    # replacements ONLY if the real import fails.
-    try:
-        import custom_components.universal_room_automation.fan_veto  # noqa: F401
-    except Exception:
-        fv = types.ModuleType(
-            "custom_components.universal_room_automation.fan_veto"
+        # Lazy imports — sibling stubs, if not already loaded, get sentinel
+        # replacements ONLY if the real import fails.
+        try:
+            import custom_components.universal_room_automation.fan_veto  # noqa: F401
+        except Exception:
+            fv = types.ModuleType(
+                "custom_components.universal_room_automation.fan_veto"
+            )
+            fv.should_veto_comfort_fan = lambda *a, **k: False
+            fv.is_veto_relevant = lambda *a, **k: False
+            fv.sleep_onset_fan_target = lambda **k: 0
+            sys.modules[
+                "custom_components.universal_room_automation.fan_veto"
+            ] = fv
+        try:
+            import custom_components.universal_room_automation.domain_coordinators.hvac_zones  # noqa: F401
+        except Exception:
+            hz = types.ModuleType(
+                "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+            )
+            hz.ZoneManager = MagicMock
+            sys.modules[
+                "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+            ] = hz
+        try:
+            import custom_components.universal_room_automation.domain_coordinators.signals  # noqa: F401
+        except Exception:
+            sg = types.ModuleType(
+                "custom_components.universal_room_automation.domain_coordinators.signals"
+            )
+            sg.EnergyConstraint = MagicMock
+            sys.modules[
+                "custom_components.universal_room_automation.domain_coordinators.signals"
+            ] = sg
+
+        from custom_components.universal_room_automation.domain_coordinators.fan_policy_oracle import (
+            FanPolicyOracle, FanDecisionSnapshot,
         )
-        fv.should_veto_comfort_fan = lambda *a, **k: False
-        fv.is_veto_relevant = lambda *a, **k: False
-        fv.sleep_onset_fan_target = lambda **k: 0
-        sys.modules[
-            "custom_components.universal_room_automation.fan_veto"
-        ] = fv
-    try:
-        import custom_components.universal_room_automation.domain_coordinators.hvac_zones  # noqa: F401
-    except Exception:
-        hz = types.ModuleType(
-            "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+        from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
+            RoomFanState, _OracleISOField, _room_key, FanController,
         )
-        hz.ZoneManager = MagicMock
-        sys.modules[
-            "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
-        ] = hz
-    try:
-        import custom_components.universal_room_automation.domain_coordinators.signals  # noqa: F401
-    except Exception:
-        sg = types.ModuleType(
-            "custom_components.universal_room_automation.domain_coordinators.signals"
-        )
-        sg.EnergyConstraint = MagicMock
-        sys.modules[
-            "custom_components.universal_room_automation.domain_coordinators.signals"
-        ] = sg
 
-    from custom_components.universal_room_automation.domain_coordinators.fan_policy_oracle import (
-        FanPolicyOracle, FanDecisionSnapshot,
-    )
-    from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
-        RoomFanState, _OracleISOField, _room_key, FanController,
-    )
+        class _Env:
+            pass
 
-    class _Env:
-        pass
-
-    e = _Env()
-    e.FanPolicyOracle = FanPolicyOracle
-    e.FanDecisionSnapshot = FanDecisionSnapshot
-    e.RoomFanState = RoomFanState
-    e._OracleISOField = _OracleISOField
-    e._room_key = _room_key
-    e.FanController = FanController
-    return e
+        e = _Env()
+        e.FanPolicyOracle = FanPolicyOracle
+        e.FanDecisionSnapshot = FanDecisionSnapshot
+        e.RoomFanState = RoomFanState
+        e._OracleISOField = _OracleISOField
+        e._room_key = _room_key
+        e.FanController = FanController
+        yield e
 
 
 # Autouse fixture: freeze wall-clock across all dt-util module identities
 # that the oracle module may hold, restored per-test via monkeypatch.
 @pytest.fixture(autouse=True)
-def _freeze_dt_util(monkeypatch):
+def _freeze_dt_util(monkeypatch, request):
     from datetime import datetime as _dt
 
     def _parse(s):
@@ -174,6 +181,18 @@ def _freeze_dt_util(monkeypatch):
             targets.append(cached)
     except Exception:
         pass
+    # TEST-HARNESS D7 slice 2: also freeze the dt modules the classes under
+    # test ACTUALLY read (their own globals). In the full suite hvac_fans can
+    # be bound to a dt object that is neither sys.modules' nor the oracle's.
+    if "d1_env" in request.fixturenames:
+        env = request.getfixturevalue("d1_env")
+        for cls, meth in ((env.FanController, "_is_manual_on_hold_live"),
+                          (env.FanPolicyOracle, "__init__")):
+            g = getattr(getattr(cls, meth, None), "__globals__", {})
+            for key in ("dt_util", "_ha_dt"):
+                cand = g.get(key)
+                if cand is not None and all(cand is not t for t in targets):
+                    targets.append(cand)
     for mod in targets:
         monkeypatch.setattr(mod, "now", _now, raising=False)
         monkeypatch.setattr(mod, "utcnow", _now, raising=False)

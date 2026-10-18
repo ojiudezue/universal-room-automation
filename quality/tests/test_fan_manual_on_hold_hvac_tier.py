@@ -156,6 +156,8 @@ if "custom_components" not in sys.modules:
 if "custom_components.universal_room_automation" not in sys.modules:
     _ura_pkg = _mock_module("custom_components.universal_room_automation")
     _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+    # TEST-HARNESS D7 slice 2: real __path__ (was [] -> run-alone collection error).
+    _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
     sys.modules["custom_components.universal_room_automation"] = _ura_pkg
 if "custom_components.universal_room_automation.const" not in sys.modules:
     _load_module(
@@ -207,6 +209,17 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
 
 _hf_dt_util = _hf_mod.dt_util
 
+
+
+import pytest as _d7_pytest_clock  # noqa: E402
+
+
+@_d7_pytest_clock.fixture(autouse=True)
+def _d7_restore_set_now_clocks(monkeypatch):
+    """TEST-HARNESS D7 slice 2: undo this file's _set_now clock writes after
+    every test (they can land on the real / an orphaned real dt module)."""
+    from _d7_isolation import restore_clocks_after_test
+    restore_clocks_after_test(monkeypatch, globals())
 
 def _set_now(dt: datetime) -> None:
     fn = lambda: dt  # noqa: E731

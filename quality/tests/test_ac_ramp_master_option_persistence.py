@@ -126,76 +126,89 @@ def _ensure_module(name, **attrs):
     return m
 
 
-for _n, _a in _mods.items():
-    _ensure_module(_n, **_a)
+# TEST-HARNESS D7: the stub install + module loads below are SCOPED (undone on
+# exit of the block, re-applied only while this module's tests run). The
+# fill-gaps-never-overwrite rule above stopped this file clobbering others,
+# but its stubs still persisted for the whole session: the collection-time
+# donor of test_v4623_humidity_fan_behavioral (5 tests).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-_HERE = os.path.dirname(__file__)
-_URA_PATH = os.path.join(_HERE, "..", "..", "custom_components",
-                         "universal_room_automation")
-_DC_PATH = os.path.join(_URA_PATH, "domain_coordinators")
+with _d7_import_scope(attrs=True) as _D7_INSTALLED:
+    for _n, _a in _mods.items():
+        _ensure_module(_n, **_a)
 
-if "custom_components" not in sys.modules:
-    _cc = types.ModuleType("custom_components")
-    _cc.__path__ = [os.path.join(_HERE, "..", "..", "custom_components")]
-    sys.modules["custom_components"] = _cc
-if "custom_components.universal_room_automation" not in sys.modules:
-    _ura = types.ModuleType("custom_components.universal_room_automation")
-    _ura.__path__ = [_URA_PATH]
-    sys.modules["custom_components.universal_room_automation"] = _ura
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+    _HERE = os.path.dirname(__file__)
+    _URA_PATH = os.path.join(_HERE, "..", "..", "custom_components",
+                             "universal_room_automation")
+    _DC_PATH = os.path.join(_URA_PATH, "domain_coordinators")
+
+    if "custom_components" not in sys.modules:
+        _cc = types.ModuleType("custom_components")
+        _cc.__path__ = [os.path.join(_HERE, "..", "..", "custom_components")]
+        sys.modules["custom_components"] = _cc
+    if "custom_components.universal_room_automation" not in sys.modules:
+        _ura = types.ModuleType("custom_components.universal_room_automation")
+        _ura.__path__ = [_URA_PATH]
+        sys.modules["custom_components.universal_room_automation"] = _ura
 
 
-def _load(modname, relpath):
-    cached = sys.modules.get(modname)
-    if cached is not None and getattr(cached, "__file__", None):
-        return cached
-    spec = importlib.util.spec_from_file_location(
-        modname, os.path.join(_URA_PATH, relpath),
+    def _load(modname, relpath):
+        cached = sys.modules.get(modname)
+        if cached is not None and getattr(cached, "__file__", None):
+            return cached
+        spec = importlib.util.spec_from_file_location(
+            modname, os.path.join(_URA_PATH, relpath),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[modname] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+
+    _load("custom_components.universal_room_automation.const", "const.py")
+    if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
+        _dc = types.ModuleType(
+            "custom_components.universal_room_automation.domain_coordinators"
+        )
+        _dc.__path__ = [_DC_PATH]
+        sys.modules[
+            "custom_components.universal_room_automation.domain_coordinators"
+        ] = _dc
+    for _m in (
+        "custom_components.universal_room_automation.domain_coordinators.hvac_const",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_setpoint",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_override",
+    ):
+        c = sys.modules.get(_m)
+        if c is not None and not getattr(c, "__file__", None):
+            del sys.modules[_m]
+
+    _load("custom_components.universal_room_automation.domain_coordinators.hvac_const",
+          "domain_coordinators/hvac_const.py")
+    _load("custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+          "domain_coordinators/hvac_zones.py")
+    _load("custom_components.universal_room_automation.domain_coordinators.hvac_setpoint",
+          "domain_coordinators/hvac_setpoint.py")
+    hvac_override = _load(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_override",
+        "domain_coordinators/hvac_override.py",
     )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[modname] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    hvac_zones = sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+    ]
+    hvac_const = sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators.hvac_const"
+    ]
+
+    OverrideArrester = hvac_override.OverrideArrester
+    ZoneState = hvac_zones.ZoneState
 
 
-_load("custom_components.universal_room_automation.const", "const.py")
-if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
-    _dc = types.ModuleType(
-        "custom_components.universal_room_automation.domain_coordinators"
-    )
-    _dc.__path__ = [_DC_PATH]
-    sys.modules[
-        "custom_components.universal_room_automation.domain_coordinators"
-    ] = _dc
-for _m in (
-    "custom_components.universal_room_automation.domain_coordinators.hvac_const",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_setpoint",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_override",
-):
-    c = sys.modules.get(_m)
-    if c is not None and not getattr(c, "__file__", None):
-        del sys.modules[_m]
-
-_load("custom_components.universal_room_automation.domain_coordinators.hvac_const",
-      "domain_coordinators/hvac_const.py")
-_load("custom_components.universal_room_automation.domain_coordinators.hvac_zones",
-      "domain_coordinators/hvac_zones.py")
-_load("custom_components.universal_room_automation.domain_coordinators.hvac_setpoint",
-      "domain_coordinators/hvac_setpoint.py")
-hvac_override = _load(
-    "custom_components.universal_room_automation.domain_coordinators.hvac_override",
-    "domain_coordinators/hvac_override.py",
-)
-hvac_zones = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
-]
-hvac_const = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_const"
-]
-
-OverrideArrester = hvac_override.OverrideArrester
-ZoneState = hvac_zones.ZoneState
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 def _mk_arrester():

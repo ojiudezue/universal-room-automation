@@ -559,7 +559,14 @@ def test_force_charge_preempts_dp_pause_release():
     _orig_utcnow = getattr(_dt_mod, "utcnow")
     _pinned = datetime(2026, 7, 17, 2, 0, 0)
     _dt_mod.utcnow = lambda: _pinned
+    _d7_extra = []
     try:
+        # TEST-HARNESS D7 slice 2: also pin the dt production binds at call
+        # time (inside the try so the finally always restores).
+        from _d7_isolation import other_dt_modules as _d7_other_dt
+        _d7_extra = [(m, m.utcnow) for m in _d7_other_dt()]
+        for _m, _ in _d7_extra:
+            _m.utcnow = lambda: _pinned
         ev._force_charge_until = _pinned + _td(hours=1)
         # Peak branch: force-charge active → continues past pause;
         # `_paused_by_dp` is NOT touched (DP owns its set exclusively).
@@ -571,6 +578,8 @@ def test_force_charge_preempts_dp_pause_release():
         )
     finally:
         _dt_mod.utcnow = _orig_utcnow
+        for _m, _f in _d7_extra:
+            _m.utcnow = _f
 
 
 # ==========================================================================

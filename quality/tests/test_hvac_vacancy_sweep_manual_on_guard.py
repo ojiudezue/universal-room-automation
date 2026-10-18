@@ -308,6 +308,22 @@ else:
 _hvac_dt_util = _hvac_mod.dt_util
 
 
+import pytest as _d7_pytest  # noqa: E402
+
+
+@_d7_pytest.fixture(autouse=True)
+def _d7_restore_clock(monkeypatch):
+    """TEST-HARNESS D7 slice 2: ``_set_now`` writes a frozen clock onto
+    ``_hvac_mod.dt_util`` -- the REAL homeassistant.util.dt whenever hvac
+    was already loaded -- and never undid it. Registering the current
+    values with monkeypatch puts them back after each test (victims:
+    test_identity_fusion_d2_d3_d4, judged fresh legs stale against the
+    frozen clock)."""
+    for _mod in (_hvac_dt_util, _dt_mock):
+        monkeypatch.setattr(_mod, "now", _mod.now)
+        monkeypatch.setattr(_mod, "utcnow", _mod.utcnow)
+
+
 def _set_now(dt: datetime) -> None:
     fn = lambda: dt  # noqa: E731
     _dt_mock.now = fn

@@ -47,6 +47,15 @@ def _real_ha_util_dt():
     """
     saved_util = sys.modules.get("homeassistant.util")
     saved_dt = sys.modules.get("homeassistant.util.dt")
+    # TEST-HARNESS D7 slice 2: also restore the PARENT attribute
+    # ``homeassistant.util.dt``. Restoring sys.modules alone left the real
+    # package's ``dt`` attribute on this stub, so a module (re)imported later
+    # with ``from homeassistant.util import dt`` bound the stub (victim:
+    # test_v47x_dynamic_preset x6, after test_optimizer_reserve_hard_deny).
+    _absent = object()
+    saved_parent_dt = (
+        vars(saved_util).get("dt", _absent) if saved_util is not None else _absent
+    )
     if "homeassistant.util" not in sys.modules:
         sys.modules["homeassistant.util"] = _types_mod.ModuleType("homeassistant.util")
     stub = _types_mod.ModuleType("homeassistant.util.dt")
@@ -68,6 +77,11 @@ def _real_ha_util_dt():
             sys.modules["homeassistant.util.dt"] = saved_dt
         else:
             sys.modules.pop("homeassistant.util.dt", None)
+        if saved_util is not None:
+            if saved_parent_dt is _absent:
+                saved_util.__dict__.pop("dt", None)
+            else:
+                saved_util.dt = saved_parent_dt
 
 
 HERE = os.path.dirname(__file__)

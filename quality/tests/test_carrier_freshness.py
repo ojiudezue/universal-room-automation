@@ -123,129 +123,145 @@ _dt_mock = _mock_module(
     parse_datetime=_parse_dt,
 )
 
-for _name, _attrs in _ha_mods.items():
-    if isinstance(_attrs, dict):
-        _existing = sys.modules.get(_name)
-        if _existing is None:
-            sys.modules[_name] = _mock_module(_name, **_attrs)
+# TEST-HARNESS D7 slice 2: the HA stub install (attribute writes onto real HA
+# modules + a replaced homeassistant.util.dt) and the production loads it
+# drives are scoped: undone on exit, re-applied only while THIS module's tests
+# run. Left in place, it was one of the 4-file donor set of
+# test_identity_fusion_d2_d3_d4 (10 victims).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+with _d7_import_scope(attrs=True) as _D7_INSTALLED:
+    for _name, _attrs in _ha_mods.items():
+        if isinstance(_attrs, dict):
+            _existing = sys.modules.get(_name)
+            if _existing is None:
+                sys.modules[_name] = _mock_module(_name, **_attrs)
+            else:
+                for _k, _v in _attrs.items():
+                    setattr(_existing, _k, _v)
         else:
-            for _k, _v in _attrs.items():
-                setattr(_existing, _k, _v)
+            sys.modules.setdefault(_name, _attrs)
+
+    sys.modules["homeassistant.util.dt"] = _dt_mock
+    sys.modules.setdefault("aiosqlite", MagicMock())
+
+    _project_root = os.path.join(os.path.dirname(__file__), "..", "..")
+    _ura_root = os.path.join(
+        _project_root, "custom_components", "universal_room_automation",
+    )
+
+
+    def _load_module(full_name: str, filepath: str) -> types.ModuleType:
+        existing = sys.modules.get(full_name)
+        if (
+            existing is not None
+            and isinstance(existing, types.ModuleType)
+            and isinstance(getattr(existing, "__file__", None), str)
+            and os.path.isfile(existing.__file__)
+        ):
+            return existing
+        spec = importlib.util.spec_from_file_location(full_name, filepath)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[full_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+
+    if "custom_components" not in sys.modules:
+        _cc_pkg = _mock_module("custom_components")
+        _cc_pkg.__path__ = [os.path.join(_project_root, "custom_components")]
+        sys.modules["custom_components"] = _cc_pkg
     else:
-        sys.modules.setdefault(_name, _attrs)
+        _existing_cc = sys.modules["custom_components"]
+        if not getattr(_existing_cc, "__path__", None):
+            _existing_cc.__path__ = [os.path.join(_project_root, "custom_components")]
+    if "custom_components.universal_room_automation" not in sys.modules:
+        _ura_pkg = _mock_module("custom_components.universal_room_automation")
+        _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+        _ura_pkg.__path__ = [_ura_root]
+        sys.modules["custom_components.universal_room_automation"] = _ura_pkg
+    else:
+        _existing_ura = sys.modules["custom_components.universal_room_automation"]
+        if not getattr(_existing_ura, "__path__", None):
+            _existing_ura.__path__ = [_ura_root]
+        if not getattr(_existing_ura, "__file__", None):
+            _existing_ura.__file__ = os.path.join(_ura_root, "__init__.py")
 
-sys.modules["homeassistant.util.dt"] = _dt_mock
-sys.modules.setdefault("aiosqlite", MagicMock())
-
-_project_root = os.path.join(os.path.dirname(__file__), "..", "..")
-_ura_root = os.path.join(
-    _project_root, "custom_components", "universal_room_automation",
-)
-
-
-def _load_module(full_name: str, filepath: str) -> types.ModuleType:
-    existing = sys.modules.get(full_name)
-    if (
-        existing is not None
-        and isinstance(existing, types.ModuleType)
-        and isinstance(getattr(existing, "__file__", None), str)
-        and os.path.isfile(existing.__file__)
-    ):
-        return existing
-    spec = importlib.util.spec_from_file_location(full_name, filepath)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-if "custom_components" not in sys.modules:
-    _cc_pkg = _mock_module("custom_components")
-    _cc_pkg.__path__ = [os.path.join(_project_root, "custom_components")]
-    sys.modules["custom_components"] = _cc_pkg
-else:
-    _existing_cc = sys.modules["custom_components"]
-    if not getattr(_existing_cc, "__path__", None):
-        _existing_cc.__path__ = [os.path.join(_project_root, "custom_components")]
-if "custom_components.universal_room_automation" not in sys.modules:
-    _ura_pkg = _mock_module("custom_components.universal_room_automation")
-    _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
-    _ura_pkg.__path__ = [_ura_root]
-    sys.modules["custom_components.universal_room_automation"] = _ura_pkg
-else:
-    _existing_ura = sys.modules["custom_components.universal_room_automation"]
-    if not getattr(_existing_ura, "__path__", None):
-        _existing_ura.__path__ = [_ura_root]
-    if not getattr(_existing_ura, "__file__", None):
-        _existing_ura.__file__ = os.path.join(_ura_root, "__init__.py")
-
-_load_module(
-    "custom_components.universal_room_automation.const",
-    os.path.join(_ura_root, "const.py"),
-)
-if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
-    _dc_pkg = _mock_module(
-        "custom_components.universal_room_automation.domain_coordinators",
+    _load_module(
+        "custom_components.universal_room_automation.const",
+        os.path.join(_ura_root, "const.py"),
     )
-    _dc_pkg.__file__ = os.path.join(
-        _ura_root, "domain_coordinators", "__init__.py",
+    if "custom_components.universal_room_automation.domain_coordinators" not in sys.modules:
+        _dc_pkg = _mock_module(
+            "custom_components.universal_room_automation.domain_coordinators",
+        )
+        _dc_pkg.__file__ = os.path.join(
+            _ura_root, "domain_coordinators", "__init__.py",
+        )
+        _dc_pkg.__path__ = [os.path.join(_ura_root, "domain_coordinators")]
+        sys.modules[
+            "custom_components.universal_room_automation.domain_coordinators"
+        ] = _dc_pkg
+
+    _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.house_state",
+        os.path.join(_ura_root, "domain_coordinators", "house_state.py"),
     )
-    _dc_pkg.__path__ = [os.path.join(_ura_root, "domain_coordinators")]
-    sys.modules[
-        "custom_components.universal_room_automation.domain_coordinators"
-    ] = _dc_pkg
-
-_load_module(
-    "custom_components.universal_room_automation.domain_coordinators.house_state",
-    os.path.join(_ura_root, "domain_coordinators", "house_state.py"),
-)
-_load_module(
-    "custom_components.universal_room_automation.fan_veto",
-    os.path.join(_ura_root, "fan_veto.py"),
-)
-
-_SIBLING_LOAD_ORDER = [
-    ("house_state", "domain_coordinators/house_state.py"),
-    ("signals", "domain_coordinators/signals.py"),
-    ("hvac_const", "domain_coordinators/hvac_const.py"),
-    ("base", "domain_coordinators/base.py"),
-    ("hvac_zones", "domain_coordinators/hvac_zones.py"),
-    ("hvac_fans", "domain_coordinators/hvac_fans.py"),
-    ("hvac_covers", "domain_coordinators/hvac_covers.py"),
-    ("hvac_egress", "domain_coordinators/hvac_egress.py"),
-    ("hvac_preset", "domain_coordinators/hvac_preset.py"),
-    ("hvac_setpoint", "domain_coordinators/hvac_setpoint.py"),
-    ("hvac_override", "domain_coordinators/hvac_override.py"),
-    ("hvac_predict", "domain_coordinators/hvac_predict.py"),
-]
-for _leaf, _rel in _SIBLING_LOAD_ORDER:
-    _fq = (
-        "custom_components.universal_room_automation.domain_coordinators."
-        + _leaf
+    _load_module(
+        "custom_components.universal_room_automation.fan_veto",
+        os.path.join(_ura_root, "fan_veto.py"),
     )
-    _load_module(_fq, os.path.join(_ura_root, _rel))
 
-_load_module(
-    "custom_components.universal_room_automation.domain_coordinators.hvac",
-    os.path.join(_ura_root, "domain_coordinators", "hvac.py"),
-)
+    _SIBLING_LOAD_ORDER = [
+        ("house_state", "domain_coordinators/house_state.py"),
+        ("signals", "domain_coordinators/signals.py"),
+        ("hvac_const", "domain_coordinators/hvac_const.py"),
+        ("base", "domain_coordinators/base.py"),
+        ("hvac_zones", "domain_coordinators/hvac_zones.py"),
+        ("hvac_fans", "domain_coordinators/hvac_fans.py"),
+        ("hvac_covers", "domain_coordinators/hvac_covers.py"),
+        ("hvac_egress", "domain_coordinators/hvac_egress.py"),
+        ("hvac_preset", "domain_coordinators/hvac_preset.py"),
+        ("hvac_setpoint", "domain_coordinators/hvac_setpoint.py"),
+        ("hvac_override", "domain_coordinators/hvac_override.py"),
+        ("hvac_predict", "domain_coordinators/hvac_predict.py"),
+    ]
+    for _leaf, _rel in _SIBLING_LOAD_ORDER:
+        _fq = (
+            "custom_components.universal_room_automation.domain_coordinators."
+            + _leaf
+        )
+        _load_module(_fq, os.path.join(_ura_root, _rel))
 
-# ---------------------------------------------------------------------------
-# Now import the SUT symbols
-# ---------------------------------------------------------------------------
+    _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac",
+        os.path.join(_ura_root, "domain_coordinators", "hvac.py"),
+    )
 
-from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
-    hvac as hvac_mod,
-)
-from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
-    CARRIER_INTEGRATION_DOMAIN,
-    DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S,
-    DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY,
-    DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S,
-)
-from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (  # noqa: E402
-    DailyCounter,
-)
+    # ---------------------------------------------------------------------------
+    # Now import the SUT symbols
+    # ---------------------------------------------------------------------------
+
+    from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
+        hvac as hvac_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.hvac_const import (  # noqa: E402
+        CARRIER_INTEGRATION_DOMAIN,
+        DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S,
+        DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY,
+        DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (  # noqa: E402
+        DailyCounter,
+    )
+
+
+import pytest as _d7_pytest  # noqa: E402
+
+
+@_d7_pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 from types import SimpleNamespace  # noqa: E402
 
 

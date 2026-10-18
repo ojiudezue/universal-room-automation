@@ -23,6 +23,9 @@ The pytest guard **KILLS** concurrent full-suite runs (it does not queue), and a
 ## Source-mutation drills are opt-in (2026-10-17)
 The default run deselects `@pytest.mark.source_mutation` (pytest.ini addopts). For the **pre-merge gate** run the name-diff with `URA_SOURCE_MUTATION=1` in the environment (inherited by `scripts/suite_namediff.py`); for ordinary build checks, the default run is correct. Quarantined tests (`@pytest.mark.quarantine("CARD-ID")`) are skipped and counted in the `quarantine ledger` summary line — report that count; it must not grow. See quality/TEST_SUITE_ACCESS.md.
 
+## D7 donor-hygiene anchors are opt-in too (2026-10-18)
+The subprocess anchors in `quality/tests/test_d7_donor_hygiene.py` are skipped unless `URA_D7_HYGIENE=1`. At the **pre-merge / cycle-close gate**, in addition to the name-diff, run `URA_D7_HYGIENE=1 PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/test_d7_donor_hygiene.py quality/tests/test_collect_order_matrix_run_mode.py -q -p no:cacheprovider` and report it (must be all-pass). See quality/TEST_SUITE_ACCESS.md.
+
 ## Run — ALWAYS via the cached name-diff script (2026-09-26)
 ```bash
 python3 scripts/suite_namediff.py --branch-dir <worktree>            # full name-diff (pre-merge gate)

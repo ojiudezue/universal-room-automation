@@ -108,6 +108,14 @@ Implemented in `quality/tests/_markers.py`; markers declared in `pytest.ini`.
     `URA_SOURCE_MUTATION=1 python3 scripts/suite_namediff.py --branch-dir <worktree>`.
   - Running one drill file directly (`pytest quality/tests/test_chatter_wire_in.py`) DESELECTS
     its drills unless you opt in. New drill tests must carry the marker.
+- **D7 donor-hygiene anchors are opt-in (URA_D7_HYGIENE).** The subprocess anchors in
+  `quality/tests/test_d7_donor_hygiene.py` (residue probe per fixed donor, donor->victim pairs,
+  multi-donor sets) and most of the `collect_order_matrix` self-test spawn one pytest per
+  case (~3-4 min), so the default run SKIPS them. The source_mutation drills switch the flag on
+  for their own sandboxed anchor runs. **The validator's pre-merge / cycle-close gate must also
+  run** `URA_D7_HYGIENE=1 PYTHONPATH=quality .venv-ha/bin/python -m pytest
+  quality/tests/test_d7_donor_hygiene.py quality/tests/test_collect_order_matrix_run_mode.py`
+  -- otherwise a donor fix can regress with nothing going red.
 - **Quarantine.** `@pytest.mark.quarantine("CARD-ID", reason="...", cls="...")` carries a known
   failure on a kanban card. The card id is mandatory (`ABC-DEF-1` shape) — a missing or malformed
   id is a collection error (exit 4). Quarantined tests are skipped and counted in a

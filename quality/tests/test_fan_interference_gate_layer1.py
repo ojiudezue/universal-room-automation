@@ -58,10 +58,11 @@ def _now() -> datetime:
     and the comparison in ``_room_occupied`` raised TypeError (fake drift).
     Binding to the production module's clock keeps the seeds correct under
     real HA and under the stub alike."""
-    from custom_components.universal_room_automation.domain_coordinators import (
-        presence as _presence,
-    )
-    return _presence.dt_util.utcnow()
+    # TEST-HARNESS D7 slice 2: read the clock through the globals of the
+    # class actually under test -- a sibling file can leave a DIFFERENT
+    # presence module in sys.modules than the one ZonePresenceTracker was
+    # imported from at collection.
+    return ZonePresenceTracker._room_occupied.fget.__globals__["dt_util"].utcnow()
 
 
 def _build(rooms=("a",), zone="z1"):

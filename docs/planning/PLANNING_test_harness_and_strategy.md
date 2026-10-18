@@ -206,6 +206,21 @@ scoping is the chosen path BECAUSE it changes one file at a time and each step i
   order (empty, after quarantine). Under a donor left unfixed, the victim name appears only in some seeds.
 - **Test:** the matrix tool itself has a self-test (a planted order-dependent pair must be reported).
 
+**D7 slice 3 — residuals carried from slice 2 (review B, 2026-10-18).**
+- **Load-bearing evictors.** `test_optimization_coordinator`, `test_oc_pillar_a_handshake` and `test_oc_pillar_b_admin_surface`
+  evict every `custom_components.universal_room_automation*` module per test and never restore. In the full suite that
+  eviction is load-bearing CLEANUP: it re-imports URA fresh and so heals collection-time stubs left by files collected
+  later (e.g. `_provenance_harness` importers, `zzz_*`). Slice 2 scoped them and exposed 21 victims
+  (zone_migration_mint_guard x3, unload_symmetry_task_hygiene x2, fan_interference_gate_layer1 x4, ec_billing x2,
+  energy_savings, house_state_restore x2, hvac_batch_d x2, prediction_sensor_kill_list, property_getter_pure,
+  s10_post_preset_change_settle, zone_safety_alert x2), so the scoping was reverted and their own victims were fixed
+  victim-side. Slice 3: retire the collection-time donors first (shared `_provenance_harness`, `_excursion_harness`,
+  the `_set_now` HA-mock preamble family, `v47x_dynamic_preset` / `v47x_weather_manager`), THEN scope the three
+  evictors. The abandoned broad attempt is on branch `test-wave2-d7-s2-round2-wip` (121 failing in the full-prefix
+  run; do not merge -- reference only).
+- Remaining every-order failures (D5): census_device_switches x6, v4623_humidity_fan_behavioral x5, deploy_scripts,
+  setup_unload_symmetry, zone_delete_flow; optimization_coordinator x10 fail when run ALONE.
+
 **D8 — Real-HA default + no-new-fakes gate (Tier 2).**
 (a) Lint test `test_no_new_ha_sysmodules_fakes.py`: AST-scan `quality/tests/*.py` for `sys.modules[...]`/`setdefault` writes of
 `homeassistant*` keys; allowlist = today's 210 files frozen in a committed file; any NEW file → fail. Allowlist may only shrink.

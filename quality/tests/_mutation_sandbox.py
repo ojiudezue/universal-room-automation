@@ -117,8 +117,15 @@ def apply_mutation_in_sandbox(
             _REPO / "quality", tmp_root / "quality", symlinks=False,
         )
 
-        rel_prod = prod_path.resolve().relative_to(_CC)
-        tmp_target = tmp_root / "custom_components" / rel_prod
+        # TEST-HARNESS D7: the target may also be a TEST file under quality/
+        # (donor-fix drills mutate the donor test, not production). Both
+        # trees are real copies, so resolve relative to the repo root.
+        rel_prod = prod_path.resolve().relative_to(_REPO)
+        if rel_prod.parts[0] not in ("custom_components", "quality"):
+            raise ValueError(
+                f"mutation target must live under custom_components/ or quality/: {prod_path}"
+            )
+        tmp_target = tmp_root / rel_prod
         # Mutation is applied AFTER the baseline run (see below).
 
         rel_test = anchor_test_file.resolve().relative_to(_REPO)

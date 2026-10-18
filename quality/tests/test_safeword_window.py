@@ -33,6 +33,19 @@ from unittest.mock import AsyncMock, MagicMock
 from test_notification_manager import _make_hass, _make_config  # noqa: F401
 
 import custom_components.universal_room_automation.domain_coordinators.notification_manager as _nm_mod
+
+
+def _now():
+    """The clock production reads (``dt_util.utcnow``), not naive wall time.
+
+    TEST-HARNESS D7: this file compared production's expiry (stamped from
+    ``dt_util.utcnow()`` — tz-AWARE under real HA) with naive
+    ``datetime.utcnow()``. It passed only when an earlier file in the session
+    had leaked ``dt_util.utcnow = datetime.utcnow`` (test_identity_fusion_d2_
+    d3_d4's ``_ensure_loop``); alone, or once that leak was scoped, 8 tests
+    raised "can't subtract offset-naive and offset-aware datetimes".
+    """
+    return _nm_mod.dt_util.utcnow()
 from custom_components.universal_room_automation.domain_coordinators.notification_manager import (
     AlertState,
     NotificationManager,
@@ -148,9 +161,9 @@ def test_duke_2h_acks_current_and_opens_window():
     nm._get_person_name = MagicMock(return_value="Op")
     nm._announce_ack = AsyncMock()
 
-    before = datetime.utcnow()
+    before = _now()
     resp = _run(nm._process_inbound_reply("person.op", "imessage", "dukeword 2h"))
-    after = datetime.utcnow()
+    after = _now()
 
     # Ack was invoked (I3 — the in-flight re-page loop is stopped by the
     # ordinary ack path, NOT by this new gate).
@@ -170,7 +183,7 @@ def test_duke_45m_parses():
     nm._active_alert_data = None
     _run(nm._process_inbound_reply("person.op", "imessage", "dukeword 45m"))
     assert nm._perimeter_silence_until is not None
-    remaining = nm._perimeter_silence_until - datetime.utcnow()
+    remaining = nm._perimeter_silence_until - _now()
     assert timedelta(minutes=44, seconds=55) < remaining < timedelta(minutes=45, seconds=5)
 
 
@@ -239,7 +252,7 @@ def test_bare_duke_still_acks_no_window():
 
 def _open_window(nm, minutes: int = 60) -> None:
     nm._perimeter_silence_until = (
-        datetime.utcnow() + timedelta(minutes=minutes)
+        _now() + timedelta(minutes=minutes)
     )
     nm._perimeter_silence_last_notified_expiry = None
 
@@ -352,7 +365,7 @@ def test_window_expires_and_emits_resumed_note():
     _stub_downstream_notify(nm)
     # Expiry in the PAST — the next async_notify tick should observe expiry.
     nm._perimeter_silence_until = (
-        datetime.utcnow() - timedelta(seconds=1)
+        _now() - timedelta(seconds=1)
     )
     nm._perimeter_silence_last_notified_expiry = None
     before_tasks = len(nm._pending_note_coros)
