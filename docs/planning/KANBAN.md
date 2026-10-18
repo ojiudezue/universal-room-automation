@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-18T10:41:17-05:00_ - _Data commit: `49726d15aea3`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-18T11:15:49-05:00_ - _Data commit: `b5962bf46c44`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -1000,7 +1000,8 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Tags:** tier-3, measure-before-build, found-during-probe, no-fabrication-verify
 - **Parsimony:** [BUILD (plan first; Tier 3 - house-state machine is a shared primitive consumed by HVAC, lighting, security, EVSE, battery)] With every tracker away and an untracked occupant home, path alpha toggles AWAY on single census drops (33/day on 10-14).
 - **Refs:** docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (15):**
+- **Forensic keys (16):**
+  - `operator_approval_2026_10_18`: Operator YES to the 4-item set: (1) dashboard-only presence section on v8 People (building), (2) widen zone.home 53->150 m (operator UI action; ha-mcp cannot edit the home zone), (3) NEW small Tier-3 cycle PLANNING_house_state_sleep_mask...
   - `ha_config_change_2026_10_18`: Operator: remove the iPad, keep Bermuda (it is derived from the same BLE IRK). Done via person/update: person.oji_udezue device_trackers now [phalanxiphone15promaxcflare (app GPS), iphone_oji_bermuda_tracker, private_ble_device_8ce182 (I...
   - `operator_instruction_2026_10_18c`: Guests: 'Not as high. But that's relative.' And: 'I still want accuracy at the right amount of effort and simplicity.' -> recommendation must rank options by accuracy gained per unit of complexity/risk, residents weighted above guests bu...
   - `operator_instruction_2026_10_18b`: Did you factor ble in all this? Study A should generally know when I'm there if my phone is on me. Guest accuracy is not a high priority as resident just because guest time in any given year is not the main event and most stays are short...
