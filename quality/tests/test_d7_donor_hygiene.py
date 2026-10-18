@@ -649,6 +649,16 @@ MULTI_DONOR_VICTIMS: dict[tuple[str, ...], list[str]] = {
     ): [
         "test_v47x_dynamic_preset.py::TestWinterGateCalendarBoundary::test_jan_is_winter",
     ],
+    # Exposed once the eviction donors were scoped (presence no longer
+    # re-imported fresh): presence.py imported under a stub dt by one of
+    # these. Fixed VICTIM-side (fs4 pins presence's own dt_util).
+    (
+        "test_fan_policy_oracle.py",
+        "test_fan_sweep_trio.py",
+        "test_hvac_excursion_d1_auto_release.py",
+    ): [
+        "test_identity_fusion_d2_d3_d4.py::test_fs4_presence_get_face_for_camera_gated_under_suppression",
+    ],
     # Second identity_fusion set (after carrier_freshness was fixed), ddmin
     # over a 76-file reduced prefix. Fixed donor: hvac_vacancy_sweep (frozen
     # clock left on the REAL dt via hvac's dt_util).
@@ -727,6 +737,32 @@ def test_drill_multi_donor_fix_neutered_victim_goes_red(donor):
         swap_to=swap_to,
         anchor_test_file=_HERE,
         anchor_test_name=f"test_victim_green_after_donor_set[{donors[0]}+{len(donors) - 1}-{victims[0]}]",
+        expect="KILLED",
+        timeout=600,
+    )
+
+
+# Victim-side fix anchored by a multi-donor set: revert the victim's fix in a
+# sandbox copy -> the set anchor goes RED.
+_MULTI_VICTIM_DRILLS = {
+    "test_identity_fusion_d2_d3_d4.py::test_fs4_presence_get_face_for_camera_gated_under_suppression": (
+        "    _presence_dt.utcnow = lambda: now\n",
+        "",
+    ),
+}
+
+
+@pytest.mark.source_mutation
+@pytest.mark.parametrize("victim", sorted(_MULTI_VICTIM_DRILLS))
+def test_drill_victim_fix_reverted_set_goes_red(victim):
+    swap_from, swap_to = _MULTI_VICTIM_DRILLS[victim]
+    donors = next(d for d, vs in MULTI_DONOR_VICTIMS.items() if victim in vs)
+    apply_mutation_in_sandbox(
+        _TESTS / victim.split("::", 1)[0],
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=_HERE,
+        anchor_test_name=f"test_victim_green_after_donor_set[{donors[0]}+{len(donors) - 1}-{victim}]",
         expect="KILLED",
         timeout=600,
     )
