@@ -1147,7 +1147,7 @@ Lines cite `dad3bf6e7` unless marked.
 
 ## R3.1.7 D4d coverage, stated honestly (R1-F7, R2-10)
 
-- **When it can fire.** `census_count = max(camera_total, |face ∪ ble|)`, so an unidentified body or a recent face makes census ≥ 1. With `census_count == 0` in `held`, **D4d fires only when α is blocked by `camera_input_degraded` (Frigate fleet dark)**. The §R3.3 and §R3.8.1 claims about "unidentified or face hit" are withdrawn.
+- **When it can fire.** `census_count = max(camera_total, |face ∪ ble|)`, so an unidentified body or a recent face makes census ≥ 1. With `census_count == 0` in `held`, **D4d fires only when α is blocked by `camera_input_degraded` (Frigate fleet dark)**. **Corrected (build reviews B-L1 / D-L2):** "census 0 means no unidentified body" is not quite true. The holding sensor itself can manufacture census ≥ 1, because it corroborates a camera-count divergence (`camera_census._any_zone_occupied_snapshot` keeps the higher count). D4d is then silent. The same evidence is counted twice; this is accepted by name. The §R3.3 and §R3.8.1 claims about "unidentified or face hit" are withdrawn.
 - **Camera-less homes** (Generic): never degraded, so α runs, and an empty house with GPS phones away reaches AWAY through α whatever a stuck sensor says. **No page is needed there.**
 - **Wigton:** with no trusted tracker (S0), α is starved and D4d is inert. Nobody can tell that the house is empty, so there is no sound page condition.
 - **No camera-less variant is built.** The Wigton stuck-ZX case is carded as **WIGTON-STUCK-ZX-NO-PAGE-1** (revival: Wigton enabled and a recorder-proven empty-house hold).
@@ -1180,7 +1180,7 @@ Lines cite `dad3bf6e7` unless marked.
     - `release_boot_settle()` called before driving events;
     - a helper `fire(entity, new_state)` that builds the event with `new_state` (or `None`).
   - `World.clear()` stays for tracker-only tests.
-- **R1-F11** (room rename drops the zone tier's view, pre-existing): carded as **ZONE-ROOM-NAME-DRIFT-1**. D4c.2 releases the old name's kinds, a strict improvement.
+- **R1-F11** (room rename drops the zone tier's view, pre-existing): carded as **ZONE-ROOM-NAME-DRIFT-1**. D4c.2 releases the old name's kinds. **Corrected (build review D-M2):** that is NOT a strict improvement. It is an improvement by day (no stuck-True old name). At night, with the switch on, it removes the D-H1 limb's accidental cover, so a sleeper in a renamed room can be AWAYed until a restart. That is a regression versus `dad3bf6e7`, though not versus develop. ZONE-ROOM-NAME-DRIFT-1 is raised to a PRIORITY follow-up.
 - **Cards to mint** (the coordinator owns the board): ZONE-ROOM-NAME-DRIFT-1, WIGTON-STUCK-ZX-NO-PAGE-1.
 
 ## R3.1.9 Invariants restated
@@ -1402,3 +1402,19 @@ The build follows §R3.2.4 (binding) > §R3.1 > §R3. No `hvac.py` change. Devia
 6. **The drills file is marked `source_mutation`.** It is out of the default run, per the Wave 1 convention; run it with `-m ""`, and add `URA_DRILL_REVERSE=1` for the reverse order. `switch=off` drills pass `--per-entity-off` to their anchor.
 7. **`test_v47181_sleep_wake_deadlock.py::test_backstop_falls_through_in_branch_else_suppresses`** was a fixed-size source window that the Rev-3 additions overflowed. It is converted to a behavioural test (DoD 7).
 8. **README:** not written. The deploy is a separate operator checkpoint, and the README is written with the deploy.
+
+
+## Rev 3.2 build-review fix-up (reviews A/B/C/D on `2244661c3`)
+
+| Finding | Resolution |
+|---|---|
+| B-H1 / A-M1 / D-M1 (MUST): the reconcile wrote a second zone that never receives the room's edges, leaving it stuck occupied | `_reconcile_trackers_to_substrate` skips a room unless `tracker_for_room(room) is tracker`. Test `test_reconcile_multi_zone_room_only_owner_written`; drill `d4c3_reconcile_multi_zone`. |
+| C rows 16 / 25 / 19 / 13 (MEDIUM, switch-coverage) | `test_switch_off_release_does_not_reconcile`, `test_switch_off_refresh_seeds_in_place`, `test_switch_on_night_limb_skipped_with_divergent_tracker`, `test_async_remove_entry_silent_when_off` (+ `_dispatches_removed_when_on`). Drills `ks_reconcile_ungated`, `ks_scratch_ungated`, `ks_limb_runs_when_on`, `ks_remove_hook_ungated`, `d4c2_remove_hook_kind_dropped`. |
+| A-L3 / B-L2: D4d `tier1_rooms` from every zone | Only from zones with `mode == OCCUPIED`. Test `test_zone_hold_all_away_silent_when_holder_zone_is_away_overridden`; drill `d4d_tier1_any_zone_mode`. |
+| A-L1: stale docstrings | Rewritten (`_room_occupied`, `update_room_occupancy`, the else-branch comment, the `_zone_night_rooms` limb). |
+| A-L2: `_last_kind_per_room` after a partial clear | Accepted by name in the `update_room_occupancy` docstring ("last kind whose rising edge fired"). |
+| B-L1 / D-L2: census corroboration silences D4d | R3.1.7 corrected above; state-of-play D4d bullet. |
+| D-M2: the "strict improvement" claim | Corrected above; ZONE-ROOM-NAME-DRIFT-1 raised to PRIORITY. |
+| D-L1: all residents LOST | WIGTON-STUCK-ZX-NO-PAGE-1 note extended (state of play). |
+| D-L3: cross-room duplicate entity | Accepted by name (state of play). |
+| README (when written at deploy) | Must state: "D4d is silent while the away-veto switch is off (it coerces `all_tracked_persons_away` False)". Also the D-M2 night consequence and the census-corroboration silence. |

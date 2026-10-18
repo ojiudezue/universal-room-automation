@@ -469,8 +469,16 @@ each; verify current status in the board):
 
 - **Rev 3 D4d trip-wire `zone_hold_all_away` (branch, NOT deployed).**
   - **When it fires:** one HIGH stuck-signal NM when the house is held out of AWAY by Tier-1 room sensors alone for more than `ZONE_HOLD_ALL_AWAY_NM_BOUND_S` (7200 s; 0 = off). "Alone" means all of: not AWAY/VACATION/SLEEP; no override; census 0; every trusted tracker away; a zone occupied; no BLE-occupied zone; a Tier-1 holder room.
-  - **Coverage:** in practice it pages only while the Frigate fleet is dark, since otherwise α discharges an empty house. It is inert with no trusted tracker (Wigton S0: card WIGTON-STUCK-ZX-NO-PAGE-1).
-  - **Other cards:** ZONE-ROOM-NAME-DRIFT-1 (a room renamed through options drops out of the zone tier).
+  - **Coverage:** in practice it pages only while the Frigate fleet is dark, since otherwise α discharges an empty house. The Tier-1 holder must sit in a zone that reads OCCUPIED (build reviews A-L3 / B-L2).
+  - **Silent cases (named, no code change):**
+    - No trusted tracker. This covers Wigton S0 and also THIS house when every resident is LOST (build review D-L1). Card WIGTON-STUCK-ZX-NO-PAGE-1 covers both shapes.
+    - The holding sensor also corroborates a camera-count divergence. `camera_census._any_zone_occupied_snapshot` keeps the higher count, so census ≥ 1, which blocks α and nobody-home and silences D4d (reviews B-L1 / D-L2): one piece of evidence counted twice.
+    - The away-veto switch (`switch.ura_presence_away_veto_enabled`) is off. That coerces `all_tracked_persons_away` False.
+  - **ZONE-ROOM-NAME-DRIFT-1 (PRIORITY follow-up, build review D-M2).** A room renamed through options keeps its old name in the zone tracker.
+    - With the switch ON, the D4c.2 walk releases the old name's kinds, and the new name's edges find no tracker. A sleeper in a renamed room therefore loses night cover until presence re-discovers (a restart), and nobody-home can AWAY it.
+    - This is a regression versus `dad3bf6e7`, whose D-H1 limb covered it by accident. It is NOT a regression versus develop, which has no D1.
+    - By day the two are equivalent, except that switch-off keeps the old name stuck True.
+  - **Accepted by name (build review D-L3):** an entity listed in two rooms belongs to the first claim only (config already WARNs). With the switch on, the second room loses its night cover, which the D-H1 limb also covered by accident.
 - **HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1** (2026-10-18) — operator approved the SMALL cycle
   (SLEEP-mask fix + 5-min resident BLE memory + AWAY-branch/flip-count/guest-reason observability);
   Rev 4 camera guard + guest-room veto PARKED (revive when guest accuracy is a priority). Must
