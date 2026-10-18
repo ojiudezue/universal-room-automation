@@ -170,21 +170,7 @@ def _evict_ura_stubs():
     ``universal_room_automation`` after eviction. Some sibling tests
     install a stub ``custom_components`` module with no path; without
     this re-seed, the import fails with ModuleNotFoundError.
-
-    TEST-HARNESS D7 slice 2: the eviction (and the fresh modules the test
-    imports) is undone after each test via ``import_scope``; it used to
-    leave later files holding module objects no longer in sys.modules
-    (victim: perimeter_alert_nm_routing::test_snapshot_id_ttl_expires).
-    Also covers test_optimizer_reserve_hard_deny, which imports this
-    fixture.
     """
-    from _d7_isolation import import_scope as _d7_import_scope
-
-    with _d7_import_scope(prefixes=("custom_components",), attrs=True):
-        yield from _evict_ura_stubs_body()
-
-
-def _evict_ura_stubs_body():
     # Drop URA stubs.
     for _modname in list(sys.modules):
         if (

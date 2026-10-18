@@ -86,21 +86,7 @@ def _evict_ura_stubs():
     Mirrors the sibling test file's fixture; required because some
     tests in the broader suite install fake `custom_components.*`
     modules in sys.modules.
-
-    TEST-HARNESS D7 slice 2: the eviction (and the fresh modules this
-    file's tests import) is undone after each test via ``import_scope``. It
-    used to leave later files holding module objects no longer in
-    sys.modules (victims: perimeter_alert_nm_routing::
-    test_snapshot_id_ttl_expires, sleep_fans_and_flash::
-    test_switch_only_room_triggers_warning_flash).
     """
-    from _d7_isolation import import_scope as _d7_import_scope
-
-    with _d7_import_scope(prefixes=("custom_components",), attrs=True):
-        yield from _evict_ura_stubs_body()
-
-
-def _evict_ura_stubs_body():
     for modname in list(sys.modules):
         if (
             modname == "custom_components.universal_room_automation"

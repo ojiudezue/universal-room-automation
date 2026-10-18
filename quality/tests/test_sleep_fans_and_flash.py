@@ -815,7 +815,29 @@ def _fans_mod():
     return sys.modules[_FANS_NAME]
 
 
+class _D7GlobalsView:
+    """Attribute view over a module's globals dict (reads AND writes)."""
+
+    def __init__(self, g):
+        object.__setattr__(self, "_g", g)
+
+    def __getattr__(self, name):
+        try:
+            return self._g[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def __setattr__(self, name, value):
+        self._g[name] = value
+
+
 def _autom_mod():
+    # TEST-HARNESS D7 slice 2: the module the tests patch must be the one
+    # _RoomAutomation's methods actually read. A sibling file's per-test
+    # URA eviction (oc_pillar_b_admin_surface) can leave a DIFFERENT
+    # automation module in sys.modules than the one bound at collection.
+    if _RoomAutomation is not None:
+        return _D7GlobalsView(_RoomAutomation.check_auto_off_warning.__globals__)
     return sys.modules[_AUTOMATION_NAME]
 
 

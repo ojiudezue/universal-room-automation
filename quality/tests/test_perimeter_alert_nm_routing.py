@@ -1791,7 +1791,13 @@ def test_snapshot_id_ttl_expires(monkeypatch):
     import datetime as _dt
     real_now = _perimeter.dt_util.utcnow()
     import sys as _sys
+    # TEST-HARNESS D7 slice 2: patch the dt_util the manager's methods
+    # actually read. A sibling file's per-test URA eviction can leave a
+    # different perimeter_alert module in sys.modules than mgr's class.
     _mod = _sys.modules[type(mgr).__module__]
+    _mod = type("_D7Mod", (), {
+        "dt_util": type(mgr)._resolve_snapshot_url_and_delay.__globals__["dt_util"],
+    })
     monkeypatch.setattr(
         _mod.dt_util, "utcnow",
         lambda: real_now + _dt.timedelta(seconds=999),

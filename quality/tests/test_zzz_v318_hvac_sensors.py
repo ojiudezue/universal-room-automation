@@ -105,127 +105,144 @@ _mods = {
     },
 }
 
-for name, attrs in _mods.items():
-    if isinstance(attrs, dict):
-        existing = sys.modules.get(name)
-        if existing is None:
-            sys.modules[name] = _mock_module(name, **attrs)
+# TEST-HARNESS D7 slice 2: the stub install and the production loads are
+# scoped (undone on exit, re-applied only while THIS module's tests run).
+# Collected last, it used to leave a placeholder URA package + directly loaded
+# hvac modules for every earlier file's RUN (victims: zone_migration_mint_guard
+# x3, unload_symmetry_task_hygiene x2 -- masked on develop by the unscoped
+# eviction donors re-importing URA fresh).
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
+
+with _d7_import_scope(attrs=True) as _D7_INSTALLED:
+    for name, attrs in _mods.items():
+        if isinstance(attrs, dict):
+            existing = sys.modules.get(name)
+            if existing is None:
+                sys.modules[name] = _mock_module(name, **attrs)
+            else:
+                for k, v in attrs.items():
+                    if not hasattr(existing, k):
+                        setattr(existing, k, v)
         else:
-            for k, v in attrs.items():
-                if not hasattr(existing, k):
-                    setattr(existing, k, v)
-    else:
-        sys.modules.setdefault(name, attrs)
+            sys.modules.setdefault(name, attrs)
 
-sys.modules.setdefault("aiosqlite", MagicMock())
+    sys.modules.setdefault("aiosqlite", MagicMock())
 
-# Now safe to import URA code -- use importlib.util to load specific modules
-# without triggering the __init__.py chain (which has Python 3.10+ syntax)
-import importlib.util
+    # Now safe to import URA code -- use importlib.util to load specific modules
+    # without triggering the __init__.py chain (which has Python 3.10+ syntax)
+    import importlib.util
 
-_project_root = os.path.join(os.path.dirname(__file__), "..", "..")
-_ura_root = os.path.join(_project_root, "custom_components", "universal_room_automation")
-_dc_root = os.path.join(_ura_root, "domain_coordinators")
+    _project_root = os.path.join(os.path.dirname(__file__), "..", "..")
+    _ura_root = os.path.join(_project_root, "custom_components", "universal_room_automation")
+    _dc_root = os.path.join(_ura_root, "domain_coordinators")
 
 
-def _load_module(name, filepath):
-    spec = importlib.util.spec_from_file_location(name, filepath)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    def _load_module(name, filepath):
+        spec = importlib.util.spec_from_file_location(name, filepath)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
 
 
-# Create stub parent packages so relative imports work.
-#
-# Cross-test-pollution guard: this file is collected LAST (the "zzz"
-# prefix) so whatever it leaves in sys.modules is what every other test
-# module sees at RUN time. The previous version installed fakes whose
-# `__path__` was `[]` (from `_mock_module`), which shadowed the real
-# package and made `import custom_components.universal_room_automation.<x>`
-# fail with ModuleNotFoundError across the suite (activity_logger,
-# logbook, presence, safety, config_flow, ...). Fix: point `__path__` at
-# the REAL package directories so submodule imports still resolve, don't
-# clobber an already-valid package, and link child packages onto their
-# parents so `mock.patch("custom_components...")` string resolution works.
-_cc_pkg = sys.modules.get("custom_components")
-if _cc_pkg is None or not getattr(_cc_pkg, "__path__", None):
-    _cc_pkg = _mock_module("custom_components")
-    sys.modules["custom_components"] = _cc_pkg
-_cc_pkg.__path__ = [os.path.abspath(os.path.join(_project_root, "custom_components"))]
+    # Create stub parent packages so relative imports work.
+    #
+    # Cross-test-pollution guard: this file is collected LAST (the "zzz"
+    # prefix) so whatever it leaves in sys.modules is what every other test
+    # module sees at RUN time. The previous version installed fakes whose
+    # `__path__` was `[]` (from `_mock_module`), which shadowed the real
+    # package and made `import custom_components.universal_room_automation.<x>`
+    # fail with ModuleNotFoundError across the suite (activity_logger,
+    # logbook, presence, safety, config_flow, ...). Fix: point `__path__` at
+    # the REAL package directories so submodule imports still resolve, don't
+    # clobber an already-valid package, and link child packages onto their
+    # parents so `mock.patch("custom_components...")` string resolution works.
+    _cc_pkg = sys.modules.get("custom_components")
+    if _cc_pkg is None or not getattr(_cc_pkg, "__path__", None):
+        _cc_pkg = _mock_module("custom_components")
+        sys.modules["custom_components"] = _cc_pkg
+    _cc_pkg.__path__ = [os.path.abspath(os.path.join(_project_root, "custom_components"))]
 
-_ura_pkg = sys.modules.get("custom_components.universal_room_automation")
-if _ura_pkg is None or not getattr(_ura_pkg, "__path__", None):
-    _ura_pkg = _mock_module("custom_components.universal_room_automation")
-    sys.modules["custom_components.universal_room_automation"] = _ura_pkg
-_ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
-_ura_pkg.__path__ = [os.path.abspath(_ura_root)]
-_cc_pkg.universal_room_automation = _ura_pkg
+    _ura_pkg = sys.modules.get("custom_components.universal_room_automation")
+    if _ura_pkg is None or not getattr(_ura_pkg, "__path__", None):
+        _ura_pkg = _mock_module("custom_components.universal_room_automation")
+        sys.modules["custom_components.universal_room_automation"] = _ura_pkg
+    _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+    _ura_pkg.__path__ = [os.path.abspath(_ura_root)]
+    _cc_pkg.universal_room_automation = _ura_pkg
 
-# Load const.py directly (it has `from __future__ import annotations` so OK)
-_const = _load_module(
-    "custom_components.universal_room_automation.const",
-    os.path.join(_ura_root, "const.py"),
-)
-_ura_pkg.const = _const
+    # Load const.py directly (it has `from __future__ import annotations` so OK)
+    _const = _load_module(
+        "custom_components.universal_room_automation.const",
+        os.path.join(_ura_root, "const.py"),
+    )
+    _ura_pkg.const = _const
 
-# Create domain_coordinators package stub
-_dc_pkg = sys.modules.get(
-    "custom_components.universal_room_automation.domain_coordinators")
-if _dc_pkg is None or not getattr(_dc_pkg, "__path__", None):
-    _dc_pkg = _mock_module(
+    # Create domain_coordinators package stub
+    _dc_pkg = sys.modules.get(
         "custom_components.universal_room_automation.domain_coordinators")
-    sys.modules[
-        "custom_components.universal_room_automation.domain_coordinators"] = _dc_pkg
-_dc_pkg.__file__ = os.path.join(_dc_root, "__init__.py")
-_dc_pkg.__path__ = [os.path.abspath(_dc_root)]
-_ura_pkg.domain_coordinators = _dc_pkg
+    if _dc_pkg is None or not getattr(_dc_pkg, "__path__", None):
+        _dc_pkg = _mock_module(
+            "custom_components.universal_room_automation.domain_coordinators")
+        sys.modules[
+            "custom_components.universal_room_automation.domain_coordinators"] = _dc_pkg
+    _dc_pkg.__file__ = os.path.join(_dc_root, "__init__.py")
+    _dc_pkg.__path__ = [os.path.abspath(_dc_root)]
+    _ura_pkg.domain_coordinators = _dc_pkg
 
-# Load hvac_const.py
-hvac_const = _load_module(
-    "custom_components.universal_room_automation.domain_coordinators.hvac_const",
-    os.path.join(_dc_root, "hvac_const.py"),
-)
+    # Load hvac_const.py
+    hvac_const = _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_const",
+        os.path.join(_dc_root, "hvac_const.py"),
+    )
 
-# Load signals.py (needed by hvac_fans.py)
-signals = _load_module(
-    "custom_components.universal_room_automation.domain_coordinators.signals",
-    os.path.join(_dc_root, "signals.py"),
-)
+    # Load signals.py (needed by hvac_fans.py)
+    signals = _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.signals",
+        os.path.join(_dc_root, "signals.py"),
+    )
 
-# Load hvac_zones.py
-hvac_zones = _load_module(
-    "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
-    os.path.join(_dc_root, "hvac_zones.py"),
-)
+    # Load hvac_zones.py
+    hvac_zones = _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        os.path.join(_dc_root, "hvac_zones.py"),
+    )
 
-# Load hvac_fans.py
-hvac_fans = _load_module(
-    "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
-    os.path.join(_dc_root, "hvac_fans.py"),
-)
+    # Load hvac_fans.py
+    hvac_fans = _load_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
+        os.path.join(_dc_root, "hvac_fans.py"),
+    )
 
-from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
-    RoomCondition,
-    ZoneManager,
-    ZoneState,
-)
-from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
-    FanController,
-    RoomFanState,
-)
-from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
-    DUTY_CYCLE_WINDOW_SECONDS,
-    FAN_SPEED_LOW_PCT,
-    FAN_SPEED_HIGH_PCT,
-    FAN_SPEED_HIGH_DELTA,
-    FAN_SPEED_MED_DELTA,
-    FAN_SPEED_LOW_DELTA,
-    FAN_SPEED_MED_PCT,
-)
-from custom_components.universal_room_automation.domain_coordinators.signals import (
-    EnergyConstraint,
-)
+    from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+        RoomCondition,
+        ZoneManager,
+        ZoneState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
+        FanController,
+        RoomFanState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
+        DUTY_CYCLE_WINDOW_SECONDS,
+        FAN_SPEED_LOW_PCT,
+        FAN_SPEED_HIGH_PCT,
+        FAN_SPEED_HIGH_DELTA,
+        FAN_SPEED_MED_DELTA,
+        FAN_SPEED_LOW_DELTA,
+        FAN_SPEED_MED_PCT,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        EnergyConstraint,
+    )
+
+
+import pytest as _d7_pytest  # noqa: E402
+
+
+@_d7_pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 def _utcnow():

@@ -27,6 +27,24 @@ _HERE = Path(__file__).resolve()
 _TESTS = _HERE.parent
 _REPO = _TESTS.parent.parent
 _ENV_KEY = "URA_D7_PROBE"
+
+# Cost gate (slice 2): every pair / residue / set anchor spawns a pytest
+# subprocess (~170 s in total), too slow for the default run. They are
+# opt-in: URA_D7_HYGIENE=1 runs them; the source_mutation drills (already
+# opt-in) switch it on for their sandboxed anchor runs automatically. The
+# in-process import_scope unit anchors below always run.
+_HYGIENE_ENV = "URA_D7_HYGIENE"
+_hygiene_opt_in = pytest.mark.skipif(
+    os.environ.get(_HYGIENE_ENV, "").strip().lower() not in ("1", "true", "yes", "on"),
+    reason=f"subprocess donor-hygiene anchor; opt in with {_HYGIENE_ENV}=1 "
+    "(or run the source_mutation drills, which set it)",
+)
+
+
+@pytest.fixture(autouse=True)
+def _d7_drills_enable_hygiene_anchors(request, monkeypatch):
+    if request.node.get_closest_marker("source_mutation") is not None:
+        monkeypatch.setenv(_HYGIENE_ENV, "1")
 _REAL_OWNERS = ("homeassistant", "pytest_homeassistant_custom_component")
 
 # donor file -> [(module, attr | None, kind)]
@@ -94,14 +112,6 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_pc_observability_kill_switches.py": [
         ("homeassistant.util.dt", None, "ha"),
     ],
-    "test_oc_pillar_b_admin_surface.py": [
-        ("custom_components.universal_room_automation.domain_coordinators.presence", None, "ident"),
-        ("custom_components.universal_room_automation.const", None, "ident"),
-    ],
-    "test_optimization_coordinator.py": [
-        ("custom_components.universal_room_automation.domain_coordinators.presence", None, "ident"),
-        ("custom_components.universal_room_automation.const", None, "ident"),
-    ],
     # Borrows onboarding's _install_registries (and now its restore fixture).
     "test_room_create_prefill_filter.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
@@ -111,10 +121,6 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.util.dt", "utcnow", "ha"),
         ("homeassistant.util.dt", "now", "ha"),
         ("homeassistant.util.dt", "parse_datetime", "ha"),
-    ],
-    "test_oc_pillar_a_handshake.py": [
-        ("custom_components.universal_room_automation.domain_coordinators.presence", None, "ident"),
-        ("custom_components.universal_room_automation.const", None, "ident"),
     ],
     "test_hvac_fan_control.py": [
         ("custom_components.universal_room_automation", None, "ura"),
@@ -227,6 +233,7 @@ def _run_pair(donor: str, root: Path = _REPO) -> subprocess.CompletedProcess:
     )
 
 
+@_hygiene_opt_in
 @pytest.mark.parametrize("donor", sorted(DONOR_PROBES))
 def test_donor_leaves_no_residue(donor):
     proc = _run_pair(donor)
@@ -243,6 +250,18 @@ def test_donor_leaves_no_residue(donor):
 # with collect_order_matrix.py --find-donors / --victim). Anchor: the pair
 # run in that order must be green.
 DONOR_VICTIMS: dict[str, list[str]] = {
+    # Run-time eviction donors (left unscoped on purpose, see the note above
+    # _VICTIM_SIDE_DRILLS). Victims fixed victim-side.
+    "test_oc_pillar_a_handshake.py": [
+        "test_v4715_universalize_veto.py::TestD3InferenceOrchestration::test_guest_exit_fires_after_sustained_quiet",
+    ],
+    "test_oc_pillar_b_admin_surface.py": [
+        "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
+        "test_sleep_fans_and_flash.py::TestFixup_CheckAutoOffWarning_Drive::test_switch_only_room_triggers_warning_flash",
+    ],
+    "test_optimization_coordinator.py": [
+        "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
+    ],
     "test_perimeter_alert_nm_routing.py": [
         "test_exterior_cycle2.py::test_vehicle_in_flight_guard_dedups_fused_edges",
     ],
@@ -263,18 +282,6 @@ DONOR_VICTIMS: dict[str, list[str]] = {
         "test_evse_drain_precedence_session_b2b_i.py::test_force_charge_preempts_dp_pause_release",
         "test_evse_drain_precedence_session_b2b_ii.py::test_must_start_by_arm_skipped_when_fire_at_in_past",
         "test_evse_drain_precedence_session_b2c2_fixup.py::test_transition_entry_pauses_only_charging_evse_ids_multi_evse",
-    ],
-    # Slice 2, run-time donor (evicts every URA module per test, never
-    # restored). Bisected single-file donor of both.
-    "test_oc_pillar_b_admin_surface.py": [
-        "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
-        "test_sleep_fans_and_flash.py::TestFixup_CheckAutoOffWarning_Drive::test_switch_only_room_triggers_warning_flash",
-    ],
-    # Slice 2, run-time donor (same per-test URA eviction, the original the
-    # oc_pillar files mirror). Bisected single-file donor once oc_pillar_b
-    # was fixed.
-    "test_optimization_coordinator.py": [
-        "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
     ],
     # Reproduced pre-fix: 15 weather_manager + 4 dpm_drift_guard + 1 v5110.
     "test_identity_fusion_d2_d3_d4.py": [
@@ -299,9 +306,6 @@ DONOR_VICTIMS: dict[str, list[str]] = {
         "test_envoy_auto_derive.py::TestValidateEnvoyConfig::test_full_pass",
         "test_ec_solar_entity_override.py::test_ec_solar_override_validation_resolves_override",
     ],
-    "test_oc_pillar_a_handshake.py": [
-        "test_v4715_universalize_veto.py::TestD3InferenceOrchestration::test_guest_exit_fires_after_sustained_quiet",
-    ],
 }
 
 
@@ -309,6 +313,7 @@ def _pair_ids():
     return [(d, v) for d, vs in sorted(DONOR_VICTIMS.items()) for v in vs]
 
 
+@_hygiene_opt_in
 @pytest.mark.parametrize("donor,victim", _pair_ids())
 def test_victim_green_after_donor(donor, victim):
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
@@ -371,21 +376,9 @@ _DRILLS = {
         "@pytest.fixture(autouse=True)\ndef _d7_tz_aware_dt",
         "def _d7_tz_aware_dt",
     ),
-    "test_oc_pillar_a_handshake.py": (
-        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):",
-        "    with _d7_import_scope(prefixes=()):",
-    ),
     "test_pc_observability_kill_switches.py": (
         "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
         "        if False:\n            if saved_parent_dt is _absent:",
-    ),
-    "test_oc_pillar_b_admin_surface.py": (
-        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
-        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
-    ),
-    "test_optimization_coordinator.py": (
-        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
-        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
     ),
     # Un-scope the import block: restore nothing on exit.
     "test_hvac_fan_control.py": (
@@ -398,14 +391,6 @@ _DRILLS = {
 # Drills whose anchor is a donor->victim pair (the reviewer-C shape:
 # neuter the donor fix -> the victim goes red).
 _PAIR_DRILLS = {
-    "test_optimization_coordinator.py": (
-        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
-        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
-    ),
-    "test_oc_pillar_b_admin_surface.py": (
-        "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):\n        yield from _evict_ura_stubs_body()",
-        "    with _d7_import_scope(prefixes=()):\n        yield from _evict_ura_stubs_body()",
-    ),
     "test_comfort_fan_away_veto_behavioral.py": (
         "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
@@ -504,14 +489,38 @@ def _unpin_nm_clock(src: str) -> str:
     )
 
 
-# Slice 2 retired the victim-side drills for test_v4715_universalize_veto,
-# test_envoy_auto_derive, test_ec_solar_entity_override and
-# test_nm_cycle_c2_fixup: their donors (oc_pillar_a_handshake,
-# onboarding_simplify_slice1, v5_17_1_part3_seams) are now fixed donor-side,
+# Slice 2 retired the victim-side drills for test_envoy_auto_derive,
+# test_ec_solar_entity_override and test_nm_cycle_c2_fixup: their donors
+# (onboarding_simplify_slice1, v5_17_1_part3_seams) are now fixed donor-side,
 # so reverting the victim's own fix no longer turns the pair red. The pair
 # is anchored by the donors' residue drills instead; the victim-side fixes
 # stay as defense in depth.
+#
+# The per-test URA eviction donors (oc_pillar_a/b, optimization_coordinator)
+# are deliberately NOT scoped: in the full suite their eviction re-imports
+# URA fresh and so HEALS collection-time stubs left by files collected after
+# their victims (zzz_v318, fan_layer_2_d1, ...). Scoping them exposed 21
+# such victims. Their own victims are fixed victim-side instead, until the
+# collection-time donors are gone (see slice-2 report).
 _VICTIM_SIDE_DRILLS = {
+    "test_perimeter_alert_nm_routing.py": (
+        lambda src: src.replace(
+            '    _mod = type("_D7Mod", (), {\n'
+            '        "dt_util": type(mgr)._resolve_snapshot_url_and_delay.__globals__["dt_util"],\n'
+            '    })\n', ""),
+        "test_oc_pillar_b_admin_surface.py",
+    ),
+    "test_sleep_fans_and_flash.py": (
+        lambda src: src.replace(
+            "    if _RoomAutomation is not None:\n        return _D7GlobalsView(",
+            "    if False:\n        return _D7GlobalsView(",
+        ),
+        "test_oc_pillar_b_admin_surface.py",
+    ),
+    "test_v4715_universalize_veto.py": (
+        lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
+        "test_oc_pillar_a_handshake.py",
+    ),
     "test_nm_cycle_c_routing_matrix.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
     "test_nm_image_delivery.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
 }
@@ -698,6 +707,7 @@ def _run_set_then_victim(donors, victim) -> str:
     return proc.stdout + proc.stderr
 
 
+@_hygiene_opt_in
 @pytest.mark.parametrize(
     "donors,victim", _multi_ids(),
     ids=[f"{d[0]}+{len(d) - 1}-{v}" for d, v in _multi_ids()],
