@@ -125,6 +125,26 @@ meta:
     headline: "Closed the old http settings card: the YAML block was already removed yesterday afternoon, both repair warnings are gone after the restart, and the PWA loads. Also moved the Frigate outage card to your lane (it's a Coral choice; still no hang in 7 days, so I suggest leaving it). Parked a tiny shutdown-cleanup leak that can't happen with today's setup code, and queued the safety re-alert wiring behind the safety plan you're reviewing."
     acknowledged: true
 cards:
+- id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
+  title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
+  status: planned
+  tier: 1
+  thread: platform
+  created: 2026-10-18 01:00
+  origin: "Test Wave 1 D4b (real-HA migration of test_websocket_api.py), quarantined test"
+  why: "websocket_api.py _send_on_loop is not @callback, so hass.add_job runs it in an executor and connection.send_message is called off-loop - the exact hazard the B-H1 fix meant to close. Confirmed against HA core add_job / get_hassjob_callable_job_type and observed in test (send thread != loop thread)."
+  next: "Add @callback (or use hass.loop.call_soon_threadsafe); un-quarantine test_websocket_api subscribe tests; Tier 1."
+  links: {parent: TEST-STRATEGY-REARCH-1}
+- id: WS-SUBSCRIBE-SCHEMA-REALHA-1
+  title: "websocket_api.py import fails on harness HA 2026.2.3 (bare BASE_COMMAND_MESSAGE_SCHEMA.extend passed to websocket_command)"
+  status: planned
+  tier: 1
+  thread: platform
+  created: 2026-10-18 01:00
+  origin: "Test Wave 1 D4b (real-HA migration of test_websocket_api.py), quarantined test"
+  why: "HA core wraps it in vol.All on the harness version; live 2026.9 shows no registration-failed warning, so it may be harness drift. Unverified against live HA source."
+  next: "Check the live HA 2026.9 websocket_command source; if live is fine, align the harness HA version or the schema form; un-quarantine."
+  links: {parent: TEST-STRATEGY-REARCH-1}
 - id: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1
   title: "Deleting a zone leaves 4 HVAC AC-reset/ramp sensors orphaned (and the delete preview undercounts)"
   status: planned
