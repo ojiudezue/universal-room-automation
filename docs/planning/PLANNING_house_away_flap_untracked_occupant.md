@@ -1,6 +1,8 @@
 # PLANNING — House AWAY flap with an untracked occupant home
 
 **Card:** HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+
+> **PARKED (operator, 2026-10-18).** The operator approved the simple cycle `docs/planning/PLANNING_house_state_sleep_mask_ble_memory_observability.md` in place of this Rev 4. Rev 4's SLEEP-mask finding (R1 HIGH-1), discharge isolation (R2 H3), counter fix and recorder placement are carried there. The camera-recency guard (A) and guest-room veto (B) are parked. **Revival trigger:** guest accuracy becomes a priority (a long stay or a party).
 **Status:** **Rev 4**, 2026-10-18. Plan only (operator approved writing it, not building it). Rev 4 folds every finding of the two Tier-3 plan reviews of Rev 3:
 - `docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R1_completeness_rev3.md` (`972df3b01`): 1 HIGH, 4 MEDIUM, 4 LOW.
 - `docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R2_build_prediction_rev3.md` (`593ae4ccf`): 4 HIGH, 5 MEDIUM, 5 LOW.
