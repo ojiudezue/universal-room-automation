@@ -66,9 +66,15 @@ Timestamp-format trap (D must try to break INV-1 here): the tables store **diffe
 env/energy/occupancy are naive ISO with `T` and appear to be UTC (max 07:11 at 02:11 CDT); room_transitions is
 local with offset and a space separator (`2026-10-18 00:15:51-05:00`). A cutoff built with `.isoformat()` and
 compared as a string would be off by the UTC offset on one table and sensitive to `T` vs space on the same date.
-**Rule:** compare against a **date-only** cutoff string `YYYY-MM-DD` = `(dt_util.now().date() - timedelta(days=N))`.
-A date-only string sorts correctly against both formats (every row on the cutoff date compares `>=`), so the
-error is always on the keep side by < 1 day. Test both formats explicitly.
+**Rule (revised in plan review, see PR-1):** compare against a **date-only** cutoff string `YYYY-MM-DD`
+computed **in the clock the table's rows are written in**:
+- env / energy / occupancy (naive UTC, producer `datetime.utcnow().isoformat()` `database.py:2770,2785,2808`):
+  `cutoff = (dt_util.utcnow().date() - timedelta(days=N)).isoformat()`
+- room_transitions (local wall time with offset, space separator): `cutoff = (dt_util.now().date() - timedelta(days=N)).isoformat()`
+A date-only string sorts correctly against both formats (`T` and space both sort after the 10-char date prefix,
+so every row on the cutoff date compares `>=`), and with the per-table clock the error is always on the keep side
+by < 1 day in ANY HA timezone. Test both formats explicitly, and test the UTC tables with HA tz set east of UTC
+(e.g. `Australia/Sydney`) at local just-after-midnight.
 
 ## 3. Producer and consumer checks
 
@@ -119,7 +125,8 @@ first prune is 2026-11-19 and every row it can delete already exists in the copy
 Loops the four `(table, "timestamp")` pairs; date-only cutoff (section 2); `DELETE ... WHERE rowid IN (SELECT rowid
 FROM t WHERE timestamp < ? LIMIT ?)` via `_db()`; per-table cap `ROOM_HISTORY_PRUNE_MAX_BATCHES` (module const,
 default 100 -> 100 k rows/table/night; steady state needs ~13); `asyncio.sleep(0.1)` between batches; returns total;
-`retention_days <= 0` returns 0 with no query; per-table INFO log of rows deleted.
+`retention_days <= 0` returns 0 with no query; per-table INFO log of rows deleted **including 0** (the deploy-night
+live check depends on seeing the op ran; siblings only log when >0 — PR-5).
 - **Verify:** rows dated cutoff-1 d deleted; rows dated cutoff and cutoff+1 d kept, for BOTH timestamp formats (a
   fix that compared full ISO strings would fail the room_transitions same-day-offset case — discriminating).
 - **Verify:** 0 disables (no DELETE issued); cap stops at `max_batches` and resumes next call.
@@ -134,9 +141,10 @@ and `_cleanup_ops_d`, placed before `incremental_vacuum`.
 - **Test:** `test_nightly_ops_include_room_history_primary_and_deferred`.
 - **Live (deploy night):** HA log at 02:30 shows the op ran with 0 rows deleted (no rows old enough) and no
   "5-min budget" warning. **Live (2026-11-20 morning, one-shot query, not a soak):**
-  `SELECT min(timestamp) FROM environmental_data` >= 2025-11-19 date-cutoff and row count dropped by ~12 k vs the
-  prior day; nightly log shows "room_history" deleted N>0. Discriminates "op wired but cutoff wrong" (min
-  unchanged) from "op works".
+  `SELECT min(timestamp) FROM environmental_data` >= `2025-11-20` (the 11-20 UTC-date cutoff) and the day-over-day
+  row-count delta is ~0 (inserts ~12 k/day are offset by ~12 k deleted) instead of the pre-prune ~+12 k; nightly
+  log shows "room_history" deleted N>0. Discriminates "op wired but cutoff wrong / not running" (min stays
+  2025-11-19T12:04, delta ~+12 k) from "op works". A count *drop* is NOT expected (PR-4).
 
 ### D3 — Constant + docstring
 `RETENTION_ROOM_HISTORY_DAYS: Final = 365` in `const.py` with comment "0 = keep forever (kill switch)";
@@ -155,9 +163,10 @@ irreversible delete is a footgun.
 
 ## 7. Write-queue / transaction safety
 - Every batch is one short transaction on the single writer; other writes interleave between batches (0.1 s yield).
-- Steady state ~26 k rows/night across tables -> ~27 batches; worst case 4 x 100 k (cap) — still inside the shared
-  5-min nightly budget at observed delete rates (`cleanup_*` siblings do similar volumes); the budget guard
-  carries the remainder to the next night.
+- Steady state ~26 k rows/night across tables -> ~27 batches; worst case 4 x 100 k (cap) = 400 batches (>= 40 s of
+  yields alone). NOTE (PR-3): the 5-min budget check (`__init__.py:2800`) runs only BETWEEN ops — it never
+  preempts a running op. The bound on this op is `ROOM_HISTORY_PRUNE_MAX_BATCHES` alone; the budget guard only
+  defers the ops after it. The cap carries the remainder to the next night.
 - 02:30 is after the 02:00 activity prune; ops rotate start index, so `incremental_vacuum` may run before the new op
   on some nights — freed pages are then reclaimed the following night. Freed volume (~3-5 MB/day) is below the
   vacuum cap (~8 MB/night), so the freelist cannot accumulate.
@@ -183,3 +192,49 @@ kill-switch). One adversarial plan review before build.
 | D2 both lists + test | | |
 | D3 constant + docstring | | |
 | Live 2026-11-20 first-prune check | | carry as a dated check on the card, not a soak |
+
+## Plan review (2026-10-18 overnight)
+
+Reviewer: ura-planner, adversarial plan review (Tier 2-DB, one pass). Method: greps re-run, not trusted; live DB
+read-only (`sqlite3 -readonly`) for formats and a no-match scan timing. No HVAC/presence surface touched.
+
+**Verified as claimed:**
+- Both nightly lists exist: `_cleanup_ops` `__init__.py:2731` (vacuum at :2772, loop :2796-2810) and
+  `_cleanup_ops_d` `__init__.py:2882` (vacuum at :2912, loop :2933). No third copy (`grep -n _cleanup_ops __init__.py`).
+- No existing DELETE on the four tables; `RETENTION_*` constants `const.py:2010-2015` have no runtime readers.
+- `cleanup_person_data` shape `database.py:3929-3965` matches the cited pattern (`< ?` on an isoformat cutoff,
+  rowid-IN LIMIT, `_db()`, 0.1 s yield, 500-batch cap).
+- Reader enumeration re-run independently: all SQL readers are in `database.py` (3392/3402/3412 recent_data,
+  3434-3440 counts, 3471, 3520, 3566, 3605, 3680/3702, 4087, 4122, 7264/7273, 7926, 7952); outside it only the
+  producer call `coordinator.py:5462`, the counts sensor `sensor.py:2392`, the export button `button.py:381,423-440`,
+  a comment in `memory_facade.py:899` (adjacency cache, no DB read), and the offline probe. Caller windows:
+  `bayesian_predictor.py:233,666` days=90; `coordinator.py:5502-5523` 7 d / month / 7 d; `pattern_learning.py:69`,
+  `transitions.py:682`. Max look-back 90 d — **INV-2 holds**. No reader in `scripts/` other than the probe; no
+  PWA/websocket reader in this repo.
+- Live formats (2026-10-18 07:14 UTC): env/occ/energy `2026-10-18T07:14:46.451929` (naive UTC, producer
+  `datetime.utcnow().isoformat()` `database.py:2770,2785,2808`); occupancy has 3 rows of length 19 (no micros) —
+  harmless for a date-prefix compare; room_transitions 100% length 32, space separator, `-05:00/-06:00` offsets.
+- No-match scan cost: `SELECT rowid FROM environmental_data WHERE timestamp < '2025-11-18' LIMIT 1000` = 0.19 s
+  (warm), plan `SCAN ... USING COVERING INDEX idx_env_room_time`. Acceptable; see PR-6.
+
+**Findings:**
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| PR-1 | HIGH | INV-1 says "under any configuration", but the original rule used the **local** date for all tables. Three tables store naive **UTC**. With HA tz east of UTC (URA is rolling to other homes), e.g. UTC+10 at local 00:30 on D: cutoff C=D-N; rows with UTC date < C are deleted; local D 00:30 = UTC D-1 14:30, so a row at UTC (C-1) 23:59 is only ~364 d 14.5 h old -> INV-1 falsified. West-of-UTC (Texas) is safe, which is why it hid. | **FIXED in plan** (section 2): per-table clock — UTC date for UTC tables, local date for room_transitions; added east-of-UTC test. |
+| PR-2 | MEDIUM | D2's test "reads both lists": the lists are local variables inside setup closures, so the only way to test is a source grep — a hollow anchor (memory `feedback_hollow_test_anchors`). The mirror-miss is this file's recurring bug (#27). | **DECISION:** recommend hoisting the op list to one module-level builder (e.g. `_nightly_cleanup_ops()`) consumed by both `_cleanup_ops` and `_cleanup_ops_d`, so the mirror cannot drift and the test can call it. Small, removes a bug class; but it touches 2 lists other cycles edit. If declined, the test must at least parse `__init__.py` with `ast` and assert the tuple in both list literals, and the mutation drill removes each entry separately. |
+| PR-3 | MEDIUM | Section 7 claimed the 5-min budget guard "carries the remainder"; the guard (`__init__.py:2800`, :2933 loop) only checks between ops — it does not preempt a running op. | **FIXED in plan** (section 7 text). The cap is the only bound; 100 batches/table is fine. |
+| PR-4 | MEDIUM | Nov-20 live criterion said "row count dropped by ~12 k vs the prior day" and "min >= 2025-11-19". With ~12 k/day inserts the count stays ~flat; and on 11-20 the UTC-date cutoff is 2025-11-20. As written the criterion would read FAIL on a working prune. | **FIXED in plan** (D2 Live): min >= 2025-11-20 and day-over-day delta ~0 vs ~+12 k. |
+| PR-5 | LOW | Deploy-night live check ("op ran with 0 rows deleted") is unobservable if the DAO follows siblings and logs only when >0. | **FIXED in plan** (D1: log including 0). |
+| PR-6 | LOW | Every night's final (non-full) batch scans the whole covering index (~140-160 MB per table) under the single writer. Measured 0.19 s warm; cold cache on the HA box may be seconds. | Accept. Optional cheaper variant for the builder: early-exit per table via an O(1) `SELECT timestamp FROM t ORDER BY rowid LIMIT 1` >= cutoff check (rows insert in time order) before the DELETE loop — skips all four scans every night until 2026-11-19 and on no-op nights. Builder's call; not required. |
+| PR-7 | LOW (pre-existing, out of scope) | `get_room_transition_counts` (`database.py:7255-7268`) compares a UTC `T`-separated isoformat cutoff to local space-separated rows: ` ` < `T`, so cutoff-day rows are excluded, and the 5-6 h offset is ignored. Sub-day error on a 90-day prior; harmless. | Not this cycle; worth a one-line card if anyone touches the predictor. |
+| PR-8 | INFO | "Placed before `incremental_vacuum`" is cosmetic: the start index rotates nightly, so order only holds on some nights. Plan already says so in section 7. | None. |
+
+Checked and fine: institutional-context section is complete and the greps reproduce; knobs are on the module-const
+rung with 0 = kill switch stated; non-goals explicit; tier (2-DB) correct, irreversible delete justifies 3 build
+reviews; D0 backup uses the online `.backup` API. Invariants INV-1/2/3 are falsifiable (PR-1 is exactly a
+falsification of the original INV-1 rule).
+
+**Verdict: READY-TO-BUILD** after the in-plan fixes above, with one operator/orchestrator decision pending (PR-2:
+hoist the shared op-list builder, or accept an `ast`-based dual-list test). Either choice is buildable; the
+recommendation is hoist.
