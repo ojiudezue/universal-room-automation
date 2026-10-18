@@ -11,8 +11,6 @@ _loop_stall_watchdog.py (implementation).
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -228,103 +226,70 @@ def test_uninstall_stops_thread():
 
 
 # ---------------------------------------------------------------------------
-# Mutation drills — restore-in-Python (never git checkout), clear __pycache__.
+# Mutation drills — run against a tmp COPY of the repo (TEST-HARNESS D1).
 # ---------------------------------------------------------------------------
-_SRC_PATH = wd_mod.__file__
+# These drills used to write the mutant into the real production file and
+# restore it in ``finally``. On 2026-10-17 a plain full-suite run left
+# ``self._episode_active = False  # MUTATION`` on disk: the write happened
+# BEFORE the ``try`` (inside ``_mutate``, followed by an ``rmtree`` of the real
+# ``__pycache__`` that can raise), so any exception there skipped the restore.
+# ``apply_mutation_in_sandbox`` never opens the production file for write and
+# asserts its md5 is unchanged; it also requires the anchor to be GREEN
+# unmutated and to FAIL (rc==1) mutated.
+from pathlib import Path as _Path  # noqa: E402
+
+from _mutation_sandbox import apply_mutation_in_sandbox  # noqa: E402
+
+_SRC_PATH = _Path(wd_mod.__file__).resolve()
+_THIS_TEST = _Path(__file__).resolve()
 
 
-def _mutate(replace_pairs):
-    original = open(_SRC_PATH, "rb").read()
-    text = original.decode("utf-8")
-    for a, b in replace_pairs:
-        assert a in text, f"mutation target not found: {a!r}"
-        text = text.replace(a, b, 1)
-    open(_SRC_PATH, "wb").write(text.encode("utf-8"))
-    # Clear stale bytecode so re-import sees the mutated source.
-    pkg_root = _SRC_PATH.rsplit("/", 1)[0] + "/__pycache__"
-    try:
-        shutil.rmtree(pkg_root)
-    except FileNotFoundError:
-        pass
-    return original
-
-
-def _restore(original):
-    open(_SRC_PATH, "wb").write(original)
-    pkg_root = _SRC_PATH.rsplit("/", 1)[0] + "/__pycache__"
-    try:
-        shutil.rmtree(pkg_root)
-    except FileNotFoundError:
-        pass
-
-
-def _run_subtest(test_expr):
-    """Run one test via a subprocess so we get a fresh import of the module."""
-    env = {
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONPATH": "quality",
-        "PATH": "/usr/bin:/bin",
-    }
-    p = subprocess.run(
-        [
-            sys.executable, "-m", "pytest",
-            "quality/tests/test_loop_stall_watchdog.py::" + test_expr,
-            "-q", "--no-header", "-x", "-p", "no:cacheprovider",
-        ],
-        cwd=".", env=env, capture_output=True, text=True, timeout=60,
+def _drill(swap_from, swap_to, anchor, expect="KILLED"):
+    apply_mutation_in_sandbox(
+        prod_path=_SRC_PATH,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=_THIS_TEST,
+        anchor_test_name=anchor,
+        expect=expect,
+        timeout=120.0,
     )
-    return p.returncode, (p.stdout + p.stderr)
 
 
 def test_mutation_drill_removes_per_episode_latch():
     """If the single-warning latch is neutered so every check_once emits,
     test_stall_episode_emits_one_warning_then_recovery MUST turn red.
     """
-    original = _mutate([
+    _drill(
         # Neuter the "we already emitted for this episode" latch: skip
         # marking the episode active so _enter_episode fires on every
         # check_once tick.
-        ("self._episode_active = True\n        self._episode_started_at = now - elapsed",
-         "self._episode_active = False  # MUTATION\n        self._episode_started_at = now - elapsed"),
-    ])
-    try:
-        rc, out = _run_subtest(
-            "test_stall_episode_emits_one_warning_then_recovery"
-        )
-        assert rc != 0, f"mutation should turn test red, got green:\n{out[-800:]}"
-    finally:
-        _restore(original)
-        # Byte-compare: restore MUST reproduce pre-mutation content.
-        after = open(_SRC_PATH, "rb").read()
-        assert after == original, "restore failed to reproduce original bytes"
+        "self._episode_active = True\n        self._episode_started_at = now - elapsed",
+        "self._episode_active = False  # MUTATION\n        self._episode_started_at = now - elapsed",
+        "test_stall_episode_emits_one_warning_then_recovery",
+    )
 
 
 def test_mutation_drill_removes_single_instance_guard():
     """If the install-idempotency guard is removed, the single-instance
     test MUST turn red (many threads started).
     """
-    original = _mutate([
-        ("existing = data.get(_DATA_KEY)\n    if existing is not None:\n        return existing",
-         "existing = None  # MUTATION\n    if False:\n        return existing"),
-    ])
-    try:
-        rc, out = _run_subtest(
-            "test_install_is_single_instance_across_many_entries"
-        )
-        assert rc != 0, f"mutation should turn test red, got green:\n{out[-800:]}"
-    finally:
-        _restore(original)
+    _drill(
+        "existing = data.get(_DATA_KEY)\n    if existing is not None:\n        return existing",
+        "existing = None  # MUTATION\n    if False:\n        return existing",
+        "test_install_is_single_instance_across_many_entries",
+    )
 
 
 def test_mutation_drill_removes_stop():
     """If Watchdog.stop() is neutered, the uninstall-stops-thread test
     MUST turn red (thread still alive)."""
-    original = _mutate([
-        ("def stop(self, join_timeout: float = 3.0) -> None:\n        self._stop.set()",
-         "def stop(self, join_timeout: float = 3.0) -> None:\n        pass  # MUTATION\n        self._stop.set() if False else None"),
-    ])
-    try:
-        rc, out = _run_subtest("test_uninstall_stops_thread")
-        assert rc != 0, f"mutation should turn test red, got green:\n{out[-800:]}"
-    finally:
-        _restore(original)
+    _drill(
+        "def stop(self, join_timeout: float = 3.0) -> None:\n        self._stop.set()",
+        "def stop(self, join_timeout: float = 3.0) -> None:\n        pass  # MUTATION\n        self._stop.set() if False else None",
+        "test_uninstall_stops_thread",
+        # Under this mutant the anchor body passes (uninstall clears
+        # w._thread) and the phcc leak detector ERRORS at teardown on the
+        # still-running thread — the pre-D1 drill accepted any rc != 0.
+        expect="RED",
+    )

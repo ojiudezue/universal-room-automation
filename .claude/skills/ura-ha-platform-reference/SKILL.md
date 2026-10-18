@@ -271,7 +271,7 @@ Full catalogue: `docs/QUALITY_CONTEXT.md` (53 classes as of 2026-07-02; header m
 
 Before you deploy any change that touches this skill's surface, run:
 
-- [ ] `PYTHONPATH=quality python3 -m pytest quality/tests/ -v` — full suite green vs baseline
+- [ ] `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v` — full suite green vs baseline
 - [ ] Grep for `hass.async_create_task` you added; each must have `# noqa: untracked-ok — <why>` or be `entry.async_create_background_task`
 - [ ] Every new `SIGNAL_*` producer has ≥1 consumer; every new consumer's unsub is stored where a periodic worker cannot clear it
 - [ ] Every new `RestoreEntity` has the `("on","off")` guard (§6 checklist)

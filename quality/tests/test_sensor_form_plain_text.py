@@ -201,6 +201,10 @@ def test_not_sure_writes_no_override_for_fresh_entity():
         f"caps_kind__{_PIR}": "__default__",
         f"caps_kind__{_MMWAVE}": "__default__",
     })
+    # The save must SUCCEED: an error form also has no persisted caps, so
+    # without this the test passed when the sentinel leaked through as an
+    # invalid literal kind (found by the D1 sandbox drill, 2026-10-17).
+    assert not (result or {}).get("errors"), result
     data = (result or {}).get("data") or {}
     caps = data.get(CONF_SENSOR_CAPABILITIES) or {}
     assert _PIR not in caps, caps
@@ -300,73 +304,26 @@ def test_mutation_drill_not_sure_sentinel_path_is_load_bearing():
     """Replace the production sentinel-resolution block with a dead branch
     (so "__default__" passes through unresolved, writing a raw literal
     override), and prove that `test_not_sure_writes_no_override_for_fresh_entity`
-    fails. Restore the source and the test must pass again. Anchors
-    `test_not_sure_writes_no_override_for_fresh_entity` to the production
-    code path, not its name.
+    fails. Anchors that test to the production code path, not its name.
+
+    TEST-HARNESS D1: the mutant is applied to a tmp COPY of the repo and the
+    anchor runs there in a subprocess (apply_mutation_in_sandbox). The old
+    drill wrote config_flow.py in place and relied on a ``finally`` restore.
+    The sandbox also requires the anchor to be GREEN unmutated.
     """
+    from _mutation_sandbox import apply_mutation_in_sandbox
+
     src_path = Path(__file__).resolve().parents[2] / (
         "custom_components/universal_room_automation/config_flow.py"
     )
-    original = src_path.read_text()
-    sentinel = 'if _val == _CAPS_KIND_DEFAULT:'
-    assert sentinel in original, "sentinel branch not found — refactor stale?"
-    # Neuter: force the equality to False so the "__default__" value
-    # survives into _dropdown_selections as a literal kind.
-    mutated = original.replace(
-        sentinel,
-        'if False and _val == _CAPS_KIND_DEFAULT:',
-        1,
+    apply_mutation_in_sandbox(
+        prod_path=src_path,
+        # Neuter: force the equality to False so the "__default__" value
+        # survives into _dropdown_selections as a literal kind.
+        swap_from="if _val == _CAPS_KIND_DEFAULT:",
+        swap_to="if False and _val == _CAPS_KIND_DEFAULT:",
+        anchor_test_file=Path(__file__).resolve(),
+        anchor_test_name="test_not_sure_writes_no_override_for_fresh_entity",
+        expect="KILLED",
+        timeout=180.0,
     )
-    assert mutated != original
-    src_path.write_text(mutated)
-    # Clear any compiled bytecode so the mutation is actually loaded.
-    import importlib as _il
-    import sys
-    import custom_components.universal_room_automation.config_flow as _cf
-    try:
-        _il.reload(_cf)
-        # Re-bind the OptionsFlow via a fresh _cbcf import so our helper
-        # picks up the mutated module.
-        _cbcf_m = _il.reload(_cbcf)
-        _make_opt = _cbcf_m._make_options_flow
-
-        flow = _make_opt(
-            data={"room_name": "Test Room"},
-            options={
-                CONF_MOTION_SENSORS: [_PIR],
-                CONF_MMWAVE_SENSORS: [_MMWAVE],
-            },
-        )
-        with _ha_mocks_injected():
-            result = _run(flow.async_step_sensors({
-                CONF_MOTION_SENSORS: [_PIR],
-                CONF_MMWAVE_SENSORS: [_MMWAVE],
-                CONF_OCCUPANCY_SENSORS: [],
-                "sensor_capabilities_json": "",
-                f"caps_kind__{_PIR}": "__default__",
-                f"caps_kind__{_MMWAVE}": "__default__",
-            }))
-        caps = ((result or {}).get("data") or {}).get(
-            CONF_SENSOR_CAPABILITIES
-        ) or {}
-        # With the sentinel path dead, "__default__" leaks through as a
-        # literal kind override — which the validator rejects (invalid
-        # kind), surfacing as sensor_capabilities_invalid, OR passes
-        # through and persists. Either way the "no overrides written"
-        # invariant must break.
-        errors = (result or {}).get("errors") or {}
-        leaked = bool(caps) or (
-            errors.get("base") == "sensor_capabilities_invalid"
-        )
-        assert leaked, (
-            "mutation drill failed: neutered sentinel branch still "
-            "produced no override — the test is not anchored to that "
-            "code path"
-        )
-    finally:
-        src_path.write_text(original)
-        # Reload one more time so later tests in this session see the
-        # restored source.
-        import custom_components.universal_room_automation.config_flow as _cf2
-        _il.reload(_cf2)
-        _il.reload(_cbcf)

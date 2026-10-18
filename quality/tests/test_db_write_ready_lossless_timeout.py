@@ -355,9 +355,9 @@ def test_mutation_single_stage_raise_makes_t1_red(tmp_path, monkeypatch):
     assert mutated != original
 
     try:
-        with open(src_path, "wb") as fh:
-            fh.write(mutated)
-        importlib.reload(ura_db)
+        # TEST-HARNESS D1: execute the mutant into the module namespace in
+        # memory (reload semantics) — the production file is NEVER written.
+        exec(compile(mutated, src_path, "exec"), ura_db.__dict__)
         MutatedDB = ura_db.UniversalRoomDatabase
 
         # Tiny values via module attr (post-reload).
@@ -426,9 +426,11 @@ def test_mutation_single_stage_raise_makes_t1_red(tmp_path, monkeypatch):
 
         asyncio.get_event_loop().run_until_complete(_scenario())
     finally:
-        with open(src_path, "wb") as fh:
-            fh.write(original)
+        # Re-execute the untouched on-disk source (reload) so later tests see
+        # the real module; then prove the file was never modified.
         importlib.reload(ura_db)
+        with open(src_path, "rb") as fh:
+            assert fh.read() == original, "production database.py changed on disk"
 
 
 # ---------------------------------------------------------------------------

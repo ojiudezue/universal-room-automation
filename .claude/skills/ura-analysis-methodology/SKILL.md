@@ -222,7 +222,7 @@ Procedure:
    `reserve_level=int(soc)`).
 3. Run the suite:
    ```bash
-   PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+   PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
    ```
 4. Expected: a specific test fails, and its name identifies the
    invariant it protects. Note it.
@@ -374,7 +374,7 @@ Re-verify these facts periodically; the repo moves fast.
 | Envoy boot incident three failures | `docs/planning/PLANNING_ec_envoy_boot_decoupling.md` §0 |
 | Study B exoneration | MEMORY key `project_studyb_better_thermostat_oscillation` |
 | Single-writer DB queue | `custom_components/universal_room_automation/database.py:45-51` (`self._write_queue: asyncio.Queue`) |
-| Test invocation | `PYTHONPATH=quality python3 -m pytest quality/tests/ -v` (`/CLAUDE.md` § Testing) |
+| Test invocation | `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v` (`/CLAUDE.md` § Testing) |
 | Samba live mount path | `/CLAUDE.md` § Data Source Verification (copy verbatim) |
 | Tier 3 four-pass protocol | `/CLAUDE.md` § Tier 3 |
 

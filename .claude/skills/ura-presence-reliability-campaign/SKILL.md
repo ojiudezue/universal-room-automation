@@ -432,7 +432,7 @@ edit `.storage/*` files.
 the presence-scoped isolate:
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v -k "presence or occupancy or boot_settle"
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v -k "presence or occupancy or boot_settle"
 ```
 
 Full test-suite invocation + fixture-authority rules live in

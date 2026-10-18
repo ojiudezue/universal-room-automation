@@ -85,7 +85,8 @@ cp "$WORK_DIR"/*.json custom_components/universal_room_automation/
 cd "$TEST_DIR"
 
 # Run with pytest
-python3 -m pytest -v --tb=short
+# NOTE: must be .venv-ha/bin/python (bare python3 = 3.9, no phcc) — run from repo root
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v --tb=short
 
 # Or use run_tests.py if available
 python3 run_tests.py
@@ -140,7 +141,8 @@ cp "$WORK_DIR"/*.json custom_components/universal_room_automation/ 2>/dev/null |
 
 # 4. Run tests
 echo "🧪 Running test suite..."
-python3 -m pytest -v --tb=short
+# NOTE: must be .venv-ha/bin/python (bare python3 = 3.9, no phcc) — run from repo root
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v --tb=short
 
 # 5. Report
 if [ $? -eq 0 ]; then

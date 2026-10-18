@@ -192,6 +192,19 @@ def apply_mutation_in_sandbox(
             f"STDOUT:\n{result.stdout[-2000:]}\n"
             f"STDERR:\n{result.stderr[-1000:]}"
         )
+    elif expect == "RED":
+        # TEST-HARNESS D1: like KILLED, but a teardown ERROR also counts
+        # (e.g. the phcc leak detector catching a thread the mutant leaked).
+        # Still rc==1 only — collection errors (rc=2) etc. are not kills.
+        _out = result.stdout + result.stderr
+        assert result.returncode == 1 and (
+            " failed" in _out or " error" in _out
+        ), (
+            f"expected RED (rc==1 + ' failed'/' error' in output); got "
+            f"returncode={result.returncode}\n"
+            f"STDOUT:\n{result.stdout[-2000:]}\n"
+            f"STDERR:\n{result.stderr[-1000:]}"
+        )
     elif expect == "SURVIVES":
         assert result.returncode == 0, (
             f"expected SURVIVES (anchor GREEN under mutation); got returncode="
@@ -199,6 +212,53 @@ def apply_mutation_in_sandbox(
             f"STDERR:\n{result.stderr[-1000:]}"
         )
     else:
-        raise ValueError(f"expect must be KILLED or SURVIVES, got {expect!r}")
+        raise ValueError(f"expect must be KILLED, RED or SURVIVES, got {expect!r}")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# TEST-HARNESS D1 (2026-10-17): in-process mutation WITHOUT touching disk.
+# ---------------------------------------------------------------------------
+# Several drills used to write a mutant to the real production file and then
+# ``importlib.reload`` the module, restoring in ``finally``. Any exception
+# between the write and the ``try`` (or a hard kill) leaked the mutant into
+# the tree. This helper compiles the mutated source and executes it into the
+# EXISTING module's namespace — exactly what ``importlib.reload`` does, minus
+# the disk round-trip — then re-executes the pristine on-disk source to
+# restore. The production file is only ever READ; an md5 invariant proves it.
+import contextlib as _contextlib  # noqa: E402
+
+
+@_contextlib.contextmanager
+def mutated_module_in_memory(module, mutator=None, *, swap_from=None, swap_to=None):
+    """Yield ``(module, mutated_text)`` with ``module`` running mutated code.
+
+    ``mutator(original_text) -> mutated_text`` OR a single-shot
+    ``swap_from`` -> ``swap_to`` replacement (must be present, must change).
+    On exit the module namespace is re-executed from the unchanged on-disk
+    source (reload semantics), and the file's md5 is asserted unchanged.
+    """
+    path = Path(module.__file__)
+    original = path.read_text(encoding="utf-8")
+    if mutator is not None:
+        mutated = mutator(original)
+    else:
+        assert swap_from is not None and swap_to is not None, (
+            "either mutator=callable OR (swap_from, swap_to) is required"
+        )
+        assert swap_from in original, (
+            f"swap_from anchor missing in {path.name}: {swap_from[:120]!r}"
+        )
+        mutated = original.replace(swap_from, swap_to, 1)
+    assert mutated != original, "mutation was a no-op"
+    md5_before = _md5(path)
+    try:
+        exec(compile(mutated, str(path), "exec"), module.__dict__)
+        yield module, mutated
+    finally:
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"),
+             module.__dict__)
+        assert _md5(path) == md5_before, (
+            f"in-memory mutation invariant violated: {path} changed on disk"
+        )

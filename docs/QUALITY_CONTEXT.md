@@ -2633,7 +2633,7 @@ grep -n "VERSION" const.py manifest.json
 ### Test Execution
 
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 ```
 
 **Mandatory:** Run before every deployment, no exceptions!
