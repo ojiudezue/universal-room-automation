@@ -458,3 +458,115 @@ Recommended set (A W=3 + Bguest + Jaya at 16 h): 1 verified-empty absence delaye
 - A's predicate sensitivity is large on ordinary days (0.90 vs 1.71 per day for the recommended set); the `face_recognized_count` half is not in `census_snapshots`. Add it (or the stamp store) before trusting any ordinary-day number.
 - Study A's Athom sensor and Exercise Room's ZK showing no on-time are separate sensor-health findings (not carded here).
 - The 09-28 Ziri run and the Jaya LD2410 478 uncorroborated trip minutes are phantom-or-real unknowns; neither could be settled from the recorder.
+
+---
+
+## P4 2026-10-18 — BLE and resident-only goal
+
+**Run:** Sun 2026-10-18 10:46 CDT, ura-prober, read-only. Trigger: operator, "Did you factor BLE in all this? Study A should generally know when I'm there if my phone is on me. Guest accuracy is not a high priority as resident", then clarified "not as high. But that's relative": guests count with a lower weight, so **residents and guests are reported separately and neither is dropped**. Read first: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (complete), Rev 4 of the AWAY-flap plan, P0 to P3 above. Scripts (not in repo): `.../scratchpad/p4/` (`lib4.py`, `b3.py` to `b8.py`), built on the P3 `sim()` and `pps.json`, `mem.json`, `rec.json` extracts.
+
+### 0. Answer first
+
+1. **Yes for the decision, no for the measurement.** BLE already blocks all three AWAY branches while a phone is *visible* in a room. Neither P0 to P3 nor Rev 4 modelled BLE: they proxied "phones away" and counted room-occupancy evidence at the AWAY instant. That proxy mislabels most departures as "someone home".
+2. **Most of the Rev 4 residual is not a miss.** Rev 4 ordinary-day residual (55 entries, 2.14/day, lower predicate): **35 are the residents' own departure** (a resident's BLE was in a room within 20 min and the room's 300 s hold tail was still occupied), 8 are blips with no recent resident BLE, **8 are real resident misses (0.31/day)**, 4 are guest-flagged (0.16/day), 0 are untracked sustained. Upper-predicate set: 25 entries = 12 / 1 / **7 (0.27/day)** / 4 guest / 1 untracked.
+3. **Study A, your 14 misses:** your phone was BLE-located inside the house within 17.4 min before the AWAY in **12 of 14**, and in Study A or its closet within 30 min before in 4 of 14. The other 2 (09-22, 09-26) are the all-out phantom days. So Study A mostly "knew you were there" and then lost you: BLE dropout, not a phone left elsewhere.
+4. **A BLE lever exists and the plan missed it:** treat a resident whose BLE disappeared within the last N minutes as home (hold AWAY), instead of dropping a STALE person from the denominator. N = 5 min costs no measured departure; N = 10 catches most real resident misses and costs 1 of 7 departures inside 15 min. Not a build approval; precision is limited (section 6).
+
+### 1. How BLE feeds AWAY today (producer and consumer)
+
+**Producer.** `person_coordinator.py:470-541`: if the Bermuda area sensor resolves, `location = <room>`, `tracking_status = ACTIVE`, `tracking_reason = bermuda`. If it does not resolve: within `decay_timeout` (default 300 s, `const.py:164`, applied `person_coordinator.py:610-642`) the person keeps the old room but is stamped **STALE** (`method = bermuda_decay`). After 300 s, `person.*` `not_home` yields `location = away`, ACTIVE (`:723-739`, matrix `:366-368`, `:387-393`); `home` yields `home` (`:681-702`); unknown yields LOST with no vote (`:709-722`).
+
+**Consumer** (`presence.py`, `_run_inference` `:5796-5970`): `trustworthy_persons` keeps a person only if the phone-left-behind sensor is not `on` (`:5834-5860`) AND `tracking_status == ACTIVE` (`:5862-5873`, applied `:5916`). `all_tracked_persons_away = all(location in ("away","") for trustworthy)` (`:5939-5943`).
+
+| Branch | BLE blocks it? | Where |
+|---|---|---|
+| Nobody-home | Yes while visible: `census_count == 0` and census_count includes BLE ids (comment `:1150-1151`) | `presence.py:1127` |
+| Path alpha | Yes while an ACTIVE resident shows a room (`all_tracked_persons_away` false) | `:1170-1175` |
+| Path beta | Yes, same denominator, plus `census_count == 0` and `not indoor_blocked` | `:1248-1253` |
+
+**Gaps (all verified in code).**
+- **G1, STALE persons are dropped, not counted.** A resident BLE-seen within the last 300 s but unresolved this tick is excluded from the denominator (`:5916`, reason `tracking_status=stale`). Memory snapshots show it live: AWAY at 2026-10-17 20:26, 20:35, 23:33, 23:37 UTC fired via alpha with `tracked_persons_count_trusted = 3`, `excluded_persons = {Jaya: tracking_status=stale}`, `census_count = 1`.
+- **G2, no BLE memory past 300 s.** After the decay window a resident whose `person.*` is `not_home` (WiFi/GPS asleep) is plain AWAY-voting, however recently Bermuda placed them.
+- **G3, the Rev 4 guard and veto read none of it.** Guard A's stamp B explicitly ignores BLE (INV-NO-BLE-HOLD, plan `:131`); veto B reads rooms, not people.
+
+**Ground truth at the real AWAY decisions.** `memory_episodes` `house_state_transition` to away, 2026-10-13 00:32Z to 10-18 00:11Z: **102 entries**. `all_tracked_persons_away = True` in 102 of 102; trusted count 4 in 98; `census_count = 0` in 98; `unidentified_count = 0` in 102. `veto_path`: `none` (nobody-home) 54, `active` 48. So at every real AWAY, all trackers said away or stale; the "someone home" evidence is always sensors or a person the trackers were not seeing.
+
+### 2. Classification of the residual "someone-home" entries
+
+Method: P3 open-loop replay, Rev 4 = A at W = 3 min + veto B on GB1/GB2 (8 h cap). "Someone home" = the P0 sensor proxy (still-holder or camera rooms, Kitchen excluded). Each entry is bucketed (guest flag first):
+- **G**: GUEST state within 1 h or a guest room in the evidence.
+- **A1**: evidence only at the AWAY instant (the room's 300 s hold tail) AND a resident BLE room row within 20 min before. A resident just left; AWAY is right.
+- **A2**: evidence only at the instant, no recent resident BLE. Blip or phantom; unknown.
+- **B (resident miss)**: evidence sustained 10+ min into the AWAY (3+ min occupied or an unidentified body), no guest flag, AND a resident BLE room row 5+ min into the episode and 7+ min before it ended. A resident was home and the trackers did not see them.
+- **C**: sustained evidence, no resident phone or BLE signal in the episode. Guest, phoneless person, or phantom.
+
+Ordinary days 09-18 to 10-13 (25.7 d); Jaya+guest days 10-14 to 10-18 (4.3 d; Jaya is a resident, the guest is untracked).
+
+| Config, predicate | Ordinary entries (per day) | G guest | A1 tail | A2 | **B resident miss** | C untracked |
+|---|---|---|---|---|---|---|
+| Today, upper (`total_persons`) | 65 (2.53) | 14 | 36 | 8 | **7 (0.27/d)** | 0 |
+| A W=3 only, upper | 29 (1.13) | 9 | 12 | 1 | 6 | 1 |
+| A W=3 only, lower (`unidentified_count`) | 62 (2.41) | 13 | 34 | 8 | 7 | 0 |
+| **Rev 4, upper** | **25 (0.97)** | **4 (0.16/d)** | 12 | 1 | **7 (0.27/d)** | **1 (0.04/d)** |
+| **Rev 4, lower (the plan's 2.1/day)** | **55 (2.14)** | **4 (0.16/d)** | 35 | 8 | **8 (0.31/d)** | **0** |
+
+| Rev 4 on Jaya+guest days | Entries (per day) | G guest | A1 | A2 | B resident (Jaya) | C untracked (the guest) |
+|---|---|---|---|---|---|---|
+| upper | 42 (9.74) | 1 | 12 | 15 | **6 (1.39/d)** | **8 (1.86/d)** |
+| lower | 44 (10.20) | 3 | 12 | 15 | **6 (1.39/d)** | **8 (1.86/d)** |
+
+Reading:
+- **Residents, ordinary days:** real misses are **7 to 8 in 25.7 days (0.27 to 0.31/day), today and under Rev 4 alike.** Rev 4 does not change them; it removes the guest-flagged ones and the short flaps. Against the goal "at most 1 resident someone-home AWAY per day" this is **met on average**, but the days over 1 are concentrated: 09-28 alone is a 12-flap day (all four phones BLE-visible in rooms minutes before each flap).
+- **Guests:** 4 guest-flagged entries (0.16/day) plus at most 1 untracked sustained, ordinary days. On Jaya+guest days the untracked guest is the large term (1.86/day, plus 0.23 to 0.70/day guest-flagged). Rev 4 does not reach a guest in a non-guest room with no phone.
+- **A1 is the bulk of the "2.1/day" and is mostly an artefact.** It is the departure moment seen through a 300 s hold tail. It is not removable by a veto without delaying real departures (section 4).
+- **A2 (8 lower, 1 upper) is unknown:** no resident BLE within 20 min and no sustained evidence. Candidate phantoms.
+
+### 3. Study A, the 14 misses (Rev 4 upper-predicate set, all ordinary days)
+
+| Date / time CDT | Oji's last BLE room before AWAY (min before) | Phone state (recorder, from 10-11) | Reading |
+|---|---|---|---|
+| 09-22 12:02, 09-26 10:04 | Master Bedroom 4,985 min; Garage A 375 min | n/a | All four away for hours; Study A "occupied" the whole absence: the P3 phantom. Not a miss. |
+| 09-28 14:21, 14:43, 14:54, 15:05, 15:13, 16:06, 16:59 (7) | Receiving Room 17.4, Dining Room 11.0, Dining 6.4, Receiving 2.4, Receiving 10.9, Receiving 3.3, Receiving 10.1 | n/a | Oji (and Ezinne, Jaya) BLE-visible in other rooms minutes before each flap. **Resident miss, BLE dropout**; Study A radar was a coincident room. Not Study A. |
+| 10-08 09:39 | Study A Closet 13.2; Study A rows at -28.5 and +2.0 min | n/a | **Oji in Study A, BLE dropout, 60-min AWAY.** |
+| 10-10 11:18 | Living Room 14.0; Kitchen +1.4 min after | n/a | Oji in the house, BLE moving. Resident miss. |
+| 10-11 09:41, 09:47 | Study A Closet 11.7; Foyer 2.4 | `not_home` | Oji leaving (Foyer). AWAY correct; Study A is the fan-tail phantom. |
+| 10-11 11:23 | **Study A 6.9; Study A again at +8.1 min; Study B +24 min** | **`not_home` since 11:06** | **Textbook: `person.*` away for 17 min while Bermuda placed Oji in Study A 7 min before and 8 min after.** 73-min AWAY (11:23 to 12:36). |
+
+**Answer to "was my phone home or BLE-located in Study A?"** BLE-located anywhere in the house within 17.4 min before: **12 of 14** (11 if you drop the 10-11 09:47 Foyer departure from "in the house"). BLE-located in Study A or its closet within 30 min before: **4 of 14** (10-08 09:39, 10-11 09:41, 09:47, 11:23). `person.oji_udezue` home: **0 of 3 checkable** (recorder only from 10-11; and by construction an AWAY cannot fire with a trusted `home` phone). Real resident-in-Study-A misses: 10-08 09:39 and 10-11 11:23 (2 of 14); resident in the house elsewhere: 8 (09-28 x7, 10-10); departures: 2; phantom: 2. Mechanism for the 10-11 11:23 case: Bermuda unresolved, `person.*` not_home, no decay left, so alpha counted Oji as away (G1/G2 above).
+
+### 4. The BLE lever the plan missed
+
+**Lever L(N):** a resident who had a BLE room within the last N minutes (dropout recency, not "visible now") counts as home for all three branches, bounded by N. Reuse: `tracking_status == STALE` already encodes N = 300 s; L(5) is "stale persons block instead of being excluded" (one conjunct on the denominator, `presence.py:5916`). Anything longer needs a new last-seen stamp (NEW).
+
+| N | Real sustained misses caught (ordinary, 9 genuine of 11 sustained; 2 are the phantom days) | Genuine departures within 15 min of exit crossing (loose set, 10) | Median exit to AWAY |
+|---|---|---|---|
+| 0 (today, with A and B) | 0 | 7 | 11.5 min |
+| 5 | 2 to 4 | 7 | 11.6 |
+| 10 | 6 to 7 | 6 | 14.6 |
+| 15 | 9 | 4 | 15.3 |
+
+Entry blocks on the whole residual (incl. A1) are 5/25, 15/25, 21/25 at N = 5/10/15 (upper) but **those extra blocks are the departures themselves**, which is why the cost column rises. Do not read the residual drop as value.
+
+**Forgotten-phone hazard (INV-NO-BLE-HOLD, Rev 2).** The hazard is a stationary phone that stays visible and holds the house forever. L(N) cannot do that: its hold ends N minutes after the phone stops being seen, whatever the phone does; a phone that stays visible is already handled by the existing `phone_left_behind` exclusion (`presence.py:5834-5860`) and is unchanged. The real cost of L(N) is a genuine departure delayed by up to N minutes after the phone is last seen (garage, driveway): the table. So the hazard is bounded, not reopened, but the trade is departure speed.
+
+**Marginal-benefit read.** L(5) is nearly free and reuses `STALE`; it plausibly removes the 10-17 20:26 to 23:37 style entries (4 of 102) and 2 to 4 of 9 ordinary resident misses. L(10) buys a few more at a measured 1-of-7 departure loss. Recommend L(5) as a candidate sub-deliverable of the AWAY-flap plan or its own small card; L(10+) only after the better probe below. **Not decided here.**
+
+### 5. Goal re-stated: residents primary, guests second
+
+| | Today | Rev 4 | With L(5) (estimate) |
+|---|---|---|---|
+| Resident someone-home AWAY per day, ordinary | 0.27 (7 in 25.7 d), upper | 0.27 to 0.31 | about 0.15 to 0.25 |
+| Resident, Jaya+guest days | 1.39 (6 in 4.3 d) | 1.39 | lower |
+| Guest-flagged, ordinary | 0.55 (14), upper | 0.16 (4) | unchanged |
+| Untracked/phoneless sustained, Jaya+guest days | 2.55 (11) | 1.86 (8) | unchanged |
+
+Residual cause for residents: **BLE dropout with `person.*` not_home** (phone asleep on WiFi/GPS, Bermuda silent for more than 5 minutes), in 9 of 9 genuine ordinary cases a resident BLE row exists in the same episode. It is **not** "phone left in another room" (that case stays visible and is excluded by `phone_left_behind`) and not a missing resident. Guests' residual is "no phone, no camera, non-guest room".
+
+### 6. Caveats and unknowns
+
+- **`pps` lags truth.** `person_presence_snapshots`-style rows (`pps.json`) matched the memory-snapshot all-away state in only 63 of 102 real entries; mismatches are mostly Bermuda rows with no later away row. "Resident BLE within 20 min" and "age since last room row" therefore mix last-seen and last-changed; they are upper bounds on recency. A proper probe needs the Bermuda area sensor history (recorder, 7 days) and the person_coordinator STALE/ACTIVE transitions; not run.
+- Rev 4 residual classes A1/A2/B/C are inferences from sensor and BLE rows; no ground truth for who was home.
+- The 8 + 7 resident misses are small counts (95% intervals wide); the 09-28 cluster is 7 of 8 lower-set Study A entries.
+- Recorder phone state begins 10-11 04:16 CDT; pre-10-11 phone state is unknown.
+- Predicate bounds (upper `total_persons` / lower `unidentified_count`) carry over from P2/P3; `face_recognized_count` is still not stored.
+- Not done: a replay of L(N) as a real code path; effect of L(N) on the 9 trip stale-Jaya style entries beyond the 4 snapshot rows.
