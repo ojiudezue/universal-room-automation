@@ -195,3 +195,39 @@ def reinstall(installed: dict, prefixes=DEFAULT_PREFIXES):
                 else:
                     setattr(mod, a, v)
         yield
+
+
+def restore_clocks_after_test(monkeypatch, module_globals: dict) -> None:
+    """Register the CURRENT now/utcnow of every clock module a test file
+    drives with ``_set_now`` so monkeypatch puts them back after the test.
+
+    Those files bind a production module's ``dt_util`` (names ending in
+    ``dt_util``, or ``<x>_mod.dt_util``). That object can be the REAL
+    homeassistant.util.dt -- or an orphaned real copy no longer in
+    sys.modules, which no sys.modules-based restore can see -- so a frozen
+    ``_set_now`` clock used to outlive the file (victims:
+    ec_billing_emporia_counters, energy_savings_unification, ...)."""
+    targets = []
+    for name, val in list(module_globals.items()):
+        cand = None
+        if name.endswith("dt_util") and hasattr(val, "utcnow"):
+            cand = val
+        elif name.endswith("_mod") and hasattr(getattr(val, "dt_util", None), "utcnow"):
+            cand = val.dt_util
+        if cand is not None and all(cand is not t for t in targets):
+            targets.append(cand)
+    for t in targets:
+        for attr in ("now", "utcnow"):
+            if hasattr(t, attr):
+                monkeypatch.setattr(t, attr, getattr(t, attr))
+
+
+def other_dt_modules():
+    """Distinct ``homeassistant.util.dt`` objects other than
+    ``sys.modules['homeassistant.util.dt']`` -- today: the parent package
+    attribute ``homeassistant.util.dt``, which is what production's call-time
+    ``from homeassistant.util import dt`` binds. A sibling stub install can
+    leave the two disagreeing; a test that pins a clock must pin both."""
+    primary = sys.modules.get("homeassistant.util.dt")
+    parent = getattr(sys.modules.get("homeassistant.util"), "dt", None)
+    return [parent] if parent is not None and parent is not primary else []

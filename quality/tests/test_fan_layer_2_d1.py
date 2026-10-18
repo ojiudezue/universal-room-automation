@@ -158,7 +158,7 @@ def d1_env():
 # Autouse fixture: freeze wall-clock across all dt-util module identities
 # that the oracle module may hold, restored per-test via monkeypatch.
 @pytest.fixture(autouse=True)
-def _freeze_dt_util(monkeypatch):
+def _freeze_dt_util(monkeypatch, request):
     from datetime import datetime as _dt
 
     def _parse(s):
@@ -181,6 +181,18 @@ def _freeze_dt_util(monkeypatch):
             targets.append(cached)
     except Exception:
         pass
+    # TEST-HARNESS D7 slice 2: also freeze the dt modules the classes under
+    # test ACTUALLY read (their own globals). In the full suite hvac_fans can
+    # be bound to a dt object that is neither sys.modules' nor the oracle's.
+    if "d1_env" in request.fixturenames:
+        env = request.getfixturevalue("d1_env")
+        for cls, meth in ((env.FanController, "_is_manual_on_hold_live"),
+                          (env.FanPolicyOracle, "__init__")):
+            g = getattr(getattr(cls, meth, None), "__globals__", {})
+            for key in ("dt_util", "_ha_dt"):
+                cand = g.get(key)
+                if cand is not None and all(cand is not t for t in targets):
+                    targets.append(cand)
     for mod in targets:
         monkeypatch.setattr(mod, "now", _now, raising=False)
         monkeypatch.setattr(mod, "utcnow", _now, raising=False)

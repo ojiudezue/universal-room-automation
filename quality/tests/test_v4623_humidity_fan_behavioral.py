@@ -276,6 +276,17 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+
+import pytest as _d7_pytest_clock  # noqa: E402
+
+
+@_d7_pytest_clock.fixture(autouse=True)
+def _d7_restore_set_now_clocks(monkeypatch):
+    """TEST-HARNESS D7 slice 2: undo this file's _set_now clock writes after
+    every test (they can land on the real / an orphaned real dt module)."""
+    from _d7_isolation import restore_clocks_after_test
+    restore_clocks_after_test(monkeypatch, globals())
+
 def _set_now(dt: datetime) -> None:
     """Override the 'now' function used by dt_util in automation.py.
 

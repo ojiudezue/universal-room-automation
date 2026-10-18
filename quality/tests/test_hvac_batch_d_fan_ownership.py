@@ -63,6 +63,25 @@ def _load():
 
 CONST, HF = _load()
 AUTOMATION = importlib.import_module(f"{_PKG}.automation")
+
+
+@pytest.fixture(autouse=True)
+def _d7_aware_clock(monkeypatch):
+    """TEST-HARNESS D7 slice 2: the private ``ura_batch_d_fans_pkg`` modules
+    are cached in sys.modules and bound to whatever homeassistant.util.dt
+    existed when the FIRST file loaded them -- in the full suite a sibling's
+    naive stub, so ``dt_util.now() < <aware iso>`` raised TypeError. Pin a
+    tz-aware clock on the dt objects these modules actually read."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    seen = []
+    for mod in (AUTOMATION, HF):
+        d = getattr(mod, "dt_util", None)
+        if d is None or any(d is s for s in seen):
+            continue
+        seen.append(d)
+        monkeypatch.setattr(d, "now", lambda: _dt.now(_tz.utc), raising=False)
+        monkeypatch.setattr(d, "utcnow", lambda: _dt.now(_tz.utc), raising=False)
 FOLLOW = CONST.FAN_MODE_FOLLOW_THERMOSTAT
 ROOMT = CONST.FAN_MODE_ROOM_TEMPERATURE
 OFF = CONST.FAN_MODE_OFF

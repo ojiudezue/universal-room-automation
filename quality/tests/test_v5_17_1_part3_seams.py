@@ -56,10 +56,10 @@ def _d7_tz_aware_dt(monkeypatch):
     homeassistant.util.dt (never undone), so every file COLLECTED after this
     one saw this clock (victims: the NM trio, fixed victim-side in slice 1).
     Now per test; monkeypatch also undoes the in-test writes below."""
-    monkeypatch.setattr(_dt_mod, "utcnow", _utcnow)
-    monkeypatch.setattr(_dt_mod, "now", _utcnow)
-    monkeypatch.setattr(_dt_mod, "parse_datetime", _parse_datetime)
-    monkeypatch.setattr(_dt_mod, "UTC", _tz_module.utc)
+    monkeypatch.setattr(_dt_mod, "utcnow", _utcnow, raising=False)
+    monkeypatch.setattr(_dt_mod, "now", _utcnow, raising=False)
+    monkeypatch.setattr(_dt_mod, "parse_datetime", _parse_datetime, raising=False)
+    monkeypatch.setattr(_dt_mod, "UTC", _tz_module.utc, raising=False)
 
 
 # ---------------------------------------------------------------------------

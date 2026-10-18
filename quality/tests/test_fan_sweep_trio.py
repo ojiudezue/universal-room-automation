@@ -166,6 +166,17 @@ from custom_components.universal_room_automation.domain_coordinators import (  #
 # ---- Test harness (mirrors test_fan_incident_2026_08_01_replay.py) ----
 
 
+
+import pytest as _d7_pytest_clock  # noqa: E402
+
+
+@_d7_pytest_clock.fixture(autouse=True)
+def _d7_restore_set_now_clocks(monkeypatch):
+    """TEST-HARNESS D7 slice 2: undo this file's _set_now clock writes after
+    every test (they can land on the real / an orphaned real dt module)."""
+    from _d7_isolation import restore_clocks_after_test
+    restore_clocks_after_test(monkeypatch, globals())
+
 def _set_now(dt: datetime) -> None:
     fn = lambda: dt  # noqa: E731
     _hvac_fans_mod.dt_util.now = fn
@@ -174,10 +185,10 @@ def _set_now(dt: datetime) -> None:
 
 @pytest.fixture(autouse=True)
 def _restore_dt_util():
+    # TEST-HARNESS D7 slice 2: the naive-utcnow reset that was here leaked a
+    # naive clock onto the real dt module; _d7_restore_set_now_clocks now
+    # restores the original clock functions instead.
     yield
-    default = lambda: datetime.utcnow()  # noqa: E731
-    _hvac_fans_mod.dt_util.now = default
-    _hvac_fans_mod.dt_util.utcnow = default
 
 
 def _run(coro):
