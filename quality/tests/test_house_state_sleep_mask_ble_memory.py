@@ -596,6 +596,21 @@ def test_multi_sensor_room_really_empty_still_reaches_away(monkeypatch, clock):
     assert w.coord._veto_path == "nobody_home"
 
 
+def test_tracker_view_alone_holds_room(monkeypatch, clock):
+    """The tracker limb is load-bearing on its own: a room the tracker holds
+    with no live `on` sensor (fan-interference hold extension, seeded
+    provenance) still holds SLEEP."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX])],
+              states={MASTER_ZX: _State("off")})
+    t = w.trackers["Master Suite"]
+    t._fan_interference_hold_until["Master Bedroom"] = (
+        clock.t + timedelta(seconds=300)
+    )
+    assert w.coord._zone_night_rooms(t) == ["Master Bedroom"]
+    assert w.tick() == HS.SLEEP
+
+
 def test_live_limb_ignores_unavailable_and_other_rooms(monkeypatch, clock):
     """Only `on` counts (unavailable is not occupancy), and a sensor
     registered to a room outside the zone never holds it."""

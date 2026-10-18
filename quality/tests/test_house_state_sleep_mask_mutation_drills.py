@@ -135,7 +135,7 @@ DRILLS = [
     ("d1_room_limb_dropped", PRES,
      "            rooms = {r for r, occ in tracker._room_occupied.items() if occ}",
      "            rooms = set()",
-     "test_nobody_home_blocked_in_sleep_when_zone_raw_occupied"),
+     "test_tracker_view_alone_holds_room"),
     ("d1_error_counts_empty", PRES,
      "            rooms = {r for r, occ in tracker._room_occupied.items() if occ}\n        except Exception:  # noqa: BLE001 — fail toward holding\n            return [\"<error>\"]",
      "            rooms = {r for r, occ in tracker._room_occupied.items() if occ}\n        except Exception:  # noqa: BLE001 — fail toward holding\n            return []",
@@ -318,9 +318,17 @@ DRILLS = [
 ]
 
 
+import os  # noqa: E402
+
+# Order-robustness check (review C): URA_DRILL_REVERSE=1 runs the drills in
+# reverse. Every drill copies the tree to a private temp dir, so no drill
+# can see another's mutant regardless of order.
+_ORDER = list(reversed(DRILLS)) if os.environ.get("URA_DRILL_REVERSE") == "1" else DRILLS
+
+
 @pytest.mark.parametrize(
     "file_,swap_from,swap_to,anchor",
-    [pytest.param(f, a, b, t, id=i) for i, f, a, b, t in DRILLS],
+    [pytest.param(f, a, b, t, id=i) for i, f, a, b, t in _ORDER],
 )
 def test_mutation_drill_goes_red(file_, swap_from, swap_to, anchor):
     kwargs = dict(anchor_test_file=ANCHOR, anchor_test_name=anchor,
