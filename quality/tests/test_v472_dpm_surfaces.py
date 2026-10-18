@@ -248,17 +248,37 @@ class TestD2HvacDynamicPresetSwitch:
             "Coordinator device frontend sort"
         )
 
-    def test_ec_dynamic_preset_switch_not_in_setup_entry(self, switch_src):
-        # After D2, async_setup_entry must wire HVACDynamicPresetSwitch,
-        # not ECDynamicPresetSwitch for this slot.
-        idx = switch_src.find("async def async_setup_entry(")
-        # Window widened from 5000 → 6000 (Session B1 EVSE drain-precedence
-        # added ECDrainPrecedenceEnableSwitch to CM setup_entry, pushing
-        # HVACDynamicPresetSwitch out of the original 5000-char slice by
-        # ~34 chars). The invariant is presence-in-setup_entry, not
-        # location within a fixed character window.
-        body = switch_src[idx:idx + 6000]
-        assert "HVACDynamicPresetSwitch" in body, (
+    @pytest.mark.asyncio
+    async def test_ec_dynamic_preset_switch_not_in_setup_entry(self):
+        """After D2 the CM switch setup builds HVACDynamicPresetSwitch for the
+        dynamic-preset slot (unique_id preserved from the v4.7.1 EC switch).
+
+        D4a (test-harness Wave 1): replaces a fixed-width source window grep
+        of async_setup_entry (stale as setup_entry grew). Drives the REAL
+        ``switch.async_setup_entry`` for the CM entry.
+        """
+        from runtime_harness import build_smoke_hass
+        from custom_components.universal_room_automation import switch as sw_mod
+
+        hass = build_smoke_hass(zones_count=3)
+        cm_entry = next(
+            e for e in hass.config_entries.async_entries()
+            if e.title == "coordinator_manager_entry"
+        )
+        added: list = []
+        await sw_mod.async_setup_entry(
+            hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+        )
+        slot = [
+            e for e in added
+            if getattr(e, "_attr_unique_id", None)
+            == "universal_room_automation_energy_dynamic_preset_enabled"
+        ]
+        assert len(slot) == 1, (
+            "async_setup_entry must instantiate exactly one dynamic-preset "
+            "master switch"
+        )
+        assert type(slot[0]) is sw_mod.HVACDynamicPresetSwitch, (
             "async_setup_entry must instantiate HVACDynamicPresetSwitch "
             "(not the old ECDynamicPresetSwitch factory call)"
         )
@@ -424,21 +444,114 @@ class TestB2MigrationHelper:
             "if already correctly assigned, no update should be issued (idempotent)"
         )
 
-    def test_migration_helper_wrapped_in_try_except(self, init_src):
-        """Helper must be non-fatal — wrapped in try/except.
+    @staticmethod
+    def _real_ura_package(monkeypatch):
+        """Return the REAL integration package module.
 
-        v4.7.3 D4 refactored the single-entity helper into a loop; the debug
-        log message was updated.  Test checks for the presence of any
-        'entity reassignment skipped' debug log (version-agnostic).
+        Some sibling test files install a bare ``types.ModuleType`` stub for
+        the package root at import time (order-dependent; D7 territory). If
+        that stub is in sys.modules, load the real ``__init__.py`` in its
+        place for THIS test only (``monkeypatch.setitem`` restores it).
         """
-        idx = init_src.find(self._CM_ANCHOR)
-        # v4.7.7: window widened from 4000 → 10000 after the v4.7.7 B1
-        # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
-        # blocks were inserted inside the CM entry branch ahead of
-        # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 14000]
-        # The try/except block must contain a debug log on failure.
-        assert "entity reassignment skipped" in body, (
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        name = "custom_components.universal_room_automation"
+        mod = sys.modules.get(name)
+        if mod is not None and hasattr(mod, "async_setup_entry"):
+            return mod
+        pkg_dir = (
+            Path(__file__).resolve().parents[2]
+            / "custom_components" / "universal_room_automation"
+        )
+        spec = importlib.util.spec_from_file_location(
+            name, pkg_dir / "__init__.py",
+            submodule_search_locations=[str(pkg_dir)],
+        )
+        real = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, real)
+        spec.loader.exec_module(real)
+        return real
+
+    async def _run_cm_setup(self, monkeypatch, entity_registry, device_registry):
+        """Drive the REAL CM-entry ``async_setup_entry`` with the given
+        entity/device registries patched in. Returns setup's result."""
+        from unittest.mock import AsyncMock, patch
+
+        from homeassistant.helpers import device_registry as dr
+        from homeassistant.helpers import entity_registry as er
+        from runtime_harness import StubHass, make_coordinator_manager_entry
+
+        ura = self._real_ura_package(monkeypatch)
+        from custom_components.universal_room_automation.domain_coordinators._loop_stall_watchdog import (
+            uninstall,
+        )
+
+        cm = make_coordinator_manager_entry(options={})
+        cm.async_on_unload = lambda func: None
+        hass = StubHass(config_entries=[cm])
+        hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+        try:
+            with patch.object(er, "async_get", lambda h: entity_registry), \
+                    patch.object(dr, "async_get", lambda h: device_registry):
+                return await ura.async_setup_entry(hass, cm)
+        finally:
+            uninstall(hass)
+
+    _DPM_UID = "universal_room_automation_energy_dynamic_preset_enabled"
+
+    def _device_registry(self):
+        from unittest.mock import MagicMock
+
+        dreg = MagicMock()
+        dreg.async_get_device = lambda identifiers=None, **k: (
+            MagicMock(id="hvac_dev")
+            if identifiers == {("universal_room_automation", "hvac_coordinator")}
+            else None
+        )
+        return dreg
+
+    @pytest.mark.parametrize("expected_lingering_tasks", [True])
+    @pytest.mark.parametrize("expected_lingering_timers", [True])
+    @pytest.mark.asyncio
+    async def test_migration_helper_wrapped_in_try_except(self, caplog, monkeypatch):
+        """Helper must be non-fatal: a registry failure inside the
+        reassignment is swallowed (debug log) and CM setup still succeeds.
+
+        D4a (test-harness Wave 1): was a 14000-char source window grep for
+        the log text (stale as the CM branch grew). Now drives the real CM
+        ``async_setup_entry`` with an entity registry that raises on the
+        dynamic-preset lookup, plus a positive leg proving the reassignment
+        actually runs (so the failure leg is not vacuous).
+        """
+        import logging
+        from unittest.mock import MagicMock
+
+        uid = self._DPM_UID
+
+        # Positive leg: entity on the EC device -> moved to the HVAC device.
+        ok_reg = MagicMock()
+        ok_reg.async_get_entity_id = lambda p, d, u: (
+            f"{p}.dpm" if u == uid else None
+        )
+        ok_reg.async_get = lambda eid: MagicMock(device_id="ec_dev")
+        assert await self._run_cm_setup(monkeypatch, ok_reg, self._device_registry()) is True
+        ok_reg.async_update_entity.assert_any_call("switch.dpm", device_id="hvac_dev")
+
+        # Failure leg: the registry raises inside the reassignment.
+        def _boom(p, d, u):
+            if u == uid:
+                raise RuntimeError("registry unavailable")
+            return None
+
+        bad_reg = MagicMock()
+        bad_reg.async_get_entity_id = _boom
+        caplog.set_level(logging.DEBUG)
+        assert await self._run_cm_setup(monkeypatch, bad_reg, self._device_registry()) is True
+        assert any(
+            "entity reassignment skipped" in r.getMessage() for r in caplog.records
+        ), (
             "B2 fix: migration helper must be wrapped in try/except with a debug log "
             "on failure (non-fatal — must not break CM entry setup)"
         )

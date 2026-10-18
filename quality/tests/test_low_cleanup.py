@@ -743,16 +743,65 @@ class TestSwitchRestoreDeferredRetry:
         assert "_deferred_restore = False" in class_body
         assert "_retry_restore" in class_body
 
-    def test_hvac_observation_switch_has_deferred_restore(self):
-        """HVACObservationModeSwitch initializes _deferred_restore = False."""
-        src_path = "custom_components/universal_room_automation/switch.py"
-        with open(src_path) as f:
-            source = f.read()
+    @pytest.mark.asyncio
+    async def test_hvac_observation_switch_has_deferred_restore(self, monkeypatch):
+        """HVACObservationModeSwitch defers its restore until HVAC is ready.
 
-        class_body = self._get_class_body(source, "hvac_observation_mode")
+        D4a (test-harness Wave 1): was a source grep for
+        ``_deferred_restore = False`` — stale since v4.7.3.1 replaced the
+        5 s timer retry with the SIGNAL_HVAC_COORDINATOR_READY deferred
+        restore (``_deferred_value``). Drives the real entity:
+        restored "on" with no HVAC coordinator registered -> nothing applied
+        yet; the ready signal handler then lands it. Fast path: HVAC already
+        registered -> applied immediately.
+        """
+        from types import SimpleNamespace
 
-        assert "_deferred_restore = False" in class_body
-        assert "_retry_restore" in class_body
+        import homeassistant.helpers.dispatcher as ha_dispatcher
+        from homeassistant.helpers.restore_state import RestoreEntity
+        from custom_components.universal_room_automation import switch as sw_mod
+
+        monkeypatch.setattr(
+            ha_dispatcher, "async_dispatcher_connect",
+            lambda *a, **k: (lambda: None),
+        )
+        monkeypatch.setattr(
+            RestoreEntity, "async_added_to_hass", AsyncMock(return_value=None),
+        )
+
+        def _make(hass_data):
+            hass = SimpleNamespace(data=hass_data)
+            sw = sw_mod.HVACObservationModeSwitch(hass, SimpleNamespace(entry_id="cm"))
+            sw.async_get_last_state = AsyncMock(
+                return_value=SimpleNamespace(state="on"),
+            )
+            sw.async_on_remove = lambda unsub: None
+            sw.async_write_ha_state = MagicMock()
+            return sw
+
+        domain = "universal_room_automation"
+        hvac = SimpleNamespace(observation_mode=False)
+        manager = SimpleNamespace(coordinators={})
+
+        # Deferred path: HVAC not registered at restore time.
+        data = {domain: {"coordinator_manager": manager}}
+        sw = _make(data)
+        await sw.async_added_to_hass()
+        assert hvac.observation_mode is False
+        manager.coordinators["hvac"] = hvac
+        sw._handle_hvac_ready()
+        assert hvac.observation_mode is True
+        # A second ready signal is a no-op (restore consumed).
+        hvac.observation_mode = False
+        sw._handle_hvac_ready()
+        assert hvac.observation_mode is False
+
+        # Fast path: HVAC already registered -> restored at once.
+        hvac2 = SimpleNamespace(observation_mode=False)
+        sw2 = _make({domain: {"coordinator_manager": SimpleNamespace(
+            coordinators={"hvac": hvac2})}})
+        await sw2.async_added_to_hass()
+        assert hvac2.observation_mode is True
 
     def test_retry_restore_logic(self):
         """Replicate _retry_restore: only acts if _deferred_restore is True."""
