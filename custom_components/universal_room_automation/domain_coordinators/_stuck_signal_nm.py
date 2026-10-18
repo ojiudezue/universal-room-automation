@@ -171,8 +171,15 @@ async def fire_stuck_signal(
     now: datetime | None = None,
     title_override: str | None = None,
     exclusion_engaged: bool = False,
+    severity: str | None = None,
 ) -> bool:
     """Fire a stuck_signal NM once per (kind, key) per calendar day.
+
+    ``severity``: optional ``Severity`` member NAME (e.g. "HIGH"), the same
+    per-call pattern as the HVAC S10 latches (``hvac._s10_notify``).
+    None -> MEDIUM, byte-identical for every existing caller. MEDIUM reaches
+    no channel under the live NM config (HVAC state of play, S10 latch
+    note), so a trip-wire meant to page passes "HIGH".
 
     Returns True iff the NM was actually dispatched this call. False on
     kill-switch off, latch already fired today, missing NM, or exception.
@@ -219,7 +226,9 @@ async def fire_stuck_signal(
             message = f"{message}\n\nSuggested remedy: {remedy}"
         await nm.async_notify(
             coordinator_id=STUCK_SIGNAL_NM_COORDINATOR_ID,
-            severity=Severity.MEDIUM,
+            severity=(
+                getattr(Severity, severity) if severity else Severity.MEDIUM
+            ),
             title=title,
             message=message,
             hazard_type=STUCK_SIGNAL_NM_HAZARD_TYPE,

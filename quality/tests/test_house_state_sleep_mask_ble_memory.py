@@ -12,9 +12,17 @@ z._override == AWAY; night_raw(z) = z._ble_occupied OR (z._has_sensors AND
 fan-phantom breaker is DROPPED (stress test P5) — no fan test anywhere.
 N = decay_timeout, I = 30 s person tick, T = 60 s presence tick.
 
-INV-SLEEP-NOT-EMPTY  The nobody-home branch never returns AWAY while some
-    zone has sleep_zone(z) AND night_raw(z). Carve-out: an away_pinned zone
-    counts as empty (PICK 1 default).
+INV-SLEEP-NOT-EMPTY  The NOBODY-HOME branch (and path β, review D-M3)
+    never returns AWAY while some zone has sleep_zone(z) AND night_raw(z).
+    night_raw's room limb = tracker room view OR the LIVE `on` state of any
+    Tier-1 sensor registered to the room (review D-H1: the tracker view is
+    lossy in multi-sensor rooms).
+    Scope limits (NOT guaranteed, review D S-1/S-2):
+      - path α (ledger #12): three ACTIVE-away trackers + a dead-phone
+        sleeper (LOST, out of the denominator) + healthy cameras -> α
+        returns AWAY over a raw-occupied pinned zone (Rev 4 guard A, parked);
+      - PICK 1 carve-out: an away_pinned zone counts as empty (a mistaken
+        house AWAY override then `auto` leaves zones AWAY-pinned).
 INV-EMPTY-REACHES-AWAY  With the house empty (census 0, trackers away or
     silent) and every zone's night_raw (SLEEP) / mode (otherwise) clear,
     AWAY is proposed on the next tick.
@@ -295,6 +303,11 @@ class World:
                 t.update_room_occupancy(r, False)
             self.trackers[zname] = t
         coord._zone_trackers = self.trackers
+        # Real `_discover_room_sensors` (CONF lists -> tracker.register_entity)
+        # over a substrate stub reporting no live kinds; the tests drive the
+        # per-kind provenance explicitly below.
+        coord._substrate = types.SimpleNamespace(get_room_kinds=lambda r: {})
+        coord._discover_room_sensors()
         if state == HS.SLEEP:
             for t in self.trackers.values():
                 t.set_sleep(True)
@@ -313,7 +326,13 @@ class World:
         self.trackers[zone].update_room_occupancy(room, True, kind=kind)
 
     def clear(self, zone, room):
-        self.trackers[zone].update_room_occupancy(room, False)
+        """The room really empties: every registered sensor reads off and
+        the tracker gets the off-edge."""
+        t = self.trackers[zone]
+        for eid, r in t._entity_to_room.items():
+            if r == room:
+                self.states[eid] = _State("off")
+        t.update_room_occupancy(room, False)
 
     def fan_on(self, zone, room):
         self.trackers[zone]._fan_on_rooms.add(room)
@@ -526,6 +545,122 @@ def test_room_in_no_zone_does_not_hold(monkeypatch, clock):
     assert w.tick() == HS.AWAY
 
 
+# --- Review D-H1: multi-sensor rooms (tracker view is lossy) ---------------
+
+MASTER_ZV = "binary_sensor.master_zv_presence_2"
+JAYA_LD2 = "binary_sensor.jaya_ld2410_b_presence"
+
+
+def test_two_kind_room_zv_pulse_then_clear_keeps_zx_sleeper(monkeypatch, clock):
+    """ZX (presence) holds a still sleeper; ZV (motion) pulses on a
+    roll-over then clears. The tracker's off-edge wipes the whole room, but
+    the ZX still reads on -> SLEEP holds (no nobody-home AWAY)."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
+                                   motion=[MASTER_ZV])],
+              states={MASTER_ZX: _State("on"), MASTER_ZV: _State("off")})
+    w.occupy("Master Suite", "Master Bedroom", kind="mmwave")
+    w.states[MASTER_ZV] = _State("on")
+    w.occupy("Master Suite", "Master Bedroom", kind="motion")
+    w.states[MASTER_ZV] = _State("off")
+    w.trackers["Master Suite"].update_room_occupancy(
+        "Master Bedroom", False, kind="motion")   # the lossy full-room wipe
+    assert w.trackers["Master Suite"].raw_occupied is False   # the defect
+    assert w.tick() == HS.SLEEP
+    assert w.coord._veto_path == "none"
+
+
+def test_same_kind_two_sensor_room_one_off_keeps_sleeper(monkeypatch, clock):
+    """Two radars of the SAME kind (LD2410 + ZK in presence_sensors): one
+    drops, the substrate's last-writer kind reports False and the tracker
+    wipes the room, but the other radar is still on -> SLEEP holds."""
+    w = World(monkeypatch, zones={"Upstairs": ["Jaya Bedroom"]},
+              entries=[_room_entry("Jaya Bedroom", presence=[JAYA_LD, JAYA_LD2])],
+              states={JAYA_LD: _State("on"), JAYA_LD2: _State("off")})
+    w.occupy("Upstairs", "Jaya Bedroom", kind="mmwave")
+    w.trackers["Upstairs"].update_room_occupancy(
+        "Jaya Bedroom", False, kind="mmwave")
+    assert w.tick() == HS.SLEEP
+    assert w.coord._veto_path == "none"
+
+
+def test_multi_sensor_room_really_empty_still_reaches_away(monkeypatch, clock):
+    """Discharge: both sensors off -> AWAY via nobody-home."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
+                                   motion=[MASTER_ZV])],
+              states={MASTER_ZX: _State("on"), MASTER_ZV: _State("off")})
+    w.occupy("Master Suite", "Master Bedroom", kind="mmwave")
+    w.clear("Master Suite", "Master Bedroom")
+    assert w.tick() == HS.AWAY
+    assert w.coord._veto_path == "nobody_home"
+
+
+def test_live_limb_ignores_unavailable_and_other_rooms(monkeypatch, clock):
+    """Only `on` counts (unavailable is not occupancy), and a sensor
+    registered to a room outside the zone never holds it."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX])],
+              states={MASTER_ZX: _State("unavailable")})
+    t = w.trackers["Master Suite"]
+    t.register_entity("binary_sensor.elsewhere", "Gym")
+    w.states["binary_sensor.elsewhere"] = _State("on")
+    assert w.coord._zone_night_rooms(t) == []
+    assert w.tick() == HS.AWAY
+
+
+# --- Review D-M1 / B-M1: label captured before the await ---------------------
+
+def test_concurrent_tick_cannot_overwrite_away_branch(monkeypatch, clock):
+    """Tick 1 fires nobody-home and awaits the decision log; a concurrent
+    tick (now already AWAY -> label 'none') runs inside that await. The
+    dispatch must still record 'nobody_home' (counter attribute AND the D7
+    episode payload)."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", motion=[JAYA_PIR])]).with_db()
+    mw = importlib.import_module(f"{_PKG}.memory_writers")
+    d7 = []
+    monkeypatch.setattr(mw, "write_house_state_transition",
+                        lambda hass, **kw: d7.append(kw["snapshot"]["veto_path"]))
+    inner = []
+
+    class _Logger:
+        async def log_decision(self, decision):
+            if not inner:
+                inner.append(1)
+                await w.coord._run_inference("concurrent")
+
+    w.coord.decision_logger = _Logger()
+    assert w.tick() == HS.AWAY
+    assert inner == [1]
+    assert w.coord._veto_path == "none"          # the concurrent tick's mirror
+    assert w.coord._last_away_branch == "nobody_home"
+    assert d7 == ["nobody_home"]
+
+
+# --- Review D-M3: β indoor input with sleep exemption OFF --------------------
+
+def test_beta_with_sleep_exempt_off_does_not_away_pinned_sleeper(monkeypatch, clock):
+    """lost_away_sleep_exempt=False (legal options-flow value), SLEEP,
+    camera fleet dark (α skipped), the one tracked resident ACTIVE away,
+    an untracked sleeper's radar on, census 0 -> β must not fire."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX])],
+              states={MASTER_ZX: _State("on")}, camera_dark=True)
+    w.occupy("Master Suite", "Master Bedroom", kind="mmwave")
+    w.coord._cm_entry_cache = _Entry("cm", {
+        CONST.CONF_ENTRY_TYPE: CONST.ENTRY_TYPE_COORDINATOR_MANAGER,
+        CONST.CONF_LOST_AWAY_SLEEP_EXEMPT: False,
+    })
+    w.coord._indoor_clear_consecutive_ticks = 5
+    w.persons({"oji": {"location": "away", "tracking_status": ACTIVE,
+                       "tracking_reason": "away_gps"}})
+    for _ in range(4):
+        assert w.tick() == HS.SLEEP
+        assert w.coord._veto_path == "none"
+        clock.advance(60)
+
+
 # --- D1b wake-time discharge + trip-wire (Rev 2.1, P5) ----------------------
 
 def _raw_held_world(monkeypatch, *, zones_state=HS.SLEEP):
@@ -581,7 +716,11 @@ def _capture_stuck(monkeypatch):
 
     async def _fake(hass, kind, key, diagnosis, remedy="", **kw):
         fired.append((kind, key, diagnosis))
+        fired_kw.append(kw)
         return True
+
+    fired_kw = []
+    _capture_stuck.kw = fired_kw
 
     monkeypatch.setattr(mod, "fire_stuck_signal", _fake)
     return fired
@@ -629,6 +768,8 @@ def test_sleep_raw_hold_tripwire_fires_once_after_window_end_plus_bound(monkeypa
     kind, key, diag = fired[0]
     assert kind == "sleep_raw_hold" and key == ("house",)
     assert "Master Bedroom" in diag
+    # Review A-M2 / B-L2: HIGH (MEDIUM reaches no channel live).
+    assert _capture_stuck.kw[0].get("severity") == "HIGH"
     _drive_hold(w, clock, 30)      # same episode -> no repeat
     assert len(fired) == 1
 
@@ -642,7 +783,6 @@ def test_sleep_raw_hold_tripwire_silent_during_sleep_window(monkeypatch, clock):
     clock.t = datetime(2026, 10, 17, 23, 0, tzinfo=timezone.utc)
     _drive_hold(w, clock, 7 * 60)  # through 05:59
     assert fired == []
-    assert w.coord._sleep_raw_hold_since is None
 
 
 def test_sleep_raw_hold_tripwire_not_when_census_positive(monkeypatch, clock):
@@ -668,18 +808,110 @@ def test_sleep_raw_hold_tripwire_kill_switch_zero(monkeypatch, clock):
 
 
 def test_sleep_raw_hold_tripwire_episode_resets_when_room_clears(monkeypatch, clock):
+    """One NM per episode; the latch resets when the hold ends, so a NEW
+    raw-only hold past the bound pages again."""
     fired = _capture_stuck(monkeypatch)
     w = _raw_held_world(monkeypatch)
     w.hass.async_create_task = _pending(w)
-    clock.t = datetime(2026, 10, 18, 6, 0, tzinfo=timezone.utc)
-    w.sm.transition = lambda *a, **k: False
-    _drive_hold(w, clock, 30)
-    assert w.coord._sleep_raw_hold_since is not None
-    del w.sm.transition            # restore the real bound method
+    _block_transitions(w)
+    clock.t = datetime(2026, 10, 18, 7, 31, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 2)
+    assert len(fired) == 1
     w.clear("Master Suite", "Master Bedroom")
-    w.tick()                       # nobody-home AWAY; hold ends
-    assert w.coord._sleep_raw_hold_since is None
+    _drive_hold(w, clock, 1)       # not held (raw clear) -> episode ends
+    w.states[JAYA_PIR] = _State("on")
+    w.occupy("Master Suite", "Master Bedroom", kind="motion")
+    _drive_hold(w, clock, 2)       # new episode, still past the bound
+    assert len(fired) == 2
+
+
+def test_sleep_raw_hold_tripwire_skips_override_2130_early_bedtime(monkeypatch, clock):
+    """Review A-M1: a 21:30 house SLEEP override (early bedtime) over a
+    census-0 raw hold must not page (the window has not started; D1b
+    cannot release an override)."""
+    fired = _capture_stuck(monkeypatch)
+    clock.t = datetime(2026, 10, 18, 21, 30, tzinfo=timezone.utc)
+    w = _raw_held_world(monkeypatch, zones_state=HS.HOME_EVENING)
+    w.hass.async_create_task = _pending(w)
+    w.coord.set_house_state_override("sleep")
+    assert w.sm.state == HS.SLEEP and w.sm.is_overridden
+    _drive_hold(w, clock, 60)      # 21:30 .. 22:29
     assert fired == []
+
+
+def test_sleep_raw_hold_tripwire_skips_override_1400_nap(monkeypatch, clock):
+    """Review D-M2: a 14:00 nap (house SLEEP override over HOME_DAY, ZX on,
+    census 0) holds SLEEP correctly and never pages."""
+    fired = _capture_stuck(monkeypatch)
+    clock.t = datetime(2026, 10, 18, 14, 0, tzinfo=timezone.utc)
+    w = _raw_held_world(monkeypatch, zones_state=HS.HOME_DAY)
+    w.hass.async_create_task = _pending(w)
+    w.coord.set_house_state_override("sleep")
+    _drive_hold(w, clock, 150)
+    assert fired == []
+    assert w.sm.state == HS.SLEEP
+
+
+def test_sleep_raw_hold_tripwire_anchors_at_sleep_entry(monkeypatch, clock):
+    """Anchor = max(window end, SLEEP entry). Inferred SLEEP entered at
+    06:30 (after the 06:00 end): at 07:45 the hold is 75 min from entry ->
+    no page (window-end anchoring would page at 07:30); at 08:01 -> 91 min
+    from entry -> page."""
+    fired = _capture_stuck(monkeypatch)
+    w = _raw_held_world(monkeypatch)
+    w.hass.async_create_task = _pending(w)
+    _block_transitions(w)
+    w.sm._state_since = datetime(2026, 10, 18, 6, 30, tzinfo=timezone.utc)
+    clock.t = datetime(2026, 10, 18, 7, 0, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 46)      # 07:00 .. 07:45
+    assert fired == []
+    _drive_hold(w, clock, 16)      # .. 08:01
+    assert len(fired) == 1
+
+
+def test_sleep_raw_hold_tripwire_non_wrapping_window_rolls_back_a_day(monkeypatch, clock):
+    """Review C M5b: non-wrapping window 01->07, now 00:30 (not a sleep
+    hour, BEFORE today's 07:00 end). window_end must roll back to
+    yesterday 07:00, so a SLEEP entered yesterday 22:00 is 150 min past
+    max(window end, entry) and pages. Without the roll the anchor is
+    today 07:00 (future) and nothing fires."""
+    fired = _capture_stuck(monkeypatch)
+    w = _raw_held_world(monkeypatch)
+    w.coord._inference_engine.sleep_start_hour = 1
+    w.coord._inference_engine.sleep_end_hour = 7
+    w.hass.async_create_task = _pending(w)
+    _block_transitions(w)
+    w.sm._state_since = datetime(2026, 10, 17, 22, 0, tzinfo=timezone.utc)
+    clock.t = datetime(2026, 10, 18, 0, 30, tzinfo=timezone.utc)
+    _drive_hold(w, clock, 1)
+    assert len(fired) == 1
+
+
+def test_fire_stuck_signal_severity_kwarg(monkeypatch, clock):
+    """The shared NM path: default stays MEDIUM (byte-identical for other
+    callers); severity='HIGH' reaches the notifier as HIGH."""
+    mod = importlib.import_module(f"{_PKG}.domain_coordinators._stuck_signal_nm")
+    nm_mod = importlib.import_module(f"{_PKG}.domain_coordinators.notification_manager")
+    sent = []
+
+    class _NM:
+        async def async_notify(self, **kw):
+            sent.append(kw["severity"])
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"notification_manager": _NM()}}
+    monkeypatch.setattr(mod, "_kill_switch_on", lambda h: True)
+    monkeypatch.setattr(mod, "_write_stuck_anomaly", lambda *a, **k: _noop())
+    mod._LATCHES.clear()
+    assert _run(mod.fire_stuck_signal(hass, "k1", ("a",), "d")) is True
+    assert _run(mod.fire_stuck_signal(hass, "k2", ("a",), "d",
+                                      severity="HIGH")) is True
+    assert sent == [nm_mod.Severity.MEDIUM, nm_mod.Severity.HIGH]
+    mod._LATCHES.clear()
+
+
+async def _noop():
+    return None
 
 
 # --- periodic registration (discharge isolation) --------------------------
@@ -1273,7 +1505,7 @@ def test_guest_reason_room_precedes_unidentified(monkeypatch, clock):
 def test_guest_reason_unidentified_and_none(monkeypatch, clock):
     w = _guest_world(monkeypatch, clock, room_fires=False, unid_fires=True)
     w.tick()
-    assert w.coord._guest_reason == "unidentified_persistent"
+    assert w.coord._guest_reason == "unidentified_corroborator_only"
     w2 = _guest_world(monkeypatch, clock, room_fires=False, unid_fires=False)
     w2.tick()
     assert w2.coord._guest_reason == "none"
@@ -1336,6 +1568,7 @@ def test_sensor_publishes_d3_attributes(monkeypatch, clock):
 
 WIG_MASTER = "binary_sensor.wig_master_zx_occupancy"
 WIG_UP = "binary_sensor.wig_upstairs_zx_occupancy"
+WIG_MASTER_ZV = "binary_sensor.wig_master_zv_presence_2"
 
 
 def _wigton(monkeypatch, clock, *, master_on=False, up_on=False,
@@ -1419,6 +1652,31 @@ def test_wigton_shape_tripwire_full_night_silent_then_fires_past_window(monkeypa
     assert fired == []
     _drive_hold(w, clock, 5)             # past 07:30
     assert len(fired) == 1
+
+
+def test_wigton_shape_multi_sensor_master_rollover_holds(monkeypatch, clock):
+    """Review D-H1 on the Wigton shape: Master has a ZG-204ZV (motion) and a
+    ZG-204ZX (presence). A sleeper's roll-over pulses the ZV on then off
+    every few minutes all night; the ZX stays on. S0 (census 0, omonele
+    LOST) -> SLEEP holds the whole night, no nobody-home AWAY."""
+    w, h = _wigton(monkeypatch, clock)
+    t = w.trackers["Master Suite"]
+    t.register_entity(WIG_MASTER_ZV, "Master Bedroom")
+    w.states[WIG_MASTER] = _State("on")
+    w.states[WIG_MASTER_ZV] = _State("off")
+    w.occupy("Master Suite", "Master Bedroom", kind="occupancy")
+    clock.t = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
+    for _ in range(60):
+        w.states[WIG_MASTER_ZV] = _State("on")
+        w.occupy("Master Suite", "Master Bedroom", kind="motion")
+        assert w.tick() == HS.SLEEP
+        clock.advance(60)
+        w.states[WIG_MASTER_ZV] = _State("off")
+        t.update_room_occupancy("Master Bedroom", False, kind="motion")
+        h.tick()
+        assert w.tick() == HS.SLEEP, "roll-over flipped AWAY"
+        assert w.coord._veto_path == "none"
+        clock.advance(60)
 
 
 def test_wigton_shape_no_bermuda_inert(monkeypatch, clock):

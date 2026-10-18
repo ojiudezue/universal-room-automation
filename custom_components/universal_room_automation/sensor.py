@@ -5671,7 +5671,8 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             # lost_admitted[_immediate] / override); away_entries_today =
             # entries since local midnight (0 after midnight whatever the
             # tick phase); guest_reason = guest_room:<room> /
-            # unidentified_persistent / override / none.
+            # unidentified_corroborator_only (Path A armed; it does not arm
+            # GUEST by itself) / override / none.
             attrs["last_away_branch"] = getattr(
                 presence, "_last_away_branch", None
             )
