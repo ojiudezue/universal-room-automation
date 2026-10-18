@@ -49,6 +49,10 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_appliance_coordinator_v1a.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
     ],
+    "test_ac_ramp_master_option_persistence.py": [
+        ("custom_components.universal_room_automation", None, "ura"),
+        ("custom_components.universal_room_automation.domain_coordinators", None, "ura"),
+    ],
     "test_bathroom_exhaust_occupancy_and_resend.py": [
         ("homeassistant.core", "callback", "ha"),
         ("homeassistant.core", "HomeAssistant", "ha"),
@@ -81,7 +85,12 @@ def _residue(probes) -> list[str]:
             if mod is None:
                 continue
             f = getattr(mod, "__file__", None) or ""
-            if not f or not Path(f).resolve().is_relative_to(_REPO / "custom_components"):
+            # A types.ModuleType placeholder has no import spec — even after
+            # the conftest PRODSTUBS rescue backfills __path__/__file__.
+            spec = getattr(mod, "__spec__", None)
+            if spec is None or not getattr(spec, "origin", None):
+                bad.append(f"{modname} is a placeholder (no import spec)")
+            elif not f or not Path(f).resolve().is_relative_to(_REPO / "custom_components"):
                 bad.append(f"{modname} is a placeholder (__file__={f!r})")
             elif attr is not None:
                 val = getattr(mod, attr, None)
@@ -219,6 +228,10 @@ _DRILLS = {
     "test_appliance_coordinator_v1a.py": (
         "@pytest.fixture(autouse=True)\ndef _d7_restore_entity_registry_async_get",
         "def _d7_restore_entity_registry_async_get",
+    ),
+    "test_ac_ramp_master_option_persistence.py": (
+        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
+        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
     ),
     "test_census_device_switches.py": (
         "with _d7_import_scope() as _D7_INSTALLED:",
