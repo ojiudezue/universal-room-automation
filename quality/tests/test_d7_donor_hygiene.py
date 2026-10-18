@@ -659,6 +659,17 @@ MULTI_DONOR_VICTIMS: dict[tuple[str, ...], list[str]] = {
     ): [
         "test_v47x_dynamic_preset.py::TestWinterGateCalendarBoundary::test_jan_is_winter",
     ],
+    # Second identity_fusion set (after carrier_freshness was fixed), ddmin
+    # over a 76-file reduced prefix. Fixed donor: hvac_vacancy_sweep (frozen
+    # clock left on the REAL dt via hvac's dt_util).
+    (
+        "test_hvac_evidence_clock.py",
+        "test_hvac_excursion_d1_auto_release.py",
+        "test_hvac_excursion_d1_observability.py",
+        "test_hvac_vacancy_sweep_manual_on_guard.py",
+    ): [
+        "test_identity_fusion_d2_d3_d4.py::test_d2_ble_only_attaches_with_ble_provenance",
+    ],
     (
         "test_bathroom_exhaust_occupancy_and_resend.py",
         "test_carrier_freshness.py",
@@ -689,7 +700,7 @@ def _run_set_then_victim(donors, victim) -> str:
 
 @pytest.mark.parametrize(
     "donors,victim", _multi_ids(),
-    ids=[f"{len(d)}donors-{v}" for d, v in _multi_ids()],
+    ids=[f"{d[0]}+{len(d) - 1}-{v}" for d, v in _multi_ids()],
 )
 def test_victim_green_after_donor_set(donors, victim):
     out = _run_set_then_victim(donors, victim)
@@ -697,6 +708,10 @@ def test_victim_green_after_donor_set(donors, victim):
 
 
 _MULTI_DRILLS = {
+    "test_hvac_vacancy_sweep_manual_on_guard.py": (
+        "@_d7_pytest.fixture(autouse=True)\ndef _d7_restore_clock",
+        "def _d7_restore_clock",
+    ),
     "test_pc_observability_kill_switches.py": (
         "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
         "        if False:\n            if saved_parent_dt is _absent:",
@@ -720,7 +735,7 @@ def test_drill_multi_donor_fix_neutered_victim_goes_red(donor):
         swap_from=swap_from,
         swap_to=swap_to,
         anchor_test_file=_HERE,
-        anchor_test_name=f"test_victim_green_after_donor_set[{len(donors)}donors-{victims[0]}]",
+        anchor_test_name=f"test_victim_green_after_donor_set[{donors[0]}+{len(donors) - 1}-{victims[0]}]",
         expect="KILLED",
         timeout=600,
     )
