@@ -23,8 +23,6 @@ from __future__ import annotations
 import sys
 from contextlib import contextmanager
 
-import pytest
-
 DEFAULT_PREFIXES = ("custom_components", "homeassistant", "aiosqlite")
 
 
@@ -51,12 +49,13 @@ def import_scope(prefixes=DEFAULT_PREFIXES):
                 sys.modules[k] = v
 
 
-def reinstall(installed: dict):
-    """Generator body for a module-scoped fixture: re-install, then undo."""
-    mp = pytest.MonkeyPatch()
-    for k, v in installed.items():
-        mp.setitem(sys.modules, k, v)
-    try:
+def reinstall(installed: dict, prefixes=DEFAULT_PREFIXES):
+    """Generator body for a module-scoped fixture: re-install what the import
+    block put in, run the module's tests, then put every key under
+    ``prefixes`` back as it was before -- including modules the tests
+    imported lazily against the stubs (e.g. a production module loaded
+    under a placeholder package at test time)."""
+    with import_scope(prefixes):
+        for k, v in installed.items():
+            sys.modules[k] = v
         yield
-    finally:
-        mp.undo()
