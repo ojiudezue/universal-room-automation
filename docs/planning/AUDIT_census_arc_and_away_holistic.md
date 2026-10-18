@@ -192,3 +192,114 @@ O1–O4 are attributes on an existing sensor (no new entity), O5 is dashboard co
 5. **Party guest mode:** **override select by hand for planned gatherings** / revive the guests-present flag (E) now.
 
 Also yours, independent of the arc: answer CENSUS-GROUND-TRUTH-CSV-FIX-1 only if you want the estimator kept warm; otherwise the default above closes it.
+
+---
+
+## Probe results 2026-10-18
+
+**Run:** Sun 2026-10-18 07:24-07:35 CDT (`date` at commit: 07:30) by ura-prober. Read-only. Sources: URA DB (`house_state_log`, `census_snapshots` zone=house, `occupancy_events`, `person_entry_exit_events`, `memory_episodes`) and the HA recorder (`home-assistant_v2.db`, read over `ssh ha`, `mode=ro`), plus `.storage/core.config_entries` for room config. Scripts and raw extracts (not in repo): `.../scratchpad/p/` (`lib.py`, `p0*.py`, `p1*.py`, `p2.py`). All times CDT unless marked Z.
+
+### 0. Answer first
+
+1. **The recommended set (A at W = 10 min + B + C, G, H, M) does NOT meet the objective as written in section 2.** Clause (3) is met, clause (1) is met on ordinary days but not on days when only Jaya and the guest were home, and **clause (2) is not met at W = 10** (see 2). The earlier claim in section 5.2 that clause (2) is "met" is wrong; it measured the added delay, not exit crossing to house AWAY.
+2. **P2:** B contributes real value on the trip window: 8 more entries absorbed (31 to 39 of 65), AWAY minutes with a guest bedroom occupied fall 315 to 40 (A alone removes only 70 of 385). B delays no strict genuine departure (0 of 10).
+3. **P1 gate passes:** zero guest-bedroom occupancy in 6 guest-free long-away windows (2,781 min); fan-on explains at most 24 of 336 occupied minutes in all-phones-away windows. Recommended B cap: 8 h.
+4. The window **W is the lever**: W = 5 keeps clause (2) at 6 of 9 departures within 15 min and clause (1) at 0.90 someone-home entries/day on ordinary days; W = 10 breaks clause (2).
+
+### 1. P0: objective scorecard
+
+**Windows.** 30 days 2026-09-18 12:30Z to 2026-10-18 12:30Z (07:30 CDT). Split at 10-14 00:00 CDT (operator left the morning of 10-14; Jaya plus a guest home). "Ordinary" = 09-18 to 10-13 (25.7 d). "Jaya+guest" = 10-14 to 10-18 (4.3 d). Recorder phone state only exists from 2026-10-11 04:16 CDT (7.2 d); every phone-dependent figure is limited to that.
+
+**Definitions (all proxies; there is no ground truth for who was home).** "Someone home" for an AWAY entry at time T = a still-holder or camera room occupied at T, OR a sustained (3 min or more) occupied or camera-body period between T+10 min and exit-3 min, OR (recorder window only) a `person.*` home at T. Still-holder/camera rooms: the 12 rooms with `presence_sensors` plus Upstairs Hallway, Living Room, Study A cameras, **excluding Kitchen** (fan phantoms). Camera body = `census_snapshots` house `unidentified_count > 0`. Room occupied = URA `occupancy_events` entry/exit pairs, which include the 300 s hold tail, so this over-states presence.
+
+| Clause | Measure | Today | A (W=10) | A + B (W=10) |
+|---|---|---|---|---|
+| (1) ordinary days | AWAY entries/day | 2.9 (75; busiest day 13) | 1.1 (27) | 1.0 (25) |
+| (1) ordinary days | entries with someone home, per day | 2.53 (65; 15 of 26 days have more than 1) | 0.70 (18; 4 days over 1) | **0.58 (15; 2 days over 1, busiest 5 on 09-28)** |
+| (1) Jaya+guest days | AWAY entries/day | 22.3 (96; busiest day 42) | 11.8 (51) | 10.0 (43) |
+| (1) Jaya+guest days | entries with someone home, per day | 16.2 (70) | 8.6 (37) | **6.5 (28)** |
+| (1) whole 30 d | AWAY episodes where a still-holder/camera room is occupied 3+ min after the first 10 AWAY min | 37 episodes, 1,705 evidence-min | 28, 1,457 | **21, 1,220** |
+| (1) kitchen counted | same, Kitchen included | 45 / 2,019 | 32 / 1,735 | 25 / 1,499 |
+
+Residual after A + B on ordinary days (15 entries): Exercise Room (radar) 18 hits, Study A 9, Jaya Bedroom 9, Master Bathroom 7, Master Bedroom 6, Ziri Bedroom 5, Study B 5, Living Room 4. These are residents or visitors in rooms that are not guest rooms; B does not touch them (decision 3 option "all radar rooms" would). On Jaya+guest days the residual is Jaya Bedroom 6, Living Room 4, Exercise 1, Study B 1, GB2 1.
+
+| Clause | Measure | Today | A + B (W=10) |
+|---|---|---|---|
+| (2) | exit crossing to house AWAY, strict genuine departures (6 in window) | 8.7, 8.9, 9.6, 12.1, 16.0, 24.6 min; 4 of 6 within 15 min | 17.2, 17.7, 18.5, 21.6, 25.5, 34.1 min; **0 of 6 within 15 min** |
+| (2) | loose: any exit crossing then AWAY 30+ min within 30 min (10 in window) | median 8.9, p90 24.6, 8 of 10 within 15 min | median 18.5, p90 34.1, 1 of 9 within 15 min (1 absorbed) |
+| (3) | GUEST entries (37, `house_state_log` state=guest, previous not guest) with no non-resident evidence | proxy: unidentified census body within 10 min, OR guest room occupied, OR trigger `guest_room_occupancy` | **0 of 37 unsupported** (7 are the guest-room gate itself). Weak proxy: an unidentified body could be an unrecognised resident. |
+| (4) | trust consumers of a count above 1 | not a DB question; unchanged (critique section a) | met by construction |
+
+**Sensitivity of clause (2) to W (30 d loose set):** W = 0 median 8.9, 8 of 10 within 15 min; W = 3 median 11.5, 7 of 9; W = 5 median 13.5, 6 of 9; W = 6 median 14.5, 6 of 9; W = 8 median 16.5, 2 of 9; W = 10 median 18.5, 1 of 9. Companion on ordinary days, entries with someone home per day (A + B): W = 3 0.97; W = 5 0.90; W = 6 0.78; W = 8 0.62; W = 10 0.58.
+
+**Why the earlier audit read clause (2) as met:** the would-have audit measured the delay added after the AWAY decision (9.5 min at W = 10). Today's exit-to-AWAY latency is already about 9 min median (zone grace plus census/BLE), so the added delay pushes the total past 15 min.
+
+### 2. P1: guest-room fan phantom and guest-free control
+
+**Config verified** (`core.config_entries`): `room_is_guest_room: true` only for GB1 and GB2. GB2 presence sensor = Matter MS600 `binary_sensor.mmwave_motion_lux_matter_wifi_guestbedroom2_occupancy`, motion = Meross + Hobeian; fan = `fan.fan_switch_4`. GB1 presence = MS600 `..._guestbedroom1_occupancy`, fan = `fan.guest_room_down_ceiling_fan_2`.
+
+**Fan split (recorder window 10-11 04:16 to 10-18 07:30 CDT, 7.2 d; fan history exists nowhere else).**
+- GB2: fan on 63 min of 10,273; occupied 967 min. Occupied 61.7% of fan-on minutes vs 9.1% of fan-off minutes. This is confounded (URA turns the fan on because someone is there), so it is not a phantom measure.
+- GB1: fan never on in window; occupied 841 min, all fan-off.
+- **Inside all-four-phones-not-home windows (3,458 min, three of which are the trip):** GB2 occupied 336 min, of which only **24 min with the fan on** and 311 with it off; GB1 occupied 58 min, 0 with fan on. A fan-induced phantom can therefore explain at most about 7% of the occupied minutes.
+- Independent corroboration: in those windows the Matter radar was on 255 min and **0 min of it was uncorroborated** by the Meross or Hobeian GB2 sensor within 5 min (whole recorder window: radar on 583 min, 0 uncorroborated). Caveat: all three are fan-susceptible motion/radar class; this rules out a lone-radar phantom, not a fan wafting two sensors at once.
+
+**Guest-free control (no ground-truth dates exist: no operator-named guest-free dates were found in the board or memory, and the recorder's all-away windows before 10-14 are only 44, 58 and 675 min).** Control = pre-trip AWAY episode of 120+ min with no GUEST state from 6 h before the start through the end: 6 episodes (08-16 11:11, 09-04 18:15, 09-13 09:39, 09-19 11:29, 09-22 12:02, 09-26 10:04), 2,781 min total, **GB1/GB2 occupied 0 min**. Selection note: GB occupancy was not used to choose them.
+
+**False-hold exposure** (AWAY entries, 08-16 to 10-14, 193 entries) where GB1/GB2 was occupied at the entry instant: 36, of which 28 had a GUEST state within 3 h (genuine guests). The other **8 entries (5 distinct occupied runs: 09-16 overnight 922 min, 09-19 6 min, 09-20 5 min, 10-08 75 min, 10-08 47 min) in 59.5 days = about 0.6 per week**. Whether those 5 were unlabelled guests or phantom is **unknown**; the 922-min overnight run looks like a sleeper. This is an upper bound on false holds and sits under the doc's gate of about 1 per week.
+
+**Dates the phones were all away in the pre-trip recorder window:** 10-12 19:32 (44 min, GB 0), 10-13 07:10 (58 min, **GB occupied 50**, no GUEST state checked as guest-free: unknown), 10-14 07:33 to 18:48 (675 min, GB 0). The 10-13 07:10 window is the only candidate phantom in the data; one sample.
+
+**Max legitimate hold (for B's cap).** GB1|GB2 occupied runs since 08-16: 658; those overlapping a GUEST state: 115, p50 70 min, p90 371, max 762; 24 are 240+ min, 5 are 480+. Runs with no GUEST state within 1 h: 433, p50 8, p90 29, max 922 (the overnight one). Remaining occupied time at the 59 AWAY entries that landed inside a GB run: p50 33 min, p90 301, max 509; 9 exceed 240 min, 14 exceed 120 min. **Suggested cap default: 8 h** (covers every observed remaining hold; a 4 h cap gives up 1 to 4 baseline absorptions, a 2 h cap gives up 3 trip absorptions).
+
+**P1 verdict:** gate passes. B would not have held an empty house on any guest-free control episode, and the fan cannot account for most occupied minutes. Residual unknown: 8 unlabelled entries and one 50-min candidate.
+
+### 3. P2: simulated contribution of the veto
+
+**Method.** Replay every real AWAY entry (258 since 08-16: 65 trip from 10-14 17:27, 193 earlier) with the same open-loop rule as the would-have audit (a hold pushes the entry time to hold-end + 30 s; absorbed if that reaches the real exit). A = camera-body hold, W = 10 min. B = hold while GB1 or GB2 is occupied. **Branch logic justified from code:** when a guest room is occupied the nobody-home branch (`presence.py:1127`, needs `not any_zone_occupied`) and path β (`:1252`, needs `not indoor_blocked`) cannot fire, so any AWAY at that moment is path α, which is exactly what B blocks. Reproduction check: A at W = 10 gives 31 of 65 trip, 116 of 193 baseline absorbed and median delay 9.5 min, matching the earlier audit.
+
+"AWAY min" = AWAY minutes inside the recorder all-four-away windows from 10-14 (2,682 min of windows; the audit used 2,765, so the "today" total is 2,280 here vs 2,314 there). "GB occ" = of those, minutes with GB1 or GB2 occupied (bedrooms only; the audit's 487 also counted the GB2 bathroom, closet and hallway).
+
+Camera body = `total_persons > 0` (audit definition):
+
+| Variant | Trip absorbed (of 65) | AWAY min in all-away windows | of which GB occupied | Baseline absorbed (of 193) | Strict genuine delayed (10 episodes) |
+|---|---|---|---|---|---|
+| Today | 0 | 2,280 | 385 | 0 | 0 |
+| A (W=10) | 31 | 1,986 | 315 | 116 | median 9.5, max 10.2 min |
+| B only, no cap | 16 | 1,933 | 42 | 28 | 0 |
+| A + B, no cap | **39** | **1,711** | **40** | 124 | median 9.5, max 10.2 |
+| A + B, cap 8 h | 39 | 1,711 | 40 | 123 | same |
+| A + B, cap 4 h | 39 | 1,711 | 40 | 123 | same |
+| A + B, cap 2 h | 36 | 1,769 | 98 | 118 | same |
+| A + B, cap 1 h | 36 | 1,774 | 103 | 118 | same |
+
+B's own contribution on top of A: +8 trip entries absorbed, -275 AWAY min, and GB-occupied AWAY minutes drop from 315 to 40 (the remaining 40 are minutes where a guest room became occupied after AWAY was already declared; a veto on entry cannot touch those). B delays none of the 10 strict genuine departures (they all have zero GB occupancy).
+
+**Predicate sensitivity (new finding).** `census_snapshots.total_persons` includes identified (BLE/face) people, which inflate "body" while someone is home. With the plan's real predicate proxy `unidentified_count > 0` only: A absorbs **27 of 65 trip and 36 of 193 baseline** (not 116), and A + B absorbs 37 of 65 trip and 61 of 193 baseline. The `face_recognized_count` half of the plan's predicate is not stored in `census_snapshots`, so the true figure lies between the two; the baseline absorption figure of 70% in the would-have audit is an upper bound and about 19% is the lower bound. The trip figure is stable (27 to 31) because all four phones were away there.
+
+### 4. Does the recommended set meet the goal target?
+
+| Clause | Target (section 2) | After A (W=10) + B | Met? |
+|---|---|---|---|
+| (1) at most 1 AWAY/day with someone home, no AWAY over 10 min with a person in a still-holder/camera room | | 0.58/d ordinary days (2 days over 1); 6.5/d on Jaya+guest days; 21 episodes still carry 3+ min of occupied still-holder room after the first 10 AWAY min | **Partly**: mean met on ordinary days, not met on Jaya+guest days, second half not met (21 episodes) |
+| (2) genuine departure to AWAY within 15 min | | median 18.5 min, 0 of 6 strict within 15 | **Not met at W=10**; closer at W = 5 (6 of 9) |
+| (3) GUEST only with a non-resident, 0 resident-only entries | | 0 of 37 unsupported (proxy) | Met |
+| (4) no trust consumer of a count above 1 | | unchanged | Met by construction |
+
+Honest reading: the set removes most flap churn and nearly all guest-bedroom AWAY holds, but with W = 10 it trades clause (2) for clause (1). The remaining clause (1) shortfall is people in non-guest rooms with phones away (Exercise Room, Jaya Bedroom, Study A, Master Bathroom), which neither A nor B reaches.
+
+### 5. What this changes in the plan (for the planner, not decided here)
+
+- Decision 2 default (W = 600 s) should be re-opened: W = 5 min (300 s) gives 0.90/day on ordinary days and 6 of 9 within 15 min; W = 10 gives 0.58/day and 1 of 9. Either relax clause (2) to "within 15 min of the last camera body" or pick W near 5.
+- Decision 4 default stands: cap 8 h.
+- Decision 3: "α only, guest-flagged rooms" is supported by P1/P2. The "all radar rooms" option would add Exercise Room and Jaya/Ziri/Master Bedrooms, which dominate the residual, but this probe did not test their phantom rate (only the two guest rooms were probed).
+- Add `face_recognized_count` to the snapshot or the stamp store before relying on baseline absorption numbers.
+
+### 6. Caveats
+
+- No ground truth for occupancy; every "someone home" figure is a sensor proxy with hold tails. Kitchen excluded as phantom-prone; including it adds 8 flagged episodes (section 1).
+- DB room occupancy vs recorder entity: GB2 1,062 min (DB) vs 967 min (recorder entity) over the recorder window; GB1 identical (841). The DB figure is used for the 30-day work.
+- 10-14 (31 AWAY entries that day) is classed "Jaya+guest" here; the earlier audit started its trip window at 17:27.
+- Recorder `person.*` for Ziri has a single record (not_home from 10-11 18:11), so pre-18:11 "all away" cannot be asserted for 10-11; this does not affect any window used above.
+- Open-loop replay: real exit times held fixed; state-machine hysteresis (up to 120 s) not added; B's `first_seen` / known-person live re-check (`presence.py:5485-5535`) not modelled because all phones are away in every AWAY-eligible moment.
+- Not run: P0 resident-only GUEST check against the answer key (none exists); the 14-day post-ship re-run is the real test.
