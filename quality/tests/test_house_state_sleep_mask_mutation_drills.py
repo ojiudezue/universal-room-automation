@@ -357,10 +357,10 @@ DRILLS = [
      "                    \"that sensor is stuck/phantom (fan?)\"\n                ),\n                severity=\"HIGH\",",
      "                    \"that sensor is stuck/phantom (fan?)\"\n                ),",
      "test_zone_hold_all_away_fires_once_past_bound", ZT, "on"),
-    ("d4d_any_zone_occupied_dropped", PRES,
-     "            and all_tracked_persons_away\n            and any_zone_occupied\n",
-     "            and all_tracked_persons_away\n",
-     "test_zone_hold_all_away_silent_when_zone_not_occupied", ZT, "on"),
+    # d4d_any_zone_occupied_dropped became an EQUIVALENT mutant with the
+    # rev32 A-L3/B-L2 fix: a Tier-1 holder must now sit in a zone whose mode
+    # is OCCUPIED, which implies any_zone_occupied. Conjunct kept (plan
+    # spelling); the OCCUPIED-zone filter is drilled by d4d_tier1_any_zone_mode.
     ("d4d_tier1_holder_dropped", PRES,
      "            )\n            and tier1_rooms\n        )",
      "            )\n        )",
