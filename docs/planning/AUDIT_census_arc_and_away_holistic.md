@@ -570,3 +570,117 @@ Residual cause for residents: **BLE dropout with `person.*` not_home** (phone as
 - Recorder phone state begins 10-11 04:16 CDT; pre-10-11 phone state is unknown.
 - Predicate bounds (upper `total_persons` / lower `unidentified_count`) carry over from P2/P3; `face_recognized_count` is still not stored.
 - Not done: a replay of L(N) as a real code path; effect of L(N) on the 9 trip stale-Jaya style entries beyond the 4 snapshot rows.
+
+
+## P5 2026-10-18 — night fan-loop breaker stress test
+
+**Run:** Sun 2026-10-18 11:58 CDT, ura-prober, read-only (HA recorder and URA DB via `ssh ha`, code at `a0cd40412`). Read first, completely: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`, `HVAC_ARCHITECTURE_STATE_OF_PLAY.md`. Under test: plan Rev 2 D1 (`PLANNING_house_state_sleep_mask_ble_memory_observability.md`, SLEEP-zone nobody-home reads raw occupancy) and its R2 H1 breaker (drop a room that is radar-sole with its fan on from the night input). Operator challenge: sleep is fraught, dual-sensor coverage is not guaranteed, people rarely vacate at night, is the breaker right, is it state-machine aware, does HVAC still react via zone vacancy.
+
+### 0. Answer first
+
+1. **Breaker OFF, plus a wake-time discharge.** The breaker is the wrong instrument. It blanks the room of a real sleeper most of the night (the one confirmed sleeper, Jaya: 2,277 of 2,998 occupied minutes over 7 nights, 76 percent), while the thing it guards against (an empty house at night) was never observed.
+2. **The measured exposure is tiny on both sides.** Census was never 0 in any SLEEP minute of the 7 recorded nights (0 of 3,090 min). Genuine whole-house night departures: 0 in 220 days. So neither setting changed an outcome on any recorded night, and the choice rests on conditional cost, not on observed errors.
+3. **Finding the plan missed: D1 has no discharge.** With census 0, SLEEP, and raw night occupancy, `infer()` returns None at `has_people` (`presence.py:1291-1294`) before the WAKING branch (`:1346`). Nothing time-based ends the hold at 06:00. Breaker OFF needs a one-line cap at `sleep_end_hour`; the breaker does not fix this (a non-fan phantom or a real phoneless sleeper holds it the same way).
+4. **HVAC is independent of house state and is NOT fooled less by the breaker.** Zone vacancy moves zones to Away during house SLEEP with median 5.0 min; but HVAC reads the same radar phantom, so a phantom Jaya room holds zone 2 at `sleep` all night regardless of what the house state does.
+
+### 1. Q1 — how often does a real sleeper's room look radar-sole with the fan on?
+
+**Method.** Recorder window 2026-10-11 04:12 CDT to 10-18 (7 nights; the 10-10 night is only partly covered and is excluded). SLEEP windows from `house_state_log`. Every 30 s: room `binary_sensor.<room>_occupied` on, the room's listed sensors that are on, radar-bearing = the room's `presence_sensors` list (CONF kind mmwave) per `fan_veto.radar_sole_on_set` (`fan_veto.py:149-155`, `presence.py:3907-3940`); fan = any room fan `on`. "Zone-sole" = no other room of the same house zone occupied. Unvalidated assumption: `ziri_3_moving_target` counted non-radar (family unknown); counting it as radar changed nothing (no Ziri occupancy of note). Sleep in the live config is 22:00 to 06:00 (CM entry `sleep_start_hour 22`, `sleep_end_hour 6`).
+
+Minutes per night, `occupied / radar-sole AND fan on (what the breaker drops) / of those, only occupied room in its zone`:
+
+| Night (SLEEP start) | Jaya Bedroom | Master Bedroom | Study A | Guest 1 / Guest 2 / Ziri / Media |
+|---|---|---|---|---|
+| 10-11 22:00 | 445 / 418 / 333 | 480 / 111 / 12 | 357 / 297 / 0 | occ 119 / 6 / 9 / 23, dropped 0 |
+| 10-12 22:00 | 457 / 457 / 430 | 447 / 100 / 59 | 34 / 2 / 0 | occ 178 / 0 / 0 / 0, dropped 0 |
+| 10-13 22:00 | 480 / 480 / 436 | 424 / 188 / 1 | 94 / 34 / 0 | 0 dropped |
+| 10-14 22:00 | 480 / 416 / 391 | 0 | 0 | 0 dropped |
+| 10-15 23:02 | 386 / 112 / 20 | 0 | 0 | Guest 2 occ 272, dropped 0 |
+| 10-17 00:13 (night of 10-16) | 348 / 0 / 0 (fan off) | 0 | 0 | 0 dropped |
+| 10-17 23:16 | 402 / 394 / 350 | 0 | 0 | 0 dropped |
+| **7-night total** | **2,998 / 2,277 (76%) / 1,960** | 1,351 / 399 (30%) | 485 / 333 (69%) | **0 dropped in every guest room, Ziri, Media** |
+
+Reading:
+- **Jaya's room is dropped on 6 of 7 nights (5 of 7 for 394 min or more).** She is a real, BLE-confirmed sleeper in that room (13 to 26 Bermuda "Jaya Bedroom" rows inside every SLEEP window, `person_presence_snapshots`). Her room is two radars and a fan, no second sensor class, so radar-sole is simply "she is asleep". The fan ran for every occupied minute (`occ_fan` = `occupied` on 6 nights).
+- **Jaya's room is the only occupied room in the Upstairs zone 86 percent of the time it is dropped** (1,960 of 2,277 min).
+- **House level (all rooms, outdoor zone included):** minutes where every occupied room in the house would be dropped, so the night input reads empty: 2, 46, 38, 323, 8, 0, 105 min on the seven nights, **522 of 3,090 SLEEP min (17%)**; on the four Jaya-alone nights (10-14 to 10-17) 436 of 1,650 (26%).
+- **Dual-sensor coverage rescues some rooms and not others.** Guest 1, Guest 2, Ziri and Media have ZV or MS600 motion-class sensors next to the radar; a sleeper's room there was dropped 0 minutes. The Master Bedroom has bed sensors, yet still 30 percent radar-sole (bed sensors read off for stretches while Oji and Ezinne were BLE-located in the room). Study A is radar-only (ZK): 69 percent dropped, and it is where Oji works late (5 to 10 BLE rows per night) or where a fan phantom holds; radar alone cannot say which. A one-radar-plus-fan room is common in this house (3 of 7 fan rooms) and the operator is right that it will not be the same elsewhere: the breaker's behaviour depends on installed hardware, so it is both inert on Wigton (no URA fans) and heavy here.
+- **Limits:** fan "on" is the physical fan entity, not whether the fan caused the radar. 7 nights, one resident (Jaya) carries the Upstairs result. No pre-10-11 fan history exists (recorder retention 7 days).
+
+### 2. Q2 — who wins, and what each error costs
+
+**Breaker ON error (false AWAY while a resident sleeps).**
+- Recorded nights: **0 of 7**. Census (`sensor.ura_presence_coordinator_people_home_census`) was never 0 in any SLEEP minute: 3, 2, 2, 1, 1, 1, 1 on the seven nights; `person.*` home count never below 1 (Jaya alone from 10-14).
+- Conditional exposure if census ever reached 0 on a night like these: Jaya's room is dropped 76 percent of her sleep, so the zone reads empty and nobody-home (first branch, `presence.py:1126-1131`) fires after the 600 s SLEEP dwell (`house_state.py:129-139`).
+- History (the mask era, breaker not involved): 45 logged SLEEP to AWAY transitions on 10 distinct nights between 03-31 and 09-14, **all reversed within 0 to 22 min (41 within 6 min)**, plus 134 SLEEP periods whose AWAY row was never logged but ended `arriving <- away`. Last one 09-28/29. **None in the 17 nights since 10-01** (the 10-01 09:35 case is a manual SLEEP override). Rule of three on 0 of 17: not proven below roughly 17 percent per night, so the recent calm is weak evidence, not a measurement of safety.
+- Of the 45, occupied rooms at the AWAY instant (`occupancy_events`, entry with no later exit): a non-radar-fan room was occupied in **40 of 45** (29 of 45 if only rooms entered within 30 min count); 3 (12) had no occupied room at all (D1 cannot help); 2 (4) had only radar-created occupancy in a fan room (Living Room mmwave, plus bedrooms in the 30-min view). **So D1 with the breaker would have held 40 (29); D1 without it 42 (33).** The breaker's historical marginal value is 2 to 4 of 45 events, and those are not bedrooms.
+- Cost of one false night AWAY (consumers, verified):
+  - HVAC: house AWAY drives every zone's target to `away` (`hvac.py:2966-2968`, house-state handler `:3260`), then back at ARRIVING: two extra Carrier writes per zone and an excursion in a sleeper's room. Cost: comfort, real.
+  - Wall panels: `wallpanel_fleet_wake` brightens occupied-room panels to 80 percent in ARRIVING (`automations.yaml:8270-8271`), against 15 in SLEEP. Cost: light in a sleeping house, real.
+  - Exterior alerts: SLEEP and AWAY are both CRITICAL (`const.py:2304-2307`), ARRIVING is LOW (`:2307-2315`), so the flap opens a 1 to 6 min LOW window at night. Cost: small but wrong direction.
+  - Comfort-fan AWAY veto acts in AWAY only (`fan_veto.py:60`), so a false AWAY can switch off a sleeper's fan.
+  - Security: AWAY maps to ARMED_AWAY (`security.py:181`) but `security_auto_follow` is False in the live CM entry, so inert today.
+
+**Breaker OFF error (an empty house held in SLEEP instead of AWAY).**
+- Real night departures, everyone gone: **0 observed.** Method: AWAY entries of 20 min or more (231 in 220 days) with a door exit crossing within 30 min before and an entry within 12 min of the end (`person_entry_exit_events`): night (22:00 to 06:00 start) **0 of 53**, daytime 12 of 178. All 53 night episodes are the July to August flap era (30 and 23); **0 since 09-01**. Door-evidence recall is low (7 percent by day), so read it as "no night departure ever demonstrated", not "none happened".
+- Independent check: 20 night door-exit clusters followed by 2 h or more with no entry; the house **never** went AWAY during SLEEP in any of them. The first AWAY came after the 06:00 wake (10-14: Oji left 05:10, WAKING 06:00, AWAY 07:33). A real exit at night leaves other residents asleep.
+- Rule of three on 0 of 220 nights: at most about 1.4 percent of nights (95 percent bound), roughly 5 nights a year.
+- **Path α makes it rarer still.** Path α (`presence.py:1169-1180`) ignores rooms: all trusted trackers away, `unidentified_count == 0`, `face_recognized_count == 0`, camera fleet not degraded gives AWAY even with a phantom holding the zone. Of 102 real AWAYs (10-13 to 10-18), 48 went through α and 54 through nobody-home (P4). So breaker OFF only fails when α is also blocked: camera fleet dark, a camera ghost (`unidentified_count > 0`), or a tracker still reading home. The plan's own R2 repro already needs `camera_input_degraded=True`.
+- Cost of one empty-house night held in SLEEP: HVAC none (zone vacancy, section 4); wall panels none (`wallpanel_fleet_force_off_secure` triggers on away, vacation AND sleep for 3 min, `automations.yaml:8339-8346`); exterior alerts none (SLEEP = AWAY = CRITICAL); security none today. Real costs: a running comfort fan in an empty room (AWAY veto does not act in SLEEP), music-following suppression, no `away_entries_today` bump, and D6 stale-occupancy failsafe skipped while SLEEP (`hvac.py:3062`). **Unbounded duration is what makes it expensive, which is the missing discharge below.**
+
+**Net.** Breaker ON trades a rare, expensive-per-event error that lands on the exact person it was meant to protect, at a measured 17 percent house-level blanking rate, for protection against a rarer, cheap-per-event error that α often catches anyway.
+
+### 3. Q3 — state-machine awareness
+
+Traced in `house_state.py` and `presence.py`:
+- **D1's key is tracker mode, not house state.** Zones are pinned by `set_sleep(True)` on SLEEP entry (`presence.py:7028`), boot restore (`:2404`), and a manual house SLEEP override (`:8025`); unpinned on any exit from SLEEP (`:7031`). So D1 is inert in WAKING, ARRIVING, GUEST, HOME_* and AWAY (trackers not pinned), and active exactly while SLEEP. A manual zone SLEEP override pins one zone in any state; the plan's INV-BYTE-ID already scopes this.
+- **SLEEP to AWAY:** valid (`house_state.py:105-109`), 600 s dwell, ordinary inference (nobody-home, α, β; β is sleep-exempt `presence.py:1252-1253`, `:6414-6446`).
+- **SLEEP to WAKING:** `infer()` returns WAKING only after `has_people` (`presence.py:1291-1294`, `:1346-1348`), then the sustained-raw-occupancy gate needs 90 s of any raw zone occupancy (`:2054-2070`, `:6657-6675`); if the gate vetoes, the wake-backstop forces WAKING only when `census_count > 0` and local hour is 09:00 or later (`:6682-6735`, `_WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END = 3`, `:199`).
+- **WAKING to HOME_DAY:** next tick, 60 s dwell. Observed 7 of 7 mornings: SLEEP to WAKING 06:00:22, HOME_DAY 06:01:22, backstop counter 0.
+- **The gap.** With census 0 and the zones pinned, `has_people = census_count > 0 or any_zone_occupied` is False under D1 too (D1 changes only the nobody-home kwarg; plan §3.1 says `has_people` keeps the masked value), so `infer()` returns None every tick: no WAKING, no backstop (it needs census > 0), no time-based exit. SLEEP then lasts until raw occupancy clears (AWAY via nobody-home) or α/β/override fires. A phoneless guest who wakes at 08:00 and walks around keeps the house in SLEEP all day while any room reads occupied. Today (masked) this resolves immediately as a false AWAY; D1 converts a loud error into an unbounded quiet one. SLEEP held past 06:05 already happens: 6 periods since March, two of 14.7 and 16.3 h (06-01, 06-02), cause not determined here (UNVERIFIED).
+- **WAKING / ARRIVING / GUEST / overrides with D1 (no breaker):** WAKING and ARRIVING cannot interact (unpinned). GUEST cannot enter from SLEEP (`house_state.py:113-118`); a guest in a bedroom during SLEEP is just a raw-occupied room. A manual AWAY pin on a zone reads `mode == AWAY` and stays empty (plan PICK 1). A manual house SLEEP override pins and then D1 holds raw occupancy for as long as the override stands, which is its intent.
+- **Daytime AWAY paths α/β after the cap.** Once the house leaves SLEEP, trackers unpin; nobody-home reads `mode == OCCUPIED`, α/β as in daytime, so a phantom or sleeper-who-woke is treated by the existing daytime rules (the accepted daytime exposure named in plan §9).
+
+### 4. Q4 — HVAC independence
+
+- **Path:** per-zone vacancy, `hvac.py:3016-3023`: `zone_vacant_past_grace` (`_zone_conditioning_retreat_ok` plus `last_occupied_time` older than knob 48 = 5 min) turns a `home`/`sleep` target into `away`. The input is `zone.any_room_hvac_occupied` (per-room tail, bedroom night hold 30 min); house state only picks the target preset and gates D6 (`:3062`). Presence state-of-play ledger #11 says the same (zone 3 went Away at 00:00 and 00:42 on 10-12 while the house slept).
+- **Measured, 7 nights, house SLEEP, zone status sensor edges `any_room_hvac_occupied` true to false:** zone 3, 55 edges, 40 reached Away before the zone re-occupied, median 5.0 min (p90 5.1; resolution is the 5-min tick plus the 5-min grace); zone 1, 7 edges, 6 reached Away, median 5.0 min. Zone 1 sat in Away 425 of 480 min on the 10-14 night and zone 3 330 min, all while the house state was SLEEP. Daytime comparison: same medians (5.0 min).
+- **Not fooled less by the breaker: fooled the same.** Jaya's `hvac_occupied` was on 480/480 min on 6 of 7 nights (404, 346, 398 on the others), the same signal as her radar-held `occupied`; zone 2 held `sleep` 388 to 456 of 480 min every night. The breaker would drop her room from the house input but not from HVAC. Where the house and HVAC disagree, HVAC already reads "occupied", which is the safe direction for a sleeper.
+- **Prior finding confirmed** (`AUDIT_away_flap_untracked_occupant_would_have.md:12`, `:159-160`): of 165 zone-episodes in 55 AWAY episodes of 30 min or more, 113 (69%) were already Away by zone vacancy before the house edge; door exit to zone Away median 5.1 min (p90 22.2). Session transcript (`75cc297f-...jsonl`, grep) restates it ("HVAC already goes away fast"; "HVAC keeps zone-driven behaviour"); a fan-phantom caveat on Kitchen and bedrooms is recorded there too. No contradicting finding in the transcript.
+
+### 5. Options compared (measured)
+
+| | Breaker ON (plan Rev 2) | Breaker OFF, D1 only | **Third option: breaker OFF + sleep-end cap** |
+|---|---|---|---|
+| Real sleeper's room counted | dropped 76 percent (Jaya), 30 (Master), 69 (Study A) | counted | counted |
+| House reads empty from breaker alone | 17 percent of SLEEP min (26 on Jaya-alone nights) | 0 | 0 |
+| Historical SLEEP-to-AWAY events held | 40 of 45 (29 of 45) | 42 (33) | 42 (33) |
+| Empty house at night, phantom + α blocked | AWAY within the SLEEP dwell | SLEEP held with no bound | SLEEP held until sleep end, then daytime rules |
+| Past-06:00 behaviour (census 0, raw occupied) | n/a for dropped rooms; stuck for non-fan phantoms and real sleepers | unbounded | WAKING at the first tick after 06:00 (gate passes on 90 s raw) |
+| Extra machinery | one AND per room, fan membership, radar capability | none | one extra disjunct next to D1 |
+| Hardware dependence | high (inert without URA fans, heavy with one radar plus fan) | none | none |
+| Observed need | 0 events in 220 days | 0 | 0 |
+
+A bedrooms-excluded breaker (rooms flagged non-bedroom only) was considered. Its only historical catches are Living Room (2 to 4 of 45), and it drops Study A where Oji actually sleeps or works at night. Per marginal-benefit decomposition that is not worth the ingredient (fan membership, per-room flag, three-state config). Parked, not designed.
+
+### 6. Recommendation
+
+**Choose the third option: no fan breaker; D1 raw limb as planned; add a hold cap at wake time.**
+- D1 as in plan §3.1 (`any_zone_occupied_for_empty`), with `fan_phantom` removed from `night_raw`.
+- D1b (new, one disjunct): in `infer()`, when `current_state == SLEEP`, local hour is no longer a sleep hour, and `any_zone_occupied_for_empty` is true, treat `has_people` as true so the existing WAKING branch runs (the 90 s raw gate passes on a held phantom; if the gate vetoes, it stays SLEEP until it passes or the room clears, at which point nobody-home fires). From WAKING on, trackers unpin and daytime rules apply.
+- Trip-wire in code, not a calendar: if the house is in SLEEP with `census_count == 0` and AWAY has been suppressed only by `night_raw` for more than a bound, raise one NM and a diagnostic attribute naming the holding room. The bound is a module constant (rung 1), proposed 90 min; it needs no new knob because it is a review-only safety bound.
+- Park the breaker with a revival trigger: revisit only if the D1 trip-wire fires on a night that a prober can prove was an empty house held by a fan-on radar-sole room. Park with the fancy designs, do not delete.
+
+**Falsifiable invariant (INV-SLEEP-HOLD-BOUNDED):** with `census_count == 0`, house state SLEEP, and `night_raw` true only through rooms that are occupied by sensors (no fan test anywhere), (a) nobody-home never returns AWAY while any pinned zone has an occupied room, and (b) the house is out of SLEEP by the first inference tick at or after the end of the sleep window plus the SLEEP/WAKING dwell, via WAKING or via AWAY if the room cleared. Falsified by any tick at local 06:00 plus 2 min with SLEEP, census 0, raw occupied, no override, and the state still SLEEP; or by any nobody-home AWAY with a pinned zone whose room is occupied. A mutation test removing D1b must fail the first; removing D1 must fail the second.
+
+### 7. Caveats and unknowns
+
+- One resident (Jaya) carries the Upstairs breaker numbers; Master, Study A and others have 1 to 3 nights each. Fan-on and radar-on are correlated by cause (the fan drives the radar) and by choice (she sleeps with it on); radar cannot separate them, which is the point.
+- Radar-bearing is from the `presence_sensors` list (kind mmwave); the real classifier also reads device family and overrides. `ziri_3_moving_target` and MS600 treated non-radar; a different call would change Ziri/Guest rooms only, none of which had a sleeper in the window apart from Guest 2 (272 min, 2 radar-sole).
+- Historical 45 events use today's room config for "fan room" and `occupancy_events` for "occupied"; entry rows without an exit can be stale (the 30-min view bounds this). Fan state before 10-11 is unknown.
+- The 134 logged-without-AWAY-row SLEEP periods (`sleep` followed by `arriving <- away`) cannot be dated or sized from `house_state_log`; cause of the missing AWAY row not investigated here.
+- Rule-of-three bounds are arithmetic on zero counts, not rates.
+- The reason SLEEP lasted 14.7 and 16.3 h on 06-01 and 06-02 is not determined here.
+- Not done: a code-path replay of D1 and D1b, and a check that α really fires in the 10-14 to 10-17 Jaya-alone nights (census stayed 1, so it was never exercised).
+
+**Scripts:** probe scripts are in the session scratchpad, `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/q13.py` through `q25.py` (read-only SQLite on the HA recorder and URA DB).
