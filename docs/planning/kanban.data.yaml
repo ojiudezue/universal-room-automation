@@ -40,8 +40,10 @@ cards:
   why: "sensor.py:18658/18690/18721/18760 create hvac_ac_reset_{day_count,night_count,last_outcome}_{zone_id} + hvac_ac_ramp_durability_rate_{zone_id}; the cleanup prefix list at config_flow.py:11657 omits them. Live registry has 12 (4 per zone_1..3). Swept board: no duplicate (SENSCAP-ORPHAN-1 is a different surface)."
   next: "Add the four prefixes with exact/delimited matching (zone_1 is a prefix of zone_10); un-fail the existing test; Tier 1."
   links: {parent: TEST-STRATEGY-REARCH-1}
-  updated: "2026-10-18 02:03"
+  updated: "2026-10-18 02:06"
   verify_2026_10_18_overnight: "STILL-REAL (grep on develop 6f38b9b9e/8dd2e9762): defect present at the cited site. Gate: Tier 1, reuse of existing pattern, BUILD. Dispatched to ura-builder in a worktree; overnight = build+review+validate to review only, no deploy."
+  built_2026_10_18_overnight: "Branch fix/zone-delete-orphan-hvac-sensors (3e27887c8): 4 prefixes added + a delimited matcher (_zone_uid_matches, config_flow.py ~11713) replacing bare startswith at preview (~11848), delete (~12114) and leftover-warning (~12212). The bare startswith had a LATENT zone_1-matches-zone_10 bug for EVERY id-keyed family, now fixed. New tests test_zone_delete_orphan_hvac_sensors.py (2) + the existing coverage test green; 200 tests in 7 zone/HVAC files pass; 4 mutation drills RED. In Tier-1 review."
+  residual_2026_10_18_zone_name_prefix: "Builder-found, not fixed (out of scope): zone-NAME prefixes (zone_{zslug}_) can still cross-match, e.g. deleting zone 'upstairs' would match 'upstairs_loft'. Fold into this card's next cycle if real zone names collide; today's zone names should be checked first."
 - id: INIT-UNTRACKED-TASK-4211-1
   title: "Untracked hass.async_create_task in async_setup_entry (__init__.py:~4211) is not cancelled on unload/reload"
   status: "in_progress"
@@ -52,8 +54,9 @@ cards:
   why: "Created inside async_setup_entry with entry in scope; file uses entry.async_create_background_task elsewhere. No user-visible effect found (needs a rejected tou_rates.json to fire)."
   next: "Switch to entry.async_create_background_task; un-fail the existing test; Tier 1."
   links: {parent: TEST-STRATEGY-REARCH-1}
-  updated: "2026-10-18 02:03"
+  updated: "2026-10-18 02:06"
   verify_2026_10_18_overnight: "STILL-REAL (grep on develop 6f38b9b9e/8dd2e9762): defect present at the cited site. Gate: Tier 1, reuse of existing pattern, BUILD. Dispatched to ura-builder in a worktree; overnight = build+review+validate to review only, no deploy."
+  built_2026_10_18_overnight: "Branch fix/init-untracked-task-4211 (27ac96ccc, rebased on develop): __init__.py ~4213 now entry.async_create_background_task(..., name=tou_rate_file_rejected_nm[entry_id]); guard test test_setup_unload_symmetry.py::TestNoUntrackedAsyncCreateTaskInScope green (was red); mutation drill RED. Limit: the guard is an AST check, not a runtime cancellation test. In Tier-1 review."
 - id: DEPLOY-DUALPUSH-SIGINT-TRAP-1
   title: "Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends"
   status: planned
@@ -3172,9 +3175,9 @@ cards:
     as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: planned
+  status: "waiting_operator"
   created: '2026-09-14 00:20'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-18 02:07"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -3265,7 +3268,7 @@ cards:
     this camera would zero its person detections while leaving motion untouched — exactly the
     signature observed, on exactly the camera named, in roughly the right window. If that is what
     happened, the crop overshot: it did not calm the noisiest perimeter camera, it switched it off.'
-  next: "Answered 10-17 (crop applied ~09-14/15, still too noisy). Work continues on PERIMETER-ALERT-VOLUME-FATIGUE-1 lever A (fix front_side_ptz at the source); this card closes when that lands."
+  next: "VERIFY: is 'still too noisy' about front_side_ptz alerts specifically, or about perimeter alerts in general? front_side_ptz is now ~4 alerts/day. Default I take if you don't say otherwise: close this card and work the overall volume on PERIMETER-ALERT-VOLUME-FATIGUE-1 (Study B porch is the biggest source). -> If it is front_side_ptz specifically, tell me what you see (which notifications, which hours) and I write the exact Frigate zone/mask change for it."
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
@@ -3294,6 +3297,7 @@ cards:
     consistent with the data than it looked.'
   verify_2026_09_29_overnight: 'STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card''s 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, back_yard 7), so this is not a fleet blackout. The camera now looks blind rather than chattering, which makes your answer (was a zone crop or mask applied around 09-14/15?) the key to whether it needs undoing. It is also lever (A) on PERIMETER-ALERT-VOLUME-FATIGUE-1.'
   verify_2026_10_02_overnight: "CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and four times on 10-01 (12:54, 13:18, 13:19, 13:47 CDT) during the ~5 h window when Frigate2 was working. Part of the earlier zero was the fleet-wide detector hang (PERIMETER-DETECTION-WENT-DARK-1), not this camera. But 4 in that window is still far below its old ~200/day while back_yard did 40 and hot_tub 52 the same day, so it is detecting, just rarely. Your answer (was a zone crop or mask applied ~09-14/15?) still decides whether it needs widening. Re-measure after Frigate2 is healthy for a full day."
+  measured_2026_10_18_overnight: "front_side_ptz produced 10 perimeter alerts since the 10-15 18:09 Frigate restart (2 on 10-16, 8 on 10-17), about 6% of exterior alerts; the noisy cameras now are Study B porch PTZ (65), hot_tub (21), utilities_ptz (17). Detail on PERIMETER-ALERT-VOLUME-FATIGUE-1."
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -21416,7 +21420,7 @@ cards:
   shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-18 02:06"
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
@@ -21515,6 +21519,7 @@ cards:
     in test_egress_exit_backfill.py and are a small concrete starting point. Runtime is 6m01s, worse than
     the 4min on record — the slowness half of this card is real and got worse.'
 
+  INSTANCE_2026_10_18_unload_hygiene_order: "Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together with test_setup_unload_symmetry.py + test_stuck_signal_watchdog.py, on the base __init__.py too (not caused by the INIT-UNTRACKED fix); each passes alone. Same order-pollution class; one more data point for the next slice."
 - id: CHATTER-OBSERVE-CONTROL-D7-1
   CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
     19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
@@ -28695,7 +28700,7 @@ cards:
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
   rank: {value: 6, time_criticality: 5, effort: 3}  # v/tc cut 2026-09-20: lever A falsified, volume 22-63/day not 155
-  status: planned
+  status: "waiting_me"
   operator_2026_10_15e: "Operator: \"Frigate restarted\" (reported 2026-10-15 18:09 CDT); homelab back_yard/hot_tub object masks now live. Baseline 7d before: back_yard 339 / hot_tub 214 alert events. Re-count back_yard+hot_tub first after 24 h (10-16 evening), full re-count after 10-18."
   operator_2026_10_15d: "Operator: house is accurate most times unless guests are alone in the house, which is rare. => The phone-only persons_home branch is a trip-week artifact; no URA code change. Next (me): after the Frigate mask restart AND the family return (10-18), one-shot 7-day re-count from notification_log; dispose done if volume normal, else reopen with numbers."
   investigation_2026_10_15: "Guest investigation: the volume driver is persons_home counting tracked phones only (perimeter_alert.py:1686-1705), not AWAY. 7d rows: away CRITICAL 845 (347 on 10-14), home_day HIGH 952 (persons_home=0 branch). Fixing AWAY would only relabel CRITICAL->HIGH, not cut volume. Real levers: Frigate phantom masks (pending restart), then whether persons_home should count an untracked-but-present occupant."
@@ -28703,7 +28708,7 @@ cards:
   update_2026_10_15b: "URA notification_log 7d: back_yard 339 events, hot_tub 214, front_side_ptz only 21 (09-14 Frigate road+object masks worked). Homelab session (FRIGATE2-PERENNIAL-1): back_yard 961 / hot_tub 820 Frigate person events in 7d were almost all fixed objects (tree trunk, cypress, posts, shrubs, leaf shadows); 7 object masks written to F2 config.yaml, NOT loaded until a Frigate restart (operator). Expect ~90% drop on both. Next: after the Frigate restart, one-shot re-count from notification_log; only then pick a URA lever (day/home low-priority vs channel trim), if still needed."
   update_2026_10_15: "Operator 2026-10-15: \"what controls can be deployed. Also when do these matter? I'd say at night. But also I thought we had road masks and these should fire when people are actually close to the property vs walking on the street. Ask homelab agent.\" Asked the Homelab session for per-camera masks/zones/required_zones. URA side: person alerts have no time-of-day gate (vehicle-hours only; burst-demote night window is a module constant 23-05)."
   created: '2026-09-12 20:45'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-18 02:07"
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -28780,7 +28785,7 @@ cards:
     worth checking rather than assuming.
     CONSEQUENCE FOR LEVER (B): trimming CRITICAL channel fan-out is now clearly the highest-value
     URA-side lever, because it divides the re-page ladder's cost too, not just the first send.
-  next: "Lever A chosen 10-17 (crop applied ~09-14/15 and still too noisy -> fix front_side_ptz at the source). Me: one-shot measure which producer (Frigate2 vs Protect) and which detection path still drives front_side_ptz alerts since the crop, then write the concrete source change (zone / required_zones / mask) for an attended apply on the camera host. No URA code; B (channel trim) and C (cooldown) stay unpicked."
+  next: "Me, 10-20 (two normal days after the family is back): re-run the same recount; if the CRITICAL share falls back with residents home and the total stays under ~60/day, close this card done; otherwise come back with the top source and a lever (Study B porch first). Lever A (front_side_ptz) is effectively spent - see FRONT-SIDE-PTZ-CHATTER-1."
   links:
     related: [PERIMETER-PHANTOM-XCORR-1, NM-REPAGE-IMG-1, CONSOL-1]
     context: 'Spawned from the PERIMETER-PHANTOM + NM-REPAGE probes (2026-09-12). Distinct from
@@ -28796,6 +28801,7 @@ cards:
     contributor. RECOMMENDATION: re-measure total alert volume BEFORE picking a lever; the honest
     answer may be that volume is already down and no lever is needed, which would make building any
     new suppression a negative-value change.'
+  measured_2026_10_18_overnight: "ONE-SHOT RECOUNT (URA notification_log, events = one '[audit]' row per alert for person.oji_udezue, local CDT days). Daily exterior-person alert events: 10-11 164, 10-12 109, 10-13 80, 10-14 132, 10-15 123 | after the Frigate object masks loaded (restart 10-15 18:09): 10-16 81, 10-17 59. back_yard went ~50/day -> 8, 2; hot_tub ~35/day -> 10, 10. So the masks cut the two biggest sources ~85% and total volume ~45%. front_side_ptz is NOT a volume driver any more: 2 and 8 events (10 since 10-15 18:30, about 6% of exterior alerts). Top sources since the restart: Study B porch PTZ 65 across two detectors (Frigate leg 34, Reolink native leg 31; only 2 of 47 native-leg alerts fall within 120 s of a Frigate-leg alert, so it is NOT double-alerting, the porch is just busy), hot_tub 21, utilities_ptz 17, back_yard 12, rear_ptz 10, g5_bullet 10, front_side_ptz 10. Severity: 10-16 74 of 81 and 10-17 50 of 59 were CRITICAL, the travel-week 'nobody tracked home' branch (see investigation_2026_10_15), so buzz count is driven by severity more than by any one camera."
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   disposition_2026_09_26_groom: 'Test-only anchor; shipped with v5.101.1/5.101.2 (READMEs list it). Nothing live to validate. Closed.'
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
@@ -30322,11 +30328,11 @@ cards:
     all-fresh ages should read data_anomaly_age_seconds first.'
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
-  status: waiting_me
+  status: "waiting_operator"
   update_2026_10_15: "Draft done 2026-10-14: docs/planning/DRAFT_envoy_upstream_issue.md (comment on core #181243). DO: add firmware, pyenphase version and a debug log, then post. Measured 2026-10-15: 0 dropouts on 10-15 to 16:51 vs 4-13/day; inconclusive whether stall-related (53% of 17 dropouts had a >=1 s stall within 60 s vs 28% base rate; confounded by Wi-Fi 10-13, GC freeze 10-14, SPAN 10-14)."
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-18 02:08"
   measured_2026_09_27_rate_collapse: 'OVERNIGHT 2026-09-27 02:02, from envoy_stream_trust_probe.py 3.6 (native sensor.envoy_482543015950_battery -> unavailable transitions per local day, recorder): 09-19 122, 09-20 134, 09-21 140, 09-22 163, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 4 (partial). CONFOUNDED: the operator did four things on the evening of 09-25 (Envoy reboot, core/UDM network-stack restart, core 2026.9.2->2026.9.3, MQTT add-on live), so which one fixed it cannot be separated from this data. The upstream analysis (EnvoyClientClosedError not caught) is NOT refuted by this: the unguarded path can still fire, it is just firing ~10x less. Recommendation moved to (D) accept + re-measure; see next.'
   refinement_status: refined
   rank: {value: 6, time_criticality: 6, effort: 3}
@@ -30379,9 +30385,10 @@ cards:
     A setup that never returns and never logs = a missing timeout somewhere in setup, not a network
     fault. Recovery needs a core restart / host reboot.'
   measured_2026_09_30_overnight: 'READOUT of the ha_2026_9_4_tracking discriminator (scripts/probes/envoy_flap_rate_probe.py, HA recorder, sensor.envoy_482543015950_battery unavailable-transitions per local day): 09-22 120, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 83, 09-28 10 (longest outage 231.6 min), 09-29 19 (longest 36.4 min); since the 00:17Z 09-30 core start 3 in 6.8 h (~11/day pace). VERDICT: PARTIAL, not fixed. The rate is down about 6-10x from the 110-160 baseline but above the <=5/day bar, and outages over 10 min continue on both days (the 231-min one on 09-28 matches the setup-hang shape, entry stuck in setup_in_progress after the 19:22 restart per ENPHASE-BATTERY-CUTOUTS-1). CONFOUNDS, so the drop cannot be credited to 2026.9.4: the Envoy stream add-on was stopped 09-28 20:15 (and 09-26 on 2026.9.3 already read 15). This matches the pre-registered prediction that the upstream fix does not cover our RuntimeError path. LOG-READ GAP: the home-assistant MCP was down this run, so I could not count Session is closed RuntimeErrors directly; this verdict rests on the recorder only.'
-  next: "Me (default A taken 10-17): draft the upstream home-assistant/core report (setup hang that never returns or logs + the EnvoyClientClosedError-is-a-RuntimeError path #181243 misses, + the nightly ~23:05 window) as a doc for the operator to review and post. I never post it."
+  next: "DO: fill in the three blanks in docs/planning/DRAFT_envoy_upstream_issue.md (Envoy firmware, pyenphase version, a debug-log excerpt from one long hang), re-check core PR #183172, then post it as a comment on home-assistant/core #181243. -> I then track the thread and re-count dropouts after any upstream fix lands."
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
+  groom_2026_10_18_overnight: "CARD-WAS-WRONG (mine, 02:02 tonight): I rewrote next as 'Me: draft the upstream report', but that draft already exists (draft_2026_10_14, docs/planning/DRAFT_envoy_upstream_issue.md). The 10-17 default is therefore already done and the ball is with you. Added an addendum to the draft with the 10-17 recount (blips down, multi-hour hangs up: 587 and 714 min, one open since 10-17 23:08)."
 - id: TEST-SILENT-WHOLE-FILE-SKIPS-1
   disposition_2026_09_26_groom_prev1: 'MERGED to develop 2026-09-26 (test-only, no deploy). Gate on the branch with current develop merged in: full name-diff 0 NEW / 2 GONE and isolated per-file run 0 NEW / 2 GONE — test_hvac_ac_ramp_savings::test_ac_ramp_savings_since_windowing and ::test_ac_ramp_savings_values_at_captured_rate were failing on develop and now pass.'
   disposition_2026_09_26_groom: 'RE-LANED in_progress -> review: built (7b4556ee9) + review fix-ups (6ca4881da) on test/silent-whole-file-skips-1, 3 test files, test-only, NOT merged.'
