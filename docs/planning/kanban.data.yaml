@@ -242,7 +242,7 @@ cards:
   constraint_2026_10_17_overnight: "From SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1 (parked): the startup pass runs inside the window where NM may not yet have restored its saved alert state (ack/cooldown). The plan must either run the pass after NM restore completes or queue the resulting events until NM is ready, with a test. Measured base rate today without the pass: 0 of 19 restarts had a detector 'on' within 120 s."
   plan_rev2_2026_10_16_overnight: "Tier-2 plan review (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md): FIX-PLAN (light), no CRITICAL/HIGH; ordering and double-page claims verified (second raise of the same key returns early, safety.py:2487-2499). Rev 2 folds all 7 findings: D3 duplicate-row guard now REQUIRED (ack covers only the latest row, database.py:4628-4651); new PICK 1 option (c) - wait out a recovered cooldown silently, page once if NM has no state; stuck-ON egress-unlock-on-every-reload risk named + new D5 trip-wire (SAFETY_INITIAL_PASS_STUCK_SENSOR_H = 24 h, module constant, 0 disables); pre-NM startup race carded as SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1. Plan ready for operator."
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   plan_2026_10_16_overnight: "Plan drafted: docs/planning/PLANNING_safety_initial_sensor_pass.md (Tier 2-DB, written against feature/safety-nm-refire; build starts after that branch merges, deploy held to Sun 10-18). Design: after the Coordinator Manager has set up every coordinator and the Notification Manager, Safety reads each monitored sensor's current state once and queues the same intent a state-change event would; the existing pipeline does the rest (no new hazard logic, no new paging path); also on Safety re-enable. Unavailable/unknown sensors skipped (their recovery event already reaches Safety). MEASURED over the last 20 restarts: Safety up 17-32 s after HA start; Zigbee leak sensors valid at 186-433 s (after Safety subscribes, so on a full restart their unavailable->on event already arrives - the gap is narrower than the card says); the gap is real for URA reloads, Safety re-enable and fast devices (Shelly flood valid at 16-23 s). WRONG CLAIM found: notification_manager.py:957-958 docstring says 'live sensors will re-trigger alerts if hazards persist' - false until this ships. Fleet problems carded as SAFETY-SENSOR-FLEET-HEALTH-1. Operator PICKs in plan §11 (re-page at boot for an acked still-on detector: recommended yes; actuators at boot same as live: recommended; D3 duplicate-row guard: recommended). One Tier-2 plan review running overnight."
   approval: explicit
   approved_by: 'operator 2026-10-15 (board approve button)'
@@ -255,7 +255,7 @@ cards:
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
   groom_2026_10_18_overnight: "Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and contained in v5.103.69."
 - id: NM-MULTI-ALERT-TRACKING-1
-  updated: "2026-10-18 02:06"
+  updated: "2026-10-18 02:02"
   links: {"blocked_by": ["SAFETY-NM-REFIRE-UNWIRED-1"], "related": ["SAFETY-NO-INITIAL-SENSOR-PASS-1"], "context": "Same NM alert-slot code that the in-flight safety re-page cycle edits; sequence after it (or fold in) to avoid a same-file collision."}
   rank: {value: 7, time_criticality: 4, effort: 3}
   parsimony: {problem: "NM keeps one active CRITICAL; a later CRITICAL (perimeter ~23/day) replaces an active life-safety alert's 30 s repeat with a 300 s one and redirects ack.", verdict: "SIMPLIFY - life-safety precedence on the active slot, not full multi-alert tracking"}
@@ -288,7 +288,7 @@ cards:
   why: "security.py:827 re-evaluates only hazard_type in ('intrusion','entry_alert','unknown_person'), but Security emits hazard_type='intruder' (security.py:1051, :1581). So an acknowledged intruder alert never re-pages after cooldown even if the intrusion continues. Swept: no existing card or BACKLOG item (grep intrusion/intruder/_re_evaluate_hazard)."
   next: "Me: Tier 1 hotfix after the safety re-page cycle (same NM re-fire path): accept both spellings or align on 'intruder', with a test driving NM cooldown -> security _re_evaluate_hazard."
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
-  updated: "2026-10-18 02:06"
+  updated: "2026-10-18 02:02"
   unblocked_2026_10_18_overnight: "Dependency cleared: the safety re-page cycle merged and shipped (in v5.103.69)."
 - id: EV-FILL-PRIORITY-SOC-CHATTER-1
   operator_instruction_2026_10_13: "What is the problem exactly. Just a yo yo around the boundary?"
@@ -816,7 +816,7 @@ cards:
   status: waiting_me
   update_2026_10_15: "Operator 2026-10-15: \"rapid change isn't that a heat thing for fire? If so it's a fix.\" Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repair the 30-min window so it actually runs, gate HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, keep OVERHEAT rate-of-rise; re-run the replay to prove quiet. Tier 2 plan next."
   created: '2026-09-27 02:40'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   measured_2026_09_27_replay: 'REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes deduped to 1 per hour per sensor). LEARNING MODE (fixed thresholds: temperature rise >= 10 F/30 min in cooling season, >= 20 extreme; humidity rise >= 40 pts outside bathrooms): 0 episodes in 7 days. So fixing the window alone would change nothing at first. Z-SCORE MODE (reached after 60 rate samples per sensor, within about a day once rates flow; z >= 3 by per-sensor mean/std, with the classify rules for September): 51 humidity (would be labelled WATER_LEAK) + 36 temperature (HVAC_FAILURE) = about 12.4 alerts a day. CONCLUSION: the broken window is accidentally shielding the house from a MEDIUM+ alert flood. A naive "fix the window" is harmful. Hence PICK A (retire, documented) vs B (redesign with corroboration). The 12.4/day is an estimate: it uses a population std, not HAs running Welford at each moment, so treat it as order-of-magnitude.'
   refinement_2026_09_27: 'Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.'
   refinement_status: refined
@@ -3173,7 +3173,7 @@ cards:
   thread: perimeter
   status: planned
   created: '2026-09-14 00:20'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -28537,7 +28537,7 @@ cards:
   thread: perimeter
   status: planned
   created: '2026-09-17 02:20'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   refinement_status: refined
   approval: implied
   tags:
@@ -28702,7 +28702,7 @@ cards:
   update_2026_10_15b: "URA notification_log 7d: back_yard 339 events, hot_tub 214, front_side_ptz only 21 (09-14 Frigate road+object masks worked). Homelab session (FRIGATE2-PERENNIAL-1): back_yard 961 / hot_tub 820 Frigate person events in 7d were almost all fixed objects (tree trunk, cypress, posts, shrubs, leaf shadows); 7 object masks written to F2 config.yaml, NOT loaded until a Frigate restart (operator). Expect ~90% drop on both. Next: after the Frigate restart, one-shot re-count from notification_log; only then pick a URA lever (day/home low-priority vs channel trim), if still needed."
   update_2026_10_15: "Operator 2026-10-15: \"what controls can be deployed. Also when do these matter? I'd say at night. But also I thought we had road masks and these should fire when people are actually close to the property vs walking on the street. Ask homelab agent.\" Asked the Homelab session for per-camera masks/zones/required_zones. URA side: person alerts have no time-of-day gate (vehicle-hours only; burst-demote night window is a module constant 23-05)."
   created: '2026-09-12 20:45'
-  updated: "2026-10-18 02:06"
+  updated: "2026-10-18 02:02"
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -29277,7 +29277,7 @@ cards:
   thread: energy
   status: planned
   created: '2026-09-23 03:10'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   input_health_2026_09_27: 'INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA restart, then returned (first value 12:56:21, 29.2533 MWh). Since then it has had 269 good rows and 22 unavailable rows. That is the native-Envoy dropout pattern, which it shares with the NET sensor now in use (1022 good / 27 unavailable over the same window). So the swap target is healthy enough to build on, but it inherits the same dropouts. The build should keep the existing no-data handling, and coverage will show "No data" during Envoy dropouts either way. Also confirmed by the 09-27 coverage soak-exit read: Anomalous at 02:05 once the midnight window expired (delta -4.67 kWh), consistent with this cards NET-vs-TOTAL root cause.'
   refinement_status: refined
   approval: unreviewed
@@ -30325,7 +30325,7 @@ cards:
   update_2026_10_15: "Draft done 2026-10-14: docs/planning/DRAFT_envoy_upstream_issue.md (comment on core #181243). DO: add firmware, pyenphase version and a debug log, then post. Measured 2026-10-15: 0 dropouts on 10-15 to 16:51 vs 4-13/day; inconclusive whether stall-related (53% of 17 dropouts had a >=1 s stall within 60 s vs 28% base rate; confounded by Wi-Fi 10-13, GC freeze 10-14, SPAN 10-14)."
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   measured_2026_09_27_rate_collapse: 'OVERNIGHT 2026-09-27 02:02, from envoy_stream_trust_probe.py 3.6 (native sensor.envoy_482543015950_battery -> unavailable transitions per local day, recorder): 09-19 122, 09-20 134, 09-21 140, 09-22 163, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 4 (partial). CONFOUNDED: the operator did four things on the evening of 09-25 (Envoy reboot, core/UDM network-stack restart, core 2026.9.2->2026.9.3, MQTT add-on live), so which one fixed it cannot be separated from this data. The upstream analysis (EnvoyClientClosedError not caught) is NOT refuted by this: the unguarded path can still fire, it is just firing ~10x less. Recommendation moved to (D) accept + re-measure; see next.'
   refinement_status: refined
   rank: {value: 6, time_criticality: 6, effort: 3}
@@ -31051,9 +31051,9 @@ cards:
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: planned
+  status: "waiting_operator"
   created: '2026-09-29 04:20'
-  refinement_status: initial
+  refinement_status: "refined"
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
   problem_solution:
@@ -31074,8 +31074,10 @@ cards:
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
   verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
-  next: "Me: verify against code whether a paused room (Automation switch off) is already fully inert (no on AND no off actions); build the gap if not (Tier 1-2), plus a forgotten-pause reminder only if cheap."
-  updated: "2026-10-18 02:04"
+  next: "PICK: (A) code, my recommendation: make the room Automation switch the one pause - when it is off, the room's cover timers, house-state/energy AI rules and humidity venting also stop (safety and security reactions, and the humidity fan's max-runtime safety cap, still run). Tier 2, three reviews, because it reverses three earlier deliberate decouplings; watch-out: master_bedroom / patio / receiving / exercise / media blinds would stop their timed open/close while paused. (B) config only: keep the code, and I turn off the still-on Cover / AI / humidity switches in the 20 paused rooms (list on this card) in an attended session; any room where you WANT blinds on a timer keeps its cover switch. -> On A I plan + build to review; on B I do the switch flips next attended session and close this card."
+  updated: "2026-10-18 02:05"
+  verify_2026_10_18_overnight: "CARD-WAS-WRONG on 'inert' + STILL-REAL. Code (develop 8dd2e9762): the room Automation switch (switch.py:5103; gate coordinator.py:3181 _is_automation_enabled) stops occupancy on/off, the scheduled auto-off, the Away leave-on sweep (automation.py:890) and the actuator reconciler (actuator_reconciler.py:544). But THREE paths still act in a paused room, each by an earlier deliberate design: (1) timed cover open/close runs on its own Cover Automation switch (coordinator.py:5398, v4.2.22 'Option A'); (2) house-state and energy-signal chained automations + AI rules are gated only by the AI switch (coordinator.py:955/996, v4.5.8 gating model); (3) humidity venting is gated by the per-room humidity toggle, not the master (coordinator.py:5413, bathroom-exhaust D1). Safety/security handlers are ungated on purpose and should stay so. Live 02:08 CDT: 20 rooms paused; of those, Cover Automation is ON in patio, receiving_room, master_bedroom, exercise_room, media; AI automation is ON in guest_bedroom_1, master_closet, staircase, master_closet_storage, study_b; humidity toggles are ON in most paused rooms (acts only where a humidity fan is configured)."
+  refinement: "Operator 10-17 'paused rooms should be inert' -> code shows paused means 'no occupancy lighting', not inert; three sibling switches keep acting. Becomes a PICK between widening the master switch (code) and turning the sibling switches off (config)."
 - id: BOOT-EVENT-LOOP-FREEZE-1
   updated: "2026-10-03 02:14"
   organic_evidence_2026_10_03: "DISPOSED (soak exit): MET with a residual. README_v5.103.28 already PASS (no URA boot freeze; boot ~2.3 min vs 5-9). Tonight's 00:37 restart (full core log via /api/hassio/core/logs): the watchdog fired once, 'Event loop stalled >= 10.0s phase=boot', total_stall=12.2s, and the main-thread stack names leviton_decora_smart_wifi/image.py:54 -> api/device.py:893 matter_qr_code -> pyqrcode (a third-party integration building QR images), NOT URA. So the 133-156 s URA freeze is gone and the watchdog correctly names the remaining 12 s culprit. Residual carded: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1 (the watchdog's own shutdown ERROR). NOTE for future log checks: this stall line was NOT in HA's system_log list (50-entry dedup cap had evicted it); only the full core log had it."
@@ -31110,7 +31112,7 @@ cards:
   thread: platform
   status: planned
   created: '2026-09-29 20:05'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   refinement_status: refined
   approval: blocked
   problem_solution:
@@ -31361,7 +31363,7 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 3}
   status: planned
   created: '2026-10-05'
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
   tags: [tier-1, multi-home]
   why: 'A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-time warnings fall outside the 2000-line error_log window, so absence is not proven. Dev blog removals already announced for 2027.10: DeviceEntry.config_entries (enforced 2026-09-15), configurator, modbus get_hub.'
   next: "Me (default A taken 10-17): plan the collapsible Advanced sections in each URA form ahead of HA 2027.6; Tier 1-2."
@@ -32204,7 +32206,7 @@ cards:
     context: "HVAC-A1 removed the URA-caused stalls (closed 10-14); what remains is this GC pause. The HM counter bug hid it in the sensor attributes; the diagnostics counts exposed it."
   refs:
   - ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-  updated: "2026-10-18 02:04"
+  updated: "2026-10-18 02:02"
 - id: HM-V21-LIVE-VALIDATION-1
   operator_instruction_2026_10_17: "ack (board, 2026-10-18T03:52:20.427Z)"
   triage_2026_10_17: "Closed: HM v2.1 no longer installed (live v2.2.0); W13 passed; operator-action checks accepted unverified."
