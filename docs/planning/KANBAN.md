@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T23:25:12-05:00_ - _Data commit: `c7436fc03c5a`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-18T00:26:48-05:00_ - _Data commit: `75f8cc033d74`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -168,7 +168,8 @@ _created 2026-10-11 02:15 · updated 2026-10-16 02:03 · refined_
 - **Next:** Waits on CENSUS-GROUND-TRUTH-CSV-FIX-1 (operator ANSWER on the 10-03 departure timeline). Then me: fix the fixture, re-run the 10-03 replay with the hybrid formula, and re-verify the plan against current code; replay passes -> plan revie...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/PLANNING_census_inputs_first.md
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `critique_2026_10_18`: Per operator instruct (CRITIQUE_census_occupancy_estimator.md): recommend PARK. (a) No consumer needs a count >1 (AWAY needs yes/no; guest gate is guest-room only since 08-16). (b) 10-03 replay failed 3 gates; only 29-31% of door crossin...
   - `operator_instruction_2026_10_17`: Make sure a) Its needed b) It solves the problem c)We can think through all the unintedned consequences. Also what does the held count solve? (board, 2026-10-18T03:50:31.843Z)
   - `subsumption_check_2026_10_16_overnight`: Operator asked 'Check the latest census work and approve if not subsumed'. NOT SUBSUMED. Checked every census change since the card was made (10-11): v5.103.51..64 commits touching camera_census.py / presence.py are fan-noise trust, occu...
   - `operator_instruction_2026_10_15`: Check the latest census work and approved if not subsumed
