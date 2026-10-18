@@ -32354,6 +32354,27 @@ cards:
   operator_instruction_2026_10_18: "Go with A. Be careful. (fix the tracker properly, ship together with the sleep-mask cycle)"
   folded_into: "PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 3 D4 (af238dc53); one Tier-3 cycle with the reviewed branch dad3bf6e7."
   next: "Two Tier-3 plan reviews on Rev 3 -> delta build on the reviewed branch -> 4 build reviews -> operator checkpoint -> one awake-window deploy."
+- id: ZONE-ROOM-NAME-DRIFT-1
+  title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
+  thread: presence
+  status: inbox
+  tier: 2
+  created: "2026-10-18"
+  refinement_status: initial
+  origin: "Rev 3 plan review R1-F11 (pre-existing)"
+  sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
+  next: "Measure: does any live room carry a renamed title vs its zone's room_names? Then decide key-by-entry_id fix."
+- id: WIGTON-STUCK-ZX-NO-PAGE-1
+  title: "On a camera-less, phone-less install (Wigton) a stuck-on ZX radar in a multi-sensor room holds the house HOME with no page (D4d trip-wire needs a trusted phone + dark Frigate)"
+  thread: presence
+  status: parked
+  tier: 2
+  created: "2026-10-18"
+  refinement_status: initial
+  origin: "Rev 3 plan reviews R2 / R3.1 D4d coverage restatement"
+  sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
+  revival_trigger: "Wigton re-enabled (WIGTON-URA-REENABLE-1) or another camera-less install onboarded."
+  next: "Design a camera-less stuck-sensor detector (e.g. reuse OC stuck-sensor duty-cycle) before Wigton goes live."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
