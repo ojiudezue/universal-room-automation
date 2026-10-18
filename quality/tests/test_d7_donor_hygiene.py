@@ -504,24 +504,14 @@ def _unpin_nm_clock(src: str) -> str:
     )
 
 
+# Slice 2 retired the victim-side drills for test_v4715_universalize_veto,
+# test_envoy_auto_derive, test_ec_solar_entity_override and
+# test_nm_cycle_c2_fixup: their donors (oc_pillar_a_handshake,
+# onboarding_simplify_slice1, v5_17_1_part3_seams) are now fixed donor-side,
+# so reverting the victim's own fix no longer turns the pair red. The pair
+# is anchored by the donors' residue drills instead; the victim-side fixes
+# stay as defense in depth.
 _VICTIM_SIDE_DRILLS = {
-    "test_v4715_universalize_veto.py": (
-        lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
-        "test_oc_pillar_a_handshake.py",
-    ),
-    "test_envoy_auto_derive.py": (
-        lambda src: src.replace(
-            "    @pytest.fixture(autouse=True)\n    def _d7_truthy_entity_registry",
-            "    def _d7_truthy_entity_registry",
-        ),
-        "test_onboarding_simplify_slice1.py",
-    ),
-    "test_ec_solar_entity_override.py": (
-        lambda src: src.replace("    _state_only_registry()\n    hass = MagicMock()",
-                                "    hass = MagicMock()"),
-        "test_onboarding_simplify_slice1.py",
-    ),
-    "test_nm_cycle_c2_fixup.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
     "test_nm_cycle_c_routing_matrix.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
     "test_nm_image_delivery.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
 }
