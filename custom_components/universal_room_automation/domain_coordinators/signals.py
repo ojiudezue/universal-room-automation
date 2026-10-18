@@ -189,7 +189,12 @@ SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
 #     the listener boundary so future _ROOM_SUPPRESS_KEYS expansion
 #     cannot silently re-open the v4.7.24 blind spot).
 # Payload positional args: ``(entry_id: str, room_name: str, action: str)``
-# where action ∈ {"loaded", "unloaded", "options_updated"}.
+# where action ∈ {"loaded", "unloaded", "options_updated", "removed"}.
+# "removed" (sleep-mask Rev 3.1 R3.1.4) fires from ``async_remove_entry``
+# after HA has dropped the entry, so a refresh no longer enumerates it.
+# RULE: every subscriber MUST treat an unknown action as a no-op (Rev 3.2
+# L3; verified for hvac `_on_room_lifecycle` and binary_sensor
+# `_on_lifecycle`).
 # PresenceCoordinator subscribes and drives
 # ``OccupancySubstrate.refresh_subscriptions()`` (diff-based atomic swap).
 # Restores the pre-v4.7.24 (commit e165e1cb) per-room-onboarding guarantee:
