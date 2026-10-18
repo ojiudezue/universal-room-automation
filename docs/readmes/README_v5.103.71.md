@@ -28,7 +28,7 @@ Cards: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1, INIT-UNTRACKED-TASK-4211-1, SECURITY-R
   - Reverting the schema form turns 4 tests red.
 - `test_deploy_scripts.py`: 12/12 pass. The SIGINT test had been red whenever `gtimeout` was on PATH.
 - The three overnight fixes: each has its own tests and mutation drills (see the review record).
-- Full-suite name-diff vs a3f5b9dd9: pending, to be filled in before deploy.
+- Full-suite name-diff at 624159098 vs a3f5b9dd9: CLEAN, 0 NEW / 3 GONE (deploy SIGINT trap, untracked-task guard, zone-delete prefix enumeration); 71 -> 68 failing.
 
 ## Live validation (prospective)
 - Installed and loaded: manifest v5.103.71, all URA entries loaded, no new URA ERRORs.
