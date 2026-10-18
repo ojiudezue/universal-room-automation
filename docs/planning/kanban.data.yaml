@@ -32270,6 +32270,36 @@ cards:
   rank: {value: 4, time_criticality: 1, effort: 2}
   why: 'Audit docs/planning/AUDIT_study_a_wifi_csi_sensor.md (a6ef49f88): 24h vs ZK radar 62.5% agree, 36% CSI-off while radar-on; upstream ESPectre states no stationary/breathing detection. Not wired into URA.'
   next: 'Operator optional - assign device to Study A area + rename. Revival trigger - firmware with stillness/breathing; acceptance = CSI-off/radar-on share near 0% over 24h.'
+- id: STUDYA-ZK-EMPTY-HOLD-1
+  title: "Study A's presence radar holds the room occupied while the house is verifiably empty (696 of 2,781 min in the guest-free control), and its only second sensor (the Athom) is dead"
+  thread: presence
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-18"
+  refinement_status: refined
+  origin: "Probe P3 2026-10-18 (AUDIT_census_arc_and_away_holistic.md) + Away plan Rev 3 parked list"
+  sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  next: "DO: revive or replace the Study A Athom (second sensor) and/or re-tune the ZK -> I re-run P3 for Study A; if phantom-free it can join the Away veto rooms. Default if no action: Study A stays excluded from the veto."
+- id: EXERCISE-ROOM-ZK-NEVER-ON-1
+  title: "Exercise Room's ZK presence radar never turned on in 7.2 days; the room's occupancy is motion-sourced only (31 of 33 entries), so a still person is not held"
+  thread: presence
+  status: investigating
+  tier: 1
+  created: "2026-10-18"
+  refinement_status: initial
+  origin: "Probe P3 2026-10-18 (AUDIT_census_arc_and_away_holistic.md)"
+  sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  next: "Measure: is the ZK entity alive (state history, linkquality, last_seen) and wired in room config? Then config fix or hardware DO for operator."
+- id: MASTER-BATH-NO-TRUSTED-PRESENCE-1
+  title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
+  thread: presence
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-18"
+  refinement_status: refined
+  origin: "Probe P3 2026-10-18 + Away plan Rev 3 residual"
+  sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -> on A I wire it and re-run P3."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
