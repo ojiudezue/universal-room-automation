@@ -11700,8 +11700,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 f"{DOMAIN}_hvac_ac_ramp_kwh_rate_{zone_id}",
                 f"{DOMAIN}_dynamic_preset_active_bucket_{zone_id}",
                 f"{DOMAIN}_dynamic_preset_range_{zone_id}",
+                # ZONE-DELETE-ORPHAN-HVAC-SENSORS-1: sensor.py AC-reset /
+                # durability families (added after the delete flow shipped).
+                f"{DOMAIN}_hvac_ac_reset_day_count_{zone_id}",
+                f"{DOMAIN}_hvac_ac_reset_night_count_{zone_id}",
+                f"{DOMAIN}_hvac_ac_reset_last_outcome_{zone_id}",
+                f"{DOMAIN}_hvac_ac_ramp_durability_rate_{zone_id}",
             ]
         return name_prefixes, id_prefixes
+
+    @staticmethod
+    def _zone_uid_matches(
+        uid: str, name_prefixes: list[str], id_prefixes: list[str],
+    ) -> bool:
+        """Delimited prefix match for the zone-delete sweep/preview/tripwire.
+
+        ZONE-DELETE-ORPHAN-HVAC-SENSORS-1: a bare ``startswith`` let the
+        ``zone_1`` prefixes match ``zone_10``'s entities. A prefix that
+        already ends in ``_`` is its own delimiter; any other prefix must
+        match the whole unique_id or be followed by ``_``.
+        """
+        for p in (*name_prefixes, *(id_prefixes or ())):
+            if p.endswith("_"):
+                if uid.startswith(p):
+                    return True
+            elif uid == p or uid.startswith(p + "_"):
+                return True
+        return False
 
     def _resolve_zone_id_for_delete(
         self, zone_name: str, has_thermostat: bool = False,
@@ -11820,10 +11845,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 if ent.platform != DOMAIN:
                     continue
                 uid = ent.unique_id or ""
-                if any(uid.startswith(p) for p in name_prefixes):
-                    n_entities += 1
-                    continue
-                if id_prefixes and any(uid.startswith(p) for p in id_prefixes):
+                if self._zone_uid_matches(uid, name_prefixes, id_prefixes):
                     n_entities += 1
         except Exception:  # noqa: BLE001
             _LOGGER.debug("entity count failed", exc_info=True)
@@ -12089,9 +12111,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 if ent.platform != DOMAIN:
                     continue
                 uid = ent.unique_id or ""
-                if any(uid.startswith(p) for p in name_prefixes) or (
-                    id_prefixes and any(uid.startswith(p) for p in id_prefixes)
-                ):
+                if self._zone_uid_matches(uid, name_prefixes, id_prefixes):
                     try:
                         er_reg.async_remove(ent.entity_id)
                         removed += 1
@@ -12189,9 +12209,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 if ent.platform != DOMAIN:
                     continue
                 uid = ent.unique_id or ""
-                if any(uid.startswith(p) for p in name_prefixes) or (
-                    id_prefixes and any(uid.startswith(p) for p in id_prefixes)
-                ):
+                if self._zone_uid_matches(uid, name_prefixes, id_prefixes):
                     survivors.append(ent.entity_id)
             if survivors:
                 _LOGGER.warning(
