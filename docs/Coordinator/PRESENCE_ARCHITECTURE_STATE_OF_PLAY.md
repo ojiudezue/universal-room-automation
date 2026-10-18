@@ -83,6 +83,15 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 **House-state inference engine** (`presence.py:1004-1200+`): priority ladder
 (`presence.py:1007-1013` docstring):
 
+0. **Nobody-home** (`presence.py:1126-1131`, re-read 2026-10-18) — AWAY iff `census_count == 0 AND
+   NOT any_zone_occupied`. Listed first in the code and missing from this ladder before 2026-10-18
+   (§10 #14). `census_count` includes BLE-located residents, so a resident Bermuda places at home
+   blocks it. **SLEEP-mask hazard:** `any_zone_occupied` is `mode == OCCUPIED`
+   (`presence.py:5975-5978`), and house SLEEP pins every zone tracker to `SLEEP` via `set_sleep`
+   (`presence.py:930`), so during SLEEP this branch reads every zone as empty and can fire AWAY on
+   `census_count == 0` alone (e.g. a phoneless sleeper). Wigton replay: 216 of 251 stress-case false
+   AWAYs (`AUDIT_wigton_away_replay_2026_10_18.md`). Fix planned in
+   `PLANNING_house_state_sleep_mask_ble_memory_observability.md` (D1).
 1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded
    AND all_tracked_persons_away AND unidentified_count == 0 AND face_recognized_count == 0`
    (`presence.py:1169-1180`, re-read 2026-10-16). It does NOT check `census_count` or zone/room
@@ -155,6 +164,23 @@ away.
 `presence.py:5713-5717`). When on, the person is excluded from the AWAY-veto denominator
 (`presence.py:5677-5805`); the exclusion reason is prefixed `phone_left_behind=on`
 (`presence.py:5792-5803`). D9 room-occupancy carve-out at `const.py:2693`.
+
+**Per-person tracker axes (re-read 2026-10-18)** — `person_coordinator.py:200-240` builds
+`{gps, wifi, ble}` from the HA `person.*` entity's `device_trackers` list in order, and the LAST
+tracker of a source type wins. A second GPS device that never reads home (2026-10-18: an iPad
+~100 m from `zone.home` centre with a 53 m radius) therefore overwrote the phone's GPS axis with
+`away`. Removed from `person.oji_udezue` 2026-10-18 (operator). Keep each person to phone app GPS +
+BLE IRK (`private_ble_device_*`); the `*_bermuda_tracker` is Bermuda's own tracker derived from the
+same IRK (operator), so it duplicates the BLE axis harmlessly. Open: whether "any GPS home wins"
+should replace last-wins (carded in the sleep-mask/BLE-memory plan).
+
+**All three AWAY branches already need residents' phones/BLE gone** (2026-10-18 verify): nobody-home
+via `census_count` (includes BLE ids), α via `all_tracked_persons_away`, β via the trusted-or-lost
+denominator plus `census_count == 0`. A resident Bermuda resolved within 300 s but not this tick is
+stamped STALE and EXCLUDED from the denominator (`presence.py:5905-5925`) instead of counting as home
+— the gap the 5-min BLE-memory deliverable closes. Measured (P4, `AUDIT_census_arc_and_away_holistic.md`):
+real resident someone-home AWAYs ≈ 0.27–0.31/day on ordinary days; most "someone-home AWAYs" in
+earlier probes were residents actually leaving while a room's 300 s hold tail was still on.
 
 **Tracked persons config** — `CONF_TRACKED_PERSONS`, confidence distances
 `CONF_PERSON_HIGH_CONFIDENCE_DISTANCE` / `CONF_PERSON_MEDIUM_CONFIDENCE_DISTANCE`, decay
@@ -405,6 +431,17 @@ each; verify current status in the board):
   `IDENTITY_FUSION_CAMERAS_MANUAL.md`.
 - **ROOM-ENERGY-SENSOR-MISPICKS-1** (2026-10-11) — sensor-mispick class (adjacent).
 
+- **HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1** (2026-10-18) — operator approved the SMALL cycle
+  (SLEEP-mask fix + 5-min resident BLE memory + AWAY-branch/flip-count/guest-reason observability);
+  Rev 4 camera guard + guest-room veto PARKED (revive when guest accuracy is a priority). Must
+  help or be inert on Wigton-shaped installs (no interior cameras / BLE). Census estimator PARKED.
+- **STUDYA-ZK-EMPTY-HOLD-1**, **EXERCISE-ROOM-ZK-NEVER-ON-1**, **MASTER-BATH-NO-TRUSTED-PRESENCE-1**
+  (2026-10-18) — sensor-quality residuals from probe P3. Exercise Room's radar entity is
+  `binary_sensor.mmwave_zigbee_gameroom_presence` (device `Mmwave_Zigbee_ExcerciseRoom`, area
+  exercise_room — only the entity_id says gameroom); zero `on` in 7 days.
+- Jaya Bedroom LD2410 + fan forms a hold loop (fan-off only acts when house AWAY, fan keeps LD2410
+  phantom on) — reason Jaya was dropped from any room veto (Rev 4 §15, R2 H2).
+
 Memory-backed open threads: Jaya ESPHome LD2410 fan interference (operator probe
 2026-10-11); fan recheck restore-loop defect; D2 unreachable in ZV-only fan rooms; ZV
 fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
@@ -495,6 +532,20 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    camera fleet not degraded; a moment with no interior body on camera is enough even if a room
    sensor holds. This is why an untracked occupant flips the house AWAY (HOUSE-STATE-AWAY-FLAP-
    UNTRACKED-OCCUPANT-1; plan `docs/planning/PLANNING_house_away_flap_untracked_occupant.md`).
+
+13. **"10-11 11:23 was a resident miss: phone GPS said away while Bermuda had Oji in Study A."**
+   WRONG (2026-10-18, orchestrator recorder read). The app GPS fix at 11:06 was 27 km from home
+   (north Austin); the AWAY was correct, the IRK re-saw the phone at 12:36 on return. Bermuda's
+   tracker read `home` with `area: null` (stale), not a room fix. P4's resident-miss count is an
+   upper bound for this reason.
+
+14. **"The inference ladder starts with path α."** INCOMPLETE (2026-10-18). The first branch in
+   `infer()` is nobody-home (`presence.py:1126-1131`); §2 now lists it as step 0 with its SLEEP-mask
+   hazard.
+
+15. **"An entity_id naming a room identifies the room."** Not for `binary_sensor.mmwave_zigbee_gameroom_presence`
+   (2026-10-18): it is the Exercise Room's radar (device and area say so). Classify by device/area,
+   never entity name — consistent with SENSOR_FLEET_CLASSES Rule 3.
 
 ## 11. Read before you touch — agent checklist
 
