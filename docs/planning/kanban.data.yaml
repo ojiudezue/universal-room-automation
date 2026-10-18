@@ -213,7 +213,7 @@ cards:
   thread: safety
   status: waiting_operator
   created: '2026-10-16 02:20'
-  updated: '2026-10-16 02:20'
+  updated: "2026-10-18 02:12"
   refinement_status: initial
   approval: unreviewed
   tags: [found-during-probe, no-fabrication-verify, life-safety]
@@ -227,6 +227,7 @@ cards:
     related: [WATERLEAK-TRIO-UNKNOWN-1, SAFETY-NO-INITIAL-SENSOR-PASS-1]
     context: 'ADJACENCY SWEEP (board + BACKLOG grep smoke/leak/safety sensor): WATERLEAK-TRIO-UNKNOWN-1 (parked) is the earlier instance of the leak pucks going unknown together, fold its evidence here at plan time. SAFETY-NO-INITIAL-SENSOR-PASS-1 is the code gap that surfaced this; a sensor nobody can read is not fixed by any seeding. Homelab THREAD-INOVELLI-1 owns the Thread re-commission. NEW.'
   next: "DO (when back, or the guest/Jaya if urgent): re-pair the kitchen Heiman smoke detector (homelab THREAD-INOVELLI-1 re-commission; it still sounds locally), and check the 4 leak pucks' batteries/pairing. APPROVE me to make the two config fixes in an attended session (move gas_zigbee_kitchen_gas out of Safety's smoke list into gas; remove the ghost ziribathroom_water_leak_2). -> Then I measure whether Safety should page on a life-safety sensor unavailable > N hours (likely a small Tier-1/2 card)."
+  reverified_2026_10_18_overnight: "STILL-REAL: the kitchen Heiman smoke detector is still unavailable (binary_sensor.smoke_sensor_s1_smoke and siblings). Your re-pair (instruction 10-17) is the fix."
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
   review_2026_10_16_overnight: "Tier-1 review (ura-reviewer, framing A + blast radius): SHIP, no findings. HIGH never enters the CRITICAL alert/repeat slot (notification_manager.py:1999-2001 only CRITICAL calls _enter_alerting); one NM per latch (latched flag persisted, early return hvac.py:4710, reset only on value change :4702-4709); nothing else depends on MEDIUM for these hazards; tests drive the real rig. test_hvac_cpr_batch_c.py + test_s10_post_preset_change_settle.py 192 passed. Branch pushed to origin (fix/s10-latch-nm-high); NOT merged, NOT deployed."
   updated: "2026-10-16 02:15"
@@ -31427,7 +31428,8 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
-  updated: "2026-10-16 02:09"
+  updated: "2026-10-18 02:12"
+  reverified_2026_10_18_overnight: "STILL-REAL: BP1_B still offline (sensor.*_distance_to_screek_bp1_b = unavailable for both tracked iPhones; bp1_a reads unknown). Your DO stands."
 - id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
   disposition_2026_10_15_overnight: "DONE. The 'APPROVE merge' next was stale: a8cd6f9f0 + 01f257f1a are ancestors of develop (git merge-base --is-ancestor), merged as 9e99bfdb7 in the v5.103.57 batch whose full-suite name-diff showed no tripwire failures (README_v5.103.57). Test-only, nothing to validate live."
   review_2026_10_14: "Framing-C review SHIP (record: docs/reviews/code-review/ev_tripwire_order_dependence_review.md on review/ev-tripwire-order). 118-file prefix: develop 29 failed incl. test_d + test_d2; fixed 27 failed, none tripwire (the other 27 are pre-existing, unrelated). test_g did NOT reproduce on develop in that order (it passed by accident via the blanket except at energy_write_verify.py:1376); the fix removes that dependence. Reviewer per-site drills: :1340 UTC date -> test_d2 RED; :1324 kill switch -> test_g RED; :1340 constant date -> test_d+d2 RED. Orchestrator drill 10-14: :1324 `if max_n <= 0` -> `if False` -> test_g_kill_switch_disables RED (1 failed/10 passed), restored, porcelain clean, 11 passed. LOW: test_a/test_c/test_wire_in do not pin dt_util (pass in real order; fragile under a harsher stub)."
@@ -32080,7 +32082,8 @@ cards:
   next: "DO: swap the front-door lock batteries (Z-Wave controller move optional, your call). -> I then measure: battery % slope per week on the lock's battery sensor, plus how many lock.lock commands URA and other automations send it (recorder logbook), and say whether anything is draining it faster than normal (Kwikset is roughly 6-12 months on a set)."
   refs:
   - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
-  updated: "2026-10-16 02:09"
+  updated: "2026-10-18 02:12"
+  reverified_2026_10_18_overnight: "STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable since 10-17 18:03 CDT; Security logs 'periodic lock check: 1 device unavailable' (8 times since the last restart). Battery swap stands."
 - id: EC-RESERVE-CLOUD-DIVERGENCE-1
   disposition_2026_10_14: "done: mechanism found (external Enphase pending-change), self-resolved, no URA build. Residual to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1."
   verdict_2026_10_14: "CONFIRMED (the 10-13 lead), and the card's proposed fix is REFUTED. Mechanism: URA's reserve write sat pending at Enphase (control_change_pending) for about 2 days; the cloud reported the real setting (14), and the battery obeyed it. URA's checker was RIGHT to flag non-compliance. It is not a comparison bug. The fix floated in this card ('accept the local gateway confirmation') would have been WRONG: the local number said 10 the whole time while the battery behaved as if the reserve were 14. Do not build it. The episode cleared by itself when the cloud integration reconnected at 11:33-11:40 CDT 10-13; no reverts since. Operator hypothesis (14 = a stale drain target from before a TOU change on a poor-solar day): not supported. On 10-12 the cloud value walked 6, 8, 10, 12, 14 in step with SOC, which is not a fixed config value, and 14 cleared on reconnect, not on a config change. A low-solar day is still the likely reason SOC was low enough for the value to look like 'the charge level'. Cost of the episode: about 2-4% of battery capacity held back overnight. Small."
