@@ -390,16 +390,13 @@ _DRILLS = {
 
 # Drills whose anchor is a donor->victim pair (the reviewer-C shape:
 # neuter the donor fix -> the victim goes red).
+# Slice 2 round 3 retired the pair drills of bathroom_exhaust_occupancy and
+# comfort_fan_away_veto_behavioral: dp_drain / evse now pin the dt object
+# production reads (victim-side, needed for the full-suite order), so
+# neutering either donor no longer turns the pair red. Both donors stay
+# anchored by their residue drills (_DRILLS).
 _PAIR_DRILLS = {
-    "test_comfort_fan_away_veto_behavioral.py": (
-        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
-        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
-    ),
     "test_perimeter_alert_nm_routing.py": ("    yield\n    _scheduled.clear()\n", "    yield\n"),
-    "test_bathroom_exhaust_occupancy_and_resend.py": (
-        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
-        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
-    ),
     "test_identity_fusion_d2_d3_d4.py": (
         "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
         "def _scope_real_ha_patches",
@@ -717,20 +714,17 @@ def test_victim_green_after_donor_set(donors, victim):
     assert f"PASSED quality/tests/{victim}" in out, out[-3000:]
 
 
+# Round 3: identity_fusion now pins camera_census's own clock (victim-side,
+# needed for the full-suite order), so neutering the hvac_vacancy_sweep or
+# carrier_freshness donor fix no longer reds its set -- both drills retired.
+# carrier_freshness keeps its residue drill; hvac_vacancy_sweep's per-test
+# clock restore is defense in depth without a discriminating anchor.
 _MULTI_DRILLS = {
-    "test_hvac_vacancy_sweep_manual_on_guard.py": (
-        "@_d7_pytest.fixture(autouse=True)\ndef _d7_restore_clock",
-        "def _d7_restore_clock",
-    ),
     # No pc_observability entry: once test_optimization_coordinator's
     # eviction (imported by optimizer_reserve_hard_deny) was scoped,
     # dynamic_preset is no longer re-imported, so this pair stopped
     # discriminating its parent-attr leak. The generic _parent_attr_residue
     # probe still anchors it (residue drill).
-    "test_carrier_freshness.py": (
-        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
-        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
-    ),
 }
 
 
