@@ -712,10 +712,11 @@ _MULTI_DRILLS = {
         "@_d7_pytest.fixture(autouse=True)\ndef _d7_restore_clock",
         "def _d7_restore_clock",
     ),
-    "test_pc_observability_kill_switches.py": (
-        "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
-        "        if False:\n            if saved_parent_dt is _absent:",
-    ),
+    # No pc_observability entry: once test_optimization_coordinator's
+    # eviction (imported by optimizer_reserve_hard_deny) was scoped,
+    # dynamic_preset is no longer re-imported, so this pair stopped
+    # discriminating its parent-attr leak. The generic _parent_attr_residue
+    # probe still anchors it (residue drill).
     "test_carrier_freshness.py": (
         "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
