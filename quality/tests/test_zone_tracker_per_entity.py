@@ -177,6 +177,17 @@ def test_kill_constant_false_restores_last_writer(monkeypatch, clock):
 
 
 @ON
+def test_substrate_unavailable_sibling_counts_off(monkeypatch, clock):
+    """A sibling reading unavailable contributes OFF: ZX on + ZK
+    unavailable, the ZX goes off -> the kind goes False."""
+    w = _master(monkeypatch, on=(ZX,))
+    w.fire(ZK, "unavailable")
+    w.fire(ZX, "off")
+    assert w.edges[-1] == ("Master Bedroom", "mmwave", False)
+    assert w.trackers["Master Suite"].raw_occupied is False
+
+
+@ON
 def test_callback_before_state_store_uses_payload(monkeypatch, clock):
     """The event entity's state comes from the PAYLOAD: a fake that fires
     before updating its store still turns the kind on."""
@@ -246,6 +257,14 @@ def test_tracker_kill_constant_false_full_clear(monkeypatch, clock):
     t.update_room_occupancy("Master Bedroom", False, kind="motion")
     assert t._room_provenance["Master Bedroom"] == {}
     assert t._room_occupied["Master Bedroom"] is False
+
+
+def test_tracker_ignores_foreign_room(monkeypatch, clock):
+    """A room the tracker does not own never lands in its provenance."""
+    t = _tracker()
+    t.update_room_occupancy("Gym", True, kind="mmwave")
+    t.update_room_occupancy("Gym", False, kind="mmwave")
+    assert "Gym" not in t._room_provenance
 
 
 def test_single_sensor_provenance_shape_identical(monkeypatch, clock):
@@ -645,6 +664,42 @@ def test_wigton_shape_zone_hold_trip_wire_inert_when_alpha_starved(monkeypatch, 
         "omonele": {"location": "unknown",
                     "tracking_status": CONST.TRACKING_STATUS_LOST}})
     SM._drive_hold(w, clock, 300)
+    assert fired == []
+
+
+@ON
+def test_zone_hold_all_away_silent_for_camera_only_hold(monkeypatch, clock):
+    """R3.1.7: a zone held by the camera tier alone (no Tier-1 holder)
+    never pages."""
+    fired = SM._capture_stuck(monkeypatch)
+    w = _d4d_world(monkeypatch, clock)
+    w.clear("Living", "Living Room")
+    w.trackers["Living"].update_camera_detection("camera.living_person", True)
+    w.sm.transition = lambda *a, **k: False
+    SM._drive_hold(w, clock, 200)
+    assert w.coord._nobody_home_zone_input is True        # zone held (camera)
+    assert fired == []
+
+
+@ON
+def test_zone_hold_all_away_silent_when_zone_not_occupied(monkeypatch, clock):
+    """`any_zone_occupied` is required: Tier-1 provenance on but the zone
+    manually overridden AWAY (mode AWAY, transitions blocked) -> silent."""
+    fired = SM._capture_stuck(monkeypatch)
+    w = _d4d_world(monkeypatch, clock)
+    w.trackers["Living"].set_override(ZPM.AWAY)
+    w.sm.transition = lambda *a, **k: False
+    SM._drive_hold(w, clock, 200)
+    assert fired == []
+
+
+@ON
+def test_zone_hold_all_away_silent_with_ble_presence(monkeypatch, clock):
+    """A BLE-occupied zone (someone's phone is placed in a room) -> silent."""
+    fired = SM._capture_stuck(monkeypatch)
+    w = _d4d_world(monkeypatch, clock)
+    w.trackers["Living"]._ble_occupied = True
+    SM._drive_hold(w, clock, 200)
     assert fired == []
 
 
