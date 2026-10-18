@@ -349,6 +349,80 @@ class World:
         return self.sm.state
 
 
+class SubstrateWorld(World):
+    """World + a REAL OccupancySubstrate (sleep-mask Rev 3.1 R3.1.8).
+
+    Dict-backed ``hass.states``; ``async_track_state_change_event`` patched
+    to capture the substrate's callback; the substrate's
+    ``async_dispatcher_send`` routed to the REAL
+    ``coord._on_substrate_kind_changed`` (so the tracker is never written
+    directly); real ``_discover_room_sensors`` over the real substrate;
+    ``release_boot_settle()`` before any event. ``fire(entity, state)``
+    builds the event (``state=None`` = entity removed from HA).
+    """
+
+    def __init__(self, monkeypatch, **kw):
+        super().__init__(monkeypatch, **kw)
+        SUB = importlib.import_module(
+            f"{_PKG}.domain_coordinators.occupancy_substrate")
+        self.SUB = SUB
+        self.callbacks = []
+        self.unsubbed = []
+        self.edges = []
+        self.retries = []
+        self.fail_subscribe = 0
+        world = self
+
+        def _track(_hass, entities, cb):
+            if world.fail_subscribe:
+                world.fail_subscribe -= 1
+                raise RuntimeError("subscribe failed")
+            world.callbacks.append(cb)
+
+            def _unsub():
+                world.unsubbed.append(cb)
+
+            return _unsub
+
+        def _send(_hass, _signal, room, kind, new_state):
+            world.edges.append((room, kind, new_state))
+            world.coord._on_substrate_kind_changed(room, kind, new_state)
+
+        def _later(_hass, _delay, cb):
+            world.retries.append(cb)
+            return lambda: None
+
+        monkeypatch.setattr(SUB, "async_track_state_change_event", _track)
+        monkeypatch.setattr(SUB, "async_dispatcher_send", _send)
+        monkeypatch.setattr(SUB, "async_call_later", _later)
+        self.sub = SUB.OccupancySubstrate(self.hass)
+        _run(self.sub.async_setup())
+        self.coord._substrate = self.sub
+        for t in self.trackers.values():
+            t._entity_to_room.clear()
+        self.coord._discover_room_sensors()
+
+    def release(self):
+        self.sub.release_boot_settle()
+        return self
+
+    def fire(self, entity, new_state):
+        old = self.states.get(entity)
+        if new_state is None:
+            self.states.pop(entity, None)
+            ns = None
+        else:
+            ns = _State(new_state)
+            self.states[entity] = ns
+        event = types.SimpleNamespace(data={
+            "entity_id": entity, "old_state": old, "new_state": ns,
+        })
+        self.callbacks[-1](event)
+
+    def refresh(self):
+        _run(self.sub.refresh_subscriptions())
+
+
 def _run(coro):
     loop = asyncio.new_event_loop()
     try:
@@ -551,10 +625,34 @@ MASTER_ZV = "binary_sensor.master_zv_presence_2"
 JAYA_LD2 = "binary_sensor.jaya_ld2410_b_presence"
 
 
+@pytest.mark.per_entity_on_only
 def test_two_kind_room_zv_pulse_then_clear_keeps_zx_sleeper(monkeypatch, clock):
     """ZX (presence) holds a still sleeper; ZV (motion) pulses on a
-    roll-over then clears. The tracker's off-edge wipes the whole room, but
-    the ZX still reads on -> SLEEP holds (no nobody-home AWAY)."""
+    roll-over then clears. Rev 3 D4b: the motion off-edge clears ONLY the
+    motion kind, so the tracker still holds the room (the review D-H1
+    defect line is inverted) -> SLEEP holds (no nobody-home AWAY)."""
+    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
+                                   motion=[MASTER_ZV])],
+              states={MASTER_ZX: _State("on"), MASTER_ZV: _State("off")})
+    w.occupy("Master Suite", "Master Bedroom", kind="mmwave")
+    w.states[MASTER_ZV] = _State("on")
+    w.occupy("Master Suite", "Master Bedroom", kind="motion")
+    w.states[MASTER_ZV] = _State("off")
+    w.trackers["Master Suite"].update_room_occupancy(
+        "Master Bedroom", False, kind="motion")   # kind-specific clear (D4b)
+    assert w.trackers["Master Suite"].raw_occupied is True   # defect gone
+    assert w.trackers["Master Suite"].provenance_for("Master Bedroom") == {
+        "motion": False, "mmwave": True, "occupancy": False}
+    assert w.tick() == HS.SLEEP
+    assert w.coord._veto_path == "none"
+
+
+@pytest.mark.per_entity_off_only
+def test_two_kind_room_zv_pulse_then_clear_keeps_zx_sleeper_switch_off(monkeypatch, clock):
+    """Kill-switch anchor (dad3bf6e7 version): switch off -> the off-edge
+    wipes the whole room (the defect) and the D-H1 live-sensor limb holds
+    SLEEP through the ZX still reading on."""
     w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
               entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
                                    motion=[MASTER_ZV])],
@@ -570,8 +668,28 @@ def test_two_kind_room_zv_pulse_then_clear_keeps_zx_sleeper(monkeypatch, clock):
     assert w.coord._veto_path == "none"
 
 
+@pytest.mark.per_entity_on_only
 def test_same_kind_two_sensor_room_one_off_keeps_sleeper(monkeypatch, clock):
-    """Two radars of the SAME kind (LD2410 + ZK in presence_sensors): one
+    """Two radars of the SAME kind (LD2410 + second LD2410 in
+    presence_sensors), both on; one goes off. Driven through the REAL
+    substrate (the tracker alone cannot know about same-kind siblings):
+    D4a keeps the kind on (no dispatch), so SLEEP holds."""
+    w = SubstrateWorld(
+        monkeypatch, zones={"Upstairs": ["Jaya Bedroom"]},
+        entries=[_room_entry("Jaya Bedroom", presence=[JAYA_LD, JAYA_LD2])],
+        states={JAYA_LD: _State("on"), JAYA_LD2: _State("on")}).release()
+    assert w.trackers["Upstairs"].raw_occupied is True
+    n_edges = len(w.edges)
+    w.fire(JAYA_LD2, "off")
+    assert len(w.edges) == n_edges          # no (room, mmwave, False) edge
+    assert w.sub.get_room_kinds("Jaya Bedroom")["mmwave"] is True
+    assert w.tick() == HS.SLEEP
+    assert w.coord._veto_path == "none"
+
+
+@pytest.mark.per_entity_off_only
+def test_same_kind_two_sensor_room_one_off_keeps_sleeper_switch_off(monkeypatch, clock):
+    """Kill-switch anchor (dad3bf6e7 version). Two radars of the SAME kind (LD2410 + ZK in presence_sensors): one
     drops, the substrate's last-writer kind reports False and the tracker
     wipes the room, but the other radar is still on -> SLEEP holds."""
     w = World(monkeypatch, zones={"Upstairs": ["Jaya Bedroom"]},
@@ -584,14 +702,19 @@ def test_same_kind_two_sensor_room_one_off_keeps_sleeper(monkeypatch, clock):
     assert w.coord._veto_path == "none"
 
 
+@pytest.mark.per_entity_on_only
 def test_multi_sensor_room_really_empty_still_reaches_away(monkeypatch, clock):
-    """Discharge: both sensors off -> AWAY via nobody-home."""
-    w = World(monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
-              entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
-                                   motion=[MASTER_ZV])],
-              states={MASTER_ZX: _State("on"), MASTER_ZV: _State("off")})
-    w.occupy("Master Suite", "Master Bedroom", kind="mmwave")
-    w.clear("Master Suite", "Master Bedroom")
+    """Discharge, substrate-driven: both sensors of a two-kind room go off
+    -> False edges -> AWAY via nobody-home."""
+    w = SubstrateWorld(
+        monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+        entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX],
+                             motion=[MASTER_ZV])],
+        states={MASTER_ZX: _State("on"), MASTER_ZV: _State("on")}).release()
+    w.fire(MASTER_ZV, "off")
+    assert w.tick() == HS.SLEEP
+    w.fire(MASTER_ZX, "off")
+    assert ("Master Bedroom", "mmwave", False) in w.edges
     assert w.tick() == HS.AWAY
     assert w.coord._veto_path == "nobody_home"
 
@@ -611,6 +734,26 @@ def test_tracker_view_alone_holds_room(monkeypatch, clock):
     assert w.tick() == HS.SLEEP
 
 
+@pytest.mark.per_entity_on_only
+def test_unavailable_sibling_and_foreign_room_do_not_hold(monkeypatch, clock):
+    """Substrate-driven: an unavailable registered sensor contributes off,
+    and a sensor mapped to a room outside the zone never reaches this
+    tracker (the tracker drops a room it does not own)."""
+    w = SubstrateWorld(
+        monkeypatch, zones={"Master Suite": ["Master Bedroom"]},
+        entries=[_room_entry("Master Bedroom", presence=[MASTER_ZX, JAYA_LD2]),
+                 _room_entry("Gym", presence=["binary_sensor.elsewhere"])],
+        states={MASTER_ZX: _State("on"), JAYA_LD2: _State("off"),
+                "binary_sensor.elsewhere": _State("on")}).release()
+    w.fire(MASTER_ZX, "unavailable")
+    t = w.trackers["Master Suite"]
+    assert w.sub.get_room_kinds("Master Bedroom")["mmwave"] is False
+    assert t.raw_occupied is False
+    assert "Gym" not in t._room_provenance       # foreign room never lands
+    assert w.tick() == HS.AWAY
+
+
+@pytest.mark.per_entity_off_only
 def test_live_limb_ignores_unavailable_and_other_rooms(monkeypatch, clock):
     """Only `on` counts (unavailable is not occupancy), and a sensor
     registered to a room outside the zone never holds it."""
@@ -1694,7 +1837,36 @@ def test_wigton_shape_multi_sensor_master_rollover_holds(monkeypatch, clock):
         clock.advance(60)
 
 
+@pytest.mark.per_entity_on_only
 def test_wigton_shape_multi_sensor_master_ends_via_waking(monkeypatch, clock):
+    """INV-SLEEP-HOLD-BOUNDED (b), Rev 3: the ZV off-edge clears only the
+    motion kind, so the tracker keeps the room (defect line inverted); past
+    06:00 the house leaves SLEEP via WAKING, and after HOME_DAY with the ZX
+    still on and census 0 there is NO nobody-home AWAY (the daytime half
+    the dad3bf6e7 NOTE left open)."""
+    w, h = _wigton(monkeypatch, clock)
+    t = w.trackers["Master Suite"]
+    t.register_entity(WIG_MASTER_ZV, "Master Bedroom")
+    w.states[WIG_MASTER] = _State("on")
+    w.states[WIG_MASTER_ZV] = _State("off")
+    t.update_room_occupancy("Master Bedroom", True, kind="occupancy")
+    t.update_room_occupancy("Master Bedroom", True, kind="motion")
+    t.update_room_occupancy("Master Bedroom", False, kind="motion")
+    assert t.raw_occupied is True           # D4b: defect gone
+    clock.t = datetime(2026, 10, 18, 5, 58, tzinfo=timezone.utc)
+    states = []
+    for _ in range(12):
+        h.tick()
+        states.append(w.tick())
+        clock.advance(60)
+    first_exit = next(s_ for s_ in states if s_ != HS.SLEEP)
+    assert first_exit == HS.WAKING
+    assert HS.HOME_DAY in states
+    assert HS.AWAY not in states            # daytime half closed
+
+
+@pytest.mark.per_entity_off_only
+def test_wigton_shape_multi_sensor_master_ends_via_waking_switch_off(monkeypatch, clock):
     """INV-SLEEP-HOLD-BOUNDED (b) when the tracker view was WIPED by a ZV
     off-edge but the ZX still holds: past 06:00 the WAKING gate sees the
     same night signal and the house leaves SLEEP."""
