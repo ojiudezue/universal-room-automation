@@ -128,6 +128,7 @@ def _apply(path: Path, swap_from: str, swap_to: str, anchor: str,
 #     → classifier surfaces a wrong reason_token on a fill+drain state
 #     Killed by: golden byte-identical replay
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_a_classifier_priority_swap_is_KILLED():
     _apply(
         _CC / "energy_pool_owners.py",
@@ -158,6 +159,7 @@ def test_mutation_a_classifier_priority_swap_is_KILLED():
 #     Killed by: golden replay (release-path deferral for the grid_cap
 #                sibling of the release loops changes shape)
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_b_grid_cap_peer_holds_dropped_is_KILLED():
     _apply(
         _CC / "energy_pool_owners.py",
@@ -188,6 +190,7 @@ def test_mutation_b_grid_cap_peer_holds_dropped_is_KILLED():
 #     (True is the fixed state), and reverting to False (the old quirk)
 #     now KILLS the oracle. This asserts the FIX, not the quirk.
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_c_load_shed_prune_fix_reverted_is_KILLED():
     _apply(
         _CC / "energy_pool_owners.py",
@@ -223,6 +226,7 @@ def test_mutation_c_load_shed_prune_fix_reverted_is_KILLED():
 #     SURVIVE because the field is not consumed for behavior. Recorded
 #     as documentation-only.
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_d_module_docstring_comment_removed_SURVIVES():
     """d — documentation-only mutation control: erasing a comment
     inside `_stronger_peer_holds` must NOT flip the oracle (comments
@@ -252,6 +256,7 @@ def test_mutation_d_module_docstring_comment_removed_SURVIVES():
 #     side, since production still uses inline string tags at claim
 #     sites). SURVIVES.
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_e_tou_dispatch_tag_dropped_SURVIVES():
     _apply(
         _CC / "energy_pool_owners.py",
@@ -277,6 +282,7 @@ def test_mutation_e_tou_dispatch_tag_dropped_SURVIVES():
 # f — drop persistence_key on proactive_offpeak
 #     Killed by: persistence-oracle round-trip
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_f_proactive_offpeak_persistence_key_dropped_is_KILLED():
     _apply(
         _CC / "energy_pool_owners.py",
@@ -302,6 +308,7 @@ def test_mutation_f_proactive_offpeak_persistence_key_dropped_is_KILLED():
 # g — remove the blind-window pre-engaged marking block in restore
 #     (breaks C-HIGH-2 behavioral guarantee). MUST be KILLED.
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_g_blind_window_pre_engaged_disabled_is_KILLED():
     _apply(
         _CC / "energy.py",
@@ -319,6 +326,7 @@ def test_mutation_g_blind_window_pre_engaged_disabled_is_KILLED():
 # h — remove the DP dispatch owner reinstall on restore
 #     (breaks C-HIGH-3 behavioral guarantee). MUST be KILLED.
 # ---------------------------------------------------------------------------
+@pytest.mark.source_mutation
 def test_mutation_h_dp_dispatch_owner_reinstall_removed_is_KILLED():
     _apply(
         _CC / "energy.py",

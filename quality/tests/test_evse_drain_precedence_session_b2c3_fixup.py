@@ -23,6 +23,8 @@ b2c1 fix-up mutation harness.
 
 from __future__ import annotations
 
+import pytest
+
 import importlib
 
 _b2c1 = importlib.import_module("test_evse_drain_precedence_session_b2c1_fixup")
@@ -35,6 +37,7 @@ _mutate_and_expect_red = _b2c1._mutate_and_expect_red
 # ==========================================================================
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_h2_sticky_reverted_to_eager_discard_makes_sticky_test_red():
     """Revert `_apply_dp_reversion` to eager-discard (drop the set +
     owner BEFORE the peer/TOU checks). The sticky test asserts the DP
@@ -73,6 +76,7 @@ def test_MUTATION_h2_sticky_reverted_to_eager_discard_makes_sticky_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
     """Delete the HOLD_ONLY orphan retry-driver block in
     `_dp_decision_tick`. The restart-orphan test (switch-ON path)
@@ -116,6 +120,7 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
 # ==========================================================================
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_h1_save_evse_dp_paused_dropped_makes_ast_test_red():
     """Phase-2 owner-registry refactor: the `evse_dp_paused` KV literal
     now lives on the `dp` OwnerDeclaration in `energy_pool_owners.py`.

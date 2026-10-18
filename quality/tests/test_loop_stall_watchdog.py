@@ -256,6 +256,7 @@ def _drill(swap_from, swap_to, anchor, expect="KILLED"):
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_drill_removes_per_episode_latch():
     """If the single-warning latch is neutered so every check_once emits,
     test_stall_episode_emits_one_warning_then_recovery MUST turn red.
@@ -270,6 +271,7 @@ def test_mutation_drill_removes_per_episode_latch():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_drill_removes_single_instance_guard():
     """If the install-idempotency guard is removed, the single-instance
     test MUST turn red (many threads started).
@@ -281,6 +283,7 @@ def test_mutation_drill_removes_single_instance_guard():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_drill_removes_stop():
     """If Watchdog.stop() is neutered, the uninstall-stops-thread test
     MUST turn red (thread still alive)."""

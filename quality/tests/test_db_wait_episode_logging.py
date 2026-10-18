@@ -188,6 +188,7 @@ def _drill(swap_from, swap_to, anchor):
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_drill_removes_noted_guard():
     """Neuter the `_noted` guard: fast waiters release() unconditionally.
     The overlap test MUST turn red (premature clear / extra warning)."""
@@ -200,6 +201,7 @@ def test_mutation_drill_removes_noted_guard():
     )
 
 
+@pytest.mark.source_mutation
 def test_mutation_drill_removes_episode_latch():
     """Neuter the 'already active -> return' guard; the many-waiters test
     MUST turn red (many warnings instead of one)."""

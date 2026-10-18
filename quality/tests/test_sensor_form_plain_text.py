@@ -20,6 +20,8 @@ Covers (card SENSOR-FORM-PLAIN-TEXT-1):
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import importlib
 import json
@@ -300,6 +302,7 @@ def test_sensor_capabilities_json_reachable_when_value_is_non_default():
 # D5: mutation drill — neuter the sentinel path, prove a test fails
 # --------------------------------------------------------------------------
 
+@pytest.mark.source_mutation
 def test_mutation_drill_not_sure_sentinel_path_is_load_bearing():
     """Replace the production sentinel-resolution block with a dead branch
     (so "__default__" passes through unresolved, writing a raw literal

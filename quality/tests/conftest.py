@@ -128,7 +128,8 @@ def _ura_sys_modules_snapshot(request):
 # (real_schema_db, real_schema_db_session) must be registered explicitly.
 # TEST-HARNESS D1: production-tree integrity guard (restores + fails the
 # session if any test leaves custom_components/ modified).
-pytest_plugins = ["conftest_db", "_tree_integrity_guard"]
+# TEST-HARNESS Wave 1 D3/D6: quarantine + source_mutation markers.
+pytest_plugins = ["conftest_db", "_tree_integrity_guard", "_markers"]
 
 
 # =============================================================================

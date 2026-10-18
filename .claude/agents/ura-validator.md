@@ -20,6 +20,9 @@ Failure COUNTS are order-dependent (the suite has ~61 pre-existing failures — 
 ## Serialise — you own the suite
 The pytest guard **KILLS** concurrent full-suite runs (it does not queue), and a killed source-mutating run can corrupt the tree. Run **ONE** full suite at a time; do not launch while a reviewer's mutation pass or another suite is running.
 
+## Source-mutation drills are opt-in (2026-10-17)
+The default run deselects `@pytest.mark.source_mutation` (pytest.ini addopts). For the **pre-merge gate** run the name-diff with `URA_SOURCE_MUTATION=1` in the environment (inherited by `scripts/suite_namediff.py`); for ordinary build checks, the default run is correct. Quarantined tests (`@pytest.mark.quarantine("CARD-ID")`) are skipped and counted in the `quarantine ledger` summary line — report that count; it must not grow. See quality/TEST_SUITE_ACCESS.md.
+
 ## Run — ALWAYS via the cached name-diff script (2026-09-26)
 ```bash
 python3 scripts/suite_namediff.py --branch-dir <worktree>            # full name-diff (pre-merge gate)

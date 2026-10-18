@@ -36,6 +36,8 @@ import hashlib
 import importlib
 import importlib.util
 import os
+
+import pytest
 import shutil
 import subprocess
 import sys
@@ -832,6 +834,7 @@ def _mutate_and_expect_red(
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item1_exit_predicate_reverted_makes_hold_test_red():
     # Revert exit predicate to `not _is_any_evse_charging` on the
     # paused-check clause — window collapses immediately on the first
@@ -843,6 +846,7 @@ def test_MUTATION_item1_exit_predicate_reverted_makes_hold_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item2_house_load_restubbed_zero_makes_live_test_red():
     # Restub the helper to the pre-fix `0.0` — target test observes the
     # return of `_dp_house_load_kw`, which now returns 0 instead of the
@@ -854,6 +858,7 @@ def test_MUTATION_item2_house_load_restubbed_zero_makes_live_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item3_blind_signal_reverted_to_invented_attr_makes_test_red():
     # Batch-5 B7 refactor: the is_blind_hold value is computed ONCE per
     # tick into `_tick_is_blind_hold` and threaded into both DPInputs
@@ -865,6 +870,7 @@ def test_MUTATION_item3_blind_signal_reverted_to_invented_attr_makes_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item4_rescan_removed_makes_car_b_test_red():
     _mutate_and_expect_red(
         swap_from="if _fresh:\n                # dp-drain-target-value-stamp — R2 rescan site (:4540).",
@@ -873,6 +879,7 @@ def test_MUTATION_item4_rescan_removed_makes_car_b_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item5_kill_switch_hoist_removed_makes_flip_test_red():
     _mutate_and_expect_red(
         swap_from="if _has_dp_state:\n                self._apply_dp_reversion(",
@@ -881,6 +888,7 @@ def test_MUTATION_item5_kill_switch_hoist_removed_makes_flip_test_red():
     )
 
 
+@pytest.mark.source_mutation
 def test_MUTATION_item6_night_gate_removed_makes_daytime_test_red():
     _mutate_and_expect_red(
         swap_from='if not _dp_on or self._tou.get_current_period() != "off_peak":\n            raise _DPSkip()',

@@ -134,6 +134,7 @@ def _mutate_and_expect_red(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_1_d1_fusion_filter_helper_wire():
     """C-CRIT-1 de-hollow: mutate the extracted _fusion_filter_active
     helper (single site — all 6 fusion legs route through it) and
@@ -158,6 +159,7 @@ def test_drill_1_d1_fusion_filter_helper_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_2_chatter_listener_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -176,6 +178,7 @@ def test_drill_2_chatter_listener_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_3_chatter_tick_site_promote_wire():
     """C-CRIT-2 de-hollow: the tick-site chatter promote lives inside
     the extracted _apply_chatter_tick helper. Real behavioural anchor:
@@ -198,6 +201,7 @@ def test_drill_3_chatter_tick_site_promote_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_4_release_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -213,6 +217,7 @@ def test_drill_4_release_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_5_d5_surface_chatter_branch_wire():
     _mutate_and_expect_red(
         _URA / "sensor.py",
@@ -228,6 +233,7 @@ def test_drill_5_d5_surface_chatter_branch_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_6_reading_B_forbidden_add_promote():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "sensor_exclusion.py",
@@ -246,6 +252,7 @@ def test_drill_6_reading_B_forbidden_add_promote():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_7_subscribe_teardown_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -261,6 +268,7 @@ def test_drill_7_subscribe_teardown_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_8_sub_floor_accounting_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -276,6 +284,7 @@ def test_drill_8_sub_floor_accounting_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_9_boot_settle_gate_general_suppress_wire():
     """Boot-settle gate: general suppress-during-boot behaviour.
 
@@ -298,6 +307,7 @@ def test_drill_9_boot_settle_gate_general_suppress_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_10_camera_family_guard_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -338,6 +348,7 @@ def test_drill_11_same_value_dedup_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_12_unavailable_guard_wire():
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
@@ -353,6 +364,7 @@ def test_drill_12_unavailable_guard_wire():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.source_mutation
 def test_drill_13_d_high_2_boot_gate_wire():
     """D-HIGH-2: neutering the boot-settle early-return must red the
     boot-transient regression test."""
@@ -365,6 +377,7 @@ def test_drill_13_d_high_2_boot_gate_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_14_d_med_1_z2m_fallback_wire():
     """D-MED-1: neutering the Zigbee-native + device_class fallback must
     red the numeric-id Z2M classifier test."""
@@ -377,6 +390,7 @@ def test_drill_14_d_med_1_z2m_fallback_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_15_m_a1_per_day_latch_wire():
     """M-A1: neutering the _chatter_nm_fired latch check must red the
     write-flood regression test."""
@@ -389,6 +403,7 @@ def test_drill_15_m_a1_per_day_latch_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_16_b_low_2_provenance_guard_wire():
     """B-LOW-2: neutering the clients_for() guard on _stuck_sensor_kinds
     pop must red the provenance-guarded pop test."""
@@ -401,6 +416,7 @@ def test_drill_16_b_low_2_provenance_guard_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_17_b_low_4_discharge_wire():
     """B-LOW-4: neutering the kill-switch discharge call must red the
     suppression-needs-discharge test."""
@@ -413,6 +429,7 @@ def test_drill_17_b_low_4_discharge_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_18_recalibration_k10_constant_wire():
     """D-HIGH-1: the recalibrated K=10 default must be present. A
     mutation back to K=20 would red the invisoutlet-shape acceptance test.
@@ -426,6 +443,7 @@ def test_drill_18_recalibration_k10_constant_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_20_d7_shadow_vs_act_seam_wire():
     """D7 (2026-08-19): removing the `if is_act:` guard on the fusion
     promote would let SHADOW mode quarantine — regressing shadow-first.
@@ -440,6 +458,7 @@ def test_drill_20_d7_shadow_vs_act_seam_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_21_d7_default_mode_shadow_wire():
     """D7 default mode must be shadow. Mutating the default reds the
     SHADOW-FIRST doctrine test."""
@@ -452,6 +471,7 @@ def test_drill_21_d7_default_mode_shadow_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_23_d7_HIGH_mode_transition_release_wire():
     """D7 HIGH fix-up (2026-08-19): neutering the act->non-act
     release-on-transition call must red the load-bearing
@@ -466,6 +486,7 @@ def test_drill_23_d7_HIGH_mode_transition_release_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_25_d7_F1_dehollow_act_last_assignment_wire():
     """F1 fix-up (2026-08-19): the `self._chatter_act_last = is_act_now`
     assignment in _apply_chatter_tick was previously masked by test-side
@@ -482,6 +503,7 @@ def test_drill_25_d7_F1_dehollow_act_last_assignment_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_24_d7_HIGH_release_helper_body_wire():
     """D7 HIGH fix-up: neutering the exclusion_set.release call inside
     _release_all_chatter_exclusions must red the STEP-EXCLUDE-3-preserving
@@ -495,6 +517,7 @@ def test_drill_24_d7_HIGH_release_helper_body_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_22_d7_room_telemetry_wire():
     """D7 telemetry surface — removing the telemetry() call in
     UnavailableEntitiesSensor reds the telemetry acceptance test."""
@@ -507,6 +530,7 @@ def test_drill_22_d7_room_telemetry_wire():
     )
 
 
+@pytest.mark.source_mutation
 def test_drill_19_recalibration_t_floor_1_0_wire():
     """D-HIGH-1: the recalibrated unified T_floor=1.0s default must be
     present. A mutation to 1.5s would red the Meross healthy sentinel
