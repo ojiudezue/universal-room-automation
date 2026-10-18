@@ -31690,6 +31690,7 @@ cards:
   next: "MEASURE: per session, line up occupancy edges, house_state (sleep), the room's sleep-protection gate decision, configured night_lights entity, and the light's state history + context (URA vs device-local). Then confirm-or-refute; fix only if URA path is shown not firing."
   related: [NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: WIGTON-URA-REENABLE-1
+  applied_2026_10_17: "Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Bedroom motion 8->6 (all 17 fleet units now at target). Ecobee *_occupancy removed from occupancy_sensors of Study Hallway, Game room, Down Guest bedroom hallway via options flow (ecobee motion + temp/humidity kept; Game room keeps its mmWave presence). Entries remain disabled. Basis: AUDIT_wigton_sensor_settle_and_replay_2026_10_17.md. Re-run G5 after >=24h to confirm."
   title: Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on)
   thread: wigton
   status: planned

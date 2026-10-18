@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-17T21:13:12-05:00_ - _Data commit: `91c52c8410ee`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-17T21:27:08-05:00_ - _Data commit: `aad6a3ead8a5`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -457,7 +457,8 @@ _created 2026-10-10 16:00_
 - **Why:** URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls).
 - **Next:** Follow docs/planning/RUNBOOK_wigton_ura_reenable.md: G1 stall vector (watcher + Profiler armed) -> G2 v5.103.48 installed -> G3 room configs clean -> G4/G5 sensors tuned + flicker down -> Stage 1 enable all-OFF -> Stage 2 zone by zone ->...
 - **Depends on:** WIGTON-HA-UNRESPONSIVE-1, ROOM-SWITCH-LOOKUP-BY-NAME-1, ROOM-CREATE-AREA-PREFILL-DETRITUS-1
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `applied_2026_10_17`: Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Be...
   - `tier`: 1
 
 ### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
