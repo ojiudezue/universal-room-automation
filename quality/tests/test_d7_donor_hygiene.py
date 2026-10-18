@@ -32,7 +32,8 @@ _REAL_OWNERS = ("homeassistant", "pytest_homeassistant_custom_component")
 #   kind "ha"  : sys.modules[module] is the real homeassistant module and
 #                attr (if given) is defined in a homeassistant.* module.
 #   kind "ura" : sys.modules[module] (if present) is the real package from
-#                custom_components/ (has a __file__ inside the repo).
+#                custom_components/ (has a __file__ inside the repo) and attr
+#                (if given) is defined in a custom_components.* module.
 DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_chatter_detector.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
@@ -44,6 +45,15 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_identity_fusion_d2_d3_d4.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
         ("homeassistant.util.dt", "utcnow", "ha"),
+    ],
+    "test_hvac_fan_control.py": [
+        ("custom_components.universal_room_automation", None, "ura"),
+        ("custom_components.universal_room_automation.const", None, "ura"),
+        ("custom_components.universal_room_automation.domain_coordinators.signals", None, "ura"),
+        # The residue the conftest PRODSTUBS rescue cannot heal (setdefault
+        # keeps the stub's value): EnergyConstraint = MagicMock.
+        ("custom_components.universal_room_automation.domain_coordinators.signals",
+         "EnergyConstraint", "ura"),
     ],
 }
 
@@ -58,6 +68,11 @@ def _residue(probes) -> list[str]:
             f = getattr(mod, "__file__", None) or ""
             if not f or not Path(f).resolve().is_relative_to(_REPO / "custom_components"):
                 bad.append(f"{modname} is a placeholder (__file__={f!r})")
+            elif attr is not None:
+                val = getattr(mod, attr, None)
+                owner = getattr(val, "__module__", None)
+                if not (isinstance(owner, str) and owner.startswith("custom_components.")):
+                    bad.append(f"{modname}.{attr} is foreign: {val!r}")
             continue
         if mod is None:
             mod = importlib.import_module(modname)
@@ -119,6 +134,11 @@ _DRILLS = {
     "test_identity_fusion_d2_d3_d4.py": (
         "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
         "def _scope_real_ha_patches",
+    ),
+    # Un-scope the import block: restore nothing on exit.
+    "test_hvac_fan_control.py": (
+        "with _d7_import_scope() as _D7_INSTALLED:",
+        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
     ),
 }
 
