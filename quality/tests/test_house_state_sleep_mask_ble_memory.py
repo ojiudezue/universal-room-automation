@@ -130,6 +130,20 @@ def _import_names():
         "domain_coordinators.presence", "person_coordinator", "database",
         "perimeter_alert", "sensor",
     )
+    # Suite-order hygiene: modules production imports LAZILY (inside
+    # functions) must also be loaded here, inside the fresh homeassistant
+    # namespace — a call-time import would run against whatever stubs later
+    # test files installed at collection (repro 2026-10-18: the full-suite
+    # `notification_manager` ImportError behind
+    # test_fire_stuck_signal_severity_kwarg).
+    for lazy in (
+        "domain_coordinators.notification_manager",
+        "domain_coordinators._stuck_signal_nm",
+        "domain_coordinators.occupancy_substrate",
+        "domain_coordinators.signals",
+        "memory_writers",
+    ):
+        importlib.import_module(f"{_PKG}.{lazy}")
     return [importlib.import_module(f"{_PKG}.{n}") for n in names]
 
 
