@@ -49,6 +49,21 @@ from custom_components.universal_room_automation.domain_coordinators.presence im
 # ---------------------------------------------------------------------------
 
 
+def _now() -> datetime:
+    """The SAME clock production reads (``presence.dt_util.utcnow``).
+
+    TEST-HARNESS D4b: the seeds used ``datetime.utcnow()`` (tz-NAIVE), which
+    only matched the naive ``homeassistant.util.dt`` stub installed by
+    ``_provenance_harness``. Under real HA ``dt_util.utcnow()`` is tz-AWARE
+    and the comparison in ``_room_occupied`` raised TypeError (fake drift).
+    Binding to the production module's clock keeps the seeds correct under
+    real HA and under the stub alike."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _presence,
+    )
+    return _presence.dt_util.utcnow()
+
+
 def _build(rooms=("a",), zone="z1"):
     hass = make_hass()
     coord = PresenceCoordinator(hass)
@@ -77,7 +92,7 @@ def test_truth_preserving_provenance_true_always_wins_over_hold() -> None:
     _hass, _coord, tracker = _build()
     # Set a stale-EXPIRED hold; should be irrelevant.
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() - timedelta(seconds=60)
+        _now() - timedelta(seconds=60)
     )
     tracker.update_room_occupancy("a", True, kind="motion")
     assert tracker._room_occupied == {"a": True}
@@ -97,7 +112,7 @@ def test_truth_preserving_active_hold_extends_only_when_provenance_empty() -> No
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", False)
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() + timedelta(seconds=60)
+        _now() + timedelta(seconds=60)
     )
     assert tracker._room_occupied == {"a": True}
 
@@ -107,7 +122,7 @@ def test_truth_preserving_expired_hold_does_not_extend() -> None:
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", False)
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() - timedelta(seconds=1)
+        _now() - timedelta(seconds=1)
     )
     assert tracker._room_occupied == {"a": False}
 
@@ -124,7 +139,7 @@ def test_room_occupied_property_keyset_matches_provenance() -> None:
     # Hold for "c" — must NOT inject a stray key (provenance dict only
     # has "a" + "b").
     tracker._fan_interference_hold_until["c"] = (
-        datetime.utcnow() + timedelta(seconds=60)
+        _now() + timedelta(seconds=60)
     )
     occ = tracker._room_occupied
     assert set(occ.keys()) == set(tracker._room_provenance.keys()) == {"a", "b"}
@@ -144,7 +159,7 @@ def test_gate_L1_clears_hold_and_returns_L1_verdict() -> None:
     hass.data[DOMAIN] = {"person_coordinator": pc}
     # Pre-seed an existing hold so we can verify it's cleared.
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() + timedelta(seconds=120)
+        _now() + timedelta(seconds=120)
     )
     gated, ladder = coord._apply_fan_interference_gate(["a"], 300)
     assert ladder.get("a") == "L1"
@@ -216,7 +231,7 @@ def test_gate_none_zone_ble_present_l3_inconclusive() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_phone_left_behind_excluded_from_L1_denominator() -> None:
+def test_phone_left_behind_excluded_from_L1_denominator(monkeypatch) -> None:
     """A phone-left-behind person does NOT corroborate L1 -> fall through."""
     hass, coord, tracker = _build()
     _seed_fan_suspect(tracker, "a")
@@ -233,7 +248,10 @@ def test_phone_left_behind_excluded_from_L1_denominator() -> None:
     reg_mock.async_get_entity_id = MagicMock(
         return_value="binary_sensor.universal_room_automation_oji_udezue_phone_left_behind"
     )
-    er.async_get = MagicMock(return_value=reg_mock)
+    # TEST-HARNESS D4b: scoped + auto-restored. A bare assignment leaked a
+    # MagicMock onto the REAL entity_registry module and broke every later
+    # real-HA ``hass`` setup (er.async_load -> MagicMock await TypeError).
+    monkeypatch.setattr(er, "async_get", MagicMock(return_value=reg_mock))
     state = MagicMock()
     state.state = "on"  # phone left behind -> not trustworthy
     hass.states.get = MagicMock(return_value=state)
@@ -244,7 +262,7 @@ def test_phone_left_behind_excluded_from_L1_denominator() -> None:
     assert "a" in gated
 
 
-def test_phone_left_behind_fail_OPEN_when_sensor_missing() -> None:
+def test_phone_left_behind_fail_OPEN_when_sensor_missing(monkeypatch) -> None:
     """Missing PersonPhoneLeftBehindSensor -> person counts (fail-OPEN, baseline preserved)."""
     hass, coord, tracker = _build()
     _seed_fan_suspect(tracker, "a")
@@ -256,7 +274,10 @@ def test_phone_left_behind_fail_OPEN_when_sensor_missing() -> None:
 
     reg_mock = MagicMock()
     reg_mock.async_get_entity_id = MagicMock(return_value=None)  # missing
-    er.async_get = MagicMock(return_value=reg_mock)
+    # TEST-HARNESS D4b: scoped + auto-restored. A bare assignment leaked a
+    # MagicMock onto the REAL entity_registry module and broke every later
+    # real-HA ``hass`` setup (er.async_load -> MagicMock await TypeError).
+    monkeypatch.setattr(er, "async_get", MagicMock(return_value=reg_mock))
 
     gated, ladder = coord._apply_fan_interference_gate(["a"], 300)
     # Alice counts (fail-OPEN) -> L1 fires -> no hold.
@@ -275,7 +296,7 @@ def test_hold_expiry_drops_room_when_provenance_empty() -> None:
     tracker.update_room_occupancy("a", False)
     # Just-expired hold.
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() - timedelta(milliseconds=1)
+        _now() - timedelta(milliseconds=1)
     )
     assert tracker._room_occupied == {"a": False}
 
@@ -288,7 +309,7 @@ def test_non_mmwave_kind_true_clears_stale_hold_on_next_tick() -> None:
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", True, kind="motion")  # PIR fires
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() + timedelta(seconds=120)
+        _now() + timedelta(seconds=120)
     )
     # This tick: room is NOT in the suspect list (motion+mmwave -> not
     # mmwave-sole -> _compute_fan_interference_rooms drops it).
@@ -308,7 +329,7 @@ def test_audit_invariants_pass_under_hold_extension() -> None:
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", False)
     tracker._fan_interference_hold_until["a"] = (
-        datetime.utcnow() + timedelta(seconds=60)
+        _now() + timedelta(seconds=60)
     )
     # _room_occupied = True, provenance OR = False, hold active -> OK.
     assert _audit_provenance_invariants(tracker) == []

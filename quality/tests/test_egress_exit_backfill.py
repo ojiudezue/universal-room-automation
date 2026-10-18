@@ -82,6 +82,14 @@ class _RealDaoHarness:
         )
         return await cur.fetchone()
 
+    async def close(self):
+        """Close the aiosqlite connection -- its worker thread otherwise
+        leaks past the test (TEST-HARNESS D4b; caught by the conftest
+        thread-leak check)."""
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+
     # Emulate the URADatabase context managers used by the DAO methods.
     def _db(self):
         conn = self._conn
@@ -254,18 +262,21 @@ def test_exit_backfill_nearest_with_deterministic_tiebreak():
     async def _scenario():
         dao = _RealDaoHarness()
         await dao.open()
-        t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
-        t_tied = (t_hi - timedelta(seconds=200)).isoformat()
-        id_a = await dao.insert_null_exit(t_tied)
-        id_b = await dao.insert_null_exit(t_tied)
-        # An older row nearer to t_lo — must not be chosen.
-        await dao.insert_null_exit((t_hi - timedelta(seconds=500)).isoformat())
-        t_lo = (t_hi - timedelta(seconds=600)).isoformat()
-        rows = await dao.find_unnamed_exit_crossings(t_lo, t_hi.isoformat())
-        # First returned row wins — must be id_b (largest id at tied ts).
-        assert rows[0][0] == id_b
-        # And id_a must be strictly after id_b in the list (DESC on id).
-        assert rows[1][0] == id_a
+        try:
+            t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+            t_tied = (t_hi - timedelta(seconds=200)).isoformat()
+            id_a = await dao.insert_null_exit(t_tied)
+            id_b = await dao.insert_null_exit(t_tied)
+            # An older row nearer to t_lo — must not be chosen.
+            await dao.insert_null_exit((t_hi - timedelta(seconds=500)).isoformat())
+            t_lo = (t_hi - timedelta(seconds=600)).isoformat()
+            rows = await dao.find_unnamed_exit_crossings(t_lo, t_hi.isoformat())
+            # First returned row wins — must be id_b (largest id at tied ts).
+            assert rows[0][0] == id_b
+            # And id_a must be strictly after id_b in the list (DESC on id).
+            assert rows[1][0] == id_a
+        finally:
+            await dao.close()
     _run(_scenario())
 
 
@@ -282,17 +293,20 @@ def test_exit_backfill_second_edge_does_not_rewrite_named_row():
     async def _scenario():
         dao = _RealDaoHarness()
         await dao.open()
-        t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
-        row_id = await dao.insert_null_exit((t_hi - timedelta(seconds=100)).isoformat())
-        ok1 = await dao.backfill_entry_exit_person_id(row_id, "oji_udezue", 0.72)
-        assert ok1 is True
-        r = await dao.fetch(row_id)
-        assert r[2] == "oji_udezue"
-        # Second attempt for a different slug must NOT overwrite.
-        ok2 = await dao.backfill_entry_exit_person_id(row_id, "ezinne_udezue", 0.72)
-        assert ok2 is False
-        r = await dao.fetch(row_id)
-        assert r[2] == "oji_udezue"
+        try:
+            t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+            row_id = await dao.insert_null_exit((t_hi - timedelta(seconds=100)).isoformat())
+            ok1 = await dao.backfill_entry_exit_person_id(row_id, "oji_udezue", 0.72)
+            assert ok1 is True
+            r = await dao.fetch(row_id)
+            assert r[2] == "oji_udezue"
+            # Second attempt for a different slug must NOT overwrite.
+            ok2 = await dao.backfill_entry_exit_person_id(row_id, "ezinne_udezue", 0.72)
+            assert ok2 is False
+            r = await dao.fetch(row_id)
+            assert r[2] == "oji_udezue"
+        finally:
+            await dao.close()
     _run(_scenario())
 
 
@@ -692,20 +706,23 @@ def test_dao_backfill_preserves_confidence_column():
     async def _scenario():
         dao = _RealDaoHarness()
         await dao.open()
-        t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
-        row_id = await dao.insert_null_exit((t_hi - timedelta(seconds=100)).isoformat())
-        # Pre-set the crossing confidence to a distinctive value.
-        await dao._conn.execute(
-            "UPDATE person_entry_exit_events SET confidence = 0.91 WHERE id = ?",
-            (row_id,),
-        )
-        await dao._conn.commit()
-        ok = await dao.backfill_entry_exit_person_id(row_id, "oji_udezue", 0.72)
-        assert ok is True
-        r = await dao.fetch(row_id)
-        assert r[2] == "oji_udezue"
-        # Confidence UNCHANGED (would be 0.72 under the pre-fix UPDATE).
-        assert abs(float(r[3]) - 0.91) < 1e-9
+        try:
+            t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+            row_id = await dao.insert_null_exit((t_hi - timedelta(seconds=100)).isoformat())
+            # Pre-set the crossing confidence to a distinctive value.
+            await dao._conn.execute(
+                "UPDATE person_entry_exit_events SET confidence = 0.91 WHERE id = ?",
+                (row_id,),
+            )
+            await dao._conn.commit()
+            ok = await dao.backfill_entry_exit_person_id(row_id, "oji_udezue", 0.72)
+            assert ok is True
+            r = await dao.fetch(row_id)
+            assert r[2] == "oji_udezue"
+            # Confidence UNCHANGED (would be 0.72 under the pre-fix UPDATE).
+            assert abs(float(r[3]) - 0.91) < 1e-9
+        finally:
+            await dao.close()
     _run(_scenario())
 
 
