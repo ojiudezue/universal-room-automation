@@ -23,3 +23,9 @@
 {"action": "ack", "at": "2026-10-18T03:59:26.006Z", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1@2026-10-16T02:21:39"}
 {"action": "ack", "at": "2026-10-18T03:59:40.908Z", "card_id": "SAFETY-NO-INITIAL-SENSOR-PASS-1@2026-10-16T02:21:40"}
 {"action": "instruct", "at": "2026-10-18T03:59:46.122Z", "card_id": "SAFETY-NO-INITIAL-SENSOR-PASS-1", "text": "approved"}
+{"action": "ack", "at": "2026-10-18T04:00:04.572Z", "card_id": "SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1@2026-10-16T02:25:37"}
+{"action": "instruct", "at": "2026-10-18T04:02:06.621Z", "card_id": "EC-SELFHEAL-UNEXPLAINED-RESENDS-1", "text": "can we reconcile with the envoy reliability work first?"}
+{"action": "ack", "at": "2026-10-18T04:02:07.571Z", "card_id": "EC-SELFHEAL-UNEXPLAINED-RESENDS-1@2026-10-17T02:08:10"}
+{"action": "ack", "at": "2026-10-18T04:02:13.341Z", "card_id": "EC-OBSERVATION-MODE-RESERVE-BYPASS-1@2026-10-17T02:08:10"}
+{"action": "ack", "at": "2026-10-18T04:02:24.042Z", "card_id": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-17T02:10:11"}
+{"action": "ack", "at": "2026-10-18T04:02:39.372Z", "card_id": "SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1@2026-10-17T02:15:52"}
