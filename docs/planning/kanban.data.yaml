@@ -32375,6 +32375,16 @@ cards:
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
   revival_trigger: "Wigton re-enabled (WIGTON-URA-REENABLE-1) or another camera-less install onboarded."
   next: "Design a camera-less stuck-sensor detector (e.g. reuse OC stuck-sensor duty-cycle) before Wigton goes live."
+- id: HVAC-CONSENSUS-GATE-PIN-1
+  title: "HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus >= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned"
+  thread: hvac
+  status: investigating
+  tier: 2
+  created: "2026-10-18"
+  refinement_status: initial
+  origin: "Sleep-mask Rev 3 plan review R2-5 + Rev 3.1 re-check (PLAN_REVIEW_sleep_mask_rev3_1_recheck.md a319f2748): a 30-min cap was proposed in-cycle and pulled out as scope growth (would write Away over a real phone-less occupant; outside the kill switch; never measured)."
+  sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
+  next: "Measure first: recorder probe of sensor.ura_signal_consensus_confidence vs house state - has the gate ever engaged, for how long, and was a real occupant present? Expose the deferral duration. Then decide cap vs accept. Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md first; do not name it D6 (collides)."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

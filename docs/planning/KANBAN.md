@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-18T15:04:31-05:00_ - _Data commit: `3962b73c738b`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-18T15:14:31-05:00_ - _Data commit: `8d05925ed158`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-18T15:04:31-05:00_ - _Data commit: `3962b73c738b`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 3 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 15 |
 | 🔨 In progress | 1 |
@@ -49,7 +49,7 @@ _created 2026-10-18 · initial_
 - **Forensic keys (1):**
   - `tier`: 2
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `MASTER-BATH-NO-TRUSTED-PRESENCE-1` - Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -59,6 +59,13 @@ _created 2026-10-18 · refined_
 - **Forensic keys (2):**
   - `operator_question_2026_10_18`: Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion ...
   - `tier`: 1
+
+### `HVAC-CONSENSUS-GATE-PIN-1` - HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus >= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-10-18 · initial_
+- **Next:** Measure first: recorder probe of sensor.ura_signal_consensus_confidence vs house state - has the gate ever engaged, for how long, and was a real occupant present? Expose the deferral duration. Then decide cap vs accept. Read HVAC_ARCHITE...
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_

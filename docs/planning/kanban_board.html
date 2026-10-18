@@ -212,20 +212,20 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-18T15:04:31-05:00</b></span>
-<span>data <b>3962b73c738b</b></span>
+<span>generated <b>2026-10-18T15:14:31-05:00</b></span>
+<span>data <b>8d05925ed158</b></span>
 <span>reconciled <b>2026-10-18</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">0<span class="den"> / 179</span></span>
+<span class="metric">0<span class="den"> / 180</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 </section>
 <div class="summary">
 <span>Inbox <b>3</b></span>
-<span>Investigating <b>1</b></span>
+<span>Investigating <b>2</b></span>
 <span>Pre-planning <b>14</b></span>
 <span>Planned <b>15</b></span>
 <span>In progress <b>1</b></span>
@@ -246,9 +246,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="investigating">
-<h2>Investigating <span class="count">1</span><span class="hint">measuring; truth not yet known</span></h2>
+<h2>Investigating <span class="count">2</span><span class="hint">measuring; truth not yet known</span></h2>
 <div class="cards">
 <details class="card" data-id="MASTER-BATH-NO-TRUSTED-PRESENCE-1" draggable="true"><summary><span class="id">MASTER-BATH-NO-TRUSTED-PRESENCE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-18 · refined</div><dt>Next</dt><dd>PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -&gt; on A I wire it and re-run P3.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>operator_question_2026_10_18</code>: Operator: &#x27;For master bathroom is the InvisOutlet not working? It is a radar.&#x27; FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion ...</li><li><code>tier</code>: 1</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="HVAC-CONSENSUS-GATE-PIN-1" draggable="true"><summary><span class="id">HVAC-CONSENSUS-GATE-PIN-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus &gt;= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned</span><div class="tagline">hvac</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-18 · initial</div><dt>Next</dt><dd>Measure first: recorder probe of sensor.ura_signal_consensus_confidence vs house state - has the gate ever engaged, for how long, and was a real occupant present? Expose the deferral duration. Then decide cap vs accept. Read HVAC_ARCHITE...</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="pre_planning">
@@ -833,7 +834,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>3962b73c738b</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>8d05925ed158</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
