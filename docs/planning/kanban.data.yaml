@@ -32330,6 +32330,18 @@ cards:
   origin: "Rev 3 plan review R2 M2 + small-cycle plan"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "Measure which attributes change per poll; move the churny ones to _unrecorded_attributes, keeping those the scorecard and dashboard need history for."
+- id: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1
+  title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
+  thread: energy
+  status: planned
+  tier: 2
+  created: "2026-10-18"
+  refinement_status: refined
+  arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
+  sibling_of: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  origin: "Operator 2026-10-18: 'We can also calculate the bill from the tou rate and the energy draws... maybe 2 can be done simpler? We have a db... Card but add to current arc. I want it done.' Evidence: docs/planning/AUDIT_smarthub_bill_actual_2026_10_18.md (bcd227d63)."
+  operator_instruction_2026_10_18: "Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done."
+  next: "Step 1: clear energy_utility_meter_entity in CM options in the next restart window (read only at EC init, energy.py:612; a CM options change reloads the parent, so pair it with a planned restart). Step 2: plan (Tier 2): EC reads smarthub:* external statistics via HA recorder statistics_during_period (no SQL integration), prices each hour with the TOU engine, sums over the bill cycle (energy_bill_cycle_day=23), exposes utility_kwh / utility_cost / divergence kWh+% and $ on sensor.ura_energy_coordinator_predicted_bill; staleness flagged (hourly series lags ~16 h). Upstream: draft comment for gagata issue #72 is in the audit section 4 (posting needs operator yes)."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
