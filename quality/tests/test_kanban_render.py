@@ -121,14 +121,22 @@ def test_byte_stability_on_double_render():
 
 
 def test_html_is_self_contained(rendered):
-    """No external requests: no <link rel="stylesheet">, no <script src=>,
-    no CDN references."""
+    """No external requests except the URA brand fonts (operator 2026-10-17:
+    allow Google Fonts, added deliberately in the 2026-09-12 reskin). No
+    external scripts, no CDNs, no other hosts."""
+    import re
+    from urllib.parse import urlparse
+
     _, ht, _, _ = rendered
     lower = ht.lower()
-    assert '<link rel="stylesheet"' not in lower
     assert "<script src=" not in lower
     assert "cdn." not in lower
-    assert "googleapis" not in lower
+    allowed = {"fonts.googleapis.com", "fonts.gstatic.com"}
+    hosts = {
+        urlparse(u).hostname
+        for u in re.findall(r'(?:href|src)="(https?://[^"]+)"', ht, re.I)
+    }
+    assert hosts <= allowed, f"unexpected external hosts: {hosts - allowed}"
 
 
 def test_columns_grouping(data, rendered):
