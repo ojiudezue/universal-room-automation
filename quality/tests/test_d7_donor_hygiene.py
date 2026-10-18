@@ -89,6 +89,11 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.helpers.event", "async_track_state_change_event", "ha"),
         ("homeassistant.util.dt", None, "ha"),
     ],
+    # Parent attribute homeassistant.util.dt left on a stub (caught by the
+    # generic _parent_attr_residue check in test_probe).
+    "test_pc_observability_kill_switches.py": [
+        ("homeassistant.util.dt", None, "ha"),
+    ],
     # Borrows onboarding's _install_registries (and now its restore fixture).
     "test_room_create_prefill_filter.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
@@ -350,6 +355,10 @@ _DRILLS = {
         "    with _d7_import_scope(prefixes=(\"custom_components\",), attrs=True):",
         "    with _d7_import_scope(prefixes=()):",
     ),
+    "test_pc_observability_kill_switches.py": (
+        "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
+        "        if False:\n            if saved_parent_dt is _absent:",
+    ),
     # Un-scope the import block: restore nothing on exit.
     "test_hvac_fan_control.py": (
         "with _d7_import_scope() as _D7_INSTALLED:",
@@ -605,6 +614,15 @@ MULTI_DONOR_VICTIMS: dict[tuple[str, ...], list[str]] = {
     # ddmin over the 75-file default-order prefix -> these 4. Pre-fix: the
     # 10 identity_fusion suite failures (fresh-BLE / face legs judged
     # stale against a foreign clock). Fixed donor: test_carrier_freshness.
+    # ddmin over the 35-file reduced prefix -> these 2. Pre-fix: the 6
+    # v47x_dynamic_preset suite failures (re-imported dynamic_preset bound
+    # the stub dt left on homeassistant.util). Fixed donor: pc_observability.
+    (
+        "test_optimizer_reserve_hard_deny.py",
+        "test_pc_observability_kill_switches.py",
+    ): [
+        "test_v47x_dynamic_preset.py::TestWinterGateCalendarBoundary::test_jan_is_winter",
+    ],
     (
         "test_bathroom_exhaust_occupancy_and_resend.py",
         "test_carrier_freshness.py",
@@ -643,6 +661,10 @@ def test_victim_green_after_donor_set(donors, victim):
 
 
 _MULTI_DRILLS = {
+    "test_pc_observability_kill_switches.py": (
+        "        if saved_util is not None:\n            if saved_parent_dt is _absent:",
+        "        if False:\n            if saved_parent_dt is _absent:",
+    ),
     "test_carrier_freshness.py": (
         "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
