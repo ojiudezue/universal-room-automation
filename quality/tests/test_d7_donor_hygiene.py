@@ -135,6 +135,16 @@ DONOR_VICTIMS: dict[str, list[str]] = {
     # Run-time donor: pops `...domain_coordinators.presence` from sys.modules,
     # so a later `from ... import presence` yields a NEW module object. Fixed
     # victim-side (v4715 now patches the coordinator's own globals).
+    # Reproduced pre-fix: 15 weather_manager + 4 dpm_drift_guard + 1 v5110.
+    "test_identity_fusion_d2_d3_d4.py": [
+        "test_v47x_weather_manager.py::TestApparentFallback::test_apparent_fallback_to_raw",
+        "test_v4_7_18_dpm_drift_guard.py::TestCounterRestartResilience::test_restore_rehydrates_counter",
+        "test_v5110_optimizer_hardening.py::TestD9WriteVolumeTripwire::test_rolling_window_evicts_old_timestamps",
+    ],
+    # Reproduced pre-fix: signals.EnergyConstraint left as MagicMock.
+    "test_hvac_fan_control.py": [
+        "test_v47x_weather_manager.py::TestEnergyConstraintApparentField::test_apparent_field_defaults_to_none",
+    ],
     # Collect-time donor: binds an AWARE dt_util.utcnow at import, after the
     # NM files' own import-time naive write. Fixed victim-side (per-test pin).
     "test_v5_17_1_part3_seams.py": [
@@ -162,12 +172,16 @@ def _pair_ids():
 def test_victim_green_after_donor(donor, victim):
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
            "PYTHONPATH": str(_REPO / "quality")}
+    # Run the victim's WHOLE file (some leaks only bite after the victim
+    # file's own earlier tests have run) and require the named node PASSED.
+    vfile = victim.split("::", 1)[0]
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", str(_TESTS / donor), str(_TESTS / victim),
-         "-q", "-p", "no:cacheprovider", "--tb=short"],
+        [sys.executable, "-m", "pytest", str(_TESTS / donor), str(_TESTS / vfile),
+         "-q", "-p", "no:cacheprovider", "--tb=short", "-rA"],
         cwd=_REPO, env=env, capture_output=True, text=True, timeout=300,
     )
-    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-3000:]
+    out = proc.stdout + proc.stderr
+    assert f"PASSED quality/tests/{victim}" in out, out[-3000:]
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +213,14 @@ _DRILLS = {
 # neuter the donor fix -> the victim goes red).
 _PAIR_DRILLS = {
     "test_perimeter_alert_nm_routing.py": ("    yield\n    _scheduled.clear()\n", "    yield\n"),
+    "test_identity_fusion_d2_d3_d4.py": (
+        "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
+        "def _scope_real_ha_patches",
+    ),
+    "test_hvac_fan_control.py": (
+        "with _d7_import_scope() as _D7_INSTALLED:",
+        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
+    ),
 }
 
 
