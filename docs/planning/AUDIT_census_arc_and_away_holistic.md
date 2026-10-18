@@ -303,3 +303,158 @@ Honest reading: the set removes most flap churn and nearly all guest-bedroom AWA
 - Recorder `person.*` for Ziri has a single record (not_home from 10-11 18:11), so pre-18:11 "all away" cannot be asserted for 10-11; this does not affect any window used above.
 - Open-loop replay: real exit times held fixed; state-machine hysteresis (up to 120 s) not added; B's `first_seen` / known-person live re-check (`presence.py:5485-5535`) not modelled because all phones are away in every AWAY-eligible moment.
 - Not run: P0 resident-only GUEST check against the answer key (none exists); the 14-day post-ship re-run is the real test.
+
+---
+
+## Probe P3 2026-10-18 — still-holder radar rooms
+
+**Run:** Sun 2026-10-18 09:51-10:00 CDT by ura-prober. Read-only. Question: extend veto B from the guest bedrooms to every room whose occupancy comes from a still-holding presence radar (ZK/ZX), alongside guard A at W = 5 and W = 10 min. Read first: `SENSOR_FLEET_CLASSES.md` (ZK/ZX hold a still person, ZV is motion-class) and the P0 to P2 section above. Same windows and method as P0/P2: 30 d to 2026-10-18 07:30 CDT, ordinary days 09-18 to 10-13, Jaya+guest days from 10-14; recorder window 10-11 04:16 to 10-18 07:30 (7.2 d); A = camera-body hold using `census_snapshots.total_persons > 0`; hold rule and open-loop replay identical to P2 (`sim()`), generalised to hold on any room in a set. The P0 `why()`/someone-home proxy is reused unchanged (Kitchen excluded from the proxy). Scripts and extracts (not in repo): `.../scratchpad/p3/` (`common.py`, `a1.py` to `a14.py`, `sim.py`, `rec3.json`); they import `.../scratchpad/p/lib.py` from P0 to P2.
+
+### 0. Answer first
+
+1. **Do not extend B to all radar rooms.** It cuts ordinary-day someone-home AWAY entries to 0.12 to 0.27 per day, but it holds the house home across genuine departures: with all seven ZK/ZX-bearing rooms, 3 of 10 genuine departures never reach AWAY at all, and only 1 of 10 reaches AWAY within 15 min (today 7 of 10). Most of that is Study A, which is a phantom (below).
+2. **Classification by capability** (registry device models + `core.config_entries`, never entity names): 7 ZK/ZX-bearing rooms (Study A, Living Room, Master Bedroom, Kitchen, Ziri, Jaya, Exercise Room) plus Study B (LD2410 only) and Media (MS600). Of those, only **Jaya Bedroom** earns inclusion. Study A fails the guest-free control (occupied 696 of 2,781 min). Kitchen is the known fan phantom. Exercise Room's ZK radar was never on in 7.2 d, so it is not a still-holder in practice. Ziri's gain comes from one 26.5 h occupancy run. Living Room, Master Bedroom, Study B and Media each swallow a verified-empty absence for little gain.
+3. **Recommendation: A at W = 3 min (180 s), B on GB1, GB2 (cap 8 h) and Jaya Bedroom (cap 16 h).** At W = 3 the departure count within 15 min is unchanged from today (7 of 10, 4 of 6 strict); W = 5 loses one, W = 10 loses all.
+4. **The goal target is not met, and cannot be shown to be met.** (a) Someone-home AWAY entries on ordinary days: 0.90 per day with the recommended set if A's body predicate is `total_persons > 0` (upper-bound benefit), but **1.71 per day** with `unidentified_count > 0` only (the plan's real predicate, lower bound); the true figure lies between and the face half of the predicate is not stored. 4 of 26 ordinary days exceed 1 even at the favourable end. On Jaya+guest days it is 5.3 to 5.8 per day. (b) Departures within 15 min: 7 of 10 (4 of 6 strict) at W = 3, identical to today, so the target was already unmet before any change; no W fixes it because the existing zone grace plus census latency is about 9 min median.
+
+### 1. Rooms classified by capability
+
+Radar = a `presence_sensors` entry whose registry device is a radar (ZK `ZG-204ZK`, ZX `ZG-204ZX`, ESPHome LD2410 on an `esp32-c3` board, Screek `Human_Presence_Sensor`, Inovelli VZM32-SN mmWave, Meross MS600 16897). No room has a `sensor_capabilities` override except Game Room (`pir`). Excluded by capability: Master Bathroom (Intecular InvisOutlet, on the 2026-10-11 do-not-use list), Game Room (ZV motion, override `pir`; its URA trigger label says `mmwave` but the class is motion), all ZV rooms. The "occupied" signal used below is the room's `binary_sensor.<room>_occupied` (recorder) or `occupancy_events` (DB).
+
+| Room | Radar entities (family) | Other room sensors | Occupancy trigger mix, 30 d (entries) |
+|---|---|---|---|
+| Study A | `mmwave_zigbee_studya_presence` (ZK) | `athom_..._mmwave_sensor`: **unavailable in all 15 recorder rows, dead** | mmwave 280 |
+| Living Room | `screek_..._2412s_presence` (Screek), `mmwave_lux_temp_hum_zigbee_livingroom_presence` (ZX) | ZV motion | mmwave 489, motion 78 |
+| Master Bedroom | `screek_..._b38b24_presence` (Screek), `..._masterbedroom_presence` (ZX), `switch_mmwave_inovelli_occupancy` | 2 bed sensors | mmwave 226, occupancy_sensor 11 |
+| Kitchen | `mmwave_lux_wifi_esphome_kitchen_presence` (LD2410), `..._zigbee_kitchen_presence` (ZX) | Protect BLU motion | mmwave 896, motion 184 |
+| Ziri Bedroom | `ziri_3_presence` (LD2410), `..._ziribedroom_presence` (ZK) | `ziri_3_moving_target` | mmwave 63, motion 6 |
+| Jaya Bedroom | `jaya_3_presence` (LD2410), `..._jayabedroom_presence` (ZK) | none | mmwave 188 |
+| Exercise Room | `mmwave_zigbee_gameroom_presence` (ZK), **never on in 7.2 d (23 off rows)** | 2 ZV/PIR motion | **motion 31, mmwave 2** |
+| Study B | `mmwave_lux_wifi_esphome_studyb_presence` (LD2410) | none | mmwave 92 |
+| Media | `..._matter_wifi_mediaroom_occupancy` (MS600) | Meross motion bit | mmwave 36, motion 25 |
+| GB1 / GB2 (already in B) | MS600 Matter occupancy | Hobeian + Meross | see P1 |
+
+### 2. Per-room phantom and corroboration
+
+**Fan-phantom (recorder, all four phones not home: 3,458 min, of which 3,357 are the Jaya+guest trip and 101 are two pre-trip windows).** Format: room occupied min / with a room fan on / with the zone HVAC air handler cooling or heating / either. HVAC fan on = zone `climate` `hvac_action` in cooling or heating (fan_mode is `auto` throughout). Caveat that decides how to read this: Jaya and a guest were physically home on the trip, so occupied minutes there are not phantom; only the 101 pre-trip minutes and the guest-free controls (below) are clean. Also confounded: URA turns room fans on when the room is occupied.
+
+| Room | Occupied / fan / HVAC / either | Of which pre-trip (clean) | Radar-entity-on in same windows |
+|---|---|---|---|
+| Study A | 1 / 1 / 1 / 1 | 1 / 1 / 1 / 1 | 0 |
+| Living Room | 94 / 8 / 0 / 8 | 8 / 8 / 0 / 8 | 34 / 3 / 0 / 3 |
+| Master Bedroom | 0 | 0 | 0 |
+| Kitchen | **778 / 26 / 121 / 123** | 22 / 1 / 3 / 4 | 190 / 4 / 34 / 34 |
+| Ziri Bedroom | 0 | 0 | 0 |
+| Jaya Bedroom | 507 / 507 / 171 / 507 (all on the trip) | 0 | 478 / 478 / 188 / 478 |
+| Exercise Room | 6 / 0 / 1 / 1 | 0 | 0 |
+| Study B | 17 / 0 / 12 / 12 | 0 | 2 / 0 / 1 / 1 |
+| Media | 0 | 0 | 0 |
+| GB1 / GB2 (P1) | 59 / 0 / 3 / 3 ; 336 / 24 / 2 / 26 | 47 ; 8 | 36 ; 255 |
+
+Only Kitchen has a material fan or HVAC share (16% of its all-away occupied minutes). The Jaya figure reads 100% fan-on because her fan is occupancy-driven and she was home; the recorder cannot separate that from a phantom.
+
+**Corroboration** (a different sensor in the same room on within 5 min of the radar being on; sibling radars on different devices count as second sensors; recorder window 7.2 d). Minutes the radar was on / minutes with no second sensor within 5 min; in brackets the same inside all-phones-away windows.
+
+| Room | Result |
+|---|---|
+| Study A | **n/a: only one live sensor** (Athom dead) |
+| Living Room | Screek 948 / 641 (34 / 34 in away windows, all uncorroborated); ZX 108 / 0 |
+| Master Bedroom | Screek 911 / 1; ZX 1,347 / 31; Inovelli 1,210 / 204 (0 in away windows) |
+| Kitchen | LD2410 411 / 153 (71 / 58); ZX 970 / 188 (132 / 72) |
+| Ziri Bedroom | n/a: only one live sensor (LD2410 on 14 min in 7.2 d) |
+| Jaya Bedroom | LD2410 4,172 / 2,398 (**478 / 478**); ZK 751 / 108 (0 in away windows). The LD2410 held 478 trip minutes while the ZK saw nothing. Phantom or Jaya in bed: unknown |
+| Exercise Room | ZK never on: no data |
+| Study B | n/a: only sensor |
+| Media | MS600 110 / 0 |
+| GB1, GB2 | 464 / 0 and 583 / 0 (P1) |
+
+**Guest-free, all-away control windows (expected 0).** Control C1 = the six P1 episodes (AWAY 120 min or more, no GUEST state from 6 h before the start through the end; 2,781 min). Control C2 = AWAY 45 min or more, no GUEST, exit crossing at the start and entry crossing at the end (5 episodes, 1,038 min). Occupied minutes from `occupancy_events` (include the 300 s hold tail); no phone data exists before 10-11, so "all away" here is AWAY state plus crossings.
+
+| Room | C1 occupied min (episodes occupied at AWAY entry) | C2 occupied min |
+|---|---|---|
+| **Study A** | **696 (3 of 6)** | **678 (3 of 5)** |
+| Master Bedroom | 47 (1) | 122 (1) |
+| Living Room | 5 (0) | 26 (1) |
+| Kitchen | 0 | 30 (1) |
+| Jaya Bedroom | 0 | 9 (0) |
+| GB1 | 0 | 50 (0) |
+| Ziri, Study B, Media, Exercise, GB2 | 0 | 0 |
+
+Study A is the clear phantom: on 09-13 (residents oji, jaya, ezinne logged exiting 09:29 to 09:30) and on 09-22 (ezinne exit 11:52, jaya entry 19:17) Study A was "occupied" by the `mmwave` source for the entire 223 and 436 min absence. Its only live sensor is the ZK, so corroboration cannot catch it. Master Bedroom 09-04 (44 min inside a 255 min absence) and the C2 GB1 50 min are unexplained.
+
+### 3. Simulation
+
+**Reproduction check:** A at W = 10 gives 27 AWAY entries, 18 someone-home on ordinary days (0.70 per day) and 51 / 37 on trip days, matching the P0 table; strict departures 17.7, 17.2, 18.5, 21.6, 25.5, 34.1 min matches P0.
+
+Columns: AWAY and someone-home (SH) entries per day on ordinary days (25.7 d) and Jaya+guest days (4.3 d); "d>1" = ordinary days with more than one SH entry; departures within 15 min of the exit crossing (strict 6 / loose 10 / all genuine since 08-16, 10); "absorbed" = the genuine absence never reaches AWAY; VE = of 14 verified-empty absences (strict genuine departures since 08-16 plus C1 plus C2), how many the extension swallowed whole or delayed more than 2 min. Guest rooms are always in B with an 8 h cap; "ext cap" is per room, measured from the start of each room's occupied run.
+
+| Config | Ordinary AWAY / SH per day (d>1) | Trip AWAY / SH per day | Within 15 min strict / loose / genuine-10 (absorbed of 10) | VE swallowed / delayed |
+|---|---|---|---|---|
+| Today | 2.92 / 2.53 (15) | 22.3 / 16.2 | 4/6, 8/10, 7/10 (0) | 0 / 0 |
+| A W=3 only | 1.44 / 1.13 (6) | 17.9 / 13.2 | 4/6, 8/10, 7/10 (0) | 0 / 0 |
+| A W=3 + Bguest | 1.32 / 0.97 (4) | 15.1 / 9.7 | 4/6, 7/10, 7/10 (0) | 0 / 0 |
+| A W=5 + Bguest | 1.21 / 0.90 (3) | 12.8 / 8.1 | 3/6, 6/10, 6/10 (0) | 0 / 0 |
+| A W=10 + Bguest | 0.97 / 0.58 (2) | 10.0 / 6.5 | 0/6, 1/10, 0/10 (0) | 0 / 0 |
+| A W=5 + B all 7 ZK/ZX rooms, no cap | 0.70 / 0.23 (0) | 6.0 / 1.16 | 1/6, 2/10, 1/10 (3) | 4 / 4 |
+| A W=10 + B all 7 ZK/ZX rooms, no cap | 0.62 / 0.12 (0) | 4.9 / 1.16 | 0/6, 0/10, 0/10 (3) | 4 / 1 |
+| A W=5 + B all 7, ext cap 8 h | 0.86 / 0.43 (1) | 8.4 / 3.5 | 1/6, 3/10, 1/10 (2) | 2 / 6 |
+| A W=5 + B 5 rooms (no Study A, no Kitchen), no cap | 0.82 / 0.39 (1) | 7.2 / 1.16 | 2/6, 3/10, 4/10 (1) | 2 / 2 |
+| A W=10 + B 5 rooms, no cap | 0.70 / 0.23 (1) | 5.6 / 1.16 | 0/6, 0/10, 0/10 (1) | 2 / 0 |
+| A W=3 + Bguest + Jaya + Ziri, no cap | 0.97 / 0.58 (3) | 11.1 / 5.3 | 4/6, 6/10, 7/10 (0) | 0 / 1 |
+| A W=5 + Bguest + Jaya + Ziri, no cap | 0.86 / 0.51 (2) | 10.2 / 4.9 | 3/6, 4/10, 6/10 (0) | 0 / 2 |
+| A W=10 + Bguest + Jaya + Ziri, no cap | 0.74 / 0.35 (1) | 8.4 / 4.2 | 0/6, 0/10, 0/10 (0) | 0 / 1 |
+| A W=3 + Bguest + Jaya + Ziri, ext cap 12 h | 1.28 / 0.90 (4) | 13.5 / 7.7 | 4/6, 7/10, 7/10 (0) | 0 / 1 |
+| **A W=3 + Bguest + Jaya (cap 16 h)** | **1.28 / 0.90 (4)** | **11.1 / 5.3** | **4/6, 7/10, 7/10 (0)** | **0 / 1** |
+| A W=3 + Bguest + Jaya + Ziri, ext cap 24 h or none | 0.97 / 0.58 (3) | 11.1 / 5.3 | 4/6, 6/10, 7/10 (0) | 0 / 1 |
+
+Notes on the table:
+- The someone-home proxy shares sensors with the veto, so the all-room rows improve partly by construction (a room held is a room counted). The independent checks are the control windows, the verified-empty swallow count and the departure columns, and those are where the all-room rows fail.
+- The Ziri gain on ordinary days is one event: on 09-28 Ziri's room was occupied continuously 20:41 on 09-27 to 23:12 on 09-28 (1,591 min, 26.5 h) while the house flapped to AWAY 12 times between 14:21 and 16:59; Ziri's room is what holds 8 of those entries in the replay. Any cap at or below 16 h removes it; it needs 24 h or more. Whether that run was a person or a stuck radar is unknown (Ziri's room was occupied 660 of 660 min that afternoon with Study A, Study B and Master Bedroom also occupied).
+- Jaya's gain is on the trip (10-14 morning cluster, runs up to 934 min), where Jaya was home; her longest run is 15.6 h, so 16 h covers every observed run.
+- Jaya's caps: 12 h gives trip SH 7.7 per day, 16 h gives 5.3 per day; ordinary-day SH is 0.90 for any cap, since the only ordinary-day gain from the pair is the Ziri run.
+
+**Sensitivity to A's body predicate (lower bound).** With `unidentified_count > 0` only, A absorbs far less on ordinary days (face-recognised bodies are not stored in `census_snapshots`; the true predicate lies between the two). Ordinary / trip SH per day: A W=3 + Bguest 2.14 / 10.2; **A W=3 + Bguest + Jaya (16 h) 1.71 / 5.8**; W=5 same set 1.64 / 5.3; W=10 same set 1.56 / 4.9 (days over 1: 9 of 26 at W=3). Departure counts are unaffected (7 of 10 genuine within 15 min at W=3 and W=5).
+
+### 4. False-hold exposure per week
+
+Measured over 08-16 to 10-18 (9.1 weeks, 258 AWAY entries). "Verified empty" = 14 absences (10 strict genuine departures with exit crossing and no sustained body, C1, C2). "Entries held beyond Bguest" counts every non-guest-near AWAY entry delayed more than 2 min by the added rooms; it is an upper bound because it includes real occupants.
+
+| Added room (over A W=5 + Bguest) | Entries held / swallowed whole | Verified-empty hit (delayed / swallowed of 14) | Non-guest-near holds per week | Remaining hold p50 / p90 / max (min) | SH entries removed (30 d) |
+|---|---|---|---|---|---|
+| Study A | 20 / 17 | 4 / 3 | 1.32 | 9 / 219 / 432 | 11 |
+| Kitchen | 21 / 10 | 2 / 0 | 1.76 | 4 / 17 / 63 | 6 |
+| Exercise Room | 23 / 23 | 0 / 0 | 2.53 | 12 / 43 / 51 | 24 |
+| Master Bedroom | 11 / 8 | 2 / 1 | 1.10 | 4 / 73 / 275 | 9 |
+| Living Room | 13 / 5 | 2 / 1 | 0.33 | 6 / 10 / 28 | 4 |
+| Jaya Bedroom | 23 / 13 | 2 / 0 | 2.20 | 9 / 59 / 91 | 16 |
+| Ziri Bedroom | 10 / 10 | 0 / 0 | 0.77 | 4 / 205 / 205 | 8 |
+| Study B | 10 / 9 | 2 / 1 | 1.10 | 4 / 44 / 44 | 7 |
+| Media | 1 / 1 | 1 / 1 | 0.11 | 165 / 165 / 165 | 1 |
+
+Recommended set (A W=3 + Bguest + Jaya at 16 h): 1 verified-empty absence delayed (09-15, 8 min), 0 swallowed, about 2.6 non-guest-near holds per week as an upper bound (24 in 9.1 weeks; most are the 10-14 trip cluster and a few ordinary mornings). Exercise Room is the largest SH reducer but its holds are motion-sourced with a 12 to 51 min tail, not a still-hold; it is the biggest remaining miss and a sensor finding, not a veto candidate.
+
+### 5. Remaining misses by room (recommended set, A W=3 + Bguest + Jaya 16 h, SH entries)
+
+- **Ordinary days (23 SH entries, upper-bound predicate):** Master Bathroom 17 (InvisOutlet, do-not-use class), Study A 14, Master Bedroom 9, Ziri Bedroom 8 (all 09-28), Study B 7, Living Room 5. Entries can name several rooms.
+- **Jaya+guest days (23 SH entries):** Exercise Room 14, Living Room 6, Jaya Bedroom 3, Study B 1, GB2 1.
+- Everything left is people in rooms whose sensors are motion-class, phantom-prone, or unreliable (Exercise Room, Master Bathroom, Study A) or in rooms that failed the verified-empty test (Master Bedroom, Living Room, Study B).
+
+### 6. Recommendation
+
+| Decision | Recommendation | Why |
+|---|---|---|
+| Rooms | GB1, GB2 (existing), **add Jaya Bedroom only** | Jaya: 0 control occupancy in C1, 9 min in C2, swallows 0 of 14 verified-empty absences, delays 1 by 8 min. Do not add Study A (phantom), Kitchen (phantom, 123 fan-or-HVAC minutes of 778), Exercise Room (ZK silent, motion-sourced), Ziri (one 26.5 h run), Living Room / Master Bedroom / Study B / Media (each swallowed a verified-empty absence for 1 to 9 SH entries over 30 d) |
+| W | **3 min (180 s)** | Only W that keeps departures within 15 min at today's count (genuine 7/10, strict 4/6). W=5 drops to 6/10 and 3/6; W=10 to 0/10 |
+| Hold cap | **8 h guest rooms (P1 default stands), 16 h Jaya Bedroom** | Jaya's longest run is 15.6 h; below 16 h the trip gain falls (12 h: 7.7 SH per day vs 5.3). Ziri, if ever added, needs 24 h or more, which defeats a cap and is the reason to leave it out |
+| Marginal-benefit read | Jaya adds 0.07 SH per day on ordinary days (0.97 to 0.90) and 4.4 SH per day on trip days; the all-room version adds 0.7 SH per day more but costs 3 of 10 genuine departures | The extension is worth it only for the "Jaya alone home" case; on ordinary days guard A at W=3 plus Bguest does nearly all the work |
+
+**Goal check, plainly:** (1) at most 1 someone-home AWAY per day: **not met**. Ordinary days 0.90 per day best case, 1.71 per day with the stricter body predicate, and 4 (best case) to 9 of 26 days over 1; Jaya+guest days 5.3 to 5.8 per day. Reaching the target on trip days required holding on Study A, Kitchen, Exercise, Master Bedroom and Living Room, which fail the controls or swallow genuine absences. (2) departures within 15 min: **not met even today** (7 of 10 genuine, 4 of 6 strict; the strict misses today are 16.0 and 24.6 min and come from zone grace plus census latency, not the guard). W=3 holds the count flat; no W improves it.
+
+### 7. Caveats
+
+- No ground truth for who is home. Controls and "verified empty" are crossing-and-state proxies (14 absences); the recorder phone data covers only 7.2 d and its all-away windows are 97% the trip, when Jaya and a guest were home.
+- Occupancy minutes from the DB include the 300 s hold tail; the recorder `_occupied` entities were used for fan splits.
+- Fan data (room fan and zone HVAC action) exist only for the 7.2 d recorder window; control windows before 10-11 cannot be fan-split.
+- A's predicate sensitivity is large on ordinary days (0.90 vs 1.71 per day for the recommended set); the `face_recognized_count` half is not in `census_snapshots`. Add it (or the stamp store) before trusting any ordinary-day number.
+- Study A's Athom sensor and Exercise Room's ZK showing no on-time are separate sensor-health findings (not carded here).
+- The 09-28 Ziri run and the Jaya LD2410 478 uncorroborated trip minutes are phantom-or-real unknowns; neither could be settled from the recorder.
