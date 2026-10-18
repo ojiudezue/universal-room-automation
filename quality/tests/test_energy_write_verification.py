@@ -1738,29 +1738,59 @@ async def test_c_high_3_tap_normalizes_cloud_label_end_to_end():
 # C-MED-1 — H3 options round-trip: kill switch key lands in options
 # and runtime accessor reads it.
 # ------------------------------------------------------------------
-def test_c_med_1_h3_options_round_trip_source_anchor():
-    """REAL source anchor: config_flow.py MUST include
-    CONF_CENSUS_BLE_CANCEL_ENABLED as a vol.Optional in the
-    camera_census schema, AND the runtime accessor reads that key."""
-    root = _Path(__file__).resolve().parents[2]
-    cf_src = (root / "custom_components/universal_room_automation/"
-                    "config_flow.py").read_text()
-    assert "CONF_CENSUS_BLE_CANCEL_ENABLED" in cf_src, (
-        "kill-switch CONF key missing from config_flow"
+def test_c_med_1_h3_options_round_trip_behavioural():
+    """C-MED-1 round trip, driven through the REAL code (D4a, test-harness
+    Wave 1: replaces a config_flow.py source-text window grep that went
+    stale when the camera_census step grew past 5000 chars).
+
+    1. The real House options flow renders the camera_census step (Advanced)
+       with the BLE-cancel kill switch, defaulting to True.
+    2. Submitting it False lands False in the saved options.
+    3. The census runtime accessor reads those saved options -> False;
+       with the key absent it falls back to True.
+    """
+    from types import SimpleNamespace
+
+    from _room_menu_helpers import StubEntry, make_hass, render, run
+    from custom_components.universal_room_automation import config_flow as cf
+    from custom_components.universal_room_automation.camera_census import (
+        PersonCensus,
     )
-    # Ensure it's referenced INSIDE the camera_census step: locate the
-    # step body and confirm the key appears within a window.
-    idx = cf_src.find("async def async_step_camera_census")
-    assert idx != -1
-    body = cf_src[idx: idx + 5000]
-    assert "CONF_CENSUS_BLE_CANCEL_ENABLED" in body, (
-        "kill-switch not attached to camera_census schema"
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        ENTRY_TYPE_INTEGRATION,
     )
-    # Accessor site:
-    cc_src = (root / "custom_components/universal_room_automation/"
-                    "camera_census.py").read_text()
-    assert "def _get_ble_cancel_enabled" in cc_src
-    assert "CONF_CENSUS_BLE_CANCEL_ENABLED" in cc_src
+
+    key = "census_ble_cancel_enabled"
+    entry = StubEntry(
+        data={CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION}, options={},
+        entry_id="house1",
+    )
+    flow = cf.UniversalRoomAutomationOptionsFlow(entry)
+    flow.hass = make_hass()
+    flow.context = {"show_advanced_options": True}
+
+    form = render(flow, "camera_census")
+    defaults = cf._collect_schema_defaults(form["data_schema"])
+    assert key in defaults, "kill switch not on the camera_census form"
+    d = defaults[key]
+    assert (d() if callable(d) else d) is True
+
+    saved = run(flow.async_step_camera_census({key: False}))
+    assert saved["type"] == "create_entry"
+    assert saved["data"][key] is False
+
+    def _census_reading(options):
+        live = SimpleNamespace(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION}, options=options,
+        )
+        hass = SimpleNamespace(config_entries=SimpleNamespace(
+            async_entries=lambda domain=None: [live],
+        ))
+        return PersonCensus._get_ble_cancel_enabled(SimpleNamespace(hass=hass))
+
+    assert _census_reading(saved["data"]) is False
+    assert _census_reading({}) is True
 
 
 # ------------------------------------------------------------------

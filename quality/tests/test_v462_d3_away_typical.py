@@ -151,13 +151,22 @@ def test_staleness_number_entity_class_exists():
 
 
 def test_staleness_number_default_14():
-    src = _number_src()
-    idx = src.find("class BayesianCellStalenessNumber(")
-    assert idx >= 0
-    block = src[idx:idx + 2000]
-    assert '"bayesian_cell_staleness_days", 14' in block, (
-        "BayesianCellStalenessNumber default must be 14 days"
+    """D4a (test-harness Wave 1): drive the real entity instead of grepping
+    for a ``"bayesian_cell_staleness_days", 14`` literal (stale once the key
+    moved to the CONF_ constant). Absent option -> 14 days; a stored option
+    wins."""
+    from types import SimpleNamespace
+
+    from custom_components.universal_room_automation.number import (
+        BayesianCellStalenessNumber,
     )
+
+    def _value(options):
+        entry = SimpleNamespace(data={}, options=options, entry_id="cm")
+        return BayesianCellStalenessNumber(SimpleNamespace(), entry).native_value
+
+    assert _value({}) == 14, "BayesianCellStalenessNumber default must be 14 days"
+    assert _value({"bayesian_cell_staleness_days": 30}) == 30
 
 
 def test_staleness_number_range_7_to_90():

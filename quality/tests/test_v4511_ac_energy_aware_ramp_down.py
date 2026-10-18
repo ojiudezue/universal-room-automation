@@ -1280,79 +1280,60 @@ class TestImportResolution:
     signals.py. Source-grep tests verified the import statement existed
     but didn't verify the symbol resolved at the import target.
 
-    These tests AST-walk every `from .` import in number.py + switch.py
-    + button.py, then text-search the target module to confirm each
-    symbol is actually defined there.
+    D4a (test-harness Wave 1, Bug Class #62): the previous version
+    text-searched the target module for a definition pattern, which
+    false-failed on legitimate re-exports (button.py imports ``Severity``
+    from notification_manager, which re-exports it from ``.base``). Now
+    the check is behavioural: every intra-package ``from . import``
+    (module-level AND function-local) is resolved by ACTUALLY importing
+    the target module and requiring the name to be an attribute of it (or
+    an importable submodule) — exactly what Python does at runtime.
     """
 
-    def _check_imports_resolve(self, source: str, source_path_hint: str):
-        """Walk every from-import in `source`, follow to the target module,
-        verify each imported name appears as a definition there."""
-        import os
-        tree = ast.parse(source)
-        cc_root = "custom_components/universal_room_automation"
+    _PKG = "custom_components.universal_room_automation"
 
+    def _check_imports_resolve(self, module_name: str):
+        import importlib
+        import importlib.util
+
+        spec = importlib.util.find_spec(module_name)
+        assert spec is not None and spec.origin, module_name
+        with open(spec.origin) as f:
+            tree = ast.parse(f.read())
+        package = module_name.rsplit(".", 1)[0]
+        checked = 0
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
+            if not isinstance(node, ast.ImportFrom) or node.level == 0:
                 continue
-            if node.module is None:
-                continue
-            # Only check intra-package imports
-            if node.level == 0:
-                continue
-            # Resolve relative module path
-            base = cc_root
-            if node.level > 1:
-                # ".." goes up another level (uncommon here)
-                base = cc_root  # we keep it flat — patterns in this repo
-            module_rel = node.module.replace(".", os.sep)
-            candidates = [
-                f"{base}/{module_rel}.py",
-                f"{base}/{module_rel}/__init__.py",
-            ]
-            target = None
-            for c in candidates:
-                if os.path.exists(c):
-                    target = c
-                    break
-            if target is None:
-                continue  # external or HA core import
-            with open(target) as f:
-                target_src = f.read()
+            rel = "." * node.level + (node.module or "")
+            target_name = importlib.util.resolve_name(rel, package)
+            target = importlib.import_module(target_name)
             for alias in node.names:
-                symbol = alias.name
-                if symbol == "*":
+                if alias.name == "*":
                     continue
-                # Look for a likely definition: `symbol =`, `def symbol`,
-                # `class symbol`, or `symbol: Final` style.
-                patterns = [
-                    f"{symbol} =",
-                    f"{symbol}: Final",
-                    f"{symbol}: Final =",
-                    f"def {symbol}(",
-                    f"async def {symbol}(",
-                    f"class {symbol}",
-                    f"class {symbol}(",
-                ]
-                found = any(p in target_src for p in patterns)
-                assert found, (
-                    f"{source_path_hint}: imports {symbol} from "
-                    f"{node.module} but {target} does not define it"
+                checked += 1
+                if hasattr(target, alias.name):
+                    continue
+                # `from . import submodule` form.
+                sub = importlib.util.find_spec(f"{target_name}.{alias.name}")
+                assert sub is not None, (
+                    f"{module_name}: imports {alias.name} from "
+                    f"{target_name}, which does not provide it"
                 )
+        assert checked > 0, f"{module_name}: no relative imports found"
 
-    def test_number_imports_resolve(self, number_src):
-        self._check_imports_resolve(number_src, "number.py")
+    def test_number_imports_resolve(self):
+        self._check_imports_resolve(f"{self._PKG}.number")
 
-    def test_switch_imports_resolve(self, switch_src):
-        self._check_imports_resolve(switch_src, "switch.py")
+    def test_switch_imports_resolve(self):
+        self._check_imports_resolve(f"{self._PKG}.switch")
 
-    def test_button_imports_resolve(self, button_src):
-        self._check_imports_resolve(button_src, "button.py")
+    def test_button_imports_resolve(self):
+        self._check_imports_resolve(f"{self._PKG}.button")
 
-    def test_hvac_override_imports_resolve(self, hvac_override_src):
+    def test_hvac_override_imports_resolve(self):
         self._check_imports_resolve(
-            hvac_override_src,
-            "domain_coordinators/hvac_override.py",
+            f"{self._PKG}.domain_coordinators.hvac_override",
         )
 
 
