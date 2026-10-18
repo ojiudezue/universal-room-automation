@@ -197,7 +197,13 @@ def test_next_occupancy_time_device_class_is_timestamp(_ha_stubs):
         NextOccupancyTimeSensor,
     )
 
-    assert NextOccupancyTimeSensor._attr_device_class == SensorDeviceClass.TIMESTAMP
+    # D4c (2026-10-17): read through an INSTANCE. Under real HA the entity
+    # metaclass (CachedProperties) turns class-level ``_attr_device_class``
+    # into a property object, so the class-attribute read compared a
+    # property to the enum. The instance read returns the declared default
+    # under both the real metaclass and the plain-stub harness.
+    sensor = NextOccupancyTimeSensor(_fake_coordinator(_ha_stubs, next_time=None))
+    assert sensor._attr_device_class == SensorDeviceClass.TIMESTAMP
 
 
 def test_next_occupancy_time_writes_only_on_change(_ha_stubs):

@@ -20,6 +20,7 @@ string build ``face_sensor_id = f"sensor.{base_name}_last_recognized_face"``
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from types import MethodType
 from unittest.mock import MagicMock
@@ -37,9 +38,17 @@ from custom_components.universal_room_automation.const import DOMAIN  # noqa: E4
 class _State:
     def __init__(self, state: str, last_changed: datetime | None = None):
         self.state = state
-        # Match dt_util.utcnow() shape used in production (harness stubs
-        # it to naive datetime.utcnow — mixing tz-aware would raise).
-        self.last_changed = last_changed or datetime.utcnow()
+        # D4c (2026-10-17): stamp with the SAME ``dt_util.utcnow`` the
+        # presence module subtracts from (presence.py `_get_face_for_camera`
+        # freshness check). Under real HA it is tz-aware; a sibling stub
+        # harness may make it naive. A hard-coded naive ``datetime.utcnow()``
+        # raised TypeError against the real tz-aware clock, which the
+        # function's blanket ``except`` turned into a silent ``None`` — so
+        # both resolver tests failed when this file ran alone.
+        if last_changed is None:
+            _presence_mod = sys.modules[PresenceCoordinator.__module__]
+            last_changed = _presence_mod.dt_util.utcnow()
+        self.last_changed = last_changed
 
 
 def _install_states(hass, mapping: dict[str, _State | None]) -> None:
