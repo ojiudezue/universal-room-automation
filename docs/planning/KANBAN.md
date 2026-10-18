@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-18T00:30:49-05:00_ - _Data commit: `b4fd0dabf137`_ - _last_reconciled: 2026-10-17_
+_Generated: 2026-10-18T00:41:09-05:00_ - _Data commit: `317ec54d29e0`_ - _last_reconciled: 2026-10-17_
 
 
 ## Columns
@@ -270,12 +270,12 @@ _has plan / acceptance_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#1 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-15 02:15 · initial_
+_created 2026-09-29 04:20 · updated 2026-10-18 02:04 · initial_
 - **Problem / Solution:**
   - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
 - **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
 - **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
-- **Next:** PICK what 'the minimum is turning things off, with healthy timeouts' should mean for a room whose Automation switch is off: (A) the room still turns its lights OFF after a vacancy timeout but never turns anything ON (a 'fail-off' paused ...
+- **Next:** Me: verify against code whether a paused room (Automation switch off) is already fully inert (no on AND no off actions); build the gap if not (Tier 1-2), plus a forgotten-pause reminder only if cheap.
 - **Tags:** tier-1, found-during-probe, config-first
 - **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
 - **Forensic keys (21):**
@@ -303,11 +303,11 @@ _created 2026-09-29 04:20 · updated 2026-10-15 02:15 · initial_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#2 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **planned**
-_created 2026-09-14 00:20 · updated 2026-10-09 02:12 · refined_
+_created 2026-09-14 00:20 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
-- **Next:** ANSWER: did you apply that detection-zone crop or mask to front_side_ptz on or around 09-14/15? It matters because the camera has gone from 204 person-detections a day to exactly 1, and has stayed there for three days, while its motion d...
+- **Next:** Answered 10-17 (crop applied ~09-14/15, still too noisy). Work continues on PERIMETER-ALERT-VOLUME-FATIGUE-1 lever A (fix front_side_ptz at the source); this card closes when that lands.
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
@@ -333,12 +333,12 @@ _created 2026-09-14 00:20 · updated 2026-10-09 02:12 · refined_
 
 ### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#3 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-09-23 03:10 · updated 2026-09-28 02:55 · refined_
+_created 2026-09-23 03:10 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: URA checks its own energy bookkeeping by adding up everything it attributed to individual rooms and comparing that against the meter for the whole house. On several evenings the room total has crept PAST the whole-house figure a...
 - **Origin:** 2026-09-23 - fell out of the 10-day recorder measurement run to size the midnight window on COVERAGE-RATING-FALSE-ANOMALOUS-1; the ANOMALOUS samples split into two populations and only one of them was the artifact that card describes
 - **Why:** The coverage self-check is URA's only internal audit of its own energy attribution, and it is the input to any claim that per-room energy numbers are trustworthy. A sustained multi-hour impossible reading either means the attribution is ...
-- **Next:** PICK (operator): (A) as planned: a NEW integration options field "whole-house total consumption" read only by the coverage audit. Simple and local, but it duplicates an existing setting. (B) REUSE, my recommendation: the coverage audit r...
+- **Next:** Me (default B taken 10-17): point the coverage audit at the EXISTING lifetime whole-house consumption entity instead of adding a new options field; Tier 1-2 build to review.
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first
 - **Parsimony:** [BUILD] On at least three of the last five evenings, attributed room energy exceeded whole-house energy by a growing margin for 6-10 consecutive hours, which is physically impossible and therefore means one of the two inputs is wrong.
 - **Refs:** commit c5ea7dfc7 — the sibling fix, whose measurement produced this finding; docs/planning/PLANNING_energy_unit_normalization_and_attribution.md — prior art on the unit-mismatch story the classifier used to assert
@@ -351,13 +351,25 @@ _created 2026-09-23 03:10 · updated 2026-09-28 02:55 · refined_
   - `input_health_2026_09_27`: INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA...
   - `measured_2026_09_23`: FIRST MEASUREMENT, which is what created this card. Ten days of recorder history for sensor.universal_room_automation_energy_coverage_delta, grouped by local hour, all samples rated Anomalous. Three clean episodes: 2026-09-21 14:00-23:00...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#4 · WSJF 4.3 · v6 tc5 u2 /e3_
+### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#4 · WSJF 4.3 · v7 tc4 u2 /e3_
+status: **planned** - approval: **explicit**
+_updated 2026-10-18 02:06 · refined_
+- **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
+- **Next:** Me, right after SAFETY-NM-REFIRE-UNWIRED-1 merges (same file): Tier 2 hotfix-sized cycle - in _enter_alerting, keep an active unacknowledged life-safety alert in the slot when the newcomer is not life-safety (newcomer still delivered); t...
+- **Parsimony:** [SIMPLIFY - life-safety precedence on the active slot, not full multi-alert tracking] NM keeps one active CRITICAL; a later CRITICAL (perimeter ~23/day) replaces an active life-safety alert's 30 s repeat with a 300 s one and redirects ack.
+- **Forensic keys (4):**
+  - `measured_2026_10_16_overnight`: One-shot read-only (2026-10-16 02:10 CDT; URA notification_log, 09-15..10-16, script .claude/tmp/nm_overlap.py; multi-channel rows of one alert collapsed within 10 s, dry-run excluded). 3,132 CRITICAL rows = 817 CRITICAL alerts: perimete...
+  - `tier`: 2
+  - `related`: SAFETY-NM-REFIRE-UNWIRED-1
+  - `unblocked_2026_10_18_overnight`: Dependency cleared: SAFETY-NM-REFIRE-UNWIRED-1 merged and shipped (feature/safety-nm-refire 0 ahead of develop; in v5.103.69).
+
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#5 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **security** - status: **planned** - approval: **unreviewed**
-_created 2026-09-12 20:45 · updated 2026-10-16 02:07 · refined_
+_created 2026-09-12 20:45 · updated 2026-10-18 02:06 · refined_
 - **Problem / Solution:**
   - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
 - **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
-- **Next:** PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building a second rate limiter): (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is already yours on FRONT-SIDE-...
+- **Next:** Lever A chosen 10-17 (crop applied ~09-14/15 and still too noisy -> fix front_side_ptz at the source). Me: one-shot measure which producer (Frigate2 vs Protect) and which detection path still drives front_side_ptz alerts since the crop, ...
 - **Tags:** no-fabrication-verify
 - **Refs:** notification_log hazard_type=exterior_person
 - **Forensic keys (16):**
@@ -378,25 +390,14 @@ _created 2026-09-12 20:45 · updated 2026-10-16 02:07 · refined_
   - `repage_blind_spot_2026_09_14`: FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session). The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to notification_log**. Verified in source: every `log_notif...
   - `lever_A_may_be_spent_2026_09_19`: LEVER (A) HAS LARGELY FIRED ALREADY, without anyone pulling it — re-measure before choosing. This card offers SOURCE-suppression of front_side_ptz as option (A) on the grounds that it is 42%% of all exterior alerts. But that camera now p...
 
-### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#5 · WSJF 4.3 · v7 tc4 u2 /e3_
-status: **planned** - approval: **explicit**
-_updated 2026-10-16 02:10 · refined_
-- **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
-- **Next:** Me, right after SAFETY-NM-REFIRE-UNWIRED-1 merges (same file): Tier 2 hotfix-sized cycle - in _enter_alerting, keep an active unacknowledged life-safety alert in the slot when the newcomer is not life-safety (newcomer still delivered); t...
-- **Parsimony:** [SIMPLIFY - life-safety precedence on the active slot, not full multi-alert tracking] NM keeps one active CRITICAL; a later CRITICAL (perimeter ~23/day) replaces an active life-safety alert's 30 s repeat with a 300 s one and redirects ack.
-- **Forensic keys (3):**
-  - `measured_2026_10_16_overnight`: One-shot read-only (2026-10-16 02:10 CDT; URA notification_log, 09-15..10-16, script .claude/tmp/nm_overlap.py; multi-channel rows of one alert collapsed within 10 s, dry-run excluded). 3,132 CRITICAL rows = 817 CRITICAL alerts: perimete...
-  - `tier`: 2
-  - `related`: SAFETY-NM-REFIRE-UNWIRED-1
-
 ### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#6 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **planned** - approval: **implied**
-_created 2026-09-17 02:20 · updated 2026-10-07 02:45 · refined_
+_created 2026-09-17 02:20 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
 - **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
 - **Why:** the outage card asks what happened to the cameras; this card is the durable defect underneath it, and they are different problems. The measured recurrence is the argument: this is not a one-off worth a shrug, it is a producer that fails ...
-- **Next:** APPROVE the redesign (I stopped because both reviews came back DO-NOT-SHIP, which is a mandatory pause). The build is done but does not work: it counts silence in memory, and the nightly config-entry reload storm resets that memory every...
+- **Next:** Me (default taken 10-17): redo the trip-wire to read each camera's quiet time from the entities at check time (survives reloads), re-size the threshold against 'no camera reported anyone', replace the hollow test, then both reviews again...
 - **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
 - **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
@@ -416,9 +417,9 @@ _created 2026-09-17 02:20 · updated 2026-10-07 02:45 · refined_
 
 ### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#7 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **planned**
-_created 2026-10-05 · updated 2026-10-14 02:23_
+_created 2026-10-05 · updated 2026-10-18 02:04_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
-- **Next:** PICK how URA hides advanced settings once HA removes profile Advanced mode from flows (2027.6): (A) collapsible Advanced sections in each form (HA guidance; my recommendation), (B) one URA-owned Show-advanced-settings switch in the integ...
+- **Next:** Me (default A taken 10-17): plan the collapsible Advanced sections in each URA form ahead of HA 2027.6; Tier 1-2.
 - **Tags:** tier-1, multi-home
 - **Forensic keys (7):**
   - `triage_2026_10_17`: Default A taken: collapsible Advanced sections.
@@ -488,15 +489,7 @@ _created 2026-10-17 23:40_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `SECURITY-REFIRE-INTRUSION-KEY-1` - Security alerts never re-fire after their cooldown: the re-check looks for 'intrusion' but Security emits 'intruder' — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-status: **planned**
-- **Why:** security.py:827 re-evaluates only hazard_type in ('intrusion','entry_alert','unknown_person'), but Security emits hazard_type='intruder' (security.py:1051, :1581). So an acknowledged intruder alert never re-pages after cooldown even if t...
-- **Next:** Me: Tier 1 hotfix after the safety re-page cycle (same NM re-fire path): accept both spellings or align on 'intruder', with a test driving NM cooldown -> security _re_evaluate_hazard.
-- **Forensic keys (2):**
-  - `tier`: 1
-  - `related`: SAFETY-NM-REFIRE-UNWIRED-1
-
-### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **wigton** - status: **planned**
 _created 2026-10-10 16:00_
 - **Why:** URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls).
@@ -506,12 +499,12 @@ _created 2026-10-10 16:00_
   - `applied_2026_10_17`: Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Be...
   - `tier`: 1
 
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **planned** - approval: **explicit**
-_updated 2026-10-16 02:25_
+_updated 2026-10-18 02:04_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
-- **Next:** PICK (recommended defaults: 1c wait out a recovered cooldown, page once if NM has no state; 2a actuators same as a live event, with the D5 stuck-sensor trip-wire; 3 D5 threshold 24 h). -> After feature/safety-nm-refire merges (Sun 10-18)...
-- **Forensic keys (8):**
+- **Next:** Me: build to review (Tier 2-DB, three reviews) with the approved defaults (1c wait out a recovered cooldown, page once if NM has no state; 2a actuators same as a live event + D5 stuck-sensor trip-wire; 3 D5 threshold 24 h). Dependency cl...
+- **Forensic keys (9):**
   - `operator_instruction_2026_10_17`: approved (board, 2026-10-18T03:59:46.122Z)
   - `triage_2026_10_17`: Default taken: card's recommended defaults; build after the Sun 10-18 merge.
   - `constraint_2026_10_17_overnight`: From SAFETY-PRE-NM-SETUP-NOTIFY-RACE-1 (parked): the startup pass runs inside the window where NM may not yet have restored its saved alert state (ack/cooldown). The plan must either run the pass after NM restore completes or queue the r...
@@ -520,6 +513,17 @@ _updated 2026-10-16 02:25_
   - `plan_2026_10_16_overnight`: Plan drafted: docs/planning/PLANNING_safety_initial_sensor_pass.md (Tier 2-DB, written against feature/safety-nm-refire; build starts after that branch merges, deploy held to Sun 10-18). Design: after the Coordinator Manager has set up e...
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
+  - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
+
+### `SECURITY-REFIRE-INTRUSION-KEY-1` - Security alerts never re-fire after their cooldown: the re-check looks for 'intrusion' but Security emits 'intruder' — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+status: **planned**
+_updated 2026-10-18 02:06_
+- **Why:** security.py:827 re-evaluates only hazard_type in ('intrusion','entry_alert','unknown_person'), but Security emits hazard_type='intruder' (security.py:1051, :1581). So an acknowledged intruder alert never re-pages after cooldown even if t...
+- **Next:** Me: Tier 1 hotfix after the safety re-page cycle (same NM re-fire path): accept both spellings or align on 'intruder', with a test driving NM cooldown -> security _re_evaluate_hazard.
+- **Forensic keys (3):**
+  - `tier`: 1
+  - `related`: SAFETY-NM-REFIRE-UNWIRED-1
+  - `unblocked_2026_10_18_overnight`: Dependency cleared: the safety re-page cycle merged and shipped (in v5.103.69).
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#17 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -592,10 +596,10 @@ _created 2026-08-19 07:45 · updated 2026-10-14 02:20 · refined_
 
 ### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#20 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **planned** - approval: **blocked**
-_created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
+_created 2026-09-29 20:05 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: three history tables (room temperature/humidity readings, room energy readings, room occupancy events) are never trimmed. They have kept every row since November 2025 and, with their indexes, make up about 72% of the 1.35 GB dat...
-- **Next:** PICK the retention window: (A) 90 days (reuses the unused RETENTION_ENERGY_HISTORY; every code reader needs at most 30 days; frees roughly 700 MB, which the nightly incremental vacuum returns over time) - my recommendation; (B) 365 days ...
+- **Next:** Me: write the Tier 2-DB plan for 365-day retention on environmental_data / energy_snapshots / occupancy_events (+ room_transitions unless the plan finds a reason not to), batched nightly DELETE like cleanup_person_data, first run capped,...
 - **Forensic keys (3):**
   - `operator_answer_2026_10_17`: Operator 2026-10-17: retention 365 days (option B) for environmental_data / energy_snapshots / occupancy_events. room_transitions: same 365 unless the plan shows a reason not to. Tier 2-DB; offline DB copy before first prune.
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
@@ -1049,11 +1053,11 @@ _created 2026-10-14 02:10_
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#2 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_me**
-_created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
+_created 2026-09-21 · updated 2026-10-18 02:04 · refined ×1_
 - **Problem / Solution:**
   - Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy background tasks _async_try_refr...
 - **Why:** the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.
-- **Next:** PICK: (A) I draft an upstream report for home-assistant/core (the setup hang that never returns and never logs, plus the EnvoyClientClosedError-is-a-RuntimeError path the #181243 fix misses), for you to review and post; (B) accept the cu...
+- **Next:** Me (default A taken 10-17): draft the upstream home-assistant/core report (setup hang that never returns or logs + the EnvoyClientClosedError-is-a-RuntimeError path #181243 misses, + the nightly ~23:05 window) as a doc for the operator t...
 - **Tags:** energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident
 - **Forensic keys (15):**
   - `triage_2026_10_17`: Default taken: I draft the upstream HA report; operator posts it.
@@ -1074,12 +1078,12 @@ _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#3 · WSJF 2.6 · v7 tc4 u2 /e5_
 thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
-_created 2026-10-14 02:50 · updated 2026-10-16 02:05 · refined_
+_created 2026-10-14 02:50 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: about once a minute the whole of Home Assistant stops for ~1.8 seconds while Python does a full memory clean-up. Everything waits: lights, sensors, URA's decisions. The clean-up is slow because the heap holds a very large number...
 - **Origin:** 2026-10-14 - HM v2.1 W16 read on the overnight pass proved the GC hypothesis for the ~2 s/80 s house-wide pauses
 - **Why:** This is the residual house-wide pause the v5.103.56 cycle explicitly left as "not URA, GC hypothesis pending". It is now confirmed and has a measurable target.
-- **Next:** APPROVE (default I take next attended session if not vetoed, Tier 1, reversible): set Health Monitor option gc_refreeze_h 0 -> 4 h -> I re-read gc_gen2_1h / loop_stalls 8-12 h later and close this card if pauses stay near the post-freeze...
+- **Next:** Me, next ATTENDED session (default taken 10-17; it is an HA config write so not overnight): set Health Monitor option gc_refreeze_h 0 -> 4 h, then re-read gc_gen2_1h / loop_stalls 8-12 h later; close if pauses stay <5/h, else lower to 2 h.
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
 - **Forensic keys (8):**
@@ -1094,12 +1098,12 @@ _created 2026-10-14 02:50 · updated 2026-10-16 02:05 · refined_
 
 ### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#4 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_me** - approval: **unreviewed**
-_created 2026-09-27 02:40 · updated 2026-10-17 02:10 · refined_
+_created 2026-09-27 02:40 · updated 2026-10-18 02:04 · refined_
 - **Problem / Solution:**
   - Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30...
 - **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.
 - **Why:** Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.
-- **Next:** PICK (operator): (A) RETIRE ON PURPOSE, my recommendation. Leave the detector off, and mark it in code and in the Safety coordinator doc as "dormant by design, revisit only with a redesign". The accidental off-switch becomes a documented...
+- **Next:** Me (default A taken 10-17): write the 'dormant by design, revisit only with a redesign' note in the Safety coordinator doc + a code comment at the detector; Tier 1, rides the next safety ship.
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify
 - **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
 - **Forensic keys (6):**
