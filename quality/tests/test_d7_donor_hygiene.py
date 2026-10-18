@@ -132,6 +132,13 @@ DONOR_VICTIMS: dict[str, list[str]] = {
     # Run-time donor: pops `...domain_coordinators.presence` from sys.modules,
     # so a later `from ... import presence` yields a NEW module object. Fixed
     # victim-side (v4715 now patches the coordinator's own globals).
+    # Collect-time donor: binds an AWARE dt_util.utcnow at import, after the
+    # NM files' own import-time naive write. Fixed victim-side (per-test pin).
+    "test_v5_17_1_part3_seams.py": [
+        "test_nm_cycle_c2_fixup.py::test_router_mute_exception_extras_promoted",
+        "test_nm_cycle_c_routing_matrix.py::TestC4MuteShortcut::test_mute_expiry_auto_clears",
+        "test_nm_image_delivery.py::TestD2ForceImmediateOverride::test_force_immediate_respects_silence_until",
+    ],
     "test_oc_pillar_a_handshake.py": [
         "test_v4715_universalize_veto.py::TestD3InferenceOrchestration::test_guest_exit_fires_after_sustained_quiet",
     ],
@@ -253,11 +260,21 @@ _V4715_REVERT = (
     "from custom_components.universal_room_automation.domain_coordinators "
     "import presence as _pm\n        with _patch.object(_pm, 'dt_util', _mock_dt):"
 )
+def _unpin_nm_clock(src: str) -> str:
+    return src.replace(
+        "@pytest.fixture(autouse=True)\ndef _d7_naive_nm_clock",
+        "def _d7_naive_nm_clock",
+    )
+
+
 _VICTIM_SIDE_DRILLS = {
     "test_v4715_universalize_veto.py": (
         lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
         "test_oc_pillar_a_handshake.py",
     ),
+    "test_nm_cycle_c2_fixup.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
+    "test_nm_cycle_c_routing_matrix.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
+    "test_nm_image_delivery.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
 }
 
 
