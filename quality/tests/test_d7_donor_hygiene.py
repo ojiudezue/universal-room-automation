@@ -49,6 +49,13 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
     "test_appliance_coordinator_v1a.py": [
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
     ],
+    "test_bathroom_exhaust_occupancy_and_resend.py": [
+        ("homeassistant.core", "callback", "ha"),
+        ("homeassistant.core", "HomeAssistant", "ha"),
+        ("homeassistant.helpers.entity_registry", "async_get", "ha"),
+        ("homeassistant.helpers.event", "async_track_state_change_event", "ha"),
+        ("homeassistant.util.dt", None, "ha"),
+    ],
     "test_census_device_switches.py": [
         ("custom_components.universal_room_automation", None, "ura"),
         ("custom_components.universal_room_automation.domain_coordinators", None, "ura"),
@@ -140,6 +147,13 @@ DONOR_VICTIMS: dict[str, list[str]] = {
     # Run-time donor: pops `...domain_coordinators.presence` from sys.modules,
     # so a later `from ... import presence` yields a NEW module object. Fixed
     # victim-side (v4715 now patches the coordinator's own globals).
+    # Collection-time donor; reproduced pre-fix: exactly the 9 suite names.
+    "test_bathroom_exhaust_occupancy_and_resend.py": [
+        "test_dp_drain_target_value_stamp.py::test_debounce_first_none_tick_holds_pause",
+        "test_evse_drain_precedence_session_b2b_i.py::test_force_charge_preempts_dp_pause_release",
+        "test_evse_drain_precedence_session_b2b_ii.py::test_must_start_by_arm_skipped_when_fire_at_in_past",
+        "test_evse_drain_precedence_session_b2c2_fixup.py::test_transition_entry_pauses_actual_configured_evse_id",
+    ],
     # Reproduced pre-fix: 15 weather_manager + 4 dpm_drift_guard + 1 v5110.
     "test_identity_fusion_d2_d3_d4.py": [
         "test_v47x_weather_manager.py::TestApparentFallback::test_apparent_fallback_to_raw",
@@ -222,6 +236,10 @@ _DRILLS = {
 # neuter the donor fix -> the victim goes red).
 _PAIR_DRILLS = {
     "test_perimeter_alert_nm_routing.py": ("    yield\n    _scheduled.clear()\n", "    yield\n"),
+    "test_bathroom_exhaust_occupancy_and_resend.py": (
+        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
+        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
+    ),
     "test_identity_fusion_d2_d3_d4.py": (
         "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
         "def _scope_real_ha_patches",

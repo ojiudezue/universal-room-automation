@@ -30,10 +30,37 @@ def _matches(name: str, prefixes) -> bool:
     return any(name == p or name.startswith(p + ".") for p in prefixes)
 
 
+_MISSING = object()
+
+
+class Installed(dict):
+    """sys.modules entries the block installed; ``.attrs`` holds attribute
+    writes it made onto modules that already existed (``attrs=True``):
+    {module name: {attr: new value or _MISSING-for-deleted}}."""
+
+    def __init__(self):
+        super().__init__()
+        self.attrs: dict = {}
+
+
+def _vars(mod):
+    try:
+        return dict(vars(mod))
+    except TypeError:
+        return None
+
+
 @contextmanager
-def import_scope(prefixes=DEFAULT_PREFIXES):
+def import_scope(prefixes=DEFAULT_PREFIXES, attrs=False):
+    """Restore sys.modules keys under ``prefixes`` on exit.
+
+    attrs=True additionally restores ATTRIBUTE writes the block made onto
+    modules that already existed (e.g. ``setattr(real_ha_core, "callback",
+    stub)``) — the shape a plain sys.modules restore cannot see.
+    """
     before = {k: v for k, v in list(sys.modules.items()) if _matches(k, prefixes)}
-    installed: dict = {}
+    before_vars = {k: _vars(m) for k, m in before.items()} if attrs else {}
+    installed = Installed()
     try:
         yield installed
     finally:
@@ -41,6 +68,22 @@ def import_scope(prefixes=DEFAULT_PREFIXES):
         for k, v in after.items():
             if before.get(k) is not v:
                 installed[k] = v
+        for k, old in before_vars.items():
+            mod = before[k]
+            if old is None:
+                continue
+            now = _vars(mod) or {}
+            changed = {a: v for a, v in now.items() if old.get(a, _MISSING) is not v}
+            removed = {a: _MISSING for a in old if a not in now}
+            if changed or removed:
+                installed.attrs[k] = {**changed, **removed}
+                for a in changed:
+                    if a in old:
+                        setattr(mod, a, old[a])
+                    else:
+                        delattr(mod, a)
+                for a in removed:
+                    setattr(mod, a, old[a])
         for k in after:
             if k not in before:
                 sys.modules.pop(k, None)
@@ -54,8 +97,21 @@ def reinstall(installed: dict, prefixes=DEFAULT_PREFIXES):
     block put in, run the module's tests, then put every key under
     ``prefixes`` back as it was before -- including modules the tests
     imported lazily against the stubs (e.g. a production module loaded
-    under a placeholder package at test time)."""
-    with import_scope(prefixes):
+    under a placeholder package at test time) and, when the block was
+    scoped with ``attrs=True``, its attribute writes on pre-existing
+    modules."""
+    attr_writes = getattr(installed, "attrs", {})
+    with import_scope(prefixes, attrs=bool(attr_writes)):
         for k, v in installed.items():
             sys.modules[k] = v
+        for k, writes in attr_writes.items():
+            mod = sys.modules.get(k)
+            if mod is None:
+                continue
+            for a, v in writes.items():
+                if v is _MISSING:
+                    if hasattr(mod, a):
+                        delattr(mod, a)
+                else:
+                    setattr(mod, a, v)
         yield
