@@ -202,7 +202,7 @@ def restore_clocks_after_test(monkeypatch, module_globals: dict) -> None:
     drives with ``_set_now`` so monkeypatch puts them back after the test.
 
     Those files bind a production module's ``dt_util`` (names ending in
-    ``dt_util``, or ``<x>_mod.dt_util``). That object can be the REAL
+    ``dt_util``, or ``<x>_mod.dt_util``) and their own ``_dt_mock``. That object can be the REAL
     homeassistant.util.dt -- or an orphaned real copy no longer in
     sys.modules, which no sys.modules-based restore can see -- so a frozen
     ``_set_now`` clock used to outlive the file (victims:
@@ -210,7 +210,7 @@ def restore_clocks_after_test(monkeypatch, module_globals: dict) -> None:
     targets = []
     for name, val in list(module_globals.items()):
         cand = None
-        if name.endswith("dt_util") and hasattr(val, "utcnow"):
+        if (name.endswith("dt_util") or name == "_dt_mock") and hasattr(val, "utcnow"):
             cand = val
         elif name.endswith("_mod") and hasattr(getattr(val, "dt_util", None), "utcnow"):
             cand = val.dt_util

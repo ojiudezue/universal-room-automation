@@ -100,6 +100,15 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.helpers.event", "async_track_state_change_event", "ha"),
         ("homeassistant.util.dt", None, "ha"),
     ],
+    # Review C (slice 2): collected last; installed a placeholder URA package
+    # + directly loaded hvac modules for every earlier file's RUN.
+    "test_zzz_v318_hvac_sensors.py": [
+        ("custom_components.universal_room_automation", None, "ura"),
+        ("custom_components.universal_room_automation.const", None, "ura"),
+        ("custom_components.universal_room_automation.domain_coordinators", None, "ura"),
+        ("custom_components.universal_room_automation.domain_coordinators.hvac_fans", None, "ura"),
+        ("homeassistant.util.dt", None, "ha"),
+    ],
     "test_carrier_freshness.py": [
         ("homeassistant.core", "callback", "ha"),
         ("homeassistant.core", "HomeAssistant", "ha"),
@@ -360,6 +369,10 @@ _DRILLS = {
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
     ),
     "test_carrier_freshness.py": (
+        "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
+        "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
+    ),
+    "test_zzz_v318_hvac_sensors.py": (
         "with _d7_import_scope(attrs=True) as _D7_INSTALLED:",
         "with _d7_import_scope(prefixes=()) as _D7_INSTALLED:",
     ),
@@ -802,13 +815,20 @@ def test_restore_clocks_after_test_undoes_set_now_writes():
 
     clock = types.SimpleNamespace(now=_orig_now, utcnow=_orig_utcnow)
     owner = types.SimpleNamespace(dt_util=clock)
+    mock = types.SimpleNamespace(now=_orig_now, utcnow=_orig_utcnow)
     mp = pytest.MonkeyPatch()
-    restore_clocks_after_test(mp, {"_automation_dt_util": clock, "_x_mod": owner})
-    clock.now = lambda: "frozen"
-    clock.utcnow = lambda: "frozen"
+    restore_clocks_after_test(
+        mp, {"_automation_dt_util": clock, "_x_mod": owner, "_dt_mock": mock},
+    )
+    for c in (clock, mock):
+        c.now = lambda: "frozen"
+        c.utcnow = lambda: "frozen"
     mp.undo()
     assert clock.now is _orig_now
     assert clock.utcnow is _orig_utcnow
+    # Review B (slice 2): _set_now also writes the file's own _dt_mock.
+    assert mock.now is _orig_now
+    assert mock.utcnow is _orig_utcnow
 
 
 @pytest.mark.source_mutation
