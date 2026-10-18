@@ -602,6 +602,11 @@ def test_zone_hold_all_away_silent_under_override(monkeypatch, clock):
 def test_zone_hold_all_away_silent_in_sleep(monkeypatch, clock):
     fired = SM._capture_stuck(monkeypatch)
     w = _d4d_world(monkeypatch, clock, state=HS.SLEEP)
+    # A zone manually overridden OCCUPIED is not pinned by set_sleep, so the
+    # house can be in SLEEP with `any_zone_occupied` True: only the SLEEP
+    # exclusion keeps D4d silent (the D1 trip-wire owns SLEEP).
+    w.trackers["Living"].clear_override()
+    w.trackers["Living"].set_override(ZPM.OCCUPIED)
     w.sm.transition = lambda *a, **k: False
     clock.t = datetime(2026, 10, 18, 1, 0, tzinfo=timezone.utc)
     SM._drive_hold(w, clock, 200)

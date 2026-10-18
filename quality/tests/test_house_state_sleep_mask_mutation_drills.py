@@ -340,10 +340,10 @@ DRILLS = [
      "            and tracked_count > 0\n            and all_tracked_persons_away\n",
      "            and tracked_count > 0\n",
      "test_zone_hold_all_away_silent_with_stale_resident", ZT, "on"),
-    ("d4d_tracked_count_dropped", PRES,
-     "            and tracked_count > 0\n            and all_tracked_persons_away\n            and any_zone_occupied",
-     "            and all_tracked_persons_away\n            and any_zone_occupied",
-     "test_wigton_shape_zone_hold_trip_wire_inert_when_alpha_starved", ZT, "on"),
+    # d4d_tracked_count_dropped is an EQUIVALENT mutant: the producer sets
+    # all_tracked_persons_away True only when tracked_count > 0 (and the
+    # away-veto kill switch coerces it False), so the `tracked_count > 0`
+    # conjunct is defence in depth (plan §R3.6 spelling kept).
     ("d4d_override_not_skipped", PRES,
      "            and not overridden\n            and self._census_count == 0\n            and tracked_count > 0",
      "            and self._census_count == 0\n            and tracked_count > 0",
