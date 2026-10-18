@@ -46,6 +46,9 @@ DONOR_PROBES: dict[str, list[tuple[str, str | None, str]]] = {
         ("homeassistant.helpers.entity_registry", "async_get", "ha"),
         ("homeassistant.util.dt", "utcnow", "ha"),
     ],
+    "test_appliance_coordinator_v1a.py": [
+        ("homeassistant.helpers.entity_registry", "async_get", "ha"),
+    ],
     "test_hvac_fan_control.py": [
         ("custom_components.universal_room_automation", None, "ura"),
         ("custom_components.universal_room_automation.const", None, "ura"),
@@ -139,6 +142,12 @@ DONOR_VICTIMS: dict[str, list[str]] = {
         "test_nm_cycle_c_routing_matrix.py::TestC4MuteShortcut::test_mute_expiry_auto_clears",
         "test_nm_image_delivery.py::TestD2ForceImmediateOverride::test_force_immediate_respects_silence_until",
     ],
+    # Run-time donor (UNFIXED, slice 2): leaves entity_registry.async_get on a
+    # registry whose lookups return None. Victims fixed victim-side (pin).
+    "test_onboarding_simplify_slice1.py": [
+        "test_envoy_auto_derive.py::TestValidateEnvoyConfig::test_full_pass",
+        "test_ec_solar_entity_override.py::test_ec_solar_override_validation_resolves_override",
+    ],
     "test_oc_pillar_a_handshake.py": [
         "test_v4715_universalize_veto.py::TestD3InferenceOrchestration::test_guest_exit_fires_after_sustained_quiet",
     ],
@@ -173,6 +182,10 @@ _DRILLS = {
     "test_identity_fusion_d2_d3_d4.py": (
         "@pytest.fixture(autouse=True)\ndef _scope_real_ha_patches",
         "def _scope_real_ha_patches",
+    ),
+    "test_appliance_coordinator_v1a.py": (
+        "@pytest.fixture(autouse=True)\ndef _d7_restore_entity_registry_async_get",
+        "def _d7_restore_entity_registry_async_get",
     ),
     # Un-scope the import block: restore nothing on exit.
     "test_hvac_fan_control.py": (
@@ -271,6 +284,18 @@ _VICTIM_SIDE_DRILLS = {
     "test_v4715_universalize_veto.py": (
         lambda src: src.replace(_V4715_FIX, _V4715_REVERT),
         "test_oc_pillar_a_handshake.py",
+    ),
+    "test_envoy_auto_derive.py": (
+        lambda src: src.replace(
+            "    @pytest.fixture(autouse=True)\n    def _d7_truthy_entity_registry",
+            "    def _d7_truthy_entity_registry",
+        ),
+        "test_onboarding_simplify_slice1.py",
+    ),
+    "test_ec_solar_entity_override.py": (
+        lambda src: src.replace("    _state_only_registry()\n    hass = MagicMock()",
+                                "    hass = MagicMock()"),
+        "test_onboarding_simplify_slice1.py",
     ),
     "test_nm_cycle_c2_fixup.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),
     "test_nm_cycle_c_routing_matrix.py": (_unpin_nm_clock, "test_v5_17_1_part3_seams.py"),

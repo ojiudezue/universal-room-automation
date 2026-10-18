@@ -135,7 +135,11 @@ def test_ec_solar_override_blank_uses_derived():
     assert s.solar_production_w == pytest.approx(0.0)
 
 
-def test_ec_solar_override_validation_resolves_override():
+def test_ec_solar_override_validation_resolves_override(_state_only_registry):
+    # TEST-HARNESS D7: registry = state machine, like the sibling validation
+    # tests. Unpinned, the outcome depended on whatever `entity_registry.
+    # async_get` another file had left resident (red in the suite, green alone).
+    _state_only_registry()
     hass = MagicMock()
     hass.states.get = lambda eid: MagicMock(state="1.0")
     cfg = {CONF_ENVOY: ENVOY, CONF_SOLAR: CT_SOLAR}

@@ -270,6 +270,22 @@ class _FakeERegEntry:
         self.device_id = device_id
 
 
+@pytest.fixture(autouse=True)
+def _d7_restore_entity_registry_async_get(monkeypatch):
+    """TEST-HARNESS D7: undo `_make_hass`'s write to the shared registry.
+
+    `_make_hass` assigns `entity_registry.async_get` (a `_FakeEntityRegistry`
+    whose lookups return None) and never restored it, so every later file saw
+    "entity not in registry" — e.g. test_envoy_auto_derive's validator hard-
+    failed (5 tests) and test_ec_solar_entity_override's resolve (1). Register
+    the current value with monkeypatch so teardown puts it back.
+    """
+    er_mod = sys.modules.get("homeassistant.helpers.entity_registry")
+    if er_mod is not None:
+        monkeypatch.setattr(er_mod, "async_get", getattr(er_mod, "async_get", None), raising=False)
+    yield
+
+
 class _FakeEntityRegistry:
     def __init__(self, mapping=None):
         self._m = dict(mapping or {})
