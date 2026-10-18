@@ -684,3 +684,60 @@ A bedrooms-excluded breaker (rooms flagged non-bedroom only) was considered. Its
 - Not done: a code-path replay of D1 and D1b, and a check that α really fires in the 10-14 to 10-17 Jaya-alone nights (census stayed 1, so it was never exercised).
 
 **Scripts:** probe scripts are in the session scratchpad, `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/q13.py` through `q25.py` (read-only SQLite on the HA recorder and URA DB).
+
+## P6 2026-10-18 — zone tracker per-sensor wipe
+
+**Card:** ZONE-TRACKER-PER-SENSOR-WIPE-1 (raised by plan review D as D-H1). Read-only probe, run 2026-10-18 ~14:30 to 15:00 CDT. Presence STATE_OF_PLAY was not read end to end for this probe (code read at the cited lines instead); treat doc-ledger conflicts as open.
+
+**Verdict: TRUE, and bigger than the old measurements could show. Effect today is small but real by day; it is masked at night by the SLEEP pin and will un-mask when the build reads live sensors for pinned zones.**
+
+### 1. Code (mechanism confirmed exactly)
+- Substrate, `occupancy_substrate.py:~686-700`: `_raw_state[room][kind] = occupied` keyed by (room, kind), not by entity. Two sensors of one kind in one room overwrite each other. An edge dispatches only when this per-kind bool changes, with `kind` and the new value.
+- Tracker, `presence.py:874-890` (`update_room_occupancy`, the `else` branch): any `occupied=False`, for any kind, does `self._room_provenance[room_name] = {}`. It clears all kinds for the room. The docstring (`presence.py:676-684`) documents this as "full-room clear". Nothing re-asserts a sensor that is still on; the only resync is the boot seed (`presence.py:3457`).
+- So: A on, B on, B off leaves the room cleared while A is still on. Also: motion off clears a still-on mmwave in the same room (different kinds, same effect). The wipe lasts until the next ON edge of any sensor in that room.
+- Consumers of the tracker's per-room state:
+  - `ZonePresenceTracker.mode` -> zone `presence_status` sensor, zone select/mode (`_derived_mode`, `presence.py:757-790`).
+  - `any_zone_occupied` (`presence.py:5975`) -> nobody-home branch (`:1127`) and `has_people` (`:1291`).
+  - `any_indoor_zone_occupied` (`:5988`) -> path beta veto (`:1216`, `:6541`).
+  - `raw_occupied` (`:748`) -> the WAKING gate.
+  - `camera_census.py:2398` zone-occupied limb of the divergence downgrade.
+  - `energy.py:10068` `_get_occupancy_counts` (display/decision log).
+  - HVAC: no read of the presence trackers (`hvac.py` has no tracker access; it uses the per-room `hvac_occupied` hold). Not affected, as the operator expected.
+- The room's own `binary_sensor.<room>_occupied` is a different path with its own timeout tail, so it stays on through a wipe.
+
+### 2. Live evidence (recorder, 7 days to 2026-10-18 ~14:40 CDT)
+Method: replayed every state change of every substrate-registered sensor in each zone (kind precedence motion, mmwave, occupancy; unavailable counts as off) through the substrate + tracker rules. A "wipe gap" is a period where at least one sensor in the zone is really on but the emulated tracker reads empty. Then compared with the recorded `sensor.zone_<name>_presence_status`. Scripts: scratchpad `probe.py`, `zone.py`, `aw.py`, `ctrl.py`.
+
+Per room (multi-sensor rooms, 7 days): Jaya Bedroom 331 gaps, 56.3 h (2 mmwave; mostly overnight); Master Bedroom 640 gaps, 22.1 h; Kitchen 571 gaps, 11.1 h; Living Room 108, 3.5 h; Guest Bedroom 2 232, 3.4 h; Master Bathroom 175, 2.5 h; Guest Bedroom 1 166, 2.6 h; Patio 1; Garage Hallway 32, 6.6 min; Master Hallway 221, 21 min; Media 61, 5 min; Exercise Room 24, 3 min; Ziri Bedroom 0.
+
+Per zone, actual zone status during the gaps:
+
+| Zone | Gaps | Gap time | Actual occupied | Actual away | Actual sleep | Gaps with >=1 s away (>=60 s) |
+|---|---|---|---|---|---|---|
+| Master Suite | 480 | 14.5 h | 22,489 s | 685 s | 29,035 s | 17 (4) |
+| Back Hallway | 632 | 11.5 h | 22,779 s | 14,654 s | 3,933 s | 150 (44) |
+| Entertainment | 108 | 3.5 h | 9,517 s | 2,662 s | 288 s | 35 (12) |
+| Upstairs | 502 | 55.9 h | 83,299 s | 10,756 s | 107,003 s | 24 (11) |
+| Outside | 1 | 20 min | 19 s | 1,202 s | 0 | 1 (1) |
+
+Most gaps are covered by BLE, cameras or another room, so the zone stays occupied. In total the zone read away for 29,959 s (8.3 h) while a real sensor was on: 227 gap episodes, 72 of them at least 60 s.
+
+Control (falsifier): when the emulation says the tracker should read occupied, the zone still read away 0.7% (Master Suite), 11.4% (Back Hallway), 7.8% (Entertainment), 2.2% (Upstairs), 1.1% (Outside) of the time. So the emulation has a noise floor I did not explain (candidates: fan-interference hold, boot-settle, 30 s status sampling, sensors the emulation does not model). Subtracting that baseline from non-sleep gap time leaves roughly 6 h of excess away over 7 days (Back Hallway ~2.9 h, Upstairs ~2.4 h, Entertainment ~0.5 h, Outside ~0.3 h, Master Suite ~0.1 h). This is an estimate, not a count.
+
+Worked example, hand-checked from raw states, 2026-10-16 19:26 CDT: Kitchen has two mmwave sensors. `mmwave_lux_temp_humidity_zigbee_kitchen_presence` went on at 19:11:34 and had no event until after 19:59. The other Kitchen mmwave (`mmwave_lux_wifi_esphome_kitchen_presence`) went off at 19:26:13, which wiped the Kitchen tracker bucket. `sensor.zone_back_hallway_presence_status` went away at 19:26:47 and stayed away until 19:59:18 (about 32 min). `binary_sensor.kitchen_occupied` stayed on throughout. House state log recorded AWAY at 00:27:03, 00:43:36 and 00:45:40 UTC on 10-17 (19:27, 19:43, 19:45 CDT) inside that window.
+
+### 3. Why the measurements did not see it
+- P0 to P5 used the room `binary_sensor.<room>_occupied` (it has its own timeout tail) and the room's listed sensors, not `tracker._room_provenance` or zone `presence_status`. This failure is on the zone side only.
+- Overnight the zones are pinned to SLEEP (`set_sleep` overrides every auto tracker), so the wipe was invisible to nobody-home. In the gaps above, 140,259 s (39.0 h) fell under a `sleep` zone state: Upstairs 29.7 h, Master Suite 8.1 h, Back Hallway 1.1 h, Entertainment 0.1 h. That is more than four times the daytime away seconds.
+- By day, real wrong-looking AWAYs: of 111 AWAY entries in `house_state_log` (2026-10-11 to 10-18, UTC timestamps), 61 had every zone away/unknown at that moment, and 35 of those had some room `_occupied` on (mostly timeout tails). Only 10 had a raw sensor really on, and 7 of those 10 fall inside an emulated wipe gap (all 10-13 to 10-17, rooms Guest Bedroom 1/2 and Kitchen; 3 AWAYs in the Kitchen example above). The other 3 had no gap, so wipe is not the cause for them (unexplained). Whether the house was truly occupied at those moments is not established by this probe (ground truth unknown); Kitchen and a guest room reading on is consistent with it. 7 of 111 is the measured count.
+
+### 4. Impact
+- Today (masked): small. Day-time cost is the 7 wipe-coincident AWAYs in 7 days and about 6 h of excess zone-away, in rooms with two or more sensors, concentrated in Kitchen, Guest Bedroom 1/2, Living Room. Night effect is zero on nobody-home because the pin masks it.
+- After the sleep-mask change (reads live sensors for pinned zones): this becomes a night-time exposure. Upstairs sits in a wipe gap for 29.7 h per week and Master Suite 8.1 h while pinned to SLEEP; Jaya Bedroom (2 mmwave) and Master Bedroom (5 sensors) account for most of it. A sleeping person holds a still radar on, a second sensor flickers, the room is wiped until the next ON edge. The new read would show the zone empty, so the nobody-home branch can fire while someone sleeps. The current mitigation (the SLEEP pin) is the thing being removed.
+- Recommendation: fix before or with the sleep-mask change. Smallest fix is in the tracker/substrate: dispatch the room-level per-kind OR (all entities of that kind still on) and clear only that kind, or re-derive `_room_provenance` from `substrate.get_room_kinds` on each off edge, with per-entity (not per-kind) substrate state. Unverified: that this removes the unexplained noise-floor remainder.
+
+### Not done / unknown
+- Did not read the Presence state-of-play doc in full for this probe.
+- Noise-floor cause (control rows) not explained.
+- Ground truth of who was home at the 7 AWAYs not checked; the 3 non-gap cases not traced.
+- Boot-settle and fan-interference hold not modelled in the emulation.
