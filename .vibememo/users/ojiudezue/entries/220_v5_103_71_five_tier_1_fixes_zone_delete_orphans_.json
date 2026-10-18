@@ -1,0 +1,28 @@
+{
+  "format_version": "2.1",
+  "entry_id": "220",
+  "author": "ojiudezue",
+  "session_id": "claude_20261018_150750_ship_v5_103_71",
+  "timestamp": "2026-10-18T15:07:50Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.71 shipped: Five Tier-1 fixes: zone delete orphans, setup task tracking, security re-fire key, websocket on-loop + schemas, deploy ^C",
+  "summary": "Five Tier-1 fixes: zone delete orphans, setup task tracking, security re-fire key, websocket on-loop + schemas, deploy ^C",
+  "why": "Each fix closes a real defect the test harness exposed or a reviewer found: zone delete left orphaned HVAC sensors and had a latent zone_1-vs-zone_10 prefix match; an untracked setup task survived unload; security re-fire looked for the wrong hazard key so CRITICAL intruder pages never re-fired; the websocket subscribe push ran off the event loop and its schemas broke import on older HA; Ctrl-C during the mirror push left the token URL in git config. All Tier-1, reviewed SHIP, full-suite name-diff CLEAN. Restart held to the operator-approved 12:17 mid-day slot.",
+  "implications": "Shipped ZONE-DELETE-ORPHAN-HVAC-SENSORS-1, INIT-UNTRACKED-TASK-4211-1, SECURITY-REFIRE-INTRUSION-KEY-1, WS-SUBSCRIBE-SEND-OFF-LOOP-1, WS-SUBSCRIBE-SCHEMA-REALHA-1, DEPLOY-DUALPUSH-SIGINT-TRAP-1 at v5.103.71; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.71.md (Live criteria).",
+  "revisit_trigger": "post-restart system_log has 0 'observability WS commands registration failed' and 0 URA ERRORs; manifest v5.103.71 with all URA entries loaded",
+  "refs": {
+    "cards": [
+      "ZONE-DELETE-ORPHAN-HVAC-SENSORS-1",
+      "INIT-UNTRACKED-TASK-4211-1",
+      "SECURITY-REFIRE-INTRUSION-KEY-1",
+      "WS-SUBSCRIBE-SEND-OFF-LOOP-1",
+      "WS-SUBSCRIBE-SCHEMA-REALHA-1",
+      "DEPLOY-DUALPUSH-SIGINT-TRAP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.71.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.71.md"
+  }
+}

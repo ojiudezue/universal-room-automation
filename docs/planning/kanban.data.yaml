@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-17'
+  last_reconciled: '2026-10-18'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -12,7 +12,8 @@ meta:
 cards:
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   thread: platform
   created: 2026-10-18 01:00
@@ -22,7 +23,8 @@ cards:
   links: {parent: TEST-STRATEGY-REARCH-1}
 - id: WS-SUBSCRIBE-SCHEMA-REALHA-1
   title: "websocket_api.py import fails on harness HA 2026.2.3 (bare BASE_COMMAND_MESSAGE_SCHEMA.extend passed to websocket_command)"
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   thread: platform
   created: 2026-10-18 01:00
@@ -32,7 +34,8 @@ cards:
   links: {parent: TEST-STRATEGY-REARCH-1}
 - id: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1
   title: "Deleting a zone leaves 4 HVAC AC-reset/ramp sensors orphaned (and the delete preview undercounts)"
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   thread: test-strategy
   created: 2026-10-17 23:40
@@ -47,7 +50,8 @@ cards:
   reviewed_2026_10_18_overnight: "Tier-1 review (ura-reviewer, framing A): SHIP, no CRITICAL/HIGH; LOWs accepted. Record: docs/reviews/code-review/overnight_2026-10-18_tier1_batch.md. Branch pushed to origin."
 - id: INIT-UNTRACKED-TASK-4211-1
   title: "Untracked hass.async_create_task in async_setup_entry (__init__.py:~4211) is not cancelled on unload/reload"
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   thread: test-strategy
   created: 2026-10-17 23:40
@@ -61,7 +65,8 @@ cards:
   reviewed_2026_10_18_overnight: "Tier-1 review (ura-reviewer, framing A): SHIP, no CRITICAL/HIGH; LOWs accepted. Record: docs/reviews/code-review/overnight_2026-10-18_tier1_batch.md. Branch pushed to origin."
 - id: DEPLOY-DUALPUSH-SIGINT-TRAP-1
   title: "Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends"
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   thread: test-strategy
   created: 2026-10-17 23:40
@@ -288,7 +293,8 @@ cards:
   related: [SAFETY-NM-REFIRE-UNWIRED-1]
 - id: SECURITY-REFIRE-INTRUSION-KEY-1
   title: "Security alerts never re-fire after their cooldown: the re-check looks for 'intrusion' but Security emits 'intruder'"
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.71
   tier: 1
   origin: "Plan review of SAFETY-NM-REFIRE-UNWIRED-1 (F4), 2026-10-15; verified by orchestrator."
   why: "security.py:827 re-evaluates only hazard_type in ('intrusion','entry_alert','unknown_person'), but Security emits hazard_type='intruder' (security.py:1051, :1581). So an acknowledged intruder alert never re-pages after cooldown even if the intrusion continues. Swept: no existing card or BACKLOG item (grep intrusion/intruder/_re_evaluate_hazard)."
@@ -454,6 +460,7 @@ cards:
   related: [EC-EVALUATE-PATH-LEDGER-GAP-1]
   next: "Me, when the arc's steps 8-11 joint plan is written (after the governor ships): include the fix (evaluate() peeks the period; only the timer consumes it) as one deliverable with a test that the CM path cannot swallow a boundary. Revive alone only if a tou_transition decision goes missing at a boundary."
 - id: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
+  operator_answer_2026_10_18: "Keep the margin (\u00b12 convergence tolerance unchanged). NEXT: plan review of PLANNING_ec_reserve_witness_fix.md, then build + 3 reviews + deploy (Tier 2)."
   reconciled_2026_10_17: "Reconciled with Envoy reliability per operator (AUDIT_envoy_reliability_recount_and_witness_reconcile.md): of 622 pending_write_stuck rows 311 certain + 300 probable artifacts of the frozen witness, 11 genuine; 10-03 stand-downs proven artifacts. The frozen witness ALSO hides real failures: 10-17 18:01 governor 'applied' 10 but cloud + Envoy sensor stayed at 9 and the checker stayed silent. Operator ruled no new setting. NEXT: standalone Tier 2 fix (not folded into the Tier-3 resilience card): prefer the Envoy's own sensor.*_reserve_battery_level for the read witness, fall back to today's entity; do NOT repoint energy_reserve_soc_entity (it is the local write-fallback target). Acceptance both directions: no CRITICAL when sensor matches; a real alert in the 10-17 9-vs-10 case."
   operator_instruction_2026_10_17: "can we reconcile with the envoy reliability work first? (board, 2026-10-18T04:02:06.621Z)"
   paged_2026_10_17_overnight: "Paged 2026-10-17 02:13 CDT in one quiet notification (notify.madronehapushover, priority -1, wakes nobody)."
@@ -729,6 +736,7 @@ cards:
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
 - id: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  operator_instruction_2026_10_18: "So the simple away makes some sense. But this is surgery on the house state so I want a prior art scan and I want it to build on our infra and not be frivolous new functionality. I also think observability in the presence coordinator and house device is important as well as ura v8 dashboard. ... cobble the estimator and the remaining census work as an arc ... evaluate each piece against goal ... Not an approval for building but for an investigation/audit. -> AUDIT_census_arc_and_away_holistic.md (investigation only)."
   measured_2026_10_18: "Per operator instruct (AUDIT_away_flap_untracked_occupant_would_have.md): trip 65 AWAY entries (~20/day vs 3.2 baseline), 51 with no door crossing. Camera-recency guard W=20 absorbs 34/65 entries but protects only 529/2,314 occupant-AWAY minutes (23%): cameras saw a body in 1/65 episodes; Guest Bedroom 2 occupied minutes stay AWAY (344/347). HVAC already goes away fast (69% of zone-episodes already Away via zone vacancy before the house flipped; door-exit->zone Away median 5.1 min), so 'HVAC fast / house careful' costs HVAC nothing. Security auto-arm is OFF live, so delay costs nothing today; if on, W=10 keeps ~90% of false-arm reduction (125->57) at half the delay (median 9.5 min). Recommend: W=10 guard for house/security/alerts (cuts 30% of CRITICAL exterior alerts during false AWAY), HVAC keeps zone-driven behaviour; bedroom gap needs a presence-radar veto (fan-phantom caveat) or the estimator's door tally."
   operator_instruction_2026_10_17: "I want HVAC to go away fast. As long as that happens, house to be more careful. Also unclear if this works well? Rooms have no cameras only common areas. Measure when this would have helped if engaged first (board, 2026-10-18T03:58:33.755Z)"
   paged_2026_10_16_overnight: "Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
@@ -21319,6 +21327,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  arc_cut_v5_103_71: "parent test-harness arc is actively in progress (Test Wave 2 D7 slices)"
   INSTANCE_2026_10_17_import_time_stubs: "Found by TEST-BAYES-B2-CLOCK-SKEW-1 (overnight 10-17): test_bayesian_predictor.py, test_envoy_auto_derive.py and test_hvac_fan_control.py each still replace the signals module with a small stub at import time and replace the custom_components.universal_room_automation / domain_coordinators package entries in sys.modules. Same order-hazard class that hid 15 failures behind a collection error until tonight; candidates for the strangler migration to the real-HA harness."
   card_was_wrong_2026_10_14: "next said MERGE fix/test-bathroom-exhaust-collection (7bb1b5715); git merge-base --is-ancestor shows it is ALREADY in develop (237 commits back). Shipped slices recorded; the card is an epic, so moved shipped_organic -> planned rather than done."
   mergecheck_2026_10_10_overnight: "Branch fix/test-bathroom-exhaust-collection still merges cleanly onto develop fe0532918+ (git merge-tree: no conflicts); it is 52 commits behind develop, so the pre-ship suite name-diff must run on the merged tree, not the branch."
@@ -31847,6 +31856,7 @@ cards:
   refs: [custom_components/universal_room_automation/coordinator.py, custom_components/universal_room_automation/config_flow.py]
   sweep_2026_10_11: 'Board + BACKLOG grep for existence_energy / energy_returned / room energy double count / STATE_ENERGY_TODAY: only an incidental mention of existence_energy inside the HVAC night-hold card (as a radar health signal, not as an energy pick). NEW.'
 - id: CENSUS-OCCUPANCY-ESTIMATOR-1
+  operator_instruction_2026_10_18: "Find the census arc (9-guest era, abandoned mid-way after shipping a few things, measure-and-continue never done), audit what shipped and what remains, and cobble it with the estimator + simple away into one arc evaluated piece-by-piece against the goal. Investigation only, not build approval. -> AUDIT_census_arc_and_away_holistic.md."
   critique_2026_10_18: "Per operator instruct (CRITIQUE_census_occupancy_estimator.md): recommend PARK. (a) No consumer needs a count >1 (AWAY needs yes/no; guest gate is guest-room only since 08-16). (b) 10-03 replay failed 3 gates; only 29-31% of door crossings carry a name, so the door tally counts residents as guests. (c) Re-opens census-driven guest false positives; stuck-high counts block real AWAY; restart restores stale counts. (d) Held count = max interior camera count over 20 min; covers ~23% of occupant-AWAY minutes and over-counts. Simpler: W=10 camera-recency AWAY guard (own knob) + guest-room-radar-held AWAY veto (fan-phantom check first); drop door tally. Revival triggers: a consumer needs count>1; door naming >=70% for 14 days; replay passes on fixed inputs. PICK: park (recommended) -> I park it with those triggers and retarget HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 to the simpler pair."
   operator_instruction_2026_10_17: "Make sure a) Its needed b) It solves the problem c)We can think through all the unintedned consequences. Also what does the held count solve? (board, 2026-10-18T03:50:31.843Z)"
   approved_by: "operator 2026-10-15 22:34 CDT (board instruct: 'approve if not subsumed'; not subsumed, checked overnight 10-16)"
