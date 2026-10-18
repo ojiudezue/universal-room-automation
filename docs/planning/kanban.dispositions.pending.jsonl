@@ -16,3 +16,10 @@
 {"action": "ack", "at": "2026-10-18T03:53:37.278Z", "card_id": "NM-MULTI-ALERT-TRACKING-1@2026-10-16T02:15:03"}
 {"action": "ack", "at": "2026-10-18T03:54:02.411Z", "card_id": "EC-EVALUATE-PATH-LEDGER-GAP-1@2026-10-16T02:15:05"}
 {"action": "ack", "at": "2026-10-18T03:54:13.378Z", "card_id": "GAP-A-CENSUS-HOLE-1@2026-10-16T02:16:06"}
+{"action": "ack", "at": "2026-10-18T03:55:59.025Z", "card_id": "PATHBETA-VESTIGIAL-1@2026-10-16T02:16:08"}
+{"action": "instruct", "at": "2026-10-18T03:58:33.755Z", "card_id": "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1", "text": "I want HVAC to go away fast. As long as that happens, house to be more careful. Also unclear if this works well? Rooms have no cameras only common areas. Measure when this would have helped if engaged first"}
+{"action": "ack", "at": "2026-10-18T03:58:39.992Z", "card_id": "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1@2026-10-16T02:17:16"}
+{"action": "instruct", "at": "2026-10-18T03:59:25.122Z", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1", "text": "hardware stuff I will re-pair"}
+{"action": "ack", "at": "2026-10-18T03:59:26.006Z", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1@2026-10-16T02:21:39"}
+{"action": "ack", "at": "2026-10-18T03:59:40.908Z", "card_id": "SAFETY-NO-INITIAL-SENSOR-PASS-1@2026-10-16T02:21:40"}
+{"action": "instruct", "at": "2026-10-18T03:59:46.122Z", "card_id": "SAFETY-NO-INITIAL-SENSOR-PASS-1", "text": "approved"}
