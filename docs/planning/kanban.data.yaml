@@ -32306,6 +32306,26 @@ cards:
   origin: "Probe P3 2026-10-18 + Away plan Rev 3 residual"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -> on A I wire it and re-run P3."
+- id: PERSON-GPS-ANY-HOME-WINS-1
+  title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
+  thread: presence
+  status: planned
+  tier: 2
+  created: "2026-10-18"
+  refinement_status: refined
+  origin: "PLANNING_house_state_sleep_mask_ble_memory_observability.md (separate finding) after the iPad was removed from person.oji_udezue"
+  sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  next: "Plan: freshest-GPS-wins (not any-home-wins, which lets a left-at-home iPad hold a person home forever); verify against Wigton's 6-tracker person; Tier 2 reviews."
+- id: HOUSE-STATE-SENSOR-ATTR-CHURN-1
+  title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
+  thread: presence
+  status: planned
+  tier: 1
+  created: "2026-10-18"
+  refinement_status: initial
+  origin: "Rev 3 plan review R2 M2 + small-cycle plan"
+  sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
+  next: "Measure which attributes change per poll; move the churny ones to _unrecorded_attributes, keeping those the scorecard and dashboard need history for."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
