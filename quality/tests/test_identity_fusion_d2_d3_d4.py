@@ -668,6 +668,13 @@ def test_fs4_presence_get_face_for_camera_gated_under_suppression():
     import homeassistant.util.dt as _dt_util
     _orig_utcnow = _dt_util.utcnow
     _dt_util.utcnow = lambda: now
+    # TEST-HARNESS D7 slice 2: pin the clock presence.py ACTUALLY reads
+    # (its own module-level dt_util). After a sibling file imported presence
+    # under a stub homeassistant.util.dt, that object is not
+    # sys.modules["homeassistant.util.dt"], and the pin above missed it.
+    _presence_dt = _PresenceCoord._get_face_for_camera.__globals__["dt_util"]
+    _orig_presence_utcnow = _presence_dt.utcnow
+    _presence_dt.utcnow = lambda: now
     try:
         # Baseline (drill OFF): helper returns "Oji" through the
         # ungated downstream path.
@@ -683,6 +690,7 @@ def test_fs4_presence_get_face_for_camera_gated_under_suppression():
             "binary_sensor.front_door_person_occupancy",
         ) is None
     finally:
+        _presence_dt.utcnow = _orig_presence_utcnow
         _dt_util.utcnow = _orig_utcnow
 
 
