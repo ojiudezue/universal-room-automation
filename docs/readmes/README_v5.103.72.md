@@ -51,9 +51,15 @@ The house never goes AWAY while a zone room holds live, Tier-1, per-sensor occup
 - WIGTON-STUCK-ZX-NO-PAGE-1.
 - HVAC-CONSENSUS-GATE-PIN-1, pulled out of this cycle.
 
-## Live validation (to be replaced by a Validated table)
+## Validated 2026-10-18 (restart ~20:20 CDT, house AWAY, everyone out — confirmed by the operator)
 
-- Installed: manifest v5.103.72; all URA entries `loaded`; no URA ERRORs.
-- `sensor.ura_presence_coordinator_presence_house_state` carries `last_away_branch`, `away_entries_today` and `guest_reason`.
-- No zone tracker stuck occupied after the boot reconcile. Zone modes match the substrate.
-- House state is correct for the actual occupancy at restart.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and loaded | PASS | manifest `v5.103.72` on the HA mount; `ZONE_OCCUPANCY_PER_ENTITY_ENABLED` present in `const.py`; `ha_get_integration`: 50/50 URA entries `loaded` |
+| No URA ERRORs | PASS | system_log ERROR filter for `universal_room_automation`: 0 entries. WARNINGs are boot-time and pre-existing: boot-settle TIMEOUT (presence + HVAC), unavailable-sensor 60 s holds, coverage re-anchor, deprecations, "all camera platforms unavailable" at boot |
+| New D3 attributes present | PASS | house-state sensor: `away_entries_today=2` (matches 14:41 and 17:21 today), `guest_reason=none`. `last_away_branch=null`, as expected: the house entered AWAY before the restart, so the field fills on the next AWAY transition |
+| Boot reconcile leaves no stuck zone | PASS | all 5 zones `mode=away`; `tier1_provenance_breakdown` all 0, matching an empty house; `boot_settle_done=true` |
+| House state correct for actual occupancy | PASS | `away`, `census_count=0`, `all_tracked_persons_away=true`; nobody home per the operator |
+| D1 sleep-mask / D4 per-sensor / D4d trip-wire behaviour | NOT EXERCISED BY RESTART | needs a sleeping, multi-sensor night. Proven in-suite (111 drills both orders, switch-off identity). Organic check: the first night's `last_away_branch` / zone holds |
+
+SmartHub EC `energy_utility_meter_entity` clear: NOT done in this restart window. Deferred to the SmartHub bill-comparison work.
