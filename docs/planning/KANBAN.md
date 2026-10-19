@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:17:07-05:00_ - _Data commit: `9b5f5f6c21e1`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:20:18-05:00_ - _Data commit: `2b7d31e8f3df`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -966,14 +966,15 @@ _created 2026-10-18 · updated 2026-10-19 02:03 · refined_
 
 ### `ZONE-ROOM-NAME-DRIFT-1` - A room renamed through options drops out of the zone tier (zone tracker keys by room name) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator**
-_created 2026-10-18 · updated 2026-10-19 02:20 · refined ×1_
-- **Next:** APPROVE scope + tier: (A, recommended) one cycle covering presence + person + HVAC re-key, Tier 3 discipline (cross-coordinator; invariant 'a sleeper in a just-renamed room is never AWAYed and its zone never retreats'), or (B) presence +...
+_created 2026-10-18 · updated 2026-10-19 02:22 · refined ×1_
+- **Next:** APPROVE: (A, recommended) one Tier-3 cycle - presence + person + HVAC + both fan maps re-keyed on rename (4 framing-disjoint build reviews, checkpoint before deploy), or (B) presence + person now, HVAC/fans as a follow-up. ANSWER: is los...
 - **Parsimony:** [BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)] After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `arc_cut_v5_103_72`: priority follow-up cycle immediately after this ship
-  - `tier`: 2
+  - `tier`: 3
   - `measured_2026_10_19_overnight`: STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (...
   - `plan_2026_10_19_overnight`: Plan written: docs/planning/PLANNING_zone_room_rename_drift.md (907bf73b6). Scope GREW beyond presence: (a) re-running _discover_zones would not fix it (skips zones with a tracker, presence.py:3439); (b) person_coordinator.py:945 rebuild...
+  - `plan_review_2026_10_19_overnight`: Completeness plan review: FIX-PLAN, recommends TIER 3 (appended to the plan doc). Missed sites: HIGH hvac_fans.py:390 per-room fan map (renamed room's HVAC fan driven as empty -> can switch a sleeper's fan off); HIGH presence_fan_recheck...
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#27 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
