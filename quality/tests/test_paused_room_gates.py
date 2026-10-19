@@ -558,3 +558,59 @@ def test_delayed_exit_verify_skips_retry_when_paused(monkeypatch, paused_during_
     else:
         s.automation.handle_occupancy_change.assert_awaited_once()
         assert s._last_exit_verify_result == "retried"
+
+
+# ---------------------------------------------------------------------------
+# Review C fix-up — release preserves person / recheck state; the kill-switch
+# discharge (turn_off_all_managed) is NOT gated by a pause.
+# ---------------------------------------------------------------------------
+
+def test_release_preserves_suppress_cooldown_and_hold():
+    """`_release_room_tracking` (both callers: Fan Mode hand-back and the
+    paused release) clears URA's tracking ONLY. The recheck suppress-until,
+    the manual-off cooldown and the manual-ON hold fields are a person's /
+    the recheck's state and must survive (else an unpause books a person's
+    OFF as a fake cooldown, or drops their hold)."""
+    fc, hass, _states, rcs = _fan_world(
+        {"A": {}, "B": {}}, fan_on={"A": True, "B": True},
+    )
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    paused_at = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    for n in ("A", "B"):
+        rf = fc._room_fans[n]
+        rf.is_on, rf.trigger, rf.speed_pct = True, "temperature", 33
+        rf.last_on_time = "2026-10-19T00:00:00+00:00"
+        rf.fan_recheck_suppress_until = future
+        rf.manual_off_cooldown_until = future
+        rf.manual_on_hold_until = future
+        rf.manual_on_hold_paused_at = paused_at
+    # A: Fan Mode leaves Follow thermostat (reason fan_mode); B: paused.
+    next(e for e in hass.config_entries._entries
+         if e.data[CONST.CONF_ROOM_NAME] == "A").options = {
+        CONST.CONF_ROOM_FAN_MODE: CONST.FAN_MODE_OFF,
+    }
+    rcs["B"].pause()
+    _run(fc.update(None, "home_day"))
+    for n in ("A", "B"):
+        rf = fc._room_fans[n]
+        assert rf.is_on is False and rf.trigger == ""        # released
+        assert rf.fan_recheck_suppress_until == future, n
+        assert rf.manual_off_cooldown_until == future, n
+        assert rf.manual_on_hold_until == future, n
+        assert rf.manual_on_hold_paused_at == paused_at, n
+    assert hass.services.calls == []
+
+
+def test_turn_off_all_managed_still_turns_off_paused_room_fan():
+    """The HVAC kill-switch discharge is whitelisted (INV-P'): a paused
+    room's tracked fan is still turned off."""
+    fc, hass, _states, rcs = _fan_world(
+        {"A": {"automation": False}, "B": {}}, fan_on={"A": True, "B": True},
+    )
+    for n in ("A", "B"):
+        rf = fc._room_fans[n]
+        rf.is_on, rf.trigger, rf.speed_pct = True, "temperature", 33
+    _run(fc.turn_off_all_managed())
+    assert len(_calls(hass, "turn_off", "fan.a")) == 1
+    assert len(_calls(hass, "turn_off", "fan.b")) == 1
+    assert fc._room_fans["A"].is_on is False

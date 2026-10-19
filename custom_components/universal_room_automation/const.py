@@ -1319,7 +1319,11 @@ def room_automation_paused(room_coord) -> bool:
 
     True only when ``room_coord`` exposes a callable ``_is_automation_enabled``
     that returns exactly ``False``. ``None``, a missing method or an
-    exception -> False (fail-open = today's behaviour). Never raises.
+    exception -> False (fail-open = today's behaviour). A missing switch
+    reads enabled. NOT fail-open: a switch that reads ``unavailable`` /
+    ``unknown`` reads as paused (``_get_room_switch_state`` tests
+    ``state == "on"``), the room tier's own pre-existing semantics.
+    Never raises.
     """
     if room_coord is None:
         return False
