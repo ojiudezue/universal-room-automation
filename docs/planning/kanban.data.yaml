@@ -468,7 +468,8 @@ cards:
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
   thread: energy
-  status: "waiting_me"
+  status: shipped_organic
+  shipped_version: v5.103.74
   created: "2026-10-16"
   updated: "2026-10-17 02:06"
   refinement_status: "refined"
@@ -32340,6 +32341,7 @@ cards:
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "Measure which attributes change per poll; move the churny ones to _unrecorded_attributes, keeping those the scorecard and dashboard need history for."
 - id: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1
+  arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
   status: planned
