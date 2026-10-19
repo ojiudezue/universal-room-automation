@@ -583,12 +583,15 @@ def test_ec_underpriced_days_counts():
         date(2026, 9, 25): (100.0, 9.0, 0.0, 9.0),        # above -> not
         date(2026, 10, 2): (50.0, 4.0, 0.0, 4.0),         # 0.080 -> under
         date(2026, 10, 3): (0.0, 0.0, 0.0, 0.0),          # no import -> not
+        date(2026, 10, 5): (50.0, 3.5, 0.0, 3.5),         # 0.070 -> under
     }
+    # Review C (2026-10-19): 3 under vs 2 at/above, so a flipped comparison
+    # (which would count the at-floor + above days = 2) cannot pass.
     s = _make(db=_FakeDB(ec_rows))
     _refresh_with(s, now, _days_rows(date(2026, 8, 23), date(2026, 10, 17), 1.0))
-    assert s._utility_stats_cache["current"]["ec_underpriced_days"] == 2
+    assert s._utility_stats_cache["current"]["ec_underpriced_days"] == 3
     div = em.EnergyCoordinator.utility_meter_divergence.fget(s)
-    assert div["current"]["ec_underpriced_days"] == 2
+    assert div["current"]["ec_underpriced_days"] == 3
 
 
 def test_tou_import_rate_floor_from_engine():
