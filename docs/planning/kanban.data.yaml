@@ -468,7 +468,7 @@ cards:
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
   thread: energy
-  status: "waiting_operator"
+  status: "waiting_me"
   created: "2026-10-16"
   updated: "2026-10-17 02:06"
   refinement_status: "refined"
@@ -480,7 +480,7 @@ cards:
   related: [EC-RESERVE-CLOUD-DIVERGENCE-1]
   parsimony: {problem: "The reserve write checker compares every command against number.enpower_*_reserve_battery_level, which has been frozen at 10.0 since 2026-08-05, so every non-10 reserve triggers 3 redundant re-sends, a stand-down and a CRITICAL page.", verdict: "BUILD (small), but the witness choice is a PICK"}
   knobs: ["CONF_ENERGY_RESERVE_WITNESS_ENTITY (rung 2 options-flow entity selector; per-home hardware wiring; blank = today's behaviour)"]
-  next: "PICK: (A) add a 'reserve witness' entity setting (options flow, blank = today's behaviour) and set it here to sensor.envoy_482543015950_reserve_battery_level (my recommendation: explicit, works for other homes, reversible by blanking); or (B) hard-code the verifier to prefer the envoy reserve_battery_level sensor; or (C) turn the reserve pending watchdog off until A/B ships (stops the false pages tonight, loses real stuck-write detection). -> On A/B I plan it (one plan review), build to review with 2 reviews, you deploy. Energy reserve verification sits in the 'we cannot fuck this up' arc, so I did not build it unattended."
+  next: "Operator 10-18 02:26 answered the PICK: \"why a new setting? What's the real problem\". Mine: root-cause probe (AUDIT_ec_selfheal_resends_root_cause_2026_10_18.md) -> reuse the correct existing reserve source, no new setting."
   rank: {value: 7, time_criticality: 5, effort: 5}
 - id: EC-RESERVE-WRITE-GOVERNOR-1
   reviews_2026_10_16: 'Code reviews: A SHIP, B SHIP (log_activity goes through _write_queue, settled), D FIX-REQUIRED small: D-1 lint misses mixed positional/keyword async_call; D-2 optimizer can write the reserve via variable-domain service (optimization.py:4606/:4749), no row, only operator deny list + ±20% clamp (not live: OC in shadow); D-4 FAILED row poisons change-gate memo; D-3 + B-L2 known limits. Fix-up after review C: D-1, D-4, D-2 hard reserve-entity deny in optimizer, document D-3/B-L2.'
@@ -3193,7 +3193,8 @@ cards:
     as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: "waiting_operator"
+  status: "waiting_me"
+  operator_answer_2026_10_18: "Operator 10-18 02:26: \"yes we set a crop. And yes it's too noisy\" -> crop already applied and PTZ alerts still too noisy; mine: measure post-crop alert rate and fix at the source, not a new setting."
   created: '2026-09-14 00:20'
   updated: "2026-10-18 02:07"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
