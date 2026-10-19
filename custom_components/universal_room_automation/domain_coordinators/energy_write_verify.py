@@ -35,6 +35,8 @@ from .energy_const import (
     CONF_PENDING_STANDDOWN_COOLOFF_S,
     CONF_PENDING_WATCHDOG_ENABLED,
     DEFAULT_WRITE_VERIFY_WINDOW_S,
+    ENVOY_RESERVE_UNIQUE_SUFFIX,
+    ENVOY_SOC_UNIQUE_SUFFIX,
     STORAGE_MODE_CLOUD_TO_LOCAL,
     WRITE_VERIFY_NM_SURFACES,
     WRITE_VERIFY_SURFACE_CHARGE_FROM_GRID,
@@ -228,6 +230,9 @@ class WriteVerifier:
         #       overlapping `self_heal_starvation` alarm is suppressed so
         #       the more-specific alarm owns the surface.
         self._pending_standdown_value: dict[str, Any] = {}
+        # EC-SELFHEAL-UNEXPLAINED-RESENDS-1: one INFO line per instance
+        # when the Envoy reserve sensor cannot be resolved as the witness.
+        self._reserve_witness_unresolved_logged: bool = False
 
     # ------------------------------------------------------------------
     # Blind-window guard predicate (see PLANNING_ec_blind_window_evse_guard.md)
@@ -370,6 +375,14 @@ class WriteVerifier:
         """H1 (2026-07-13) — resolve LOCAL (Envoy/Enpower) entity id for
         a surface as the SECONDARY WITNESS under cloud-first writes.
 
+        RESERVE (EC-SELFHEAL-UNEXPLAINED-RESENDS-1, 2026-10-18): prefer the
+        local Envoy ``sensor.envoy_<serial>_reserve_battery_level`` found
+        via the entity registry (``_envoy_reserve_sensor_eid``). The
+        Enpower ``reserve_soc_number`` read only 10.0/unavailable since
+        2026-08-05 and is used ONLY when that sensor is not RESOLVABLE
+        (registry miss / disabled / non-Envoy SOC anchor) — never because
+        the sensor's state is unavailable (callers abstain on that).
+
         Under cloud-first writes, the cloud oracle reflects the APPLIED
         state (with lag). The local entity is what the on-house gateway
         actually shows; when local and cloud disagree beyond the verify
@@ -404,12 +417,67 @@ class WriteVerifier:
             key, default = key_map.get(surface, (None, None))
             if key is None:
                 return None
+            if surface == WRITE_VERIFY_SURFACE_RESERVE:
+                envoy_eid = self._envoy_reserve_sensor_eid(battery)
+                if envoy_eid is not None:
+                    return envoy_eid
             # Pass role="read" so the failover flag DOES NOT redirect us
             # back to the cloud entity — we want the raw local leg here.
             return battery._get_entity(key, default, role="read")  # noqa: SLF001
         except Exception:  # noqa: BLE001
             _LOGGER.debug("local entity resolution failed", exc_info=True)
             return None
+
+    def _envoy_reserve_sensor_eid(self, battery: Any) -> Optional[str]:
+        """Resolve the Envoy reserve sensor via the entity registry.
+
+        Anchor = configured SOC entity (``battery_soc``); it must be an
+        ``enphase_envoy`` registry entry whose unique_id ends in
+        ``ENVOY_SOC_UNIQUE_SUFFIX``. Serial = the unique_id prefix. The
+        witness is the ``sensor`` (domain filter is load-bearing: the
+        Enpower ``number`` carries the same ``_reserve_soc`` suffix) with
+        unique_id ``<serial>ENVOY_RESERVE_UNIQUE_SUFFIX``, and must not be
+        disabled (a disabled entry never gets a state → the watchdog would
+        abstain forever). Resolvability is a REGISTRY property; the
+        sensor's state is not consulted here. None → caller falls back;
+        INFO logged once per instance. No caching (registry is cheap).
+        """
+        try:
+            anchor = battery._get_entity("battery_soc")  # noqa: SLF001
+            if anchor:
+                from homeassistant.helpers import entity_registry as er
+                reg = er.async_get(self.hass)
+                ent = reg.async_get(anchor)
+                uid = str(getattr(ent, "unique_id", "") or "")
+                if (
+                    ent is not None
+                    and getattr(ent, "platform", None) == "enphase_envoy"
+                    and uid.endswith(ENVOY_SOC_UNIQUE_SUFFIX)
+                ):
+                    serial = uid[: -len(ENVOY_SOC_UNIQUE_SUFFIX)]
+                    eid = reg.async_get_entity_id(
+                        "sensor",
+                        "enphase_envoy",
+                        f"{serial}{ENVOY_RESERVE_UNIQUE_SUFFIX}",
+                    ) if serial else None
+                    if eid:
+                        sen = reg.async_get(eid)
+                        if (
+                            sen is not None
+                            and getattr(sen, "disabled_by", None) is None
+                        ):
+                            return eid
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("envoy reserve sensor resolution failed", exc_info=True)
+        if not self._reserve_witness_unresolved_logged:
+            self._reserve_witness_unresolved_logged = True
+            _LOGGER.info(
+                "WriteVerifier: reserve witness — Envoy reserve sensor not "
+                "resolved (SOC anchor not enphase_envoy, sensor not "
+                "registered, or disabled); using the configured reserve "
+                "number as the local witness",
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Schedule (called from dispatch tap in energy.py)
@@ -1558,11 +1626,15 @@ class WriteVerifier:
     def _local_reserve_witness_state(
         self, battery: Any
     ) -> tuple[Optional[float], Optional[str]]:
-        """Read the local hardware-enforced reserve sensor state + unit.
+        """Read the local hardware-enforced reserve witness state + unit.
 
         Per B0-D2, `sensor.envoy_*_reserve_battery_level` is the honest
         hardware witness (its `unavailable` flaps mandate the abstain
-        path). Returns (float|None, unit_str|None).
+        path). Since EC-SELFHEAL-UNEXPLAINED-RESENDS-1 `_local_entity_for`
+        actually resolves it (registry, Envoy-anchored); the configured
+        reserve number is only the unresolvable-sensor fallback.
+        Unavailable/unknown → (None, None) = abstain, never fallback.
+        Returns (float|None, unit_str|None).
         """
         eid = self._local_entity_for(WRITE_VERIFY_SURFACE_RESERVE)
         if not eid:
@@ -2272,6 +2344,7 @@ class WriteVerifier:
                 "attempt": attempt_no,
                 "severity_class": severity_class,
                 "hw_witness": "envoy_reserve_battery_level",
+                "hw_witness_entity": self._local_entity_for(surface),
             },
         )
         await self._maybe_fire_nm(

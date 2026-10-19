@@ -1600,6 +1600,17 @@ def derive_envoy_config(serial: str) -> dict[str, str]:
     }
 
 
+# EC-SELFHEAL-UNEXPLAINED-RESENDS-1 (2026-10-18): HA-core enphase_envoy
+# unique_id suffixes (homeassistant/components/enphase_envoy/sensor.py:
+# ``f"{envoy_serial_num}_{description.key}"``; keys ``battery_level`` and
+# ``reserve_soc``). Protocol strings, not knobs. The write verifier anchors
+# on the configured SOC sensor's unique_id to find the Envoy serial, then
+# resolves the sibling ``sensor`` ``<serial>_reserve_soc`` as the reserve
+# hardware witness (the Enpower ``number`` carries the same suffix under a
+# different serial, so the sensor-domain filter is load-bearing).
+ENVOY_SOC_UNIQUE_SUFFIX: Final = "_battery_level"
+ENVOY_RESERVE_UNIQUE_SUFFIX: Final = "_reserve_soc"
+
 # Critical Envoy-derived entities for V4 validation.
 # Missing any of these breaks core EC capabilities (billing, battery decisions,
 # daily lifetime accounting). Lifetime battery + capacity are NOT in this list
