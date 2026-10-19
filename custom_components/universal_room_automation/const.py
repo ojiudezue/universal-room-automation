@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.74
+# Universal Room Automation vv5.103.75
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.74"
+VERSION: Final = "v5.103.75"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1305,6 +1305,35 @@ def fan_owner(room_config) -> str | None:
         return _FAN_MODE_OWNER.get(room_fan_mode(room_config))
     except Exception:  # noqa: BLE001
         return None
+
+
+def room_automation_paused(room_coord) -> bool:
+    """True iff the room's Automation switch is OFF (or Manual Mode is ON).
+
+    ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (operator 2026-10-18: "Paused rooms
+    should stop with lights and fans automation based on occupancy"). The
+    ONE read the HVAC tier and the fan recheck use to skip a paused room's
+    occupancy-driven lights / fans. Delegates to the room coordinator's own
+    ``_is_automation_enabled`` (Manual Mode ON -> paused; switch off ->
+    paused; switch missing -> enabled).
+
+    True only when ``room_coord`` exposes a callable ``_is_automation_enabled``
+    that returns exactly ``False``. ``None``, a missing method or an
+    exception -> False (fail-open = today's behaviour). A missing switch
+    reads enabled. NOT fail-open: a switch that reads ``unavailable`` /
+    ``unknown`` reads as paused (``_get_room_switch_state`` tests
+    ``state == "on"``), the room tier's own pre-existing semantics.
+    Never raises.
+    """
+    if room_coord is None:
+        return False
+    try:
+        check = getattr(room_coord, "_is_automation_enabled", None)
+        if not callable(check):
+            return False
+        return check() is False
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def room_in_hvac_zone(hass, room_entry_id: str) -> bool:

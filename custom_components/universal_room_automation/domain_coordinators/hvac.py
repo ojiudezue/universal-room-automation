@@ -6724,10 +6724,20 @@ class HVACCoordinator(BaseCoordinator):
 
         from ..const import CONF_LIGHTS, CONF_FANS, CONF_NIGHT_LIGHTS
 
+        from ..const import room_automation_paused  # noqa: PLC0415
+
         swept_count = 0
         for room_name in zone.rooms:
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
+                continue
+            # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (L1): a paused room (Automation
+            # switch off / Manual Mode on) keeps its lights, night lights and
+            # fans as they are. The zone's vacancy bookkeeping is unchanged.
+            if room_automation_paused(coordinator):
+                _LOGGER.info(
+                    "HVAC: vacancy sweep: %s paused — skipped", room_name,
+                )
                 continue
             config = {
                 **coordinator.config_entry.data,
@@ -7391,6 +7401,16 @@ class HVACCoordinator(BaseCoordinator):
                 continue
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
+                continue
+            # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F4b): a paused room's fans are
+            # left as they are (pre-arrival never lit them — F4a — and a fan
+            # a person runs there must not be turned off).
+            from ..const import room_automation_paused  # noqa: PLC0415
+            if room_automation_paused(coordinator):
+                _LOGGER.debug(
+                    "HVAC: Pre-arrival fan deactivation skipped for %s — "
+                    "room paused", room_name,
+                )
                 continue
             config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
             fans = config.get(CONF_FANS, [])

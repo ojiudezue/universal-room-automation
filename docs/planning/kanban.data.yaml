@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-18'
+  last_reconciled: '2026-10-19'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -8,8 +8,43 @@ meta:
   # acknowledged AND younger than 7 days; `ack` (board button) retires an
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
-  autonomy_feed: []
+  autonomy_feed:
+  - {"fid": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:41", "card_id": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1", "at": "2026-10-19T02:41:00", "outcome": "built", "headline": "Built to review: bill check now compares SmartHub hourly data (priced by TOU) with EC over the same days. 3 reviews SHIP after fix-ups, 0 new test failures. Not deployed; needs 2 option ids + your cycle-day answer.", "acknowledged": false}
+  - {"fid": "ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:22", "card_id": "ZONE-ROOM-NAME-DRIFT-1", "at": "2026-10-19T02:22:00", "outcome": "escalated", "headline": "Room rename drift: plan + review found the old name sticks in presence, person, HVAC and both fan maps (can AWAY a sleeper, retreat a zone, leave a fan off) until restart. Tier 3 -> APPROVE scope. Workaround: restart after any rename.", "acknowledged": false}
+  - {"fid": "HOUSE-STATE-SENSOR-ATTR-CHURN-1@2026-10-19T02:15", "card_id": "HOUSE-STATE-SENSOR-ATTR-CHURN-1", "at": "2026-10-19T02:15:00", "outcome": "built", "headline": "Built to review: house-state sensor stops recording 5 churny attributes (~9.5 MB/day of recorder blobs). Review SHIP; scoped tests green; full suite still owed at deploy. Not deployed.", "acknowledged": false}
+  - {"fid": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1@2026-10-19T02:14", "card_id": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Soak exit: radar-room fan rejection (v5.103.53/.54) cannot be judged - Guest 1/2 and Media fans barely ran since 10-12. Parked with a fan-season revival trigger (2 cards).", "acknowledged": false}
+  - {"fid": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1@2026-10-19T02:14", "card_id": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1", "at": "2026-10-19T02:14:00", "outcome": "done", "headline": "Last Person Entry late name: moot - no code ever names an entry row after insert (exit-only backfill). Closed; entry-side backfill noted as a future trigger.", "acknowledged": false}
+  - {"fid": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1@2026-10-19T02:14", "card_id": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Joint departure on one exit row: 3 of 107 rows in 14 days, named person did leave. Parked until a consumer acts on exit identity.", "acknowledged": false}
+  - {"fid": "ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:14", "card_id": "ZONE-ROOM-NAME-DRIFT-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Room rename drift: 0 live drifted rooms, but confirmed the presence zone tier keeps the old name until restart. Moved to pre-planning (Tier 2 plan next).", "acknowledged": false}
+  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-19T02:14", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Envoy recount: blips down to ~1-3/day and 10-17/18 clean, but the two longest outages (586 + 714 min) came after the Ethernet move. Scope stays.", "acknowledged": false}
+  - {"fid": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:14", "card_id": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Bill check plan: SmartHub hourly data matches 3 real bills within ~1%. Plan written, reviewed (fix: never block the energy decision cycle), Rev 2 ready to build. Q: is bill cycle day 23 right (PEC reads 24/25)?", "acknowledged": false}
+  - {"fid": "EC-LOADED-VS-INSTALLED-VERSION-1@2026-10-19T02:14", "card_id": "EC-LOADED-VS-INSTALLED-VERSION-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Live now: HA runs URA v5.103.72 while v5.103.74 is installed (.73 + .74 wait for a restart). Card confirmed; Tier-1 build queued.", "acknowledged": false}
+  - {"fid": "PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-10-19T02:08", "card_id": "PERIMETER-ALERT-VOLUME-FATIGUE-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "Exterior alert volume falling: 129 -> 76 -> 68 -> 25/day (10-15..10-18). Disposition stays 10-20.", "acknowledged": false}
+  - {"fid": "FRONT-SIDE-PTZ-CHATTER-1@2026-10-19T02:08", "card_id": "FRONT-SIDE-PTZ-CHATTER-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "front_side_ptz post-crop: 11 alerts in 2 days, daytime only; the noisy PTZs are Study B porch (25) and utilities (20). VERIFY which one you meant.", "acknowledged": false}
+  - {"fid": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-19T02:03", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Paused rooms stop occupancy lights/fans: plan written + reviewed; needs your one-line yes on R1 (no sleep-onset fan when paused) and R3 (accept early-vacant backstop). Then build to review.", "acknowledged": false}
+  - {"fid": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-19T02:03", "card_id": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Safety rapid-change detector: card had overridden your 10-15 \"it is a fix\" with a retire default. Back to you: APPROVE fix (recommended) or retire.", "acknowledged": false}
+  - {"fid": "LANDSCAPE-RETRY-POSTFIX-CHECK-1@2026-10-19T02:03", "card_id": "LANDSCAPE-RETRY-POSTFIX-CHECK-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Landscape retry fix NOT holding: 9 GK + 1 Hampton lights unreachable on Wi-Fi since ~10-16, and the 10-18 run did nothing. DO: check the GK landscape lights.", "acknowledged": false}
+  - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
+  - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1
+  title: "The v8 dashboard's People table errors because Ziri has no BLE tracker ('No first item, sequence was empty')"
+  thread: "dashboard"
+  status: "planned"
+  tier: 1
+  created: "2026-10-19 02:17"
+  updated: "2026-10-19 02:17"
+  refinement_status: "initial"
+  approval: "implied"
+  problem_solution: ["Problem: the People table on the v8 dashboard is built from one template that looks up each person's BLE tracker; Ziri has none, so the template throws an error (seen 3 times overnight) instead of showing a dash. Solution: make the lookup tolerate a missing tracker (take the first match or nothing) so Ziri's row renders with a dash."]
+  origin: {"date": "2026-10-19", "gist": "Overnight pass log read (ha_get_logs system): helpers.event TemplateError UndefinedError No first item, sequence was empty, x3 10-19 00:21-00:29 CDT, in the Who/Person/GPS tracker/BLE tracker/BLE seen/Agree table."}
+  why: "Found mid-pass (capture-first). person.ziri has device_trackers with no bermuda tracker (.storage/person); the template does `trk | select('search','bermuda') | first`, which raises on an empty sequence. Lives in .storage/lovelace.ura_v8 (HA config, not URA code)."
+  adjacency: "Swept: DASHBOARD-V8-FIX-BATCH-1 (done, parent batch that built the People tab) -> ADJACENT, new card linked; no open dashboard card covers it; BACKLOG/plans not relevant."
+  fix: "In lovelace.ura_v8 People table template: `{%- set bt = (trk | select('search','bermuda') | list + [none]) | first -%}` (rest of the row already guards `if bt`). Apply via ha_config_set_dashboard in an attended session; check the card renders 4 rows."
+  parsimony: {"problem": "One person without a BLE tracker breaks the whole People table template.", "verdict": "BUILD (one-line, config-only)"}
+  rank: {"value": 3, "time_criticality": 3, "effort": 1}
+  links: {"parent": "DASHBOARD-V8-FIX-BATCH-1", "context": "DASHBOARD-V8-FIX-BATCH-1 built the v8 People tab this template belongs to."}
+  next: "Me, attended session: apply the one-line template fix to lovelace.ura_v8 (not done overnight - live dashboard write)."
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
   status: shipped_organic
@@ -77,45 +112,53 @@ cards:
 - id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
   title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
   thread: identity
-  status: "inbox"
+  status: "done"
   tier: 1
   created: "2026-10-17 17:40"
-  updated: "2026-10-17 17:40"
+  updated: "2026-10-19 02:08"
   refinement_status: "initial"
   approval: "unreviewed"
   origin: {date: "2026-10-17", gist: "Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGNAL_EGRESS_EXIT_BACKFILLED, sensor.py:4913-4935)."}
   why: "v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard."
   links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-DISPLAY-REREAD-1"]}
-  next: "Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read)."
+  next: "CLOSED (moot) 2026-10-19 overnight."
   rank: {value: 3, time_criticality: 2, effort: 2}
+  verified_2026_10_19_overnight: "MOOT per this card's own test ('if entry rows are never named after insert, close as not-needed'). CODE: the only post-insert write to person_entry_exit_events is backfill_entry_exit_person_id (database.py:4425), fed only by find_unnamed_exit_crossings (database.py:4387, WHERE direction = 'exit' at :4408) from camera_census.py:4611/:4669. No path names an entry row after insert, so LastPersonEntrySensor's insert-time read can never miss a late name - there is none to miss. DB (last 14 d): entry 157 rows, 50 named (32%); exit 107, 39 named."
+  revival_trigger: "If entry identity coverage (32%) becomes the bottleneck (e.g. the 6.0.0 guest gate consuming door identity), the work is an ENTRY-side late-name backfill mirroring EGRESS-EXIT-IDENTITY-BACKFILL-1 - and then this display re-read comes with it. Card that work then, with its own problem statement."
 - id: EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1
   title: "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person"
   thread: identity
-  status: "inbox"
+  status: "parked"
   tier: 2
   created: "2026-10-17 17:10"
-  updated: "2026-10-17 17:10"
+  updated: "2026-10-19 02:09"
   refinement_status: "initial"
   approval: "unreviewed"
   origin: {date: "2026-10-17", gist: "Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer)."}
   why: "Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case."
   links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-COMULTI-DEPART-1"]}
-  next: "Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both."
+  next: "PARKED 2026-10-19 overnight - see revival_trigger."
   rank: {value: 4, time_criticality: 2, effort: 2}
+  measured_2026_10_19_overnight: "STILL-REAL, RARE. CODE: the exit backfill (camera_census.py ~4600-4700) has edge A claim rows[0] with an IS-NULL guard; edge B then finds no null row and only bumps _ble_exit_row_lost_count - so one row + two departures is named for whoever's edge (after the 300 s settle) arrives first; EGRESS-EXIT-COMULTI-DEPART-1 only covers the two-row case. DB + recorder (last 14 d): 107 exit rows; 3 had >= 2 residents' person.* home->away edges in [row-60 s, row+600 s] - 8522 10-11 (oji+ezinne+jaya, named jaya), 8599 10-13 00:22 (oji+jaya, named oji), 8603 10-13 12:03 (oji+jaya, named oji). ~1.5 rows/week; each names a person who DID leave (not a stranger) but drops the co-departer. No consumer acts on exit person_id today (display + counts only)."
+  parsimony: {"problem": "When two residents leave together past one camera, the single exit row is credited to whichever phone reports first and the other departure goes unrecorded.", "verdict": "PARK - ~1.5 rows/week, the named person did leave, and the clean fix (leave null when a second edge arrives, which means un-naming a row after the fact) adds cross-edge state for little display value"}
+  revival_trigger: "Revive when a consumer ACTS on exit person_id (guest gate / arrival-departure notifications / 6.0.0 identity actuation), or if a ground-truth check finds a joint-departure row named for someone who did not leave."
 - id: EC-LOADED-VS-INSTALLED-VERSION-1
   title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
   thread: platform
-  status: "pre_planning"
+  status: "in_progress"
   tier: 1
   created: "2026-10-17 16:30"
-  updated: "2026-10-17 16:30"
-  refinement_status: "initial"
+  updated: "2026-10-19 02:41"
+  refinement_status: "refined"
   approval: "unreviewed"
   origin: {date: "2026-10-17", gist: "EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while operator travels)."}
   why: "Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record the wrong code. Prior art grep (loaded_version/installed_version/manifest_version) found nothing."
   links: {"related": ["EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1"]}
-  next: "Me: Tier-1 plan in the card: at setup record the loaded version (manifest read at import); a cheap periodic compare against manifest.json on disk -> a diagnostic sensor attribute (loaded vs installed) + one WARNING/repair issue 'restart pending to load vX'. Also: write v5.103.67/.68 Validated tables (they went live only 10-17 18:27Z)."
+  next: "Me: Tier-1 build to review (overnight queue, after the current validator run)."
   rank: {value: 4, time_criticality: 3, effort: 2}
+  instance_2026_10_19_overnight: "LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_components/universal_room_automation/manifest.json on disk is 5.103.74. So v5.103.73 (fan recheck by day) and v5.103.74 (reserve witness) are installed but NOT running until the next restart (deferred: house asleep). Any live validation of .73/.74 before that restart would read old code."
+  prior_art_2026_10_19: "REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + hourly), compare to VERSION, expose loaded/installed on an existing diagnostic sensor + one repair issue 'restart pending to load vX'. Until built, the one-line recipe is: device_registry sw_version vs manifest.json version."
+  parsimony: {"problem": "After a deploy is installed but HA has not restarted, nothing shows that the running URA is older than the installed one, so live checks silently read old code.", "verdict": "BUILD (Tier 1, small; reuse sw_version)"}
 - id: EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1
   refuted_2026_10_17: "REFUTED-but-fertile. Not a code defect: v5.103.67 (ledger, 10-16 19:44Z) and v5.103.68 were INSTALLED but HA was not restarted until 2026-10-17 18:27Z (homeassistant_start events 10-16 15:56:39Z, 10-17 18:27:27Z); the advisory ran 19:45Z-00:00Z on the pre-.67 code. Corroborated: reserve_write rows in that window lack tick_floor/tick_hold_depth keys that current code writes. Since the 18:27Z restart the feed has been Alerts:[] so 0 rows is correct. Builder added an unseeded real-DB end-to-end test (fix/outage-ledger-nws-rows 6e43e85d8, test_alert_row_lands_unseeded_boot_real_db; drill on _seed_alerts :483 RED) - merge with the next batch. Confirming observation: first nws_alert row when the next alert appears. Surfaced work -> EC-LOADED-VS-INSTALLED-VERSION-1; v5.103.67/.68 READMEs have no Validated table and only went live 10-17."
   title: "Outage ledger wrote no nws_alert rows: a Wind Advisory sat in the NWS feed ~4 h after v5.103.67 shipped and the ledger recorded nothing (0 rows, all time)"
@@ -315,7 +358,7 @@ cards:
   operator_2026_10_15b: "Operator: \"The buffer is green it.\" APPROVED option A (resume at 80%, re-pause only below 77%). Tier 2-DB build queued."
   update_2026_10_15: "Operator 2026-10-15: \"see if config fixes these first\". Checked: only one knob, energy_fill_priority_soc (energy_const.py:1077-1079); pause and resume use the same number (energy_pool.py determine_fill_priority_actions), so moving it only moves the chatter point. No config fix; needs a resume/re-pause band (option A). Awaiting operator go on A."
   created: '2026-10-12 02:06'
-  updated: "2026-10-16 02:09"
+  updated: "2026-10-19 02:11"
   refinement_status: initial
   approval: blocked
   tags: [tier-2db, measure-before-build, numbers-get-knobs, no-fabrication-verify]
@@ -336,12 +379,13 @@ cards:
   parsimony:
     problem: With fill-priority at 80%, an 11.7 kW EV resume drops SOC to 79% and re-pauses the EV within one tick (2 of 7 logged days).
     verdict: AMBIGUOUS
-  next: "Me, after the next daytime HA restart loads v5.103.63 (installed 10-15 22:01, not running; last HA start 10-15 12:45): check README_v5.103.63 live criteria, write the Validated table, then done or reopen. (Stale pre-build PICK replaced overnight 10-16: option A shipped as v5.103.63.)"
+  next: "Me: one SOC-aligned read (URA battery SOC source per memory = Envoy, via the energy coordinator's own SOC attribute history) for the 10-17/10-18 fill_priority pauses -> write README_v5.103.63 Validated table -> done; card the ensure_on vs fill_priority flip only if it recurs (>=3 instances)."
   adjacency_2026_10_12: 'NEW. Swept: board (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 = different owner, arbitrage rung-1/WAIT at night; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 done = arbitrage release vs fill-priority; EVSE-SOLAR-STOP-CONDITIONS-1 parked mentions a resume_ev 95 / fill 80 hysteresis band but for excess-solar sessions, not the fill-priority re-pause), docs/BACKLOG.md (no fill-priority item), planning docs (no fill-priority hysteresis deliverable found by grep).'
   links:
     related: [EC-EV-TOGGLE-TRIPWIRE-1, EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1, EVSE-SOLAR-STOP-CONDITIONS-1]
     context: 'EC-EV-TOGGLE-TRIPWIRE-1 is the alarm that caught this. EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 is a different flip loop with a different pause owner, so its revival trigger did NOT fire. EVSE-SOLAR-STOP-CONDITIONS-1 carries a similar SOC-band idea for excess-solar sessions.'
   refs: [custom_components/universal_room_automation/domain_coordinators/energy_pool.py:2675, custom_components/universal_room_automation/domain_coordinators/energy_const.py:1069]
+  organic_check_2026_10_19_overnight: "PARTIAL (URA ura_activity_log charger_on/off, 10-16 -> 10-19). No threshold chatter of the old shape (repeated fill_priority pause/resume minutes apart while SOC crosses 80) appears: fill_priority pauses are once per mid-peak day (10-16 15:52Z, 10-17 12:37Z, 10-18 12:36Z) with no fill_priority resume/re-pause pairs after. One cross-RULE flip seen: 10-18 17:24:46Z the off-peak onset leg (onset_release kind=plug leg=ensure_on, 'onset_permits') turned the garage plugs ON and fill_priority paused them 5 min later (17:29:46Z) - two writers disagreeing, not the SOC band this card fixed; 1 instance in 3 days. 10-16 15:52Z on->off within 1 s is the restart transient the README accepts. GAP: battery SOC at those moments not read (envoy_stream SOC sensors unavailable then); the 'no re-pause while SOC >= 77' row still needs an SOC-aligned read."
 - id: EC-LKG-NEVER-PERSISTED-1
   organic_evidence_2026_10_07: "SOAK EXIT -> DONE. Live acceptance met: URA DB energy_state rows battery_soc_lkg / solar_production_w_lkg / wv_commanded_ledger / wv_verified_records / arbitrage_chunk_latch ALL updated_at 2026-10-07T06:55:40Z (were frozen at 2026-07-23 22:09Z). Query: ssh ha sqlite3 -readonly ... select key, updated_at from energy_state."
   verified_2026_10_05_overnight: "ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallowed at DEBUG per block. (2) Live URA DB energy_state (ssh sqlite3 -readonly): battery_soc_lkg, wv_commanded_ledger, wv_verified_records and arbitrage_chunk_latch all last written 2026-07-23 22:09:33Z, i.e. frozen for 74 days (solar LKG row never existed); every other key is fresh (07:04Z today). 07-23 is the blind-window-guard merge day (642edbe36) - likely where the binding was lost. Consequence beyond the card title: the v5.17.1 D2 arbitrage-latch persistence (the guard against the 2026-07-14 restart-mid-hold incident) has been inert since 07-23; its 10 h restore age gate silently drops the stale row. (3) Fix: 7f60f137e on feature/ec-degraded-data-p1 binds import json as _json at the top of the function (energy.py:2160 on that branch) and its DRAFT README B1 already names all five rows. Card was stale in inbox; moved to review (built, awaiting the EC p1 ship)."
@@ -554,10 +598,11 @@ cards:
   operator_2026_10_15b: "Operator: \"Envoy is ethernet connected now not wifi.\" Another confound for the 10-15 dropout fall (alongside GC freeze + SPAN); likely the dominant one. Re-count at 10-18 stands."
   update_2026_10_15: "Operator 2026-10-15: \"drops have fallen. Wonder if related to stalls. Measure first.\" Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within 60 s vs 27.8% base rate (weak, n=17). Stalls >=1 s fell 593/378 -> 9 on 10-15 after the GC freeze. Verdict INCONCLUSIVE; confounded by Wi-Fi (10-13), GC freeze and SPAN (10-14). Re-measure one-shot after 3 clean days (10-18) before planning phase 2; if dropouts stay ~0 the resilience scope shrinks. Script scratchpad p.py."
   created: '2026-10-04 01:00'
-  updated: "2026-10-16 02:03"
-  next: "Me, after 10-18: one-shot re-count of Envoy dropouts (3 clean days after the Ethernet move + GC freeze). Then, once the governor ships, write the phase-2 Tier-3 plan with items (1) retire local write-failover, (2) pending-episode back-off + one page per episode on top of the governor rows, (3) non-stream read fallback, (4) token-expiry alert; scope shrinks if dropouts stay ~0."
+  updated: "2026-10-19 02:12"
+  next: "Me: write the phase-2 Tier-3 plan (retire local write-failover; read Enphase control_change_pending; long-outage handling) -> it then needs your APPROVE before any build (Tier 3)."
   why: 'Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8.2.4225; production.json not recommended; local API unsupported; yearly token; cloud retry-after).'
   operator_fact_2026_10_05: 'Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailable until a manual reload. Mode 2 is silent at the config-entry level -> any health check / auto-recovery must key on entity availability (e.g. all envoy sensors unavailable for N min while entry state=loaded), not on entry state alone. Feeds the resilience re-plan (detection + bounded auto-reload trip-wire).'
+  recount_2026_10_19_overnight: "RECOUNT DONE (per your 10-17 instruction). Recorder, sensor.envoy_482543015950_current_battery_discharge unavailable episodes by local day: 10-11 9 drops/266 min down, 10-12 4/297, 10-13 4/145, 10-14 13/109, 10-15 1/586, 10-16 1/714, 10-17 3/25, 10-18 1/12. Long outages (>= 60 min): 10-11 17:49 116 min, 10-11 23:06 110, 10-12 15:15 264, 10-13 23:04 131, 10-14 23:04 76, 10-15 17:38 586, 10-16 06:43 714 - none since. CAVEAT: this entity's count includes HA-restart blips (restarts 10-17 13:22/18:00, 10-18 12:17/13:43/20:35), so 10-17/10-18 are an upper bound; the earlier note of an outage 'open since 10-17 23:08' does not show on this entity (it read the integration fetch timeout, not entity unavailability). VERDICT: blips are down (~6.8/day -> ~1-3/day) and the last two days are clean, but the two longest outages ever (586 + 714 min) happened AFTER the Ethernet move. Two clean days cannot rule them out, so the resilience scope does NOT shrink."
 - id: ENERGY-HISTORY-KW-SUMMED-AS-KWH-1
   disposed_2026_10_09_overnight: "DONE, met with a residual. Discriminator: the predicted-energy sensors should deflate at the ship and then stay flat. HA long-term statistics (daily mean) for sensor.universal_room_automation_predicted_energy_week: 1573 / 1690 / 1796 / 1879 / 1966 / 1942 (09-29..10-04), then 1000 on the 10-05 ship day, then 378 / 382 / 390 / 390. That is a one-time ~5x drop exactly at the v5.103.39 restart, and stable since, which is the signature of summed-kW-samples being replaced by an integral (a different failure, such as a broken query, would read 0/unavailable or drift). predicted_energy_today now reads 20-36, against 180-290 before. RESIDUAL: whether ~55 kWh/day is the right ABSOLUTE level needs independent ground truth. The Envoy lifetime-consumption counters are themselves the disputed source on ENERGY-CONSUMPTION-FORECAST-POISONED-1 (lifetime_energy_consumption_2 daily change reads 0.02-0.15, unit unclear), so the absolute-level question lives on that card."
   review_2026_10_04_overnight: "REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2286-2806), display-only, no thresholds; grid_import_2 not in the query; test drives real initialize() schema + real methods (5 pass). MEDIUM (Bug Class #63, coincidental equality): nominal 0.25 h / 0.5 h cap assumes a 15-min write cadence, but history is written every 3rd EC tick (energy.py:6581) and CONF_ENERGY_DECISION_INTERVAL allows 1-30 min (config_flow.py:6165); at >10 min every gap exceeds the cap and totals under-report (~6x at 30 min). Live value here: energy_decision_interval 5.0 (CM entry) -> 15-min cadence -> correct for this house. Relevant to the second-home rollout. Pre-existing: days grouped by UTC date."
@@ -835,10 +880,10 @@ cards:
   lane_fix_2026_10_17_overnight: "Moved planned -> waiting_operator: the next step is your PICK (A retire on purpose / B redesign), not my build."
   title: The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant
   thread: safety
-  status: waiting_me
+  status: "waiting_operator"
   update_2026_10_15: "Operator 2026-10-15: \"rapid change isn't that a heat thing for fire? If so it's a fix.\" Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repair the 30-min window so it actually runs, gate HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, keep OVERHEAT rate-of-rise; re-run the replay to prove quiet. Tier 2 plan next."
   created: '2026-09-27 02:40'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-19 02:03"
   measured_2026_09_27_replay: 'REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes deduped to 1 per hour per sensor). LEARNING MODE (fixed thresholds: temperature rise >= 10 F/30 min in cooling season, >= 20 extreme; humidity rise >= 40 pts outside bathrooms): 0 episodes in 7 days. So fixing the window alone would change nothing at first. Z-SCORE MODE (reached after 60 rate samples per sensor, within about a day once rates flow; z >= 3 by per-sensor mean/std, with the classify rules for September): 51 humidity (would be labelled WATER_LEAK) + 36 temperature (HVAC_FAILURE) = about 12.4 alerts a day. CONCLUSION: the broken window is accidentally shielding the house from a MEDIUM+ alert flood. A naive "fix the window" is harmful. Hence PICK A (retire, documented) vs B (redesign with corroboration). The 12.4/day is an estimate: it uses a population std, not HAs running Welford at each moment, so treat it as order-of-magnitude.'
   refinement_2026_09_27: 'Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.'
   refinement_status: refined
@@ -861,10 +906,12 @@ cards:
   parsimony:
     problem: RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
     verdict: MEASURE then PICK (fix vs retire)
-  next: "Me (default A taken 10-17): write the 'dormant by design, revisit only with a redesign' note in the Safety coordinator doc + a code comment at the detector; Tier 1, rides the next safety ship."
+  next: "APPROVE: B (recommended - your 10-15 answer) repair the 30-min window, keep OVERHEAT rate-of-rise, gate the HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, and prove quiet with the 7-day replay before it can alert; or PICK A (retire on purpose with a doc note). -> On B I write the Tier-2 plan and plan-review it; on A I write the doc note + code comment."
   links:
     related: [SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-HUMIDITY-JUNK-READING-1]
     context: 'Found in the same review. The junk-reading fix''s rate-skip only matters if this detector ever runs.'
+  contradiction_2026_10_19_overnight: "CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B). Two days later triage_2026_10_17 'took default A' (retire), which overrides your stated choice without a new answer. The default-taking rule only applies when you have NOT spoken. Not acting overnight (safety surface; replay said a naive window repair floods ~12 alerts/day in z-score mode, so B is a real Tier-2 plan, not a comment)."
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: SAFETY-RECONNECT-ZERO-SIBLINGS-1
   title: The same junk "0" reconnect reading can also fake a freeze alarm or switch a bathroom fan on; guard those paths too
   thread: safety
@@ -3194,10 +3241,10 @@ cards:
     as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: "waiting_me"
+  status: "waiting_operator"
   operator_answer_2026_10_18: "Operator 10-18 02:26: \"yes we set a crop. And yes it's too noisy\" -> crop already applied and PTZ alerts still too noisy; mine: measure post-crop alert rate and fix at the source, not a new setting."
   created: '2026-09-14 00:20'
-  updated: "2026-10-18 02:07"
+  updated: "2026-10-19 02:08"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -3288,7 +3335,7 @@ cards:
     this camera would zero its person detections while leaving motion untouched — exactly the
     signature observed, on exactly the camera named, in roughly the right window. If that is what
     happened, the crop overshot: it did not calm the noisiest perimeter camera, it switched it off.'
-  next: "VERIFY: is 'still too noisy' about front_side_ptz alerts specifically, or about perimeter alerts in general? front_side_ptz is now ~4 alerts/day. Default I take if you don't say otherwise: close this card and work the overall volume on PERIMETER-ALERT-VOLUME-FATIGUE-1 (Study B porch is the biggest source). -> If it is front_side_ptz specifically, tell me what you see (which notifications, which hours) and I write the exact Frigate zone/mask change for it."
+  next: "VERIFY: when you say the PTZ alerts are still too noisy, is it front_side_ptz (11 alerts in 2 days, daytime only) or the Study B porch / utilities PTZs (25 and 20)? Default I take next session if you don't say: close this card and work the porch/utilities PTZs under PERIMETER-ALERT-VOLUME-FATIGUE-1. -> If it is front_side_ptz, tell me which notifications/hours and I write the exact Frigate zone change for you to apply."
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
@@ -3318,6 +3365,8 @@ cards:
   verify_2026_09_29_overnight: 'STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card''s 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, back_yard 7), so this is not a fleet blackout. The camera now looks blind rather than chattering, which makes your answer (was a zone crop or mask applied around 09-14/15?) the key to whether it needs undoing. It is also lever (A) on PERIMETER-ALERT-VOLUME-FATIGUE-1.'
   verify_2026_10_02_overnight: "CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and four times on 10-01 (12:54, 13:18, 13:19, 13:47 CDT) during the ~5 h window when Frigate2 was working. Part of the earlier zero was the fleet-wide detector hang (PERIMETER-DETECTION-WENT-DARK-1), not this camera. But 4 in that window is still far below its old ~200/day while back_yard did 40 and hot_tub 52 the same day, so it is detecting, just rarely. Your answer (was a zone crop or mask applied ~09-14/15?) still decides whether it needs widening. Re-measure after Frigate2 is healthy for a full day."
   measured_2026_10_18_overnight: "front_side_ptz produced 10 perimeter alerts since the 10-15 18:09 Frigate restart (2 on 10-16, 8 on 10-17), about 6% of exterior alerts; the noisy cameras now are Study B porch PTZ (65), hot_tub (21), utilities_ptz (17). Detail on PERIMETER-ALERT-VOLUME-FATIGUE-1."
+  measured_2026_10_19_overnight: "Post-crop, post-mask recount (URA notification_log '[audit]' rows, exterior_person, since 10-17 00:00): front_side_ptz 11 alerts (10 occupancy_2 + 1 detected) over ~2 days, clustered in daytime bursts (10-17 ~13-14h, 10-18 ~09h), none in the old 03-05h chatter shape. Biggest sources over the same window: Study B porch PTZ 25 (two entities), utilities_ptz 20, hot_tub 12. House-wide daily totals: 10-15 129, 10-16 76, 10-17 68, 10-18 25. So 'still too noisy' does not show up for front_side_ptz in the data; it does for the porch/utilities PTZs."
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -7951,7 +8000,7 @@ cards:
   status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: "2026-10-14 03:56"
+  updated: "2026-10-19 02:16"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -8008,6 +8057,7 @@ cards:
     addition, and it is only worth adding if hypothesis (b) survives. DO (a) FIRST: it is free and it
     may close the card outright. NOTE this does NOT reproduce the symptom — reproduction needs a live
     send, which is not something to do unattended at 3am into someone messages.'
+  INSTANCE_2026_10_19_overnight_send_failures: "system_log (ha_get_logs source=system, 02:2x CDT): notification_manager.py:2305 'iMessage send via BlueBubbles failed: ' (empty error text) x11, first 10-18 22:19:21, last 10-18 23:54:52 CDT. The iMessage channel is failing at transport level tonight; other channels not checked here. Relevant to this card's house-Apple-ID setup (Messages on the Mac mini) and worth one look at the BlueBubbles server when you are back."
 - id: EVSE-SOLAR-IDLE-DERESERVE-1
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
@@ -28730,7 +28780,7 @@ cards:
   update_2026_10_15b: "URA notification_log 7d: back_yard 339 events, hot_tub 214, front_side_ptz only 21 (09-14 Frigate road+object masks worked). Homelab session (FRIGATE2-PERENNIAL-1): back_yard 961 / hot_tub 820 Frigate person events in 7d were almost all fixed objects (tree trunk, cypress, posts, shrubs, leaf shadows); 7 object masks written to F2 config.yaml, NOT loaded until a Frigate restart (operator). Expect ~90% drop on both. Next: after the Frigate restart, one-shot re-count from notification_log; only then pick a URA lever (day/home low-priority vs channel trim), if still needed."
   update_2026_10_15: "Operator 2026-10-15: \"what controls can be deployed. Also when do these matter? I'd say at night. But also I thought we had road masks and these should fire when people are actually close to the property vs walking on the street. Ask homelab agent.\" Asked the Homelab session for per-camera masks/zones/required_zones. URA side: person alerts have no time-of-day gate (vehicle-hours only; burst-demote night window is a module constant 23-05)."
   created: '2026-09-12 20:45'
-  updated: "2026-10-18 02:07"
+  updated: "2026-10-19 02:08"
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -28824,6 +28874,7 @@ cards:
     answer may be that volume is already down and no lever is needed, which would make building any
     new suppression a negative-value change.'
   measured_2026_10_18_overnight: "ONE-SHOT RECOUNT (URA notification_log, events = one '[audit]' row per alert for person.oji_udezue, local CDT days). Daily exterior-person alert events: 10-11 164, 10-12 109, 10-13 80, 10-14 132, 10-15 123 | after the Frigate object masks loaded (restart 10-15 18:09): 10-16 81, 10-17 59. back_yard went ~50/day -> 8, 2; hot_tub ~35/day -> 10, 10. So the masks cut the two biggest sources ~85% and total volume ~45%. front_side_ptz is NOT a volume driver any more: 2 and 8 events (10 since 10-15 18:30, about 6% of exterior alerts). Top sources since the restart: Study B porch PTZ 65 across two detectors (Frigate leg 34, Reolink native leg 31; only 2 of 47 native-leg alerts fall within 120 s of a Frigate-leg alert, so it is NOT double-alerting, the porch is just busy), hot_tub 21, utilities_ptz 17, back_yard 12, rear_ptz 10, g5_bullet 10, front_side_ptz 10. Severity: 10-16 74 of 81 and 10-17 50 of 59 were CRITICAL, the travel-week 'nobody tracked home' branch (see investigation_2026_10_15), so buzz count is driven by severity more than by any one camera."
+  interim_2026_10_19_overnight: "Interim recount (not the disposition - that stays 10-20): house-wide exterior-person alert events 10-15 129, 10-16 76, 10-17 68, 10-18 25 (first day with the family back), 10-19 4 by 02:08. Top sources since 10-17: Study B porch PTZ 25, utilities_ptz 20, hot_tub 12, front_side_ptz 11. On track for the <60/day close criterion; one more normal day needed."
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   disposition_2026_09_26_groom: 'Test-only anchor; shipped with v5.101.1/5.101.2 (READMEs list it). Nothing live to validate. Closed.'
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
@@ -30812,7 +30863,7 @@ cards:
   shipped_version: v5.103.62
   update_2026_10_15: "CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant set_activity_setpoint per preset change per zone. Fix = REUSE _zone_last_s1_write (hvac.py:631, 3929-3933) + new rung-1 S10_POST_PRESET_CHANGE_COOLDOWN_S (=120 s, SUPPRESS_TTL_SECONDS_PRESET) skip step. Tier 2. Plan docs/planning/PLANNING_hvac_s10_stale_range.md. State-of-play doc corrected (C37: CPR is LIVE on zone_3, not dormant; \u00a78 row; \u00a79.9 renumber; S10 row residual). Next: one plan review, then build."
   created: '2026-10-14 02:35'
-  updated: "2026-10-16 02:07"
+  updated: "2026-10-19 02:16"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-2, hvac, found-during-probe, no-fabrication-verify]
@@ -30826,13 +30877,14 @@ cards:
   - "HVAC: read docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md COMPLETELY before planning; update it in the same commit."
   - "Numbers get knobs: settle window as a module constant (hvac_const.py), not an inline literal."
   parsimony: {problem: "S10 re-writes a correct preset range when it reads Carrier attributes within ~7 min of a preset change", verdict: SIMPLIFY}
-  next: "Me, after the next daytime HA restart loads v5.103.62+: check README_v5.103.62 live criteria (zone_3 ranges skipped_already_correct; no S10 write within 600 s of a zone_3 preset change; 0 URA ERRORs), write the Validated table, then done or reopen."
+  next: "Me (next overnight or attended): after one daytime zone_3 preset change, read climate_write rows for a write within 600 s of it + home status -> write README_v5.103.62 Validated table -> done or reopen."
   links:
     parent: HVAC-CUSTOM-PRESET-RANGES-1
     related: [HVAC-S10-DPM-VS-S1-1]
     context: "Residual of the CPR organic disposition (parent closed done 10-14). HVAC-S10-DPM-VS-S1-1 is the other S10 interaction blocker (S10 vs S1 fighting each tick), a different defect on the same pass."
   refs:
   - custom_components/universal_room_automation/domain_coordinators/hvac.py (_s10_zone_skip_reason ~4364, _s10_pass ~4439)
+  organic_check_2026_10_19_overnight: "PARTIAL (live, 02:2x CDT; HA running v5.103.72, so .62 is loaded). sensor.ura_hvac_coordinator_active_preset_overrides preset_range_by_zone.zone_3: away 62-80 skipped_already_correct, sleep 70-77 skipped_already_correct, home 70-77 status null (not evaluated since the 10-18 20:38 restart - house has not been in home preset for zone_3 since), writes 0 / failures 0 on all three; s10_settle_held_s.zone_3 = None. So: no re-writes since restart (criterion 2 direction holds) but only ~6 h of window and no observed zone_3 preset change yet. URA ERRORs since restart: none from HVAC; the only URA ERROR is NM BlueBubbles send failures (unrelated, carded on NM-BB-CHATGUID-SELFSEND-1)."
 - id: HVAC-CUSTOM-PRESET-RANGES-1
   disposition_2026_10_14: "done: CPR on in zone 3 holds custom ranges with no write storm. Residual (one spurious re-write after a preset change) -> HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1."
   organic_evidence_2026_10_14: "Measured 2026-10-14 02:30 CDT (URA DB ura_activity_log climate_write rows + recorder attributes of climate.back_hallway_zone_3). CPR switch ON since 10-13 06:37 CDT, rollout = zone 3 only. S10_preset_range writes: 3 in 19.5 h. 11:38Z home 70/78 -> 70/77 and 12:14Z away 66/80 -> 62/80 were genuine first applies over Carrier defaults; 05:48Z (00:48 CDT) was a spurious re-write (see HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1) that the thermostat rejected (wire_ok false), and it did no harm. Zone 3 HOLDS its custom ranges: away read 62/80 every time the cloud refreshed (00:50, 01:21, 02:02 CDT), and home is 70/77. No write storm: zone 3 S1 writes were 59 in the 19.5 h ON window vs 40 in the 19.5 h before, and the 7-day daily range is 32-54/day; the max is 7/h, well under the 12/h/zone storm the blocker described. No S10-vs-S1 fight (3 S10 writes total). No HVAC NM pages from S10."
@@ -31083,7 +31135,8 @@ cards:
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: "waiting_me"
+  status: shipped_organic
+  shipped_version: v5.103.75
   created: '2026-09-29 04:20'
   refinement_status: "refined"
   approval: unreviewed
@@ -31106,10 +31159,13 @@ cards:
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
   verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
-  next: "Operator answered 10-18 (see operator_answer_2026_10_18). Mine: finish the light/fan path audit, then gate only the ungated occupancy-driven light/fan paths on the room Automation switch (Tier 2)."
-  updated: "2026-10-18 02:05"
+  next: "APPROVE (one line): R1 yes - paused bedrooms get no sleep-onset fan either; R3 accept (recommended) - a paused room with only radar + a running fan can be marked empty early by the fan-noise backstop, same as rooms with Fan Mode Off today. Or say no to either. -> I fold R1-R6 into the plan and dispatch the build to review (3 framing-disjoint reviews)."
+  updated: "2026-10-19 02:03"
   verify_2026_10_18_overnight: "CARD-WAS-WRONG on 'inert' + STILL-REAL. Code (develop 8dd2e9762): the room Automation switch (switch.py:5103; gate coordinator.py:3181 _is_automation_enabled) stops occupancy on/off, the scheduled auto-off, the Away leave-on sweep (automation.py:890) and the actuator reconciler (actuator_reconciler.py:544). But THREE paths still act in a paused room, each by an earlier deliberate design: (1) timed cover open/close runs on its own Cover Automation switch (coordinator.py:5398, v4.2.22 'Option A'); (2) house-state and energy-signal chained automations + AI rules are gated only by the AI switch (coordinator.py:955/996, v4.5.8 gating model); (3) humidity venting is gated by the per-room humidity toggle, not the master (coordinator.py:5413, bathroom-exhaust D1). Safety/security handlers are ungated on purpose and should stay so. Live 02:08 CDT: 20 rooms paused; of those, Cover Automation is ON in patio, receiving_room, master_bedroom, exercise_room, media; AI automation is ON in guest_bedroom_1, master_closet, staircase, master_closet_storage, study_b; humidity toggles are ON in most paused rooms (acts only where a humidity fan is configured)."
+  correction_2026_10_19_build: "verify_2026_10_18_overnight was INCOMPLETE (audit AUDIT_paused_rooms_light_fan_paths_2026_10_18.md §5): besides covers / AI-house-state rules / humidity, paused rooms were still acted on by the HVAC zone vacancy sweep (lights + fans), HVAC comfort fans (FanController.update), HVAC sleep-onset fan ON, pre-arrival fans ON/OFF and the fan recheck arm. Built on fix/paused-room-lights-fans (not deployed): all six now skip a paused room via const.room_automation_paused; the room-tier _delayed_exit_verify retry re-reads the switch. Not gated (whitelist INV-P'): safety stop, turn_off_all_managed, recheck restore discharge; covers / AI rules / humidity unchanged by ruling."
   refinement: "Operator 10-17 'paused rooms should be inert' -> code shows paused means 'no occupancy lighting', not inert; three sibling switches keep acting. Becomes a PICK between widening the master switch (code) and turning the sibling switches off (config)."
+  groomed_2026_10_19_overnight: "Plan written + plan-reviewed 2026-10-18: docs/planning/PLANNING_paused_room_occupancy_lights_fans.md (verdict FIX-PLAN, Tier 2 with build review elevated to 3 framings - presence<->HVAC ripple). The reviewer requires YOUR one-line confirmation on two points before it is SHIP-TO-BUILD: R1 (sleep-onset fan in a paused bedroom is also stopped - your ruling 'fans automation based on occupancy' covers it) and R3 (accepting that pausing a room lets the fan-noise backstop D2 mark a radar-only, fan-running room vacant early, which can retreat its HVAC zone). Not building overnight: HVAC-tier, cross-coordinator, and two open operator calls."
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: BOOT-EVENT-LOOP-FREEZE-1
   updated: "2026-10-03 02:14"
   organic_evidence_2026_10_03: "DISPOSED (soak exit): MET with a residual. README_v5.103.28 already PASS (no URA boot freeze; boot ~2.3 min vs 5-9). Tonight's 00:37 restart (full core log via /api/hassio/core/logs): the watchdog fired once, 'Event loop stalled >= 10.0s phase=boot', total_stall=12.2s, and the main-thread stack names leviton_decora_smart_wifi/image.py:54 -> api/device.py:893 matter_qr_code -> pyqrcode (a third-party integration building QR images), NOT URA. So the 133-156 s URA freeze is gone and the watchdog correctly names the remaining 12 s culprit. Residual carded: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1 (the watchdog's own shutdown ERROR). NOTE for future log checks: this stall line was NOT in HA's system_log list (50-entry dedup cap had evicted it); only the full core log had it."
@@ -31514,34 +31570,38 @@ cards:
   organic_check_2026_10_14: "README_v5.103.53 fan_recheck_outcome PENDING row now MET: memory_episodes has 84 fan_recheck_outcome rows (10-12 03:18Z -> 10-14 05:35Z). Remaining discriminator (capability-routed fan trust) waits on the 10-18 fan re-measure, inside the Soak Exit window."
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.103.53
   tier: 2
   created: "2026-10-11 23:50"
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-19 02:14"
   build_2026_10_12: "Built on fix/occupancy-source-follows-capability (plan Rev 2, D1-D7): per-tick STATE_RADAR_SOLE_TICK + _recent_radar_sole_ring, positive-evidence is_radar (override wins both ways), six consumers + recheck family factor routed, kill switch sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED. 34 new tests; 27 per-site mutation drills all RED. Awaiting 2 framing-disjoint code reviews."
   origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
   why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
-  next: "Me, 2026-10-18 fan re-measure: is the capability-routed fan rejection releasing radar-held rooms (GB1/GB2/Media MS600)? Met -> done; not met -> reopen. (Stale pre-build next replaced 10-14: shipped v5.103.53.)"
+  next: "PARKED (soak exit) - see revival_trigger."
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
+  soak_exit_2026_10_19: "SOAK EXIT 2026-10-19 overnight: discriminator NOT EVALUABLE in its window. Recorder since 10-12 09:00: fan.guest_room_down_ceiling_fan_2 (GB1) 0.0 h on, fan.media_room_ceiling_fan_2 (Media) 0.0 h on, fan.fan_switch_4 (GB2) 1.1 h on - cooler weather, the MS600 rooms' fans essentially never ran, so there was no fan-on radar-held episode to release. The 10-18 fan-recheck audit (AUDIT_fan_recheck_efficacy_post_rev2_2026_10_18.md) also has no GB1/GB2/Media rows. Per Soak-Exit rule 3 -> PARKED with a revival trigger (not left organic)."
+  revival_trigger: "REVIVE when any of GB1 / GB2 / Media runs its fan >= 30 min while the room is held occupied by radar only (fan season or a guest stay): one-shot recorder check that the room releases after the person leaves (fan_recheck_outcome / D2 release row) -> done or reopen."
 - id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
   card_was_wrong_2026_10_14: "next said APPROVE ship, but v5.103.54 shipped and was validated on 10-12 (README table: install, 0 boot errors, no away at restart all PASS). Only the organic D2-release row is pending."
   operator_instruction_2026_10_13: "Did we end up needing this? Is this after I messaged aboiut how the MS600 actually works?"
   reply_2026_10_14: 'Yes to both. It is downstream of your MS600 explanation: this card''s origin is the 2026-10-11 MS600 review where you said combined sensors (radar + motion) count as one signal, and that finding (Rev 2 Finding 8) is what surfaced the bug — a fan-faked MS600 radar motion bit was refreshing the PIR-staleness clock and clearing the D2 latch in Guest Bedroom 1/2/Media, defeating the fan-immunity protection those rooms otherwise have. It was needed: it already shipped (v5.103.54) and is confirmed built/reviewed/deployed, status shipped_organic.'
   built_2026_10_12_overnight: 'BUILT TO REVIEW, not deployed. Branch fix/d2-pir-stamp-fan-immune-witness: build 487d8c69b, then fix-up 8e678d826. Review A FIX-REQUIRED: one HIGH (the helper read the raw motion list instead of the stuck-filtered one) and fixed. Review B SHIP with one MEDIUM: the same timestamp fed the room failsafe, so GB1/GB2 sleeping guests would have been newly force-vacated. Fixed by keeping the failsafe on a separate field with the old meaning (_last_motion_bit_time). Doc corrected: ''ZV-only means D2 unreachable'' was WRONG. Orchestrator drills M1-M4 all RED, restored. Targeted tests: 52 passed. Review record: docs/reviews/code-review/overnight_2026-10-12_d2_pir_stamp_fan_immune_witness.md. Behaviour change is limited to GB1 and GB2 (ZV + MS600): an MS600 motion bit no longer keeps D2 from demoting a fan-held room or clears its latch.'
   open_question_2026_10_12: 'Separate from this card: should the room failsafe also ignore radar motion bits (MS600)? Today a fan-faked MS600 bit can defer the failsafe indefinitely in GB1/GB2; ignoring it would force-vacate a guest asleep for longer than the failsafe duration. I kept today''s behaviour. Card it only if you want it changed.'
-  next: "Me, 2026-10-18 fan re-measure: D2 releases in GB1/GB2/Media (README_v5.103.54 PENDING row). Met -> done; not met -> reopen. (Stale \"APPROVE ship\" replaced 10-14: shipped and validated in v5.103.54.)"
+  next: "PARKED (soak exit) - see revival_trigger."
   gate_2026_10_12_overnight: 'FOUR-STEP GATE. (1) VALIDITY STILL-REAL: coordinator.py:3873 stamps _last_pir_motion_time on any motion_detected; :2897-2898 clears the latch with reason pir_motion on any motion_detected. Neither is filtered. (1b) config-first: no knob decides which motion counts as a PIR witness, so this is code. (2) REUSE fan_veto.is_fan_immune_motion_witness (fan_veto.py:113), already used to filter the D2 witness list at coordinator.py:2180-2187. (3) parsimony BUILD: same filter at two more sites. (4) cost/benefit: small, presence-local, fail-closed. Build to review dispatched overnight in .claude/worktrees/overnight-1012-d2pir, branch fix/d2-pir-stamp-fan-immune-witness. No deploy.'
   title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
   thread: presence
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.103.54
   tier: 1
   created: "2026-10-12 12:00"
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-19 02:14"
   origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
   why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
   related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
+  soak_exit_2026_10_19: "SOAK EXIT 2026-10-19 overnight: discriminator NOT EVALUABLE in its window. Recorder since 10-12 09:00: fan.guest_room_down_ceiling_fan_2 (GB1) 0.0 h on, fan.media_room_ceiling_fan_2 (Media) 0.0 h on, fan.fan_switch_4 (GB2) 1.1 h on - cooler weather, the MS600 rooms' fans essentially never ran, so there was no fan-on radar-held episode to release. The 10-18 fan-recheck audit (AUDIT_fan_recheck_efficacy_post_rev2_2026_10_18.md) also has no GB1/GB2/Media rows. Per Soak-Exit rule 3 -> PARKED with a revival trigger (not left organic)."
+  revival_trigger: "REVIVE when any of GB1 / GB2 / Media runs its fan >= 30 min while the room is held occupied by radar only (fan season or a guest stay): one-shot recorder check that the room releases after the person leaves (fan_recheck_outcome / D2 release row) -> done or reopen."
 - id: FAN-TRANSITION-GATE-FOLLOWS-CAPABILITY-1
   title: Fan-transition CREATION gate still keys on presence_detected list predicate (dormant - window 0.0)
   thread: presence
@@ -32264,12 +32324,15 @@ cards:
 - id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
   title: Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline
   thread: lighting
-  status: waiting_me
+  status: "waiting_operator"
   created: '2026-10-14 02:10'
-  updated: '2026-10-14 02:10'
+  updated: "2026-10-19 02:03"
   rank: {value: 3, time_criticality: 2, effort: 1}
   why: 'Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.'
-  next: 'After ~7 nights: one-shot recorder query of landscape lights not on within 5 min of trigger; dispose done or reopen.'
+  next: "DO: check the GK landscape lights (perimeter 1/3/4/7/8, side-approach 9-12, Hampton spot 2) - they have been unreachable on Wi-Fi since about 10-16 (power, breaker, or AP). -> I re-measure two nights after; separately I read tonight's (10-19) automation trace to explain the 10-18 run that did nothing."
+  measured_2026_10_19_overnight: "DISCRIMINATOR NOT MET (5 post-fix nights; recorder state of the 20 target lights at trigger+7 min / +60 min, sunset+30 trigger). Missing at +7 min: 10-14 0, 10-15 1 (gklandscape_perimeter3 unavailable), 10-16 11, 10-17 10, 10-18 19. Two causes, neither fixed by the retry loop: (1) the GK tuya_local cluster - perimeter1/3/4/7/8 + sideapproach9-12 - plus hampton_landscape2 are UNAVAILABLE from ~10-16 on (system_log: tuya_local 'Device reported error 901: Network Error: Unable to Connect', 1383 occurrences; 'Referenced entities ... are missing or not currently available' x7). Retrying an unreachable device cannot help - this is device power/Wi-Fi, not the automation. (2) 10-18: the automation fired at 19:29:29 and the run ended the same second with NO light or switch state change; the lights stayed off until the 20:35 restart and were not turned on after it. Cause unknown - the restart cleared system_log and the trace. Also seen: one off-path retry error 'Peer is no longer responding to active session (timed out after 38.8s)' (Matter). 10-14 (the only fully clean night) and 10-15 show the retry works when devices are reachable."
+  links: {"related": ["WIFI-ACTUATOR-FLEET-FLAP-1"], "context": "WIFI-ACTUATOR-FLEET-FLAP-1 is the Shelly Wi-Fi flap thread; the GK cluster dropping out together is the same Wi-Fi-fleet family, but a different vendor (tuya_local), so evidence stays here."}
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: STUDY-A-CSI-SENSOR-1
   title: Study A Wi-Fi CSI (ESPectre) — motion-class today; track still-detection firmware
   thread: presence
@@ -32311,13 +32374,16 @@ cards:
   operator_question_2026_10_18: "Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion (motion_sensors) + occupancy (presence_sensors). Probe P3 wrongly extended the ruling to Master Bathroom by device model. -> premise of this card is likely WRONG; next: measure A788 occupancy reliability (holds a still person? false holds?) before any hardware. Also: A788 publishes its nightlight discovery payload onto the temperature topic (MQTT ValueError at boot) - minor device/firmware config issue."
   title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
   thread: presence
-  status: investigating
+  status: "waiting_operator"
   tier: 1
   created: "2026-10-18"
   refinement_status: refined
   origin: "Probe P3 2026-10-18 + Away plan Rev 3 residual"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -> on A I wire it and re-run P3."
+  next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom - the A788 measures as motion-class (~1 min hold), so only new hardware closes the 17-per-ordinary-day Away misses; or B first DO check the InvisOutlet's own app/web settings for an occupancy hold-time or mmWave mode (no knob is exposed in HA), or C accept the miss. -> On A/B I wire/re-measure and re-run P3; on C I close the card."
+  updated: "2026-10-19 02:03"
+  measured_2026_10_19_overnight: "CARD-WAS-WRONG on the reason, STILL-REAL on the gap. Read-only, recorder 10-11 04:27 -> 10-19 01:49 CDT. Master Bathroom config (core.config_entries 01KSHA5DB3T0VMJKQVM5P8MMNA): motion_sensors = ...invisoutet_mqtt_masterbath_motion, presence_sensors = ...invisoutet_mqtt_masterbath_occupancy, timeout 900 s. The A788 is NOT on the do-not-use list (that is Study A b7d0 only; AUDIT_census_arc_and_away_holistic.md:322 extended it by model, wrongly). But measured, the A788 occupancy behaves MOTION-CLASS: 156 ON episodes, p50 69 s / p90 164 s / max 11 min; drops ~1 min after the last motion; only 1 of 156 held >5 min past motion (10-13 23:33, 7.7 min). No false holds (longest 11 min; URA's 60-85 min episodes are its 900 s timeout chaining bursts). No misses (all 239 motion bursts overlapped occupancy). HA exposes no hold-time/sensitivity knob for this device (only outlets, nightlight, env sensors, distance). So it cannot carry a still bath/shower: the exclusion from the Away veto stands, for a different reason. Recorded in SENSOR_FLEET_CLASSES.md do-not-use scope note."
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: PERSON-GPS-ANY-HOME-WINS-1
   arc_cut_v5_103_72: "separate producer fix in person_coordinator, own cycle"
   title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
@@ -32333,18 +32399,22 @@ cards:
   arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
-  status: planned
+  status: "review"
   tier: 1
   created: "2026-10-18"
   refinement_status: initial
   origin: "Rev 3 plan review R2 M2 + small-cycle plan"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "Measure which attributes change per poll; move the churny ones to _unrecorded_attributes, keeping those the scorecard and dashboard need history for."
+  next: "Attended deploy: merge fix/house-state-attr-unrecorded to develop, run the full-suite name-diff (owed), deploy with the next batch (Tier 1, LOW risk), then the 1-2 h one-shot recorder check -> Validated table."
+  updated: "2026-10-19 02:15"
+  measured_2026_10_19_overnight: "Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_seconds 2,869 (every poll), zones 678, signal_consensus_inputs 666, fan_interference_active 184, signal_consensus 67, signal_consensus_band 64, veto_path 60, census_count 34, the rest <=31. HA recorder (core.py:1088, verified in .venv-ha) still writes one states row per state_changed event but DEDUPES attribute blobs by content, so unrecording the churny keys cuts the blob storage (the 3.3 KB part), not the row count. Plan: _unrecorded_attributes = dwell_seconds (derivable from state_since), zones, signal_consensus_inputs, signal_consensus, signal_consensus_band (both already their own recorded sensor) after a consumer check; keep the low-churn diagnostics (veto_path, last_veto_decision, away branch, census_count, boot_settle_*)."
+  parsimony: {"problem": "One presence sensor writes ~2,869 distinct 3.3 KB attribute blobs a day because a per-poll counter and three high-churn diagnostics are recorded.", "verdict": "BUILD"}
+  built_2026_10_19_overnight: "BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, signal_consensus, signal_consensus_band, signal_consensus_inputs; consumer check found no recorder-history reader (inputs/band stay recorded on sensor.ura_presence_coordinator_signal_consensus_confidence - verified live). Tier-1 review (framing A): SHIP, 2 LOW fixed (docs/reviews/code-review/v5.103.75_house_state_attr_churn.md). Mutation drill red both ways. Tests: scoped name-set green - 376 passed (house_state/presence/recorder files) + 337 passed (every test referencing the sensor or _unrecorded_attributes), 0 failed. GAP (stated): the FULL suite was not completed - the validator's full run stalled ~60% with no names, so the pre-deploy full-suite name-diff is still owed at the attended deploy. README draft docs/readmes/README_v5.103.75.md (renumber at deploy). Live: 1-2 h after restart, distinct attribute blobs/hour for the sensor << 20 while rows/hour stay ~120."
 - id: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1
   arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
-  status: planned
+  status: "review"
   tier: 2
   created: "2026-10-18"
   refinement_status: refined
@@ -32352,7 +32422,14 @@ cards:
   sibling_of: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
   origin: "Operator 2026-10-18: 'We can also calculate the bill from the tou rate and the energy draws... maybe 2 can be done simpler? We have a db... Card but add to current arc. I want it done.' Evidence: docs/planning/AUDIT_smarthub_bill_actual_2026_10_18.md (bcd227d63)."
   operator_instruction_2026_10_18: "Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done."
-  next: "Step 1: clear energy_utility_meter_entity in CM options in the next restart window (read only at EC init, energy.py:612; a CM options change reloads the parent, so pair it with a planned restart). Step 2: plan (Tier 2): EC reads smarthub:* external statistics via HA recorder statistics_during_period (no SQL integration), prices each hour with the TOU engine, sums over the bill cycle (energy_bill_cycle_day=23), exposes utility_kwh / utility_cost / divergence kWh+% and $ on sensor.ura_energy_coordinator_predicted_bill; staleness flagged (hourly series lags ~16 h). Upstream: draft comment for gagata issue #72 is in the audit section 4 (posting needs operator yes)."
+  next: "Attended deploy: merge the branch, full-suite name-diff, deploy (Tier 2, LOW-MED risk: display-only attributes + a background refresh). Then set the two SmartHub statistic ids in EC options (no reload now) and do Step 1 (clear energy_utility_meter_entity) in the same window; Live check ~1 h after: utility_source=statistics, last_cycle 3669.4 kWh / $295.13 (valid only if cycle day stays 23). ANSWER still open: is cycle day 23 right (PEC reads 24/25)?"
+  updated: "2026-10-19 02:41"
+  plan_2026_10_19_overnight: "Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once a day ~16-17 UTC, so the newest hour is 13-38 h old (card's ~16 h is best case -> stale threshold 48 h). Summed over PEC read-day windows the hourly import is within ~1% of three real bills (-0.7%, +1.1%, +0.3%). Last full cycle 08-23..09-22: SmartHub 3669.4 kWh / $295.13 vs EC energy_daily 3428.4 kWh / $199.40. Design: off by default (two options fields hold the stat ids), hourly read via the recorder executor, priced with energy_billing.py TOU functions, compared with get_energy_daily_for_cycle over the same local dates, divergence kWh + $ for current + last cycle on the predicted-bill sensor; no overlap -> no divergence published. Only readers: sensor attrs + ura_v6 dashboard card."
+  finding_2026_10_19_ec_history: "Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC history, not the utility. Three bad EC days: 10-12 import ~42 kWh high; 10-15 and 10-16 export ~2x SmartHub's."
+  operator_questions_2026_10_19: "(1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?"
+  plan_review_2026_10_19_overnight: "Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked background task, cancelled on unload, with a blocked-refresh test; M1 Live numbers assume cycle day 23 - recompute if the knob changes, previous cycle start via _get_cycle_start(cycle_start - 1 day); M2 publish ec_underpriced_days so a +25% divergence explains itself; L1-L3 wording/first-run/unload. Recorder call, change-column choice, consumer set (display only) verified."
+  built_2026_10_19_overnight: "BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, cancelled on teardown; recorder executor; TOU-engine pricing; same-window compare; ec_underpriced_days; 2 new EC options fields (blank = off) - NOTE they are construction keys, so saving them reloads the integration (pair with a restart window). 25 new tests; 192 related energy/options tests pass; 20/20 mutation drills red. Deviations: per-day DB reads for ec_underpriced_days (~60/h), service charge from the predicted_bill constant. README draft docs/readmes/README_v5.103.76.md. Reviews A (correctness) + B (async/lifecycle) running; C (mutation) after."
+  reviewed_2026_10_19_overnight: "BUILT + REVIEWED TO REVIEW LANE (not merged, not deployed). Branch feature/ec-bill-divergence-smarthub-stats @ 1dd44edd3 (pushed). Reviews (3 framing-disjoint): A correctness SHIP (M1 empty EC side published +-100 -> fixed; M2 service charge from rate file -> fixed; per-day reads deferred - a grouped query needs a new database.py DAO); B async/lifecycle SHIP (H1 verified: the decision cycle never awaits the refresh; M1 saving the stat ids reloaded the parent entry -> fixed, ids now read live + reload-suppressed; L3 schedule-after-teardown -> fixed); C mutation 15/16 RED, 1 hollow fixture (underpriced-days comparison) -> fixed by orchestrator, drill RED then restored. Record: docs/reviews/code-review/v5.103.76_ec_bill_divergence.md. Orchestrator test check: 71 energy/EC/TOU/reload/options files - branch 4 failed / 4437 passed vs develop 6 failed / 4397 passed on the same set; all 4 branch failures also fail on develop (order-dependent test_hvac_pull_energy_constraint_at_setup + test_v4511 import test) -> 0 NEW. Full-suite name-diff still owed at deploy (full run stalled tonight). README draft docs/readmes/README_v5.103.76.md."
 - id: ZONE-TRACKER-PER-SENSOR-WIPE-1
   title: "Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on"
   thread: presence
@@ -32370,13 +32447,20 @@ cards:
   arc_cut_v5_103_72: "priority follow-up cycle immediately after this ship"
   title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
   thread: presence
-  status: inbox
-  tier: 2
+  status: "waiting_operator"
+  tier: 3
   created: "2026-10-18"
-  refinement_status: initial
+  refinement_status: "refined"
   origin: "Rev 3 plan review R1-F11 (pre-existing)"
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
-  next: "Measure: does any live room carry a renamed title vs its zone's room_names? Then decide key-by-entry_id fix."
+  next: "APPROVE: (A, recommended) one Tier-3 cycle - presence + person + HVAC + both fan maps re-keyed on rename (4 framing-disjoint build reviews, checkpoint before deploy), or (B) presence + person now, HVAC/fans as a follow-up. ANSWER: is losing one room's fan-policy history on rename OK? Meanwhile the safe workaround is: after renaming a room, restart HA. -> On A I fold the review into the plan and build to review."
+  updated: "2026-10-19 02:22"
+  measured_2026_10_19_overnight: "STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (only Jaya's title differs from its room_name, harmless). CODE: the rename path writes through to entry.data (config_flow.py:12315-12350, ROOM-NAME-DESYNC-1) and reloads only the ROOM entry; presence builds _room_to_zone / tracker room names in _discover_zones (presence.py:2913, :3494) only at parent setup, and a ZM options change re-runs only the prune (presence.py:3354 _handle_zm_zones_updated). So after a live rename the zone tier keeps the OLD name until HA restart. Severity raised by build review D (docs/reviews/code-review/house_state_rev32_review_D.md:44): since v5.103.72 D4c.2, a sleeper in a just-renamed room can be AWAYed at night until restart. Note: PLANNING_room_rename_writethrough.md:33 claimed _room_to_zone agrees after one reload - not true for the presence tier (no presence reload on a room rename)."
+  parsimony: {"problem": "After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).", "verdict": "BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)"}
+  plan_2026_10_19_overnight: "Plan written: docs/planning/PLANNING_zone_room_rename_drift.md (907bf73b6). Scope GREW beyond presence: (a) re-running _discover_zones would not fix it (skips zones with a tracker, presence.py:3439); (b) person_coordinator.py:945 rebuilds its area->room map only when room ids change - a rename keeps ids, so a person's BLE room resolves to the old name and the night BLE check misses the room; (c) HVAC builds zone room lists once at setup and after a rename classifies the old name as entry_removed (hvac_zones.py:2262-2276) - the zone can RETREAT with a sleeper in it; ~25 per-room HVAC maps orphaned. Chosen fix: on the existing SIGNAL_ROOM_ENTRY_LIFECYCLE ('unloaded' event already carries the new name), presence + HVAC re-key name-keyed structures synchronously before the substrate refresh, and invalidate the person map. Rejected: rebuild discovery (loses live night state); re-key everything by entry id (~1,100 sites, parked). Completeness plan review running overnight."
+  refinement: ["Card scoped as 'presence zone tracker keys by name' -> plan enumeration found person_coordinator and HVAC hold stale names too; HVAC can retreat a zone over a sleeper -> cross-coordinator, not a presence-only fix."]
+  plan_review_2026_10_19_overnight: "Completeness plan review: FIX-PLAN, recommends TIER 3 (appended to the plan doc). Missed sites: HIGH hvac_fans.py:390 per-room fan map (renamed room's HVAC fan driven as empty -> can switch a sleeper's fan off); HIGH presence_fan_recheck.py:187 per-room map (duplicate entry for the new name, a paused fan's restore finds no fan -> stays off); MEDIUM safety.py:1055-1057/:1406-1422 room maps (old name on hazard alerts); LOW optimization._room_scores, person_coordinator._direct_ble_rooms. Mechanism (SIGNAL_ROOM_ENTRY_LIFECYCLE, 4 emit sites verified) sound, with a MEDIUM gap: HVAC passes between the entry update and the unload event classify the room entry_removed + sticky-failed -> HVAC should detect the rename itself per pass and rekey_room should clear sticky-failed. The plan's own Tier-3 escalation trigger fired. Parked sibling REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 to be cited."
+  paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
 - id: WIGTON-STUCK-ZX-NO-PAGE-1
   title: "On a camera-less, phone-less install (Wigton) a stuck-on ZX radar in a multi-sensor room holds the house HOME with no page (D4d trip-wire needs a trusted phone + dark Frigate)"
   thread: presence
@@ -32392,13 +32476,16 @@ cards:
   arc_cut_v5_103_72: "pulled out of this cycle as scope growth (Rev 3.2), own probe"
   title: "HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus >= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned"
   thread: hvac
-  status: investigating
+  status: "done"
   tier: 2
   created: "2026-10-18"
-  refinement_status: initial
+  refinement_status: "refined"
   origin: "Sleep-mask Rev 3 plan review R2-5 + Rev 3.1 re-check (PLAN_REVIEW_sleep_mask_rev3_1_recheck.md a319f2748): a 30-min cap was proposed in-cycle and pulled out as scope growth (would write Away over a real phone-less occupant; outside the kill switch; never measured)."
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
-  next: "Measure first: recorder probe of sensor.ura_signal_consensus_confidence vs house state - has the gate ever engaged, for how long, and was a real occupant present? Expose the deferral duration. Then decide cap vs accept. Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md first; do not name it D6 (collides)."
+  next: "CLOSED (refuted 2026-10-19 overnight). Reopen only on the revival trigger in residual_2026_10_19."
+  updated: "2026-10-19 02:03"
+  measured_2026_10_19_overnight: "REFUTED (read-only, recorder 10-11 04:17 -> 10-19 01:51 CDT, sensor.ura_presence_coordinator_signal_consensus_confidence, 6,309 rows). CODE (hvac.py:2711-2752): the gate ENGAGES only when consensus < 0.5 AND < 30 s since a house-state transition (:2744); it RELEASES at >= 0.7 (:2727). The card's 'engages below 0.7' was WRONG - 0.7 is only the release level. MEASURED: values seen 1.0 / 0.9 / 0.6 / 0.5 only - NEVER below 0.5, so the engage condition was never met in 8 days. The card's scenario (phones away + a sensor holding a zone, e.g. Jaya fan-radar) produces 0.6, or 0.5 with the engine-confidence penalty (presence.py:7790-7819) - it cannot engage the gate. Longest sub-0.7 episode: 10-14 09:09-15:06 (357 min at 0.5-0.6, travel week, Jaya + guest home, real occupants) - gate could not engage. 222 sub-0.7 episodes, median 0.5 min, p90 5.5 min. Switch.ura_hvac_coordinator_hvac_consensus_defer_gate never off. LOG GAP (stated, not an all-clear): ha_get_logs error_log search 'defer gate' returned 0 matches but only over the newest 2000-line window; journald grep empty; hvac.d6_deferrals_today is not exposed on any entity. The recorder engage-condition evidence is the authority here."
+  residual_2026_10_19: "Latent only: _d6_gate_engaged (hvac.py:2750) is a latch with no expiry. It can pin only if consensus drops below 0.5 (needs phones-away 0.4 + camera-only 0.15 or engine <0.85 0.1 stacked) within 30 s of a transition and then stalls under 0.7. REVIVAL TRIGGER: any recorded consensus < 0.5, or a 'D6: HVAC defer gate ENGAGED' log line -> reopen and add a max-age (knob) to the latch."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

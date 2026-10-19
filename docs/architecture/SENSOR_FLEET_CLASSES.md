@@ -33,6 +33,7 @@ Hold time while present: ZV drops to off in 30–70 s (p50) — **confirms motio
 
 ## Do-not-use list (operator rulings)
 - `binary_sensor.invisoutlet_b7d0_motion` and the Study A InvisOutlet occupancy entity — unreliable; never configure as a URA witness (2026-10-11).
+  - **Scope: Study A (b7d0) ONLY.** The Master Bathroom InvisOutlet (A788, `…invisoutet_mqtt_masterbath_{motion,occupancy}`) is NOT on this list (operator 2026-10-18). Measured 2026-10-19 (recorder 10-11→10-19): its `_occupancy` behaves **motion-class** — 156 episodes, p50 69 s / p90 164 s / max 11 min, drops ~1 min after last motion (only 1/156 held >5 min past motion); no false holds, no misses. Fine in `presence_sensors` for lights; **not a still-person holder** (no Away-veto use). HA exposes no hold/sensitivity knob for it. See MASTER-BATH-NO-TRUSTED-PRESENCE-1.
 
 ## Meross MS600 (dual-homed) — settled 2026-10-11 (operator)
 Three MS600 mmWave presence radars (Guest Bedroom 1, Guest Bedroom 2, Media) are paired twice on purpose: the native `meross_lan` integration reports presence as a non-standard numeric value (`…_presence`, ≥1 = person) — so the operator also paired them over **Matter** to get a standard binary occupancy. Filing (correct, leave as is):

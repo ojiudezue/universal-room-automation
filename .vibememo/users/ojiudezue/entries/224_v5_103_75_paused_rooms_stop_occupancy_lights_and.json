@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "224",
+  "author": "ojiudezue",
+  "session_id": "claude_20261019_090645_ship_v5_103_75",
+  "timestamp": "2026-10-19T09:06:45Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.75 shipped: Paused rooms stop occupancy lights and fans",
+  "summary": "Paused rooms stop occupancy lights and fans",
+  "why": "Operator ruling 2026-10-18: paused rooms must not have lights or fans automated on occupancy (the zone vacancy sweep was turning off lights in paused rooms). Operator confirmed 2026-10-19 that HVAC-side fans including sleep-onset stop too and that a paused room may still be marked vacant for zone retreat. Three reviews, clean name-diff, mutation-verified gates.",
+  "implications": "Shipped ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 at v5.103.75; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.75.md (Live criteria).",
+  "revisit_trigger": "Revisit if a paused fan room holds its zone occupied for hours (Media/GB1/GB2 lack a fan-immune witness) or if the operator wants an unpause catch-up.",
+  "refs": {
+    "cards": [
+      "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.75.md"
+    ],
+    "release_notes": "Paused rooms (Automation off or Manual Mode) no longer get occupancy-driven lights or fans: zone sweep, HVAC comfort/sleep-onset/pre-arrival fans, fan recheck and exit retry are gated. Safety stop, turn-off-all and recheck restore still run."
+  }
+}
