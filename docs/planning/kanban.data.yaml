@@ -8,7 +8,14 @@ meta:
   # acknowledged AND younger than 7 days; `ack` (board button) retires an
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
-  autonomy_feed: []
+  autonomy_feed:
+  - {"fid": "PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-10-19T02:08", "card_id": "PERIMETER-ALERT-VOLUME-FATIGUE-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "Exterior alert volume falling: 129 -> 76 -> 68 -> 25/day (10-15..10-18). Disposition stays 10-20.", "acknowledged": false}
+  - {"fid": "FRONT-SIDE-PTZ-CHATTER-1@2026-10-19T02:08", "card_id": "FRONT-SIDE-PTZ-CHATTER-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "front_side_ptz post-crop: 11 alerts in 2 days, daytime only; the noisy PTZs are Study B porch (25) and utilities (20). VERIFY which one you meant.", "acknowledged": false}
+  - {"fid": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-19T02:03", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Paused rooms stop occupancy lights/fans: plan written + reviewed; needs your one-line yes on R1 (no sleep-onset fan when paused) and R3 (accept early-vacant backstop). Then build to review.", "acknowledged": false}
+  - {"fid": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-19T02:03", "card_id": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Safety rapid-change detector: card had overridden your 10-15 \"it is a fix\" with a retire default. Back to you: APPROVE fix (recommended) or retire.", "acknowledged": false}
+  - {"fid": "LANDSCAPE-RETRY-POSTFIX-CHECK-1@2026-10-19T02:03", "card_id": "LANDSCAPE-RETRY-POSTFIX-CHECK-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Landscape retry fix NOT holding: 9 GK + 1 Hampton lights unreachable on Wi-Fi since ~10-16, and the 10-18 run did nothing. DO: check the GK landscape lights.", "acknowledged": false}
+  - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
+  - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
@@ -835,10 +842,10 @@ cards:
   lane_fix_2026_10_17_overnight: "Moved planned -> waiting_operator: the next step is your PICK (A retire on purpose / B redesign), not my build."
   title: The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant
   thread: safety
-  status: waiting_me
+  status: "waiting_operator"
   update_2026_10_15: "Operator 2026-10-15: \"rapid change isn't that a heat thing for fire? If so it's a fix.\" Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repair the 30-min window so it actually runs, gate HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, keep OVERHEAT rate-of-rise; re-run the replay to prove quiet. Tier 2 plan next."
   created: '2026-09-27 02:40'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-19 02:03"
   measured_2026_09_27_replay: 'REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes deduped to 1 per hour per sensor). LEARNING MODE (fixed thresholds: temperature rise >= 10 F/30 min in cooling season, >= 20 extreme; humidity rise >= 40 pts outside bathrooms): 0 episodes in 7 days. So fixing the window alone would change nothing at first. Z-SCORE MODE (reached after 60 rate samples per sensor, within about a day once rates flow; z >= 3 by per-sensor mean/std, with the classify rules for September): 51 humidity (would be labelled WATER_LEAK) + 36 temperature (HVAC_FAILURE) = about 12.4 alerts a day. CONCLUSION: the broken window is accidentally shielding the house from a MEDIUM+ alert flood. A naive "fix the window" is harmful. Hence PICK A (retire, documented) vs B (redesign with corroboration). The 12.4/day is an estimate: it uses a population std, not HAs running Welford at each moment, so treat it as order-of-magnitude.'
   refinement_2026_09_27: 'Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.'
   refinement_status: refined
@@ -861,10 +868,11 @@ cards:
   parsimony:
     problem: RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
     verdict: MEASURE then PICK (fix vs retire)
-  next: "Me (default A taken 10-17): write the 'dormant by design, revisit only with a redesign' note in the Safety coordinator doc + a code comment at the detector; Tier 1, rides the next safety ship."
+  next: "APPROVE: B (recommended - your 10-15 answer) repair the 30-min window, keep OVERHEAT rate-of-rise, gate the HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, and prove quiet with the 7-day replay before it can alert; or PICK A (retire on purpose with a doc note). -> On B I write the Tier-2 plan and plan-review it; on A I write the doc note + code comment."
   links:
     related: [SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-HUMIDITY-JUNK-READING-1]
     context: 'Found in the same review. The junk-reading fix''s rate-skip only matters if this detector ever runs.'
+  contradiction_2026_10_19_overnight: "CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B). Two days later triage_2026_10_17 'took default A' (retire), which overrides your stated choice without a new answer. The default-taking rule only applies when you have NOT spoken. Not acting overnight (safety surface; replay said a naive window repair floods ~12 alerts/day in z-score mode, so B is a real Tier-2 plan, not a comment)."
 - id: SAFETY-RECONNECT-ZERO-SIBLINGS-1
   title: The same junk "0" reconnect reading can also fake a freeze alarm or switch a bathroom fan on; guard those paths too
   thread: safety
@@ -3194,10 +3202,10 @@ cards:
     as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: "waiting_me"
+  status: "waiting_operator"
   operator_answer_2026_10_18: "Operator 10-18 02:26: \"yes we set a crop. And yes it's too noisy\" -> crop already applied and PTZ alerts still too noisy; mine: measure post-crop alert rate and fix at the source, not a new setting."
   created: '2026-09-14 00:20'
-  updated: "2026-10-18 02:07"
+  updated: "2026-10-19 02:08"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -3288,7 +3296,7 @@ cards:
     this camera would zero its person detections while leaving motion untouched — exactly the
     signature observed, on exactly the camera named, in roughly the right window. If that is what
     happened, the crop overshot: it did not calm the noisiest perimeter camera, it switched it off.'
-  next: "VERIFY: is 'still too noisy' about front_side_ptz alerts specifically, or about perimeter alerts in general? front_side_ptz is now ~4 alerts/day. Default I take if you don't say otherwise: close this card and work the overall volume on PERIMETER-ALERT-VOLUME-FATIGUE-1 (Study B porch is the biggest source). -> If it is front_side_ptz specifically, tell me what you see (which notifications, which hours) and I write the exact Frigate zone/mask change for it."
+  next: "VERIFY: when you say the PTZ alerts are still too noisy, is it front_side_ptz (11 alerts in 2 days, daytime only) or the Study B porch / utilities PTZs (25 and 20)? Default I take next session if you don't say: close this card and work the porch/utilities PTZs under PERIMETER-ALERT-VOLUME-FATIGUE-1. -> If it is front_side_ptz, tell me which notifications/hours and I write the exact Frigate zone change for you to apply."
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
@@ -3318,6 +3326,7 @@ cards:
   verify_2026_09_29_overnight: 'STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card''s 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, back_yard 7), so this is not a fleet blackout. The camera now looks blind rather than chattering, which makes your answer (was a zone crop or mask applied around 09-14/15?) the key to whether it needs undoing. It is also lever (A) on PERIMETER-ALERT-VOLUME-FATIGUE-1.'
   verify_2026_10_02_overnight: "CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and four times on 10-01 (12:54, 13:18, 13:19, 13:47 CDT) during the ~5 h window when Frigate2 was working. Part of the earlier zero was the fleet-wide detector hang (PERIMETER-DETECTION-WENT-DARK-1), not this camera. But 4 in that window is still far below its old ~200/day while back_yard did 40 and hot_tub 52 the same day, so it is detecting, just rarely. Your answer (was a zone crop or mask applied ~09-14/15?) still decides whether it needs widening. Re-measure after Frigate2 is healthy for a full day."
   measured_2026_10_18_overnight: "front_side_ptz produced 10 perimeter alerts since the 10-15 18:09 Frigate restart (2 on 10-16, 8 on 10-17), about 6% of exterior alerts; the noisy cameras now are Study B porch PTZ (65), hot_tub (21), utilities_ptz (17). Detail on PERIMETER-ALERT-VOLUME-FATIGUE-1."
+  measured_2026_10_19_overnight: "Post-crop, post-mask recount (URA notification_log '[audit]' rows, exterior_person, since 10-17 00:00): front_side_ptz 11 alerts (10 occupancy_2 + 1 detected) over ~2 days, clustered in daytime bursts (10-17 ~13-14h, 10-18 ~09h), none in the old 03-05h chatter shape. Biggest sources over the same window: Study B porch PTZ 25 (two entities), utilities_ptz 20, hot_tub 12. House-wide daily totals: 10-15 129, 10-16 76, 10-17 68, 10-18 25. So 'still too noisy' does not show up for front_side_ptz in the data; it does for the porch/utilities PTZs."
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -28730,7 +28739,7 @@ cards:
   update_2026_10_15b: "URA notification_log 7d: back_yard 339 events, hot_tub 214, front_side_ptz only 21 (09-14 Frigate road+object masks worked). Homelab session (FRIGATE2-PERENNIAL-1): back_yard 961 / hot_tub 820 Frigate person events in 7d were almost all fixed objects (tree trunk, cypress, posts, shrubs, leaf shadows); 7 object masks written to F2 config.yaml, NOT loaded until a Frigate restart (operator). Expect ~90% drop on both. Next: after the Frigate restart, one-shot re-count from notification_log; only then pick a URA lever (day/home low-priority vs channel trim), if still needed."
   update_2026_10_15: "Operator 2026-10-15: \"what controls can be deployed. Also when do these matter? I'd say at night. But also I thought we had road masks and these should fire when people are actually close to the property vs walking on the street. Ask homelab agent.\" Asked the Homelab session for per-camera masks/zones/required_zones. URA side: person alerts have no time-of-day gate (vehicle-hours only; burst-demote night window is a module constant 23-05)."
   created: '2026-09-12 20:45'
-  updated: "2026-10-18 02:07"
+  updated: "2026-10-19 02:08"
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -28824,6 +28833,7 @@ cards:
     answer may be that volume is already down and no lever is needed, which would make building any
     new suppression a negative-value change.'
   measured_2026_10_18_overnight: "ONE-SHOT RECOUNT (URA notification_log, events = one '[audit]' row per alert for person.oji_udezue, local CDT days). Daily exterior-person alert events: 10-11 164, 10-12 109, 10-13 80, 10-14 132, 10-15 123 | after the Frigate object masks loaded (restart 10-15 18:09): 10-16 81, 10-17 59. back_yard went ~50/day -> 8, 2; hot_tub ~35/day -> 10, 10. So the masks cut the two biggest sources ~85% and total volume ~45%. front_side_ptz is NOT a volume driver any more: 2 and 8 events (10 since 10-15 18:30, about 6% of exterior alerts). Top sources since the restart: Study B porch PTZ 65 across two detectors (Frigate leg 34, Reolink native leg 31; only 2 of 47 native-leg alerts fall within 120 s of a Frigate-leg alert, so it is NOT double-alerting, the porch is just busy), hot_tub 21, utilities_ptz 17, back_yard 12, rear_ptz 10, g5_bullet 10, front_side_ptz 10. Severity: 10-16 74 of 81 and 10-17 50 of 59 were CRITICAL, the travel-week 'nobody tracked home' branch (see investigation_2026_10_15), so buzz count is driven by severity more than by any one camera."
+  interim_2026_10_19_overnight: "Interim recount (not the disposition - that stays 10-20): house-wide exterior-person alert events 10-15 129, 10-16 76, 10-17 68, 10-18 25 (first day with the family back), 10-19 4 by 02:08. Top sources since 10-17: Study B porch PTZ 25, utilities_ptz 20, hot_tub 12, front_side_ptz 11. On track for the <60/day close criterion; one more normal day needed."
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   disposition_2026_09_26_groom: 'Test-only anchor; shipped with v5.101.1/5.101.2 (READMEs list it). Nothing live to validate. Closed.'
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
@@ -31083,7 +31093,7 @@ cards:
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: "waiting_me"
+  status: "waiting_operator"
   created: '2026-09-29 04:20'
   refinement_status: "refined"
   approval: unreviewed
@@ -31106,10 +31116,11 @@ cards:
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
   verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
-  next: "Operator answered 10-18 (see operator_answer_2026_10_18). Mine: finish the light/fan path audit, then gate only the ungated occupancy-driven light/fan paths on the room Automation switch (Tier 2)."
-  updated: "2026-10-18 02:05"
+  next: "APPROVE (one line): R1 yes - paused bedrooms get no sleep-onset fan either; R3 accept (recommended) - a paused room with only radar + a running fan can be marked empty early by the fan-noise backstop, same as rooms with Fan Mode Off today. Or say no to either. -> I fold R1-R6 into the plan and dispatch the build to review (3 framing-disjoint reviews)."
+  updated: "2026-10-19 02:03"
   verify_2026_10_18_overnight: "CARD-WAS-WRONG on 'inert' + STILL-REAL. Code (develop 8dd2e9762): the room Automation switch (switch.py:5103; gate coordinator.py:3181 _is_automation_enabled) stops occupancy on/off, the scheduled auto-off, the Away leave-on sweep (automation.py:890) and the actuator reconciler (actuator_reconciler.py:544). But THREE paths still act in a paused room, each by an earlier deliberate design: (1) timed cover open/close runs on its own Cover Automation switch (coordinator.py:5398, v4.2.22 'Option A'); (2) house-state and energy-signal chained automations + AI rules are gated only by the AI switch (coordinator.py:955/996, v4.5.8 gating model); (3) humidity venting is gated by the per-room humidity toggle, not the master (coordinator.py:5413, bathroom-exhaust D1). Safety/security handlers are ungated on purpose and should stay so. Live 02:08 CDT: 20 rooms paused; of those, Cover Automation is ON in patio, receiving_room, master_bedroom, exercise_room, media; AI automation is ON in guest_bedroom_1, master_closet, staircase, master_closet_storage, study_b; humidity toggles are ON in most paused rooms (acts only where a humidity fan is configured)."
   refinement: "Operator 10-17 'paused rooms should be inert' -> code shows paused means 'no occupancy lighting', not inert; three sibling switches keep acting. Becomes a PICK between widening the master switch (code) and turning the sibling switches off (config)."
+  groomed_2026_10_19_overnight: "Plan written + plan-reviewed 2026-10-18: docs/planning/PLANNING_paused_room_occupancy_lights_fans.md (verdict FIX-PLAN, Tier 2 with build review elevated to 3 framings - presence<->HVAC ripple). The reviewer requires YOUR one-line confirmation on two points before it is SHIP-TO-BUILD: R1 (sleep-onset fan in a paused bedroom is also stopped - your ruling 'fans automation based on occupancy' covers it) and R3 (accepting that pausing a room lets the fan-noise backstop D2 mark a radar-only, fan-running room vacant early, which can retreat its HVAC zone). Not building overnight: HVAC-tier, cross-coordinator, and two open operator calls."
 - id: BOOT-EVENT-LOOP-FREEZE-1
   updated: "2026-10-03 02:14"
   organic_evidence_2026_10_03: "DISPOSED (soak exit): MET with a residual. README_v5.103.28 already PASS (no URA boot freeze; boot ~2.3 min vs 5-9). Tonight's 00:37 restart (full core log via /api/hassio/core/logs): the watchdog fired once, 'Event loop stalled >= 10.0s phase=boot', total_stall=12.2s, and the main-thread stack names leviton_decora_smart_wifi/image.py:54 -> api/device.py:893 matter_qr_code -> pyqrcode (a third-party integration building QR images), NOT URA. So the 133-156 s URA freeze is gone and the watchdog correctly names the remaining 12 s culprit. Residual carded: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1 (the watchdog's own shutdown ERROR). NOTE for future log checks: this stall line was NOT in HA's system_log list (50-entry dedup cap had evicted it); only the full core log had it."
@@ -32264,12 +32275,14 @@ cards:
 - id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
   title: Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline
   thread: lighting
-  status: waiting_me
+  status: "waiting_operator"
   created: '2026-10-14 02:10'
-  updated: '2026-10-14 02:10'
+  updated: "2026-10-19 02:03"
   rank: {value: 3, time_criticality: 2, effort: 1}
   why: 'Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.'
-  next: 'After ~7 nights: one-shot recorder query of landscape lights not on within 5 min of trigger; dispose done or reopen.'
+  next: "DO: check the GK landscape lights (perimeter 1/3/4/7/8, side-approach 9-12, Hampton spot 2) - they have been unreachable on Wi-Fi since about 10-16 (power, breaker, or AP). -> I re-measure two nights after; separately I read tonight's (10-19) automation trace to explain the 10-18 run that did nothing."
+  measured_2026_10_19_overnight: "DISCRIMINATOR NOT MET (5 post-fix nights; recorder state of the 20 target lights at trigger+7 min / +60 min, sunset+30 trigger). Missing at +7 min: 10-14 0, 10-15 1 (gklandscape_perimeter3 unavailable), 10-16 11, 10-17 10, 10-18 19. Two causes, neither fixed by the retry loop: (1) the GK tuya_local cluster - perimeter1/3/4/7/8 + sideapproach9-12 - plus hampton_landscape2 are UNAVAILABLE from ~10-16 on (system_log: tuya_local 'Device reported error 901: Network Error: Unable to Connect', 1383 occurrences; 'Referenced entities ... are missing or not currently available' x7). Retrying an unreachable device cannot help - this is device power/Wi-Fi, not the automation. (2) 10-18: the automation fired at 19:29:29 and the run ended the same second with NO light or switch state change; the lights stayed off until the 20:35 restart and were not turned on after it. Cause unknown - the restart cleared system_log and the trace. Also seen: one off-path retry error 'Peer is no longer responding to active session (timed out after 38.8s)' (Matter). 10-14 (the only fully clean night) and 10-15 show the retry works when devices are reachable."
+  links: {"related": ["WIFI-ACTUATOR-FLEET-FLAP-1"], "context": "WIFI-ACTUATOR-FLEET-FLAP-1 is the Shelly Wi-Fi flap thread; the GK cluster dropping out together is the same Wi-Fi-fleet family, but a different vendor (tuya_local), so evidence stays here."}
 - id: STUDY-A-CSI-SENSOR-1
   title: Study A Wi-Fi CSI (ESPectre) — motion-class today; track still-detection firmware
   thread: presence
@@ -32311,13 +32324,15 @@ cards:
   operator_question_2026_10_18: "Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion (motion_sensors) + occupancy (presence_sensors). Probe P3 wrongly extended the ruling to Master Bathroom by device model. -> premise of this card is likely WRONG; next: measure A788 occupancy reliability (holds a still person? false holds?) before any hardware. Also: A788 publishes its nightlight discovery payload onto the temperature topic (MQTT ValueError at boot) - minor device/firmware config issue."
   title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
   thread: presence
-  status: investigating
+  status: "waiting_operator"
   tier: 1
   created: "2026-10-18"
   refinement_status: refined
   origin: "Probe P3 2026-10-18 + Away plan Rev 3 residual"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -> on A I wire it and re-run P3."
+  next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom - the A788 measures as motion-class (~1 min hold), so only new hardware closes the 17-per-ordinary-day Away misses; or B first DO check the InvisOutlet's own app/web settings for an occupancy hold-time or mmWave mode (no knob is exposed in HA), or C accept the miss. -> On A/B I wire/re-measure and re-run P3; on C I close the card."
+  updated: "2026-10-19 02:03"
+  measured_2026_10_19_overnight: "CARD-WAS-WRONG on the reason, STILL-REAL on the gap. Read-only, recorder 10-11 04:27 -> 10-19 01:49 CDT. Master Bathroom config (core.config_entries 01KSHA5DB3T0VMJKQVM5P8MMNA): motion_sensors = ...invisoutet_mqtt_masterbath_motion, presence_sensors = ...invisoutet_mqtt_masterbath_occupancy, timeout 900 s. The A788 is NOT on the do-not-use list (that is Study A b7d0 only; AUDIT_census_arc_and_away_holistic.md:322 extended it by model, wrongly). But measured, the A788 occupancy behaves MOTION-CLASS: 156 ON episodes, p50 69 s / p90 164 s / max 11 min; drops ~1 min after the last motion; only 1 of 156 held >5 min past motion (10-13 23:33, 7.7 min). No false holds (longest 11 min; URA's 60-85 min episodes are its 900 s timeout chaining bursts). No misses (all 239 motion bursts overlapped occupancy). HA exposes no hold-time/sensitivity knob for this device (only outlets, nightlight, env sensors, distance). So it cannot carry a still bath/shower: the exclusion from the Away veto stands, for a different reason. Recorded in SENSOR_FLEET_CLASSES.md do-not-use scope note."
 - id: PERSON-GPS-ANY-HOME-WINS-1
   arc_cut_v5_103_72: "separate producer fix in person_coordinator, own cycle"
   title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
@@ -32392,13 +32407,16 @@ cards:
   arc_cut_v5_103_72: "pulled out of this cycle as scope growth (Rev 3.2), own probe"
   title: "HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus >= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned"
   thread: hvac
-  status: investigating
+  status: "done"
   tier: 2
   created: "2026-10-18"
-  refinement_status: initial
+  refinement_status: "refined"
   origin: "Sleep-mask Rev 3 plan review R2-5 + Rev 3.1 re-check (PLAN_REVIEW_sleep_mask_rev3_1_recheck.md a319f2748): a 30-min cap was proposed in-cycle and pulled out as scope growth (would write Away over a real phone-less occupant; outside the kill switch; never measured)."
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
-  next: "Measure first: recorder probe of sensor.ura_signal_consensus_confidence vs house state - has the gate ever engaged, for how long, and was a real occupant present? Expose the deferral duration. Then decide cap vs accept. Read HVAC_ARCHITECTURE_STATE_OF_PLAY.md first; do not name it D6 (collides)."
+  next: "CLOSED (refuted 2026-10-19 overnight). Reopen only on the revival trigger in residual_2026_10_19."
+  updated: "2026-10-19 02:03"
+  measured_2026_10_19_overnight: "REFUTED (read-only, recorder 10-11 04:17 -> 10-19 01:51 CDT, sensor.ura_presence_coordinator_signal_consensus_confidence, 6,309 rows). CODE (hvac.py:2711-2752): the gate ENGAGES only when consensus < 0.5 AND < 30 s since a house-state transition (:2744); it RELEASES at >= 0.7 (:2727). The card's 'engages below 0.7' was WRONG - 0.7 is only the release level. MEASURED: values seen 1.0 / 0.9 / 0.6 / 0.5 only - NEVER below 0.5, so the engage condition was never met in 8 days. The card's scenario (phones away + a sensor holding a zone, e.g. Jaya fan-radar) produces 0.6, or 0.5 with the engine-confidence penalty (presence.py:7790-7819) - it cannot engage the gate. Longest sub-0.7 episode: 10-14 09:09-15:06 (357 min at 0.5-0.6, travel week, Jaya + guest home, real occupants) - gate could not engage. 222 sub-0.7 episodes, median 0.5 min, p90 5.5 min. Switch.ura_hvac_coordinator_hvac_consensus_defer_gate never off. LOG GAP (stated, not an all-clear): ha_get_logs error_log search 'defer gate' returned 0 matches but only over the newest 2000-line window; journald grep empty; hvac.d6_deferrals_today is not exposed on any entity. The recorder engage-condition evidence is the authority here."
+  residual_2026_10_19: "Latent only: _d6_gate_engaged (hvac.py:2750) is a latch with no expiry. It can pin only if consensus drops below 0.5 (needs phones-away 0.4 + camera-only 0.15 or engine <0.85 0.1 stacked) within 30 s of a transition and then stalls under 0.7. REVIVAL TRIGGER: any recorded consensus < 0.5, or a 'D6: HVAC defer gate ENGAGED' log line -> reopen and add a max-age (knob) to the latch."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
