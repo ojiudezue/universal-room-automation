@@ -32348,13 +32348,16 @@ cards:
   arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
-  status: planned
+  status: "in_progress"
   tier: 1
   created: "2026-10-18"
   refinement_status: initial
   origin: "Rev 3 plan review R2 M2 + small-cycle plan"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "Measure which attributes change per poll; move the churny ones to _unrecorded_attributes, keeping those the scorecard and dashboard need history for."
+  next: "Overnight 10-19: ura-builder in a worktree -> one Tier-1 review -> validator -> review lane. No deploy overnight."
+  updated: "2026-10-19 02:06"
+  measured_2026_10_19_overnight: "Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_seconds 2,869 (every poll), zones 678, signal_consensus_inputs 666, fan_interference_active 184, signal_consensus 67, signal_consensus_band 64, veto_path 60, census_count 34, the rest <=31. HA recorder (core.py:1088, verified in .venv-ha) still writes one states row per state_changed event but DEDUPES attribute blobs by content, so unrecording the churny keys cuts the blob storage (the 3.3 KB part), not the row count. Plan: _unrecorded_attributes = dwell_seconds (derivable from state_since), zones, signal_consensus_inputs, signal_consensus, signal_consensus_band (both already their own recorded sensor) after a consumer check; keep the low-churn diagnostics (veto_path, last_veto_decision, away branch, census_count, boot_settle_*)."
+  parsimony: {"problem": "One presence sensor writes ~2,869 distinct 3.3 KB attribute blobs a day because a per-poll counter and three high-churn diagnostics are recorded.", "verdict": "BUILD"}
 - id: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1
   arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
