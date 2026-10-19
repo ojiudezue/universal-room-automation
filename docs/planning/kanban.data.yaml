@@ -9,6 +9,13 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1@2026-10-19T02:45", "card_id": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1", "at": "2026-10-19T02:45:00", "outcome": "parked", "headline": "Soak exit: radar-room fan rejection (v5.103.53/.54) cannot be judged - Guest 1/2 and Media fans barely ran since 10-12. Parked with a fan-season revival trigger (2 cards).", "acknowledged": false}
+  - {"fid": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1@2026-10-19T02:30", "card_id": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1", "at": "2026-10-19T02:30:00", "outcome": "done", "headline": "Last Person Entry late name: moot - no code ever names an entry row after insert (exit-only backfill). Closed; entry-side backfill noted as a future trigger.", "acknowledged": false}
+  - {"fid": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1@2026-10-19T02:35", "card_id": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1", "at": "2026-10-19T02:35:00", "outcome": "parked", "headline": "Joint departure on one exit row: 3 of 107 rows in 14 days, named person did leave. Parked until a consumer acts on exit identity.", "acknowledged": false}
+  - {"fid": "ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:25", "card_id": "ZONE-ROOM-NAME-DRIFT-1", "at": "2026-10-19T02:25:00", "outcome": "measured", "headline": "Room rename drift: 0 live drifted rooms, but confirmed the presence zone tier keeps the old name until restart. Moved to pre-planning (Tier 2 plan next).", "acknowledged": false}
+  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-19T02:38", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-10-19T02:38:00", "outcome": "measured", "headline": "Envoy recount: blips down to ~1-3/day and 10-17/18 clean, but the two longest outages (586 + 714 min) came after the Ethernet move. Scope stays.", "acknowledged": false}
+  - {"fid": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:40", "card_id": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1", "at": "2026-10-19T02:40:00", "outcome": "measured", "headline": "Bill check plan: SmartHub hourly data matches 3 real bills within ~1%. Plan written, reviewed (fix: never block the energy decision cycle), Rev 2 ready to build. Q: is bill cycle day 23 right (PEC reads 24/25)?", "acknowledged": false}
+  - {"fid": "EC-LOADED-VS-INSTALLED-VERSION-1@2026-10-19T02:42", "card_id": "EC-LOADED-VS-INSTALLED-VERSION-1", "at": "2026-10-19T02:42:00", "outcome": "measured", "headline": "Live now: HA runs URA v5.103.72 while v5.103.74 is installed (.73 + .74 wait for a restart). Card confirmed; Tier-1 build queued.", "acknowledged": false}
   - {"fid": "PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-10-19T02:08", "card_id": "PERIMETER-ALERT-VOLUME-FATIGUE-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "Exterior alert volume falling: 129 -> 76 -> 68 -> 25/day (10-15..10-18). Disposition stays 10-20.", "acknowledged": false}
   - {"fid": "FRONT-SIDE-PTZ-CHATTER-1@2026-10-19T02:08", "card_id": "FRONT-SIDE-PTZ-CHATTER-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "front_side_ptz post-crop: 11 alerts in 2 days, daytime only; the noisy PTZs are Study B porch (25) and utilities (20). VERIFY which one you meant.", "acknowledged": false}
   - {"fid": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-19T02:03", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Paused rooms stop occupancy lights/fans: plan written + reviewed; needs your one-line yes on R1 (no sleep-onset fan when paused) and R3 (accept early-vacant backstop). Then build to review.", "acknowledged": false}
@@ -31535,34 +31542,38 @@ cards:
   organic_check_2026_10_14: "README_v5.103.53 fan_recheck_outcome PENDING row now MET: memory_episodes has 84 fan_recheck_outcome rows (10-12 03:18Z -> 10-14 05:35Z). Remaining discriminator (capability-routed fan trust) waits on the 10-18 fan re-measure, inside the Soak Exit window."
   title: Fan-noise rejection should apply to any radar-bearing sensor, not only those in the presence list (source tag follows capability)
   thread: presence
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.103.53
   tier: 2
   created: "2026-10-11 23:50"
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-19 02:14"
   build_2026_10_12: "Built on fix/occupancy-source-follows-capability (plan Rev 2, D1-D7): per-tick STATE_RADAR_SOLE_TICK + _recent_radar_sole_ring, positive-evidence is_radar (override wins both ways), six consumers + recheck family factor routed, kill switch sensor_capability.OCCUPANCY_SOURCE_CAPABILITY_ROUTING_ENABLED. 34 new tests; 27 per-site mutation drills all RED. Awaiting 2 framing-disjoint code reviews."
   origin: "MS600 review 2026-10-11 (operator: combined sensors = radar + motion as one signal)."
   why: "D2 and the recheck's mmWave-only test key on occupancy source 'mmwave', which only CONF_MMWAVE_SENSORS ('presence_sensors') produces; a combined sensor (occupancy_sensors) with a radar inside — e.g. Matter MS600 — is invisible to fan rejection. v5.103.51 already classifies witnesses via derive_capability; extend the same to the 'is this hold radar-only?' source test."
-  next: "Me, 2026-10-18 fan re-measure: is the capability-routed fan rejection releasing radar-held rooms (GB1/GB2/Media MS600)? Met -> done; not met -> reopen. (Stale pre-build next replaced 10-14: shipped v5.103.53.)"
+  next: "PARKED (soak exit) - see revival_trigger."
   related: [FAN-SUSTAINED-SHAKE-DEMOTE-1]
+  soak_exit_2026_10_19: "SOAK EXIT 2026-10-19 overnight: discriminator NOT EVALUABLE in its window. Recorder since 10-12 09:00: fan.guest_room_down_ceiling_fan_2 (GB1) 0.0 h on, fan.media_room_ceiling_fan_2 (Media) 0.0 h on, fan.fan_switch_4 (GB2) 1.1 h on - cooler weather, the MS600 rooms' fans essentially never ran, so there was no fan-on radar-held episode to release. The 10-18 fan-recheck audit (AUDIT_fan_recheck_efficacy_post_rev2_2026_10_18.md) also has no GB1/GB2/Media rows. Per Soak-Exit rule 3 -> PARKED with a revival trigger (not left organic)."
+  revival_trigger: "REVIVE when any of GB1 / GB2 / Media runs its fan >= 30 min while the room is held occupied by radar only (fan season or a guest stay): one-shot recorder check that the room releases after the person leaves (fan_recheck_outcome / D2 release row) -> done or reopen."
 - id: D2-PIR-STAMP-FOLLOWS-FAN-IMMUNE-WITNESS-1
   card_was_wrong_2026_10_14: "next said APPROVE ship, but v5.103.54 shipped and was validated on 10-12 (README table: install, 0 boot errors, no away at restart all PASS). Only the organic D2-release row is pending."
   operator_instruction_2026_10_13: "Did we end up needing this? Is this after I messaged aboiut how the MS600 actually works?"
   reply_2026_10_14: 'Yes to both. It is downstream of your MS600 explanation: this card''s origin is the 2026-10-11 MS600 review where you said combined sensors (radar + motion) count as one signal, and that finding (Rev 2 Finding 8) is what surfaced the bug — a fan-faked MS600 radar motion bit was refreshing the PIR-staleness clock and clearing the D2 latch in Guest Bedroom 1/2/Media, defeating the fan-immunity protection those rooms otherwise have. It was needed: it already shipped (v5.103.54) and is confirmed built/reviewed/deployed, status shipped_organic.'
   built_2026_10_12_overnight: 'BUILT TO REVIEW, not deployed. Branch fix/d2-pir-stamp-fan-immune-witness: build 487d8c69b, then fix-up 8e678d826. Review A FIX-REQUIRED: one HIGH (the helper read the raw motion list instead of the stuck-filtered one) and fixed. Review B SHIP with one MEDIUM: the same timestamp fed the room failsafe, so GB1/GB2 sleeping guests would have been newly force-vacated. Fixed by keeping the failsafe on a separate field with the old meaning (_last_motion_bit_time). Doc corrected: ''ZV-only means D2 unreachable'' was WRONG. Orchestrator drills M1-M4 all RED, restored. Targeted tests: 52 passed. Review record: docs/reviews/code-review/overnight_2026-10-12_d2_pir_stamp_fan_immune_witness.md. Behaviour change is limited to GB1 and GB2 (ZV + MS600): an MS600 motion bit no longer keeps D2 from demoting a fan-held room or clears its latch.'
   open_question_2026_10_12: 'Separate from this card: should the room failsafe also ignore radar motion bits (MS600)? Today a fan-faked MS600 bit can defer the failsafe indefinitely in GB1/GB2; ignoring it would force-vacate a guest asleep for longer than the failsafe duration. I kept today''s behaviour. Card it only if you want it changed.'
-  next: "Me, 2026-10-18 fan re-measure: D2 releases in GB1/GB2/Media (README_v5.103.54 PENDING row). Met -> done; not met -> reopen. (Stale \"APPROVE ship\" replaced 10-14: shipped and validated in v5.103.54.)"
+  next: "PARKED (soak exit) - see revival_trigger."
   gate_2026_10_12_overnight: 'FOUR-STEP GATE. (1) VALIDITY STILL-REAL: coordinator.py:3873 stamps _last_pir_motion_time on any motion_detected; :2897-2898 clears the latch with reason pir_motion on any motion_detected. Neither is filtered. (1b) config-first: no knob decides which motion counts as a PIR witness, so this is code. (2) REUSE fan_veto.is_fan_immune_motion_witness (fan_veto.py:113), already used to filter the D2 witness list at coordinator.py:2180-2187. (3) parsimony BUILD: same filter at two more sites. (4) cost/benefit: small, presence-local, fail-closed. Build to review dispatched overnight in .claude/worktrees/overnight-1012-d2pir, branch fix/d2-pir-stamp-fan-immune-witness. No deploy.'
   title: D2 PIR-staleness clock is refreshed by a radar's motion bit (MS600) - stamp it only from fan-immune witnesses
   thread: presence
-  status: shipped_organic
+  status: "parked"
   shipped_version: v5.103.54
   tier: 1
   created: "2026-10-12 12:00"
-  updated: "2026-10-14 02:20"
+  updated: "2026-10-19 02:14"
   origin: "PLANNING_occupancy_source_follows_capability.md Rev 2 Finding 8 (carded as out-of-scope sibling)."
   why: "coordinator.py stamps _last_pir_motion_time on ANY motion_detected tick, including the meross_lan MS600 motion bit (radar-derived, fan-fakeable), so in GB1/GB2/Media a fan-faked bit keeps pir_stale False and holds D2 off. Same root: the D2 latch clear 'pir_motion' branch (_evaluate_mmwave_demoted_latch) also clears on that radar motion bit, so the latch still oscillates in those rooms after OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1 (observed during that build)."
   related: [OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1]
+  soak_exit_2026_10_19: "SOAK EXIT 2026-10-19 overnight: discriminator NOT EVALUABLE in its window. Recorder since 10-12 09:00: fan.guest_room_down_ceiling_fan_2 (GB1) 0.0 h on, fan.media_room_ceiling_fan_2 (Media) 0.0 h on, fan.fan_switch_4 (GB2) 1.1 h on - cooler weather, the MS600 rooms' fans essentially never ran, so there was no fan-on radar-held episode to release. The 10-18 fan-recheck audit (AUDIT_fan_recheck_efficacy_post_rev2_2026_10_18.md) also has no GB1/GB2/Media rows. Per Soak-Exit rule 3 -> PARKED with a revival trigger (not left organic)."
+  revival_trigger: "REVIVE when any of GB1 / GB2 / Media runs its fan >= 30 min while the room is held occupied by radar only (fan season or a guest stay): one-shot recorder check that the room releases after the person leaves (fan_recheck_outcome / D2 release row) -> done or reopen."
 - id: FAN-TRANSITION-GATE-FOLLOWS-CAPABILITY-1
   title: Fan-transition CREATION gate still keys on presence_detected list predicate (dormant - window 0.0)
   thread: presence
