@@ -108,7 +108,8 @@ LAYER_L2 = "L2"
 LAYER_L3 = "L3"
 LAYER_NONE = "none"
 
-# room_type values that demand stronger confirmation (D1.5).
+# room_type values refused across FAN_TRUST_STATES (sleep_state veto; JAYA-FAN-STILL-PHANTOM-1
+# 2026-10-18 replaced the D1.5 all-day high_still_risk veto with this sleep scope).
 HIGH_STILL_RISK_ROOM_TYPES = frozenset({ROOM_TYPE_BEDROOM, ROOM_TYPE_MEDIA_ROOM})
 
 
@@ -558,11 +559,16 @@ class FanRecheckManager:
         # fan the HVAC layer is deliberately keeping on would fight the
         # v4.7.13 keep-on contract. For non-bedroom rooms the recheck is
         # free to arm through sleep — no v4.7.13 obligation applies.
+        # JAYA-FAN-STILL-PHANTOM-1 (2026-10-18): widened from bedroom-only
+        # to HIGH_STILL_RISK_ROOM_TYPES (bedroom + media_room). Media is
+        # included for still-sleeper protection, NOT the v4.7.13 HVAC
+        # keep-on contract (bedroom-only in hvac_fans). This sleep-scoped
+        # refusal REPLACES the old all-day ``high_still_risk`` veto.
         room_type_early = merged.get(CONF_ROOM_TYPE, "")
         house_state = getattr(self._presence, "house_state", "")
         if (
             house_state in FAN_TRUST_STATES
-            and room_type_early == ROOM_TYPE_BEDROOM
+            and room_type_early in HIGH_STILL_RISK_ROOM_TYPES
         ):
             return sink.veto(room_name, "sleep_state")
 
@@ -677,11 +683,11 @@ class FanRecheckManager:
 
         l2_hit_adj = self._has_trustworthy_phone_in_adjacent(person_coord, room_name)
 
-        room_type = merged.get(CONF_ROOM_TYPE, "")
-
         if ble_tier == 1:
-            # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in
-            # AND is REJECTED for high-still-risk room_types (D1.5 dial).
+            # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in.
+            # (JAYA-FAN-STILL-PHANTOM-1: the all-day high_still_risk
+            # rejection was removed; bedroom/media are refused only in
+            # FAN_TRUST_STATES via the sleep_state predicate above.)
             try:
                 zone_rooms = self._zone_rooms_for(room_name) or [room_name]
                 zone_persons = self._trustworthy_persons_in_zone(
@@ -695,9 +701,6 @@ class FanRecheckManager:
             if l2_hit_adj and merged.get(
                 CONF_FAN_RECHECK_L2_ALLOWED, DEFAULT_FAN_RECHECK_L2_ALLOWED,
             ):
-                if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-                    sink.set_ladder_layer(ctx, LAYER_NONE)
-                    return sink.veto(room_name, "high_still_risk")
                 sink.set_ladder_layer(ctx, LAYER_L2)
                 return True
             sink.set_ladder_layer(ctx, LAYER_NONE)
@@ -707,11 +710,6 @@ class FanRecheckManager:
         if l2_hit_adj:
             sink.set_ladder_layer(ctx, LAYER_L2)
             return sink.veto(room_name, "ble_l2")
-
-        # D1.5 high-still-risk guard also applies on the Tier-0/2 path.
-        if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-            sink.set_ladder_layer(ctx, LAYER_NONE)
-            return sink.veto(room_name, "high_still_risk")
 
         # Sensors-only authorize gate.
         if not merged.get(
@@ -1204,10 +1202,13 @@ class FanRecheckManager:
         # sleep edge is correctly aborted instead of pausing its fan
         # mid-sleep.
         house_state = getattr(self._presence, "house_state", "")
+        # JAYA-FAN-STILL-PHANTOM-1: same widened predicate as
+        # ``_evaluate_eligibility`` (bedroom + media_room; media for
+        # still-sleeper protection, not the v4.7.13 keep-on contract).
         room_type = merged.get(CONF_ROOM_TYPE, "")
         if (
             house_state in FAN_TRUST_STATES
-            and room_type == ROOM_TYPE_BEDROOM
+            and room_type in HIGH_STILL_RISK_ROOM_TYPES
         ):
             return False
         data = getattr(room_coord, "data", None) or {}
