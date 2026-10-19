@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:11:31-05:00_ - _Data commit: `54fd8a574107`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:12:04-05:00_ - _Data commit: `b99ee33dea84`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -150,12 +150,34 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
   - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
   - `parked_2026_08_15`: SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, r...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+_updated 2026-10-16 02:15_
+- **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
+- **Why:** Correctness is preserved (beta can only echo alpha or suppress; cannot fire spuriously), so this is hygiene not a defect. Reviewer B explicitly recommended a separate scoped cycle rather than bundling — bundling would have grown a Tier-2...
+- **Next:** Scope after PATH-ALPHA ships and its organic proofs land: delete or collapse the vestigial beta limbs with test migration, or document why they stay.
+- **Refs:** docs/reviews/code-review/path_alpha_review_B.md
+- **Forensic keys (3):**
+  - `trigger_check_2026_10_16_overnight`: REVIVAL TRIGGER FIRED: 'after PATH-ALPHA ships and its organic proofs land' - path alpha + GAP-A shipped v5.78.0 (2026-08). READY, promoted parked -> pre_planning. Sequence it with HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, whose plan g...
+  - `gate_2026_09_12`: PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049 lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT: HYGIENE not a defect (card own why: correctness preserved, beta c...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.
+
+### `ZONE-ROOM-NAME-DRIFT-1` - A room renamed through options drops out of the zone tier (zone tracker keys by room name) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **pre_planning**
+_created 2026-10-18 · updated 2026-10-19 02:07 · initial_
+- **Next:** Me: Tier-2 plan (presence <-> house-state ripple, so 3-framing build review) for 'rebuild presence zone name maps on room rename'; needs a plan review before build. Overnight pass queues it after the current planner frees.
+- **Parsimony:** [BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)] After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).
+- **Forensic keys (3):**
+  - `arc_cut_v5_103_72`: priority follow-up cycle immediately after this ship
+  - `tier`: 2
+  - `measured_2026_10_19_overnight`: STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (...
+
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **explicit**
-_created 2026-10-04 01:00 · updated 2026-10-16 02:03_
+_created 2026-10-04 01:00 · updated 2026-10-19 02:12_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
-- **Next:** Me, after 10-18: one-shot re-count of Envoy dropouts (3 clean days after the Ethernet move + GC freeze). Then, once the governor ships, write the phase-2 Tier-3 plan with items (1) retire local write-failover, (2) pending-episode back-of...
-- **Forensic keys (12):**
+- **Next:** Me: write the phase-2 Tier-3 plan (retire local write-failover; read Enphase control_change_pending; long-outage handling) -> it then needs your APPROVE before any build (Tier 3).
+- **Forensic keys (13):**
   - `recount_2026_10_17`: Interim recount (governor shipped; Ethernet + GC freeze in place): short blips fell 6.8/day -> ~1.7/day, but DOWNTIME did not fall (923 min pre vs 1,304 min post) because of long outages 586 min (10-15/16) and 714 min (10-16), and anothe...
   - `operator_instruction_2026_10_17`: The governor is done. So finish the recount (board, 2026-10-18T03:47:24.313Z)
   - `correction_2026_10_17_overnight`: CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_leve...
@@ -168,28 +190,7 @@ _created 2026-10-04 01:00 · updated 2026-10-16 02:03_
   - `operator_2026_10_15b`: Operator: "Envoy is ethernet connected now not wifi." Another confound for the 10-15 dropout fall (alongside GC freeze + SPAN); likely the dominant one. Re-count at 10-18 stands.
   - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
-
-### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_updated 2026-10-16 02:15_
-- **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
-- **Why:** Correctness is preserved (beta can only echo alpha or suppress; cannot fire spuriously), so this is hygiene not a defect. Reviewer B explicitly recommended a separate scoped cycle rather than bundling — bundling would have grown a Tier-2...
-- **Next:** Scope after PATH-ALPHA ships and its organic proofs land: delete or collapse the vestigial beta limbs with test migration, or document why they stay.
-- **Refs:** docs/reviews/code-review/path_alpha_review_B.md
-- **Forensic keys (3):**
-  - `trigger_check_2026_10_16_overnight`: REVIVAL TRIGGER FIRED: 'after PATH-ALPHA ships and its organic proofs land' - path alpha + GAP-A shipped v5.78.0 (2026-08). READY, promoted parked -> pre_planning. Sequence it with HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, whose plan g...
-  - `gate_2026_09_12`: PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049 lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT: HYGIENE not a defect (card own why: correctness preserved, beta c...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.
-
-### `ZONE-ROOM-NAME-DRIFT-1` - A room renamed through options drops out of the zone tier (zone tracker keys by room name) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **pre_planning**
-_created 2026-10-18 · updated 2026-10-19 02:07 · initial_
-- **Next:** Me: Tier-2 plan (presence <-> house-state ripple, so 3-framing build review) for 'rebuild presence zone name maps on room rename'; needs a plan review before build. Overnight pass queues it after the current planner frees.
-- **Parsimony:** [BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)] After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).
-- **Forensic keys (3):**
-  - `arc_cut_v5_103_72`: priority follow-up cycle immediately after this ship
-  - `tier`: 2
-  - `measured_2026_10_19_overnight`: STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (...
+  - `recount_2026_10_19_overnight`: RECOUNT DONE (per your 10-17 instruction). Recorder, sensor.envoy_482543015950_current_battery_discharge unavailable episodes by local day: 10-11 9 drops/266 min down, 10-12 4/297, 10-13 4/145, 10-14 13/109, 10-15 1/586, 10-16 1/714, 10-...
 
 ### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#12 · WSJF 1.8 · v9 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
