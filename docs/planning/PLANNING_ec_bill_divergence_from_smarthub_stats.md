@@ -288,3 +288,16 @@ single-flight/restart/options round-trip. Elevate to Tier 2-DB if the builder fi
 2. OK to put the two `smarthub:` statistic ids into EC options in the Step-1 restart window?
 3. F1/F2 cards: investigate EC's pre-10-09 under-pricing and the 10-12 / 10-15 / 10-16 daily outliers (recommended;
    they explain most of the divergence this feature will show).
+
+## Plan review 2026-10-19 (Tier-2 adversarial)
+
+**Verdict: FIX-PLAN** (one HIGH, small edits; then SHIP-TO-BUILD without re-review).
+
+Verified: `statistics_during_period` signature (`recorder/statistics.py:2077-2085`), sync + `session_scope` so it must go through the recorder executor; `"change"` = per-row `sum - prev_sum` with the first row's prev taken from `_statistics_at_time(start_time)` (`:1907-1959`), so the first hour of the window is correct and `has_sum=1` ids are the right column choice. `_get_cycle_start` (`energy_billing.py:533-544`) is knob-driven local date. No URA consumer of the divergence keys beyond `sensor.py` (the frontend bundle, `dashboard/`, `dashboard-v3/_v3archive` reference `predicted_bill` only; none reads `utility_*`). No decision path. Tier 2 holds.
+
+- **HIGH H1 — the refresh can delay/skip EC decisions.** D1 says "called from `_async_decision_cycle`" and awaits the executor. `_async_decision_cycle` holds `_cycle_in_flight=True` across `_decision_cycle_body` (`energy.py:6352-6375`) and a TOU-boundary tick arriving meanwhile is *skipped*, not queued. A slow recorder executor (purge, stats compile, the DB being a Samba-adjacent SQLite) would drop a boundary tick: cost-impacting. Fix: launch the refresh as a tracked background task (`entry.async_create_background_task` / tracked + cancelled on unload) guarded by `_utility_stats_inflight`; the decision cycle never awaits it. Add test: refresh blocked on an un-set Event, decision cycle still completes and a second cycle runs.
+- **MED M1 — Live numbers are tied to cycle_day=23.** Open question 1 (F3) may change the knob in the very restart window D4 uses. State that D2 Live values hold only if `energy_bill_cycle_day` stays 23; otherwise re-derive with the probe script before validation. Also specify `prev_cycle_start = _get_cycle_start(cycle_start - 1 day)` (no hand-rolled month math).
+- **MED M2 — divergence self-explanation.** Add `ec_underpriced_days` (count of window days where EC `import_cost/import_kwh` < min effective import rate) to the published dict, so a +25–32% cost divergence visibly attributes to F1 rather than relying on README prose.
+- **LOW L1 — INV-1 contradicts D2.** INV-1 says `utility_days == ec_days` whenever published; D2 publishes when `ec_days < utility_days`. Reword INV-1 to "identical date window; `ec_days` reported".
+- **LOW L2 — first-run stamp.** Initialise `_utility_stats_last_run = None` so the first tick runs; with stamp-before-await a recorder-not-ready boot delays data one interval — say so in D4 Live.
+- **LOW L3 — unload.** Cancel the background task on EC teardown; test it.
