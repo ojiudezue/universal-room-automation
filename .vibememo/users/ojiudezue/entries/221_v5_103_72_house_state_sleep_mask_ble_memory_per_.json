@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "221",
+  "author": "ojiudezue",
+  "session_id": "claude_20261019_013426_ship_v5_103_72",
+  "timestamp": "2026-10-19T01:34:26Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.72 shipped: House state: sleep mask, BLE memory, per-sensor zone tracker, observability",
+  "summary": "House state: sleep mask, BLE memory, per-sensor zone tracker, observability",
+  "why": "The holistic census/away audit found two live defects: SLEEP pins zone trackers and so hides live zone occupancy from the nobody-home branch, and a per-kind provenance map lets one sensor's off-edge wipe a sibling sensor's live hold (confirmed live in P6). Both can AWAY an occupied house. Operator approved the small cycle plus the proper per-sensor fix (Option A, 'be careful'), and gave GO after the Tier-3 checkpoint: 4 framing-disjoint reviews, 111 mutation drills both orders, switch-off suite identity, orchestrator mutation of the multi-zone owner guard.",
+  "implications": "Shipped HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1, ZONE-TRACKER-PER-SENSOR-WIPE-1 at v5.103.72; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.72.md (Live criteria).",
+  "revisit_trigger": "ZONE-ROOM-NAME-DRIFT-1 is the priority follow-up (renamed-room sleeper); Rev 4 guest/untracked veto stays parked until guest accuracy becomes a priority",
+  "refs": {
+    "cards": [
+      "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1",
+      "ZONE-TRACKER-PER-SENSOR-WIPE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.72.md"
+    ],
+    "release_notes": "Tier-3 house-state cycle: SLEEP no longer masks zones for nobody-home; STALE counts home within decay; away-branch diagnostics; per-entity zone provenance fixes one-sensor-clears-room (D-H1); D4d trip-wire; kill switch ZONE_OCCUPANCY_PER_ENTITY_ENABLED."
+  }
+}

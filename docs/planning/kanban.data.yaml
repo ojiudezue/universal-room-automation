@@ -750,7 +750,8 @@ cards:
   paged_2026_10_15_overnight: "Paged 2026-10-15 02:15 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly rather than through URA NM routing so it wakes nobody), together with the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 PICK."
   title: "With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets"
   thread: presence
-  status: "waiting_operator"
+  status: shipped_organic
+  shipped_version: v5.103.72
   investigation_2026_10_15: "CORRECTION of update_2026_10_15: AWAY does NOT always require no zone occupied. Path alpha (presence.py:1170-1181: all trackers away + unidentified=0 + face=0) forces AWAY ignoring zone/room occupancy; house_state.py:130 comment is wrong for that path. Guest-room occupancy feeds only GUEST entry/exit (presence.py:5164, :5485; guest gate not evaluated from AWAY, :6059-6085); guest Wi-Fi (guest_vlan_ssid=Revel) feeds only the wifi_guest_floor display attr (camera_census.py:5630, sensor.py:3701). 7d: 65 AWAY entries (33 on 10-14); guest room on at 7/65; wifi floor>0 at 34/65 but >0 in 72% of all samples; some room _occupied on at 65/65 (not discriminating vs phantoms). ~13% of HVAC preset/setpoint changes within 10 min of an AWAY edge (~165/wk). Worth-it: LEAVE (operator instinct confirmed): every candidate veto is sparse or always-on; house-state change = Tier 3. Optional zero-code relief: house_state_override until 10-18. Follow-up: fix house_state.py:130 comment."
   update_2026_10_15: "Operator 2026-10-15: \"so we can see the guest but do nothing about it?\" Answer: AWAY entry already requires census_count==0 AND no zone occupied (house_state.py:130, presence.py:6641). The flap happens when the interior camera count decays to 0 while the guest is out of view/still, so the house does act on a seen guest; the gap is hysteresis after the count drops. Still awaiting A (override to guest for the trip) / B."
   created: '2026-10-15 02:05'
@@ -32275,6 +32276,7 @@ cards:
   why: 'Audit docs/planning/AUDIT_study_a_wifi_csi_sensor.md (a6ef49f88): 24h vs ZK radar 62.5% agree, 36% CSI-off while radar-on; upstream ESPectre states no stationary/breathing detection. Not wired into URA.'
   next: 'Operator optional - assign device to Study A area + rename. Revival trigger - firmware with stillness/breathing; acceptance = CSI-off/radar-on share near 0% over 24h.'
 - id: STUDYA-ZK-EMPTY-HOLD-1
+  arc_cut_v5_103_72: "sensor-quality residual awaiting operator"
   operator_answer_2026_10_18: "Delete the Athom (functionally decommissioned, likely just unused). DONE: ESPHome entry 01JQWVQK5WNVMF4TRXSJ5ZCSM0 (Human_Luminance_Athom_Office, 21 entities) deleted; its two disabled automations Office Arrive/Leave Automation 2 deleted (automations.yaml backed up in session scratchpad legacy_retire_20261018). Residual: the area_occupancy integration Study A config still lists binary_sensor.athom_presence_sensor_d93b20_occupancy as motion + primary occupancy sensor -> operator to repoint (to binary_sensor.mmwave_zigbee_studya_presence) or retire that config. URA Study A data key mmwave_sensors still lists it but is a dead legacy key (CONF_MMWAVE_SENSORS = presence_sensors)."
   status_note_2026_10_18: "Study A false-hold residual stands on the ZK alone; P3 phantom stays the open question."
   title: "Study A's presence radar holds the room occupied while the house is verifiably empty (696 of 2,781 min in the guest-free control), and its only second sensor (the Athom) is dead"
@@ -32287,6 +32289,7 @@ cards:
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "DO: revive or replace the Study A Athom (second sensor) and/or re-tune the ZK -> I re-run P3 for Study A; if phantom-free it can join the Away veto rooms. Default if no action: Study A stays excluded from the veto."
 - id: EXERCISE-ROOM-ZK-NEVER-ON-1
+  arc_cut_v5_103_72: "sensor-quality residual, separate hardware problem, own card"
   operator_answer_2026_10_18: "Room likely just unused. It has 2 radars: an mmWave motion-class (ZV, filed motion) and an mmWave still+motion (24 GHz, entity named gameroom) plus a night-light motion (operator may move it to a room that needs a night light). -> no fault assumed; verify on next real use (the 24 GHz radar should go on)."
   title: "Exercise Room's 24 GHz presence radar never turned on in 7 days (reports, never detects); the room's occupancy is motion-sourced only (31 of 33 entries), so a still person is not held"
   thread: presence
@@ -32300,6 +32303,7 @@ cards:
   status_note: "moved to waiting_operator"
   next: "VERIFY: stand still in the Exercise Room for ~1 min and see if binary_sensor.mmwave_zigbee_gameroom_presence goes on (or re-pair / power-cycle it, hardware) -> if it never fires I card a replacement; if it fires I re-run P3 for the room."
 - id: MASTER-BATH-NO-TRUSTED-PRESENCE-1
+  arc_cut_v5_103_72: "sensor-coverage residual, InvisOutlet measurement pending"
   operator_question_2026_10_18: "Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion (motion_sensors) + occupancy (presence_sensors). Probe P3 wrongly extended the ruling to Master Bathroom by device model. -> premise of this card is likely WRONG; next: measure A788 occupancy reliability (holds a still person? false holds?) before any hardware. Also: A788 publishes its nightlight discovery payload onto the temperature topic (MQTT ValueError at boot) - minor device/firmware config issue."
   title: "Master Bathroom has no trusted presence sensor (InvisOutlet is do-not-use), so it is the largest remaining source of someone-home AWAY misses (17 on ordinary days)"
   thread: presence
@@ -32311,6 +32315,7 @@ cards:
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom (hardware install) or B accept the miss -> on A I wire it and re-run P3."
 - id: PERSON-GPS-ANY-HOME-WINS-1
+  arc_cut_v5_103_72: "separate producer fix in person_coordinator, own cycle"
   title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
   thread: presence
   status: planned
@@ -32321,6 +32326,7 @@ cards:
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
   next: "Plan: freshest-GPS-wins (not any-home-wins, which lets a left-at-home iPad hold a person home forever); verify against Wigton's 6-tracker person; Tier 2 reviews."
 - id: HOUSE-STATE-SENSOR-ATTR-CHURN-1
+  arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
   status: planned
@@ -32345,7 +32351,8 @@ cards:
 - id: ZONE-TRACKER-PER-SENSOR-WIPE-1
   title: "Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on"
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.72
   tier: 3
   created: "2026-10-18"
   refinement_status: refined
@@ -32355,6 +32362,7 @@ cards:
   folded_into: "PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 3 D4 (af238dc53); one Tier-3 cycle with the reviewed branch dad3bf6e7."
   next: "Two Tier-3 plan reviews on Rev 3 -> delta build on the reviewed branch -> 4 build reviews -> operator checkpoint -> one awake-window deploy."
 - id: ZONE-ROOM-NAME-DRIFT-1
+  arc_cut_v5_103_72: "priority follow-up cycle immediately after this ship"
   title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
   thread: presence
   status: inbox
@@ -32376,6 +32384,7 @@ cards:
   revival_trigger: "Wigton re-enabled (WIGTON-URA-REENABLE-1) or another camera-less install onboarded."
   next: "Design a camera-less stuck-sensor detector (e.g. reuse OC stuck-sensor duty-cycle) before Wigton goes live."
 - id: HVAC-CONSENSUS-GATE-PIN-1
+  arc_cut_v5_103_72: "pulled out of this cycle as scope growth (Rev 3.2), own probe"
   title: "HVAC Wait-for-Presence (consensus) gate has no time bound: once engaged it defers preset writes for all three zones until consensus >= 0.7, and a sensor holding a zone while phones are away (e.g. Jaya fan-radar, up to ~6 h) can keep it pinned"
   thread: hvac
   status: investigating
