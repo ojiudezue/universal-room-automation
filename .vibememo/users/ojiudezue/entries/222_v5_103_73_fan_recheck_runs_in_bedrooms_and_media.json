@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "222",
+  "author": "ojiudezue",
+  "session_id": "claude_20261019_025509_ship_v5_103_73",
+  "timestamp": "2026-10-19T02:55:09Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.73 shipped: Fan recheck runs in bedrooms and media rooms by day",
+  "summary": "Fan recheck runs in bedrooms and media rooms by day",
+  "why": "JAYA-FAN-STILL-PHANTOM-1 was parked with a revival trigger that fired on 10-12: Jaya Bedroom held occupied for two hours by day by its ESP32 radar alone, fan on, Jaya away, and no recheck ran because the all-day high_still_risk veto refused every bedroom (54 vetoes since the afternoon restart). The post-Rev2 audit showed the restore loop is fixed (9/9 vacates kept the fan off), so admitting bedrooms is now worth it. Operator ruled: no blanket refusal outside sleep; refuse only when BLE has the person in the room, including the room's configured scanner areas. Plan review caught media-room sleep exposure; review B caught a mid-pause sleep-edge leaving a fan off all night; review C closed five test gaps. Full name-diff clean.",
+  "implications": "Shipped JAYA-FAN-STILL-PHANTOM-1 at v5.103.73; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.73.md (Live criteria).",
+  "revisit_trigger": "Organic: first daytime fan-on radar-sole hold with Jaya away must produce a fan_recheck_outcome row; ESP32 LD2410 family/clear-time measurement is a separate card",
+  "refs": {
+    "cards": [
+      "JAYA-FAN-STILL-PHANTOM-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.73.md"
+    ],
+    "release_notes": "Bedroom/media fan recheck refused only in home_night/sleep/waking (incl. mid-flight cancel with fan restored ON); all-day high_still_risk veto removed; L1 in-room refusal counts the room's configured scanner-area rooms."
+  }
+}

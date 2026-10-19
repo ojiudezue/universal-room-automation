@@ -29756,7 +29756,8 @@ cards:
   disposition_2026_09_26_groom: 'SOAK EXIT: discriminator NOT evaluable in window — zero fan_recheck_outcome rows for Jaya Bedroom (only Living Room 32, Study A 18) since the fix. Per Soak Exit rule 3 -> PARKED with explicit revival trigger: REVIVE if zone_2 is held occupied by a Jaya fan-on mmWave-sole episode with no fan_recheck_outcome row for Jaya in ura_activity_log.'
   title: "Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it"
   thread: presence
-  status: parked
+  status: shipped_organic
+  shipped_version: v5.103.73
   created: '2026-09-19'
   updated: '2026-09-29 04:30'
   tags: [presence, hvac, mmwave, fan-phantom, jaya, config-fix]
