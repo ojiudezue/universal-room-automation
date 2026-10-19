@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    CONF_SCANNER_AREAS,
     FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_RECHECK_ARM_DELAY_S,
@@ -108,7 +109,8 @@ LAYER_L2 = "L2"
 LAYER_L3 = "L3"
 LAYER_NONE = "none"
 
-# room_type values that demand stronger confirmation (D1.5).
+# room_type values refused across FAN_TRUST_STATES (sleep_state veto; JAYA-FAN-STILL-PHANTOM-1
+# 2026-10-18 replaced the D1.5 all-day high_still_risk veto with this sleep scope).
 HIGH_STILL_RISK_ROOM_TYPES = frozenset({ROOM_TYPE_BEDROOM, ROOM_TYPE_MEDIA_ROOM})
 
 
@@ -558,11 +560,16 @@ class FanRecheckManager:
         # fan the HVAC layer is deliberately keeping on would fight the
         # v4.7.13 keep-on contract. For non-bedroom rooms the recheck is
         # free to arm through sleep — no v4.7.13 obligation applies.
+        # JAYA-FAN-STILL-PHANTOM-1 (2026-10-18): widened from bedroom-only
+        # to HIGH_STILL_RISK_ROOM_TYPES (bedroom + media_room). Media is
+        # included for still-sleeper protection, NOT the v4.7.13 HVAC
+        # keep-on contract (bedroom-only in hvac_fans). This sleep-scoped
+        # refusal REPLACES the old all-day ``high_still_risk`` veto.
         room_type_early = merged.get(CONF_ROOM_TYPE, "")
         house_state = getattr(self._presence, "house_state", "")
         if (
             house_state in FAN_TRUST_STATES
-            and room_type_early == ROOM_TYPE_BEDROOM
+            and room_type_early in HIGH_STILL_RISK_ROOM_TYPES
         ):
             return sink.veto(room_name, "sleep_state")
 
@@ -662,9 +669,10 @@ class FanRecheckManager:
             return sink.veto(room_name, "no_person_coord")
 
         # L1 veto applies in EVERY tier.
-        l1_persons = trustworthy_persons_in_room(
-            self.hass, person_coord, room_name,
-        )
+        # Operator scope addition 2026-10-18: "in the room" also covers
+        # persons resolved to a room whose area this room lists in its
+        # CONF_SCANNER_AREAS (Jaya Bedroom -> jaya_bathroom).
+        l1_persons = self._l1_persons(person_coord, room_name, merged)
         if l1_persons:
             sink.set_ladder_layer(ctx, LAYER_L1)
             return sink.veto(room_name, "ble_l1")
@@ -677,11 +685,11 @@ class FanRecheckManager:
 
         l2_hit_adj = self._has_trustworthy_phone_in_adjacent(person_coord, room_name)
 
-        room_type = merged.get(CONF_ROOM_TYPE, "")
-
         if ble_tier == 1:
-            # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in
-            # AND is REJECTED for high-still-risk room_types (D1.5 dial).
+            # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in.
+            # (JAYA-FAN-STILL-PHANTOM-1: the all-day high_still_risk
+            # rejection was removed; bedroom/media are refused only in
+            # FAN_TRUST_STATES via the sleep_state predicate above.)
             try:
                 zone_rooms = self._zone_rooms_for(room_name) or [room_name]
                 zone_persons = self._trustworthy_persons_in_zone(
@@ -695,9 +703,6 @@ class FanRecheckManager:
             if l2_hit_adj and merged.get(
                 CONF_FAN_RECHECK_L2_ALLOWED, DEFAULT_FAN_RECHECK_L2_ALLOWED,
             ):
-                if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-                    sink.set_ladder_layer(ctx, LAYER_NONE)
-                    return sink.veto(room_name, "high_still_risk")
                 sink.set_ladder_layer(ctx, LAYER_L2)
                 return True
             sink.set_ladder_layer(ctx, LAYER_NONE)
@@ -707,11 +712,6 @@ class FanRecheckManager:
         if l2_hit_adj:
             sink.set_ladder_layer(ctx, LAYER_L2)
             return sink.veto(room_name, "ble_l2")
-
-        # D1.5 high-still-risk guard also applies on the Tier-0/2 path.
-        if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-            sink.set_ladder_layer(ctx, LAYER_NONE)
-            return sink.veto(room_name, "high_still_risk")
 
         # Sensors-only authorize gate.
         if not merged.get(
@@ -1110,6 +1110,35 @@ class FanRecheckManager:
         """
         if ctx.state not in (STATE_ARMED, STATE_PAUSED):
             return
+        # Review B-1 (2026-10-18): a bedroom/media room armed or paused by
+        # day must not keep its fan paused (or reach a VACATED verdict)
+        # once the house enters FAN_TRUST_STATES. Cancel as
+        # OCCUPIED_CONFIRMED so the existing restore path turns the fan
+        # back ON. Same predicate as the sleep_state eligibility veto.
+        merged_c = self._merged_config(room_coord)
+        if (
+            getattr(self._presence, "house_state", "") in FAN_TRUST_STATES
+            and merged_c.get(CONF_ROOM_TYPE, "") in HIGH_STILL_RISK_ROOM_TYPES
+        ):
+            _LOGGER.info(
+                "FanRecheck %s: sleep state entered mid-flight — cancelling",
+                ctx.room_name,
+            )
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description="Fan-recheck cancelled (sleep state mid-flight)",
+                details={
+                    "room": ctx.room_name,
+                    "reason": "sleep_state",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
+            self._cancel_and_restore_async(
+                ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="sleep_state",
+            )
+            return
         data = getattr(room_coord, "data", None) or {}
         if data.get("motion_detected"):
             _LOGGER.info(
@@ -1133,9 +1162,7 @@ class FanRecheckManager:
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
-            l1 = trustworthy_persons_in_room(
-                self.hass, person_coord, ctx.room_name,
-            )
+            l1 = self._l1_persons(person_coord, ctx.room_name, merged_c)
             if l1:
                 ctx.ble_ladder_layer = LAYER_L1
                 _LOGGER.info(
@@ -1204,10 +1231,13 @@ class FanRecheckManager:
         # sleep edge is correctly aborted instead of pausing its fan
         # mid-sleep.
         house_state = getattr(self._presence, "house_state", "")
+        # JAYA-FAN-STILL-PHANTOM-1: same widened predicate as
+        # ``_evaluate_eligibility`` (bedroom + media_room; media for
+        # still-sleeper protection, not the v4.7.13 keep-on contract).
         room_type = merged.get(CONF_ROOM_TYPE, "")
         if (
             house_state in FAN_TRUST_STATES
-            and room_type == ROOM_TYPE_BEDROOM
+            and room_type in HIGH_STILL_RISK_ROOM_TYPES
         ):
             return False
         data = getattr(room_coord, "data", None) or {}
@@ -1315,6 +1345,44 @@ class FanRecheckManager:
             if (entry.data.get(CONF_ROOM_NAME) or entry.data.get("room_name")) == room_name:
                 return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
         return None
+
+    def _l1_persons(
+        self, person_coord: Any, room_name: str, merged: dict,
+    ) -> list:
+        """Trustworthy persons in this room OR in any URA room whose area_id
+        is listed in this room's CONF_SCANNER_AREAS.
+
+        Operator scope addition 2026-10-18 (JAYA-FAN-STILL-PHANTOM-1): a phone
+        resolved by Tier-1 direct match to the bathroom room is still "in"
+        the bedroom that borrows that bathroom's scanner. Reads person_coord's
+        existing area->room map; does NOT change person positioning.
+        """
+        persons = list(trustworthy_persons_in_room(
+            self.hass, person_coord, room_name,
+        ))
+        scanner_areas = merged.get(CONF_SCANNER_AREAS) or []
+        if isinstance(scanner_areas, str):
+            scanner_areas = [scanner_areas]
+        area_map = getattr(person_coord, "_area_id_to_room", None)
+        if not isinstance(area_map, dict):
+            # Review A-LOW-4: a MagicMock/absent map must not yield false L1.
+            area_map = {}
+        seen = {room_name}
+        for area in scanner_areas:
+            if not area:
+                continue
+            other = area_map.get(area) or area_map.get(
+                str(area).lower().replace(" ", "_"),
+            )
+            if not other or other in seen:
+                continue
+            seen.add(other)
+            for p in trustworthy_persons_in_room(
+                self.hass, person_coord, other,
+            ):
+                if p not in persons:
+                    persons.append(p)
+        return persons
 
     def _has_trustworthy_phone_in_adjacent(
         self, person_coord: Any, room_name: str,

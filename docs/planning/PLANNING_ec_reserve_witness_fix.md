@@ -1,341 +1,222 @@
 # PLANNING: EC reserve write-verifier witness fix
 
-**Card:** EC-SELFHEAL-UNEXPLAINED-RESENDS-1 (incl. `reconciled_2026_10_17`). **Date:** 2026-10-17.
-**Evidence:** `docs/planning/AUDIT_envoy_reliability_recount_and_witness_reconcile.md` (the audit).
-**Operator rulings (10-17):** no new setting; reconcile done; this fix ships separately from the Tier-3
-resilience card (EC-ENPHASE-CONNECTIVITY-RESILIENCE-1).
-**Code base read:** `integ/test-wave1-d4ac` worktree (develop lineage). Code wins over this doc.
+**Card:** EC-SELFHEAL-UNEXPLAINED-RESENDS-1. **Revised:** 2026-10-18 (rev 2).
+**Evidence:** `docs/planning/AUDIT_ec_selfheal_resends_root_cause_2026_10_18.md` (root cause, re-verified),
+`docs/planning/AUDIT_envoy_reliability_recount_and_witness_reconcile.md` (10-17 recount).
+**Operator rulings:** 10-17 "no new setting"; 10-18 "why a new setting? What's the real problem" and
+"keep the ±2 margin". Code on `develop` wins over this doc.
 
----
+## 0. The real problem and the fix
 
-## 0. Answer first
+The reserve verifier's local witness `_local_entity_for(RESERVE)`
+(`domain_coordinators/energy_write_verify.py:369-409`) resolves to
+`number.enpower_482348004678_reserve_battery_level` (`EC_ROLE_KEY_DEFAULTS`, `energy_const.py:2442-2444`).
+That number is dead: only `10.0` or `unavailable` in the recorder since 2026-08-05, while the real
+reserve moved 5..99. Every commanded reserve other than 10 looks unapplied, runs the 15/30/60-min
+re-send ladder, pages CRITICAL with `oracle_seen=10.0`, and arms a 3-h stand-down. Every command of
+10 looks converged even when the battery is elsewhere (10-12/13: commanded 10, battery 14, silent).
 
-1. **The fix.** The reserve verifier's local witness (`_local_entity_for(RESERVE)`,
-   `energy_write_verify.py:369-409`) resolves the Envoy's own reserve SENSOR
-   (`sensor.envoy_<envoy_serial>_reserve_battery_level`, enphase_envoy unique_id
-   `<envoy_serial>_reserve_soc`) through the entity registry, anchored on the already-configured
-   SOC entity. If the sensor cannot be resolved (not registered, other hardware), it falls back to
-   today's `reserve_soc_number` read. `energy_reserve_soc_entity` is not touched.
-2. **Direction (2) as stated cannot pass, and the audit's §5.1 attribution is wrong.** The 10-17
-   18:01 case is commanded 10 vs actual 9. `_compare` (`energy_write_verify.py:1136-1140`) matches
-   reserve within **±2.0** points, which is deliberately aligned to the ±2 dispatch deadband
-   (`energy_battery.py`, `_reserve_action`, `abs(current - target) >= 2`) to stop a
-   forever-REVERTED band (fix-up A-HIGH-2 / B-MED-1). So 9 vs 10 is "converged" against ANY
-   witness, frozen number or honest sensor. The cloud-oracle verifier also read 9 → within
-   tolerance, which answers the audit's open question of why it stayed silent. The frozen witness did
-   not hide this one; the tolerance did. **Operator decision needed (§9 Q1).** My recommendation is to
-   keep ±2 and re-state acceptance (2) against the real masked episode that IS outside tolerance:
-   10-12/13, commanded 10, battery and sensor at 14, frozen number at 10 → silent then, alerts after.
-3. **out_of_range (commanded 3 < Enphase minimum 5) does NOT belong here.** It is a write-side clamp
-   at the governor chokepoint, not a witness read. Card it separately (Tier 3). Evidence in §8.
-4. **Tier:** 2, elevated to three framing-disjoint code reviews under the standing
-   regression-prone-energy policy. One plan review before build.
-
----
+**Fix:** in the RESERVE branch of `_local_entity_for` only, prefer the live local Envoy sensor
+`sensor.envoy_<envoy_serial>_reserve_battery_level`, found by entity-registry lookup anchored on the
+configured SOC entity's Envoy device. Fall back to today's number when the sensor is not resolvable.
+No new setting, no repoint of `energy_reserve_soc_entity`, no tolerance change.
 
 ## 1. Institutional context verified
 
 ### 1.1 Config-first
+- Repointing `energy_reserve_soc_entity` (CONF_ENERGY_RESERVE_SOC_ENTITY → key `reserve_soc_number`,
+  `energy.py:1091`) to the sensor: **rejected.** The same key is the write target for every
+  `role="write"` read (`energy_battery.py:6133, 7568`; `energy.py:5368, 7251, 7471`), the floor read
+  (`energy_battery.py:5304`), the call_service target filter (`energy.py:9697`) and the write-failover
+  route key (`energy_write_verify.py:2394`). A read-only sensor there breaks the local write fallback.
+- No existing witness setting: `grep -n "WITNESS\|reserve_witness" const.py energy_const.py config_flow.py`
+  → only `TRUST_CLASS_WITNESS` (`const.py:534`, presence trust class) and
+  `CONF_ENERGY_STREAM_COWITNESS_ENTITY` (`energy_const.py:337`, SOC MQTT stream freshness co-witness,
+  read at `energy_battery.py:1737`; unrelated). Code change is required; no CONF is added (operator).
 
-- `energy_reserve_soc_entity` could be set to the sensor. **Rejected:** it is also the write
-  target for the local (dormant) write-failover leg and for every `role="write"` reserve read when
-  the cloud key is blank (`energy_battery.py:865-883` `_get_entity`, `_cloud_write_target`).
-  Pointing a write role at a read-only sensor would break the local fallback. Operator ruling
-  matches.
-- No existing witness setting: grep of `const.py`, `energy_const.py`, `config_flow.py` for
-  `WITNESS` / `reserve_witness` → only the card's proposed `CONF_ENERGY_RESERVE_WITNESS_ENTITY`,
-  which the operator declined. Code change required.
-
-### 1.2 Prior-art scan (REUSE-or-BUILD per piece)
-
-| Piece | Verdict | Evidence |
-|---|---|---|
-| Witness entry point | REUSED `_local_entity_for` `energy_write_verify.py:369-409`; change the RESERVE branch only | single resolver for all 3 reserve witness consumers (§3) |
-| Envoy serial / anchor | REUSED the configured SOC entity `battery._get_entity("battery_soc")` (populated by `derive_envoy_config` `energy_const.py:1576-1600` from `CONF_ENERGY_ENVOY_ENTITY`, injected `__init__.py:3955-3960`) | no hard-coded serial; note Envoy serial (482543015950) != Enpower serial (482348004678), so the number's serial cannot be reused |
-| Registry sibling lookup | REUSED pattern: `_nws_last_updated_entity` `energy_battery.py:3049-3075` (registry + unique_id sibling, warn-once on miss) | same shape, narrower key |
-| Registry API | REUSED HA `EntityRegistry.async_get_entity_id(domain, platform, unique_id)` (`.venv-ha/.../helpers/entity_registry.py:902-906`) | indexed lookup, no scan |
-| unique_id of the sensor | VERIFIED HA core `enphase_envoy/sensor.py:754-760` (`ENCHARGE_AGGREGATE_SENSORS` key `reserve_soc`, `value_fn=reserve_state_of_charge`) and `:999` (`EnvoySystemSensorEntity`, parent of `EnvoyEnchargeAggregateEntity` `:1256`: `f"{envoy_serial_num}_{key}"`) | entity_id is NOT derivable from the key (`battery_level` → `sensor.envoy_<s>_battery`), so match unique_id, not an entity_id string |
-| The number's source | VERIFIED `enphase_envoy/number.py:63-70` (`STORAGE_RESERVE_SOC_ENTITY`, `value_fn=reserved_soc` from the Enpower storage settings) | a different Envoy field; it froze, the aggregate sensor did not |
-| Fallback entity | REUSED `DEFAULT_RESERVE_SOC_ENTITY` / `reserve_soc_number` role read (today) | unchanged for homes without the sensor |
-| Tolerance | REUSED `_compare` ±2.0 `energy_write_verify.py:1136-1140`; NOT changed (§9 Q1) | |
-| New CONF / sensor / knob | NONE | operator ruling; §6 |
-| New anomaly field `hw_witness_entity` | NEW (additive key in the existing `pending_write_stuck` extra dict, `:2268-2276`) | today `hw_witness` is a literal string that names an entity URA does not read; additive key avoids changing the meaning of an existing field |
-
-### 1.3 Prior planning docs
-
-- `PLANNING_behavioral_write_verify.md` §B0-D2 (`:722-740`): in July the probe already found the
-  Enpower number "NOT a usable commanded-reserve ledger" and named the Envoy sensor as the
-  hardware-enforced reserve. The build wired the number anyway (docstring `:1563` says sensor,
-  code reads number). This cycle completes that plan; it is the computed-but-not-consumed class.
-- `PLANNING_envoy_local_witness_and_solar_follow.md` §3.7 / A4: proposes an MQTT
-  `envoy_stream_backup_reserve` as an extra witness. Stream path closed NO-GO 10-07
-  (ENVOY-STREAM-AB-48H-1). Not reused; noted so nobody revives it here.
-- `PLANNING_reserve_write_governor.md` (v5.103.66): governor rows, `RESERVE_SET_VALUE_WRITERS`
-  allowlist `energy_const.py:2609-2620`. This cycle adds no writer; the AST lint stays pinned.
-- `PLANNING_envoy_write_verification_and_redundancy.md`: origin of `_local_entity_for` (H1).
-- The audit (all of it).
-
-### 1.4 Memory / design docs
-
-- `project_battery_soc_envoy_not_span` (Envoy is the SOC truth), `reference_ec_reserve_verifiable_backout_knob`
-  (`is_reserve_verifiable` uses the CLOUD oracle, `energy_write_verify.py` `is_reserve_verifiable`, not the
-  local witness; unaffected), `feedback_coincidental_equality_masks_concept_split` (the frozen value
-  10 equalling common commands is exactly this smell).
-- ura-energy-invariants context: every reserve WRITE goes through `_reserve_action`
-  (`energy_battery.py:6983`), `force_redispatch`, or `_apply_evse_battery_hold` (allowlist above).
-  This cycle changes none of them. Its only behavioural reach into the write side is the
-  stand-down skip (`is_standdown_active_for_value`, read in `_reserve_action`), which a witness
-  change can arm or disarm (§4).
-
-### 1.5 Code surveyed
-
-`energy_write_verify.py` 340-420, 975-1020, 1057-1176, 1555-1575, 2126-2338, 2385-2530;
-`energy_battery.py` 830-905, 2495-2505, 3045-3075, 5300-5310, 6983-7070;
-`energy.py` 4228-4245, 5364-5372, 9690-9726; `energy_const.py` 1555-1612, 1821-1975, 2430-2450,
-2587-2620; HA `enphase_envoy/sensor.py` 740-770, 1256-1316, `number.py` 55-75.
-
----
-
-## 2. Falsifiable invariant
-
-**INV-W1.** On any install where the enphase_envoy entity registry has a `sensor` entity with
-unique_id `<serial-of-configured-SOC-entity>_reserve_soc`, the reserve verifier NEVER reads
-`reserve_soc_number` as its witness on ANY of its three read paths (pending watchdog,
-local-divergence compare, command_trail), including while that sensor is `unavailable`
-(abstain, never fall back to the number).
-
-**INV-W2 (no-sensor homes byte-identical).** Where that sensor is not resolvable, every witness
-read returns exactly today's entity, and charge_from_grid / storage_mode witness resolution is
-byte-identical on every install.
-
-**INV-W3 (no write-side change).** No reserve write emission, deadband, floor or tolerance changes:
-`RESERVE_SET_VALUE_WRITERS` lint stays green and unchanged; `_compare` is untouched.
-
-Break attempts reviewer D must make: sensor `unavailable` during an Envoy outage while the number
-still reads 10 (must abstain, not converge on 10); anchor `battery_soc` unset / non-Envoy;
-registry raising; a `number` with the same unique_id (domain must be `sensor`); SOC entity
-overridden explicitly to a non-Envoy sensor; renamed sensor entity_id.
-
----
-
-## 3. Producer and consumer checks
-
-### 3.1 Producer: the witness value
-
-- **Today:** `number.enpower_482348004678_reserve_battery_level`, Enpower `reserved_soc`.
-  Health: BROKEN. Only `10.0`/`unavailable` since 2026-08-05 (3,726 divergence rows), `61.0` before
-  (audit §2). External ground truth disagreed on every non-10 command.
-- **After:** `sensor.envoy_482543015950_reserve_battery_level`, Encharge aggregate
-  `reserve_state_of_charge`. Health: tracked the cloud number within median ~41 s (B0-D2) and
-  matched real behaviour in both 10-12/13 (read 14 while battery obeyed 14) and 10-14 (90 at
-  15:48:22, 46 s after the cloud). 10 of 13 governor writes landed on it within 19 min (audit §3.3).
-  Goes `unavailable` with the Envoy (40 episodes / 8 days; long outages 586/714 min) → abstain.
-- Residual: a sensor that lags its own field. If the sensor is slower than the 15-min attempt-1
-  rung, attempt-1 rows could still appear on a slow land (audit saw a 19-min land). That is a real
-  "slow" signal, not an artifact; attempt 3 needs ~60 min.
-
-### 3.2 Consumers of `_local_entity_for(RESERVE)` (re-grep: `grep -n "_local_entity_for\|_local_reserve_witness_state" energy_write_verify.py`)
+### 1.2 Re-run greps (2026-10-18, `develop`)
+`grep -rn "_local_entity_for\|_local_reserve_witness_state" custom_components/universal_room_automation`:
 
 | # | Site | Use | Trust vs display |
 |---|---|---|---|
-| C1 | `_witness_compare` `:990` (reserve leg; CFG leg also calls it, unchanged) | emits `write_local_witness_divergence` (never NM-critical) | anomaly rows (analytics) |
-| C2 | `_local_reserve_witness_state` `:1567` → `_pending_watchdog_reserve` `:2147` | converge/diverge → attempts 1/2/3, NM pages, HARD STAND-DOWN | **trust decision** (pages + stand-down) |
-| C3 | `_local_reserve_witness_state` → command_trail `:2498` | `hw` value in the 3-way trail | display |
+| C1 | `_witness_compare` `energy_write_verify.py:990` | emits `write_local_witness_divergence` (info) | analytics |
+| C2 | `_local_reserve_witness_state` `:1558/1567` → `_pending_watchdog_reserve` `:2147` | attempts 1/2/3, NM CRITICAL, hard stand-down | **trust** |
+| C3 | `_local_reserve_witness_state` → command_trail `:2498` | `hw` value | display |
 | C4 | `_local_entity_for` → command_trail `:2515` | `hw_age_s` | display |
-| C5 (indirect) | stand-down state → `is_standdown_active_for_value` read in `_reserve_action` (`energy_battery.py`, the skip block) and `force_redispatch` | suppresses same-value re-dispatch until desire change / 3 h | **trust decision on the write path** |
+| C5 | stand-down state → `is_standdown_active_for_value` in `_reserve_action` / `force_redispatch` | same-value re-dispatch skip | **trust (write path, indirect)** |
 
-No other `role="read"` reads of `reserve_soc_number` exist in `energy*.py`: the other reads
-(`energy_battery.py:2500, 5304, 6133, 7021, 7568`; `energy.py:5368, 7251, 7471, 9697`) are
-`role="write"` (cloud-first) or the write target itself, and stay untouched. `is_reserve_verifiable`
-reads the cloud oracle only.
+No other caller of either function. All other `"reserve_soc_number"` reads
+(`energy_battery.py:2500, 5304, 6133, 7021, 7568`; `energy.py:5368, 7251, 7471, 9697`;
+`energy_write_verify.py:2394`) are write-target / role="write" / routing reads and are untouched.
+`grep -rn reserve_battery_level` (prod) → no reader of the Envoy sensor exists today; the only
+hits are the hard-coded default (`energy_const.py:2443`), the docstring at `:1563` that already
+names the sensor as the honest witness (doc/code mismatch since July), and the literal
+`"hw_witness": "envoy_reserve_battery_level"` at `:2274` (a label, not the entity read).
 
-### 3.3 Emission sites touched
+### 1.3 REUSE-or-BUILD
+| Piece | Verdict |
+|---|---|
+| Resolver | REUSED `_local_entity_for` `:369-409`, RESERVE branch only |
+| Serial anchor | REUSED configured SOC entity `battery._get_entity("battery_soc")` (from `derive_envoy_config`, `energy_const.py` ~1576-1600) |
+| Registry sibling pattern | REUSED shape of `_nws_last_updated_entity` `energy_battery.py` ~3049-3075 (registry + unique_id sibling, warn-once) |
+| Registry API | REUSED HA `EntityRegistry.async_get_entity_id(domain, platform, unique_id)` |
+| Sensor unique_id | VERIFIED HA core `enphase_envoy/sensor.py` (`<envoy_serial>_reserve_soc`; SOC `<envoy_serial>_battery_level`). Envoy serial 482543015950 ≠ Enpower serial 482348004678, so the number's serial is not usable |
+| Fallback | REUSED today's `reserve_soc_number` role="read" |
+| Tolerance | REUSED `_compare` ±2.0 `:1139`, unchanged |
+| New CONF / sensor / knob | NONE |
+| `hw_witness_entity` key on `pending_write_stuck` extras (`:2265-2276`) | NEW additive key (the existing `hw_witness` literal is left as-is) |
 
-None. `pending_write_stuck` (`:2265-2276`) gains the additive `hw_witness_entity` key.
+### 1.4 Prior docs / memory
+`PLANNING_behavioral_write_verify.md` §B0-D2 (July probe already named the sensor; build wired the
+number: computed-but-not-consumed). `PLANNING_envoy_write_verification_and_redundancy.md` (origin of
+`_local_entity_for`). `PLANNING_reserve_write_governor.md` (writer allowlist; no writer added).
+`PLANNING_envoy_local_witness_and_solar_follow.md` MQTT stream witness: closed NO-GO 10-07, not revived.
+Memory: `project_battery_soc_envoy_not_span`, `reference_ec_reserve_verifiable_backout_knob`
+(`is_reserve_verifiable` reads the cloud oracle; unaffected), `feedback_coincidental_equality_masks_concept_split`.
 
----
+## 2. Falsifiable invariants
 
-## 4. What changes behaviourally (both directions)
+- **INV-W1.** Where the registry has a `sensor` entity, platform `enphase_envoy`, unique_id
+  `<serial-of-configured-SOC-entity>_reserve_soc`, no reserve witness read (C1-C4) ever reads the
+  `reserve_soc_number` entity, including while the sensor is `unavailable`/`unknown` (abstain, never
+  fall back on state).
+- **INV-W2.** Where that sensor is not resolvable, every witness read returns exactly today's entity;
+  charge_from_grid and storage_mode witness resolution is byte-identical on every install.
+- **INV-W3.** No write-side change: no writer, deadband, floor, tolerance, or `energy_reserve_soc_entity`
+  routing changes; `RESERVE_SET_VALUE_WRITERS` lint unchanged and green.
 
-| Situation | Today (frozen 10) | After |
-|---|---|---|
-| Commanded X != 10, battery obeyed X | diverged → 3 attempts → CRITICAL + stand-down (311 certain + ~300 probable artifacts) | converged, silent |
-| Commanded 10, battery at 14 (10-12/13 pending episode) | converged, silent (masked) | diverged → ladder → real CRITICAL |
-| Commanded 10, battery at 9 (10-17 18:01) | converged (within ±2) | converged (within ±2): **unchanged**, see §9 Q1 |
-| Envoy offline, number reads 10 | compared vs 10 | abstain (sensor unavailable) |
-| Commanded 3 (out_of_range), sensor 5 | diverged vs 10 | diverged vs 5 by 2.0 → matched (≤2). Commanded 3 vs 6+ would diverge. Not this card. |
+Break attempts (reviewer D): Envoy offline (sensor unavailable, number 10, commanded 10 and 30);
+SOC anchor unset or non-Envoy; registry raises; a `number` with the same unique_id; renamed sensor
+entity_id; two Envoys registered.
 
-Stand-down skip (C5) follows: fewer false stand-downs, so `_reserve_action` resumes sending
-values it was wrongly withholding.
+## 3. Producer check
 
----
+- **Today:** Enpower `reserved_soc` number. BROKEN (10.0/unavailable only since 08-05).
+- **After:** Encharge aggregate `reserve_state_of_charge` sensor. Healthy: tracked the cloud number
+  within a median ~41 s (B0-D2); read 14 in 10-12/13 while the battery held 14; matched 90 on 10-14
+  46 s after the cloud. Goes `unavailable` with the Envoy → existing abstain at `:1570-1571` /
+  `:2148-2153`. Residual: a land slower than the 15-min attempt-1 rung still yields an attempt-1 row;
+  that is a real slow signal.
 
-## 5. Deliverables
+## 4. Deliverables
 
 ### D1: Resolve the Envoy reserve sensor as the reserve witness
+- New private helper `_envoy_reserve_sensor_eid(battery) -> Optional[str]`: anchor =
+  `battery._get_entity("battery_soc")`; registry entry must be platform `enphase_envoy` with
+  unique_id ending `_battery_level`; serial = prefix; return
+  `reg.async_get_entity_id("sensor", "enphase_envoy", f"{serial}_reserve_soc")`. Any exception or
+  miss → None, logged INFO once per instance. No caching.
+- `_local_entity_for(RESERVE)`: helper result if not None, else today's read. Other branches untouched.
+- **Ordering rule (load-bearing):** fallback is on RESOLVABILITY, never on state. Falling back when the
+  sensor is unavailable re-introduces the frozen 10 during every Envoy outage.
+- Fix docstrings `:370-380`, `:1559-1565`. Add `hw_witness_entity` to the `pending_write_stuck` extras.
 
-In `energy_write_verify.py`:
-- New private helper `_envoy_reserve_sensor_eid(self, battery) -> Optional[str]`:
-  1. anchor = `battery._get_entity("battery_soc")`; None → return None.
-  2. `reg = er.async_get(self.hass)`; `ent = reg.async_get(anchor)`; require
-     `ent.platform == "enphase_envoy"` and `ent.unique_id` ending `"_battery_level"`; serial =
-     unique_id with that suffix removed.
-  3. return `reg.async_get_entity_id("sensor", "enphase_envoy", f"{serial}_reserve_soc")`.
-  4. Any exception → None. On None, log at INFO **once per instance** ("reserve witness: Envoy
-     reserve sensor not resolved; using <fallback>"), mirroring `_nws_last_updated_entity`.
-  No caching (registry indexed lookup each call; a renamed entity is followed).
-- `_local_entity_for(RESERVE)`: return the helper's result when not None; else today's
-  `battery._get_entity("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY, role="read")`.
-  CFG and storage_mode branches byte-identical.
-- **Ordering rule (load-bearing):** fallback is decided on RESOLVABILITY, never on state. A
-  resolved sensor reading `unavailable`/`unknown` returns its entity id; the existing abstain at
-  `:1570-1571` / `:2148-2153` then holds. Builders will be tempted to "fall back when unavailable";
-  that re-introduces the frozen 10 during every Envoy outage.
-- Fix docstrings at `:370-380` and `:1559-1565` to describe the resolution order.
-
-#### Acceptance
-- **Verify:** registry has `sensor.envoy_S_reserve_battery_level` (unique `S_reserve_soc`) and SOC
-  anchor `sensor.envoy_S_battery` (unique `S_battery_level`) → `_local_entity_for(RESERVE)` returns
-  the sensor; with neither registered → returns the configured number (INV-W2).
-- **Discriminates:** sensor resolved + `unavailable`, number = 10, commanded 10 → watchdog ABSTAINS
-  (no converge log, `_pending_last_oracle` not updated). A wrong fallback-on-state implementation
-  converges on 10 instead. Commanded 30 under the same state → still abstains, no attempt row (wrong
-  impl would fire attempt 1).
-- **Test (new file `quality/tests/test_ec_reserve_witness_resolution.py`):**
-  `test_reserve_witness_prefers_envoy_sensor_via_registry`,
+**Acceptance**
+- **Verify:** registry with sensor + Envoy SOC anchor → helper returns the sensor; without → number.
+- **Discriminates:** sensor resolved + `unavailable`, number 10, commanded 10 → watchdog abstains (a
+  fallback-on-state build converges on 10); commanded 30 → abstains, no attempt row (wrong build fires attempt 1).
+- **Test** (`quality/tests/test_ec_reserve_witness_resolution.py`, real HA `entity_registry` via
+  `async_get_or_create`, no stubbed resolver): `test_reserve_witness_prefers_envoy_sensor_via_registry`,
   `test_reserve_witness_falls_back_when_sensor_unregistered`,
   `test_reserve_witness_unavailable_sensor_abstains_not_fallback`,
   `test_reserve_witness_ignores_number_domain_same_unique_id`,
-  `test_reserve_witness_anchor_not_envoy_falls_back`,
-  `test_reserve_witness_registry_raises_falls_back`,
+  `test_reserve_witness_anchor_not_envoy_falls_back`, `test_reserve_witness_registry_raises_falls_back`,
   `test_cfg_and_storage_mode_witness_unchanged`.
-  Fixtures use the real `entity_registry` from pytest-homeassistant-custom-component (registry entries
-  created with `async_get_or_create`), not a stubbed `_local_entity_for`.
 
-### D2: Both-direction behavioural acceptance on the pending watchdog
+### D2: Both-direction behaviour on the pending watchdog
+Drive `_pending_watchdog_reserve` with a real ledger (`_last_reserve_level`, `_last_reserve_level_at`)
+and registry-resolved entities, advancing time past each attempt threshold.
 
-Drive `_pending_watchdog_reserve` with a real commanded ledger (`_last_reserve_level`,
-`_last_reserve_level_at`) and registry-resolved entities, advancing time past attempt thresholds.
-
-#### Acceptance
-- **Direction 1 (the 311 artifact class):** commanded 80, sensor 80, number 10, age 3,700 s →
-  zero `pending_write_stuck` emits, zero NM calls, no stand-down; `write_local_witness_divergence`
-  not emitted. (Today: attempt rows + CRITICAL + stand-down; so it discriminates.)
-- **Direction 2 (masked real failure, recommended fixture = 10-12/13):** commanded 10, sensor 14,
-  number 10 → attempts 1/2/3 fire at the existing thresholds, attempt 3 is CRITICAL with
-  `oracle_seen=14.0` and `hw_witness_entity=sensor.envoy_S_reserve_battery_level`, stand-down set.
-  (Today: silent; discriminates.)
-- **Direction 2b (10-17 literal, pins current policy):** commanded 10, sensor 9 → converged, silent.
-  Test name states the reason (`..._within_deadband_tolerance_is_converged`) so a future tolerance
-  change is a visible decision. If the operator picks §9 Q1 option (b) this test flips and D3 is added.
+**Acceptance**
+- **Direction 1 (false re-send class):** commanded 80, sensor 80, number 10, age 3,700 s → zero
+  `pending_write_stuck`, zero NM calls, stand-down not armed, no `write_local_witness_divergence`.
+  Today: attempts + CRITICAL `oracle_seen=10.0` + stand-down.
+- **Direction 2 (masked real failure, the 10-12/13 case):** commanded 10, sensor 14, number 10 →
+  attempts 1/2/3 fire at existing thresholds; attempt 3 CRITICAL with `oracle_seen=14.0` and
+  `hw_witness_entity=sensor.envoy_S_reserve_battery_level`; stand-down armed. Today: silent.
+- **Policy pin:** commanded 10, sensor 9 → converged (±2 kept by operator ruling).
 - **Test:** `test_watchdog_no_alert_when_envoy_sensor_matches_command`,
   `test_watchdog_alerts_when_sensor_diverges_and_frozen_number_equals_command`,
   `test_watchdog_one_point_miss_within_deadband_tolerance_is_converged`,
-  `test_pending_stuck_row_carries_hw_witness_entity`,
-  `test_standdown_not_armed_on_matching_sensor` (asserts `is_standdown_active_for_value` False after
-  the full ladder window, so C5 is covered).
-- **Live:** see §7.
+  `test_pending_stuck_row_carries_hw_witness_entity`, `test_standdown_not_armed_on_matching_sensor`.
+- **Live** (post-restart, Envoy online; one-shot DB/entity reads, no soak):
+  1. command_trail `hw` equals the live `sensor.envoy_482543015950_reserve_battery_level` state, not a
+     constant 10.0 (old code: 10.0 regardless).
+  2. No "reserve witness ... not resolved" INFO line in the HA log.
+  3. `anomaly_log` reserve `write_local_witness_divergence` rows: daily rate drops from the 13-172/day
+     baseline (audit §3) to near zero; any remaining rows show `local_seen` varying, never constant 10.0.
+  4. No `pending_write_stuck` row (sev 3 or 4) with `oracle_seen=10.0` unless the sensor itself read
+     10 at that time. Any row present carries `hw_witness_entity` = the sensor.
+  5. Envoy offline at validation time: no new reserve `pending_write_stuck` rows during the outage
+     (abstain); defer items 1/3 and record that in the README table.
 
-### D3 (only if operator picks Q1(b)): not specced here. Re-plan; it changes `_compare` and the
-deadband relationship, which moves this to Tier 3.
+## 5. Numbers and knobs
+No new behavioural number. Reused unchanged: `_compare` ±2.0, `CONF_PENDING_MAX_ATTEMPTS`, attempt
+ages, 3-h stand-down. Kill switch for the watchdog stays `CONF_PENDING_WATCHDOG_ENABLED`. The unique_id
+suffixes `_battery_level` / `_reserve_soc` are HA-core protocol strings: rung-1 module constants
+`ENVOY_SOC_UNIQUE_SUFFIX` / `ENVOY_RESERVE_UNIQUE_SUFFIX` in `energy_const.py` (not knobs).
 
----
+## 6. Non-goals
+- No new options-flow setting; no change to `energy_reserve_soc_entity`, write routing, failover, or any writer.
+- No tolerance or deadband change.
+- `write_verification_failed` / `write_reverted` rows (30-75/day on 10-13/10-14): those come from the
+  cloud-oracle stall, not this witness; this fix does not remove them.
+- Cloud-oracle stall (10-14, `number.iq_battery_hacs_battery_reserve` stuck at 6 for 6.5 h): resilience card
+  EC-ENPHASE-CONNECTIVITY-RESILIENCE-1.
+- Pending-episode back-off / one-page-per-episode: resilience card.
+- Commanded-below-hardware-minimum clamp (commanded 3 vs Enphase min 5, `out_of_range`): separate
+  Tier-3 card EC-RESERVE-HW-MIN-CLAMP-1 (write-side clamp-before-stamp; measure the `min` attribute first).
+- charge_from_grid / storage_mode witnesses; MQTT stream witness; backfill/relabel of historical rows.
 
-## 6. Numbers and knobs
+## 7. Tier
+**Tier 2, elevated to three framing-disjoint code reviews (Tier 2-DB protocol); one adversarial plan
+review before build.** Why not Tier 3: the change is a read-path source swap with no writer, floor,
+clamp or tolerance change, so it does not thread a value through the reserve emission sites (INV-W3).
+Why elevated: the witness arms/disarms the stand-down skip on the reserve write path (C5) and gates
+CRITICAL pages, which is the standing regression-prone-energy rule.
+- A: resolution correctness, fallback ordering, §2 break list.
+- B: write-path ripple (stand-down arm/disarm, `force_redispatch`, restart with restored ledger,
+  governor lint unchanged).
+- C (mutation): M1 resolver always returns fallback → prefer + both direction tests RED; M2 fall back on
+  unavailable → abstain test RED; M3 drop `sensor`/platform filter → number-domain test RED; M4 drop
+  anchor check → anchor test RED; M5 omit `hw_witness_entity` → carries test RED.
+Live validation per D2; README write-back of the validated table.
 
-No new knob. Behavioural numbers reused unchanged: `_compare` tolerance 2.0 (inline at `:1140`,
-pre-existing; noting it is an un-named literal, carded as a LOW naming tidy only if the operator
-wants, not in this cycle), `CONF_PENDING_MAX_ATTEMPTS`, attempt ages, 3-h cool-off, all existing
-rung-1 constants. Kill switch for the whole watchdog stays `CONF_PENDING_WATCHDOG_ENABLED`
-(`:2135`). The unique_id suffixes `"_battery_level"` / `"_reserve_soc"` are protocol strings from
-HA core, module constants `ENVOY_SOC_UNIQUE_SUFFIX` / `ENVOY_RESERVE_UNIQUE_SUFFIX` in
-`energy_const.py` (rung 1: changing them requires review against HA core source).
+## Plan review 2026-10-18 (Tier-2 adversarial, ura-planner)
 
----
+Verified by grep and a read-only registry read, not trust.
 
-## 7. Live validation (post-restart, Envoy online)
+1. **Consumers re-enumerated: matches §1.2.** `grep -rn "_local_entity_for\|_local_reserve_witness_state"` gives exactly
+   `energy_write_verify.py:990` (C1), `:1567` via `:2147` (C2) and `:2498` (C3), and `:2515` (C4). C5 is indirect through
+   the stand-down armed in C2. C1 already abstains when the local state is None (`:994-995`), and so does C2
+   (`:1570-1571`, `:2148-2153`). No other reader of the reserve witness exists.
+2. **Anchor is correct on this house** (`core.entity_registry` + `core.device_registry`, read 10-18):
+   - `sensor.envoy_482543015950_battery`: uid `482543015950_battery_level`, device Envoy 482543015950. This is the
+     SOC entity `derive_envoy_config` builds (`energy_const.py:1589`).
+   - `sensor.envoy_482543015950_reserve_battery_level`: uid `482543015950_reserve_soc`, same Envoy device, enabled.
+   - `number.enpower_482348004678_reserve_battery_level`: uid **`482348004678_reserve_soc`**. It has the same suffix,
+     so the `sensor` domain filter is load-bearing and is not just defensive. M3 and the number-domain test stay
+     mandatory.
 
-1. `sensor.ura_energy_coordinator_*` command_trail attribute (the 3-way trail, `:2490-2530`): `hw`
-   value equals `sensor.envoy_482543015950_reserve_battery_level` state, not 10.0 (unless reserve
-   really is 10). Discriminates: under the old code hw is 10.0 regardless.
-2. HA log: no "reserve witness ... not resolved" INFO line on this house.
-3. First non-10 governor `reserve_write applied` after restart: within 60 min, URA DB
-   `anomaly_log` has NO `pending_write_stuck` row whose commanded equals the sensor's value at that
-   time; `write_local_witness_divergence` rows for reserve show `local_seen` = the sensor value
-   (varying), never a constant 10.0.
-4. Any `pending_write_stuck` row that does appear carries `hw_witness_entity` =
-   `sensor.envoy_482543015950_reserve_battery_level`.
-5. If the Envoy is offline at validation time: verify abstain (no new reserve `pending_write_stuck`
-   rows during the outage), and defer items 1/3 to its return; record that in the README table.
+   A home whose SOC is not on Envoy (Wigton, or a cloud-only SOC) fails the platform check and falls back to
+   today's resolution, so its behaviour is unchanged. That is acceptable and matches INV-W2.
+3. **Fallback ordering: one remaining leak, now fixed in the plan (F1, MEDIUM).** When the sensor is registered
+   but `disabled_by` is set, `async_get_entity_id` still returns the entity_id, but no state is ever written. The
+   witness would then abstain forever and silently turn off the watchdog. **Amend D1:** a registry entry with
+   `disabled_by` set counts as *unresolvable*. Fall back and log INFO once. This is a registry property, so it
+   does not break the never-fall-back-on-state rule. Add test
+   `test_reserve_witness_disabled_sensor_treated_unresolvable` and mutation **M6** (drop the `disabled_by`
+   check, so the disabled test goes RED).
 
-Trip-wire: none new. The existing pending ladder is now the trip-wire, and it will be honest.
+   I found no other path that falls back to the frozen number while the sensor is resolvable: `unavailable` and
+   `unknown` both return None at `:1570`, and C1 skips at `:995`.
+4. **Acceptance discriminates.** Direction 1 and Direction 2 give opposite outcomes under the old code and the
+   fixed code. The abstain test separates "fall back on state" from "fall back on resolvability". **Add (F2, LOW):**
+   the sensor's `unit_of_measurement` (`%`) must pass `_compare` without `STATUS_UNIT_MISMATCH`. Assert this
+   inside `test_watchdog_no_alert_when_envoy_sensor_matches_command` by giving the fixture state the real
+   unit attribute.
+5. **Operator rulings respected.** No CONF is added, ±2 is unchanged, and the writers and routing are not
+   touched. The only new names are the two rung-1 protocol-string constants and one additive extras key. There
+   is no mission creep, and §6 keeps the HW-min clamp and the resilience work out of scope.
 
----
-
-## 8. out_of_range: decided, separate card
-
-**Evidence (audit §3.3, §5.4):** three governor `reserve_write` rows FAILED 10-17 07:47-08:17 CDT,
-commanded 3 ("Off-peak hold, SOC 3% <= target 10%", `energy_battery.py:6918` builds the hold at
-current SOC), Enphase `ServiceValidationError translation_key=out_of_range`; cloud number never
-below 5.0 in the recorder. The decision side clamps only 0-100 at `_reserve_action`
-(`energy_battery.py:7015`, `max(0, min(100, folded))`).
-
-**Why not here:** (1) it is a WRITE-value change at the governor chokepoint, which stamps
-`_last_reserve_level_desired` and is composed by `force_redispatch` and the EVSE overlay; the
-falsifiable surface is every reserve writer in `RESERVE_SET_VALUE_WRITERS`, which is Tier 3 by the
-CLAUDE.md trigger (value threaded through a shared primitive with many consumers, cost/safety).
-This card is read-only. (2) The right minimum is a hardware fact (cloud number `min` attribute vs
-a constant); that needs its own measure step. (3) Coupling is benign: under the new witness,
-commanded 3 vs sensor 5 is within ±2 (silent); commanded 3 vs higher sensor would page, which is
-correct (URA is asking for the impossible).
-
-**Action:** mint card `EC-RESERVE-HW-MIN-CLAMP-1` (Tier 3, energy thread, related
-EC-RESERVE-WRITE-GOVERNOR-1): "clamp reserve desire to the write target's hardware minimum at
-`_reserve_action` (clamp before stamp); measure first: write target `min` attribute vs observed
-floor." Run the adjacency sweep before minting (no existing card found: board grep for
-`out_of_range|HW-MIN|hardware minimum` hits only an unrelated TOU test name).
-
----
-
-## 9. Operator decisions
-
-- **Q1 (required before build).** The 10-17 9-vs-10 miss is inside the ±2 tolerance by design.
-  (a) **Recommended:** keep ±2; acceptance (2) uses the 10-12/13 masked episode (4-point miss) and
-  a test pins 9-vs-10 as converged. Marginal benefit of (b) is 1 reserve point; its risk is the
-  forever-REVERTED band A-HIGH-2 was fixed for, plus a new tolerance/deadband split on a write-path
-  primitive (Tier 3).
-  (b) Tighten the watchdog tolerance to exact-integer for the pending ladder only. Moves the cycle
-  to Tier 3 and needs a re-plan.
-- **Q2 (FYI).** Mint EC-RESERVE-HW-MIN-CLAMP-1 as Tier 3 per §8.
-
----
-
-## 10. Non-goals
-
-- No change to `energy_reserve_soc_entity`, write routing, write failover, or any writer.
-- No change to `_compare` tolerance or the ±2 dispatch deadband (unless Q1(b)).
-- No stale-cloud-oracle handling (10-14 cloud stuck at 6; self-heal / reverted pages): resilience card.
-- No pending-episode back-off / one-page-per-episode: resilience card item (2), built on this.
-- No charge_from_grid or storage_mode witness changes.
-- No MQTT stream witness (closed NO-GO).
-- No out_of_range clamp (§8).
-- No backfill or relabel of historical `pending_write_stuck` rows.
-
-## 11. Tier
-
-**Tier 2**, read-path only, one plan review before build. Elevated to **three framing-disjoint code
-reviews** under the standing regression-prone-energy rule, because the witness arms the stand-down
-skip on the reserve write path (C5) and the anomaly row gains a key:
-A = resolution correctness + fallback ordering + edge cases (§2 break list);
-B = write-path ripple (stand-down arm/disarm, `force_redispatch`, restart with restored ledger
-`energy.py:2003-2004`, governor lint unchanged);
-C = test authority via per-site mutation:
-- M1: `_local_entity_for(RESERVE)` returns the fallback unconditionally → `..._prefers_envoy_sensor...`
-  and both direction tests RED.
-- M2: fall back when the resolved sensor state is unavailable → `..._unavailable_sensor_abstains...` RED.
-- M3: drop the `"sensor"` domain / platform filter (scan by suffix) → `..._ignores_number_domain...` RED.
-- M4: drop the `_battery_level` anchor check → `..._anchor_not_envoy_falls_back` RED.
-- M5: omit `hw_witness_entity` → `..._carries_hw_witness_entity` RED.
-Live validation per §7; README write-back of the validated table.
-
-If Q1(b) is chosen: Tier 3 and re-plan.
+**Verdict: SHIP-TO-BUILD, with F1 and F2 folded into D1/D2 as above.**

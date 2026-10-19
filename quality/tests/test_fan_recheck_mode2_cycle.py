@@ -321,8 +321,9 @@ class _FakeFanController:
         return {"entities": list(rf.fan_entities), "is_on": True, "speed_pct": 50,
                 "trigger": "temperature", "last_on_time": "", "entity_attrs": {}}
 
-    async def restore_after_recheck(self, room_name, snapshot):
+    async def restore_after_recheck(self, room_name, snapshot, leave_off=False):
         self.restore_calls.append((room_name, snapshot))
+        self.restore_leave_off = getattr(self, "restore_leave_off", []) + [leave_off]
         rf = self._room_fans.get(room_name)
         if rf is not None:
             rf.fan_recheck_suppress_until = ""
@@ -805,54 +806,417 @@ async def test_tier2_with_trust_sensors_ok_authorizes():
     assert mgr.get_room_state("exercise") == mod.STATE_ARMED
 
 
-@pytest.mark.asyncio
-async def test_tier1_bedroom_l2_allowed_still_rejects_l2():
-    """D1.5 dial: bedrooms force L3-only even when L2_ALLOWED is True."""
-    mod, hass, mgr, rc, fc, pc, db = _build_world(
-        ble_tier=1,
-        l2_adjacent_present=True,
-        l2_allowed=True,
-        room_type="bedroom",
-    )
+# JAYA-FAN-STILL-PHANTOM-1 (2026-10-18): the all-day ``high_still_risk``
+# veto for bedroom/media_room was replaced by a sleep-scoped refusal
+# (``sleep_state`` across FAN_TRUST_STATES for HIGH_STILL_RISK_ROOM_TYPES).
+# By day these rooms follow the same ladder as a generic room.
+
+
+async def _tick(mgr, hass, rc):
     await mgr.async_setup()
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
+
+
+@pytest.mark.asyncio
+async def test_tier1_bedroom_l2_allowed_still_rejects_l2():
+    """Rewritten: Tier-1 bedroom, zone persons present + L2 adjacent hit,
+    L2 allowed -> ARMED via layer L2 by day (was high_still_risk); the same
+    fixture in house sleep -> IDLE, veto sleep_state."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=1, l2_adjacent_present=True, l2_allowed=True,
+        room_type="bedroom",
+    )
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    assert mgr._rooms["exercise"].ble_ladder_layer == mod.LAYER_L2
+    vetoes = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    assert "high_still_risk" not in vetoes
+
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=1, l2_adjacent_present=True, l2_allowed=True,
+        room_type="bedroom", house_state="sleep",
+    )
+    await _tick(mgr, hass, rc)
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    vetoes = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    assert vetoes == {"sleep_state": 1}
+
+
+@pytest.mark.asyncio
+async def test_tier1_media_room_l2_allowed_authorizes_l2_by_day():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=1, l2_adjacent_present=True, l2_allowed=True,
+        room_type="media_room", house_state="home_evening",
+    )
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    assert mgr._rooms["exercise"].ble_ladder_layer == mod.LAYER_L2
 
 
 @pytest.mark.asyncio
 async def test_tier2_bedroom_blocked_even_with_trust_sensors_ok():
-    """D1.5 high-still-risk guard also applies on the Tier-0/2 path.
-
-    Regression: with CONF_FAN_RECHECK_TRUST_SENSORS_OK now defaulting
-    True, a still napper in a bedroom would otherwise be eligible to
-    vacate without BLE-tier protection on the Tier-0/2 fall-through.
-    """
+    """Rewritten: Tier-0/2 bedroom by day with trust_sensors_ok -> ARMED
+    (was high_still_risk); same fixture in sleep -> IDLE sleep_state."""
     mod, hass, mgr, rc, fc, pc, db = _build_world(
-        ble_tier=2,
-        l2_adjacent_present=False,
-        trust_sensors_ok=True,
-        room_type="bedroom",
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
     )
-    await mgr.async_setup()
-    mgr.on_room_tick(rc)
-    await _drain_tasks(hass)
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    assert "high_still_risk" not in (
+        mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    )
+
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
+        house_state="sleep",
+    )
+    await _tick(mgr, hass, rc)
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "sleep_state": 1,
+    }
 
 
 @pytest.mark.asyncio
 async def test_tier2_media_room_blocked_even_with_trust_sensors_ok():
-    """Same C1 guard, media_room — paired room_type from HIGH_STILL_RISK_ROOM_TYPES."""
+    """Rewritten: Tier-0/2 media_room by day (home_evening) -> ARMED (was
+    high_still_risk); same fixture in sleep -> IDLE sleep_state."""
     mod, hass, mgr, rc, fc, pc, db = _build_world(
-        ble_tier=2,
-        l2_adjacent_present=False,
-        trust_sensors_ok=True,
-        room_type="media_room",
+        ble_tier=2, trust_sensors_ok=True, room_type="media_room",
+        house_state="home_evening",
     )
-    await mgr.async_setup()
-    mgr.on_room_tick(rc)
-    await _drain_tasks(hass)
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="media_room",
+        house_state="sleep",
+    )
+    await _tick(mgr, hass, rc)
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "sleep_state": 1,
+    }
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.parametrize("house_state", ["home_night", "sleep", "waking"])
+@pytest.mark.parametrize("ble_tier", [1, 2])
+@pytest.mark.asyncio
+async def test_high_still_risk_rooms_refused_in_trust_states(
+    room_type, house_state, ble_tier,
+):
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=ble_tier, trust_sensors_ok=True, room_type=room_type,
+        house_state=house_state,
+    )
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "sleep_state": 1,
+    }
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.parametrize("house_state", ["home_day", "home_evening"])
+@pytest.mark.parametrize("ble_tier", [1, 2])
+@pytest.mark.asyncio
+async def test_high_still_risk_rooms_l1_vetoes_by_day(
+    room_type, house_state, ble_tier,
+):
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=ble_tier, trust_sensors_ok=True, room_type=room_type,
+        house_state=house_state, person_in_room=True,
+    )
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "ble_l1": 1,
+    }
+
+
+# Equivalence (plan R5): by day, bedroom/media eligibility == generic for
+# the same inputs, on both the live and the inert path. Expected values are
+# hand-derived from the ladder, not from running the code.
+_EQUIV_CASES = [
+    # (ble_tier, l2_adjacent_present, l2_allowed, trust_sensors_ok, expected)
+    (1, False, False, False, True),    # Tier-1, zone empty -> L3
+    (1, True, True, False, True),      # Tier-1, L2 authorized
+    (1, True, False, False, False),    # Tier-1, L2 not allowed -> ble_l2
+    (2, False, False, True, True),     # Tier-2 sensors-only authorize
+    (2, False, False, False, False),   # Tier-2 trust_sensors_off
+    (2, True, True, True, False),      # Tier-2 adjacent L2 veto
+    (0, False, False, True, True),     # Tier-0 sensors-only authorize
+]
+
+
+@pytest.mark.parametrize("case", _EQUIV_CASES)
+@pytest.mark.parametrize("house_state", ["home_day", "home_evening"])
+@pytest.mark.asyncio
+async def test_high_still_risk_rooms_equivalent_to_generic_by_day(
+    case, house_state,
+):
+    ble_tier, l2_adj, l2_allowed, trust_ok, expected = case
+    results = {}
+    for room_type in ("generic", "bedroom", "media_room"):
+        mod, hass, mgr, rc, fc, pc, db = _build_world(
+            ble_tier=ble_tier, l2_adjacent_present=l2_adj,
+            l2_allowed=l2_allowed, trust_sensors_ok=trust_ok,
+            room_type=room_type, house_state=house_state,
+        )
+        ctx_live = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+        ctx_inert = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+        live = mgr._is_eligible(ctx_live, rc)
+        inert = mgr._evaluate_eligibility(ctx_inert, rc, sink=mod._INERT_SINK)
+        results[room_type] = (
+            live, inert, ctx_live.ble_ladder_layer,
+            dict(mgr._veto_counts.get("exercise", {})),
+        )
+        assert live is expected
+        assert inert is expected
+    assert results["bedroom"] == results["generic"]
+    assert results["media_room"] == results["generic"]
+
+
+def _jaya_shaped(mgr, rc, pc, phone_room):
+    """Bedroom borrows the bathroom scanner (scanner_areas=[jaya_bathroom]);
+    the bathroom is its own URA room, so the phone resolves there."""
+    rc.entry.options = {**rc.entry.options, "scanner_areas": ["jaya_bathroom"]}
+    pc._area_id_to_room = {
+        "jaya_bathroom": "Jaya Bathroom", "Jaya Bathroom": "Jaya Bathroom",
+        "kitchen": "Kitchen",
+    }
+    pc.room_persons[phone_room] = ["jaya"]
+
+
+@pytest.mark.parametrize("ble_tier", [1, 2])
+@pytest.mark.parametrize("house_state", ["home_day", "home_evening"])
+@pytest.mark.asyncio
+async def test_l1_scanner_area_room_vetoes_by_day(ble_tier, house_state):
+    """Operator scope addition 2026-10-18: phone resolved to the room whose
+    area this bedroom lists in scanner_areas -> ble_l1 (live + inert)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=ble_tier, trust_sensors_ok=True, room_type="bedroom",
+        house_state=house_state,
+    )
+    _jaya_shaped(mgr, rc, pc, "Jaya Bathroom")
+    ctx = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+    assert mgr._evaluate_eligibility(ctx, rc, sink=mod._INERT_SINK) is False
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "ble_l1": 1,
+    }
+    assert mgr._rooms["exercise"].ble_ladder_layer == mod.LAYER_L1
+
+
+@pytest.mark.asyncio
+async def test_l1_scanner_area_unrelated_room_still_eligible():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
+    )
+    _jaya_shaped(mgr, rc, pc, "Kitchen")
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+
+
+@pytest.mark.asyncio
+async def test_l1_scanner_area_room_cancels_mid_flight():
+    """The mid-flight L1 cancel reads the same widened L1."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    assert ctx.state == mod.STATE_ARMED
+    _jaya_shaped(mgr, rc, pc, "Jaya Bathroom")
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    assert ctx.ble_ladder_layer == mod.LAYER_L1
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_restores_fan_on(room_type):
+    """Review B-1: paused at home_evening, house flips home_night mid-pause
+    -> cancelled as OCCUPIED_CONFIRMED, fan restored ON, never VACATED."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type=room_type,
+    )
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    assert ctx.state == mod.STATE_PAUSED
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.last_outcome == mod.OUTCOME_OCCUPIED_CONFIRMED
+    assert len(fc.restore_calls) == 1
+    assert fc.restore_leave_off == [False]  # fan restored ON
+    assert rc.data["occupied"] is True
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_armed_cancels_to_cooldown(room_type):
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type=room_type,
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    assert ctx.state == mod.STATE_ARMED
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == mod.STATE_COOLDOWN
+    assert fc.pause_calls == []
+
+
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_generic_room_not_cancelled():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type="generic",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == mod.STATE_PAUSED
+    assert fc.restore_calls == []
+
+
+@pytest.mark.parametrize("also", ["motion", "l1"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_wins_over_motion_and_l1(also):
+    """Review C: PAUSED bedroom, house -> home_night AND (motion | L1) on the
+    same tick -> exactly one restore, reason sleep_state (the sleep cancel
+    returns before the motion/L1 cancels can double-schedule a restore)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type="bedroom",
+    )
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    reasons = []
+    orig = mgr._cancel_and_restore_async
+
+    def _spy(c, outcome, *, reason="cancel"):
+        reasons.append(reason)
+        return orig(c, outcome, reason=reason)
+
+    mgr._cancel_and_restore_async = _spy
+    mgr._presence.house_state = "home_night"
+    if also == "motion":
+        rc.data["motion_detected"] = True
+    else:
+        pc.room_persons["exercise"] = ["jaya"]
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert reasons == ["sleep_state"]
+    assert len(fc.restore_calls) == 1
+
+
+@pytest.mark.parametrize("paused", [False, True])
+@pytest.mark.asyncio
+async def test_bedroom_home_day_no_mid_flight_sleep_cancel(paused):
+    """Review C: by day the mid-flight sleep cancel must not fire."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_day", room_type="bedroom",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    if paused:
+        await mgr._enter_paused(ctx, rc)
+    expected = ctx.state
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == expected
+    assert fc.restore_calls == []
+
+
+class _MapPC:
+    def __init__(self, area_map, room_persons):
+        self._area_id_to_room = area_map
+        self.room_persons = room_persons
+
+    def get_persons_in_room(self, room):
+        return list(self.room_persons.get(room, []))
+
+
+def test_l1_persons_normalized_key_fallback():
+    """Review C: scanner area given as display name -> normalized key hit."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mpc = _MapPC({"jaya_bathroom": "Jaya Bathroom"}, {"Jaya Bathroom": ["jaya"]})
+    assert mgr._l1_persons(
+        mpc, "exercise", {"scanner_areas": ["Jaya Bathroom"]},
+    ) == ["jaya"]
+
+
+def test_l1_persons_scanner_areas_bare_string():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mpc = _MapPC({"jaya_bathroom": "Jaya Bathroom"}, {"Jaya Bathroom": ["jaya"]})
+    assert mgr._l1_persons(
+        mpc, "exercise", {"scanner_areas": "jaya_bathroom"},
+    ) == ["jaya"]
+
+
+def test_l1_persons_ignores_non_dict_area_map():
+    """Review A-LOW-4."""
+    from unittest.mock import MagicMock
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mock_pc = MagicMock()
+    mock_pc.get_persons_in_room = lambda room: (
+        ["jaya"] if room != "exercise" else []
+    )
+    assert mgr._l1_persons(
+        mock_pc, "exercise", {"scanner_areas": ["jaya_bathroom"]},
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_sleep_begins_during_arm_delay_aborts_before_pause_media_room():
+    """Plan R3: media_room armed by day aborts at the sleep edge."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_day", room_type="media_room",
+    )
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    assert mgr._still_armed_eligible(mgr._rooms["exercise"], rc) is True
+    mgr._presence.house_state = "sleep"
+    assert mgr._still_armed_eligible(mgr._rooms["exercise"], rc) is False
+
+
+@pytest.mark.parametrize("room_type,expected_day,expected_sleep", [
+    ("bedroom", True, False),
+    ("media_room", True, False),
+    ("generic", True, True),
+])
+@pytest.mark.asyncio
+async def test_is_recheck_eligible_d2_defer_bedroom_media(
+    room_type, expected_day, expected_sleep,
+):
+    """Plan R4: the D2 defer probe (inert) returns True by day for
+    bedroom/media (D2 defers to the recheck) and False in sleep (D2
+    unaffected); it never mutates veto counters; live path agrees."""
+    for house_state, expected in (
+        ("home_day", expected_day), ("sleep", expected_sleep),
+    ):
+        mod, hass, mgr, rc, fc, pc, db = _build_world(
+            ble_tier=2, trust_sensors_ok=True, room_type=room_type,
+            house_state=house_state,
+        )
+        await mgr.async_setup()
+        mgr._room_coord_for = lambda name, _rc=rc: _rc
+        assert mgr.is_recheck_eligible("exercise") is expected
+        assert not any(mgr._veto_counts.get("exercise", {}).values())
+        ctx = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+        assert mgr._is_eligible(ctx, rc) is expected
 
 
 # =============================================================================

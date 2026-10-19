@@ -353,7 +353,7 @@ grep -n "STATE_IDLE\|LAYER_NONE\|CONF_ROOM_FAN_RECHECK_ENABLED" \
 ```
 ha_get_state entity_id=sensor.<room>_room_occupancy
 # Attribute: fan_recheck_state (values: idle/pause_pending/rechecking/settled)
-# Attribute: fan_recheck_last_outcome (occupied/vacant/skipped_high_still_risk)
+# Attribute: fan_recheck_last_outcome (occupied/vacant; bedroom/media refusals now show as veto `sleep_state`)
 # Attribute: fan_recheck_ble_ladder_layer
 
 ha_get_history entity_id=fan.<room>_fan  duration=6h
@@ -362,7 +362,7 @@ ha_get_history entity_id=fan.<room>_fan  duration=6h
 
 **What NOT to do (durable operator directives):**
 - **Do NOT re-add fan-trust ON-side.** Reverted for cause. See MEMORY.
-- **Do NOT skip the `high_still_risk` guard.** It protects nappers.
+- **Do NOT skip the bedroom/media `sleep_state` guard** (home_night/sleep/waking; mid-flight sleep edge cancels and restores the fan ON). The all-day `high_still_risk` veto was removed 2026-10-18 (JAYA-FAN-STILL-PHANTOM-1); daytime protection is L1 (incl. scanner-area rooms).
 - Do NOT ship Mode-2 ON-by-default for bedrooms — operator preference.
 - Do NOT chain fan-recheck into the boot-settle release path (they solve
   different failures).
@@ -375,7 +375,7 @@ Live-level:
 ```
 # 24h of rechecks — outcome distribution should look sensible
 sqlite3 <db> "SELECT room_id, fan_recheck_last_outcome, count(*) FROM ...  -- adjust to actual table"
-# Confirm: no room stuck in pause_pending; no vacancy-decision when high_still_risk
+# Confirm: no room stuck in pause_pending; no vacancy-decision for a bedroom/media room in home_night/sleep/waking
 ```
 
 Tier 1 for a targeted guard-branch fix; Tier 2 if adding a new Mode-3 or

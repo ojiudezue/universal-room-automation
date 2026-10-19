@@ -378,6 +378,22 @@ Three complementary mechanisms exist; **each covers a different direction**:
    quarantine); window = CM window × room-type factor × dominant presence-sensor family factor
    (`SENSOR_FAMILY_RECHECK_FACTOR`, kill switch `fan_recheck_family_scaling_enabled`);
    cooldown default 900 s; PAUSED/COOLDOWN rehydrate read the live effective window / knob.
+   **Room-type scope (JAYA-FAN-STILL-PHANTOM-1, 2026-10-18):** bedroom + media_room
+   (`HIGH_STILL_RISK_ROOM_TYPES`) are refused ONLY across `FAN_TRUST_STATES`
+   {home_night, sleep, waking}, veto `sleep_state` (`_evaluate_eligibility` and the
+   arm-delay twin `_still_armed_eligible`). The old all-day `high_still_risk` veto
+   (Tier-1 L2 path + Tier-0/2 path) was deleted; by day these rooms run the same
+   L1/L2/L3/sensors-only ladder as any room. Media is in the sleep scope for still-sleeper
+   protection, not the v4.7.13 HVAC keep-on contract (bedroom-only in `hvac_fans`).
+   The room-type window factor (bedroom/media x2) is unchanged.
+   **L1 includes scanner-area rooms (same date):** the `ble_l1` veto and mid-flight L1 cancel
+   use `_l1_persons`: persons in this room OR in any URA room whose area_id is in this
+   room's `CONF_SCANNER_AREAS` (Jaya Bedroom borrows `jaya_bathroom`; her phone resolves
+   to the Jaya Bathroom room and adjacency is one-directional, so L2 never saw it).
+   This recheck L1 (scanner-area inclusive) DELIBERATELY differs from room-level
+   `ble_persons` (exact resolved-location match) — do not "align" them. A bedroom/media
+   room ARMED or PAUSED when the house enters home_night/sleep/waking is cancelled as
+   OCCUPIED_CONFIRMED (fan restored ON, reason `sleep_state`; review B-1).
 4. **Comfort-fan house-AWAY veto** — `fan_veto.py:1-80+`. ONE predicate consumed by all
    three comfort-fan actuation sites (room-tier `automation.py::handle_temperature_based_fan_control`,
    HVAC `hvac_fans.HvacFanController.update`, reconciler `actuator_reconciler._resolve_fan`).
@@ -672,7 +688,7 @@ Reuse these before building anything new (order: reuse > extend > build only if 
 | **night_raw (sleep-mask D1)** | `PresenceCoordinator._zone_night_raw` / `_zone_night_rooms` | "Is a SLEEP-pinned zone really occupied?" = raw zone occupancy (BLE / room / camera) with NO fan test. Read by nobody-home + the D1b wake disjunct + the sleep_raw_hold trip-wire only. |
 | **STALE concept split (deliberate, Bug Class #63)** | D2 `_tracking_active` (STALE = home) vs `fan_veto._ble_present_in_room`, `camera_census._ble_home_by_area`, `aggregation.py` per-zone status (STALE = not present) | Do NOT align them: a frozen tracker must not defeat the fan veto or cancel a real guest, but must not vote a resident away within the decay window. |
 | **`_kind_on_now` — one per-kind rule (Rev 3 D4a)** | `occupancy_substrate.OccupancySubstrate._kind_on_now(room, kind, map, *, event_entity, event_state)` | Any per-(room, kind) occupancy bool, seed or live. Pass the map explicitly (a refresh seed uses the DESIRED map); take the event entity from the payload, siblings from `hass.states`. Never re-derive a second rule. |
-| **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted at `presence_fan_recheck.py:487-491` and `_still_armed_eligible:969-973` | Bedroom-only sleep veto; non-bedrooms proceed through sleep. C1a inherits this scope automatically. |
+| **FAN_TRUST_STATES scope** | `hvac_const.FAN_TRUST_STATES`, consulted in `presence_fan_recheck._evaluate_eligibility` (sleep_state veto) and `_still_armed_eligible` | Bedroom + media_room (`HIGH_STILL_RISK_ROOM_TYPES`) sleep veto since 2026-10-18 (was bedroom-only, plus an all-day `high_still_risk` veto now deleted); other rooms proceed through sleep. C1a inherits this scope automatically. |
 
 ---
 

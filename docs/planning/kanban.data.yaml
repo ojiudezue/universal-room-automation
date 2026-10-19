@@ -468,7 +468,7 @@ cards:
   arc: 'ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)'
   title: 'Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49)'
   thread: energy
-  status: "waiting_operator"
+  status: "waiting_me"
   created: "2026-10-16"
   updated: "2026-10-17 02:06"
   refinement_status: "refined"
@@ -480,7 +480,7 @@ cards:
   related: [EC-RESERVE-CLOUD-DIVERGENCE-1]
   parsimony: {problem: "The reserve write checker compares every command against number.enpower_*_reserve_battery_level, which has been frozen at 10.0 since 2026-08-05, so every non-10 reserve triggers 3 redundant re-sends, a stand-down and a CRITICAL page.", verdict: "BUILD (small), but the witness choice is a PICK"}
   knobs: ["CONF_ENERGY_RESERVE_WITNESS_ENTITY (rung 2 options-flow entity selector; per-home hardware wiring; blank = today's behaviour)"]
-  next: "PICK: (A) add a 'reserve witness' entity setting (options flow, blank = today's behaviour) and set it here to sensor.envoy_482543015950_reserve_battery_level (my recommendation: explicit, works for other homes, reversible by blanking); or (B) hard-code the verifier to prefer the envoy reserve_battery_level sensor; or (C) turn the reserve pending watchdog off until A/B ships (stops the false pages tonight, loses real stuck-write detection). -> On A/B I plan it (one plan review), build to review with 2 reviews, you deploy. Energy reserve verification sits in the 'we cannot fuck this up' arc, so I did not build it unattended."
+  next: "Operator 10-18 02:26 answered the PICK: \"why a new setting? What's the real problem\". Mine: root-cause probe (AUDIT_ec_selfheal_resends_root_cause_2026_10_18.md) -> reuse the correct existing reserve source, no new setting."
   rank: {value: 7, time_criticality: 5, effort: 5}
 - id: EC-RESERVE-WRITE-GOVERNOR-1
   reviews_2026_10_16: 'Code reviews: A SHIP, B SHIP (log_activity goes through _write_queue, settled), D FIX-REQUIRED small: D-1 lint misses mixed positional/keyword async_call; D-2 optimizer can write the reserve via variable-domain service (optimization.py:4606/:4749), no row, only operator deny list + ±20% clamp (not live: OC in shadow); D-4 FAILED row poisons change-gate memo; D-3 + B-L2 known limits. Fix-up after review C: D-1, D-4, D-2 hard reserve-entity deny in optimizer, document D-3/B-L2.'
@@ -3193,7 +3193,8 @@ cards:
     as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: "waiting_operator"
+  status: "waiting_me"
+  operator_answer_2026_10_18: "Operator 10-18 02:26: \"yes we set a crop. And yes it's too noisy\" -> crop already applied and PTZ alerts still too noisy; mine: measure post-crop alert rate and fix at the source, not a new setting."
   created: '2026-09-14 00:20'
   updated: "2026-10-18 02:07"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
@@ -29755,7 +29756,8 @@ cards:
   disposition_2026_09_26_groom: 'SOAK EXIT: discriminator NOT evaluable in window — zero fan_recheck_outcome rows for Jaya Bedroom (only Living Room 32, Study A 18) since the fix. Per Soak Exit rule 3 -> PARKED with explicit revival trigger: REVIVE if zone_2 is held occupied by a Jaya fan-on mmWave-sole episode with no fan_recheck_outcome row for Jaya in ura_activity_log.'
   title: "Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it"
   thread: presence
-  status: parked
+  status: shipped_organic
+  shipped_version: v5.103.73
   created: '2026-09-19'
   updated: '2026-09-29 04:30'
   tags: [presence, hvac, mmwave, fan-phantom, jaya, config-fix]
@@ -31060,6 +31062,7 @@ cards:
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
   operator_answer_2026_10_17: "Operator 2026-10-17: \"Paused rooms should be inert\" - a paused room issues NO actions at all (neither on nor off); this supersedes options A and B. Pair with a forgotten-pause reminder only if cheap."
+  operator_answer_2026_10_18: "Operator 2026-10-18 (supersedes inert/A/B): \"Paused rooms should stop with lights and fans automation based on occupancy. Blinds down, house state, venting are fine. I just didn't want it turning off lights when paused.\" -> scope = occupancy-driven light AND fan on/off only; cover timers, house-state/AI rules and humidity venting stay as-is. Mine: audit AUDIT_paused_rooms_light_fan_paths_2026_10_18.md finds the ungated occupancy-driven light/fan paths, then gate only those."
   operator_instruction_2026_10_15_2: "Paused means inert. Some are paused because theyre not dialed in and not yet configured to just turns things off with a healthy timeout. We know how to do that and I havent. You can maybe make a tbale and I can tell you what we need for each room and you can do it"
   paged_2026_10_15_overnight: "Included in the 2026-10-15 02:15 CDT quiet Pushover page."
   regroomed_2026_10_15_overnight: "The ANSWER asked here was already given (operator_instruction_2026_10_13: rooms off on purpose where automation is unwanted or not dialed in), so the old next was stale. The 10-14 reply read 'healthy timeouts' as a reminder, but the instruction also says 'the minimum is turning things off not on', which reads more like paused rooms still doing their turn-OFF. Those are different builds, so this is a PICK rather than me choosing. Live count 02:07 10-15: 25 room/cover Automation switches are off. Instance: Kitchen is one of them, which is why its Away leave-on sweep never fires (ROOM-LIGHTING-SETUP-REDESIGN-1)."
@@ -31079,7 +31082,7 @@ cards:
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: "waiting_operator"
+  status: "waiting_me"
   created: '2026-09-29 04:20'
   refinement_status: "refined"
   approval: unreviewed
@@ -31102,7 +31105,7 @@ cards:
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
   verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
-  next: "PICK: (A) code, my recommendation: make the room Automation switch the one pause - when it is off, the room's cover timers, house-state/energy AI rules and humidity venting also stop (safety and security reactions, and the humidity fan's max-runtime safety cap, still run). Tier 2, three reviews, because it reverses three earlier deliberate decouplings; watch-out: master_bedroom / patio / receiving / exercise / media blinds would stop their timed open/close while paused. (B) config only: keep the code, and I turn off the still-on Cover / AI / humidity switches in the 20 paused rooms (list on this card) in an attended session; any room where you WANT blinds on a timer keeps its cover switch. -> On A I plan + build to review; on B I do the switch flips next attended session and close this card."
+  next: "Operator answered 10-18 (see operator_answer_2026_10_18). Mine: finish the light/fan path audit, then gate only the ungated occupancy-driven light/fan paths on the room Automation switch (Tier 2)."
   updated: "2026-10-18 02:05"
   verify_2026_10_18_overnight: "CARD-WAS-WRONG on 'inert' + STILL-REAL. Code (develop 8dd2e9762): the room Automation switch (switch.py:5103; gate coordinator.py:3181 _is_automation_enabled) stops occupancy on/off, the scheduled auto-off, the Away leave-on sweep (automation.py:890) and the actuator reconciler (actuator_reconciler.py:544). But THREE paths still act in a paused room, each by an earlier deliberate design: (1) timed cover open/close runs on its own Cover Automation switch (coordinator.py:5398, v4.2.22 'Option A'); (2) house-state and energy-signal chained automations + AI rules are gated only by the AI switch (coordinator.py:955/996, v4.5.8 gating model); (3) humidity venting is gated by the per-room humidity toggle, not the master (coordinator.py:5413, bathroom-exhaust D1). Safety/security handlers are ungated on purpose and should stay so. Live 02:08 CDT: 20 rooms paused; of those, Cover Automation is ON in patio, receiving_room, master_bedroom, exercise_room, media; AI automation is ON in guest_bedroom_1, master_closet, staircase, master_closet_storage, study_b; humidity toggles are ON in most paused rooms (acts only where a humidity fan is configured)."
   refinement: "Operator 10-17 'paused rooms should be inert' -> code shows paused means 'no occupancy lighting', not inert; three sibling switches keep acting. Becomes a PICK between widening the master switch (code) and turning the sibling switches off (config)."
