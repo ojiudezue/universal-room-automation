@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:22:43-05:00_ - _Data commit: `b1b90fa7c25f`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:27:43-05:00_ - _Data commit: `37b90e02a577`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-19T02:22:43-05:00_ - _Data commit: `b1b90fa7c25f`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 14 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 24 |
@@ -473,25 +473,12 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress**
-_created 2026-10-18 · updated 2026-10-19 02:27 · refined_
-- **Next:** Overnight: reviews A/B -> C -> fix-ups -> review lane. Not deployed.
-- **Forensic keys (9):**
-  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
-  - `tier`: 2
-  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
-  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
-  - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
-  - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
-  - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
-  - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
-  - `built_2026_10_19_overnight`: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...
+_(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
 ### `HOUSE-STATE-SENSOR-ATTR-CHURN-1` - The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -504,6 +491,22 @@ _created 2026-10-18 · updated 2026-10-19 02:15 · initial_
   - `tier`: 1
   - `measured_2026_10_19_overnight`: Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_...
   - `built_2026_10_19_overnight`: BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, ...
+
+### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **review**
+_created 2026-10-18 · updated 2026-10-19 02:41 · refined_
+- **Next:** Attended deploy: merge the branch, full-suite name-diff, deploy (Tier 2, LOW-MED risk: display-only attributes + a background refresh). Then set the two SmartHub statistic ids in EC options (no reload now) and do Step 1 (clear energy_uti...
+- **Forensic keys (10):**
+  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
+  - `tier`: 2
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
+  - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
+  - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
+  - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
+  - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
+  - `built_2026_10_19_overnight`: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...
+  - `reviewed_2026_10_19_overnight`: BUILT + REVIEWED TO REVIEW LANE (not merged, not deployed). Branch feature/ec-bill-divergence-smarthub-stats @ 1dd44edd3 (pushed). Reviews (3 framing-disjoint): A correctness SHIP (M1 empty EC side published +-100 -> fixed; M2 service ch...
 
 ## ⏸️ Waiting on operator (31)
 _needs a human call — groomed first_

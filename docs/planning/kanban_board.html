@@ -212,18 +212,25 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-19T02:22:43-05:00</b></span>
-<span>data <b>b1b90fa7c25f</b></span>
+<span>generated <b>2026-10-19T02:27:43-05:00</b></span>
+<span>data <b>37b90e02a577</b></span>
 <span>reconciled <b>2026-10-18</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">16<span class="den"> / 179</span></span>
+<span class="metric">17<span class="den"> / 179</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 16 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 17 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
+<li class="" data-fid="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:41" data-card="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1">
+<span class="oc built">built</span>
+<span class="fhd">Built to review: bill check now compares SmartHub hourly data (priced by TOU) with EC over the same days. 3 reviews SHIP after fix-ups, 0 new test failures. Not deployed; needs 2 option ids + your cycle-day answer.<br><span class="ft">2026-10-19T02:41:00</span>
+</span>
+<button type="button" class="ack" data-fid="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:41">✓ ack</button>
+</li>
+<li class="decision-row" data-card="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
 <li class="" data-fid="ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:22" data-card="ZONE-ROOM-NAME-DRIFT-1">
 <span class="oc escalated">escalated</span>
 <span class="fhd">Room rename drift: plan + review found the old name sticks in presence, person, HVAC and both fan maps (can AWAY a sleeper, retreat a zone, leave a fan off) until restart. Tier 3 -&gt; APPROVE scope. Workaround: restart after any rename.<br><span class="ft">2026-10-19T02:22:00</span>
@@ -343,8 +350,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Investigating <b>0</b></span>
 <span>Pre-planning <b>14</b></span>
 <span>Planned <b>14</b></span>
-<span>In progress <b>1</b></span>
-<span>Review <b>1</b></span>
+<span>In progress <b>0</b></span>
+<span>Review <b>2</b></span>
 <span>Waiting on operator <b>31</b></span>
 <span>Waiting on me (Claude) <b>2</b></span>
 <span>Shipped (organic open) <b>24</b></span>
@@ -399,15 +406,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
-<div class="cards">
-<details class="card" data-id="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1" draggable="true"><summary><span class="id">EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">EC&#x27;s bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub&#x27;s hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)</span><div class="tagline">energy</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-18 · updated 2026-10-19 02:27 · refined</div><dt>Next</dt><dd>Overnight: reviews A/B -&gt; C -&gt; fix-ups -&gt; review lane. Not deployed.</dd><dt>Forensic (9)</dt><dd><ul class="forensic"><li><code>arc_cut_v5_103_74</code>: separate SmartHub bill work, greenlit and next in queue</li><li><code>tier</code>: 2</li><li><code>arc</code>: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)</li><li><code>operator_instruction_2026_10_18</code>: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.</li><li><code>plan_2026_10_19_overnight</code>: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps &gt; 1 h since 08-23; SmartHub posts once ...</li><li><code>finding_2026_10_19_ec_history</code>: Found by the plan probe (residual, folded here): EC&#x27;s own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...</li><li><code>operator_questions_2026_10_19</code>: (1) PEC bills run 24th/25th -&gt; 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?</li><li><code>plan_review_2026_10_19_overnight</code>: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -&gt; tracked...</li><li><code>built_2026_10_19_overnight</code>: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
-</div>
+<h2>In progress <span class="count">0</span><span class="hint">being built</span></h2>
+<div class="none">(none)</div>
 </section>
 <section class="lane" data-col="review">
-<h2>Review <span class="count">1</span><span class="hint">under review</span></h2>
+<h2>Review <span class="count">2</span><span class="hint">under review</span></h2>
 <div class="cards">
 <details class="card" data-id="HOUSE-STATE-SENSOR-ATTR-CHURN-1" draggable="true"><summary><span class="id">HOUSE-STATE-SENSOR-ATTR-CHURN-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-18 · updated 2026-10-19 02:15 · initial</div><dt>Next</dt><dd>Attended deploy: merge fix/house-state-attr-unrecorded to develop, run the full-suite name-diff (owed), deploy with the next batch (Tier 1, LOW risk), then the 1-2 h one-shot recorder check -&gt; Validated table.</dd><dt>Parsimony</dt><dd>[BUILD] One presence sensor writes ~2,869 distinct 3.3 KB attribute blobs a day because a per-poll counter and three high-churn diagnostics are recorded.</dd><dt>Forensic (4)</dt><dd><ul class="forensic"><li><code>arc_cut_v5_103_72</code>: recorder hygiene, independent of the inference fix, next small cycle</li><li><code>tier</code>: 1</li><li><code>measured_2026_10_19_overnight</code>: Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_...</li><li><code>built_2026_10_19_overnight</code>: BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, ...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1" draggable="true"><summary><span class="id">EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">EC&#x27;s bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub&#x27;s hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)</span><div class="tagline">energy</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-18 · updated 2026-10-19 02:41 · refined</div><dt>Next</dt><dd>Attended deploy: merge the branch, full-suite name-diff, deploy (Tier 2, LOW-MED risk: display-only attributes + a background refresh). Then set the two SmartHub statistic ids in EC options (no reload now) and do Step 1 (clear energy_uti...</dd><dt>Forensic (10)</dt><dd><ul class="forensic"><li><code>arc_cut_v5_103_74</code>: separate SmartHub bill work, greenlit and next in queue</li><li><code>tier</code>: 2</li><li><code>arc</code>: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)</li><li><code>operator_instruction_2026_10_18</code>: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.</li><li><code>plan_2026_10_19_overnight</code>: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps &gt; 1 h since 08-23; SmartHub posts once ...</li><li><code>finding_2026_10_19_ec_history</code>: Found by the plan probe (residual, folded here): EC&#x27;s own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...</li><li><code>operator_questions_2026_10_19</code>: (1) PEC bills run 24th/25th -&gt; 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?</li><li><code>plan_review_2026_10_19_overnight</code>: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -&gt; tracked...</li><li><code>built_2026_10_19_overnight</code>: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...</li><li><code>reviewed_2026_10_19_overnight</code>: BUILT + REVIEWED TO REVIEW LANE (not merged, not deployed). Branch feature/ec-bill-divergence-smarthub-stats @ 1dd44edd3 (pushed). Reviews (3 framing-disjoint): A correctness SHIP (M1 empty EC side published +-100 -&gt; fixed; M2 service ch...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="waiting_operator">
@@ -949,7 +955,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>b1b90fa7c25f</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>37b90e02a577</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
