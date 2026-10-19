@@ -390,6 +390,10 @@ Three complementary mechanisms exist; **each covers a different direction**:
    use `_l1_persons`: persons in this room OR in any URA room whose area_id is in this
    room's `CONF_SCANNER_AREAS` (Jaya Bedroom borrows `jaya_bathroom`; her phone resolves
    to the Jaya Bathroom room and adjacency is one-directional, so L2 never saw it).
+   This recheck L1 (scanner-area inclusive) DELIBERATELY differs from room-level
+   `ble_persons` (exact resolved-location match) — do not "align" them. A bedroom/media
+   room ARMED or PAUSED when the house enters home_night/sleep/waking is cancelled as
+   OCCUPIED_CONFIRMED (fan restored ON, reason `sleep_state`; review B-1).
 4. **Comfort-fan house-AWAY veto** — `fan_veto.py:1-80+`. ONE predicate consumed by all
    three comfort-fan actuation sites (room-tier `automation.py::handle_temperature_based_fan_control`,
    HVAC `hvac_fans.HvacFanController.update`, reconciler `actuator_reconciler._resolve_fan`).

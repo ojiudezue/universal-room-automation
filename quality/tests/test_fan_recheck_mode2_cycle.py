@@ -321,8 +321,9 @@ class _FakeFanController:
         return {"entities": list(rf.fan_entities), "is_on": True, "speed_pct": 50,
                 "trigger": "temperature", "last_on_time": "", "entity_attrs": {}}
 
-    async def restore_after_recheck(self, room_name, snapshot):
+    async def restore_after_recheck(self, room_name, snapshot, leave_off=False):
         self.restore_calls.append((room_name, snapshot))
+        self.restore_leave_off = getattr(self, "restore_leave_off", []) + [leave_off]
         rf = self._room_fans.get(room_name)
         if rf is not None:
             rf.fan_recheck_suppress_until = ""
@@ -1032,6 +1033,73 @@ async def test_l1_scanner_area_room_cancels_mid_flight():
     _jaya_shaped(mgr, rc, pc, "Jaya Bathroom")
     mgr._evaluate_cancellation_during_tick(ctx, rc)
     assert ctx.ble_ladder_layer == mod.LAYER_L1
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_restores_fan_on(room_type):
+    """Review B-1: paused at home_evening, house flips home_night mid-pause
+    -> cancelled as OCCUPIED_CONFIRMED, fan restored ON, never VACATED."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type=room_type,
+    )
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    assert ctx.state == mod.STATE_PAUSED
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.last_outcome == mod.OUTCOME_OCCUPIED_CONFIRMED
+    assert len(fc.restore_calls) == 1
+    assert fc.restore_leave_off == [False]  # fan restored ON
+    assert rc.data["occupied"] is True
+
+
+@pytest.mark.parametrize("room_type", ["bedroom", "media_room"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_armed_cancels_to_cooldown(room_type):
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type=room_type,
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    assert ctx.state == mod.STATE_ARMED
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == mod.STATE_COOLDOWN
+    assert fc.pause_calls == []
+
+
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_generic_room_not_cancelled():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type="generic",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    mgr._presence.house_state = "home_night"
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == mod.STATE_PAUSED
+    assert fc.restore_calls == []
+
+
+def test_l1_persons_ignores_non_dict_area_map():
+    """Review A-LOW-4."""
+    from unittest.mock import MagicMock
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mock_pc = MagicMock()
+    mock_pc.get_persons_in_room = lambda room: (
+        ["jaya"] if room != "exercise" else []
+    )
+    assert mgr._l1_persons(
+        mock_pc, "exercise", {"scanner_areas": ["jaya_bathroom"]},
+    ) == []
 
 
 @pytest.mark.asyncio

@@ -1110,6 +1110,35 @@ class FanRecheckManager:
         """
         if ctx.state not in (STATE_ARMED, STATE_PAUSED):
             return
+        # Review B-1 (2026-10-18): a bedroom/media room armed or paused by
+        # day must not keep its fan paused (or reach a VACATED verdict)
+        # once the house enters FAN_TRUST_STATES. Cancel as
+        # OCCUPIED_CONFIRMED so the existing restore path turns the fan
+        # back ON. Same predicate as the sleep_state eligibility veto.
+        merged_c = self._merged_config(room_coord)
+        if (
+            getattr(self._presence, "house_state", "") in FAN_TRUST_STATES
+            and merged_c.get(CONF_ROOM_TYPE, "") in HIGH_STILL_RISK_ROOM_TYPES
+        ):
+            _LOGGER.info(
+                "FanRecheck %s: sleep state entered mid-flight — cancelling",
+                ctx.room_name,
+            )
+            self._schedule_activity(
+                action="fan_recheck_cancel",
+                room_name=ctx.room_name,
+                description="Fan-recheck cancelled (sleep state mid-flight)",
+                details={
+                    "room": ctx.room_name,
+                    "reason": "sleep_state",
+                    "state_at_cancel": ctx.state,
+                    "ble_ladder_layer": ctx.ble_ladder_layer,
+                },
+            )
+            self._cancel_and_restore_async(
+                ctx, OUTCOME_OCCUPIED_CONFIRMED, reason="sleep_state",
+            )
+            return
         data = getattr(room_coord, "data", None) or {}
         if data.get("motion_detected"):
             _LOGGER.info(
@@ -1133,9 +1162,7 @@ class FanRecheckManager:
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
-            l1 = self._l1_persons(
-                person_coord, ctx.room_name, self._merged_config(room_coord),
-            )
+            l1 = self._l1_persons(person_coord, ctx.room_name, merged_c)
             if l1:
                 ctx.ble_ladder_layer = LAYER_L1
                 _LOGGER.info(
@@ -1336,7 +1363,10 @@ class FanRecheckManager:
         scanner_areas = merged.get(CONF_SCANNER_AREAS) or []
         if isinstance(scanner_areas, str):
             scanner_areas = [scanner_areas]
-        area_map = getattr(person_coord, "_area_id_to_room", None) or {}
+        area_map = getattr(person_coord, "_area_id_to_room", None)
+        if not isinstance(area_map, dict):
+            # Review A-LOW-4: a MagicMock/absent map must not yield false L1.
+            area_map = {}
         seen = {room_name}
         for area in scanner_areas:
             if not area:
