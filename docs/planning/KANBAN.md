@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:09:33-05:00_ - _Data commit: `4873a42c6bd8`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:11:31-05:00_ - _Data commit: `54fd8a574107`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -340,17 +340,7 @@ _created 2026-10-18 · refined_
   - `arc_cut_v5_103_72`: separate producer fix in person_coordinator, own cycle
   - `tier`: 2
 
-### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **planned**
-_created 2026-10-18 · refined_
-- **Next:** Step 1: clear energy_utility_meter_entity in CM options in the next restart window (read only at EC init, energy.py:612; a CM options change reloads the parent, so pair it with a planned restart). Step 2: plan (Tier 2): EC reads smarthub...
-- **Forensic keys (4):**
-  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
-  - `tier`: 2
-  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
-  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
-
-### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **wigton** - status: **planned**
 _created 2026-10-10 16:00_
 - **Why:** URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls).
@@ -360,7 +350,7 @@ _created 2026-10-10 16:00_
   - `applied_2026_10_17`: Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Be...
   - `tier`: 1
 
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **planned** - approval: **explicit**
 _updated 2026-10-18 02:02_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
@@ -375,6 +365,19 @@ _updated 2026-10-18 02:02_
   - `tier`: 2
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
+
+### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **planned**
+_created 2026-10-18 · updated 2026-10-19 02:12 · refined_
+- **Next:** Me: plan review (Tier 2, running overnight 10-19) -> fold findings -> build to review. Operator ANSWER (non-blocking for build, needed for the live numbers): is energy_bill_cycle_day 23 right when PEC reads on the 24th/25th?
+- **Forensic keys (7):**
+  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
+  - `tier`: 2
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
+  - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
+  - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
+  - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
