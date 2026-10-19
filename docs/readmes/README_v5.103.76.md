@@ -22,11 +22,19 @@ Card: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (Step 2). Plan: `docs/planning/PLA
 
 1. Clear `energy_utility_meter_entity` in the Coordinator Manager EC options (it is ignored once the statistic ids are set, but clearing it removes the dead entity).
 2. Set *Utility import statistic* = `smarthub:smarthub_energy_sensor_<ACCT>_<LOC>` and *Utility export statistic* = `smarthub:smarthub_energy_return_sensor_<ACCT>_<LOC>` (ids in plan §2, `statistics_meta` 4699 / 6396).
-3. Both are construction keys: saving reloads the integration. Do it in a planned restart window, not while the house sleeps.
+3. Saving the two ids does **not** reload anything: EC reads them live from the CM options on every refresh (`_utility_stat_ids`, reusing `_get_cm_options`), and both keys are in `OPTIONS_RELOAD_SUPPRESS_KEYS`. A changed id is used on the next decision cycle; the cached comparison of the old ids is not shown in the meantime.
+
+## Review fix-ups (Reviews A + B)
+
+- **A-M1:** when EC has no `energy_daily` rows in the window (DB unavailable, or none), the divergence keys are `None` instead of a spurious ±100 %.
+- **A-M2:** `utility_bill_estimate` adds the service charge from the loaded TOU rate file (`TOURateEngine.service_availability_monthly`), falling back to the PEC constant only when the file lacks it.
+- **B-M1:** the statistic ids are no longer construction keys; saving them reloads neither the CM nor the parent integration (see Prerequisite 3).
+- **B-L3:** the refresh is not scheduled once EC is disabled or teardown has started (`_utility_stats_closed`, set first thing in `async_teardown`).
+- **Kept:** the per-day `energy_daily` reads (a grouped query needs a new `database.py` DAO, a Tier 2-DB trigger) and the 1 h `data_age_h` granularity (A-L2, accepted).
 
 ## Tests
 
-- `test_ec_bill_divergence_smarthub_stats.py` (19), `test_ec_bill_divergence_sensor_attrs.py` (2), `test_ec_bill_divergence_options.py` (4).
+- `test_ec_bill_divergence_smarthub_stats.py` (19), `test_ec_bill_divergence_sensor_attrs.py` (2), `test_ec_bill_divergence_options.py` (4), plus fix-up tests (6 in the stats file, `test_ec_role_defaults_rev5.py::test_utility_statistic_ids_save_does_not_reload`). Fix-up mutation drills (9 sites) all RED.
 - The blank-ids snapshot test also passes against the pre-change `sensor.py`/`energy.py` (byte-identical no-op path).
 - Builder mutation drills M1–M20, all RED (incl. schedule→direct await, deleted schedule call, deleted teardown cancel).
 
