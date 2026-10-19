@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-18'
+  last_reconciled: '2026-10-19'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -31135,7 +31135,8 @@ cards:
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: "waiting_operator"
+  status: shipped_organic
+  shipped_version: v5.103.75
   created: '2026-09-29 04:20'
   refinement_status: "refined"
   approval: unreviewed
