@@ -1058,3 +1058,61 @@ def test_wrapper_grace_floor_clamps_low_values(monkeypatch):
     p = _P()
     demoted = presence_mod.PresenceCoordinator._compute_mmwave_fan_demoted_rooms(p)
     assert "X" not in demoted, "Sub-floor grace failed to clamp — leaked"
+
+
+# --------------------------------------------------------------------------
+# ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (plan R3, operator answer 2 2026-10-19):
+# a PAUSED room is recheck-ineligible (veto `room_paused`), so D2 is no
+# longer deferred for it and fires as the backstop. Pins the accepted trade
+# (and guards against the FAN-RECHECK-D2-DEADLOCK-1 class: D2 deferring
+# forever on a room whose recheck can never arm).
+# --------------------------------------------------------------------------
+
+
+def _real_recheck_mgr(paused: bool):
+    """A REAL FanRecheckManager (mode2-cycle world, room "exercise") whose
+    room coordinator reports the Automation switch state."""
+    import asyncio  # noqa: PLC0415
+    from test_fan_recheck_mode2_cycle import (  # noqa: PLC0415
+        _FakeConfigEntries, _build_world,
+    )
+    _mod, hass2, mgr, rc, _fc, _pc, _db = _build_world()
+    hass2.config_entries = _FakeConfigEntries(
+        [hass2._fan_recheck_cm_entry, rc.entry],
+    )
+    hass2.data["universal_room_automation"][rc.entry.entry_id] = rc
+    rc._is_automation_enabled = lambda: not paused
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(mgr.async_setup())
+    finally:
+        loop.close()
+    return mgr
+
+
+def _d2_tick_with_real_recheck(paused: bool) -> dict:
+    _reset_dispatched()
+    hass = make_hass()
+    room = "exercise"
+    now = datetime(2026, 10, 19, 14, 0, 0, tzinfo=timezone.utc)
+    coord = _FakeSelf(
+        hass, occupancy_timeout=60,
+        last_pir_motion_time=now - timedelta(seconds=3 * 60),
+        house_state_allows=True,                     # home_day
+    )
+    presence = _seed_presence(
+        hass, demoted_rooms={room}, fan_on_since=now - timedelta(seconds=700),
+    )
+    presence._fan_recheck_manager = _real_recheck_mgr(paused)
+    data = {STATE_OCCUPIED: True, STATE_OCCUPANCY_SOURCE: "mmwave"}
+    _run_d2_block(coord, data, now, room)
+    return data
+
+
+def test_paused_room_d2_backstop_not_deferred():
+    # Control: an enabled room is recheck-eligible -> D2 defers this tick.
+    assert _d2_tick_with_real_recheck(paused=False)[STATE_OCCUPIED] is True
+    # Paused: recheck-ineligible (room_paused) -> D2 demotes to vacant.
+    data = _d2_tick_with_real_recheck(paused=True)
+    assert data[STATE_OCCUPIED] is False
+    assert data[STATE_OCCUPANCY_SOURCE] == OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED

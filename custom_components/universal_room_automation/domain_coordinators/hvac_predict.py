@@ -1452,6 +1452,20 @@ class HVACPredictor:
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
                 continue
+            # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F4a): a paused room
+            # (Automation switch off / Manual Mode on) gets no pre-arrival fan.
+            from ..const import room_automation_paused  # noqa: PLC0415
+            if room_automation_paused(coordinator):
+                self._last_fan_skipped_rooms.append({
+                    "room": room_name,
+                    "temp": None,
+                    "setpoint": setpoint_high,
+                    "reason": "room_paused",
+                })
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan skipped %s (room paused)", room_name,
+                )
+                continue
             config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
             fans = config.get(CONF_FANS, [])
             if not fans:

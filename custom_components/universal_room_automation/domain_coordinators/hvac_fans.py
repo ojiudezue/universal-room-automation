@@ -66,6 +66,7 @@ from .signals import EnergyConstraint
 from ..fan_veto import should_veto_comfort_fan, is_veto_relevant  # noqa: E402
 from ..fan_veto import sleep_onset_fan_target  # noqa: E402
 from ..const import FAN_OWNER_HVAC, fan_owner, room_fan_mode  # noqa: E402
+from ..const import room_automation_paused  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -647,6 +648,22 @@ class FanController:
             # person's own use), no adoption, no temp on/off/speed.
             if not self._is_room_hvac_managed(room_name):
                 continue
+            # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F1): a paused room (Automation
+            # switch off / Manual Mode on) — no temp on/off/speed and no
+            # external-change sync / adoption. LEVEL release every paused
+            # tick (the whitelisted recheck restore can re-set is_on), so an
+            # unpause never books a person's OFF as a fake cooldown.
+            if room_automation_paused(self._room_coord(room_name)):
+                if self._release_room_tracking(
+                    room_name, room_fan, reason="room_paused",
+                ):
+                    _LOGGER.info(
+                        "HVAC Fans: %s paused — HVAC tier stops managing its "
+                        "fans (left as they are)", room_name,
+                    )
+                else:
+                    _LOGGER.debug("HVAC Fans: %s paused — skipped", room_name)
+                continue
             # Fan-noise Mode-2 mitigation: HVAC handshake. Skip this room
             # entirely while the room-tier fan-recheck mechanism holds the
             # fan paused. Don't trip external-cooldown either (the entity
@@ -1035,6 +1052,10 @@ class FanController:
             # 03:09 on 2026-09-28 with the switch off).
             if not self._is_room_hvac_managed(room_name):
                 continue
+            # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F3): no sleep-onset fan ON in
+            # a paused room (its room-tier twin is already paused).
+            if room_automation_paused(self._room_coord(room_name)):
+                continue
             # Operator contract (2026-08-03): "running fans are
             # untouchable" from the sleep-onset path — any power/speed
             # transition excites mmWave radar (the fan-transition phantom
@@ -1242,6 +1263,52 @@ class FanController:
             return True
         return fan_owner(merged) is not None
 
+    @staticmethod
+    def _release_room_tracking(
+        room_name: str, room_fan: RoomFanState, *, reason: str,
+    ) -> bool:
+        """Stop tracking a room's fans WITHOUT actuating them.
+
+        The ONE copy of the release used when the HVAC tier stops managing a
+        room: Fan Mode leaving "Follow thermostat" (``_is_room_hvac_managed``)
+        and a paused room (ROOM-OVERRIDE-SWITCH-FORGOTTEN-1, ``update``).
+        Clears ``is_on`` / ``trigger`` / ``speed_pct`` / ``last_on_time`` /
+        ``vacancy_detected_time``. Writes nothing to HA. Deliberately leaves
+        ``fan_recheck_suppress_until``, the manual-ON hold fields and the
+        manual-off cooldown ledger alone (person / recheck state, not URA's
+        tracking). Returns True iff anything was tracked before the clear.
+        ``reason`` is for the caller's log only.
+        """
+        was_tracked = bool(
+            room_fan.is_on
+            or room_fan.trigger
+            or room_fan.speed_pct
+            or room_fan.last_on_time
+            or room_fan.vacancy_detected_time
+        )
+        room_fan.is_on = False
+        room_fan.trigger = ""
+        room_fan.speed_pct = 0
+        room_fan.last_on_time = ""
+        room_fan.vacancy_detected_time = ""
+        return was_tracked
+
+    def _room_coord(self, room_name: str) -> Any:
+        """The ROOM coordinator for ``room_name`` (entry scan), or None.
+
+        Same shape as ``FanRecheckManager._room_coord_for``. Never raises.
+        """
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) != room_name:
+                    continue
+                return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
     def _is_room_hvac_managed(self, room_name: str) -> bool:
         """HVAC Batch D: LIVE read — may the HVAC tier actuate this room's fans?
 
@@ -1275,11 +1342,9 @@ class FanController:
                 )
             else:
                 # Release, never actuate: the fan is left as it is.
-                room_fan.is_on = False
-                room_fan.trigger = ""
-                room_fan.speed_pct = 0
-                room_fan.last_on_time = ""
-                room_fan.vacancy_detected_time = ""
+                self._release_room_tracking(
+                    room_name, room_fan, reason="fan_mode",
+                )
                 _LOGGER.info(
                     "HVAC Fans: %s HVAC tier stops managing its fans (room "
                     "toggle off) — fans left as they are", room_name,
