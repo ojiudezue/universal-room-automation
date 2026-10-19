@@ -251,3 +251,27 @@ PASS = all four in both directions. **Discriminates:** under the bug, (b) and (c
 1. X2 (HVAC drops the renamed room as `entry_removed` and can retreat a zone with a sleeper in it) is outside the card text but the same class. It is folded in here. Operator: confirm the scope (it adds about 25% to the build).
 2. X5, the fan-oracle record: accept the loss, or move it too? It defaults to accept, pending the reviewer's reader grep.
 3. Should the zone-rename sibling (`CONF_ZONE_NAME`) be carded now, or is it already covered by an existing card?
+
+---
+
+## Plan review 2026-10-19 — completeness (adversarial)
+
+Reviewer: ura-planner (completeness framing). Read completely first: PRESENCE_ARCHITECTURE_STATE_OF_PLAY, SENSOR_FLEET_CLASSES, HVAC_ARCHITECTURE_STATE_OF_PLAY, URA_ARCHITECTURE_MAP. Code read on HEAD `2b7d31e8f`. **Verdict: FIX-PLAN** (two HIGH misses on the HVAC/fan side, one ordering gap).
+
+**Missed sites (add to §2):**
+- **F1 HIGH: `hvac_fans.FanController._room_fans` (`hvac_fans.py:390`, built once in `discover_fans` `:414-463`, called `hvac.py:1569`).** Keyed by room name. Its tick looks up `rc.room_name == room_name` in `zone.room_conditions` (`hvac_fans.py:835-841`) and falls back to `occupied=False`. Once X2 moves `zone.rooms` to B, the old-name `RoomFanState` finds no condition, so the renamed room's HVAC-owned fan is driven as UNOCCUPIED, which can turn a sleeper's fan off at night. It also holds the cooldown and manual-hold ledger. Action: **Move** in `ZoneManager.rekey_room`'s HVAC companion, or re-run `discover_fans()`. Re-running is only safe if it carries state over; it does not (`.clear()` at `:420`).
+- **F2 HIGH: `presence_fan_recheck.FanRecheck._rooms` (`presence_fan_recheck.py:187`, created lazily `:374-380`, rehydrated `:1767`).** Keyed by name; the DB row is keyed by entry_id (`fan_recheck_state.room_id`, `database.py:1784-1794`). After a rename, `on_room_tick` creates a SECOND IDLE ctx for B with the same entry_id, while A's ctx keeps its timers. If A's ctx was PAUSED (fan off), its restore calls `restore_after_recheck(A)`, which returns early once F1 moved `_room_fans` (`hvac_fans.py:2152-2154`), so the fan stays OFF. Two ctxs also write the same DB row. The recheck reads `fan_controller._room_fans.get(room_name)` (`presence_fan_recheck.py:1545`) as its write registry. Action: **Move** the ctx (A→B, keep timers; the ctx carries `room_name`, so update that too). Ordering: F1 and F2 must move together.
+- **F3 MEDIUM: `safety.SafetyCoordinator._room_area_ids` / `_room_types` (`safety.py:1055-1057`, built `:1304-1305`) and `_sensor_locations` values (`:1406-1422`).** These are setup-only. They give stale room names in hazard alerts and location text. This is display, not a trust decision. Action: accept by name in `_RENAME_EXEMPT`, or move.
+- **F4 LOW: `optimization._room_scores` (`optimization.py:601`).** Diagnostic. Exempt by name.
+- `person_coordinator._direct_ble_rooms` (`:121`, rebuilt `:962-984`) is covered by the X1 full rebuild. Name it in X1 so D4 does not flag it.
+- **DB:** no table uses room NAME as a lookup key that a live decision depends on. `fan_recheck_state` is keyed by entry_id (correct). The parked **REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1** (`kanban.data.yaml:9181`) is the history-side sibling. This cycle does not fire its trigger, but §7 should cite it.
+
+**Mechanism verdict: sound with one gap.** All emit sites are verified: `unloaded` `__init__.py:6179-6186` (only on `unload_ok`), `loaded` `:5631-5637`, `removed` `:5736-5743`, `options_updated` `:8673-8680`. The payload is `entry.data["room_name"]`, which is already new because `async_update_entry` writes data before the reload (`config_flow.py:12386-12391`). Both subscribers are `@callback` (`presence.py:3678`, `hvac.py:5439`), so the re-key runs synchronously inside the dispatch, ahead of the scheduled refresh task.
+- **Gap, MEDIUM:** between `async_update_entry` and the `unloaded` dispatch, the reload is a scheduled task. An HVAC pass in that window (a fast run from ANY room's refresh, or the 5-min tick) rebuilds `_room_entry_by_name` with B, while `zone.rooms` still holds A. Result: `entry_removed`, `_sticky_failed_rooms.add(A)` (`hvac_zones.py:2329`) and a degraded NM, before any lifecycle event. INV-RENAME-2's "never `entry_removed`" is falsifiable here. Fix: make `rekey_room` also drop A from `_sticky_failed_rooms` and suppress the NM. Better: HVAC derives the rename from its own per-pass entry_id→name map at the top of `update_room_conditions`, so no signal is needed for the HVAC tier.
+- `_tearing_down` early return (`hvac.py:5444`): fine.
+- `unload_ok=False` leaves no `unloaded` dispatch. The next `loaded`/`options_updated` re-keys (idempotent rule). Add a test.
+
+**Tier recommendation: Tier 3.** The CLAUDE.md triggers fire:
+1. A value (the room's identity) is threaded through many consumer sites across presence ↔ HVAC ↔ person ↔ fans, so the failure mode is one missed site (Bug Class #53). This review found two more HIGH sites the plan's own enumeration missed.
+2. It touches comfort and safety (a sleeper AWAYed, a zone retreated, a fan left off).
+§8's own escalation trigger ("a second X2-class trust site outside §2") has fired via F1/F2. Run four build reviews with D mandatory, config-extreme tests (rename during PAUSED recheck, rename in a merged HVAC zone, rename inside the update→unload window), and an operator checkpoint before deploy.
