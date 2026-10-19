@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:20:18-05:00_ - _Data commit: `2b7d31e8f3df`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:22:43-05:00_ - _Data commit: `b1b90fa7c25f`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -478,9 +478,9 @@ _being built_
 
 ### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **in_progress**
-_created 2026-10-18 · updated 2026-10-19 02:15 · refined_
-- **Next:** Overnight 10-19: ura-builder in a worktree on plan Rev 2 -> 3 framing-disjoint reviews -> review lane. No deploy.
-- **Forensic keys (8):**
+_created 2026-10-18 · updated 2026-10-19 02:27 · refined_
+- **Next:** Overnight: reviews A/B -> C -> fix-ups -> review lane. Not deployed.
+- **Forensic keys (9):**
   - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
   - `tier`: 2
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
@@ -489,6 +489,7 @@ _created 2026-10-18 · updated 2026-10-19 02:15 · refined_
   - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
   - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
   - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
+  - `built_2026_10_19_overnight`: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...
 
 ## 🔍 Review (1)
 _under review_
