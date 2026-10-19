@@ -1307,6 +1307,31 @@ def fan_owner(room_config) -> str | None:
         return None
 
 
+def room_automation_paused(room_coord) -> bool:
+    """True iff the room's Automation switch is OFF (or Manual Mode is ON).
+
+    ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (operator 2026-10-18: "Paused rooms
+    should stop with lights and fans automation based on occupancy"). The
+    ONE read the HVAC tier and the fan recheck use to skip a paused room's
+    occupancy-driven lights / fans. Delegates to the room coordinator's own
+    ``_is_automation_enabled`` (Manual Mode ON -> paused; switch off ->
+    paused; switch missing -> enabled).
+
+    True only when ``room_coord`` exposes a callable ``_is_automation_enabled``
+    that returns exactly ``False``. ``None``, a missing method or an
+    exception -> False (fail-open = today's behaviour). Never raises.
+    """
+    if room_coord is None:
+        return False
+    try:
+        check = getattr(room_coord, "_is_automation_enabled", None)
+        if not callable(check):
+            return False
+        return check() is False
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def room_in_hvac_zone(hass, room_entry_id: str) -> bool:
     """True iff a Zone Manager zone WITH a thermostat lists this room.
 

@@ -1,5 +1,6 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-10-19 (built, `fix/paused-room-lights-fans`, NOT deployed):** paused rooms (Automation switch off / Manual Mode on) are skipped by the HVAC zone vacancy sweep, comfort fans, sleep-onset fan, pre-arrival fans and the fan recheck arm — see §4.2b "Paused rooms".
 **Currency fix 2026-10-14:** the per-section "NOT deployed" tags below were stale — every HVAC build listed here has SHIPPED (v5.103.20 / .23 / .24 / .36 / .39 / .40 / .41 / .51). Open residuals: see `HVAC-W1C-GENERIC-THERMOSTAT-1` (P2 review residuals) and §11.
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night; last builder update 2026-10-11 (fan-noise Rev 2 C1a recheck leave-off, §4.2b); prior 2026-10-06 (HVAC W1-C P2 option C review fix-up 1 on top of v5.103.40 option B).
@@ -248,6 +249,14 @@ One per-room **Fan Mode** (`select.<room>_fan_mode`, key `room_fan_mode` in the 
 - Every HVAC-tier write reads the Fan Mode LIVE at actuation (chokepoint `_set_fan_state` + per-site gates).
 - Leaving Follow thermostat RELEASES tracking and never turns the fan off.
 - Not gated: the smoke/CO safety stop.
+- **Paused rooms (ROOM-OVERRIDE-SWITCH-FORGOTTEN-1, built 2026-10-19 on `fix/paused-room-lights-fans`, NOT deployed; plan `docs/planning/PLANNING_paused_room_occupancy_lights_fans.md`).** A second rule on top of the Fan Mode: a room whose Automation switch is off (or Manual Mode on) — `const.room_automation_paused(room_coord)`, delegating to the room coordinator's `_is_automation_enabled`, fail-open — is skipped by every HVAC-tier occupancy light/fan writer:
+  - zone vacancy sweep `_execute_vacancy_sweep` (lights, night lights, fans; both callers row-1 and D6; INFO line per skipped room; `vacancy_sweep_done` / `_vacancy_sweeps_today` unchanged);
+  - `FanController.update` (temp on/off/speed + external-change sync): a LEVEL release of tracking every paused tick through `_release_room_tracking` (the ONE copy, shared with the Fan-Mode release), no write, never touches suppress-until / manual-ON hold / manual-off cooldown — so an unpause never books a person's OFF as a fake 1 h cooldown;
+  - `_sleep_onset_activation` (no sleep-onset ON);
+  - pre-arrival `hvac_predict._activate_zone_fans` (skip reason `room_paused`) and `hvac._deactivate_zone_fans`;
+  - the presence fan recheck arm (veto `room_paused`).
+  - **Whitelisted (not gated, INV-P'):** `_stop_all_fans_safety`, `turn_off_all_managed`, and the recheck restore discharge (`restore_after_recheck`). The `_set_fan_state` chokepoint is not gated.
+  - Fans URA lit before the pause stay on until unpause; no sweep catch-up after unpause (parked). HVAC occupancy / zone retreat are unchanged except via the operator-accepted D2 backstop (PRESENCE STATE_OF_PLAY §6 item 3).
 - The legacy toggles (`hvac_coordination_enabled`, `fan_control_enabled`) were migrated once per room and stay readable for one release.
 - Before v5.103.24 the HVAC tier read neither toggle. That is how a guest's fan (Guest Bedroom 2, 2026-09-28) was switched on at sleep onset.
 - **Fan-noise Rev 2 C1a (built 2026-10-11, `fix/fan-noise-running-rejection`, **SHIPPED v5.103.51**):** `FanController.restore_after_recheck(room, snapshot, leave_off=False)`. The presence recheck passes `leave_off=True` on a non-forced VACATED verdict: every restore discharge still runs (suppress-until cleared, room-tier `note_recheck_restore(False)`, Fan Mode Off skip) and the existing AWAY-veto skip branch clears `is_on` / `speed_pct` / `trigger` / `last_on_time`, so the next `update()` does not book the paused fan as "turned off externally" (no fake 1 h `manual_off_cooldown`). A live manual-ON hold at restore wins: the fan is restored ON and `manual_on_hold_paused_at` is cleared WITHOUT extending the hold end. All other exits (occupied_confirmed, forced, cancel) restore ON as before. Plan `docs/planning/PLANNING_fan_noise_running_rejection.md` Rev 2.

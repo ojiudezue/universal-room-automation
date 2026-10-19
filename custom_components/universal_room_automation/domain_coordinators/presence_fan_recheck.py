@@ -74,7 +74,7 @@ from ..const import (
     ROOM_TYPE_RECHECK_FACTOR,
     STATE_RADAR_SOLE_TICK,
 )
-from ..const import fan_owner
+from ..const import fan_owner, room_automation_paused
 from ._ble_corroboration import trustworthy_persons_in_room
 from .house_state import HouseState
 from .hvac_const import FAN_TRUST_STATES
@@ -549,6 +549,11 @@ class FanRecheckManager:
         # is never paused — the same rule for HVAC- and room-owned rooms.
         if fan_owner(merged) is None:
             return sink.veto(room_name, "fan_control_off")
+        # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F2): a paused room (Automation
+        # switch off / Manual Mode on) never arms. A recheck already PAUSED
+        # is not cut short — its restore is a discharge and must run.
+        if room_automation_paused(room_coord):
+            return sink.veto(room_name, "room_paused")
 
         # Sleep-scoped veto (FAN-RECHECK-SLEEP-VETO-SCOPE-1, folded in
         # 2026-08-19): previously an unconditional ``house_state ==
@@ -1221,6 +1226,10 @@ class FanRecheckManager:
             return False
         # HVAC Batch D: same owner rule as `_evaluate_eligibility`.
         if fan_owner(merged) is None:
+            return False
+        # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 (F2): an ARMED room paused during
+        # the arm delay disarms here (same rule as `_evaluate_eligibility`).
+        if room_automation_paused(room_coord):
             return False
         # Sleep-scoped abort (FAN-RECHECK-SLEEP-VETO-SCOPE-1 fold-in,
         # 2026-08-19): mirrors ``_evaluate_eligibility`` — bedroom rooms

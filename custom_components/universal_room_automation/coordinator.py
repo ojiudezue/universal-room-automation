@@ -581,7 +581,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._cached_predictions: dict = {}
 
         # Exit verify tracking (for automation health sensor)
-        self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
+        self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "skipped_paused" / "retried" / "confirmed" / "retry_failed"
         self._last_exit_verify_time: datetime | None = None
         
         # Use _get_config for timeout (will work after __init__ completes)
@@ -5731,6 +5731,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if self.data and self.data.get(STATE_OCCUPIED):
             _LOGGER.debug("Room %s: Re-occupied during exit verify delay — skipping retry", room_name)
             self._last_exit_verify_result = "skipped_reoccupied"
+            return
+        # ROOM-OVERRIDE-SWITCH-FORGOTTEN-1: the room was paused (Automation
+        # switch off / Manual Mode on) during the 3 s delay — a paused room
+        # never has its lights turned off by automation.
+        if not self._is_automation_enabled():
+            _LOGGER.debug("Room %s: Paused during exit verify delay — skipping retry", room_name)
+            self._last_exit_verify_result = "skipped_paused"
             return
         area_id = self._get_config(CONF_AREA_ID)
         if not area_id:

@@ -203,6 +203,7 @@ The builder MUST re-run the three commands above before the build; any new fan o
 - No unpause catch-up (§5, parked). No turn-off of fans URA lit before the pause.
 - No forgotten-pause reminder (separate optional item on the card).
 - No new knob, no new switch, no DB/schema change, no new activity-log action. INFO/DEBUG lines and the `room_paused` veto counter are enough.
+- **CLOSED in the build (operator 2026-10-19, ambiguity #1):** `_delayed_exit_verify` now re-reads `_is_automation_enabled()` after its 3 s delay and skips the retry (`skipped_paused`); test `test_delayed_exit_verify_skips_retry_when_paused`. The text below is the superseded plan position.
 - **Accepted residual (row 12):** `_delayed_exit_verify` retries an exit 3 s after a gated tick without re-reading the switch. Reachable only if the operator pauses the room within 3 s of a real exit edge whose lights did not go off; a retry then is the same exit the room tier was already executing. Not gated; revisit only if observed.
 - Guest Bedroom 2 10-16 unattributed OFF: not investigated here (audit §5).
 

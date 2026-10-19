@@ -1,6 +1,7 @@
 # PRESENCE — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` as of 2026-10-11; the live house is on v5.103.50.
+**Paused rooms (built 2026-10-19, `fix/paused-room-lights-fans`, NOT deployed — ROOM-OVERRIDE-SWITCH-FORGOTTEN-1):** the room Automation switch / Manual Mode now also stop HVAC-tier and fan-recheck occupancy lights/fans; see §4.5 and §6 item 3.
 **Fan-noise running rejection Rev 2 (built 2026-10-11, `fix/fan-noise-running-rejection`, NOT deployed — Tier 2-DB):** C1a recheck VACATED leaves the fan off; C2 fan-immune witness by capability + model safety net (name regex retired); C3 fan belief held through unavailable flaps + reconciler quarantine veto; C4 cooldown 900 + per-family window + rehydrate fixes; C5 transition gate retired (0.0). See §5, §6, §10 item 8, gold patterns. Code at the cited lines wins once merged
 (`person_coordinator.py:3` header). Builders / planners / reviewers of ANY presence-adjacent
 work (BLE, mmWave, PIR, fan interference, occupancy debounce, house-state inference, census,
@@ -292,6 +293,7 @@ on suppression (HIGH-B1 fix, `coordinator.py:3628-3634`).
 
 - `switch.<room>_automation` — master automation enable.
 - `switch.<room>_manual_mode` — v3.20.0 ManualMode: ON disables ALL room automation.
+- **Paused rooms (ROOM-OVERRIDE-SWITCH-FORGOTTEN-1, built 2026-10-19 on `fix/paused-room-lights-fans`, NOT deployed):** the Automation switch (and Manual Mode ON, which counts as paused — `coordinator._is_automation_enabled`) now also gate the HVAC zone vacancy sweep (lights, night lights, fans), HVAC comfort fans (`FanController.update`, level release of tracking, no write), HVAC sleep-onset fan ON, pre-arrival fans ON and OFF, and the fan-recheck arm (veto `room_paused` in `_evaluate_eligibility` + `_still_armed_eligible`). One predicate: `const.room_automation_paused(room_coord)` (fail-open: no coordinator / no method / exception → not paused). The room-tier `_delayed_exit_verify` retry re-reads the switch after its 3 s delay (`skipped_paused`). NOT gated: the recheck restore discharge, the smoke/CO safety stop, `turn_off_all_managed`; covers, AI / house-state rules and humidity venting are unchanged by ruling (operator 2026-10-18: "Blinds down, house state, venting are fine"). Fans URA lit before the pause stay on until unpause; the zone sweep does not catch up after an unpause (plan §5).
 - `switch.<room>_cover_automation`, `switch.<room>_ai_automation`,
   `switch.<room>_override_occupied`, `switch.<room>_override_vacant`,
   `switch.<room>_auto_recovery` (consumed by `actuator_reconciler.py:1199`).
@@ -394,6 +396,15 @@ Three complementary mechanisms exist; **each covers a different direction**:
    `ble_persons` (exact resolved-location match) — do not "align" them. A bedroom/media
    room ARMED or PAUSED when the house enters home_night/sleep/waking is cancelled as
    OCCUPIED_CONFIRMED (fan restored ON, reason `sleep_state`; review B-1).
+   **Paused rooms (branch `fix/paused-room-lights-fans`, NOT deployed):** a room whose
+   Automation switch is off (or Manual Mode on) is vetoed `room_paused` right after
+   `fan_control_off`, and an ARMED room disarms in `_still_armed_eligible`. A recheck already
+   PAUSED is not cut short — its restore is a discharge and still runs. **D2 backstop
+   (operator-accepted 2026-10-19):** `is_recheck_eligible` reads the same ladder, so a paused
+   room is recheck-ineligible and the D2 defer (`coordinator.py` FAN-RECHECK-D2-DEADLOCK-1
+   block) no longer defers; a paused radar-sole room with a running fan can be demoted to vacant
+   by D2 (same as Fan-Mode-Off rooms), which feeds `hvac_occupied`. Pinned by
+   `test_mmwave_fan_demotion.py::test_paused_room_d2_backstop_not_deferred`.
 4. **Comfort-fan house-AWAY veto** — `fan_veto.py:1-80+`. ONE predicate consumed by all
    three comfort-fan actuation sites (room-tier `automation.py::handle_temperature_based_fan_control`,
    HVAC `hvac_fans.HvacFanController.update`, reconciler `actuator_reconciler._resolve_fan`).
