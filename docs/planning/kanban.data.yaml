@@ -9,6 +9,7 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "HOUSE-STATE-SENSOR-ATTR-CHURN-1@2026-10-19T02:15", "card_id": "HOUSE-STATE-SENSOR-ATTR-CHURN-1", "at": "2026-10-19T02:15:00", "outcome": "built", "headline": "Built to review: house-state sensor stops recording 5 churny attributes (~9.5 MB/day of recorder blobs). Review SHIP; scoped tests green; full suite still owed at deploy. Not deployed.", "acknowledged": false}
   - {"fid": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1@2026-10-19T02:14", "card_id": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Soak exit: radar-room fan rejection (v5.103.53/.54) cannot be judged - Guest 1/2 and Media fans barely ran since 10-12. Parked with a fan-season revival trigger (2 cards).", "acknowledged": false}
   - {"fid": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1@2026-10-19T02:14", "card_id": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1", "at": "2026-10-19T02:14:00", "outcome": "done", "headline": "Last Person Entry late name: moot - no code ever names an entry row after insert (exit-only backfill). Closed; entry-side backfill noted as a future trigger.", "acknowledged": false}
   - {"fid": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1@2026-10-19T02:14", "card_id": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Joint departure on one exit row: 3 of 107 rows in 14 days, named person did leave. Parked until a consumer acts on exit identity.", "acknowledged": false}
@@ -32369,21 +32370,22 @@ cards:
   arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
-  status: "in_progress"
+  status: "review"
   tier: 1
   created: "2026-10-18"
   refinement_status: initial
   origin: "Rev 3 plan review R2 M2 + small-cycle plan"
   sibling_of: HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-  next: "Overnight 10-19: ura-builder in a worktree -> one Tier-1 review -> validator -> review lane. No deploy overnight."
-  updated: "2026-10-19 02:06"
+  next: "Attended deploy: merge fix/house-state-attr-unrecorded to develop, run the full-suite name-diff (owed), deploy with the next batch (Tier 1, LOW risk), then the 1-2 h one-shot recorder check -> Validated table."
+  updated: "2026-10-19 02:15"
   measured_2026_10_19_overnight: "Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_seconds 2,869 (every poll), zones 678, signal_consensus_inputs 666, fan_interference_active 184, signal_consensus 67, signal_consensus_band 64, veto_path 60, census_count 34, the rest <=31. HA recorder (core.py:1088, verified in .venv-ha) still writes one states row per state_changed event but DEDUPES attribute blobs by content, so unrecording the churny keys cuts the blob storage (the 3.3 KB part), not the row count. Plan: _unrecorded_attributes = dwell_seconds (derivable from state_since), zones, signal_consensus_inputs, signal_consensus, signal_consensus_band (both already their own recorded sensor) after a consumer check; keep the low-churn diagnostics (veto_path, last_veto_decision, away branch, census_count, boot_settle_*)."
   parsimony: {"problem": "One presence sensor writes ~2,869 distinct 3.3 KB attribute blobs a day because a per-poll counter and three high-churn diagnostics are recorded.", "verdict": "BUILD"}
+  built_2026_10_19_overnight: "BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, signal_consensus, signal_consensus_band, signal_consensus_inputs; consumer check found no recorder-history reader (inputs/band stay recorded on sensor.ura_presence_coordinator_signal_consensus_confidence - verified live). Tier-1 review (framing A): SHIP, 2 LOW fixed (docs/reviews/code-review/v5.103.75_house_state_attr_churn.md). Mutation drill red both ways. Tests: scoped name-set green - 376 passed (house_state/presence/recorder files) + 337 passed (every test referencing the sensor or _unrecorded_attributes), 0 failed. GAP (stated): the FULL suite was not completed - the validator's full run stalled ~60% with no names, so the pre-deploy full-suite name-diff is still owed at the attended deploy. README draft docs/readmes/README_v5.103.75.md (renumber at deploy). Live: 1-2 h after restart, distinct attribute blobs/hour for the sensor << 20 while rows/hour stay ~120."
 - id: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1
   arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
-  status: planned
+  status: "in_progress"
   tier: 2
   created: "2026-10-18"
   refinement_status: refined
@@ -32391,8 +32393,8 @@ cards:
   sibling_of: EC-SELFHEAL-UNEXPLAINED-RESENDS-1
   origin: "Operator 2026-10-18: 'We can also calculate the bill from the tou rate and the energy draws... maybe 2 can be done simpler? We have a db... Card but add to current arc. I want it done.' Evidence: docs/planning/AUDIT_smarthub_bill_actual_2026_10_18.md (bcd227d63)."
   operator_instruction_2026_10_18: "Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done."
-  next: "Me: fold H1/M1/M2/L1-L3 into the plan, then build to review (Tier 2 + standing 3-framing review since it touches the EC decision cycle)."
-  updated: "2026-10-19 02:13"
+  next: "Overnight 10-19: ura-builder in a worktree on plan Rev 2 -> 3 framing-disjoint reviews -> review lane. No deploy."
+  updated: "2026-10-19 02:15"
   plan_2026_10_19_overnight: "Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once a day ~16-17 UTC, so the newest hour is 13-38 h old (card's ~16 h is best case -> stale threshold 48 h). Summed over PEC read-day windows the hourly import is within ~1% of three real bills (-0.7%, +1.1%, +0.3%). Last full cycle 08-23..09-22: SmartHub 3669.4 kWh / $295.13 vs EC energy_daily 3428.4 kWh / $199.40. Design: off by default (two options fields hold the stat ids), hourly read via the recorder executor, priced with energy_billing.py TOU functions, compared with get_energy_daily_for_cycle over the same local dates, divergence kWh + $ for current + last cycle on the predicted-bill sensor; no overlap -> no divergence published. Only readers: sensor attrs + ura_v6 dashboard card."
   finding_2026_10_19_ec_history: "Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC history, not the utility. Three bad EC days: 10-12 import ~42 kWh high; 10-15 and 10-16 export ~2x SmartHub's."
   operator_questions_2026_10_19: "(1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?"

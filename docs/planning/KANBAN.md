@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:14:27-05:00_ - _Data commit: `2f3d73253cc1`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:14:41-05:00_ - _Data commit: `aebe0e496ae9`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -12,9 +12,9 @@ _Generated: 2026-10-19T02:14:27-05:00_ - _Data commit: `2f3d73253cc1`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 14 |
+| 📝 Planned | 13 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 24 |
@@ -242,7 +242,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (14)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
@@ -370,21 +370,7 @@ _updated 2026-10-18 02:02_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
 
-### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **planned**
-_created 2026-10-18 · updated 2026-10-19 02:13 · refined_
-- **Next:** Me: fold H1/M1/M2/L1-L3 into the plan, then build to review (Tier 2 + standing 3-framing review since it touches the EC decision cycle).
-- **Forensic keys (8):**
-  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
-  - `tier`: 2
-  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
-  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
-  - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
-  - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
-  - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
-  - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
-
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -401,7 +387,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#11 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -421,7 +407,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#12 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -455,7 +441,7 @@ _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#13 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#12 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
 - **Problem / Solution:**
@@ -468,7 +454,7 @@ _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
   - `planned_2026_10_18_overnight`: Plan written: docs/planning/PLANNING_db_retention_365d.md (c25a37849). Measured (live DB 02:10, read-only): file 1.45 GB, growing ~5.5 MB/day; the four tables are ~1.12 GB (78%). ZERO rows are older than 365 d today: first rows age out 2...
   - `plan_reviewed_2026_10_18_overnight`: Adversarial plan review: READY-TO-BUILD (b33b2a66f). Fixed in plan: PR-1 HIGH cutoff must use the UTC date for the three UTC-stored tables and the local date for room_transitions (local-date cutoff deletes <365 d rows east of UTC; Sydney...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -486,20 +472,33 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 ## 🔨 In progress (1)
 _being built_
 
+### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **in_progress**
+_created 2026-10-18 · updated 2026-10-19 02:15 · refined_
+- **Next:** Overnight 10-19: ura-builder in a worktree on plan Rev 2 -> 3 framing-disjoint reviews -> review lane. No deploy.
+- **Forensic keys (8):**
+  - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
+  - `tier`: 2
+  - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
+  - `operator_instruction_2026_10_18`: Do 1 (clear the broken energy_utility_meter_entity) and 2 (real comparison), simpler path via the DB; in the current arc; I want it done.
+  - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
+  - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
+  - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
+  - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
+
+## 🔍 Review (1)
+_under review_
+
 ### `HOUSE-STATE-SENSOR-ATTR-CHURN-1` - The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **in_progress**
-_created 2026-10-18 · updated 2026-10-19 02:06 · initial_
-- **Next:** Overnight 10-19: ura-builder in a worktree -> one Tier-1 review -> validator -> review lane. No deploy overnight.
+thread: **presence** - status: **review**
+_created 2026-10-18 · updated 2026-10-19 02:15 · initial_
+- **Next:** Attended deploy: merge fix/house-state-attr-unrecorded to develop, run the full-suite name-diff (owed), deploy with the next batch (Tier 1, LOW risk), then the 1-2 h one-shot recorder check -> Validated table.
 - **Parsimony:** [BUILD] One presence sensor writes ~2,869 distinct 3.3 KB attribute blobs a day because a per-poll counter and three high-churn diagnostics are recorded.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `arc_cut_v5_103_72`: recorder hygiene, independent of the inference fix, next small cycle
   - `tier`: 1
   - `measured_2026_10_19_overnight`: Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
+  - `built_2026_10_19_overnight`: BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, ...
 
 ## ⏸️ Waiting on operator (30)
 _needs a human call — groomed first_
