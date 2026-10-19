@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:14:41-05:00_ - _Data commit: `aebe0e496ae9`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:15:49-05:00_ - _Data commit: `27372f81c40d`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-10-19T02:14:41-05:00_ - _Data commit: `aebe0e496ae9`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 13 |
+| 📝 Planned | 14 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 30 |
@@ -242,10 +242,24 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (13)
+## 📝 Planned (14)
 _has plan / acceptance_
 
-### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
+### `DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1` - The v8 dashboard's People table errors because Ziri has no BLE tracker ('No first item, sequence was empty') — _#1 · WSJF 8.0 · v3 tc3 u2 /e1_
+thread: **dashboard** - status: **planned** - approval: **implied**
+_created 2026-10-19 02:17 · initial_
+- **Problem / Solution:**
+  - Problem: the People table on the v8 dashboard is built from one template that looks up each person's BLE tracker; Ziri has none, so the template throws an error (seen 3 times overnight) instead of showing a dash. Solution: make the looku...
+- **Origin:** 2026-10-19 - Overnight pass log read (ha_get_logs system): helpers.event TemplateError UndefinedError No first item, sequence was empty, x3 10-19 00:21-00:29 CDT, in the Who/Person/GPS tracker/BLE tracker/BLE seen/Agree table.
+- **Why:** Found mid-pass (capture-first). person.ziri has device_trackers with no bermuda tracker (.storage/person); the template does `trk | select('search','bermuda') | first`, which raises on an empty sequence. Lives in .storage/lovelace.ura_v8...
+- **Next:** Me, attended session: apply the one-line template fix to lovelace.ura_v8 (not done overnight - live dashboard write).
+- **Parsimony:** [BUILD (one-line, config-only)] One person without a BLE tracker breaks the whole People table template.
+- **Forensic keys (3):**
+  - `tier`: 1
+  - `adjacency`: Swept: DASHBOARD-V8-FIX-BATCH-1 (done, parent batch that built the People tab) -> ADJACENT, new card linked; no open dashboard card covers it; BACKLOG/plans not relevant.
+  - `fix`: In lovelace.ura_v8 People table template: `{%- set bt = (trk | select('search','bermuda') | list + [none]) | first -%}` (rest of the row already guards `if bt`). Apply via ha_config_set_dashboard in an attended session; check the card re...
+
+### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#2 · WSJF 4.3 · v7 tc4 u2 /e3_
 status: **planned** - approval: **explicit**
 _updated 2026-10-18 02:02 · refined_
 - **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
@@ -257,7 +271,7 @@ _updated 2026-10-18 02:02 · refined_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `unblocked_2026_10_18_overnight`: Dependency cleared: SAFETY-NM-REFIRE-UNWIRED-1 merged and shipped (feature/safety-nm-refire 0 ahead of develop; in v5.103.69).
 
-### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#2 · WSJF 4.3 · v7 tc4 u2 /e3_
+### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#3 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **planned** - approval: **unreviewed**
 _created 2026-09-23 03:10 · updated 2026-10-18 02:02 · refined_
 - **Problem / Solution:**
@@ -277,7 +291,7 @@ _created 2026-09-23 03:10 · updated 2026-10-18 02:02 · refined_
   - `input_health_2026_09_27`: INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA...
   - `measured_2026_09_23`: FIRST MEASUREMENT, which is what created this card. Ten days of recorder history for sensor.universal_room_automation_energy_coverage_delta, grouped by local hour, all samples rated Anomalous. Three clean episodes: 2026-09-21 14:00-23:00...
 
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#3 · WSJF 4.0 · v9 tc9 u2 /e5_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#4 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **planned** - approval: **implied**
 _created 2026-09-17 02:20 · updated 2026-10-18 02:02 · refined_
 - **Problem / Solution:**
@@ -302,7 +316,7 @@ _created 2026-09-17 02:20 · updated 2026-10-18 02:02 · refined_
   - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
   - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
 
-### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#4 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#5 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **planned**
 _created 2026-10-05 · updated 2026-10-18 02:02_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
@@ -317,7 +331,7 @@ _created 2026-10-05 · updated 2026-10-18 02:02_
   - `wigton_log_2026_10_05`: WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; remov...
   - `sweep_2026_10_05`: ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.
 
-### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#5 · WSJF 3.4 · v8 tc5 u4 /e5_
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#6 · WSJF 3.4 · v8 tc5 u4 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
 _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
 - **Problem / Solution:**
@@ -336,7 +350,7 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `REFUTED_2026_09_21`: THE CARD'S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python 3.13 such that 10,560 of 10,588 tests ERROR out, and tha...
 
-### `PERSON-GPS-ANY-HOME-WINS-1` - Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERSON-GPS-ANY-HOME-WINS-1` - Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned**
 _created 2026-10-18 · refined_
 - **Next:** Plan: freshest-GPS-wins (not any-home-wins, which lets a left-at-home iPad hold a person home forever); verify against Wigton's 6-tracker person; Tier 2 reviews.
@@ -344,7 +358,7 @@ _created 2026-10-18 · refined_
   - `arc_cut_v5_103_72`: separate producer fix in person_coordinator, own cycle
   - `tier`: 2
 
-### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WIGTON-URA-REENABLE-1` - Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **wigton** - status: **planned**
 _created 2026-10-10 16:00_
 - **Why:** URA disabled at Wigton 2026-10-10 ~14:10 UTC (lights on motion with automation OFF, bulk-create detritus, flickery mmWave fleet, unexplained local stalls).
@@ -354,7 +368,7 @@ _created 2026-10-10 16:00_
   - `applied_2026_10_17`: Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Be...
   - `tier`: 1
 
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 status: **planned** - approval: **explicit**
 _updated 2026-10-18 02:02_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
@@ -370,7 +384,7 @@ _updated 2026-10-18 02:02_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -387,7 +401,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#11 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -407,7 +421,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#12 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -441,7 +455,7 @@ _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#12 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#13 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
 - **Problem / Solution:**
@@ -454,7 +468,7 @@ _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
   - `planned_2026_10_18_overnight`: Plan written: docs/planning/PLANNING_db_retention_365d.md (c25a37849). Measured (live DB 02:10, read-only): file 1.45 GB, growing ~5.5 MB/day; the four tables are ~1.12 GB (78%). ZERO rows are older than 365 d today: first rows age out 2...
   - `plan_reviewed_2026_10_18_overnight`: Adversarial plan review: READY-TO-BUILD (b33b2a66f). Fixed in plan: PR-1 HIGH cutoff must use the UTC date for the three UTC-stored tables and the local date for room_transitions (local-date cutoff deletes <365 d rows east of UTC; Sydney...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -884,7 +898,7 @@ _created 2026-09-27 02:50 · updated 2026-10-18 02:10 · refined ×2_
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#20 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-26 11:00 · updated 2026-10-14 03:56 · refined ×1_
+_created 2026-08-26 11:00 · updated 2026-10-19 02:16 · refined ×1_
 - **Problem / Solution:**
   - Problem: a message URA sends me shows up TWICE in my iMessage — once when it is sent (my Mac sending as me) and once when it arrives (my phone/Mac receiving as me), so every URA alert reads as a duplicate. Solution to VERIFY (do NOT asse...
 - **Origin:** 2026-08-26 - operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes
@@ -892,7 +906,7 @@ _created 2026-08-26 11:00 · updated 2026-10-14 03:56 · refined ×1_
 - **Next:** DO (after the trip, back Sun 10-18): create the house Apple ID; save it as contact 'House' on your iPhone and reply once (Filter Unknown Senders); sign Messages on the Mac mini into it; exchange a few messages -> I check NM's person-hand...
 - **Tags:** nm, no-fabrication-verify
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; ~/Code/bluebubbles-integration-guide.md
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `operator_answer_2026_10_14b`: BlueBubbles server runs on Oji's Mac mini (Macmini9,1, the always-on box; verified process /Applications/BlueBubbles.app running 04:2x). So option (2) — a dedicated house Apple ID in Messages on the Mac mini — costs only the operator's i...
   - `reply_2026_10_14b`: Two levels: (1) separate THREAD only — create a group chat in Messages with you + at least one other handle, name it 'House'; I pin its chat_guid as the NM target. Alerts still show as sent by you, but in their own thread. (2) a genuinel...
   - `operator_answer_2026_10_14`: No separate chat exists; alerts arrive as texts to me FROM me, which is awkward. Asked how to create a separate chat.
@@ -904,6 +918,7 @@ _created 2026-08-26 11:00 · updated 2026-10-14 03:56 · refined ×1_
   - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
   - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
+  - `INSTANCE_2026_10_19_overnight_send_failures`: system_log (ha_get_logs source=system, 02:2x CDT): notification_manager.py:2305 'iMessage send via BlueBubbles failed: ' (empty error text) x11, first 10-18 22:19:21, last 10-18 23:54:52 CDT. The iMessage channel is failing at transport ...
 
 ### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#21 · WSJF 3.0 · v5 tc2 u2 /e3_
 thread: **dashboarding** - status: **waiting_operator**
@@ -1232,20 +1247,21 @@ _created 2026-10-17 15:10 · initial_
 
 ### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#9 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-10-14 02:35 · updated 2026-10-16 02:07 · initial_
+_created 2026-10-14 02:35 · updated 2026-10-19 02:16 · initial_
 - **Problem / Solution:**
   - Problem: when a zone switches preset (e.g. Sleep to Away), the Carrier cloud keeps showing the OLD preset range on the thermostat for about 7 minutes. The Custom Preset Ranges pass runs 5 minutes later, sees the wrong numbers, concludes ...
 - **Origin:** 2026-10-14 - overnight pass mid-turn find while disposing HVAC-CUSTOM-PRESET-RANGES-1
 - **Why:** Small: no comfort or cost impact observed; the range held. Worth fixing because it doubles as a false drift signal and gets more frequent if CPR rolls out to zones 1 and 2.
-- **Next:** Me, after the next daytime HA restart loads v5.103.62+: check README_v5.103.62 live criteria (zone_3 ranges skipped_already_correct; no S10 write within 600 s of a zone_3 preset change; 0 URA ERRORs), write the Validated table, then done...
+- **Next:** Me (next overnight or attended): after one daytime zone_3 preset change, read climate_write rows for a write within 600 s of it + home status -> write README_v5.103.62 Validated table -> done or reopen.
 - **Tags:** tier-2, hvac, found-during-probe, no-fabrication-verify
 - **Parsimony:** [SIMPLIFY] S10 re-writes a correct preset range when it reads Carrier attributes within ~7 min of a preset change
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/hvac.py (_s10_zone_skip_reason ~4364, _s10_pass ~4439)
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `groomed_2026_10_16_overnight`: Lane fix: the card sat in review with a pre-build next although v5.103.62 is deployed. Verified 2026-10-16 02:07 CDT: HA has the v5.103.64 files installed (manifest), but the last HA start was 2026-10-15 12:45 CDT (recorder_runs), before...
   - `shipped_2026_10_15`: v5.103.62 deployed (PR #633) + HACS-installed 19:15 CDT; NOT active until the next restart (one daytime restart 10-16, today already used at 12:44). Full-suite name-diff CLEAN. Live validation per README after restart.
   - `update_2026_10_15`: CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant ...
   - `evidence_2026_10_14`: zone 3: S1 set preset sleep->away at 05:43:52Z (00:43:52 CDT). Recorder: target_temp_low/high stayed 70/77 (the sleep/home range) until 00:50:54 CDT, then 62/80. S10 ran at 00:48:52 CDT, read away=70/77, and issued set_activity_setpoint ...
+  - `organic_check_2026_10_19_overnight`: PARTIAL (live, 02:2x CDT; HA running v5.103.72, so .62 is loaded). sensor.ura_hvac_coordinator_active_preset_overrides preset_range_by_zone.zone_3: away 62-80 skipped_already_correct, sleep 70-77 skipped_already_correct, home 70-77 statu...
 
 ### `HUMIDITY-FAN-ON-RESEND-SPAM-1` - The bathroom humidity fan gets told to turn on every few seconds (up to 650 times an hour) while it is already on — _#10 · WSJF 2.2 · v5 tc4 u2 /e5_
 thread: **fans** - status: **shipped_organic** - approval: **unreviewed**

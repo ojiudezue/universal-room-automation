@@ -25,6 +25,24 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1
+  title: "The v8 dashboard's People table errors because Ziri has no BLE tracker ('No first item, sequence was empty')"
+  thread: "dashboard"
+  status: "planned"
+  tier: 1
+  created: "2026-10-19 02:17"
+  updated: "2026-10-19 02:17"
+  refinement_status: "initial"
+  approval: "implied"
+  problem_solution: ["Problem: the People table on the v8 dashboard is built from one template that looks up each person's BLE tracker; Ziri has none, so the template throws an error (seen 3 times overnight) instead of showing a dash. Solution: make the lookup tolerate a missing tracker (take the first match or nothing) so Ziri's row renders with a dash."]
+  origin: {"date": "2026-10-19", "gist": "Overnight pass log read (ha_get_logs system): helpers.event TemplateError UndefinedError No first item, sequence was empty, x3 10-19 00:21-00:29 CDT, in the Who/Person/GPS tracker/BLE tracker/BLE seen/Agree table."}
+  why: "Found mid-pass (capture-first). person.ziri has device_trackers with no bermuda tracker (.storage/person); the template does `trk | select('search','bermuda') | first`, which raises on an empty sequence. Lives in .storage/lovelace.ura_v8 (HA config, not URA code)."
+  adjacency: "Swept: DASHBOARD-V8-FIX-BATCH-1 (done, parent batch that built the People tab) -> ADJACENT, new card linked; no open dashboard card covers it; BACKLOG/plans not relevant."
+  fix: "In lovelace.ura_v8 People table template: `{%- set bt = (trk | select('search','bermuda') | list + [none]) | first -%}` (rest of the row already guards `if bt`). Apply via ha_config_set_dashboard in an attended session; check the card renders 4 rows."
+  parsimony: {"problem": "One person without a BLE tracker breaks the whole People table template.", "verdict": "BUILD (one-line, config-only)"}
+  rank: {"value": 3, "time_criticality": 3, "effort": 1}
+  links: {"parent": "DASHBOARD-V8-FIX-BATCH-1", "context": "DASHBOARD-V8-FIX-BATCH-1 built the v8 People tab this template belongs to."}
+  next: "Me, attended session: apply the one-line template fix to lovelace.ura_v8 (not done overnight - live dashboard write)."
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
   status: shipped_organic
@@ -7978,7 +7996,7 @@ cards:
   status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: "2026-10-14 03:56"
+  updated: "2026-10-19 02:16"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -8035,6 +8053,7 @@ cards:
     addition, and it is only worth adding if hypothesis (b) survives. DO (a) FIRST: it is free and it
     may close the card outright. NOTE this does NOT reproduce the symptom — reproduction needs a live
     send, which is not something to do unattended at 3am into someone messages.'
+  INSTANCE_2026_10_19_overnight_send_failures: "system_log (ha_get_logs source=system, 02:2x CDT): notification_manager.py:2305 'iMessage send via BlueBubbles failed: ' (empty error text) x11, first 10-18 22:19:21, last 10-18 23:54:52 CDT. The iMessage channel is failing at transport level tonight; other channels not checked here. Relevant to this card's house-Apple-ID setup (Messages on the Mac mini) and worth one look at the BlueBubbles server when you are back."
 - id: EVSE-SOLAR-IDLE-DERESERVE-1
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
@@ -30840,7 +30859,7 @@ cards:
   shipped_version: v5.103.62
   update_2026_10_15: "CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant set_activity_setpoint per preset change per zone. Fix = REUSE _zone_last_s1_write (hvac.py:631, 3929-3933) + new rung-1 S10_POST_PRESET_CHANGE_COOLDOWN_S (=120 s, SUPPRESS_TTL_SECONDS_PRESET) skip step. Tier 2. Plan docs/planning/PLANNING_hvac_s10_stale_range.md. State-of-play doc corrected (C37: CPR is LIVE on zone_3, not dormant; \u00a78 row; \u00a79.9 renumber; S10 row residual). Next: one plan review, then build."
   created: '2026-10-14 02:35'
-  updated: "2026-10-16 02:07"
+  updated: "2026-10-19 02:16"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-2, hvac, found-during-probe, no-fabrication-verify]
@@ -30854,13 +30873,14 @@ cards:
   - "HVAC: read docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md COMPLETELY before planning; update it in the same commit."
   - "Numbers get knobs: settle window as a module constant (hvac_const.py), not an inline literal."
   parsimony: {problem: "S10 re-writes a correct preset range when it reads Carrier attributes within ~7 min of a preset change", verdict: SIMPLIFY}
-  next: "Me, after the next daytime HA restart loads v5.103.62+: check README_v5.103.62 live criteria (zone_3 ranges skipped_already_correct; no S10 write within 600 s of a zone_3 preset change; 0 URA ERRORs), write the Validated table, then done or reopen."
+  next: "Me (next overnight or attended): after one daytime zone_3 preset change, read climate_write rows for a write within 600 s of it + home status -> write README_v5.103.62 Validated table -> done or reopen."
   links:
     parent: HVAC-CUSTOM-PRESET-RANGES-1
     related: [HVAC-S10-DPM-VS-S1-1]
     context: "Residual of the CPR organic disposition (parent closed done 10-14). HVAC-S10-DPM-VS-S1-1 is the other S10 interaction blocker (S10 vs S1 fighting each tick), a different defect on the same pass."
   refs:
   - custom_components/universal_room_automation/domain_coordinators/hvac.py (_s10_zone_skip_reason ~4364, _s10_pass ~4439)
+  organic_check_2026_10_19_overnight: "PARTIAL (live, 02:2x CDT; HA running v5.103.72, so .62 is loaded). sensor.ura_hvac_coordinator_active_preset_overrides preset_range_by_zone.zone_3: away 62-80 skipped_already_correct, sleep 70-77 skipped_already_correct, home 70-77 status null (not evaluated since the 10-18 20:38 restart - house has not been in home preset for zone_3 since), writes 0 / failures 0 on all three; s10_settle_held_s.zone_3 = None. So: no re-writes since restart (criterion 2 direction holds) but only ~6 h of window and no observed zone_3 preset change yet. URA ERRORs since restart: none from HVAC; the only URA ERROR is NM BlueBubbles send failures (unrelated, carded on NM-BB-CHATGUID-SELFSEND-1)."
 - id: HVAC-CUSTOM-PRESET-RANGES-1
   disposition_2026_10_14: "done: CPR on in zone 3 holds custom ranges with no write storm. Residual (one spurious re-write after a preset change) -> HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1."
   organic_evidence_2026_10_14: "Measured 2026-10-14 02:30 CDT (URA DB ura_activity_log climate_write rows + recorder attributes of climate.back_hallway_zone_3). CPR switch ON since 10-13 06:37 CDT, rollout = zone 3 only. S10_preset_range writes: 3 in 19.5 h. 11:38Z home 70/78 -> 70/77 and 12:14Z away 66/80 -> 62/80 were genuine first applies over Carrier defaults; 05:48Z (00:48 CDT) was a spurious re-write (see HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1) that the thermostat rejected (wire_ok false), and it did no harm. Zone 3 HOLDS its custom ranges: away read 62/80 every time the cloud refreshed (00:50, 01:21, 02:02 CDT), and home is 70/77. No write storm: zone 3 S1 writes were 59 in the 19.5 h ON window vs 40 in the 19.5 h before, and the 7-day daily range is 32-54/day; the max is 7/h, well under the 12/h/zone storm the blocker described. No S10-vs-S1 fight (3 S10 writes total). No HVAC NM pages from S10."
