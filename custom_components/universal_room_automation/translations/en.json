@@ -1028,6 +1028,8 @@
           "energy_evse_charge_onset_time": "EV Charge Onset Time (overnight)",
           "energy_evse_charge_onset_enabled": "Enable EV Charge Onset Gate",
           "energy_utility_meter_entity": "Utility Company Meter (monthly kWh)",
+          "energy_utility_import_statistic_id": "Utility import statistic",
+          "energy_utility_export_statistic_id": "Utility export statistic",
           "occupancy_weighted_energy": "Occupancy-Weighted Prediction",
           "energy_circuit_extra_entities": "Additional Circuit Sensors",
           "energy_circuit_exclude_entities": "Excluded Circuit Sensors",
@@ -1113,6 +1115,8 @@
           "energy_evse_charge_onset_time": "HH:MM when the overnight drain-release gate opens. When the EVSE is drain-paused (battery at reserve), URA holds the release until this local time (default 01:00, deep off-peak). Daytime solar releases (battery refilled) are NEVER gated. Blank = feature off (release immediately). Also settable live via the time entity.",
           "energy_evse_charge_onset_enabled": "Master enable for the overnight EV Charge Onset gate (Rev 6). When OFF, the gate is byte-identical to baseline (no overnight hold; EV releases immediately at reserve). When ON, the overnight leg holds until the onset time above, subject to the 8h bounded window and the 03:00 must-start-by backstop. Also mirrored by switch.ura_ev_charge_onset_enabled.",
           "energy_utility_meter_entity": "Utility company net energy meter. Used for bill prediction calibration and divergence tracking against the solar gateway's consumption reading.",
+          "energy_utility_import_statistic_id": "Long-term statistic id from your utility integration, e.g. smarthub:smarthub_energy_sensor_... Leave blank to turn the bill check off.",
+          "energy_utility_export_statistic_id": "Long-term statistic id for energy sent back to the grid, e.g. smarthub:smarthub_energy_return_sensor_... Leave blank to count export as zero.",
           "occupancy_weighted_energy": "Use Bayesian occupancy predictions to weight energy consumption estimates by room occupancy patterns. Requires B1/B2 Bayesian data. Default: OFF.",
           "energy_circuit_extra_entities": "Additional power sensors to monitor as circuits (Emporia channels, Shelly EMs, balance sensors). Merged with auto-discovered circuits.",
           "energy_circuit_exclude_entities": "Circuit sensors to exclude from monitoring. Use this to remove SPAN sub-panel feed circuits that overlap with Emporia channel monitoring, preventing double-counting.",
@@ -1212,6 +1216,7 @@
           }
         },
         "error": {
+          "utility_statistic_id_invalid": "A utility statistic id looks like source:name (for example smarthub:smarthub_energy_sensor_...). Leave it blank to turn the bill check off.",
           "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
           "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
           "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",

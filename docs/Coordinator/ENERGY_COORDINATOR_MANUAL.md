@@ -435,6 +435,44 @@ rows and control_* series into the URA PWA without polling. Zero
 writes; server-side clamped `limit`; hard-coded column allowlist. Feed
 the PWA M4 alerts + activity feed.
 
+### 4.2 Utility bill check (SmartHub hourly statistics, v5.103.76)
+
+Card EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1. Plan:
+`docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md`.
+
+- **Source.** Two EC options fields, *Utility import statistic* and *Utility export
+  statistic* (`energy_utility_import_statistic_id` / `..._export_...`), hold the utility
+  integration's hourly long-term statistic ids (e.g. `smarthub:smarthub_energy_sensor_...`).
+  Blank import id = feature off; the old `energy_utility_meter_entity` branch then runs unchanged.
+  When the ids are set, statistics take precedence and are the only publisher.
+- **How it runs.** Every decision cycle *schedules* (never awaits) a background refresh at most
+  once per `UTILITY_STATS_REFRESH_MIN` (60 min), single-flight, cancelled on EC teardown
+  (`energy.py` `_maybe_schedule_utility_refresh` / `_cancel_utility_refresh`). The query is
+  `statistics_during_period(..., "hour", types={"change"})` on the recorder executor, starting
+  at local midnight of the previous cycle start. `recorder` is not a manifest dependency; the
+  refresh skips when the recorder is not loaded.
+- **Pricing.** Each hour is priced at its local hour-start through the same TOU engine calls as
+  counter-mode billing (`get_effective_import_rate` / `get_export_rate`): usage priced with URA's
+  price book, not the PEC invoice (no taxes, riders, PCRF). The fixed $32.50 service charge appears
+  only in `utility_last_cycle.utility_bill_estimate`.
+- **Lag.** SmartHub imports once a day (~16-17 UTC) carrying the previous local day, so the newest
+  hour is 13-38 h old. `utility_stale` turns true past `UTILITY_STATS_STALE_H` (48 h).
+- **Same-window rule.** A local date counts only when its 23:00 row exists (DST-safe). The current
+  window is `[cycle_start, min(day after newest complete day, today))`; EC's side is
+  `energy_daily` over exactly those dates (`ec_days` may be lower if EC rows are missing). An
+  empty window publishes `None`, never 0 or 100. The last completed cycle appears as
+  `utility_last_cycle` once the utility covers it completely.
+- **Attributes** on `sensor.ura_energy_coordinator_predicted_bill`: legacy `utility_kwh` (utility
+  import), `envoy_kwh` (EC billed import, name kept), `utility_divergence_pct` (kWh), plus
+  `utility_source: statistics`, `utility_cost`, `ec_cost`, `utility_divergence_cost(_pct)`,
+  `utility_window`, `utility_days`, `ec_days`, `ec_underpriced_days`, `utility_data_age_h`,
+  `utility_stale`, `utility_last_cycle`, `utility_stats_refreshed_at`, `utility_stats_error`.
+  Sign: utility minus EC (positive = EC under-counts).
+- **Reading it (F1 caveat).** EC's `energy_daily` before 2026-10-09 is priced below the lowest
+  possible effective rate on many days. `ec_underpriced_days` counts window days whose EC average
+  import rate is below the TOU engine's floor for that date; while it is above 0, a large positive
+  cost divergence is mostly EC history, not the utility.
+
 ---
 
 ## 5. How to intervene safely

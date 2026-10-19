@@ -610,6 +610,26 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._grid_import_entity: str | None = ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY)
         self._utility_meter_entity: str | None = ec.get(CONF_ENERGY_UTILITY_METER_ENTITY)
+        # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1: utility hourly statistic
+        # ids (blank import id = feature off / kill switch). Refresh runs as a
+        # tracked background task scheduled from the decision cycle and is
+        # NEVER awaited by it (plan Rev 2 H1).
+        from .energy_const import (
+            CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
+            CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+        )
+        self._utility_import_stat_id: str = str(
+            ec.get(CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID) or ""
+        ).strip()
+        self._utility_export_stat_id: str = str(
+            ec.get(CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID) or ""
+        ).strip()
+        self._utility_stats_last_run: datetime | None = None
+        self._utility_stats_inflight: bool = False
+        self._utility_stats_task = None
+        self._utility_stats_cache: dict[str, Any] | None = None
+        self._utility_stats_error: str | None = None
+        self._utility_stats_refreshed_at: str | None = None
 
         # SolarFollowController D1 — construct AFTER the grid entity block so
         # ec.get(...) has run (§5 institutional-context note: constructing at
@@ -6372,6 +6392,17 @@ class EnergyCoordinator(BaseCoordinator):
             await self._decision_cycle_body()
         finally:
             self._cycle_in_flight = False
+            # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (Rev 2 H1): SCHEDULE the
+            # hourly utility-statistics refresh as a tracked background task.
+            # Never awaited here: the cycle's runtime is independent of the
+            # recorder query's runtime (INV-2). Sync + exception-guarded.
+            try:
+                self._maybe_schedule_utility_refresh()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "utility stats refresh scheduling raised (swallowed)",
+                    exc_info=True,
+                )
             # v5.17.3 D1: self-heal the boundary listener from the periodic
             # path too — if a prior `_arm_tou_boundary_listener` failed
             # (transient exception, HA not-yet-running edge), each periodic
@@ -10752,6 +10783,9 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug(
                 "dp_eval_last_task cancel raised (swallowed)", exc_info=True,
             )
+        # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (Rev 2 L3): cancel an
+        # in-flight utility-statistics refresh (same slot idiom as above).
+        self._cancel_utility_refresh()
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 
@@ -11558,6 +11592,237 @@ class EnergyCoordinator(BaseCoordinator):
         """Predicted monthly bill."""
         return self._billing.predicted_bill
 
+    # =========================================================================
+    # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 — utility hourly statistics
+    # (PLANNING_ec_bill_divergence_from_smarthub_stats.md, Rev 2 binding)
+    # =========================================================================
+
+    def _maybe_schedule_utility_refresh(self, now=None) -> None:
+        """Schedule (never await) the utility-statistics refresh.
+
+        Gates: import id configured (blank = kill switch), no refresh in
+        flight (single-flight), and ``UTILITY_STATS_REFRESH_MIN`` elapsed
+        since the last run (first tick runs: stamp starts None). The stamp
+        and the in-flight flag are set BEFORE the task starts so a raising
+        query does not retry every tick and an overlapping decision cycle
+        cannot start a second query. The task handle is retained so teardown
+        cancels it (same slot idiom as ``_dp_eval_last_task``).
+        """
+        if not getattr(self, "_utility_import_stat_id", ""):
+            return
+        if self._utility_stats_inflight:
+            return
+        from datetime import timedelta as _td  # noqa: PLC0415
+        from homeassistant.util import dt as _dt_util  # noqa: PLC0415
+        from .energy_const import UTILITY_STATS_REFRESH_MIN  # noqa: PLC0415
+
+        if now is None:
+            now = _dt_util.now()
+        last = self._utility_stats_last_run
+        if last is not None and (now - last) < _td(minutes=UTILITY_STATS_REFRESH_MIN):
+            return
+        self._utility_stats_inflight = True
+        self._utility_stats_last_run = now
+        coro = self._async_refresh_utility_stats(now)
+        try:
+            _create_bg = getattr(self.hass, "async_create_background_task", None)
+            if _create_bg is not None:
+                task = _create_bg(coro, "ura_ec_utility_stats_refresh")
+            else:
+                task = self.hass.async_create_task(coro)
+        except Exception:  # noqa: BLE001
+            coro.close()
+            self._utility_stats_inflight = False
+            raise
+        self._utility_stats_task = task
+
+    def _cancel_utility_refresh(self) -> None:
+        """Cancel an in-flight utility refresh task (teardown)."""
+        try:
+            task = getattr(self, "_utility_stats_task", None)
+            if task is not None and not task.done():
+                task.cancel()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "utility stats task cancel raised (swallowed)", exc_info=True,
+            )
+        self._utility_stats_task = None
+
+    async def _query_utility_statistics(self, start_utc, statistic_ids: set[str]):
+        """Hourly ``change`` rows for ``statistic_ids`` since ``start_utc``.
+
+        Runs ``statistics_during_period`` (sync, opens a recorder session) on
+        the RECORDER executor, the hvac_override.py pattern. Lazy imports:
+        ``recorder`` is not a manifest dependency (boot-incident memory);
+        the caller checks it is loaded.
+        """
+        from homeassistant.components.recorder import (  # noqa: PLC0415
+            get_instance as _recorder_get_instance,
+        )
+        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
+            statistics_during_period,
+        )
+
+        return await _recorder_get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass, start_utc, None, set(statistic_ids), "hour", None,
+            {"change"},
+        )
+
+    async def _async_refresh_utility_stats(self, now) -> None:
+        """Background body: query, price, compare, cache. Clears in-flight."""
+        try:
+            components = getattr(getattr(self.hass, "config", None), "components", ())
+            if "recorder" not in components:
+                return
+            from datetime import (  # noqa: PLC0415
+                datetime as _dt, time as _time, timedelta as _td, timezone as _tz,
+            )
+            from homeassistant.util import dt as _dt_util  # noqa: PLC0415
+            from .energy_billing import price_hourly_utility_rows  # noqa: PLC0415
+
+            tz = now.tzinfo or _dt_util.get_default_time_zone()
+            cycle_start = self._billing._get_cycle_start(now)
+            # Rev 2 M1: previous cycle start via the SAME helper, never
+            # hand-rolled month arithmetic.
+            prev_cycle_start = self._billing._get_cycle_start(
+                _dt.combine(cycle_start - _td(days=1), _time(12), tzinfo=tz)
+            )
+            start_local = _dt.combine(prev_cycle_start, _time(0), tzinfo=tz)
+            start_utc = start_local.astimezone(_tz.utc)
+            imp_id = self._utility_import_stat_id
+            exp_id = self._utility_export_stat_id
+            ids = {imp_id} | ({exp_id} if exp_id else set())
+            result = await self._query_utility_statistics(start_utc, ids) or {}
+            priced = price_hourly_utility_rows(
+                result.get(imp_id) or [],
+                (result.get(exp_id) or []) if exp_id else [],
+                self._tou, tz,
+            )
+            newest = None
+            for row in result.get(imp_id) or []:
+                st = row.get("start")
+                if isinstance(st, (int, float)) and (newest is None or st > newest):
+                    newest = st
+            self._utility_stats_cache = await self._compute_utility_comparison(
+                priced, now, cycle_start, prev_cycle_start, newest, tz,
+            )
+            self._utility_stats_error = None
+            self._utility_stats_refreshed_at = now.isoformat()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            # Keep the cached result; surface the error as an attribute.
+            self._utility_stats_error = f"{type(err).__name__}: {err}"
+            _LOGGER.debug("utility statistics refresh failed", exc_info=True)
+        finally:
+            self._utility_stats_inflight = False
+
+    async def _compute_utility_comparison(
+        self, priced, now, cycle_start, prev_cycle_start, newest_ts, tz,
+    ) -> dict[str, Any]:
+        """Same-window comparison against EC's ``energy_daily`` (INV-1).
+
+        Both sides are sums over the IDENTICAL local-date window. An empty
+        window publishes no block (never 0 / 100).
+        """
+        from datetime import datetime as _dt, timedelta as _td  # noqa: PLC0415
+        from .energy_billing import (  # noqa: PLC0415
+            build_utility_divergence_block,
+            sum_utility_window,
+            tou_import_rate_floor,
+            utility_window_end,
+        )
+        from .energy_const import (  # noqa: PLC0415
+            PEC_FIXED_CHARGES,
+            UTILITY_RATE_FLOOR_REL_TOL,
+            UTILITY_STATS_STALE_H,
+        )
+
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        export_configured = bool(self._utility_export_stat_id)
+        today = now.date()
+        window_end = utility_window_end(priced)
+
+        async def _ec_side(start, end):
+            if db is None:
+                return {"days": 0}, None
+            ec = await db.get_energy_daily_for_cycle(start.isoformat(), end.isoformat())
+            underpriced = 0
+            d = start
+            while d < end:
+                row = await db.get_energy_daily_for_cycle(
+                    d.isoformat(), (d + _td(days=1)).isoformat(),
+                )
+                kwh = float(row.get("import_kwh") or 0.0)
+                if row.get("days") and kwh > 0:
+                    rate = float(row.get("import_cost") or 0.0) / kwh
+                    floor = tou_import_rate_floor(self._tou, d, tz)
+                    if rate < floor * (1.0 - UTILITY_RATE_FLOOR_REL_TOL):
+                        underpriced += 1
+                d += _td(days=1)
+            return ec, underpriced
+
+        out: dict[str, Any] = {"current": None, "last_cycle": None}
+        if window_end is not None:
+            cur_end = min(window_end, today)
+            if cur_end > cycle_start:
+                util = sum_utility_window(priced, cycle_start, cur_end)
+                ec, under = await _ec_side(cycle_start, cur_end)
+                out["current"] = build_utility_divergence_block(
+                    cycle_start, cur_end, util, ec, under, export_configured,
+                )
+            if window_end >= cycle_start:
+                util = sum_utility_window(priced, prev_cycle_start, cycle_start)
+                ec, under = await _ec_side(prev_cycle_start, cycle_start)
+                last = build_utility_divergence_block(
+                    prev_cycle_start, cycle_start, util, ec, under,
+                    export_configured,
+                )
+                last["utility_bill_estimate"] = round(
+                    last["utility_net_cost"]
+                    + PEC_FIXED_CHARGES["service_availability"], 2,
+                )
+                out["last_cycle"] = last
+        if newest_ts is not None:
+            newest = _dt.fromtimestamp(float(newest_ts), tz)
+            age_h = (now - newest).total_seconds() / 3600.0
+            out["newest_hour"] = newest.isoformat()
+            out["data_age_h"] = round(age_h, 1)
+            out["stale"] = age_h > UTILITY_STATS_STALE_H
+        else:
+            out["newest_hour"] = None
+            out["data_age_h"] = None
+            out["stale"] = True
+        return out
+
+    def _utility_statistics_divergence(self) -> dict[str, Any]:
+        """D3 publish shape (legacy keys kept, like-for-like values)."""
+        cache = self._utility_stats_cache or {}
+        cur = cache.get("current") or None
+        return {
+            "utility_source": "statistics",
+            "prediction_source": "envoy",
+            # Legacy keys: current-window utility import / EC billed import
+            # (``envoy_kwh`` name kept for the dashboard) / kWh divergence %.
+            "utility_kwh": cur.get("utility_import_kwh") if cur else None,
+            "envoy_kwh": cur.get("ec_import_kwh") if cur else None,
+            "divergence_pct": cur.get("divergence_kwh_pct") if cur else None,
+            "utility_cost": cur.get("utility_net_cost") if cur else None,
+            "ec_cost": cur.get("ec_net_cost") if cur else None,
+            "divergence_cost": cur.get("divergence_cost") if cur else None,
+            "divergence_cost_pct": cur.get("divergence_cost_pct") if cur else None,
+            "window": (
+                f"{cur['window_start']}..{cur['window_end']}" if cur else None
+            ),
+            "current": cur,
+            "data_age_h": cache.get("data_age_h"),
+            "stale": cache.get("stale"),
+            "last_cycle": cache.get("last_cycle"),
+            "refreshed_at": self._utility_stats_refreshed_at,
+            "error": self._utility_stats_error,
+        }
+
     @property
     def utility_meter_divergence(self) -> dict[str, Any] | None:
         """Compare utility meter reading against Envoy-derived cycle import.
@@ -11569,7 +11834,15 @@ class EnergyCoordinator(BaseCoordinator):
         (configurable, default 9th). The divergence is only meaningful when
         both cycles started at the same time. The `cycles_aligned` flag
         indicates whether the comparison is valid.
+
+        EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D3: when the utility import
+        statistic id is configured, the same-window statistics comparison is
+        the SOLE publisher (precedence: statistics win; the entity branch
+        below does not run). Blank ids = this branch is skipped and the
+        legacy entity branch runs byte-identically.
         """
+        if getattr(self, "_utility_import_stat_id", ""):
+            return self._utility_statistics_divergence()
         if not self._utility_meter_entity:
             return None
         state = self.hass.states.get(self._utility_meter_entity)

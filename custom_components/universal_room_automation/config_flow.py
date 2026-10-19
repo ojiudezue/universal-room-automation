@@ -6077,6 +6077,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             BILLING_SOURCE_METER,
             BILLING_SOURCE_POWER,
             CONF_ENERGY_UTILITY_METER_ENTITY,
+            CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+            CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
             CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
             CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
             # v5.21.0 fix-up (operator scope change 2026-07-17) — BAEC folded
@@ -6356,6 +6358,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             saved_options = {**self._config_entry.options, **user_input}
             if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
                 saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+            # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D4: the two statistic
+            # ids are clearable like the solar override above: omitted or
+            # blank = key removed (feature off), never persisted as "".
+            # A non-blank value must be an external-statistic id
+            # ("source:object_id"), else a field error (no silent store).
+            for _sk in (
+                CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+                CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
+            ):
+                _sv = str(user_input.get(_sk) or "").strip()
+                if not _sv:
+                    saved_options.pop(_sk, None)
+                    continue
+                if ":" not in _sv:
+                    errors[_sk] = "utility_statistic_id_invalid"
+                    errors.setdefault("base", "utility_statistic_id_invalid")
+                    continue
+                saved_options[_sk] = _sv
             # EC-OPTIONS-CLEAR-FIELD-NOOP-1 fix-up: use the module-level
             # map so every EC_ROLE_KEY_SET key the hourly scanner raises
             # a Repairs issue for has a UI-reachable fix path. See
@@ -7287,6 +7307,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
+            # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D4: utility hourly
+            # long-term statistic ids (external statistics have no entity,
+            # so an EntitySelector cannot hold them). Blank = bill check off.
+            vol.Optional(
+                CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+                description={"suggested_value": self._get_current(CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID)},
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
+                description={"suggested_value": self._get_current(CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID)},
+            ): selector.TextSelector(),
             # SolarFollowController D1 §5.3 — grid signal for EVSE amp modulation.
             # PRIMARY = Emporia mains (W, negative=export); FALLBACK = Envoy net
             # (kW, negative=export). Unit + freshness (`last_reported`) guarded

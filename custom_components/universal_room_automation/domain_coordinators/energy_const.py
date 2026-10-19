@@ -1430,6 +1430,27 @@ CONF_ENERGY_GRID_EXPORT_ENTITY: Final = "energy_grid_export_entity"
 # v4.2.17: Utility company net energy meter (SmartHub, etc.)
 CONF_ENERGY_UTILITY_METER_ENTITY: Final = "energy_utility_meter_entity"
 
+# EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (PLANNING_ec_bill_divergence_from_
+# smarthub_stats.md): utility-side hourly long-term statistic ids (external
+# statistics, e.g. ``smarthub:smarthub_energy_sensor_<acct>_<loc>``). Read at
+# construction. Blank import id = feature OFF (kill switch; the legacy
+# utility-meter-entity branch runs unchanged). Export blank = export treated 0.
+CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID: Final = "energy_utility_import_statistic_id"
+CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID: Final = "energy_utility_export_statistic_id"
+# Rung 1 (module const): the utility data lands once a day, so an hourly
+# re-read is ample and bounds recorder load. Not operator policy.
+UTILITY_STATS_REFRESH_MIN: Final = 60
+# Rung 1: normal newest-row age is 13-38 h (daily import, measured 2026-10-19);
+# 48 h flags a missed daily import. Display flag only.
+UTILITY_STATS_STALE_H: Final = 48
+# Rung 1: a local date counts as complete when the utility series holds its
+# local 23:00 hour row (DST-safe: 23- and 25-row days both carry 23:00).
+UTILITY_DAY_COMPLETE_LAST_HOUR: Final = 23
+# Rung 1: relative float tolerance when comparing an EC day's average import
+# rate against the TOU engine's floor (avoids counting a day priced exactly
+# at the floor as under-priced because of float noise).
+UTILITY_RATE_FLOOR_REL_TOL: Final = 1e-6
+
 # ─────────────────────────────────────────────────────────────────────────────
 # EC billing from Emporia daily counters (PLANNING_ec_billing_emporia_counters)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2584,6 +2605,8 @@ EC_CONSTRUCTION_ENTITY_KEYS: Final[frozenset[str]] = EC_ROLE_KEY_SET | frozenset
     CONF_ENERGY_GRID_IMPORT_ENTITY,
     CONF_ENERGY_GRID_EXPORT_ENTITY,
     CONF_ENERGY_UTILITY_METER_ENTITY,
+    CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+    CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
     CONF_ENERGY_ENVOY_ENTITY,
     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
     CONF_ENERGY_STREAM_COWITNESS_ENTITY,

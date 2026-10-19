@@ -1053,3 +1053,193 @@ class PeakAvoidanceTracker:
             "kwh_avoided_lifetime_delta": self.kwh_avoided_lifetime_delta,
             "methodology": self.METHODOLOGY,
         }
+
+
+# =============================================================================
+# EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 — utility hourly statistics pricing
+# (PLANNING_ec_bill_divergence_from_smarthub_stats.md D1/D2, Rev 2).
+#
+# Pure helpers (no hass): the coordinator fetches the recorder rows on the
+# recorder executor and hands them here. Pricing goes through the SAME
+# ``TOURateEngine`` functions counter mode uses (``get_effective_import_rate``
+# / ``get_export_rate``, see ``CostTracker.accumulate`` counter branch), one
+# call per hour at the hour-start LOCAL datetime: TOU by reference, no rate
+# caching.
+# =============================================================================
+
+
+def _utility_row_start_local(row: dict, tz) -> datetime | None:
+    """Hour-start of a recorder ``StatisticsRow`` as a local datetime.
+
+    ``StatisticsRow["start"]`` is a float UTC timestamp in current HA
+    (``recorder/statistics.py`` BaseStatisticsRow); a datetime is accepted
+    defensively.
+    """
+    start = row.get("start")
+    if start is None:
+        return None
+    if isinstance(start, datetime):
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt_util.UTC)
+        return start.astimezone(tz)
+    try:
+        return datetime.fromtimestamp(float(start), tz)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def price_hourly_utility_rows(
+    rows_imp: list[dict] | None,
+    rows_exp: list[dict] | None,
+    tou: Any,
+    tz,
+    complete_last_hour: int | None = None,
+) -> dict[date, dict[str, Any]]:
+    """Price hourly utility ``change`` rows per LOCAL date.
+
+    Returns ``{local_date: {imp_kwh, imp_cost, exp_kwh, exp_credit, hours,
+    complete}}``. ``hours`` counts import rows for that date (23 / 24 / 25 on
+    DST days). ``complete`` is True when the import series holds the date's
+    local ``complete_last_hour`` (default ``UTILITY_DAY_COMPLETE_LAST_HOUR``)
+    row; DST-safe, both 23- and 25-row days carry 23:00.
+    """
+    from .energy_const import UTILITY_DAY_COMPLETE_LAST_HOUR
+
+    if complete_last_hour is None:
+        complete_last_hour = UTILITY_DAY_COMPLETE_LAST_HOUR
+    days: dict[date, dict[str, Any]] = {}
+
+    def _day(d: date) -> dict[str, Any]:
+        rec = days.get(d)
+        if rec is None:
+            rec = {
+                "imp_kwh": 0.0, "imp_cost": 0.0,
+                "exp_kwh": 0.0, "exp_credit": 0.0,
+                "hours": 0, "complete": False,
+            }
+            days[d] = rec
+        return rec
+
+    for row in rows_imp or []:
+        local = _utility_row_start_local(row, tz)
+        if local is None:
+            continue
+        rec = _day(local.date())
+        rec["hours"] += 1
+        if local.hour == complete_last_hour:
+            rec["complete"] = True
+        kwh = row.get("change")
+        if kwh is None:
+            continue
+        kwh = float(kwh)
+        rec["imp_kwh"] += kwh
+        rec["imp_cost"] += kwh * tou.get_effective_import_rate(local)
+
+    for row in rows_exp or []:
+        local = _utility_row_start_local(row, tz)
+        if local is None:
+            continue
+        kwh = row.get("change")
+        if kwh is None:
+            continue
+        kwh = float(kwh)
+        rec = _day(local.date())
+        rec["exp_kwh"] += kwh
+        rec["exp_credit"] += kwh * tou.get_export_rate(local)
+
+    return days
+
+
+def utility_window_end(priced: dict[date, dict[str, Any]]) -> date | None:
+    """Day AFTER the newest local date the utility series covers completely.
+
+    None when no date is complete. A newer partial day (mid-day import) never
+    advances the window.
+    """
+    complete = [d for d, rec in priced.items() if rec.get("complete")]
+    if not complete:
+        return None
+    return max(complete) + timedelta(days=1)
+
+
+def sum_utility_window(
+    priced: dict[date, dict[str, Any]], start: date, end: date,
+) -> dict[str, Any]:
+    """Totals of ``priced`` over the local dates ``[start, end)``."""
+    out: dict[str, Any] = {
+        "days": 0, "import_kwh": 0.0, "import_cost": 0.0,
+        "export_kwh": 0.0, "export_credit": 0.0,
+    }
+    for d, rec in priced.items():
+        if start <= d < end:
+            out["days"] += 1
+            out["import_kwh"] += rec["imp_kwh"]
+            out["import_cost"] += rec["imp_cost"]
+            out["export_kwh"] += rec["exp_kwh"]
+            out["export_credit"] += rec["exp_credit"]
+    out["net_cost"] = out["import_cost"] - out["export_credit"]
+    return out
+
+
+def tou_import_rate_floor(tou: Any, day: date, tz) -> float:
+    """Lowest effective import rate the TOU engine returns on ``day``.
+
+    Asks the engine for each local hour of the date (no new rate literal).
+    """
+    return min(
+        tou.get_effective_import_rate(
+            datetime(day.year, day.month, day.day, h, tzinfo=tz)
+        )
+        for h in range(24)
+    )
+
+
+def _utility_pct(diff: float, a: float, b: float) -> float:
+    # Same reference as the legacy entity branch (energy.py
+    # utility_meter_divergence): max(|utility|, |ec|, 1.0).
+    return diff / max(abs(a), abs(b), 1.0) * 100.0
+
+
+def build_utility_divergence_block(
+    window_start: date,
+    window_end: date,
+    utility: dict[str, Any],
+    ec: dict[str, Any],
+    ec_underpriced_days: int | None,
+    export_configured: bool,
+) -> dict[str, Any]:
+    """Same-window utility-vs-EC comparison block.
+
+    Sign: utility minus EC (positive = EC under-counts).
+    """
+    u_imp = float(utility.get("import_kwh") or 0.0)
+    u_net = float(utility.get("net_cost") or 0.0)
+    e_imp = float(ec.get("import_kwh") or 0.0)
+    e_net = float(ec.get("net_cost") or 0.0)
+    d_kwh = u_imp - e_imp
+    d_cost = u_net - e_net
+    block: dict[str, Any] = {
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "utility_days": int(utility.get("days") or 0),
+        "ec_days": int(ec.get("days") or 0),
+        "utility_import_kwh": round(u_imp, 2),
+        "utility_import_cost": round(float(utility.get("import_cost") or 0.0), 2),
+        "utility_net_cost": round(u_net, 2),
+        "ec_import_kwh": round(e_imp, 2),
+        "ec_export_kwh": round(float(ec.get("export_kwh") or 0.0), 2),
+        "ec_net_cost": round(e_net, 2),
+        "divergence_kwh": round(d_kwh, 2),
+        "divergence_kwh_pct": round(_utility_pct(d_kwh, u_imp, e_imp), 1),
+        "divergence_cost": round(d_cost, 2),
+        "divergence_cost_pct": round(_utility_pct(d_cost, u_net, e_net), 1),
+        "ec_underpriced_days": ec_underpriced_days,
+    }
+    if export_configured:
+        block["utility_export_kwh"] = round(
+            float(utility.get("export_kwh") or 0.0), 2,
+        )
+        block["utility_export_credit"] = round(
+            float(utility.get("export_credit") or 0.0), 2,
+        )
+    return block
