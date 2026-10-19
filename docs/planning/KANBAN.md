@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:41:41-05:00_ - _Data commit: `30486c0e8db8`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:41:52-05:00_ - _Data commit: `1af82385c458`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -616,8 +616,9 @@ thread: **lighting** - status: **waiting_operator**
 _created 2026-10-14 02:10 · updated 2026-10-19 02:03_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
 - **Next:** DO: check the GK landscape lights (perimeter 1/3/4/7/8, side-approach 9-12, Hampton spot 2) - they have been unreachable on Wi-Fi since about 10-16 (power, breaker, or AP). -> I re-measure two nights after; separately I read tonight's (1...
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `measured_2026_10_19_overnight`: DISCRIMINATOR NOT MET (5 post-fix nights; recorder state of the 20 target lights at trigger+7 min / +60 min, sunset+30 trigger). Missing at +7 min: 10-14 0, 10-15 1 (gklandscape_perimeter3 unavailable), 10-16 11, 10-17 10, 10-18 19. Two ...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#6 · WSJF 6.5 · v6 tc3 u4 /e2_
 thread: **perimeter** - status: **waiting_operator**
@@ -702,7 +703,7 @@ _created 2026-09-29 04:20 · updated 2026-10-19 02:03 · refined_
 - **Next:** APPROVE (one line): R1 yes - paused bedrooms get no sleep-onset fan either; R3 accept (recommended) - a paused room with only radar + a running fan can be marked empty early by the fan-noise backstop, same as rooms with Fan Mode Off toda...
 - **Tags:** tier-1, found-during-probe, config-first
 - **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (24):**
+- **Forensic keys (25):**
   - `operator_answer_2026_10_17`: Operator 2026-10-17: "Paused rooms should be inert" - a paused room issues NO actions at all (neither on nor off); this supersedes options A and B. Pair with a forgotten-pause reminder only if cheap.
   - `operator_answer_2026_10_18`: Operator 2026-10-18 (supersedes inert/A/B): "Paused rooms should stop with lights and fans automation based on occupancy. Blinds down, house state, venting are fine. I just didn't want it turning off lights when paused." -> scope = occup...
   - `operator_instruction_2026_10_15_2`: Paused means inert. Some are paused because theyre not dialed in and not yet configured to just turns things off with a healthy timeout. We know how to do that and I havent. You can maybe make a tbale and I can tell you what we need for ...
@@ -727,6 +728,7 @@ _created 2026-09-29 04:20 · updated 2026-10-19 02:03 · refined_
   - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
   - `verify_2026_10_18_overnight`: CARD-WAS-WRONG on 'inert' + STILL-REAL. Code (develop 8dd2e9762): the room Automation switch (switch.py:5103; gate coordinator.py:3181 _is_automation_enabled) stops occupancy on/off, the scheduled auto-off, the Away leave-on sweep (autom...
   - `groomed_2026_10_19_overnight`: Plan written + plan-reviewed 2026-10-18: docs/planning/PLANNING_paused_room_occupancy_lights_fans.md (verdict FIX-PLAN, Tier 2 with build review elevated to 3 framings - presence<->HVAC ripple). The reviewer requires YOUR one-line confir...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#11 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
@@ -764,7 +766,7 @@ _created 2026-09-14 00:20 · updated 2026-10-19 02:08 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
-- **Forensic keys (21):**
+- **Forensic keys (22):**
   - `operator_answer_2026_10_17`: Operator 2026-10-17: YES a crop was applied to front_side_ptz around 09-14/15, and it is still too noisy. Fix at the source (lever A of PERIMETER-ALERT-VOLUME-FATIGUE-1).
   - `measured_2026_10_09_overnight`: With Frigate2 back since 10-08 12:14, front_side_ptz_person_occupancy_2 has only 2 person ONs in ~14 h (20:50 and 00:09), so the camera stays quiet even with the detector healthy. That rules out "quiet only because Frigate2 was down". Yo...
   - `remeasured_2026_10_06_overnight`: binary_sensor.front_side_ptz_person_occupancy_2 ON-transitions (recorder): 10-03 16, 10-04 51 (42 of them 03:00-06:59), 10-05 6 (0 in 03:00-06:59), 10-06 0 so far (to 02:30). The night chatter did not repeat on 10-05, so it is intermitte...
@@ -786,6 +788,7 @@ _created 2026-09-14 00:20 · updated 2026-10-19 02:08 · refined_
   - `verify_2026_10_02_overnight`: CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and f...
   - `measured_2026_10_18_overnight`: front_side_ptz produced 10 perimeter alerts since the 10-15 18:09 Frigate restart (2 on 10-16, 8 on 10-17), about 6% of exterior alerts; the noisy cameras now are Study B porch PTZ (65), hot_tub (21), utilities_ptz (17). Detail on PERIME...
   - `measured_2026_10_19_overnight`: Post-crop, post-mask recount (URA notification_log '[audit]' rows, exterior_person, since 10-17 00:00): front_side_ptz 11 alerts (10 occupancy_2 + 1 detected) over ~2 days, clustered in daytime bursts (10-17 ~13-14h, 10-18 ~09h), none in...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#13 · WSJF 4.5 · v5 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator**
@@ -960,23 +963,25 @@ _created 2026-10-18 · initial_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-18 · updated 2026-10-19 02:03 · refined_
 - **Next:** PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom - the A788 measures as motion-class (~1 min hold), so only new hardware closes the 17-per-ordinary-day Away misses; or B first DO check the InvisOutlet's own app/web set...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `arc_cut_v5_103_72`: sensor-coverage residual, InvisOutlet measurement pending
   - `operator_question_2026_10_18`: Operator: 'For master bathroom is the InvisOutlet not working? It is a radar.' FINDING: the 2026-10-11 do-not-use ruling was for the STUDY A InvisOutlet (b7d0), not Master Bath (A788). Master Bathroom config already uses the A788 motion ...
   - `tier`: 1
   - `measured_2026_10_19_overnight`: CARD-WAS-WRONG on the reason, STILL-REAL on the gap. Read-only, recorder 10-11 04:27 -> 10-19 01:49 CDT. Master Bathroom config (core.config_entries 01KSHA5DB3T0VMJKQVM5P8MMNA): motion_sensors = ...invisoutet_mqtt_masterbath_motion, pres...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `ZONE-ROOM-NAME-DRIFT-1` - A room renamed through options drops out of the zone tier (zone tracker keys by room name) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-18 · updated 2026-10-19 02:22 · refined ×1_
 - **Next:** APPROVE: (A, recommended) one Tier-3 cycle - presence + person + HVAC + both fan maps re-keyed on rename (4 framing-disjoint build reviews, checkpoint before deploy), or (B) presence + person now, HVAC/fans as a follow-up. ANSWER: is los...
 - **Parsimony:** [BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)] After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `arc_cut_v5_103_72`: priority follow-up cycle immediately after this ship
   - `tier`: 3
   - `measured_2026_10_19_overnight`: STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (...
   - `plan_2026_10_19_overnight`: Plan written: docs/planning/PLANNING_zone_room_rename_drift.md (907bf73b6). Scope GREW beyond presence: (a) re-running _discover_zones would not fix it (skips zones with a tracker, presence.py:3439); (b) person_coordinator.py:945 rebuild...
   - `plan_review_2026_10_19_overnight`: Completeness plan review: FIX-PLAN, recommends TIER 3 (appended to the plan doc). Missed sites: HIGH hvac_fans.py:390 per-room fan map (renamed room's HVAC fan driven as empty -> can switch a sleeper's fan off); HIGH presence_fan_recheck...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#27 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
@@ -1047,7 +1052,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Next:** APPROVE: B (recommended - your 10-15 answer) repair the 30-min window, keep OVERHEAT rate-of-rise, gate the HVAC_FAILURE/WATER_LEAK rate hazards behind corroboration, and prove quiet with the 7-day replay before it can alert; or PICK A (...
 - **Tags:** tier-2, measure-before-build, no-fabrication-verify
 - **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `triage_2026_10_17`: Default A taken: retire the rate detector on purpose with a doc note + code comment (rides the next safety ship).
   - `lane_fix_2026_10_17_overnight`: Moved planned -> waiting_operator: the next step is your PICK (A retire on purpose / B redesign), not my build.
   - `update_2026_10_15`: Operator 2026-10-15: "rapid change isn't that a heat thing for fire? If so it's a fix." Verified: temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859), so it is a heat/fire-adjacent detector. Disposition = FIX (option B): repa...
@@ -1055,6 +1060,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
+  - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
 ### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#31 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
