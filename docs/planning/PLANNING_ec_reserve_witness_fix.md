@@ -145,6 +145,9 @@ and registry-resolved entities, advancing time past each attempt threshold.
   2. No "reserve witness ... not resolved" INFO line in the HA log.
   3. `anomaly_log` reserve `write_local_witness_divergence` rows: daily rate drops from the 13-172/day
      baseline (audit §3) to near zero; any remaining rows show `local_seen` varying, never constant 10.0.
+     (Review A: `_witness_compare` at `energy_write_verify.py:1058` now resolves the sensor through
+     `_local_entity_for`, so this drop is a direct, expected consequence of the fix, not a side effect.
+     Rows still constant at 10.0 mean the resolver fell back: check the HA log for the INFO line.)
   4. No `pending_write_stuck` row (sev 3 or 4) with `oracle_seen=10.0` unless the sensor itself read
      10 at that time. Any row present carries `hw_witness_entity` = the sensor.
   5. Envoy offline at validation time: no new reserve `pending_write_stuck` rows during the outage

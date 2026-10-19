@@ -245,6 +245,17 @@ def test_reserve_witness_anchor_not_soc_unique_id_falls_back(hass, install_regis
     assert v._local_entity_for(SURFACE) == NUMBER_EID
 
 
+def test_reserve_witness_empty_serial_falls_back(hass, install_registry):
+    """Anchor unique_id is exactly `_battery_level` (empty serial) → no
+    lookup; a sensor registered as bare `_reserve_soc` must NOT be picked."""
+    reg = _Registry()
+    reg.add(SOC_EID, "enphase_envoy", "_battery_level")
+    reg.add("sensor.bare_reserve", "enphase_envoy", "_reserve_soc")
+    install_registry(reg)
+    _, _, v, _ = _verifier(hass)
+    assert v._local_entity_for(SURFACE) == NUMBER_EID
+
+
 def test_reserve_witness_anchor_unset_falls_back(hass, install_registry):
     install_registry(_house_registry())
     _, bat, v, _ = _verifier(hass)
