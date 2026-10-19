@@ -5709,6 +5709,45 @@ async def _migrate_to_v3(hass: HomeAssistant, entry: ConfigEntry) -> None:
     _LOGGER.info("Migration complete: entry '%s' converted to room entry", entry.title)
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Sleep-mask Rev 3.1 R3.1.4 (D4c.2): a deleted ROOM releases its kinds.
+
+    HA calls this AFTER the entry has left ``config_entries._entries``
+    (2026.2.3: ``del self._entries[...]`` at config_entries.py:2149, then
+    ``await entry.async_remove(hass)`` at :2150 -> ``async_remove_entry``
+    :1053-1056; also for a non-recoverable entry whose unload was skipped,
+    :2145-2147). The ``"unloaded"`` lifecycle refresh fired during unload
+    still saw the room, so it was a no-op; this ``"removed"`` dispatch
+    runs the substrate refresh once the room is gone, and its step-7 walk
+    sends False edges for the vanished room's True kinds. Gated on
+    ``const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED`` (attribute read, §R3.2.2):
+    off -> returns immediately (byte-identical to the reviewed branch).
+    Every SIGNAL_ROOM_ENTRY_LIFECYCLE subscriber treats an unknown action
+    as a no-op (signals.py rule; hvac `_on_room_lifecycle`, binary_sensor
+    `_on_lifecycle` verified).
+    """
+    from . import const as _ura_const  # noqa: PLC0415 — attribute read
+    if not _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:
+        return
+    try:
+        if entry.data.get(_ura_const.CONF_ENTRY_TYPE) != _ura_const.ENTRY_TYPE_ROOM:
+            return
+        from homeassistant.helpers.dispatcher import async_dispatcher_send  # noqa: PLC0415
+        from .domain_coordinators.signals import SIGNAL_ROOM_ENTRY_LIFECYCLE  # noqa: PLC0415
+        async_dispatcher_send(
+            hass,
+            SIGNAL_ROOM_ENTRY_LIFECYCLE,
+            entry.entry_id,
+            entry.data.get("room_name"),
+            "removed",
+        )
+    except Exception:  # noqa: BLE001 — defensive
+        _LOGGER.debug(
+            "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (removed) failed (non-fatal)",
+            exc_info=True,
+        )
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     entry_type = entry.data.get(CONF_ENTRY_TYPE)

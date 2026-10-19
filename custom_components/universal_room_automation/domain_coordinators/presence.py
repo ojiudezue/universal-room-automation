@@ -63,11 +63,15 @@ from ..const import (
     CONF_LOST_AWAY_INDOOR_CLEAR_TICKS,  # v5.7.0 fix-up FIX-2b
     CONF_LOST_AWAY_SLEEP_EXEMPT,  # v5.7.0 WS-A3
     ENTRY_TYPE_ROOM,  # v4.7.16 D3, D4
+    PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP,  # sleep-mask cycle D1 kill switch
+    PRESENCE_STALE_RESIDENT_COUNTS_HOME,  # sleep-mask cycle D2 kill switch
+    SLEEP_RAW_HOLD_NM_BOUND_S,  # sleep-mask cycle D1 trip-wire bound
     TIER1_KINDS,  # provenance-split cycle: D2 vocabulary
     TRACKING_STATUS_ACTIVE,
     TRACKING_STATUS_LOST,  # v5.7.0 WS-A1
     TRACKING_STATUS_STALE,  # v5.7.0 WS-A1
 )
+from .. import const as _ura_const  # ZONE_OCCUPANCY_PER_ENTITY_ENABLED (attr read, §R3.2.2)
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import (
     AnomalyDetector,
@@ -681,7 +685,12 @@ class ZonePresenceTracker:
             is omitted because the prior bool was a full-room clear
             too). See ``update_room_occupancy`` for the call-site
             comment.
-        Net: the derived OR is "stronger on True, equivalent on False"
+        Sleep-mask Rev 3 (ledger #20): "equivalent on False" was WRONG
+        for multi-sensor rooms. With ``const.ZONE_OCCUPANCY_PER_ENTITY_
+        ENABLED`` on, a kind-specific False clears only that kind, so this
+        view is occupied iff any registered sensor reads ``on`` (plus the
+        hold). The paragraph below describes the switch-off semantics.
+        Net (switch off): the derived OR is "stronger on True, equivalent on False"
         relative to the pre-split bool — NOT uniformly stronger. The
         original "strictly stronger" phrasing in
         ``PLANNING_presence_provenance_split_and_fan_diagnostic.md`` D2
@@ -841,8 +850,17 @@ class ZonePresenceTracker:
             pre-split "we don't know which kind" case while keeping the
             derived OR returning True. Used only by callers that have
             not (yet) classified the firing entity.
-          * ``occupied=False`` (any kind, including None): CLEAR ALL
-            kinds for the room. Matches today's collapse semantic.
+          * ``occupied=False``: with ``const.ZONE_OCCUPANCY_PER_ENTITY_
+            ENABLED`` on and ``kind`` in TIER1_KINDS, clears ONLY that kind
+            (sleep-mask Rev 3 D4b; the substrate sends kind k False only
+            when every sensor of kind k is off). ``kind=None`` False, or
+            the switch off, CLEARS ALL kinds for the room (the pre-Rev-3
+            collapse).
+          * ``_last_kind_per_room`` (display: ``last_kind_to_fire``) is
+            popped only when the room is fully empty; after a partial
+            clear it may still name the kind just cleared — accepted by
+            name (review A-L2): it means "last kind whose rising edge
+            fired", not "a kind that is on now".
 
         See :func:`_classify_entity_kind` for how the seed loop and
         ``_handle_occupancy_change`` derive ``kind``.
@@ -867,6 +885,22 @@ class ZonePresenceTracker:
                     self.zone_name, room_name,
                 )
                 self.clear_override()
+        elif (
+            kind in TIER1_KINDS
+            and _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED
+        ):
+            # Sleep-mask Rev 3 D4b (ZONE-TRACKER-PER-SENSOR-WIPE-1): an
+            # off-edge for kind k clears ONLY kind k. The substrate now
+            # sends kind k False only when EVERY sensor of that kind in the
+            # room is off (D4a), so the room stays occupied while any other
+            # kind is still on — "equivalent on False" held only for
+            # one-kind rooms (review D-H1, ledger). pop() keeps a
+            # single-sensor room's shape `{}` exactly as before (R2-7).
+            bucket.pop(kind, None)
+            if not any(bool(v) for v in bucket.values()):
+                self._last_kind_per_room.pop(room_name, None)
+            self._has_sensors = True
+            self._has_room_sensors = True
         else:
             # occupied=False clears ALL kinds for the room (matches prior
             # collapse). Per-kind False writes are not represented because
@@ -874,6 +908,7 @@ class ZonePresenceTracker:
             # distinguishably (the state-change callback only knows the
             # ENTITY that fired, not the type — and the prior bool was a
             # full-room clear too).
+            # (Switch-off / kind=None path only — see the D4b branch above.)
             # R1-H1 fix-up: the derived `_room_occupied` is therefore
             # "stronger on True, equivalent on False" relative to the
             # pre-split bool — see the `_room_occupied` docstring + the
@@ -1053,6 +1088,15 @@ class StateInferenceEngine:
         # 1800s (const.py:2609). Cross-check at camera_census.py:3034-3055
         # is fail-OPEN when person entity missing — documented upper bound.
         face_recognized_count: int = 0,
+        # Sleep-mask cycle D1: the zone input the NOBODY-HOME branch reads.
+        # The caller passes `any_zone_occupied` OR'd with each SLEEP-mode
+        # zone's raw night occupancy (no fan test; the Rev 2 fan-loop
+        # breaker was dropped by stress test P5 — do not restore it from
+        # this comment). None (default / kill switch off) falls back to
+        # `any_zone_occupied`, so every caller that omits it is
+        # byte-identical. Readers: nobody-home and the D1b wake disjunct.
+        # has_people's base value and consensus stay masked.
+        any_zone_occupied_for_empty: Optional[bool] = None,
         # v5.7.0 WS-A path-β kwargs. All default to safe values so callers
         # that omit them get v4.7.14 behavior byte-identical (invariant I3).
         all_trusted_or_lost_away_persons_away: bool = False,
@@ -1107,7 +1151,8 @@ class StateInferenceEngine:
         preserved BYTE-IDENTICAL when only `all_tracked_persons_away` is
         passed — the new kwargs default to safe values that cannot fire β.
         The most-recently-fired path is recorded on ``self._veto_path`` ∈
-        {"none", "active", "lost_admitted"}.
+        {"none", "nobody_home", "active", "lost_admitted",
+        "lost_admitted_immediate"} ("nobody_home" on the firing return only).
         """
         if now is None:
             now = dt_util.now()
@@ -1124,10 +1169,22 @@ class StateInferenceEngine:
         self._veto_path: str = "none"
 
         # Nobody home
-        if census_count == 0 and not any_zone_occupied:
+        # Sleep-mask cycle D1: read the un-masked night input when supplied
+        # (a SLEEP-pinned zone reads SLEEP, not OCCUPIED, so the masked
+        # `any_zone_occupied` called a sleeper's zone empty).
+        _zone_occ_for_empty = (
+            any_zone_occupied
+            if any_zone_occupied_for_empty is None
+            else any_zone_occupied_for_empty
+        )
+        if census_count == 0 and not _zone_occ_for_empty:
             if current_state == HouseState.AWAY:
-                return None  # Already away
+                return None  # Already away (label stays "none", R2 M3)
             self._confidence = 0.9
+            # Sleep-mask cycle D3: label the FIRING return only, so the
+            # branch that made this AWAY is visible (was indistinguishable
+            # from "no veto"). The already-AWAY return above keeps "none".
+            self._veto_path = "nobody_home"
             return HouseState.AWAY
 
         # v4.7.14: Person-tracker veto path α (ACTIVE-only) — if all configured
@@ -1289,6 +1346,19 @@ class StateInferenceEngine:
 
         # People are home — determine variant
         has_people = census_count > 0 or any_zone_occupied
+        # Sleep-mask cycle D1b (Rev 2.1, stress test P5): with census 0 and
+        # the zones pinned to SLEEP the masked `any_zone_occupied` is False,
+        # so a raw-held SLEEP never reached the WAKING branch and could
+        # last all day. Once the sleep window has ended, raw night
+        # occupancy counts as people so the existing SLEEP -> WAKING branch
+        # runs (INV-SLEEP-HOLD-BOUNDED (b)).
+        if (
+            not has_people
+            and current_state == HouseState.SLEEP
+            and not self._is_sleep_hour(hour)
+            and any_zone_occupied_for_empty is True
+        ):
+            has_people = True
 
         if not has_people:
             return None
@@ -1470,6 +1540,30 @@ class PresenceCoordinator(BaseCoordinator):
         # Surfaced in the veto-fired INFO log so operators can diagnose why a
         # particular person did NOT block the veto.
         self._excluded_persons: dict[str, str] = {}
+        # Sleep-mask cycle (PLANNING_house_state_sleep_mask_ble_memory_
+        # observability.md Rev 2) — display-only diagnostics.
+        # D2: STALE persons counted home this tick (unrecorded attribute).
+        self._stale_counted_home: list[str] = []
+        # D1: the nobody-home zone input this tick (None = kill switch off /
+        # masked value used). Unrecorded attribute.
+        self._nobody_home_zone_input: Optional[bool] = None
+        # D3: branch that made the last AWAY entry (`_veto_path` at the
+        # inference edge, or "override"), when, and AWAY entries today
+        # (local day; hydrated from house_state_log at setup).
+        self._last_away_branch: Optional[str] = None
+        self._last_away_at: Optional[str] = None
+        self._away_entries_today: int = 0
+        self._away_count_date: Optional[str] = None
+        # D3: why GUEST is (or would be) armed this tick.
+        self._guest_reason: str = "none"
+        # D3: the guest room whose sustained-occupancy gate fired on the
+        # last `_guest_room_gate_armed` call (None when none fired).
+        self._guest_room_gate_fired_room: Optional[str] = None
+        # D1 trip-wire episode latch (one NM per raw-only SLEEP hold).
+        self._sleep_raw_hold_nm_fired: bool = False
+        # Rev 3 D4d trip-wire: RAM clock + per-episode latch.
+        self._zone_hold_all_away_since: Optional[datetime] = None
+        self._zone_hold_all_away_fired: bool = False
         # v4.7.15 D1: Last shared-veto-helper decision (diagnostics).
         # Populated each _run_inference tick when the helper is consulted.
         self._last_veto_decision: VetoDecision = VetoDecision(False, 0.0, "", "")
@@ -2265,6 +2359,39 @@ class PresenceCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
     # Cold-boot away-actuation storm mitigation — Gate 1 release callbacks
     # ------------------------------------------------------------------
+    def _reconcile_trackers_to_substrate(self) -> None:
+        """Sleep-mask Rev 3.1 R3.1.3 / 3.2 L1: make every zone tracker room
+        equal the substrate per kind, writing ONLY slots that differ.
+
+        A room absent from the substrate reads all False. In practice the
+        writes are True->False pops (the True slots were just replayed). A
+        room with no difference gets no write, so `_has_sensors` /
+        `_last_activity` / AWAY-override side effects never fire for it
+        (a sensor-less zone is not flipped UNKNOWN -> AWAY). Synchronous.
+        The one writer for any full tracker resync.
+        """
+        substrate = self._substrate
+        if substrate is None:
+            return
+        for tracker in self._zone_trackers.values():
+            for room_name in list(tracker.room_names):
+                # Review B-H1 / A-M1 / D-M1: a room listed in TWO zones is
+                # owned by ONE tracker (`tracker_for_room`, first-writer over
+                # `_room_to_zone`) — the only one that receives its live
+                # edges, the boot replay and the discovery seed. Writing the
+                # other tracker would leave it stuck occupied (no later
+                # False edge ever reaches it).
+                if self.tracker_for_room(room_name) is not tracker:
+                    continue
+                want = substrate.get_room_kinds(room_name)
+                have = tracker._room_provenance.get(room_name, {})
+                for kind in TIER1_KINDS:
+                    value = bool(want.get(kind, False))
+                    if bool(have.get(kind, False)) != value:
+                        tracker.update_room_occupancy(
+                            room_name, value, kind=kind,
+                        )
+
     def _release_boot_settle(self, reason: str) -> None:
         """Idempotent gate-flip used by all three release paths.
 
@@ -2290,6 +2417,20 @@ class PresenceCoordinator(BaseCoordinator):
                 "OccupancySubstrate: release_boot_settle raised (non-fatal)",
                 exc_info=True,
             )
+        # Sleep-mask Rev 3.1 R3.1.3 / 3.2 L1 (D4c.3'): the release replays
+        # TRUE slots only, so a kind that went off DURING settle would stay
+        # True in the tracker (before D4b a sibling's wipe hid that by
+        # accident). Reconcile the trackers to the substrate exactly —
+        # differing slots only. Own guard: on the real_input path this runs
+        # inside _run_inference and must never abort the tick.
+        if _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:
+            try:
+                self._reconcile_trackers_to_substrate()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Zone tracker boot-settle reconcile raised (non-fatal)",
+                    exc_info=True,
+                )
         # Routine forecaster B-1 (review): trigger the deferred initial
         # DB load now that the cold-boot window has closed. Idempotent;
         # the interval-tick backstop covers the case where the
@@ -2589,6 +2730,18 @@ class PresenceCoordinator(BaseCoordinator):
             except Exception:
                 _LOGGER.debug(
                     "Could not hydrate _transitions_today from house_state_log (non-fatal)",
+                    exc_info=True,
+                )
+
+            # Sleep-mask cycle D3: hydrate away_entries_today (local day,
+            # naive-UTC bound matching the column) so it survives a restart.
+            try:
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    await self._hydrate_away_entries_today(db)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Could not hydrate away_entries_today (non-fatal)",
                     exc_info=True,
                 )
 
@@ -2920,8 +3073,18 @@ class PresenceCoordinator(BaseCoordinator):
                         self._on_optimizer_intent,
                     )
                     self._unsub_listeners.append(self._optimizer_intent_unsub)
+            except Exception:
+                _LOGGER.exception("Error during presence discovery (non-fatal)")
 
-                # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
+            # Periodic inference (every 60 seconds for time-based transitions +
+            # camera timeouts). Sleep-mask cycle D1 discharge isolation (Rev 3
+            # R2 H3): registered OUTSIDE the discovery try above, so a
+            # discovery raise can no longer leave the house with no 60 s tick
+            # (the tick is the discharge for every held SLEEP / nobody-home
+            # decision). Still once per setup and still on _unsub_listeners,
+            # so teardown cancels it and a re-setup does not double-register
+            # (Bug Class #50).
+            try:
                 self._unsub_listeners.append(
                     async_track_time_interval(
                         self.hass,
@@ -2929,8 +3092,10 @@ class PresenceCoordinator(BaseCoordinator):
                         timedelta(seconds=60),
                     )
                 )
-            except Exception:
-                _LOGGER.exception("Error during presence discovery (non-fatal)")
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "Presence: periodic inference registration failed"
+                )
 
             # v3.6.0-c2.3: Seed census count from existing data before first
             # inference. Without this, _census_count=0 → infers "away" even
@@ -3941,6 +4106,241 @@ class PresenceCoordinator(BaseCoordinator):
             return False
         return False
 
+    def _zone_night_rooms(self, tracker: "ZonePresenceTracker") -> List[str]:
+        """Sleep-mask cycle D1: why a SLEEP-mode zone is really occupied
+        (plan §2 ``night_raw``, Rev 2.1: no fan-loop breaker — stress test
+        P5 measured it blanking real sleepers). Returns the holding rooms;
+        "<ble>" / "<camera>" mark the BLE and camera tiers. Mirrors
+        ``ZonePresenceTracker._derived_mode`` without the mode override.
+        Errors count as occupied (fail toward holding SLEEP; the discharge
+        is the next tick, the wake-time disjunct, or the trip-wire).
+        """
+        if tracker._ble_occupied:
+            return ["<ble>"]
+        if not tracker._has_sensors:
+            return []
+        try:
+            rooms = {r for r, occ in tracker._room_occupied.items() if occ}
+        except Exception:  # noqa: BLE001 — fail toward holding
+            return ["<error>"]
+        # Review D-H1 workaround — SWITCH-OFF ONLY. With the per-entity
+        # switch off the tracker's room view is edge-maintained and lossy
+        # for multi-sensor rooms (full-room clear on any off-edge,
+        # last-writer substrate), so this limb ORs in the LIVE state of
+        # every Tier-1 entity registered to the room. With the switch on
+        # the tracker equals live sensor truth (INV-NIGHT-RAW-EQUALS-RAW)
+        # and the limb is skipped.
+        # Rev 3.1 R3.1.1 (kill-switch byte-identity): with the per-entity
+        # switch ON the tracker view IS live sensor truth (D4a/D4b,
+        # INV-NIGHT-RAW-EQUALS-RAW), so this limb is skipped; with it OFF
+        # the tracker is lossy again and the limb runs exactly as reviewed.
+        if not _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:
+            try:
+                for entity_id, room_name in list(tracker._entity_to_room.items()):
+                    if room_name in rooms or room_name not in tracker.room_names:
+                        continue
+                    state = self.hass.states.get(entity_id)
+                    if state is not None and state.state == "on":
+                        rooms.add(room_name)
+            except Exception:  # noqa: BLE001 — fail toward holding
+                return ["<error>"]
+        if rooms:
+            return sorted(rooms)
+        try:
+            return ["<camera>"] if tracker._any_camera_occupied() else []
+        except Exception:  # noqa: BLE001 — fail toward holding
+            return ["<error>"]
+
+    def _check_sleep_raw_hold(
+        self,
+        current_state: "HouseState",
+        any_zone_occupied: bool,
+        any_zone_occupied_for_empty: Optional[bool],
+        now_local: Optional[datetime] = None,
+        machine: Any = None,
+    ) -> None:
+        """Arm / clear / fire the SLEEP raw-hold trip-wire for this tick.
+
+        Fires ONE HIGH stuck-signal NM per hold episode when the house is
+        still in INFERRED SLEEP, census 0, held only by raw night occupancy,
+        more than SLEEP_RAW_HOLD_NM_BOUND_S after
+        max(sleep-window end, SLEEP entry) — i.e. the D1b wake discharge
+        failed. An overnight hold inside the window is normal (census-0
+        houses) and never fires; a house-state override is the operator's
+        hold, not a failed discharge, so it never fires (reviews A-M1 /
+        B-L1 / D-M2). The episode latch resets whenever `held` goes False
+        (B-L3: one NM per episode, by design; an emit that the NM path
+        drops is not retried). DST: the subtraction is wall-clock; off by
+        1 h only if a DST jump falls between the anchor and now (needs
+        sleep_end_hour <= 2).
+        """
+        overridden = bool(getattr(machine, "is_overridden", False))
+        held = bool(
+            current_state == HouseState.SLEEP
+            and not overridden
+            and self._census_count == 0
+            and not any_zone_occupied
+            and any_zone_occupied_for_empty is True
+        )
+        if not held:
+            self._sleep_raw_hold_nm_fired = False
+            return
+        engine = self._inference_engine
+        if now_local is None:
+            now_local = dt_util.now()
+        if engine._is_sleep_hour(now_local.hour):
+            return
+        window_end = now_local.replace(
+            hour=int(engine.sleep_end_hour), minute=0, second=0, microsecond=0,
+        )
+        if window_end > now_local:  # sleep_end later today -> yesterday's end
+            window_end = window_end - timedelta(days=1)
+        anchor = window_end
+        try:
+            entered = dt_util.as_local(machine._state_since)
+            if entered > anchor:
+                anchor = entered
+        except Exception:  # noqa: BLE001 — no machine: window end alone
+            pass
+        bound = SLEEP_RAW_HOLD_NM_BOUND_S
+        if bound <= 0 or self._sleep_raw_hold_nm_fired:
+            return
+        held_s = (now_local - anchor).total_seconds()
+        if held_s <= bound:
+            return
+        self._sleep_raw_hold_nm_fired = True
+        rooms: List[str] = []
+        for tracker in self._zone_trackers.values():
+            if tracker.mode == ZonePresenceMode.SLEEP:
+                rooms.extend(self._zone_night_rooms(tracker))
+        from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        self.hass.async_create_task(
+            fire_stuck_signal(
+                self.hass,
+                kind="sleep_raw_hold",
+                key=("house",),
+                diagnosis=(
+                    f"House still in SLEEP {held_s / 60:.0f} min after the "
+                    f"sleep window ended, census 0, held only by raw room "
+                    f"occupancy "
+                    f"({', '.join(sorted(set(rooms))) or 'unknown'}); "
+                    "the wake-time discharge (D1b) did not release it"
+                ),
+                remedy=(
+                    "Check whether someone untracked is asleep there, or "
+                    "whether that room's sensor is holding a phantom"
+                ),
+                severity="HIGH",
+            )
+        )
+
+    def _check_zone_hold_all_away(
+        self,
+        current_state: "HouseState",
+        any_zone_occupied: bool,
+        tracked_count: int,
+        all_tracked_persons_away: bool,
+        machine: Any = None,
+    ) -> None:
+        """Sleep-mask Rev 3 D4d trip-wire (plan §R3.6, §R3.1.7).
+
+        ONE HIGH stuck-signal NM per episode when, for longer than
+        ZONE_HOLD_ALL_AWAY_NM_BOUND_S (0 disables), the house is held out
+        of AWAY by Tier-1 room sensors alone: not AWAY/VACATION/SLEEP (the
+        D1 trip-wire owns SLEEP), no house override, census 0, every
+        TRUSTED tracker away (after D2 a STALE resident is home and blocks
+        it), a zone occupied, no BLE-occupied zone, and at least one zone
+        room with Tier-1 provenance on. Coverage (R3.1.7): census 0 means
+        no unidentified body or recent face, so in practice this pages only
+        while path alpha is blocked by the Frigate fleet being dark; with
+        no trusted tracker (Wigton S0) it is inert by design. The clock
+        resets on any single non-held tick (fail quiet). RAM-only: a
+        restart restarts it. Runs only with the per-entity switch on.
+        """
+        if not _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:
+            return
+        overridden = bool(getattr(machine, "is_overridden", False))
+        tier1_rooms: List[str] = []
+        for tracker in self._zone_trackers.values():
+            # Reviews A-L3 / B-L2: only a zone that actually reads OCCUPIED
+            # (and so sets `any_zone_occupied`) can contribute its Tier-1
+            # holder — not an AWAY-overridden zone with a stale True slot.
+            if tracker.mode != ZonePresenceMode.OCCUPIED:
+                continue
+            for room_name, kinds in tracker._room_provenance.items():
+                if any(bool(v) for v in kinds.values()):
+                    tier1_rooms.append(room_name)
+        held = bool(
+            current_state not in (
+                HouseState.AWAY, HouseState.VACATION, HouseState.SLEEP,
+            )
+            and not overridden
+            and self._census_count == 0
+            and tracked_count > 0
+            and all_tracked_persons_away
+            and any_zone_occupied
+            and not any(
+                t._ble_occupied for t in self._zone_trackers.values()
+            )
+            and tier1_rooms
+        )
+        if not held:
+            self._zone_hold_all_away_since = None
+            self._zone_hold_all_away_fired = False
+            return
+        now = dt_util.utcnow()
+        if self._zone_hold_all_away_since is None:
+            self._zone_hold_all_away_since = now
+            return
+        bound = _ura_const.ZONE_HOLD_ALL_AWAY_NM_BOUND_S
+        if bound <= 0 or self._zone_hold_all_away_fired:
+            return
+        held_s = (now - self._zone_hold_all_away_since).total_seconds()
+        if held_s <= bound:
+            return
+        self._zone_hold_all_away_fired = True
+        # Diagnosis: holding rooms, and per room the `on` entities read live
+        # through the substrate's map (labels reuse _zone_night_rooms).
+        on_by_room: Dict[str, List[str]] = {}
+        try:
+            emap = getattr(self._substrate, "_entity_to_room_kind", {}) or {}
+            for entity_id, mapping in emap.items():
+                if mapping[0] not in tier1_rooms:
+                    continue
+                st = self.hass.states.get(entity_id)
+                if st is not None and st.state == "on":
+                    on_by_room.setdefault(mapping[0], []).append(entity_id)
+        except Exception:  # noqa: BLE001 — diagnosis only
+            on_by_room = {}
+        labels: List[str] = []
+        for tracker in self._zone_trackers.values():
+            for room in self._zone_night_rooms(tracker):
+                ents = sorted(on_by_room.get(room, []))
+                labels.append(f"{room} ({', '.join(ents)})" if ents else room)
+        from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        self.hass.async_create_task(
+            fire_stuck_signal(
+                self.hass,
+                kind="zone_hold_all_away",
+                key=("house",),
+                diagnosis=(
+                    f"House held out of AWAY for {held_s / 60:.0f} min by "
+                    f"room sensors alone while every tracked person is "
+                    f"away and census is 0: "
+                    f"{'; '.join(labels) or ', '.join(sorted(set(tier1_rooms)))}"
+                ),
+                remedy=(
+                    "Check whether someone untracked is home, or whether "
+                    "that sensor is stuck/phantom (fan?)"
+                ),
+                severity="HIGH",
+            )
+        )
+
+    def _zone_night_raw(self, tracker: "ZonePresenceTracker") -> bool:
+        """True iff the SLEEP-mode zone is really occupied (see above)."""
+        return bool(self._zone_night_rooms(tracker))
+
     def _compute_fan_interference_rooms(self) -> List[str]:
         """Per-tick D3 fan-interference observation.
 
@@ -4818,6 +5218,11 @@ class PresenceCoordinator(BaseCoordinator):
     def _handle_occupancy_change(self, event: Any) -> None:
         """Handle room occupancy sensor state change.
 
+        DEAD — not subscribed (sleep-mask Rev 3.1 R3.1.8, KEEP + DOCUMENT;
+        only tests reference it). Reviving it reintroduces last-writer per
+        entity + full-room clear; route occupancy through the
+        OccupancySubstrate instead (`_on_substrate_kind_changed`).
+
         Guards against unavailable/unknown states — treats them as 'not occupied'
         to avoid false positives from offline sensors (lesson from camera_census).
         """
@@ -5078,6 +5483,12 @@ class PresenceCoordinator(BaseCoordinator):
         """
         # Update BLE presence for each zone (Tier 3)
         self._update_ble_zone_presence()
+
+        # Sleep-mask cycle D3: roll away_entries_today at local midnight.
+        try:
+            self._roll_away_count_day()
+        except Exception:  # noqa: BLE001 — display only
+            pass
 
         await self._run_inference("periodic")
 
@@ -5492,6 +5903,10 @@ class PresenceCoordinator(BaseCoordinator):
         Exit is immediate: if the condition clears for all rooms, returns False.
         Bug Class #11: uses UTC-aware now parameter.
         """
+        # Sleep-mask cycle D3 (guest_reason): display-only record of WHICH
+        # room fired. Entry-reset each call; set only on the True return.
+        # The gate's return value is unchanged.
+        self._guest_room_gate_fired_room = None
         # build/pc-observability Path B kill switch + A-MED-1: clear stale
         # first_seen on OFF (symmetric to Path A `_disarm_guest_gate()`).
         if not self._guest_detection_enabled:
@@ -5531,6 +5946,7 @@ class PresenceCoordinator(BaseCoordinator):
                     "D5 guest room gate fires: room='%s', elapsed=%.1f min (>= %d min)",
                     room_name, elapsed_min, threshold_min,
                 )
+                self._guest_room_gate_fired_room = room_name
                 return True
         return False
 
@@ -5869,8 +6285,23 @@ class PresenceCoordinator(BaseCoordinator):
             Defensive default: missing tracking_status field -> ACTIVE (fail
             forward toward v4.7.14 baseline; older-shape entries are
             preserved rather than silently excluded).
+
+            Sleep-mask cycle D2 (5-min resident BLE memory): STALE also
+            counts while PRESENCE_STALE_RESIDENT_COUNTS_HOME is True. STALE
+            = Bermuda placed the person in a room less than
+            CONF_PERSON_DECAY_TIMEOUT ago (person_coordinator.py STALE
+            branch; the stamp is carried, not refreshed), so the hold ends
+            at last fix + N + one person tick + one presence tick. The
+            phone_left_behind precedence is unchanged (`phone_ok and
+            track_ok` below).
             """
-            return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
+            _status = info.get("tracking_status", TRACKING_STATUS_ACTIVE)
+            if _status == TRACKING_STATUS_ACTIVE:
+                return True
+            return bool(
+                PRESENCE_STALE_RESIDENT_COUNTS_HOME
+                and _status == TRACKING_STATUS_STALE
+            )
 
         # PATH-ALPHA D2b (2026-08-16): the relaxed predicate + relaxed
         # denominator have been retired. Path β now shares path α's
@@ -5897,6 +6328,9 @@ class PresenceCoordinator(BaseCoordinator):
         # helper's positional zip relies on the two lists being aligned.
         person_phone_trust_signals: list[bool] = []
         person_tracking_active_signals: list[bool] = []
+        # Sleep-mask cycle D2: STALE persons counted home this tick
+        # (entry-reset per tick; display only).
+        stale_counted_home: list[str] = []
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
@@ -5915,6 +6349,8 @@ class PresenceCoordinator(BaseCoordinator):
                     person_tracking_active_signals.append(bool(track_ok))
                     if phone_ok and track_ok:
                         trustworthy_persons[name] = info
+                        if info.get("tracking_status") == TRACKING_STATUS_STALE:
+                            stale_counted_home.append(name)
                         continue
                     # phone_left_behind takes precedence in the reason string
                     # when both fire (it's the more specific user-actionable
@@ -5961,6 +6397,8 @@ class PresenceCoordinator(BaseCoordinator):
             excluded_persons = {}
             person_phone_trust_signals = []
             person_tracking_active_signals = []
+            stale_counted_home = []
+        self._stale_counted_home = list(stale_counted_home)
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves pre-v4.7.14.1
         # semantic (raw configured count); `_tracked_persons_count_trusted` is
@@ -6003,6 +6441,50 @@ class PresenceCoordinator(BaseCoordinator):
         any_zone_raw_occupied = any(
             t.raw_occupied for t in self._zone_trackers.values()
         )
+
+        # Sleep-mask cycle D1: the nobody-home branch's zone input. A
+        # SLEEP-mode tracker (set_sleep, house SLEEP override push, or a
+        # manual zone SLEEP override) reads its night raw occupancy instead
+        # of "empty"; a manual zone AWAY override still reads empty (PICK 1
+        # carve-out — its mode is AWAY). Keyed on TRACKER mode, not house
+        # state (R2 M2). With no SLEEP-mode tracker this equals
+        # `any_zone_occupied` (INV-BYTE-ID). Only nobody-home reads it.
+        if PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP:
+            any_zone_occupied_for_empty: Optional[bool] = any(
+                t.mode == ZonePresenceMode.OCCUPIED
+                or (
+                    t.mode == ZonePresenceMode.SLEEP
+                    and self._zone_night_raw(t)
+                )
+                for t in self._zone_trackers.values()
+            )
+        else:
+            any_zone_occupied_for_empty = None
+        self._nobody_home_zone_input = any_zone_occupied_for_empty
+        if any_zone_occupied_for_empty is True:
+            # Review D-H1 follow-through (INV-SLEEP-HOLD-BOUNDED (b)): the
+            # WAKING sustained-occupancy gate must see the SAME night signal
+            # that holds SLEEP; otherwise a room held only by a live sensor
+            # the tracker view lost would hold SLEEP but never pass the gate.
+            # Rev 3.1 R3.1.1: only while the per-entity switch is OFF (the
+            # lossy tracker). With it ON, `any(t.raw_occupied)` already
+            # carries every SLEEP zone's raw occupancy, and this line was a
+            # leak: a manual OCCUPIED zone override with raw clear forced
+            # the WAKING gate (finding R3-F1).
+            if not _ura_const.ZONE_OCCUPANCY_PER_ENTITY_ENABLED:
+                any_zone_raw_occupied = True
+            # Review D-M3 (#53 sibling of the SLEEP mask): path β's indoor
+            # guard and its FIX-2b indoor-clear debounce read the same
+            # mode-masked view, so with CONF_LOST_AWAY_SLEEP_EXEMPT off β
+            # could AWAY a SLEEP-pinned sleeper. OR in the non-outdoor
+            # SLEEP-mode night signal. No SLEEP-mode tracker -> unchanged.
+            if not any_indoor_zone_occupied:
+                any_indoor_zone_occupied = any(
+                    t.mode == ZonePresenceMode.SLEEP
+                    and self._zone_night_raw(t)
+                    for zone_name, t in self._zone_trackers.items()
+                    if zone_name not in outdoor_zone_names
+                )
 
         # v4.7.15 D3: Track sustained-occupancy timer for the WAKING gate.
         # Bug Class #11: UTC-aware timestamps.
@@ -6084,6 +6566,30 @@ class PresenceCoordinator(BaseCoordinator):
             unid_gate_armed = False
             guest_room_gate_armed = False
             guest_armed = False
+
+        # Sleep-mask cycle D3: guest_reason (display only). Precedence
+        # Path B (room) then Path A (unidentified), then a GUEST house
+        # override, else none (R2 L6). Since GUEST-CENSUS D2 Path A arms
+        # nothing by itself (corroborator only), so its value says so
+        # (review A-L1).
+        try:
+            _sm_for_reason = manager.house_state_machine
+            _guest_override = bool(
+                getattr(_sm_for_reason, "is_overridden", False)
+                and _sm_for_reason.state == HouseState.GUEST
+            )
+        except Exception:  # noqa: BLE001 — display-only
+            _guest_override = False
+        if guest_room_gate_armed:
+            self._guest_reason = (
+                f"guest_room:{self._guest_room_gate_fired_room or 'unknown'}"
+            )
+        elif unid_gate_armed:
+            self._guest_reason = "unidentified_corroborator_only"
+        elif _guest_override:
+            self._guest_reason = "override"
+        else:
+            self._guest_reason = "none"
 
         # v4.7.2 D5: Confidence layering math (plan §7).
         # unid path: 0.8 (existing). guest_room path: 0.9 (higher specificity).
@@ -6488,6 +6994,9 @@ class PresenceCoordinator(BaseCoordinator):
             census_count=self._census_count,
             current_state=current_state,
             any_zone_occupied=any_zone_occupied,
+            # Sleep-mask cycle D1 wire-in (R2 M6 anchor): nobody-home reads
+            # the night-raw zone input; None = kill switch off.
+            any_zone_occupied_for_empty=any_zone_occupied_for_empty,
             unidentified_count=self._unidentified_count,
             guest_gate_armed=guest_armed,
             all_tracked_persons_away=all_tracked_persons_away,
@@ -6516,6 +7025,34 @@ class PresenceCoordinator(BaseCoordinator):
         )
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
+        # Review D-M1 / B-M1: capture THIS tick's label in a local before
+        # any await. `_run_inference` is unserialized, so a concurrent tick
+        # can overwrite `self._veto_path` (already-AWAY -> "none") while
+        # this one awaits the decision log; the dispatch below must record
+        # the label of the inference that made the transition.
+        tick_veto_path = self._veto_path
+
+        # Sleep-mask cycle D1 trip-wire (Rev 2.1, P5, retargeted): SLEEP
+        # still held ONLY by raw occupancy with census 0 more than
+        # SLEEP_RAW_HOLD_NM_BOUND_S after the sleep window ENDS -> one
+        # stuck-signal NM per episode
+        # (plus fire_stuck_signal's own per-day latch). 0 disables.
+        try:
+            self._check_sleep_raw_hold(
+                current_state, any_zone_occupied, any_zone_occupied_for_empty,
+                now_local=now, machine=manager.house_state_machine,
+            )
+        except Exception:  # noqa: BLE001 — observability must never break inference
+            _LOGGER.debug("sleep raw-hold trip-wire failed", exc_info=True)
+        # Sleep-mask Rev 3 D4d (+ R3.1.7): house held out of AWAY by Tier-1
+        # room sensors alone while every trusted tracker is away.
+        try:
+            self._check_zone_hold_all_away(
+                current_state, any_zone_occupied, tracked_count,
+                all_tracked_persons_away, machine=manager.house_state_machine,
+            )
+        except Exception:  # noqa: BLE001 — observability must never break inference
+            _LOGGER.debug("zone-hold all-away trip-wire failed", exc_info=True)
 
         # PATH-ALPHA D5 (away_transition_blocked) + D6
         # (tracker_trust_excluded): observational writers. Fire-and-
@@ -7060,6 +7597,7 @@ class PresenceCoordinator(BaseCoordinator):
                     trigger,
                     self._inference_engine.confidence,
                     source="inference",
+                    veto_path=tick_veto_path,
                 )
 
                 # House-level anomaly detection
@@ -7858,6 +8396,72 @@ class PresenceCoordinator(BaseCoordinator):
             return out
         return out
 
+    # ------------------------------------------------------------------
+    # Sleep-mask cycle D3: AWAY observability (display only)
+    # ------------------------------------------------------------------
+    # Dispatch source -> last_away_branch for non-inference sources. There
+    # is no "restore" source: boot restore never dispatches (R1 F6/R2 M5).
+    _AWAY_BRANCH_FOR_SOURCE = {
+        "override_adapter": "override",
+        "boot_settle_override": "override",
+    }
+
+    @staticmethod
+    def _local_day_key() -> str:
+        """Local calendar date (ISO) — the away_entries_today day key."""
+        return dt_util.now().date().isoformat()
+
+    def get_away_entries_today(self) -> int:
+        """AWAY entries since local midnight. Reads 0 once the stored day
+        is no longer today, whatever the tick phase (R2 L2)."""
+        if self._away_count_date != self._local_day_key():
+            return 0
+        return int(self._away_entries_today)
+
+    def _roll_away_count_day(self) -> None:
+        """Reset the AWAY-entry counter at a local day change."""
+        today = self._local_day_key()
+        if self._away_count_date != today:
+            self._away_entries_today = 0
+            self._away_count_date = today
+
+    def _note_away_entry(
+        self, source: str, veto_path: Optional[str] = None,
+    ) -> None:
+        """Record one AWAY entry (called only after the dispatch gates)."""
+        self._roll_away_count_day()
+        self._away_entries_today += 1
+        if source == "inference":
+            label = (
+                veto_path if veto_path is not None
+                else getattr(self, "_veto_path", "none")
+            )
+            branch = str(label or "none")
+        else:
+            branch = self._AWAY_BRANCH_FOR_SOURCE.get(source, str(source))
+        self._last_away_branch = branch
+        self._last_away_at = dt_util.now().isoformat()
+
+    async def _hydrate_away_entries_today(self, db: Any) -> None:
+        """Restore away_entries_today from house_state_log at setup.
+
+        Bound = local midnight as NAIVE UTC ISO (the column is naive
+        ``datetime.utcnow().isoformat()``); ``start_of_local_day`` is
+        DST-correct. Counts only real entries (previous_state != away).
+        """
+        bound = (
+            dt_util.as_utc(dt_util.start_of_local_day())
+            .replace(tzinfo=None)
+            .isoformat()
+        )
+        count = await db.count_house_state_changes_since(
+            bound,
+            state=HouseState.AWAY.value,
+            exclude_same_previous=True,
+        )
+        self._away_entries_today = int(count or 0)
+        self._away_count_date = self._local_day_key()
+
     def _dispatch_house_state_change(
         self,
         old_state: "HouseState",
@@ -7865,8 +8469,13 @@ class PresenceCoordinator(BaseCoordinator):
         trigger: str,
         confidence: Any,
         source: str = "inference",
+        veto_path: Optional[str] = None,
     ) -> None:
         """Single presence-owned dispatch helper for SIGNAL_HOUSE_STATE_CHANGED.
+
+        ``veto_path``: the inference label captured by the caller before its
+        first await (review D-M1). None -> the current ``self._veto_path``
+        (override sources, legacy callers).
 
         Applies boot-settle + observation-mode gates, dispatches the
         canonical payload, writes the D7 episode row and the activity
@@ -7923,7 +8532,10 @@ class PresenceCoordinator(BaseCoordinator):
                 "excluded_persons": dict(
                     getattr(self, "_excluded_persons", {}) or {}
                 ),
-                "veto_path": str(getattr(self, "_veto_path", "none")),
+                "veto_path": str(
+                    veto_path if veto_path is not None
+                    else getattr(self, "_veto_path", "none")
+                ),
                 "source": source,
             }
             _mw.write_house_state_transition(
@@ -7949,6 +8561,15 @@ class PresenceCoordinator(BaseCoordinator):
                 "confidence": confidence,
             },
         )
+        # Sleep-mask cycle D3: AWAY-entry counter + last branch. Placed AFTER
+        # the boot-settle / observation-mode returns and adjacent to the
+        # house_state_log write, so the counter tracks exactly the rows
+        # written (INV-COUNTER-MATCHES-LOG; a gated dispatch counts nothing).
+        if new_val == HouseState.AWAY.value and old_val != HouseState.AWAY.value:
+            try:
+                self._note_away_entry(source, veto_path)
+            except Exception:  # noqa: BLE001 — display only
+                _LOGGER.debug("away-entry note failed (non-fatal)", exc_info=True)
         # D3 legacy DB row + activity log — mirror pre-refactor site.
         try:
             db = self.hass.data.get(DOMAIN, {}).get("database")
