@@ -5571,7 +5571,7 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
     # carried 2,869 DISTINCT attribute blobs (~9.5 MB/day) for 13 state
     # changes — dwell_seconds changes every 30 s poll, zones/inputs every few
     # minutes. dwell_seconds is derivable from state_since; signal_consensus
-    # value/band/inputs stay recorded on sensor.ura_signal_consensus_confidence;
+    # value/band/inputs stay recorded on sensor.ura_presence_coordinator_signal_consensus_confidence;
     # zones has no recorder-history reader. Live state.attributes unaffected.
     _unrecorded_attributes = frozenset(
         {

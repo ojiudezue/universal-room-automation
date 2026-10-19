@@ -136,7 +136,7 @@ control falls through to path β / GUEST / SLEEP.
 HOUSE-STATE-SENSOR-ATTR-CHURN-1 (branch `fix/house-state-attr-unrecorded`, NOT deployed) so are
 `dwell_seconds`, `zones`, `signal_consensus`, `signal_consensus_band` and `signal_consensus_inputs`
 (`sensor.py` `PresenceHouseStateSensor`). Live attributes are unchanged. For recorder history, use
-`state_since` for dwell, and use `sensor.ura_signal_consensus_confidence` (value, `consensus_band`,
+`state_since` for dwell, and use `sensor.ura_presence_coordinator_signal_consensus_confidence` (value, `consensus_band`,
 `signal_consensus_inputs`) for consensus.
 
 **Veto-path verdict** (corrected 2026-10-18, §10 #16): the house-state sensor attribute

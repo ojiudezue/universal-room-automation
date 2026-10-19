@@ -23,8 +23,8 @@ out of the recorder lets rows share blobs again.
 |---|---|---|---|
 | `dwell_seconds` | 2,869 | None. `routine_forecaster.py:343` computes its own local `dwell_seconds` from state timestamps and does not read the attribute | Unrecord. It can be derived from `state_since` |
 | `zones` | 678 | None. Frontend bundles and tests read live state only | Unrecord |
-| `signal_consensus_inputs` | 666 | `PLANNING_fan_noise_mitigation_layer2_actuation.md:44` lists "recorder attribute history" as a diagnostic recipe | Unrecord. The same dict stays recorded on `sensor.ura_signal_consensus_confidence` (`sensor.py` `SignalConsensusConfidenceSensor`) |
-| `signal_consensus` | 67 | None | Unrecord. It is the native state of `sensor.ura_signal_consensus_confidence` |
+| `signal_consensus_inputs` | 666 | `PLANNING_fan_noise_mitigation_layer2_actuation.md:44` lists "recorder attribute history" as a diagnostic recipe | Unrecord. The same dict stays recorded on `sensor.ura_presence_coordinator_signal_consensus_confidence` (`sensor.py` `SignalConsensusConfidenceSensor`) |
+| `signal_consensus` | 67 | None | Unrecord. It is the native state of `sensor.ura_presence_coordinator_signal_consensus_confidence` |
 | `signal_consensus_band` | 64 | None | Unrecord. It is recorded as `consensus_band` on the same sensor |
 | `fan_interference_active` | 184 | n/a | Not a top-level key. It lives inside `signal_consensus_inputs` |
 
@@ -39,9 +39,9 @@ Existing idiom followed: `_unrecorded_attributes` on `SafetyStatusSensor`, `Secu
 - Mutation drill: removing `dwell_seconds` made the test go RED, and so did adding `veto_path`.
   The file was restored afterwards.
 
-## Live acceptance (prospective, one-shot recorder query 24 h after deploy)
-- Distinct `attributes_id` per day for the sensor drops from about 2,869 to **< 400**.
-- Row count per day is unchanged (about 2,870).
+## Live acceptance (prospective, one-shot recorder query 1-2 h after the restart)
+- Distinct `attributes_id` per hour for the sensor drops from about 120 to **well under 20**.
+- Row count per hour is unchanged (about 120).
 - State history is intact: the 13 or so daily state changes are still present.
 - **Discriminator:** if the row count drops sharply while blobs stay high, something else
   changed (polling or write path), not this fix. If blobs stay at about 2,869, the exclusion
