@@ -1089,6 +1089,83 @@ async def test_sleep_edge_mid_pause_generic_room_not_cancelled():
     assert fc.restore_calls == []
 
 
+@pytest.mark.parametrize("also", ["motion", "l1"])
+@pytest.mark.asyncio
+async def test_sleep_edge_mid_pause_wins_over_motion_and_l1(also):
+    """Review C: PAUSED bedroom, house -> home_night AND (motion | L1) on the
+    same tick -> exactly one restore, reason sleep_state (the sleep cancel
+    returns before the motion/L1 cancels can double-schedule a restore)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_evening", room_type="bedroom",
+    )
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
+    hass.data["universal_room_automation"][rc.entry.entry_id] = rc
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    await mgr._enter_paused(ctx, rc)
+    reasons = []
+    orig = mgr._cancel_and_restore_async
+
+    def _spy(c, outcome, *, reason="cancel"):
+        reasons.append(reason)
+        return orig(c, outcome, reason=reason)
+
+    mgr._cancel_and_restore_async = _spy
+    mgr._presence.house_state = "home_night"
+    if also == "motion":
+        rc.data["motion_detected"] = True
+    else:
+        pc.room_persons["exercise"] = ["jaya"]
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert reasons == ["sleep_state"]
+    assert len(fc.restore_calls) == 1
+
+
+@pytest.mark.parametrize("paused", [False, True])
+@pytest.mark.asyncio
+async def test_bedroom_home_day_no_mid_flight_sleep_cancel(paused):
+    """Review C: by day the mid-flight sleep cancel must not fire."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_day", room_type="bedroom",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    if paused:
+        await mgr._enter_paused(ctx, rc)
+    expected = ctx.state
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    await _drain_tasks(hass)
+    assert ctx.state == expected
+    assert fc.restore_calls == []
+
+
+class _MapPC:
+    def __init__(self, area_map, room_persons):
+        self._area_id_to_room = area_map
+        self.room_persons = room_persons
+
+    def get_persons_in_room(self, room):
+        return list(self.room_persons.get(room, []))
+
+
+def test_l1_persons_normalized_key_fallback():
+    """Review C: scanner area given as display name -> normalized key hit."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mpc = _MapPC({"jaya_bathroom": "Jaya Bathroom"}, {"Jaya Bathroom": ["jaya"]})
+    assert mgr._l1_persons(
+        mpc, "exercise", {"scanner_areas": ["Jaya Bathroom"]},
+    ) == ["jaya"]
+
+
+def test_l1_persons_scanner_areas_bare_string():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(room_type="bedroom")
+    mpc = _MapPC({"jaya_bathroom": "Jaya Bathroom"}, {"Jaya Bathroom": ["jaya"]})
+    assert mgr._l1_persons(
+        mpc, "exercise", {"scanner_areas": "jaya_bathroom"},
+    ) == ["jaya"]
+
+
 def test_l1_persons_ignores_non_dict_area_map():
     """Review A-LOW-4."""
     from unittest.mock import MagicMock
