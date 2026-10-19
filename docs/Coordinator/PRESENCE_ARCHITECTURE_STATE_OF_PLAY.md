@@ -386,6 +386,10 @@ Three complementary mechanisms exist; **each covers a different direction**:
    L1/L2/L3/sensors-only ladder as any room. Media is in the sleep scope for still-sleeper
    protection, not the v4.7.13 HVAC keep-on contract (bedroom-only in `hvac_fans`).
    The room-type window factor (bedroom/media x2) is unchanged.
+   **L1 includes scanner-area rooms (same date):** the `ble_l1` veto and mid-flight L1 cancel
+   use `_l1_persons`: persons in this room OR in any URA room whose area_id is in this
+   room's `CONF_SCANNER_AREAS` (Jaya Bedroom borrows `jaya_bathroom`; her phone resolves
+   to the Jaya Bathroom room and adjacency is one-directional, so L2 never saw it).
 4. **Comfort-fan house-AWAY veto** — `fan_veto.py:1-80+`. ONE predicate consumed by all
    three comfort-fan actuation sites (room-tier `automation.py::handle_temperature_based_fan_control`,
    HVAC `hvac_fans.HvacFanController.update`, reconciler `actuator_reconciler._resolve_fan`).

@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
+    CONF_SCANNER_AREAS,
     FAN_RECHECK_MANUAL_FAN_ON_FOLLOWUP_MIN,
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_RECHECK_ARM_DELAY_S,
@@ -668,9 +669,10 @@ class FanRecheckManager:
             return sink.veto(room_name, "no_person_coord")
 
         # L1 veto applies in EVERY tier.
-        l1_persons = trustworthy_persons_in_room(
-            self.hass, person_coord, room_name,
-        )
+        # Operator scope addition 2026-10-18: "in the room" also covers
+        # persons resolved to a room whose area this room lists in its
+        # CONF_SCANNER_AREAS (Jaya Bedroom -> jaya_bathroom).
+        l1_persons = self._l1_persons(person_coord, room_name, merged)
         if l1_persons:
             sink.set_ladder_layer(ctx, LAYER_L1)
             return sink.veto(room_name, "ble_l1")
@@ -1131,8 +1133,8 @@ class FanRecheckManager:
             return
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is not None:
-            l1 = trustworthy_persons_in_room(
-                self.hass, person_coord, ctx.room_name,
+            l1 = self._l1_persons(
+                person_coord, ctx.room_name, self._merged_config(room_coord),
             )
             if l1:
                 ctx.ble_ladder_layer = LAYER_L1
@@ -1316,6 +1318,41 @@ class FanRecheckManager:
             if (entry.data.get(CONF_ROOM_NAME) or entry.data.get("room_name")) == room_name:
                 return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
         return None
+
+    def _l1_persons(
+        self, person_coord: Any, room_name: str, merged: dict,
+    ) -> list:
+        """Trustworthy persons in this room OR in any URA room whose area_id
+        is listed in this room's CONF_SCANNER_AREAS.
+
+        Operator scope addition 2026-10-18 (JAYA-FAN-STILL-PHANTOM-1): a phone
+        resolved by Tier-1 direct match to the bathroom room is still "in"
+        the bedroom that borrows that bathroom's scanner. Reads person_coord's
+        existing area->room map; does NOT change person positioning.
+        """
+        persons = list(trustworthy_persons_in_room(
+            self.hass, person_coord, room_name,
+        ))
+        scanner_areas = merged.get(CONF_SCANNER_AREAS) or []
+        if isinstance(scanner_areas, str):
+            scanner_areas = [scanner_areas]
+        area_map = getattr(person_coord, "_area_id_to_room", None) or {}
+        seen = {room_name}
+        for area in scanner_areas:
+            if not area:
+                continue
+            other = area_map.get(area) or area_map.get(
+                str(area).lower().replace(" ", "_"),
+            )
+            if not other or other in seen:
+                continue
+            seen.add(other)
+            for p in trustworthy_persons_in_room(
+                self.hass, person_coord, other,
+            ):
+                if p not in persons:
+                    persons.append(p)
+        return persons
 
     def _has_trustworthy_phone_in_adjacent(
         self, person_coord: Any, room_name: str,

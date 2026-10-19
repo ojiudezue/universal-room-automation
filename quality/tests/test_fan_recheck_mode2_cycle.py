@@ -978,6 +978,62 @@ async def test_high_still_risk_rooms_equivalent_to_generic_by_day(
     assert results["media_room"] == results["generic"]
 
 
+def _jaya_shaped(mgr, rc, pc, phone_room):
+    """Bedroom borrows the bathroom scanner (scanner_areas=[jaya_bathroom]);
+    the bathroom is its own URA room, so the phone resolves there."""
+    rc.entry.options = {**rc.entry.options, "scanner_areas": ["jaya_bathroom"]}
+    pc._area_id_to_room = {
+        "jaya_bathroom": "Jaya Bathroom", "Jaya Bathroom": "Jaya Bathroom",
+        "kitchen": "Kitchen",
+    }
+    pc.room_persons[phone_room] = ["jaya"]
+
+
+@pytest.mark.parametrize("ble_tier", [1, 2])
+@pytest.mark.parametrize("house_state", ["home_day", "home_evening"])
+@pytest.mark.asyncio
+async def test_l1_scanner_area_room_vetoes_by_day(ble_tier, house_state):
+    """Operator scope addition 2026-10-18: phone resolved to the room whose
+    area this bedroom lists in scanner_areas -> ble_l1 (live + inert)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=ble_tier, trust_sensors_ok=True, room_type="bedroom",
+        house_state=house_state,
+    )
+    _jaya_shaped(mgr, rc, pc, "Jaya Bathroom")
+    ctx = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+    assert mgr._evaluate_eligibility(ctx, rc, sink=mod._INERT_SINK) is False
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    assert mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"] == {
+        "ble_l1": 1,
+    }
+    assert mgr._rooms["exercise"].ble_ladder_layer == mod.LAYER_L1
+
+
+@pytest.mark.asyncio
+async def test_l1_scanner_area_unrelated_room_still_eligible():
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
+    )
+    _jaya_shaped(mgr, rc, pc, "Kitchen")
+    await _tick(mgr, hass, rc)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+
+
+@pytest.mark.asyncio
+async def test_l1_scanner_area_room_cancels_mid_flight():
+    """The mid-flight L1 cancel reads the same widened L1."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2, trust_sensors_ok=True, room_type="bedroom",
+    )
+    await _tick(mgr, hass, rc)
+    ctx = mgr._rooms["exercise"]
+    assert ctx.state == mod.STATE_ARMED
+    _jaya_shaped(mgr, rc, pc, "Jaya Bathroom")
+    mgr._evaluate_cancellation_during_tick(ctx, rc)
+    assert ctx.ble_ladder_layer == mod.LAYER_L1
+
+
 @pytest.mark.asyncio
 async def test_sleep_begins_during_arm_delay_aborts_before_pause_media_room():
     """Plan R3: media_room armed by day aborts at the sleep edge."""
