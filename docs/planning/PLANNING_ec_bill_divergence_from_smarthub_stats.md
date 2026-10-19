@@ -301,3 +301,39 @@ Verified: `statistics_during_period` signature (`recorder/statistics.py:2077-208
 - **LOW L1 — INV-1 contradicts D2.** INV-1 says `utility_days == ec_days` whenever published; D2 publishes when `ec_days < utility_days`. Reword INV-1 to "identical date window; `ec_days` reported".
 - **LOW L2 — first-run stamp.** Initialise `_utility_stats_last_run = None` so the first tick runs; with stamp-before-await a recorder-not-ready boot delays data one interval — say so in D4 Live.
 - **LOW L3 — unload.** Cancel the background task on EC teardown; test it.
+
+---
+
+## Rev 2 — plan review folded (BINDING; supersedes the D1/D2/D3/INV-1 text above where they differ) — orchestrator, 2026-10-19 overnight
+
+- **H1 → D1 call shape.** `_async_decision_cycle` must NEVER await the refresh. It only *schedules* it: if ids are
+  configured, the interval has elapsed and `_utility_stats_inflight` is False, set the flag and start
+  `_async_refresh_utility_stats` as a tracked background task (`hass.async_create_background_task` or the EC's existing
+  tracked-task helper — builder: grep EC for its task-tracking idiom and REUSE it), clearing the flag in `finally`.
+  The task handle is cancelled on EC unload/teardown. INV-2 gains a clause: *the decision cycle's runtime is
+  independent of the recorder query's runtime.*
+  - **Test (new, mandatory):** `test_decision_cycle_not_blocked_by_utility_refresh` — the refresh is held on an
+    un-set `asyncio.Event`; assert the decision cycle returns and a SECOND decision cycle completes while the refresh is
+    still blocked, and that no second refresh starts (single-flight). Mutation drill: replace the schedule with a direct
+    `await` → test goes RED.
+  - **Test:** `test_utility_refresh_task_cancelled_on_unload` (L3).
+- **M1 → D2/Live.** Previous cycle start is computed as `_get_cycle_start(cycle_start - timedelta(days=1))` (reuse
+  `energy_billing.py:533-544`), never hand-rolled month arithmetic. The D2 Live numbers (3669.4 kWh / $295.13 / 3428.4)
+  are valid ONLY with `energy_bill_cycle_day = 23`; if the operator changes the knob before validation, recompute them
+  with `.claude/scratch/billprobe/` before the validation read, and note the recompute in the README.
+- **M2 → D2/D3 new key.** Publish `ec_underpriced_days` (inside the current-window dict and `utility_last_cycle`): count of
+  dates in the window whose EC import cost / import kWh is below the lowest effective import rate the TOU engine can
+  return for that date. Rate floor comes from the TOU engine (no new literal). **Test:** `test_ec_underpriced_days_counts`.
+  **Live:** current-cycle `ec_underpriced_days` > 0 while the 10-09-and-earlier history is in the window (discriminates
+  "EC history artifact" from a real utility divergence).
+- **L1 → INV-1 wording.** Replace "`utility_days == ec_days` whenever divergence is published" with "both totals are
+  over the SAME date window; `ec_days` is reported and may be < `utility_days` when `energy_daily` rows are missing."
+  The D2 test `test_utility_window_matches_ec_dates` asserts the same window, not equal day counts.
+- **L2 → first run.** `_utility_stats_last_run` initialises to `None` (first decision tick schedules a refresh). If the
+  recorder is not ready at boot the first data arrives one interval late; D4 Live criterion reads "within ~1 h of the
+  restart", not "at boot".
+- **Tier/review.** Tier 2 by consumer set (display only), but it adds a background task inside the EC decision cycle →
+  build review uses 3 framing-disjoint passes per the standing regression-prone policy: A correctness/window/TOU math,
+  B async/lifecycle/decision-cycle non-blocking, C test authority via per-site mutation.
+
+**Verdict after fold: SHIP-TO-BUILD** (reviewer: "once they are made in the plan it can go to build without another review").
