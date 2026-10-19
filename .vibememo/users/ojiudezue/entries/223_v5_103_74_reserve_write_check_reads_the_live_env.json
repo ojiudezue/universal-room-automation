@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "223",
+  "author": "ojiudezue",
+  "session_id": "claude_20261019_035755_ship_v5_103_74",
+  "timestamp": "2026-10-19T03:57:55Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.74 shipped: Reserve write check reads the live Envoy reserve sensor",
+  "summary": "Reserve write check reads the live Envoy reserve sensor",
+  "why": "Operator asked 'why a new setting? What's the real problem'. The root-cause audit found the write verifier's local reserve witness, the Enpower number, has read only 10 since 2026-08-05 while the official Envoy reserve sensor tracks the real reserve (14 vs 10 on 10-12/13). That produced 2-7 false resends and 0-3 CRITICAL pages per day with 3 h stand-downs, and hid any real failure at 10. The fix swaps only the witness source inside the existing resolver, keeps the operator's +/-2 margin and the write path untouched. Plan-reviewed, three framing-disjoint reviews SHIP, 24-site mutation pass, full name-diff clean.",
+  "implications": "Shipped EC-SELFHEAL-UNEXPLAINED-RESENDS-1 at v5.103.74; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.74.md (Live criteria).",
+  "revisit_trigger": "Witness-unavailable trip-wire (pre-existing outage blind spot) folded onto the card as residual",
+  "refs": {
+    "cards": [
+      "EC-SELFHEAL-UNEXPLAINED-RESENDS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.74.md"
+    ],
+    "release_notes": "The reserve write verifier's local witness was a number frozen at 10 since 08-05 (false resends + CRITICALs, masked failures at 10). It now prefers the official enphase_envoy reserve sensor via registry lookup, falls back only when unresolvable, abstains when unavailable. No new setting; tolerance unchanged."
+  }
+}
