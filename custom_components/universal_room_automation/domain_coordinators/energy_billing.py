@@ -1235,6 +1235,13 @@ def build_utility_divergence_block(
         "divergence_cost_pct": round(_utility_pct(d_cost, u_net, e_net), 1),
         "ec_underpriced_days": ec_underpriced_days,
     }
+    # A-M1 fix-up: an EC side with no energy_daily rows in the window (DB
+    # unavailable or no rows) is "no data", not "EC = 0". Publishing would
+    # report a spurious +/-100 % divergence; publish None instead.
+    if int(ec.get("days") or 0) <= 0:
+        for _k in ("divergence_kwh", "divergence_kwh_pct",
+                   "divergence_cost", "divergence_cost_pct"):
+            block[_k] = None
     if export_configured:
         block["utility_export_kwh"] = round(
             float(utility.get("export_kwh") or 0.0), 2,

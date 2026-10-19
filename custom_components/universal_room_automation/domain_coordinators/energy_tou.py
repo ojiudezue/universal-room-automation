@@ -531,6 +531,18 @@ class TOURateEngine:
         """Active period's rate == the season's lowest distinct rate."""
         return self.rate_rank(now) == 0
 
+    @property
+    def service_availability_monthly(self) -> float:
+        """Monthly service-availability charge from the loaded rate file.
+
+        Falls back to ``PEC_FIXED_CHARGES`` only when the fixed-charge map
+        lacks the key (EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 A-M2).
+        """
+        val = (self._fixed or {}).get("service_availability")
+        if val is None:
+            val = PEC_FIXED_CHARGES["service_availability"]
+        return float(val)
+
     def get_export_rate(self, now: datetime | None = None) -> float:
         """Return the current export credit rate in $/kWh."""
         if now is None:

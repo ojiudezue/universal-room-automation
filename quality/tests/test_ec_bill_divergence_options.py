@@ -86,9 +86,13 @@ def test_options_schema_exposes_statistic_fields():
     assert IMP_KEY in keys and EXP_KEY in keys
 
 
-def test_statistic_ids_are_construction_keys():
-    """Read at EC construction -> a change must trigger the parent reload."""
+def test_statistic_id_option_keys_match_literals():
+    """The __init__.py reload-suppress sets carry these keys as string
+    literals; pin that the constants equal them. The no-reload behaviour
+    itself is driven through the REAL listener in
+    test_ec_role_defaults_rev5.py::test_utility_statistic_ids_save_does_not_reload.
+    """
     assert _ec.CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID == IMP_KEY
     assert _ec.CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID == EXP_KEY
-    assert IMP_KEY in _ec.EC_CONSTRUCTION_ENTITY_KEYS
-    assert EXP_KEY in _ec.EC_CONSTRUCTION_ENTITY_KEYS
+    assert IMP_KEY not in _ec.EC_CONSTRUCTION_ENTITY_KEYS
+    assert EXP_KEY not in _ec.EC_CONSTRUCTION_ENTITY_KEYS

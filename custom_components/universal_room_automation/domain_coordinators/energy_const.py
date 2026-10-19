@@ -1432,8 +1432,9 @@ CONF_ENERGY_UTILITY_METER_ENTITY: Final = "energy_utility_meter_entity"
 
 # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (PLANNING_ec_bill_divergence_from_
 # smarthub_stats.md): utility-side hourly long-term statistic ids (external
-# statistics, e.g. ``smarthub:smarthub_energy_sensor_<acct>_<loc>``). Read at
-# construction. Blank import id = feature OFF (kill switch; the legacy
+# statistics, e.g. ``smarthub:smarthub_energy_sensor_<acct>_<loc>``). Read
+# LIVE from the CM options on every refresh (B-M1 fix-up; NOT in
+# EC_CONSTRUCTION_ENTITY_KEYS, in OPTIONS_RELOAD_SUPPRESS_KEYS — no reload). Blank import id = feature OFF (kill switch; the legacy
 # utility-meter-entity branch runs unchanged). Export blank = export treated 0.
 CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID: Final = "energy_utility_import_statistic_id"
 CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID: Final = "energy_utility_export_statistic_id"
@@ -2605,8 +2606,6 @@ EC_CONSTRUCTION_ENTITY_KEYS: Final[frozenset[str]] = EC_ROLE_KEY_SET | frozenset
     CONF_ENERGY_GRID_IMPORT_ENTITY,
     CONF_ENERGY_GRID_EXPORT_ENTITY,
     CONF_ENERGY_UTILITY_METER_ENTITY,
-    CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
-    CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
     CONF_ENERGY_ENVOY_ENTITY,
     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
     CONF_ENERGY_STREAM_COWITNESS_ENTITY,

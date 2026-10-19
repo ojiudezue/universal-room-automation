@@ -226,6 +226,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "inclement_hold_removed",
     "inclement_buy_added",
     "inclement_buy_removed",
+    # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 B-M1: utility statistic ids
+    # (read live from CM options by EC on every refresh / publish).
+    "energy_utility_import_statistic_id",
+    "energy_utility_export_statistic_id",
 }
 
 
@@ -379,7 +383,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    Review B-MED-2; via _NM_C_KEYS) -> 103
     # +1 inclement_preonset_floor (EC storm Stage B D-B6 slider) -> 104
     # +4 EC storm Stage E E1.6 alert-selection override lists -> 108
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 108
+    # +2 EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 utility statistic ids -> 110
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 110
 
 
 # ---------------------------------------------------------------------------

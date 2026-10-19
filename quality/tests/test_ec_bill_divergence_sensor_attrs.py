@@ -51,6 +51,9 @@ class _FakeEnergy:
         self.peak_avoidance_status = {}
         self.predicted_bill = 150.0
 
+    def _utility_stat_ids(self):
+        return em.EnergyCoordinator._utility_stat_ids(self)
+
     def _utility_statistics_divergence(self):
         return em.EnergyCoordinator._utility_statistics_divergence(self)
 

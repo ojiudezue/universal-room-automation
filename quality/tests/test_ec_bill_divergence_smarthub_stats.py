@@ -215,7 +215,8 @@ def _make(imp=IMP, exp=EXP, db=None, cycle_day=23, query=None, recorder=True):
     s._decision_cycle_body = _noop_body
     for n in ("_maybe_schedule_utility_refresh", "_cancel_utility_refresh",
               "_async_refresh_utility_stats", "_compute_utility_comparison",
-              "_utility_statistics_divergence", "_async_decision_cycle"):
+              "_utility_statistics_divergence", "_async_decision_cycle",
+              "_utility_stat_ids"):
         _bind(s, n)
     calls: list[tuple] = []
 
@@ -612,3 +613,150 @@ def test_predicted_bill_attrs_statistics_precedence():
     assert div["utility_source"] == "statistics"
     assert div["utility_kwh"] is None  # no cache yet; NOT the entity's 500
     assert "utility_entity" not in div
+
+
+# =============================================================================
+# Review fix-ups (A-M1, A-M2, B-M1, B-L3)
+# =============================================================================
+
+
+def test_ec_side_without_rows_publishes_no_divergence():
+    """A-M1: db None -> EC side has 0 days; the utility side has complete
+    days >= cycle_start. Divergence must be None, never +/-100."""
+    now = datetime(2026, 10, 19, 9, 0, tzinfo=TZ)
+    s = _make(db=None)
+    _refresh_with(s, now, _days_rows(date(2026, 8, 23), date(2026, 10, 17), 1.0))
+    cur = s._utility_stats_cache["current"]
+    assert cur["ec_days"] == 0
+    assert cur["utility_import_kwh"] == pytest.approx(600.0)  # utility side kept
+    for k in ("divergence_kwh", "divergence_kwh_pct",
+              "divergence_cost", "divergence_cost_pct"):
+        assert cur[k] is None, (k, cur[k])
+    last = s._utility_stats_cache["last_cycle"]
+    assert last["divergence_kwh_pct"] is None
+    div = em.EnergyCoordinator.utility_meter_divergence.fget(s)
+    for k in ("divergence_pct", "divergence_cost", "divergence_cost_pct"):
+        assert div[k] is None, (k, div[k])
+        assert div[k] not in (100, 100.0, -100, -100.0)
+    # Same with a DB that has no energy_daily rows in the window.
+    s2 = _make(db=_FakeDB({}))
+    _refresh_with(s2, now, _days_rows(date(2026, 8, 23), date(2026, 10, 17), 1.0))
+    assert s2._utility_stats_cache["current"]["divergence_kwh_pct"] is None
+
+
+def test_last_cycle_bill_estimate_uses_rate_file_service_charge():
+    """A-M2: the service charge comes from the LOADED rate file (41.25 here),
+    not the PEC constant 32.50."""
+    now = datetime(2026, 9, 25, 10, 0, tzinfo=TZ)
+    rows_i = _days_rows(date(2026, 8, 23), date(2026, 9, 24), 1.0)
+    s = _make(db=_FakeDB({}), exp="")
+    s._tou = et.TOURateEngine(fixed_charges={
+        "service_availability": 41.25,
+        "delivery_per_kwh": 0.022546,
+        "transmission_per_kwh": 0.019930,
+    })
+    _refresh_with(s, now, rows_i)
+    last = s._utility_stats_cache["last_cycle"]
+    per_day_imp = (17 * (0.043481 + 0.042476) + 3 * (0.093169 + 0.042476)
+                   + 4 * (0.161843 + 0.042476))
+    assert last["utility_bill_estimate"] == pytest.approx(
+        round(31 * per_day_imp + 41.25, 2), abs=0.011,
+    )
+    # Discriminates against the constant: 8.75 apart.
+    assert abs(last["utility_bill_estimate"] - (round(31 * per_day_imp, 2) + 32.50)) > 8.0
+
+
+def test_tou_service_availability_falls_back_to_constant():
+    eng = et.TOURateEngine(fixed_charges={"delivery_per_kwh": 0.02,
+                                          "transmission_per_kwh": 0.02})
+    assert eng.service_availability_monthly == pytest.approx(32.50)
+
+
+def test_utility_ids_read_live_from_cm_options():
+    """B-M1: ids come from the CM options at each refresh; a changed id is
+    used by the NEXT refresh with no reload and without waiting the
+    interval. The cached comparison of the old ids is not published."""
+    t0 = datetime(2026, 10, 19, 9, 0, tzinfo=TZ)
+    s = _make(imp="smarthub:boot_import", exp="")
+    opts = {"energy_utility_import_statistic_id": "smarthub:a_import"}
+    s._get_cm_options = lambda: dict(opts)
+    s._utility_stats_cache = {"current": {"utility_import_kwh": 1.0}}
+
+    async def _go():
+        s._maybe_schedule_utility_refresh(t0)
+        await asyncio.gather(*s.hass.tasks)
+        opts["energy_utility_import_statistic_id"] = "smarthub:b_import"
+        opts["energy_utility_export_statistic_id"] = "smarthub:b_export"
+        # Before the next refresh runs, the stale cache is not published.
+        s._utility_stats_cache = {"current": {"utility_import_kwh": 7.0,
+                                              "window_start": "x", "window_end": "y"}}
+        stale = em.EnergyCoordinator.utility_meter_divergence.fget(s)["utility_kwh"]
+        s._maybe_schedule_utility_refresh(t0 + timedelta(minutes=5))
+        await asyncio.gather(*s.hass.tasks)
+        return stale
+
+    stale = _run(_go())
+    assert [c[1] for c in s.query_calls] == [
+        {"smarthub:a_import"}, {"smarthub:b_import", "smarthub:b_export"},
+    ]
+    assert stale is None
+    # Cleared in the live options -> feature off.
+    opts.clear()
+    opts["unrelated"] = 1
+    assert em.EnergyCoordinator.utility_meter_divergence.fget(s) is None
+
+
+def test_no_utility_refresh_when_disabled_or_closed():
+    """B-L3: no task is scheduled once EC is disabled or teardown began."""
+    t0 = datetime(2026, 10, 19, 9, 0, tzinfo=TZ)
+    s = _make()
+    s._enabled = False
+
+    async def _go(stub):
+        stub._maybe_schedule_utility_refresh(t0)
+        await asyncio.sleep(0)
+
+    _run(_go(s))
+    assert s.hass.tasks == [] and s.query_calls == []
+    s2 = _make()
+    s2._utility_stats_closed = True
+    _run(_go(s2))
+    assert s2.hass.tasks == [] and s2.query_calls == []
+    # Control: same stub, flags clear -> it does schedule.
+    s3 = _make()
+    _run(_go(s3))
+    assert len(s3.hass.tasks) == 1
+
+
+def test_teardown_sets_closed_before_awaits(aware_now):
+    """B-L3: a decision cycle finishing during teardown's awaits schedules
+    nothing (async_teardown sets the closed flag first)."""
+    s = _make()
+    s._decision_timer_unsub = None
+    s._outage_ledger = None
+    s._solar_follow_timer_unsub = None
+    s._solar_follow = None
+    s._tou_boundary_unsub = None
+    s._peak_import_history = []
+    s._write_verifier = None
+    s._dp_eval_last_task = None
+    s._cancel_listeners = lambda: None
+    s._optimizer_intent_unsub = None
+    s._arm_tou_boundary_listener = lambda: None
+
+    async def _cycle_during_save():
+        await s._async_decision_cycle()
+
+    for n in ("_save_circuit_state", "_save_energy_baselines",
+              "_save_envoy_cache", "_save_midnight_snapshot",
+              "_save_load_shedding_level", "_save_peak_import_history"):
+        setattr(s, n, AsyncMock())
+    s._save_evse_state = _cycle_during_save
+
+    async def _go():
+        await em.EnergyCoordinator.async_teardown(s)
+        await asyncio.sleep(0)
+
+    _run(_go())
+    assert s.hass.tasks == []
+    assert s.query_calls == []

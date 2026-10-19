@@ -630,6 +630,8 @@ class EnergyCoordinator(BaseCoordinator):
         self._utility_stats_cache: dict[str, Any] | None = None
         self._utility_stats_error: str | None = None
         self._utility_stats_refreshed_at: str | None = None
+        self._utility_stats_ids_used: tuple[str, str] | None = None
+        self._utility_stats_closed: bool = False
 
         # SolarFollowController D1 — construct AFTER the grid entity block so
         # ec.get(...) has run (§5 institutional-context note: constructing at
@@ -10703,6 +10705,9 @@ class EnergyCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down — cancel decision timer first to prevent races, then persist."""
+        # EC-BILL B-L3 fix-up: stop new utility-statistics refreshes before
+        # any await below lets an in-flight decision cycle finish.
+        self._utility_stats_closed = True
         # Cancel timer FIRST to prevent concurrent _periodic_db_writes
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
@@ -11608,7 +11613,17 @@ class EnergyCoordinator(BaseCoordinator):
         cannot start a second query. The task handle is retained so teardown
         cancels it (same slot idiom as ``_dp_eval_last_task``).
         """
-        if not getattr(self, "_utility_import_stat_id", ""):
+        # B-L3 fix-up: never schedule once EC is disabled or teardown has
+        # started (a decision cycle finishing during/after teardown would
+        # otherwise start a recorder query against a torn-down EC).
+        if not getattr(self, "_enabled", True):
+            return
+        if getattr(self, "_utility_stats_closed", False):
+            return
+        # B-M1 fix-up: ids are read LIVE from the CM options every call, so
+        # an options save applies without any reload.
+        imp_id, exp_id = self._utility_stat_ids()
+        if not imp_id:
             return
         if self._utility_stats_inflight:
             return
@@ -11619,8 +11634,15 @@ class EnergyCoordinator(BaseCoordinator):
         if now is None:
             now = _dt_util.now()
         last = self._utility_stats_last_run
-        if last is not None and (now - last) < _td(minutes=UTILITY_STATS_REFRESH_MIN):
+        prev_ids = getattr(self, "_utility_stats_ids_used", None)
+        ids_changed = prev_ids is not None and (imp_id, exp_id) != prev_ids
+        if ids_changed:
+            # New ids: the cached comparison describes the old series; drop
+            # it and refresh now rather than after the interval.
+            self._utility_stats_cache = None
+        elif last is not None and (now - last) < _td(minutes=UTILITY_STATS_REFRESH_MIN):
             return
+        self._utility_stats_ids_used = (imp_id, exp_id)
         self._utility_stats_inflight = True
         self._utility_stats_last_run = now
         coro = self._async_refresh_utility_stats(now)
@@ -11635,6 +11657,34 @@ class EnergyCoordinator(BaseCoordinator):
             self._utility_stats_inflight = False
             raise
         self._utility_stats_task = task
+
+    def _utility_stat_ids(self) -> tuple[str, str]:
+        """(import_id, export_id) read LIVE from the merged CM options.
+
+        B-M1 fix-up: REUSES ``_get_cm_options`` (re-read every call). Falls
+        back to the construction-time values only when no CM entry is
+        readable (boot path / test stubs).
+        """
+        from .energy_const import (  # noqa: PLC0415
+            CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID,
+            CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID,
+        )
+        opts: dict = {}
+        getter = getattr(self, "_get_cm_options", None)
+        if getter is not None:
+            try:
+                opts = getter() or {}
+            except Exception:  # noqa: BLE001
+                opts = {}
+        if not isinstance(opts, dict) or not opts:
+            return (
+                str(getattr(self, "_utility_import_stat_id", "") or "").strip(),
+                str(getattr(self, "_utility_export_stat_id", "") or "").strip(),
+            )
+        return (
+            str(opts.get(CONF_ENERGY_UTILITY_IMPORT_STATISTIC_ID) or "").strip(),
+            str(opts.get(CONF_ENERGY_UTILITY_EXPORT_STATISTIC_ID) or "").strip(),
+        )
 
     def _cancel_utility_refresh(self) -> None:
         """Cancel an in-flight utility refresh task (teardown)."""
@@ -11690,8 +11740,9 @@ class EnergyCoordinator(BaseCoordinator):
             )
             start_local = _dt.combine(prev_cycle_start, _time(0), tzinfo=tz)
             start_utc = start_local.astimezone(_tz.utc)
-            imp_id = self._utility_import_stat_id
-            exp_id = self._utility_export_stat_id
+            imp_id, exp_id = getattr(
+                self, "_utility_stats_ids_used", None,
+            ) or self._utility_stat_ids()
             ids = {imp_id} | ({exp_id} if exp_id else set())
             result = await self._query_utility_statistics(start_utc, ids) or {}
             priced = price_hourly_utility_rows(
@@ -11706,6 +11757,7 @@ class EnergyCoordinator(BaseCoordinator):
                     newest = st
             self._utility_stats_cache = await self._compute_utility_comparison(
                 priced, now, cycle_start, prev_cycle_start, newest, tz,
+                export_configured=bool(exp_id),
             )
             self._utility_stats_error = None
             self._utility_stats_refreshed_at = now.isoformat()
@@ -11720,6 +11772,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     async def _compute_utility_comparison(
         self, priced, now, cycle_start, prev_cycle_start, newest_ts, tz,
+        export_configured: bool | None = None,
     ) -> dict[str, Any]:
         """Same-window comparison against EC's ``energy_daily`` (INV-1).
 
@@ -11740,10 +11793,13 @@ class EnergyCoordinator(BaseCoordinator):
         )
 
         db = self.hass.data.get("universal_room_automation", {}).get("database")
-        export_configured = bool(self._utility_export_stat_id)
+        if export_configured is None:
+            export_configured = bool(self._utility_stat_ids()[1])
         today = now.date()
         window_end = utility_window_end(priced)
 
+        # Per-day reads stay as-is: a grouped query needs a new database.py
+        # DAO (Tier 2-DB trigger); hourly cadence x ~60 days is acceptable.
         async def _ec_side(start, end):
             if db is None:
                 return {"days": 0}, None
@@ -11779,9 +11835,14 @@ class EnergyCoordinator(BaseCoordinator):
                     prev_cycle_start, cycle_start, util, ec, under,
                     export_configured,
                 )
+                # A-M2 fix-up: service charge from the LOADED rate file
+                # (TOURateEngine.service_availability_monthly); the PEC
+                # constant only when the engine cannot supply a number.
+                _svc = getattr(self._tou, "service_availability_monthly", None)
+                if isinstance(_svc, bool) or not isinstance(_svc, (int, float)):
+                    _svc = PEC_FIXED_CHARGES["service_availability"]
                 last["utility_bill_estimate"] = round(
-                    last["utility_net_cost"]
-                    + PEC_FIXED_CHARGES["service_availability"], 2,
+                    last["utility_net_cost"] + float(_svc), 2,
                 )
                 out["last_cycle"] = last
         if newest_ts is not None:
@@ -11799,6 +11860,12 @@ class EnergyCoordinator(BaseCoordinator):
     def _utility_statistics_divergence(self) -> dict[str, Any]:
         """D3 publish shape (legacy keys kept, like-for-like values)."""
         cache = self._utility_stats_cache or {}
+        if getattr(self, "_utility_stats_ids_used", None) not in (
+            None, self._utility_stat_ids(),
+        ):
+            # B-M1: ids changed since the cached run; never publish the old
+            # series' comparison under the new ids.
+            cache = {}
         cur = cache.get("current") or None
         return {
             "utility_source": "statistics",
@@ -11841,7 +11908,7 @@ class EnergyCoordinator(BaseCoordinator):
         below does not run). Blank ids = this branch is skipped and the
         legacy entity branch runs byte-identically.
         """
-        if getattr(self, "_utility_import_stat_id", ""):
+        if self._utility_stat_ids()[0]:
             return self._utility_statistics_divergence()
         if not self._utility_meter_entity:
             return None
