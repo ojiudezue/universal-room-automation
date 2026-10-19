@@ -32436,16 +32436,18 @@ cards:
   arc_cut_v5_103_72: "priority follow-up cycle immediately after this ship"
   title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
   thread: presence
-  status: "pre_planning"
+  status: "waiting_operator"
   tier: 2
   created: "2026-10-18"
-  refinement_status: initial
+  refinement_status: "refined"
   origin: "Rev 3 plan review R1-F11 (pre-existing)"
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
-  next: "Me: Tier-2 plan (presence <-> house-state ripple, so 3-framing build review) for 'rebuild presence zone name maps on room rename'; needs a plan review before build. Overnight pass queues it after the current planner frees."
-  updated: "2026-10-19 02:07"
+  next: "APPROVE scope + tier: (A, recommended) one cycle covering presence + person + HVAC re-key, Tier 3 discipline (cross-coordinator; invariant 'a sleeper in a just-renamed room is never AWAYed and its zone never retreats'), or (B) presence + person only now, HVAC as a follow-up card. Also ANSWER: is losing one room's fan-policy history on rename OK? -> I fold the plan review and build to review."
+  updated: "2026-10-19 02:20"
   measured_2026_10_19_overnight: "STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (only Jaya's title differs from its room_name, harmless). CODE: the rename path writes through to entry.data (config_flow.py:12315-12350, ROOM-NAME-DESYNC-1) and reloads only the ROOM entry; presence builds _room_to_zone / tracker room names in _discover_zones (presence.py:2913, :3494) only at parent setup, and a ZM options change re-runs only the prune (presence.py:3354 _handle_zm_zones_updated). So after a live rename the zone tier keeps the OLD name until HA restart. Severity raised by build review D (docs/reviews/code-review/house_state_rev32_review_D.md:44): since v5.103.72 D4c.2, a sleeper in a just-renamed room can be AWAYed at night until restart. Note: PLANNING_room_rename_writethrough.md:33 claimed _room_to_zone agrees after one reload - not true for the presence tier (no presence reload on a room rename)."
   parsimony: {"problem": "After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).", "verdict": "BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)"}
+  plan_2026_10_19_overnight: "Plan written: docs/planning/PLANNING_zone_room_rename_drift.md (907bf73b6). Scope GREW beyond presence: (a) re-running _discover_zones would not fix it (skips zones with a tracker, presence.py:3439); (b) person_coordinator.py:945 rebuilds its area->room map only when room ids change - a rename keeps ids, so a person's BLE room resolves to the old name and the night BLE check misses the room; (c) HVAC builds zone room lists once at setup and after a rename classifies the old name as entry_removed (hvac_zones.py:2262-2276) - the zone can RETREAT with a sleeper in it; ~25 per-room HVAC maps orphaned. Chosen fix: on the existing SIGNAL_ROOM_ENTRY_LIFECYCLE ('unloaded' event already carries the new name), presence + HVAC re-key name-keyed structures synchronously before the substrate refresh, and invalidate the person map. Rejected: rebuild discovery (loses live night state); re-key everything by entry id (~1,100 sites, parked). Completeness plan review running overnight."
+  refinement: ["Card scoped as 'presence zone tracker keys by name' -> plan enumeration found person_coordinator and HVAC hold stale names too; HVAC can retreat a zone over a sleeper -> cross-coordinator, not a presence-only fix."]
 - id: WIGTON-STUCK-ZX-NO-PAGE-1
   title: "On a camera-less, phone-less install (Wigton) a stuck-on ZX radar in a multi-sensor room holds the house HOME with no page (D4d trip-wire needs a trusted phone + dark Frigate)"
   thread: presence
