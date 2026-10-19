@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-19T02:12:04-05:00_ - _Data commit: `b99ee33dea84`_ - _last_reconciled: 2026-10-18_
+_Generated: 2026-10-19T02:12:42-05:00_ - _Data commit: `e0a21a962cfc`_ - _last_reconciled: 2026-10-18_
 
 
 ## Columns
@@ -47,12 +47,15 @@ thread: **energy** - status: **pre_planning**
 
 ### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **platform** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-10-17 16:30 · initial_
+_created 2026-10-17 16:30 · updated 2026-10-19 02:13 · refined_
 - **Origin:** 2026-10-17 - EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while op...
 - **Why:** Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record...
-- **Next:** Me: Tier-1 plan in the card: at setup record the loaded version (manifest read at import); a cheap periodic compare against manifest.json on disk -> a diagnostic sensor attribute (loaded vs installed) + one WARNING/repair issue 'restart ...
-- **Forensic keys (1):**
+- **Next:** Me: Tier-1 build to review (overnight queue, after the current validator run).
+- **Parsimony:** [BUILD (Tier 1, small; reuse sw_version)] After a deploy is installed but HA has not restarted, nothing shows that the running URA is older than the installed one, so live checks silently read old code.
+- **Forensic keys (3):**
   - `tier`: 1
+  - `instance_2026_10_19_overnight`: LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_component...
+  - `prior_art_2026_10_19`: REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + h...
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **pre_planning**
@@ -369,9 +372,9 @@ _updated 2026-10-18 02:02_
 
 ### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **planned**
-_created 2026-10-18 · updated 2026-10-19 02:12 · refined_
-- **Next:** Me: plan review (Tier 2, running overnight 10-19) -> fold findings -> build to review. Operator ANSWER (non-blocking for build, needed for the live numbers): is energy_bill_cycle_day 23 right when PEC reads on the 24th/25th?
-- **Forensic keys (7):**
+_created 2026-10-18 · updated 2026-10-19 02:13 · refined_
+- **Next:** Me: fold H1/M1/M2/L1-L3 into the plan, then build to review (Tier 2 + standing 3-framing review since it touches the EC decision cycle).
+- **Forensic keys (8):**
   - `arc_cut_v5_103_74`: separate SmartHub bill work, greenlit and next in queue
   - `tier`: 2
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
@@ -379,6 +382,7 @@ _created 2026-10-18 · updated 2026-10-19 02:12 · refined_
   - `plan_2026_10_19_overnight`: Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once ...
   - `finding_2026_10_19_ec_history`: Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC hist...
   - `operator_questions_2026_10_19`: (1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?
+  - `plan_review_2026_10_19_overnight`: Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
