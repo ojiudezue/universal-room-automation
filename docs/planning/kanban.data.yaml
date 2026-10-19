@@ -84,31 +84,36 @@ cards:
 - id: EGRESS-ENTRY-DISPLAY-LATE-NAME-1
   title: "Last Person Entry never shows a name that arrives after the entry is logged (exit has a re-read since v5.103.64, entry does not)"
   thread: identity
-  status: "inbox"
+  status: "done"
   tier: 1
   created: "2026-10-17 17:40"
-  updated: "2026-10-17 17:40"
+  updated: "2026-10-19 02:08"
   refinement_status: "initial"
   approval: "unreviewed"
   origin: {date: "2026-10-17", gist: "Operator asked whether the v8 dashboard will show who came in; probe: LastPersonEntrySensor (sensor.py:4837-4893) sets person_id once from ura_person_egress_event; no entry-side backfill signal exists (exit re-reads via SIGNAL_EGRESS_EXIT_BACKFILLED, sensor.py:4913-4935)."}
   why: "v8 People tab shows Last Person Entry person_id; a late face/BLE attach on an entry row never reaches the dashboard."
   links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-DISPLAY-REREAD-1"]}
-  next: "Me: first verify whether entry rows ever get named after insert (late face attach path in camera_census) - if never, close as not-needed; else mirror the v5.103.64 exit re-read (signal on late entry naming + newest-row re-read)."
+  next: "CLOSED (moot) 2026-10-19 overnight."
   rank: {value: 3, time_criticality: 2, effort: 2}
+  verified_2026_10_19_overnight: "MOOT per this card's own test ('if entry rows are never named after insert, close as not-needed'). CODE: the only post-insert write to person_entry_exit_events is backfill_entry_exit_person_id (database.py:4425), fed only by find_unnamed_exit_crossings (database.py:4387, WHERE direction = 'exit' at :4408) from camera_census.py:4611/:4669. No path names an entry row after insert, so LastPersonEntrySensor's insert-time read can never miss a late name - there is none to miss. DB (last 14 d): entry 157 rows, 50 named (32%); exit 107, 39 named."
+  revival_trigger: "If entry identity coverage (32%) becomes the bottleneck (e.g. the 6.0.0 guest gate consuming door identity), the work is an ENTRY-side late-name backfill mirroring EGRESS-EXIT-IDENTITY-BACKFILL-1 - and then this display re-read comes with it. Card that work then, with its own problem statement."
 - id: EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1
   title: "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first: possibly the wrong person"
   thread: identity
-  status: "inbox"
+  status: "parked"
   tier: 2
   created: "2026-10-17 17:10"
-  updated: "2026-10-17 17:10"
+  updated: "2026-10-19 02:09"
   refinement_status: "initial"
   approval: "unreviewed"
   origin: {date: "2026-10-17", gist: "Exit-backfill disposition spot check: rows 10-13 12:14 and 10-13 00:33 had oji + jaya not_home edges seconds apart against one crossing row; both rows named oji (first claimer)."}
   why: "Wrong-person naming is worse than unnamed (fail-safe principle of the backfill plan). EGRESS-EXIT-COMULTI-DEPART-1 (done) names both when there are two rows; this is the one-row case."
   links: {"related": ["EGRESS-EXIT-IDENTITY-BACKFILL-1", "EGRESS-EXIT-COMULTI-DEPART-1"]}
-  next: "Me: adjacency sweep vs EGRESS-EXIT-COMULTI-DEPART-1 design (does it already handle one row + two edges?), then decide: leave null when >1 resident edge lands in the window for a single row, or name both."
+  next: "PARKED 2026-10-19 overnight - see revival_trigger."
   rank: {value: 4, time_criticality: 2, effort: 2}
+  measured_2026_10_19_overnight: "STILL-REAL, RARE. CODE: the exit backfill (camera_census.py ~4600-4700) has edge A claim rows[0] with an IS-NULL guard; edge B then finds no null row and only bumps _ble_exit_row_lost_count - so one row + two departures is named for whoever's edge (after the 300 s settle) arrives first; EGRESS-EXIT-COMULTI-DEPART-1 only covers the two-row case. DB + recorder (last 14 d): 107 exit rows; 3 had >= 2 residents' person.* home->away edges in [row-60 s, row+600 s] - 8522 10-11 (oji+ezinne+jaya, named jaya), 8599 10-13 00:22 (oji+jaya, named oji), 8603 10-13 12:03 (oji+jaya, named oji). ~1.5 rows/week; each names a person who DID leave (not a stranger) but drops the co-departer. No consumer acts on exit person_id today (display + counts only)."
+  parsimony: {"problem": "When two residents leave together past one camera, the single exit row is credited to whichever phone reports first and the other departure goes unrecorded.", "verdict": "PARK - ~1.5 rows/week, the named person did leave, and the clean fix (leave null when a second edge arrives, which means un-naming a row after the fact) adds cross-edge state for little display value"}
+  revival_trigger: "Revive when a consumer ACTS on exit person_id (guest gate / arrival-departure notifications / 6.0.0 identity actuation), or if a ground-truth check finds a joint-departure row named for someone who did not leave."
 - id: EC-LOADED-VS-INSTALLED-VERSION-1
   title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
   thread: platform
@@ -32388,13 +32393,16 @@ cards:
   arc_cut_v5_103_72: "priority follow-up cycle immediately after this ship"
   title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
   thread: presence
-  status: inbox
+  status: "pre_planning"
   tier: 2
   created: "2026-10-18"
   refinement_status: initial
   origin: "Rev 3 plan review R1-F11 (pre-existing)"
   sibling_of: ZONE-TRACKER-PER-SENSOR-WIPE-1
-  next: "Measure: does any live room carry a renamed title vs its zone's room_names? Then decide key-by-entry_id fix."
+  next: "Me: Tier-2 plan (presence <-> house-state ripple, so 3-framing build review) for 'rebuild presence zone name maps on room rename'; needs a plan review before build. Overnight pass queues it after the current planner frees."
+  updated: "2026-10-19 02:07"
+  measured_2026_10_19_overnight: "STILL-REAL (latent), live exposure 0. LIVE (.storage/core.config_entries, 47 rooms): zone_rooms in the Zone Manager are entry ids (all 5 zones match ids), and no room has options.room_name != data.room_name, so nothing is drifted today (only Jaya's title differs from its room_name, harmless). CODE: the rename path writes through to entry.data (config_flow.py:12315-12350, ROOM-NAME-DESYNC-1) and reloads only the ROOM entry; presence builds _room_to_zone / tracker room names in _discover_zones (presence.py:2913, :3494) only at parent setup, and a ZM options change re-runs only the prune (presence.py:3354 _handle_zm_zones_updated). So after a live rename the zone tier keeps the OLD name until HA restart. Severity raised by build review D (docs/reviews/code-review/house_state_rev32_review_D.md:44): since v5.103.72 D4c.2, a sleeper in a just-renamed room can be AWAYed at night until restart. Note: PLANNING_room_rename_writethrough.md:33 claimed _room_to_zone agrees after one reload - not true for the presence tier (no presence reload on a room rename)."
+  parsimony: {"problem": "After a room is renamed live, the presence zone tier keys the room by its old name until HA restarts, so its occupancy stops counting for its zone (at night it can let the house go AWAY over a sleeper).", "verdict": "BUILD (simplest: re-run zone discovery / rebuild the name maps when a room entry reloads, reusing the _handle_zm_zones_updated hook pattern, rather than re-keying everything by entry_id)"}
 - id: WIGTON-STUCK-ZX-NO-PAGE-1
   title: "On a camera-less, phone-less install (Wigton) a stuck-on ZX radar in a multi-sensor room holds the house HOME with no page (D4d trip-wire needs a trusted phone + dark Frigate)"
   thread: presence
