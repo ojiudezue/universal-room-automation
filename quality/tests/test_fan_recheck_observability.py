@@ -137,7 +137,9 @@ async def test_veto_ble_l1_counts():
 
 @pytest.mark.asyncio
 async def test_veto_high_still_risk_counts():
-    """Tier-1 bedroom with L2 hit forced L3-only — high_still_risk veto."""
+    """Rewritten (JAYA-FAN-STILL-PHANTOM-1): ``high_still_risk`` is never
+    emitted. Tier-1 bedroom + L2 hit by day -> no veto at all; in sleep ->
+    exactly one ``sleep_state`` veto."""
     mod, hass, mgr, rc, fc, pc, db = _build_world(
         ble_tier=1,
         l2_adjacent_present=True,
@@ -148,7 +150,21 @@ async def test_veto_high_still_risk_counts():
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
     counts = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
-    assert counts.get("high_still_risk") == 1
+    assert "high_still_risk" not in counts
+    assert not any(counts.values())
+
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=1,
+        l2_adjacent_present=True,
+        l2_allowed=True,
+        room_type="bedroom",
+        house_state="sleep",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    counts = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    assert counts == {"sleep_state": 1}
 
 
 @pytest.mark.asyncio

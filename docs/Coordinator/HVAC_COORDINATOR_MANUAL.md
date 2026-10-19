@@ -490,8 +490,10 @@ Live in `hvac_const.py`. Not dashboard knobs.
 Sleep-state trust was rolled out precisely for this (v4.7.13). If it
 recurs:
 - Verify the person tracker sees a home person during sleep.
-- Verify Master Bedroom is flagged as high-still-risk (protects it
-  from Mode-2 fan pause during sleep).
+- Verify Master Bedroom has room type `bedroom`: the fan recheck's
+  `sleep_state` veto refuses Mode-2 fan pauses in bedroom/media rooms across
+  home_night/sleep/waking (the all-day `high_still_risk` veto was removed
+  2026-10-18; by day these rooms are rechecked like any other).
 
 ### 6.4 "A light/fan didn't turn off at exit"
 
