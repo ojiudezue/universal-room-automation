@@ -1,246 +1,595 @@
 # PLANNING — House AWAY flap with an untracked occupant home
 
 **Card:** HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1
-**Status:** **Rev 2**, 2026-10-16 (overnight, read-only). Folds both Tier-3 plan reviews (`docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R1_completeness.md`, `…_R2_build_prediction.md`, both FIX-PLAN). The disposition is in §12. No code changed. Next step: a re-verify pass on Rev 2, then operator approval before build.
+
+> **PARKED (operator, 2026-10-18).** The operator approved the simple cycle `docs/planning/PLANNING_house_state_sleep_mask_ble_memory_observability.md` in place of this Rev 4. Rev 4's SLEEP-mask finding (R1 HIGH-1), discharge isolation (R2 H3), counter fix and recorder placement are carried there. The camera-recency guard (A) and guest-room veto (B) are parked. **Revival trigger:** guest accuracy becomes a priority (a long stay or a party).
+**Status:** **Rev 4**, 2026-10-18. Plan only (operator approved writing it, not building it). Rev 4 folds every finding of the two Tier-3 plan reviews of Rev 3:
+- `docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R1_completeness_rev3.md` (`972df3b01`): 1 HIGH, 4 MEDIUM, 4 LOW.
+- `docs/reviews/plan-review/PLAN_REVIEW_house_away_flap_R2_build_prediction_rev3.md` (`593ae4ccf`): 4 HIGH, 5 MEDIUM, 5 LOW.
+
+Disposition of every finding: §15. **The biggest change:** Jaya Bedroom leaves the default veto rooms, because the fan/phantom loop cannot be closed without removing all of its measured benefit (§3.3). That changes the goal residual (§6).
+**Next step:** the orchestrator decides whether Rev 4 needs a re-verify review. Then the operator approves the PICKs (§11), then build.
 **Author:** ura-planner.
-**Operator instruction on the card:** "Tell me what the plan is. I want careful plans. But make sure it context and prior art aware."
+**Operator constraints (2026-10-18, verbatim):**
+- "this is surgery on the house state so I want a prior art scan and I want it to build on our infra and not be frivolous new functionality."
+- "observability in the presence coordinator and house device is important as well as ura v8 dashboard."
+- "HVAC to go away fast... house to be more careful."
 
 ---
 
 ## 0. The plan in one paragraph
 
-When no tracked phone is home, URA declares the house AWAY the moment the interior cameras stop seeing anyone, even if they saw someone a few seconds earlier. Three branches of the house-state logic do this (path α, path β and "nobody home"). The existing 3-minute camera hold does not prevent it, because a later clamp cuts the held count back to the live reading. The fix is one shared rule: the house may not go AWAY until the cameras have seen no unidentified person and no recognised face for "Count memory" minutes (default 20, 0 = off). Phones and BLE never count as "seen", so a forgotten phone can't hold the house home. The existing 60-second re-check releases a genuinely empty house within about W + 1 minute, and no new timer is added. After a restart the rule acts as if someone was seen at boot. Measured over 59 normal days, this would have stopped about 70% of AWAY entries, nearly all of them short false flips. It also stops about 28 of 44 during the current trip. Real departures reach AWAY up to 20 minutes later. The later census estimator (D6) keeps the same knob and swaps in its own count.
+URA declares the house AWAY too readily when no tracked phone is home but a person is. Rev 4 makes three changes inside the existing house-state inference and the existing presence sensor.
+
+- **(A) Camera-recency guard.** None of the three automatic AWAY branches may fire until the interior cameras have seen no unrecognised body and no recognised face for **W = 3 min**. While the guard waits, the house **keeps its current state**; it does not drift into SLEEP or GUEST.
+- **(B) Room veto.** The existing guest-room occupancy tracker is extended so that **no AWAY branch** can fire while Guest Bedroom 1 or Guest Bedroom 2 is occupied, capped at 8 h per run. A room never holds on a tick where its radar is the only sensor on and its fan is running.
+- **(C) Observability.** The presence house-state sensor shows why the house went AWAY, what is holding it home, and today's AWAY count. One card on the v8 `people` view shows this.
+
+Measured effect (30 days):
+- Ordinary days: someone-home AWAY entries fall from 2.53/day to roughly **2.1/day** (bounds 0.97–2.14).
+- Days with only Jaya and a guest home: 16.2/day falls to roughly **10/day**.
+- Departures reach AWAY as fast as today (7 of 10 within 15 min).
+
+**The goal (≤ 1/day) is not met** (§6). HVAC's zone-vacancy path is untouched.
 
 ---
 
 ## 1. Institutional context verified (MANDATORY)
 
 ### 1.1 Mandatory docs read completely before writing
-- `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. ledger §10). Contradiction recorded in §9 C1.
-- `docs/architecture/SENSOR_FLEET_CLASSES.md`. Not re-litigated; room sensors enter only through `any_zone_occupied`.
-- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 C1–C38). No ledger claim re-asserted.
-- `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`. No identity input is used; `face_recognized_count` is used only as "a camera saw a body".
-- `docs/QUALITY_CONTEXT.md`. Relevant classes: #53 one missed site, #7 stale data source, the concept-split smell (#63, `feedback_coincidental_equality_masks_concept_split`), suppression-needs-discharge.
+- **`docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`**, including the §10 ledger 1–12. No ledger claim is re-asserted.
+  - #12 (path α has no census or zone term) is relied on as corrected.
+  - #1 (the ESPHome LD2410 fires on a running fan) is now load-bearing (§3.3).
+- **`docs/architecture/SENSOR_FLEET_CLASSES.md`.** The veto rooms were classified by capability:
+  - The MS600 Matter radars hold a still person.
+  - The Jaya LD2410 is a radar and is fan-susceptible.
+- **`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md`**, read completely. No §10 claim is re-asserted.
+  - The house-state handler is at `hvac.py:5184` (C10).
+  - Zone vacancy is knob 48 = 5 min.
+- **`docs/planning/AUDIT_census_arc_and_away_holistic.md`**, including "Probe results 2026-10-18" and "Probe P3".
+- **`docs/planning/AUDIT_away_flap_untracked_occupant_would_have.md`**.
+- **Rev 2 and Rev 3 of this plan, and all four plan reviews** (R1/R2 of Rev 2, R1/R2 of Rev 3).
+- **`docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`** (via Rev 2). `face_recognized_count` is used only as "a camera saw a body".
 
-### 1.2 Prior-art scan — REUSE or BUILD
+### 1.2 Prior-art scan: REUSE / EXTEND / BUILD
+Re-grepped on `develop` @ `593ae4ccf`, 2026-10-18.
 
-| Piece | Verdict | Evidence |
-|---|---|---|
-| Camera body evidence per tick | **REUSE** | `_handle_census_update` `presence.py:4739-4815` already parses `unidentified_count` (`:4758`) and `face_recognized_count` (`:4765`) from the census payload. **Not** `interior_count`: it is `total_persons` = identified (face ∪ **BLE**) + held unidentified (`camera_census.py:1828`, `_apply_enhanced_house_census` `:5903+`). A BLE term would re-open GAP-A D8 (`presence.py:1155-1162`). R2-01. |
-| Last-camera-body timestamp | **BUILD (one RAM field)** | Grep of presence / camera_census / const for `last_body`, `body_seen`, `last_nonzero`: no hits. `_peak_house_timestamp` is a promotion stamp (no self-refresh by design). |
-| Discharge | **REUSE the 60 s periodic inference** | `async_track_time_interval(self._periodic_inference, 60 s)` `presence.py:2924-2930`; `_periodic_inference` → `_run_inference("periodic")` (`:5076-5082`). **NOT** `_schedule_deferred_retry` (`:5107-5129`): its single `_retry_unsub` slot is shared with the hysteresis retry and cancelled by accepted transitions (`:6966-6968`), and it refuses to re-arm from a `deferred_retry` trigger (`:7099-7101`). R1-01, R2-02. |
-| Held camera max (concept) | **REUSE the estimator's design** | `PLANNING_census_occupancy_estimator.md` §7.2 `M_cam` over `FLOOR_WINDOW_S`; M_cam is camera-only (`S`). This slice matches that: camera-only. |
-| Window knob | **REUSE name and default** | Estimator §7.10 `FLOOR_WINDOW_S` → Number "Count memory", default 1200 s, "0 = instantaneous". Persistence pattern: `number.py:684-690`, "entry.options is the SOLE source of truth (no RestoreEntity)". |
-| Census hold | **REJECT as the lever** | `_apply_hold_decay` `camera_census.py:5292`; live `census_hold_interior` = 3.0 min. Cancelled by the clamp `camera_census.py:6006-6009` (§3.2). |
-| Tick-count debounce `sustained_external_empty` | **REJECT** | It counts inference calls (`presence.py` ~6395-6410), not seconds. |
-| Arriving re-arm cooldown `ARRIVING_REARM_COOLDOWN_S` | **REJECT (n/a)** | `presence.py:221`; covers failed arrivals only. |
-| State-machine hysteresis | **REJECT** | Minimum dwell in a state, `house_state.py:~130`. No knob (`manager.py:225`). |
-| House-state override (interim) | **REUSE** | Three selects exist, all `auto` live (R1 verified): **canonical** `select.ura_presence_coordinator_house_state_override` (Presence device, `select.py:332-339`); siblings `select.ura_coordinator_manager_house_state_override` and `select.universal_room_automation_house_state_override` write the same machine override (`select.py:255-278`). |
-| Away veto switch (rollback) | **REUSE** | `switch.ura_presence_coordinator_away_confirmation_veto` live **on** (`switch.py:3880`). |
+| # | Piece | Verdict | Evidence (file:line) |
+|---|---|---|---|
+| P1 | The three automatic AWAY returns | **EXTEND**: two new checks per branch, placed after that branch's already-AWAY check | Nobody-home `presence.py:1127-1131`; path α `:1170-1181`; path β `:1248-1288`. `grep "return HouseState.AWAY"` finds exactly `:1131`, `:1181`, `:1288`. The only other state-machine writers are `transition` `:6961`, the overrides (`select.py:278`, `__init__.py:6201`, `presence.py:8017`) and `apply_restored` (`manager.py:697`). |
+| P2 | Camera evidence per census tick | **REUSE** | `_handle_census_update`: `unidentified_count` at `presence.py:4758`, `face_recognized_count` at `:4765-4769`. |
+| P3 | Last-camera-body timestamp | **BUILD: one RAM field** | `grep last_camera_body\|away_hold` finds 0 hits. |
+| P4 | Discharge of the guard | **REUSE** the 60 s periodic, **with its registration isolated** (D2) | `async_track_time_interval(self._periodic_inference…)` at `presence.py:2926-2930`. Today it sits inside the same `try:` as `_discover_guest_rooms` (`:2881`), whose `except` is at `:2932-2933` (R2v3-H3). Handler at `:5074`. |
+| P5 | Room-occupancy tracker for veto B | **EXTEND** | `_discover_guest_rooms` `presence.py:5164-5334`; listener `:5336-5401`; state dict `_guest_room_state` `:1726`; sibling maps `_guest_room_entity_to_name` `:1734` and `_guest_room_known_last_true` `:1742`. |
+| P5b | Restart-surviving run start for the cap | **REUSE** | Room `OccupiedBinarySensor` is a RestoreEntity and restores the coordinator's `_became_occupied_time` (`binary_sensor.py:306-308`, DB fallback `:371-373`). The value is published as the attribute `became_occupied_time` (`binary_sensor.py:473`). (R1 MEDIUM-1, R2v3-H2) |
+| P5c | Fan/phantom loop breaker | **REUSE two primitives** | Per-tick capability radar-sole flag `data[STATE_RADAR_SOLE_TICK]`, written at `coordinator.py:3621` (ledger #10, gold pattern "Capability-radar-sole boolean"). Presence fan belief `_fan_on_rooms` `presence.py:580` (gold pattern "Fan listener — last-known-good belief"). |
+| P5d | Re-read room config without a restart | **REUSE** `SIGNAL_ROOM_ENTRY_LIFECYCLE` | Dispatched on room load/unload at `__init__.py:5631-5641`, `:6140-6150`, `:8634-8637`. (R2v3-H4a) |
+| P6 | Guest gate (behaviour must not change) | **REUSE, fenced** | `_guest_room_gate_armed` `presence.py:5485-5535`, called at `:6067` and `:6081`. |
+| P7 | Veto-room membership and cap | **BUILD: one room-options field** | `grep AWAY_HOLD\|AWAY_VETO` in `const.py` and `config_flow.py` finds 0 hits. `CONF_ROOM_IS_GUEST_ROOM` (`const.py:402`) would arm GUEST, so it cannot be reused. |
+| P8 | Guard-window knob | **BUILD: one Number**, cloned from `FanInterferenceHoldNumber` (`number.py:3541`), **including its two allowlist entries** | The template's key is in `OPTIONS_RELOAD_SUPPRESS_KEYS` (`__init__.py:7480`, listed at `:7559`) and has an in-place apply at `:8263-8280`. `_NO_LIVE_ATTR_KEYS` is at `__init__.py:7359`. (R2v3-H4b) |
+| P9 | Veto label | **EXTEND** | `_veto_path` reset at `presence.py:1124`, set at `:1177/1180/1274/1277`, mirrored at `:6518`. Read by `sensor.py:5661` and the D7 episode `:7926`. No actuation consumer reads the values. |
+| P10 | Block-episode writer | **EXTEND** | `_blocked` / `_veto_path_str` `presence.py:6532-6553`. |
+| P11 | House-state sensor | **EXTEND (attributes only)** | `PresenceHouseStateSensor` `sensor.py:5557`. No `_unrecorded_attributes` and it polls (30 s). Precedent for unrecorded attributes: `binary_sensor.py:271`. |
+| P12 | Daily AWAY count across restarts | **EXTEND the DAO with an optional UTC-instant query** | `count_house_state_changes_since` `database.py:3031-3058`. The writer stores naive UTC (`database.py:2968`). Hydration is at `presence.py:2573-2591`. The sole row writer is `_dispatch_house_state_change` `presence.py:7861`. `_count_transition` is at `:7451`. |
+| P13 | Kill switches | **REUSE** | `switch.ura_presence_coordinator_away_confirmation_veto` (code slug `presence_away_veto_enabled`, `switch.py:3880`; coerced at `presence.py:6476-6486`). W = 0. Per-room cap 0. |
+| P14 | v8 card style | **REUSE** the Energy-view pattern on the **`people`** view | `ura-v8` views: quick-actions, now, rooms, energy, people, security, climate, health, music (R1 open (a)). The pattern is a heading plus `custom:button-card` `template: hero` plus a markdown table. Colour is set by a `[[[ ]]]` JS template in `styles`, as the Energy "Net Tomorrow" card does. |
+
+**New functionality, flagged and justified:**
+- one timestamp (P3);
+- one rung-3 Number (P8);
+- one rung-2 room field (P7);
+- one optional DAO argument (P12);
+- labels and sensor attributes.
+
+**Not added:** a timer, a persisted store, an entity, a census payload change, a DB schema change, a signal, a door tally, or an HVAC split.
 
 ### 1.3 Prior plans and cards
-Estimator plan read fully (C6). `DESIGN_census_simplification.md` and `PLANNING_census_inputs_first*.md`: headers only. Related cards: card text only (the card's adjacency sweep stands).
+- The estimator plan stays PARKED (§10). Holistic audit pieces A, B, C and G fold into this plan; H and M stay config actions; O is dropped.
+- Cards read: EXERCISE-ROOM-PRESENCE-MISCONFIG-1 (done), STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1 (done), STUDY-A-CSI-SENSOR-1 (parked), CENSUS-OCCUPANCY-ESTIMATOR-1, EGRESS-INTERIOR-COUNT-REINFORCE-1, CENSUS-ATHOME-RESIDENT-CORROBORATOR-1, HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1 (Jaya radar tracks the fan; HVAC doc C27).
 
 ### 1.4 Memory
-Index lines only for the bodies listed in Rev 1. **Full bodies not pulled** — the re-verify reviewer should pull `feedback_suppression_needs_discharge` and `project_guest_mode_false_positive_backlog`.
+- `feedback_suppression_needs_discharge` (H1–H3)
+- `feedback_parent_entry_reload_watchdog_hazard` (H4b)
+- `feedback_no_restart_during_sleep`
+- `project_reload_storm_refuted_restart_storm_live` (restart storms bound the cap, H2)
+- `project_presence_guest_latch_and_veto_gap`
+- `project_guest_mode_false_positive_backlog`
+- `feedback_marginal_benefit_pushback`
+- `project_house_zones_vs_hvac_zones`
 
-### 1.5 Code read
-`presence.py:1000-1300, 2924-2960, 4739-4815, 5076-5129, 6380-6560, 6961-6968, 7099-7101`; `house_state.py:60-175`; `camera_census.py:2440-2535, 5265-5650, 5903-6045`; `number.py:684-690`; the polling consumer lines in §3.4.
+### 1.5 Code read for Rev 4
+In addition to Rev 3:
+- `presence.py:930-936` (`set_sleep`)
+- `presence.py:1288-1340` (fall-through ladder to SLEEP)
+- `presence.py:2870-2935` (discovery try-block)
+- `binary_sensor.py:254-311` and `:473`
+- `coordinator.py:3621`
+- `__init__.py:7359`, `:7480`, `:8263-8280`
+- `const.py:2335-2345`
+- the four `SIGNAL_ROOM_ENTRY_LIFECYCLE` sites
 
 ---
 
 ## 2. Falsifiable invariants
 
-Let `W` = the live Count memory in seconds and `B(t)` = the most recent census update time at or before t with `unidentified_count > 0 OR face_recognized_count > 0`. After a restart, `B` = boot time until a newer camera body is seen.
+Definitions:
+- `W` = the live `CONF_PRESENCE_AWAY_CAMERA_QUIET_S`, in seconds.
+- `B` = `_last_camera_body_ts`. It is the most recent census update with `unidentified_count > 0 OR face_recognized_count > 0`. It is seeded at coordinator setup, and `None` means quiet.
+- `R` = the set of rooms with cap `cap_r` = `CONF_ROOM_AWAY_HOLD_MAX_H × 3600 > 0`.
+- `H_r(t)` = room r is **holding** at t. That means `binary_sensor.<room>_occupied` is `on`, AND NOT (room tick radar-sole AND a fan of r is on), AND `t − S_r < cap_r`.
+- `S_r` = the run start. It is the room coordinator's restored `_became_occupied_time` when available, otherwise the entity's `last_changed`.
 
-> **INV-AWAY-QUIET:** for W > 0, `infer()` never returns `HouseState.AWAY` from the nobody-home, α or β branch at time t if `t − B(t) < W`. All three branches compare against one `now`.
-> **INV-AWAY-DISCHARGE:** if every other AWAY conjunct of some branch holds continuously from `B + W` on, AWAY is returned by `B + W + 60 s` (one periodic tick), plus any state-machine hysteresis remaining at that tick (bounded by `DEFAULT_HYSTERESIS`, max 120 s for HOME_*; `house_state.py:~130`). The periodic tick re-evaluates every 60 s regardless of retries.
-> **INV-NO-BLE-HOLD:** a census update with `unidentified_count = 0 AND face_recognized_count = 0` never moves `B`, whatever `interior_count` says (forgotten phone / stale BLE).
-> **INV-BYTE-ID:** W = 0 ⇒ every path is byte-identical to today, with no new state written and no veto-path label change.
+> **INV-A (camera quiet):** for W > 0, `infer()` never returns AWAY from any of the three branches at t when `t − B < W`.
+
+> **INV-B (room veto):** for every r ∈ R, `infer()` never returns AWAY from **any** of the three branches at t while `H_r(t)`. This holds whatever the zone flags say: house SLEEP masks them (`presence.py:930-936`), and a room may belong to no zone. (R1 HIGH-1, R2v3-M5)
+
+> **INV-GUARD-HOLDS-STATE:** on a tick where guard A is the reason no AWAY is returned, `infer()` returns `None`. It never returns SLEEP, GUEST, WAKING, ARRIVING or HOME_* on that tick. (R2v3-H1)
+
+> **INV-DISCHARGE:** if every other AWAY condition of some branch holds continuously from `t*` = max(B + W, the end of every `H_r`), then AWAY is proposed by `t* + 60 s` and accepted within the remaining dwell of the current state, using `DEFAULT_HYSTERESIS` (`house_state.py:129-139`): SLEEP 600 s, GUEST 300 s, HOME_* 120 s, WAKING/ARRIVING 60 s.
+> - Under guard A the current state is unchanged (INV-GUARD-HOLDS-STATE), so no new dwell is started.
+> - Each hold `H_r` ends by `S_r + cap_r`. `S_r` survives a restart through the restored `became_occupied_time`; it resets only when that restore is missing (first boot, entity purge), and the attribute `away_hold_cap_basis` shows which.
+> - The discharge requires the 60 s periodic to be registered whatever discovery does (D2).
+
+> **INV-NO-BLE-HOLD:** a census update with `unidentified_count = 0 AND face_recognized_count = 0` never moves `B`.
+
+> **INV-ALREADY-AWAY:** neither A nor B changes the result when `current_state == AWAY`. Each branch's `if current_state == AWAY: return None` runs before the new checks.
+
+> **INV-GUEST-UNCHANGED:** a room in R that is not flagged `CONF_ROOM_IS_GUEST_ROOM` never arms the guest-room gate. The guest kill switch and the known-resident branch never touch `S_r` / `occupied_since`.
+
+> **INV-BYTE-ID:** with W = 0 and R = ∅, every `infer()` return value, every transition, and every `house_state_log` row match today's. The only permitted differences are:
+> - new attribute values;
+> - the new `_veto_path` value `nobody_home`. It is persisted in the D7 memory-episode payload (`:7926`), so the value domain grows. Grep shows no value consumers beyond `sensor.py:5661` and `presence.py:6518/7926` (R2v3-L3).
 
 ---
 
 ## 3. Producer and consumer checks
 
-### 3.1 The three AWAY branches (code)
-1. Nobody home, `presence.py:1127-1131`: `census_count == 0 and not any_zone_occupied`. Confidence 0.9.
-2. Path α, `:1169-1181`: `not camera_input_degraded and all_tracked_persons_away and unidentified_count == 0 and face_recognized_count == 0`. Confidence 0.95.
-3. Path β, `:1262-1288`: trackers away, `unidentified_count == 0`, `census_count == 0`, not indoor-blocked, grace, not sleep-exempt. Confidence 0.95.
+### 3.1 The three AWAY branches
+Nobody-home (`:1127-1131`, confidence 0.9), path α (`:1170-1181`, label `active`) and path β (`:1248-1288`, labels `lost_admitted[_immediate]`), as in Rev 3.
 
-R1 verified there is no other automatic AWAY producer: `HouseStateMachine.transition` is called only at `presence.py:6961`; `force_state` has no callers.
+**New in Rev 4: the zone flags are masked during house SLEEP.** `any_zone_occupied` and `any_indoor_zone_occupied` come from `t.mode == OCCUPIED` (`presence.py:5975-5992`). `mode` returns `_override` first (`:652-656`). `set_sleep(True)` overrides every zone tracker on entry to SLEEP (`:7027-7031`, and the boot restore at `:2404`). So during SLEEP, nobody-home's "no zone occupied" condition is true whatever the rooms say. Only the veto's own room read sees the sleeper.
 
-### 3.2 PRODUCER — why the 3-min hold doesn't help
-In `_apply_enhanced_house_census`, the held unidentified count is clamped by `raw_total_ceiling = max(camera_total_pre_cancel, identified_count)` (`camera_census.py:6006-6009`). `camera_total_pre_cancel` is the instantaneous per-camera `person_count` sum (`:5577`). With every resident away, identified = 0, so the published `unidentified_count` / `interior_count` drop to 0 on the same tick as the camera. Ground truth: snapshot `14:16:42 total=1` → `14:17:58 total=0` → AWAY `14:17:59` (10-14 UTC). The clamp is correct for its purpose and **is not changed**.
+### 3.2 Producer of `B`
+Unchanged from Rev 3, including the predicate decision: **`unidentified_count > 0 OR face_recognized_count > 0`**.
+- The face term is 0 on every AWAY-eligible tick.
+- It only extends the hold across the moment the last phone goes `not_home`.
+- Its departure cost is bounded by P3's `total_persons` measurement, which found no change at W = 3.
 
-**Stamp producer (R2-01).** `B` moves on `unidentified_count > 0` (an unrecognised body on an interior camera, post-BLE-cancel) or `face_recognized_count > 0` (a recognised face on camera, already not_home-vetoed at `camera_census.py:~5890`). Both are camera-provenance. `interior_count` is excluded: it carries BLE identities. The nobody-home and β branches already require `census_count == 0`, so excluding it loses nothing.
+R2v3-L1 changes one detail: **the stamp is written whatever W is**. Turning W from 0 to 180 then starts from a fresh B, and the write is a RAM-only change, so INV-BYTE-ID still holds.
 
-### 3.3 `any_zone_occupied`
-False on every nobody-home AWAY. The occupant's rooms: **not verified.**
+### 3.3 Producer of the veto bit, and the fan/phantom loop (R2v3-H2)
 
-### 3.4 CONSUMERS of AWAY, and what an up-to-W departure delay costs each (R1-02)
+**The loop.**
+1. The comfort-fan veto acts only when the house is AWAY or VACATION (`fan_veto.py:60`, `:167`).
+2. Veto B keeps the house out of AWAY, so a bedroom fan stays on.
+3. On a fan-susceptible radar the running fan fakes presence. Ledger #1 measured this in Jaya's room: 68 % of the time with the room empty and the fan on. HVAC doc C27 shows Jaya's radar tracks the fan.
+4. The faked presence keeps the room occupied, which keeps the veto holding.
 
-| Consumer | file:line | Kind | Cost of a false AWAY (prevented) | Cost of a real AWAY arriving ≤ W late |
+P3 measured the veto open-loop, over history in which α had already sent the house AWAY and the fan veto had broken the loop. Its control numbers therefore do not bound the closed loop.
+
+**Options weighed with evidence (P3 §2 tables, all-phones-away windows):**
+
+| Breaker | GB1 / GB2 cost | Jaya Bedroom result |
+|---|---|---|
+| (i) Require a second sensor in the room to agree | GB: 0 uncorroborated radar minutes (P1), so cost ≈ 0 | The LD2410 held 478 minutes and the ZK held 0. All of Jaya's trip gain disappears. |
+| (ii) Exclude fan-on minutes | GB2: 24 of 336 occupied minutes have the fan on (≤ 7 %); GB1: 0 | All 507 of Jaya's occupied minutes had the fan on. Gain = 0. |
+| (iii) **Do not hold on a tick that is radar-sole AND has the room fan on** (REUSE `STATE_RADAR_SOLE_TICK` + `_fan_on_rooms`) | GB rooms carry a Hobeian ZV/PIR, a fan-immune witness, so a real guest who moves keeps the hold. Cost ≤ the 24 GB2 fan-on minutes. | Jaya's room has only radars (LD2410 + ZK), so every fan-on tick is radar-sole. Gain = 0. |
+| (iv) Keep Jaya at a lower cap | — | The loop still holds an empty house HOME for the full cap after every departure with the fan on. That is the opposite of "house careful but correct". |
+
+**Decision.**
+- Adopt **(iii)** as the generic loop breaker for every veto room. It reuses two primitives, is fail-open (no hold), and costs the guest rooms at most about 7 % of their occupied minutes.
+- **Drop Jaya Bedroom from the default rooms.** No breaker closes the loop in her room without removing all of its measured benefit; this is the "if it can't be closed safely" branch of the brief.
+- Jaya Bedroom stays legal as a config row (cap > 0). The §10 revival trigger is a fan-immune witness (ZV or PIR) in the room, or an LD2410 retune proven by a fan-on/empty re-measure.
+
+**Other producer rules:**
+- The veto reads URA's fused `binary_sensor.<room>_occupied`, the same signal P1–P3 measured.
+- Unavailable counts as not occupied (`presence.py:5356-5359`), so the veto fails open.
+- The known-person check does NOT apply. A resident in the room is someone home (C13).
+- The radar-sole flag and the fan belief are read fresh per inference from the room coordinator's `data` and `_fan_on_rooms`. If either is missing or raises, the room counts as **not holding**.
+
+### 3.4 CONSUMERS of house AWAY
+Re-grepped 2026-10-18, plus R1 MEDIUM-4. The guard and the veto sit in inference, so every consumer sees the guarded AWAY. "≤ W" means the AWAY edge arrives up to 3 min later (plus at most one 60 s tick plus dwell).
+
+| Consumer | file:line | Kind | Effect of A | Effect of B |
 |---|---|---|---|---|
-| HVAC presets | `hvac.py:1437` → `:5177` | signal, trust | Preset churn and an away range on the occupant | ≤ 20 min more home-range conditioning per departure (~0.7/day). HVAC's own zone vacancy (5 min grace, HVAC doc §3.2) still retreats empty zones independently, so the real cost is smaller. |
-| Room automation / AWAY leave-on lights sweep | `coordinator.py:1739` | signal, trust | Lights swept off on the occupant | Lights left on ≤ W after the family leaves. Room vacancy timeouts still turn them off. |
-| Security auto-follow | `security.py:749/1077`; `SECURITY_AUTO_FOLLOW_ARM_DELAY_S = 30` `const.py:3151` | signal, trust | Arming with a person inside | **Auto-arm on departure is delayed ≤ W. This is the most serious cost.** Whether auto-follow is enabled live: **not verified.** If it is, the operator must accept this explicitly (§11 checkpoint). Mitigation already exists: the manual arm. |
-| Perimeter vehicle night alert | `perimeter_alert.py:2769`, `EXTERIOR_VEHICLE_ALERT_STATES` `const.py:2701` (away/sleep/vacation; 22:00-06:00 only) | poll, trust (NM) | Spurious "away" vehicle alerts | Night-only. A night departure delays the vehicle alert ≤ W. Small. |
-| Comfort-fan AWAY veto | `fan_veto.py:60` | poll, trust | Fans vetoed on the occupant | Fans may run ≤ W after departure. Energy only. |
-| Security posture optimizer | `optimization.py:3661` | poll (findings) | Spurious posture findings | Findings ≤ W later. Advisory. |
-| HVAC pre-conditioning `is_unoccupied` | `hvac_predict.py:446` | poll, trust | Pre-arrival logic on an occupied house | Pre-conditioning eligibility ≤ W later. Small. |
-| Someone-home binary sensor | `binary_sensor.py:2315` | display / downstream automations | Flicker | ≤ W late. Its HA-side automations: **not enumerated.** |
-| Energy offset reset | `energy.py:8050/8257` | poll, trust | Not traced | ≤ W late. **Not traced further.** |
-| Bayesian guest / routine forecaster / music / arrester durable state | `__init__.py:3313`, `routine_forecaster.py:188`, `music_following.py:301`, `hvac_override.py:1010` | signal | Learning pollution / media / immune-hold end | Negligible. |
-| EVSE, battery | no subscription found (R1 confirmed) | — | — | — |
+| HVAC presets | `hvac.py:1437`, `:5184`; AWAY → away at `:2968`/`:3024` | signal, trust | House edge is first mover in 22 % of zone-episodes, now ≤ W later. Zone vacancy (knob 48) unchanged, first in 69 %. | The occupied guest room's zone stays home, which is correct. Other zones retreat by zone vacancy. |
+| Room AWAY leave-on lights sweep | `coordinator.py:935` | signal edge | ≤ W | No sweep while held |
+| Per-room automation chains / AI rules on `house_state_away` | `coordinator.py:1739-1749`; trigger labels `config_flow.py:3183`, `:14995` | signal | ≤ W. Live config has none today. | held |
+| **HA automation `wallpanel_fleet_force_off_secure`** | `automations.yaml:8335-8355`: `sensor.ura_coordinator_manager_house_state` → `away` for 3 min turns off 5 wall panels | HA automation, actuation | Flaps of 3 min or more no longer reach it: fewer false panel-offs | Panels stay on while a guest is home (intended) |
+| Wall-panel siblings `wallpanel_fleet_wake`, `_sleep_after_grace` | `automations.yaml:8255`, `:8270`, `:8320` (gate `not in ['away','vacation']`) | HA automation | ≤ W | held |
+| Security auto-follow | `security.py:759`, `:1087-1094`; **off live** | signal | 0 today | If enabled, no auto-arm while held (intended) |
+| Exterior-person NM severity | mapping **`const.py:2344`** (`hs in ("away","vacation","sleep","home_night") → CRITICAL`), called from `perimeter_alert.py:1660-1665` | poll, trust (NM) | Fewer false CRITICALs during daytime flaps. At night the state is SLEEP or HOME_NIGHT, which also maps to CRITICAL, so no change at night. | Daytime guest hold → contextual severity instead of CRITICAL |
+| Perimeter vehicle night alert | `perimeter_alert.py:2769`, `const.py:2701` | poll | Night-only, ≤ W | held |
+| Comfort-fan AWAY veto | `fan_veto.py:60`, `:167` | poll, trust | ≤ W | **Part of the loop in §3.3**; broken by (iii) |
+| HVAC pre-conditioning | `hvac_predict.py:446` | poll | ≤ W | as HVAC |
+| Optimizer posture | `optimization.py:3661` | advisory | ≤ W | — |
+| Someone-home binary sensor | `binary_sensor.py:2315` | display. **No HA automation reads it** (R1 open (c), 78 automations scanned) | ≤ W | — |
+| Energy offset reset | `energy.py:8144-8236`, `:8384` | poll | ≤ W | — |
+| Bayesian guest / routine / music / arrester sunset | `__init__.py:3313-3329`, `routine_forecaster.py:188`, `music_following.py:301`, `hvac_override.py:1010` | signal | negligible | negligible |
+| Next-state / integration sensors, PWA | `sensor.py:6573`, `:10326-10335`; `frontend-v3` | display | — | — |
+| EVSE, battery | none | — | — | — |
 
-Net: the delay is energy and comfort for every consumer except security auto-arm. That one needs an explicit operator acceptance or a lower W.
+**HVAC and "HVAC fast".** HVAC's own path (zone vacancy, fast exit timers, D5) is untouched. Guard A no longer moves an empty house into SLEEP (R2v3-H1), so HVAC sleep presets cannot be applied to an empty house at night by this change. An HVAC split stays PICK 4, default **no split**.
 
 ---
 
-## 4. Measure before build (read-only, run 2026-10-16)
-The Rev 1 numbers are unchanged; scripts are in `.claude/tmp/awayflap/`.
+## 4. Measure before build (done; read-only, 2026-10-18)
+Source: holistic audit P0–P3. Ordinary days are 09-18 → 10-13 (25.7 d); Jaya+guest days are 10-14 → 10-18 (4.3 d). SH = an AWAY entry with someone home (sensor proxy). "upper" uses `total_persons`; "lower" uses unidentified only, which is closest to this plan's predicate (§3.2).
 
-| Measure | Baseline 08-16→10-13 (59 d) | Trip 10-14 12Z→10-16 |
-|---|---|---|
-| AWAY entries | 162 (max 13/day) | 44 |
-| < 15 min / < 5 min | 119 / 93 | 27 / 15 |
-| Short episodes, α/β vs nobody-home | 94 / 25 | 15 / 12 |
-| Short episodes absorbed at W = 5/10/15/20 min | 60 / 102 / 111 / 113 | 9 / 19 / 25 / 25 |
-| All AWAY absorbed at W = 20 | 114 | 28 |
-| AWAY with a `person.*` home (7-d recorder) | 0 / 16 | 0 / 44 |
+| Config | Ordinary SH/day (days > 1) | Jaya+guest SH/day | Genuine departures within 15 min (of 10) | Verified-empty absences swallowed / delayed (of 14) |
+|---|---|---|---|---|
+| Today | 2.53 (15) | 16.2 | 7 | 0 / 0 |
+| A W=3 only | 1.13 upper | 13.2 | 7 | 0 / 0 |
+| **A W=3 + GB1/GB2 8 h: this plan** | **0.97 (4) upper / 2.14 (9) lower** | **9.7 upper / 10.2 lower** | **7** | **0 / 0** |
+| A W=3 + GB + Jaya 16 h (Rev 3, now dropped) | 0.90 / 1.71 | 5.3 / 5.8 | 7 | 0 / 1 |
 
-Caveat: the simulation used `total_persons > 0` as the body signal. With every tracker away, total_persons equals unidentified (identified = 0, confirmed in the snapshots), so the R2-01 camera-only stamp gives the same numbers in these windows. D0 re-measures with the exact stamp predicate.
+Two Rev 4 effects that the simulation already assumed, so the table is unaffected:
+- **SLEEP-mask fix (R1 HIGH-1).** P2/P3 modelled room occupancy as blocking AWAY outright. Rev 3's α-only veto would have under-delivered at night. Rev 4's all-branch veto now delivers what was simulated.
+- **Fan breaker (iii) on the guest rooms.** It costs at most 24 of 336 GB2 occupied minutes in the all-away windows, below the table's resolution.
 
 ---
 
 ## 5. Marginal-benefit decomposition
-As Rev 1: **(B) recommended**. (A) waiting for D6 fixes nothing for months, and D6 as written misses α (C6). (B′) changing the clamp has a wider blast radius than the problem. (B″) the full estimator is blocked on inputs. (C) config only helps the trip alone. Dropping the timer (R2-02) makes (B) smaller: one RAM field, one guard, one knob.
+- **A alone (W = 3)** does most of the ordinary-day work at no departure cost.
+- **B on the guest rooms** is the only lever for a guest in a camera-less bedroom. It needs one helper, two checks per branch, and two reused primitives for the breaker.
+- **Jaya Bedroom** has a measured margin of +4.4 SH/day avoided on Jaya-alone days, but that margin is made of fan-on LD2410 minutes. Those are indistinguishable from the phantom that the closed loop would sustain. Its risk is an empty house held HOME for up to its cap after every departure with the fan on, and that risk exceeds its margin. Dropped, and parked with a trigger.
+- **W > 3, all radar rooms, estimator:** unchanged from Rev 3. All rejected or parked.
 
-## 6. Config-first
-Unchanged. No setting fixes the daily baseline. Interim for the trip: set the canonical override `select.ura_presence_coordinator_house_state_override` to `guest` until 10-18 (operator's call). Changing `census_hold_interior` has no effect. Turning off the away veto switch does not fix the nobody-home branch.
+---
+
+## 6. The goal and the honest residual
+Goal clause (1): **≤ 1 someone-home AWAY per day, and no AWAY over 10 min with a person in a still-holder or camera room.**
+
+- **Ordinary days:** roughly **2.1/day** expected (the predicate sits at the lower bound; 0.97 is unreachable by design). 9 of 26 days stay above 1. **NOT MET.**
+- **Jaya+guest days:** roughly **10/day**. **NOT MET.**
+- **Change from Rev 3, caused by review finding R2v3-H2:** Rev 3 reported ≈ 1.7 ordinary and ≈ 5.5 Jaya+guest. The 0.4/day and ~4.5/day differences are Jaya Bedroom's contribution. Rev 4 removes it because it cannot be told apart from the fan phantom.
+- **Remaining misses by room:**
+  - Jaya Bedroom: fan-coupled LD2410; HVAC doc C27; card HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1.
+  - Master Bathroom: InvisOutlet, on the do-not-use list.
+  - Study A: ZK phantom; it is the room's only live sensor.
+  - Master Bedroom: swallowed a verified-empty absence.
+  - Ziri: one 26.5 h run.
+  - Study B, Living Room.
+  - On guest days, Exercise Room (its ZK was never on).
+- **Clause (2), departure within 15 min:** 7 of 10 today and 7 of 10 after. Not met before this change either; unchanged.
+- **Clauses (3) and (4):** met and unchanged.
+
+**What moves clause (1) next:** fix the sensors in Jaya Bedroom, Study A, Master Bathroom and Exercise Room. Then re-measure each with P3's controls and add it to R as a config row. The §10 cards hold this.
 
 ---
 
 ## 7. Deliverables
 
-### D0 — Pre-build probe (read-only)
-Re-run with the exact stamp predicate (`unidentified_count > 0 or face_recognized_count > 0`, from `census_snapshots` plus the recorder `person_count` edges) for W ∈ {600, 900, 1200}: absorbed, residual, and departure-delay distribution. The default stays 1200 unless 900 matches absorption within 3 episodes (the security cost favours the smaller W).
-- **Verify:** `AUDIT_house_away_flap_body_gap.md` table. **Live:** n/a.
+### D0: Scorecard at day 7 and day 14 after the restart (read-only probe, exit discriminator; R1 MEDIUM-3)
+- The recorder keeps **7 days** (`configuration.yaml:13`, `purge_keep_days: 7`), so D0 runs **twice**:
+  - **Day 7:** reads the recorder attributes `last_camera_body_source`, `away_hold`, `last_away_reason`. **Save the extract to `docs/planning/AUDIT_house_away_flap_scorecard_day7.json`.**
+  - **Day 14:** uses the URA DB (`house_state_log`, `census_snapshots`, `occupancy_events`, `person_entry_exit_events`, and the `memory_episodes` D7 snapshots, which carry `veto_path` and the hold labels with URA retention) plus the recorder's last 7 days.
 
-### D1 — Camera-body stamp (producer)
-- In `_handle_census_update` (`presence.py:4739`), after `_face_recognized_count` is parsed (`:4765-4769`): `if self._unidentified_count > 0 or self._face_recognized_count > 0: self._last_camera_body_ts = dt_util.utcnow()`. **One clock** (R2-04): `dt_util.utcnow()` everywhere; no monotonic clock.
-- Gate the write itself on W > 0, so W = 0 writes no new state (INV-BYTE-ID).
-- **Restart (R1-03 / R2-03, choice (a)):** the stamp is RAM only and **not persisted**. In `__init__` / setup it is seeded to the boot time (`dt_util.utcnow()` at coordinator setup), so after any restart AWAY needs W of camera quiet. Accepted cost: up to W of delay to an AWAY after a restart into an empty house (the boot-settle gate `presence.py:5620-5645` already delays it). There is no early-AWAY case. Not persisting avoids the Store-heartbeat staleness R1-03 found (`manager.py:688-747` saves only on machine change).
-- **Boot census seed (R1-04):** `presence.py:2946/2958` seeds `_census_count` only, which the stamp does not read. The boot-time seed of `B` covers this. No stamp at the seed.
+  This adds no schema change.
+- The probe scripts (P0–P3) are committed by the build to `scripts/probes/away_flap_scorecard/`.
+
+**Discriminating table:**
+
+| Observation | Fix working | A broken (never holds) | A or B stuck (never releases) |
+|---|---|---|---|
+| Ordinary-day SH/day | ≤ 2.3 | ≥ 2.5 | — |
+| Genuine departures within 15 min | ≥ 6 of 10 | — | ≤ 3 of 10 |
+| AWAY rows with `t − last body < W` | 0 | > 0 | — |
+| AWAY rows while a guest room holds (`H_r`) | 0 | — | — |
+| Longest HOME stretch with a guest room fan-on + radar-sole and phones away (loop row, R2v3-H2) | 0 holds counted | — | > 0 |
+
+**Exit:** the table is written into the README. Any failing row reopens the card.
+
+### D1: Camera-body stamp (producer)
+- In `_handle_census_update`, after `presence.py:4769`: when `_unidentified_count > 0` or `_face_recognized_count > 0`, set `_last_camera_body_ts = dt_util.utcnow()` and `_last_camera_body_source`. This is written **whatever W is** (R2v3-L1).
+- Seed at setup with `dt_util.utcnow()`. RAM only. No stamp at the census seed (`:2946/2958`).
 - **Tests:**
   - `test_body_stamp_set_on_unidentified_positive`
   - `test_body_stamp_set_on_face_positive`
-  - `test_body_stamp_not_refreshed_by_ble_only_identity` (census=1, unid=0, face=0 → no move)
+  - `test_body_stamp_not_refreshed_by_ble_only_identity`
   - `test_body_stamp_not_refreshed_by_zero`
   - `test_body_stamp_seeded_at_boot`
-  - `test_no_state_written_when_W_zero`
-- **Verify (discriminating):** a forgotten-phone replay (BLE keeps `interior_count = 1`, cameras empty) still reaches AWAY via α at B + W + ≤60 s. Under the Rev 1 `census_count` stamp it never would.
+  - `test_stamp_written_when_W_zero_but_no_output_change` (replaces Rev 3's "no stamp when W = 0")
+- **Verify:** a forgotten-phone replay reaches AWAY via α at B + W + ≤ 60 s.
 
-### D2 — Guard on all three AWAY branches (consumer)
-- New `infer()` kwargs: `body_quiet_elapsed: bool = True` (the default keeps all existing callers byte-identical).
-- The caller, `_run_inference`, captures `now = dt_util.utcnow()` once and passes it to both the elapsed computation (`W == 0 or now − self._last_camera_body_ts >= W`) and `infer(now=now)` (R2-04). This needs a check that `infer`'s `now` is used tz-consistently; `infer` reads `now.hour` for local time windows, so pass a local-aware `dt_util.as_local(now)`. **The builder must verify the existing caller's `now` convention at `presence.py:~6487` and keep it identical**; the elapsed arithmetic uses UTC.
-- Each of the three AWAY returns gets the `and body_quiet_elapsed` conjunct. **Placement:** inside each branch's existing condition, after `current_state == AWAY → return None` is no longer reached. The guard does not apply in the already-AWAY case: `if current_state == AWAY: return None` stays first and unguarded.
-- **Veto label (R2-05):** inside `infer()`, when a branch's other conjuncts all hold and only `body_quiet_elapsed` is False, set `self._veto_path = "body_quiet_hold"` (after the `:1124` reset) and fall through. The caller copies it at `:6518` unchanged. The D5 memory-writer classification at `:6520-6560`: `body_quiet_hold` counts as a **block** with `veto_path` `body_quiet_hold` and is not attributed to α-starved/denies. The builder adds that branch and a test. When several branches are guard-denied in one call, the first denial (nobody-home, then α, then β) sets the label.
-- **No new timer** (R1-01 / R2-02). Discharge is the 60 s periodic (`presence.py:2924-2930`). `RETRY_SLACK_S` is deleted.
-- **Tests (framing-C anchors, R2-06):**
-  - Per branch: `test_nobody_home_blocked_within_W`, `test_path_alpha_blocked_within_W`, `test_path_beta_blocked_within_W`. Each goes RED when its own conjunct is deleted.
-  - Producer: deleting the D1 stamp write → `test_body_stamp_set_on_unidentified_positive` RED. Re-adding a `census_count` term → `test_body_stamp_not_refreshed_by_ble_only_identity` RED.
-  - Computation: flipping `>=` to `>` → `test_away_at_exact_W_boundary` RED. Dropping the `W == 0` short-circuit → `test_W_zero_byte_identical` RED (golden over the existing presence AWAY suites).
-  - Discharge: `test_periodic_discharges_at_B_plus_W` (inject `now`, call `_periodic_inference`, no sleeps). `test_discharge_while_hysteresis_blocks` (AWAY proposed during HOME_DAY 120 s dwell → lands on a later periodic tick).
-  - Other: `test_veto_label_body_quiet_hold_inside_infer`, `test_memory_writer_classifies_body_quiet_hold`, `test_guard_ignored_when_already_away`.
-- **Config extremes:** W = 0, W = 3600, W < 60, `camera_input_degraded=True` (α skipped; the guard still applies to nobody-home/β), restart mid-window.
+### D2: Guard A, and an isolated discharge
+- **Caller** (`_run_inference`, `presence.py:5731`): `away_camera_quiet = W == 0 or B is None or (dt_util.utcnow() − B).total_seconds() >= W`. `None` counts as quiet (R2v3-L4). It is passed as the `infer()` keyword `away_camera_quiet: bool = True`. **No `now=`** is passed (C11).
+- **Placement and semantics** (R2v3-H1; INV-GUARD-HOLDS-STATE). In each of the three branches:
+  1. Keep the existing `if current_state == AWAY: … return None` **first**.
+  2. Then evaluate veto B (D3), and if it holds, record the hold and **fall through**.
+  3. Then: `if not away_camera_quiet: self._away_hold = "camera_recent"; return None`.
+
+  Fall-through is right for the veto because someone is home: SLEEP or GUEST with a guest in the room is correct. `return None` is right for the guard because the house may be empty: it holds the current state, so no SLEEP, GUEST, ARRIVING→HOME or new dwell is started.
+- **Ordering when both apply on one branch:** veto first, then guard.
+  - If the veto holds, the fall-through runs the rest of the ladder and the guard is not reached for that branch.
+  - The first branch whose other conditions hold decides. In branch order (nobody-home, α, β), the first one that would have fired applies its hold.
+- **Labels** (R2v3-L2): a denied branch **does not** set `_veto_path`. It sets only `_away_hold` and `_away_hold_detail = {"branch": …}`. Both are reset at the top of `infer()` and mirrored by the caller next to `:6518`.
+- **Early returns** (R2v3-L5): on every early return of `_run_inference` (boot-settle deferral `~:6951`, and so on), the mirrored `_away_hold` is set to `none`, so the sensor never shows a stale hold.
+- **Discharge isolation** (R2v3-H3):
+  - Move the `async_track_time_interval(self._periodic_inference, 60 s)` registration (`presence.py:2926-2930`) **out of** the discovery `try:` block, so it is registered whatever discovery raises.
+  - Also wrap all new per-room parsing in `_discover_guest_rooms` in its own per-room try/except, like the existing boot-seed at `:5254-5319`.
+- **No new timer.**
+- **Tests** (framing C anchors; each must go RED when its own site is neutered):
+  - Per branch: `test_nobody_home_blocked_within_W`, `test_path_alpha_blocked_within_W`, `test_path_beta_blocked_within_W`.
+  - Boundary and kill: `test_away_at_exact_W_boundary`, `test_W_zero_byte_identical`.
+  - `test_guard_hold_does_not_enter_sleep_on_would_be_away_tick`: 23:01, zones occupied by tails, α guard-denied → `None`, not SLEEP. Mutation: replace `return None` with fall-through → RED.
+  - `test_guard_hold_from_arriving_returns_none`.
+  - `test_guard_ignored_when_already_away`.
+  - `test_alpha_guard_never_produces_arriving_from_away`.
+  - Discharge: `test_periodic_discharges_at_B_plus_W`; `test_discharge_dwell_table` (from SLEEP 600 s, GUEST 300 s, HOME_DAY 120 s; replaces Rev 3's 120 s-only test).
+  - `test_periodic_registered_when_guest_room_discovery_raises`. Mutation: move the registration back into the shared block → RED.
+  - `test_none_stamp_is_quiet`.
+  - `test_early_return_clears_mirrored_hold`.
+- **Config extremes:** W = 0, 30, 1800; `camera_input_degraded`; restart mid-window; away-veto switch OFF.
 - **Live:**
-  - AWAY entries in `house_state_log` each come ≥ W after the last camera-body snapshot.
-  - Short (< W) AWAY episodes ≈ 0 on the next baseline day.
-  - The veto-path attribute shows `body_quiet_hold` during holds.
-  - A real departure's AWAY row lands within W + 180 s of the last camera body. That margin (60 s periodic + 120 s maximum hysteresis) distinguishes a working discharge from a stuck HOME.
+  - No AWAY row lands < W after the last body.
+  - During a guard hold the state does not change, and `away_hold = camera_recent`.
+  - `away_eligible_at` is re-evaluated after boot, which shows the periodic is alive.
 
-### D3 — Knob "Count memory" (R2-07)
-- **CONF key** `CONF_PRESENCE_COUNT_MEMORY_S = "presence_count_memory_s"`, NEW. Grep of `const.py` shows no `count_memory`/`FLOOR_WINDOW`; the estimator's `FLOOR_WINDOW_S` is unbuilt. The const value doubles as the estimator's knob.
-- **Owning entry:** the Coordinator Manager entry (where presence knobs live). The builder confirms this against the presence Number pattern in `number.py`.
-- **Entity:** `number.ura_presence_coordinator_count_memory`; unique_id `f"{DOMAIN}_presence_count_memory"`.
-- **Rung 3.** Persistence = options write-back (`number.py:684-690`, "entry.options is the SOLE source of truth"); no RestoreEntity. Default 1200 s, range 0-3600, step 60. **0 = off (today's behaviour).**
-- Read live per tick (fresh read, no reload).
-- Description: "How long the cameras must see no one before the house can go Away. 0 = off."
-- **Test:** `test_count_memory_options_round_trip`, `test_count_memory_zero_disables`. **Live:** the entity exists at 1200 and survives a restart.
+### D3: Veto B on all three branches (extending the guest-room tracker)
 
-### D4 — Docs (same commit)
-- PRESENCE state of play: §2 path α correction (C1), the clamp note (C4), §10 rows.
-- `house_state.py` AWAY hysteresis comment.
-- Estimator plan: a D6 row for α; the note that D6 replaces `body_quiet_elapsed` with `FLOOR ≤ R`, keeps the key, and adds the post-exit shrink (§8).
-- README validation write-back.
+**Config (P7).** Room options field `CONF_ROOM_AWAY_HOLD_MAX_H = "room_away_hold_max_h"`, rung 2. It sits next to the guest-room flag (`config_flow.py:12509`, and the config-flow step near `:2306-2337`).
+- NumberSelector, 0–24 h, step 1. Parsed as `int(float(x or 0))` inside the per-room try.
+- **Default 0 = not a veto room**, which is also the kill switch.
+- Label: "Keep house Home while occupied (hours)". Help: "If this room's occupancy is trustworthy (a radar that holds a still person, plus a motion sensor), the house won't go Away while it's occupied, for up to this many hours. 0 = off."
+
+**Live config changes without a restart** (R2v3-H4a). Presence subscribes to `SIGNAL_ROOM_ENTRY_LIFECYCLE` (P5d). On a room's `loaded` event, presence re-runs `_discover_guest_rooms`, which already cleans up its unsubs and maps at `:5183-5191`. A room options save reloads that room entry, so caps and the kill switch take effect within seconds.
+- The builder must confirm that the new room key is **not** in any room-level reload-suppress set. If it is, the change instead needs a room reload, and the plan's Live criterion is restated to say so.
+- **Operator config action, in order:** deploy → restart once (awake window) → set GB1 = 8 and GB2 = 8 in the room options. Each save reloads only that room.
+
+**Tracker extension.**
+- `_discover_guest_rooms` registers a room if it is a guest room **or** its cap is > 0.
+- Each room's state dict gains: `roles` ⊆ {`guest`, `away_veto`}, `hold_max_s`, `occupied_since`, and `cap_basis` (`restored` | `last_changed`).
+
+**Seeding `occupied_since`** (R1 MEDIUM-1, R2v3-H2). At discovery, when the room is `on`: seed from the room coordinator's restored `_became_occupied_time` (P5b; also exposed as the entity attribute `became_occupied_time`), and set `cap_basis=restored`. Otherwise use `last_changed` with `cap_basis=last_changed`. The Rev 3 test `…counts_real_run` is replaced by:
+- `test_occupied_since_seeded_from_restored_became_occupied_time`
+- `test_occupied_since_falls_back_to_last_changed_and_marks_basis`
+
+**Reader-by-reader disposition** (R2v3-M3, R1). The builder implements exactly this:
+
+| Reader / site | Roles affected | Rule |
+|---|---|---|
+| `:5189` `_guest_room_state.clear()` (re-discover) | all | Clears all; re-discovery rebuilds |
+| `:5227` dict creation | all | Adds `roles`, `hold_max_s`, `occupied_since`, `cap_basis` |
+| `:5254-5319` `first_seen` boot seed | **guest only** | Unchanged for guest rooms; skipped for veto-only rooms |
+| new `occupied_since` boot seed | **away_veto** | As above |
+| `:5367-5398` listener, transitions 1–3 | **guest only** for `first_seen` / `current_occupancy_known` | Unchanged |
+| listener: `occupied_since` | **away_veto** | Set on an off→on **state** change only. Clear on on→off or unavailable. **An attribute-only event (on→on) never resets it.** Transition 2 (known resident) never touches it. |
+| `:5401` `_run_inference` scheduling | guest: unchanged | Veto-only rooms schedule inference **only when `old.state != new.state`** (R1 LOW-2) |
+| `:5500` `_guest_room_gate_armed` | **guest only** | Skips dicts without role `guest` |
+| `:5677` `_clear_guest_room_first_seen` (guest kill switch) | **guest only** | Never touches `occupied_since` |
+| `:7653` teardown | all | Unchanged |
+| `_guest_room_entity_to_name` `:1734/:5224/:5363` | all (shared) | Unchanged semantics |
+| `_guest_room_known_last_true` `:1742/:5459/:5473` | **guest only** | Not read by the veto |
+
+**Helper.** `_room_veto_holding(now) -> (room, age_s, cap_s, basis) | None`. It returns the first veto room that meets all of these:
+- its `occupied_since` is set;
+- `now − occupied_since < hold_max_s`;
+- **NOT** (the room coordinator's `data[STATE_RADAR_SOLE_TICK]` is True **and** the room is in `_fan_on_rooms`) (§3.3 (iii)).
+
+Any read error means the room is not holding.
+
+**Consumer.**
+- The caller passes `away_room_veto: bool = False` into `infer()`; the default is byte-identical.
+- It is applied **in all three branches**, after the already-AWAY check: `if away_room_veto: self._away_hold = "room_veto"; fall through` (R1 HIGH-1, R2v3-M5).
+
+**Discharge.** A room going off fires the listener, which runs inference immediately. Cap expiry and the fan breaker take effect at the next 60 s periodic.
+
+**Tests:**
+- Holds and releases:
+  - `test_alpha_blocked_while_veto_room_occupied`
+  - **`test_nobody_home_blocked_by_veto_room_in_sleep`** (zones overridden to SLEEP, census 0, GB2 holding → not AWAY; mutation: drop the nobody-home check → RED)
+  - `test_beta_blocked_by_veto_room`
+  - `test_veto_room_without_zone_blocks_nobody_home`
+  - `test_alpha_released_at_cap`
+  - `test_alpha_released_when_room_clears`
+  - **`test_veto_not_held_when_radar_sole_and_fan_on`** (mutation: drop the breaker → RED)
+  - `test_veto_held_when_fan_on_but_motion_witness_on`
+  - `test_veto_room_unavailable_does_not_hold`
+  - `test_known_resident_in_veto_room_still_holds`
+  - `test_veto_ignored_when_already_away`
+- Guest-gate fence:
+  - `test_non_guest_veto_room_never_arms_guest`
+  - `test_guest_kill_switch_does_not_clear_occupied_since`
+  - `test_attribute_only_event_keeps_occupied_since`
+  - `test_veto_only_room_schedules_inference_on_state_change_only`
+- Config:
+  - `test_room_lifecycle_loaded_rediscovers_veto_rooms`
+  - `test_options_round_trip_room_away_hold_max_h`
+  - `test_malformed_cap_value_does_not_break_discovery`
+
+**Live:**
+- With GB2 occupied and all phones away: `away_hold = room_veto`, `away_hold_room = Guest Bedroom 2`, and the cap and basis are shown. No AWAY lands while the hold is under the cap.
+- Setting GB2 to 0 releases the hold within one tick, with no restart.
+
+### D4: Observability (existing sensor and device, one v8 card)
+
+**Labels.**
+- The nobody-home branch sets `_veto_path = "nobody_home"` when it fires.
+- The hold labels come from D2/D3.
+- `_blocked` (`:6532-6553`) is also True when `_away_hold != "none"` in a home-like **or SLEEP** state. `_veto_path_str` is then `camera_recent` / `room_veto`. The payload shape is unchanged.
+
+**Sticky reason and the AWAY count** (R1 MEDIUM-2, R2v3-M1).
+- Increment `_away_entries_today` and set `_last_away_reason` / `_last_away_at` in `_dispatch_house_state_change` (`:7861`, the sole `house_state_log` writer) on any edge into AWAY. That covers inference, override and restore, so the counter and the DB agree by construction.
+- The reason is `override` / `restore` when not inferred.
+- **Day boundary:** the local date, checked on every periodic tick as well as at increment time, so the count resets at local midnight even without a transition.
+
+**Hydration.** New DAO keyword `count_house_state_changes_since(since_iso, state=None, since_utc=None)`. The new path passes `since_utc` = local midnight converted to UTC, plus `state='away'`, and filters `previous_state IS NULL OR previous_state <> 'away'`. The default call (`_transitions_today`, `presence.py:2582`) stays byte-identical.
+
+**Someone-home estimate** (R1 HIGH-1 note). Incremented at an AWAY edge when any of these was true at entry:
+- a camera body was seen within `AWAY_SOMEONE_HOME_EST_LOOKBACK_S` (600 s, rung 1);
+- any registered tracker room (guest or veto) was occupied;
+- the house was not in SLEEP and `any_zone_occupied` was true.
+
+It does **not** read zone flags in SLEEP, where they are masked. It is not hydrated, and `counts_since` says so.
+
+**Attributes on `sensor.ura_presence_coordinator_presence_house_state`:**
+- Reason: `last_away_reason`, `last_away_at`.
+- Hold: `away_hold` (`none` / `camera_recent` / `room_veto`), `away_hold_room`, `away_hold_since`, `away_hold_cap_s`, `away_hold_cap_basis`, `away_eligible_at`.
+- Camera: `last_camera_body_at`, `last_camera_body_source`.
+- Counters: `away_entries_today`, `away_entries_today_someone_home_est`, `away_holds_today`, `counts_since`.
+- The live W: `away_camera_quiet_s`.
+- `away_hold_age_s` (derivable) goes in **`_unrecorded_attributes`** (R1 LOW-3, R2v3-M2). Every other new attribute stays recorded, because D0 day-7 needs them.
+
+**v8 card** (config, after deploy; snapshot first to `docs/ha-config-snapshots/lovelace_ura_v8_backup_<date>.json`).
+- **Placement:** one `sections` grid on the **`people` view** (PICK 7; `now` is the alternative).
+- **Heading:** "Away decisions", `heading_style: title`, `mdi:home-export-outline`.
+- **Hero:** `custom:button-card`, `template: hero`, on the house-state sensor:
+  - `custom_fields.pv`: `[[[ return entity.state.replace(/_/g,' ') ]]]`
+  - `label`: `[[[ var a=entity.attributes; if(a.away_hold && a.away_hold!=='none'){ return (a.away_hold==='room_veto' ? 'held by '+a.away_hold_room : 'cameras saw someone · Away from '+(a.away_eligible_at||'?')); } return a.last_away_reason ? 'last Away: '+a.last_away_reason.replace(/_/g,' ') : 'no Away today'; ]]]`
+  - colour via `styles.custom_fields.pv` and `styles.icon`: `[[[ return (entity.attributes.away_hold && entity.attributes.away_hold!=='none') ? 'var(--orange-dark)' : 'var(--blue-dark)'; ]]]`. This matches the Energy "Net Tomorrow" card. `variables.color` is static, so it cannot be used for this.
+- **Markdown table:** AWAY today, someone-home estimate, holds today, last camera body (age and source), W.
+
+**Tests:**
+- `test_nobody_home_sets_label`
+- `test_denied_branch_does_not_set_veto_path`
+- `test_last_away_reason_sticky_and_set_for_override`
+- `test_away_entries_today_resets_at_local_midnight_without_transition`
+- `test_away_count_hydration_uses_utc_instant_of_local_midnight`
+- `test_count_since_default_unchanged`
+- `test_blocked_episode_classifies_camera_recent_and_room_veto_including_sleep`
+- `test_someone_home_est_not_masked_in_sleep`
+- `test_hold_age_unrecorded`
+
+**Live:**
+- `last_away_reason` is never `none` after an AWAY.
+- `away_entries_today` equals `COUNT(*)` from `house_state_log` where `state='away'`, `previous_state` is NULL or not `away`, and `timestamp ≥` the UTC instant of local midnight. This holds after a restart too.
+- The card renders at phone width on `people`.
+
+### D5: Knob, the guard window (rung 3)
+- **Key:** `CONF_PRESENCE_AWAY_CAMERA_QUIET_S = "presence_away_camera_quiet_s"`, default 180.
+- **Entity:** `number.ura_presence_coordinator_away_camera_quiet`, unique_id `f"{DOMAIN}_presence_away_camera_quiet_s"`, on the Presence device. Range 0–1800, step 30.
+- Cloned from `FanInterferenceHoldNumber` with CM `entry.options` write-back. **The key is added to `OPTIONS_RELOAD_SUPPRESS_KEYS` (`__init__.py:7480`) and `_NO_LIVE_ATTR_KEYS` (`:7359`)** (R2v3-H4b). No in-place apply is needed, because W is read fresh each inference.
+- **0 = off.** Name: "Away camera quiet". Description: "How long the indoor cameras must see no one before the house can go Away. 0 = off."
+- **Tests:**
+  - `test_away_camera_quiet_options_round_trip`
+  - `test_away_camera_quiet_zero_disables`
+  - **`test_away_camera_quiet_change_does_not_reload_cm`** (mutation: remove from the suppress set → RED)
+- **Live:** the entity reads 180 and survives a restart. Moving the slider logs no CM reload.
+
+### D6: Docs (same commit as the build)
+- **PRESENCE state of play:**
+  - §2: the two new checks and the SLEEP-mask note.
+  - §10: rows C1/C3/C4 (Rev 2), C10–C14.
+  - Gold patterns: "room veto = guest-room tracker role + radar-sole/fan breaker".
+- **HVAC state of play:** §2 `:3260` → `:5184`; one line that the house AWAY edge is guarded (≤ W) and zone vacancy is unchanged.
+- **Estimator plan:** `FLOOR_WINDOW_S` is not this knob.
+- **README:** the D0 tables, written back.
 
 ---
 
-## 8. Estimator absorption (R1-06 / R2-08)
-- Same CONF key and Number. D6 changes only the caller's computation of `body_quiet_elapsed` (to `FLOOR ≤ R`). The three guarded sites, the label and the tests stay.
-- **The slice uses the plain window with no observed-exit shrink.** The estimator's `FLOOR_SHRINK_HOLD_S` (collapse to 180 s after an unattributed outbound crossing, estimator §7.4) is a D6 addition on the same knob. So after D6, the effective delay on observed exits drops from ≤ W to ~3 min under an unchanged setting. That is intended and should be noted in the D6 README.
-- `_last_camera_body_ts` goes into D6's supersession audit (keep as a FLOOR input or KEEP+DOCUMENT).
+## 8. Numbers and their knobs
+| Number | Value | Rung | Why | Kill |
+|---|---|---|---|---|
+| W | 180 s | 3, Number on the Presence device, reload-suppressed | Live trade-off: flaps vs departures | 0 |
+| Per-room cap | GB1 8 h, GB2 8 h (Jaya 0) | 2, room options, live via the room-lifecycle re-discover | P1 longest legitimate run 762 min | 0 |
+| Someone-home lookback | 600 s | 1 | Display proxy | n/a |
+| Discharge tick | 60 s | existing | reused | — |
+| Dwell table | SLEEP 600 / GUEST 300 / HOME_* 120 / WAKING, ARRIVING 60 s | existing `DEFAULT_HYSTERESIS` | Bounds INV-DISCHARGE | — |
 
 ---
 
-## 9. Claims found WRONG
-- **C1:** presence state of play §2 says path α needs census_count = 0 and all zones away. The code at `:1169-1181` has neither.
-- **C2:** the card's `update_2026_10_15` claim does not hold for α.
-- **C3:** "path α causes it". In fact 11/33 (10-14) and 9/11 (10-15) came from the nobody-home branch.
-- **C4:** "the 3-min hold". The clamp at `camera_census.py:6006-6009` cancels it.
-- **C5:** the card's EVSE/battery consumers. There is no subscription (R1 confirmed).
-- **C6:** the estimator D6 table lacks a path α row, so INV-AWAY-SAFE would not hold. Lines are stale too (`:1111`→`:1127`, `:1223`→`:1262`).
-- **C7:** HVAC doc: the handler is at `hvac.py:5177`.
-- **C8 (Rev 1 self-correction, R2-01):** Rev 1's D1 stamped on `census_count`. That would have blocked α forever on a forgotten phone.
-- **C9 (Rev 1 self-correction, R1-01/R2-02):** Rev 1 said "REUSE `_schedule_deferred_retry`". Its shared slot loses transitions.
+## 9. Non-goals and fences
+- **Unchanged:** the census payload and clamp, guest-gate behaviour, β grace, hysteresis values, HVAC code, door tally, identity, and the schema.
+- **No HVAC split.** No AWAY → ARRIVING from room occupancy.
+- **Fenced, with tests** (`test_override_away_not_guarded`, `test_restore_not_guarded`):
+  - overrides: `select.py:255-278`, `__init__.py:6201`, `presence.py:8017`;
+  - boot restore: `apply_restored`, `manager.py:697`;
+  - the cold-boot AWAY default (HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1).
+- **Deployment:** one restart in an awake window, then the room config action (D3).
+
+## 10. Parked, with revival triggers
+| Item | Why parked | Revival trigger |
+|---|---|---|
+| **Jaya Bedroom as a veto room** | Fan/phantom loop (§3.3); all 507 measured minutes were fan-on, with an LD2410-only hold | A fan-immune witness (ZV or PIR) installed in Jaya Bedroom, **or** an LD2410 retune, then a P3 re-measure: 0 fan-on/empty phantom minutes over 7 days and 0 verified-empty absences swallowed. Then set the cap by config; no code. Related card: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1 |
+| Census estimator / door tally | As Rev 3 | D0 SH > 2.3 traced to rooms that are blind to both cameras and radars, AND door attach ≥ 60 % |
+| Veto on all radar rooms | P3: 3 of 10 departures never reach AWAY | Per room: passes P3's two controls, then added by config |
+| **Study A sensor fix** | Hardware/operator | **No card exists.** Orchestrator to mint `STUDYA-ZK-EMPTY-HOLD-1`. Also card the Exercise Room ZK never being on (a new finding) and the absence of a trusted Master Bathroom sensor |
+| HVAC unguarded read | New published state | A D0 departure where a zone stayed on comfort > 5 min solely because of the house-edge delay |
+| Separate discharge timer | The isolated periodic suffices | D0 discharge later than B + W + 60 s + dwell |
+| `face_recognized_count` column, or persisting the reason in `house_state_log.trigger` | Schema / persisted-value change; `memory_episodes` plus the two-run D0 cover it | D0 day-14 cannot classify AWAY rows from `memory_episodes` (retention is the binding limit, not exclusion; R1 MEDIUM-3) |
+
+## 11. Operator PICKs (defaults in bold)
+1. **Guard window W:** **180 s** / 300 s / 0.
+2. **Veto rooms and caps:** **GB1 8 h + GB2 8 h** / guest rooms plus Jaya at 16 h (rejected by the plan: the fan loop, §3.3; only after the §10 trigger) / none.
+3. **Body predicate:** **unidentified OR face** / unidentified only.
+4. **HVAC split:** **none** / an HVAC read that ignores the guard.
+5. **Someone-home estimate on the sensor:** **yes, the SLEEP-safe proxy** / omit.
+6. **Residual:** **accept ≈ 2.1/day ordinary and ≈ 10/day Jaya+guest as this cycle's outcome; next lever = the sensor cards** / hold the build for the sensor fixes.
+7. **v8 card view:** **`people`** / `now`.
+
+## 12. Claims found WRONG
+Rev 2's C1–C9 stand. Rev 3 added:
+- **C10:** HVAC handler at `hvac.py:5184`.
+- **C11:** no `now=` is passed to `infer()`.
+- **C12:** holistic §5.2's clause (2).
+- **C13:** a known resident still counts for the veto.
+
+Rev 4 adds:
+- **C14 (Rev 3 self-correction, R1 HIGH-1):** "nobody-home and β cannot fire while a veto room is occupied, because the zone flags carry it" is false during house SLEEP (`set_sleep` overrides every zone tracker), and false for a room in no zone.
+- **C15 (Rev 3 self-correction, R2v3-H1):** "guard fall-through equals today's path" is false. The fall-through reaches SLEEP, GUEST or HOME_*, which start new dwells. The guard now returns `None`.
+- **C16 (Rev 3 self-correction, R2v3-H2 / R1 MEDIUM-1):**
+  - "boot-seed from `last_changed` counts the real run" is false: `last_changed` is rewritten at boot.
+  - "P3 control numbers bound veto B" is false for a fan-susceptible radar: P3 is open-loop.
+- **C17 (Rev 3 self-correction, R2v3-H4):**
+  - "set the caps after deploy" did nothing without a re-discover hook.
+  - Cloning the Number without its suppress-key entry reloads the CM.
+- **C18 (Rev 3, R1 MEDIUM-3):** "D0 at 14 days from recorder history" exceeds the 7-day retention.
+
+## 13. Tier
+**Tier 3.** Required:
+- the re-verify decision on Rev 4 (orchestrator);
+- four build reviews:
+  - A: local correctness;
+  - B: state machine and lifecycle, covering INV-GUARD-HOLDS-STATE, the try-block isolation, the lifecycle re-discover and unsubs, hydration;
+  - C: per-site mutation over the D1–D5 anchors;
+  - D: adversarial completeness against §2. Targets: the fan loop with the breaker in place, the SLEEP mask, a room with no zone, restart storms versus `cap_basis`, the kill-switch interplay;
+- the orchestrator re-greps every `return HouseState.AWAY` and every reader in the §7 D3 table, and re-runs one mutation;
+- an operator checkpoint before deploy;
+- ura-super-builder.
+
+## 14. Self-check against the Tier-3 plan-review requirement (planner; not a substitute for reviews)
+- [x] Prior-art table re-grepped; new pieces listed and justified; every REUSE the reviewers found is added (P5b, P5c, P5d).
+- [x] Invariants restated; INV-DISCHARGE now uses the real dwell table and names its three preconditions (isolated periodic, `cap_basis`, fan breaker).
+- [x] All three `return HouseState.AWAY` sites carry both checks; reader table complete (12 sites).
+- [x] Consumers include HA automations (wall panels) and `const.py:2344`.
+- [x] Every number on the ladder; both knobs have a live path that needs no restart and no CM reload.
+- [x] D0 table discriminates, including the loop row; runs inside the 7-day retention.
+- [x] Residual restated with the Rev 4 numbers.
+- [x] All three Rev 3 opens are resolved by the reviewers: view `people`; attributes are recorded but retained 7 days; no automation reads someone-home.
+- [ ] **Open for the build:** confirm that the new room key is not in a room-level reload-suppress set (D3); confirm that `data[STATE_RADAR_SOLE_TICK]` is published for the guest rooms' current sensor mix (MS600 Matter in `presence_sensors`, the Meross motion bit and the Hobeian in `motion_sensors`).
 
 ---
 
-## 10. Non-goals, fences, parked items
+## 15. Review findings → resolution (Rev 3 reviews)
 
-**Non-goals:** no change to the census payload, clamp, hold, guest gate, β grace, hysteresis, HVAC, door tally or identity. Not solving the out-of-view residue (~16 trip AWAYs).
+| ID | Sev | Finding | Resolution | Where |
+|---|---|---|---|---|
+| R1 HIGH-1 | HIGH | SLEEP masks the zone flags, so nobody-home fires AWAY with a sleeper in a veto room | Veto on **all three** branches; INV-B restated; SLEEP test; estimate input fixed; C14 | §2, §3.1, D3, D4, §12 |
+| R1 MED-1 | MED | `last_changed` boot seed resets the cap each restart; `became_occupied_time` REUSE missed | Seed from the restored `_became_occupied_time`; `cap_basis` attribute; tests renamed | P5b, §2, D3 |
+| R1 MED-2 | MED | Hydration compares local date vs UTC; no midnight reset without a transition | DAO `since_utc` + state filter; reset on the periodic tick; honest live oracle | P12, D4 |
+| R1 MED-3 | MED | D0 needs 14 days of recorder data; retention is 7 | D0 runs at day 7 (extract saved) and day 14 (URA DB + `memory_episodes`); parked trigger reworded | D0, §10, C18 |
+| R1 MED-4 | MED | Missed consumers: wall-panel automations, chain/AI-rule class, `const.py:2344` | Added to §3.4 | §3.4 |
+| R1 LOW-1 | LOW | Hysteresis bound understated | Dwell table in INV-DISCHARGE; `test_discharge_dwell_table` | §2, D2, §8 |
+| R1 LOW-2 | LOW | Inference fan-out on attribute events | Veto-only rooms schedule inference on state change only | D3 table |
+| R1 LOW-3 | LOW | Recorder write amplification | `away_hold_age_s` unrecorded; `away_hold_since` published | D4 |
+| R1 LOW-4 | LOW | Citation drift | `__init__.py:6201`, switch slug, `_count_transition` `:7451` | §1.2, §9 |
+| R1 opens (a)(b)(c) | — | View / recorder / automations | `people`; recorded, 7 d; none | D4, §14 |
+| R2v3-H1 | HIGH | Guard fall-through enters SLEEP/GUEST/HOME and starts a 600 s dwell | Guard returns `None` (hold state); the veto falls through; INV-GUARD-HOLDS-STATE; two tests; C15 | §2, D2 |
+| R2v3-H2 | HIGH | Fan/veto loop; cap resets on restart | Breaker (iii) radar-sole AND fan-on → no hold (REUSE); **Jaya dropped from defaults** (no breaker keeps its benefit); restored run start; D0 loop row; C16 | §3.3, D3, D0, §6, §10, PICK 2 |
+| R2v3-H3 | HIGH | Periodic registration shares the discovery try-block | Registration moved out; per-room parsing wrapped; test plus mutation | D2 |
+| R2v3-H4 | HIGH | (a) caps need a restart; (b) the knob reloads the CM | (a) `SIGNAL_ROOM_ENTRY_LIFECYCLE` re-discover; config order stated. (b) suppress-key + no-live-attr entries; no-reload test; C17 | D3, D5 |
+| R2v3-M1 | MED | AWAY count vs oracle (UTC, override AWAYs) | Count at `_dispatch_house_state_change`; UTC instant; previous-state filter | D4 |
+| R2v3-M2 | MED | Recorder growth | `away_hold_age_s` unrecorded; the rest kept for D0 | D4 |
+| R2v3-M3 | MED | Reader table under-specified | 12-row disposition table plus two tests | D3 |
+| R2v3-M4 | MED | No `presence` view; static colour variable | `people` view (PICK 7); JS-templated label and colour written out | D4, P14 |
+| R2v3-M5 | MED | Veto room with no zone | Covered by the all-branch veto; `test_veto_room_without_zone_blocks_nobody_home` | D3 |
+| R2v3-L1 | LOW | Stamp gated on W > 0 → stale B when turned on | Stamp unconditionally | §3.2, D1 |
+| R2v3-L2 | LOW | Denied branch label ambiguous | A denied branch leaves `_veto_path` alone | D2 |
+| R2v3-L3 | LOW | `nobody_home` value persisted even at W = 0 | Stated in INV-BYTE-ID; no value consumers | §2 |
+| R2v3-L4 | LOW | `None` stamp raises | `None` is quiet | D2 |
+| R2v3-L5 | LOW | Stale hold on early returns | Mirrored hold reset on early returns; test | D2 |
 
-**Fenced: out of the guard's scope (R1-07), each unchanged and each with a test asserting so:**
-- operator override to AWAY via any of the three selects (`select.py:278`, `__init__.py:6195`, `presence.py:8013-8021`), which is immediate;
-- boot restore `apply_restored` (`house_state.py:368-431`);
-- the cold-boot default `initial_state=AWAY` (`house_state.py:153`, `manager.py:225`). That default is a display/boot artefact tracked by **HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1**. This plan neither fixes nor worsens it. The boot-seeded `B` means inference cannot *re-enter* AWAY for W after boot.
-
-Test: `test_override_away_not_guarded`.
-
-**Parked:**
-- (B′) a held clamp ceiling. Revive if estimator D3 shadow passes gate 5.
-- A room-occupancy veto on α. Revive when a still-holding radar (ZK/ZX) covers the occupant's rooms.
-- A separate `_body_quiet_unsub` timer. Revive if D0 or live data show the 60 s periodic missing discharges (e.g. periodic inference skipped under load).
-- A security-specific arm policy. Revive if auto-follow turns out to be live and the operator rejects a ≤ W arming delay.
-
----
-
-## 11. Tier
-**Tier 3** (shared state machine; failure = one missed branch at a time seam). Required:
-- a re-verify plan review of Rev 2;
-- four framing-disjoint build reviews (A/B/C-mutation/D);
-- the orchestrator re-greps every `return HouseState.AWAY` and re-runs one mutation;
-- an **operator checkpoint before deploy**, including explicit acceptance of the security auto-arm delay (§3.4);
-- the travel rule: risk HIGH, so deploy after 10-18 or in an attended window, with one restart.
-
----
-
-## 12. Rev 2 — review findings disposition
-
-| Finding | Sev | Change | Where |
-|---|---|---|---|
-| R2-01 stamp on census_count re-opens GAP-A | HIGH | Stamp on `unidentified_count>0 or face_recognized_count>0` only; INV-NO-BLE-HOLD; BLE-only test + forgotten-phone replay | §1.2, §2, §3.2, D1, C8 |
-| R1-01 / R2-02 shared retry slot loses discharge | HIGH | Timer dropped; discharge = 60 s periodic; INV-AWAY-DISCHARGE = B+W+60 s (+ hysteresis ≤120 s); `RETRY_SLACK_S` deleted; hysteresis-blocked discharge test | §1.2, §2, D2, C9, §10 parked timer |
-| R1-02 polling consumers + delay price | MED | Six polling consumers added with a per-consumer W-delay cost; security singled out for operator acceptance | §3.4, §11 |
-| R1-03 / R2-03 restart under-specified | MED | Option (a): RAM-only, seeded to boot time (conservative, never early AWAY); cold-boot default fenced | D1, §10 |
-| R2-04 two clocks | MED | One clock, `dt_util.utcnow()`, captured once per `_run_inference`; `infer(now=)` convention preserved | D1, D2 |
-| R2-05 veto label lost/masking | MED | Set inside `infer()` after the reset; memory writer classifies `body_quiet_hold`; first-denial precedence | D2 |
-| R2-06 producer/computation unanchored | MED | Mutation anchors for the stamp write, BLE exclusion, `>=` boundary, W==0 | D2 tests |
-| R1-04 boot seed bypass | LOW | Resolved by camera-only stamp + boot-time seed; no stamp at the seed (documented) | D1 |
-| R1-05 three override selects | LOW | Canonical named, siblings listed | §1.2, §6, §10 |
-| R1-06 / R2-08 estimator exit shrink | LOW | Slice = plain window; D6 adds shrink on the same knob; effect noted | §8 |
-| R1-07 fence AWAY setters outside infer() | LOW | Explicit fence list + test | §10 |
-| R2-07 knob ownership | LOW | CONF key, owning entry, entity_id, unique_id, options-write-back persistence named | D3 |
-
-**Rejected:** none. **Partially adapted:** R1-03 offered "persist on each stamp change" as an alternative. Rejected in favour of no persistence, because a Store save on every camera update is a write-amplification risk (the DB/Store write-flood history) for no safety gain over the conservative boot seed.
+**Rejected:** none. **Adapted:**
+- R2v3-H2 offered "a lower Jaya cap". That was rejected in favour of dropping Jaya, because a lower cap still holds an empty house for the full cap after every fan-on departure.
+- R1 MED-3 offered "persist the reason in `house_state_log.trigger`". Rejected as a persisted-value change; the `memory_episodes` D7 snapshots already carry the labels with URA retention.

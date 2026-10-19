@@ -478,8 +478,15 @@ class TestD1_HVACTier:
         # tests replace dt_util); 100y buffer swamps any wall-clock
         # skew that pollution might introduce.
         from datetime import timedelta
+        # TEST-HARNESS D7: really the SAME dt_util production reads — the
+        # controller's own module global — not this file's import-time
+        # binding, which differed (aware vs naive) once other files had
+        # swapped `homeassistant.util.dt`; the comparison then raised
+        # TypeError, production cleared the cooldown, and the fan turned on
+        # (red in the full suite, green alone).
+        _prod_dt = type(ctrl).update.__globals__["dt_util"]
         rf.manual_off_cooldown_until = (
-            dt_util.now() + timedelta(days=365 * 100)
+            _prod_dt.now() + timedelta(days=365 * 100)
         ).isoformat()
         ctrl._house_state = "home_night"
         _run(ctrl.update(None, house_state="sleep"))
@@ -808,7 +815,29 @@ def _fans_mod():
     return sys.modules[_FANS_NAME]
 
 
+class _D7GlobalsView:
+    """Attribute view over a module's globals dict (reads AND writes)."""
+
+    def __init__(self, g):
+        object.__setattr__(self, "_g", g)
+
+    def __getattr__(self, name):
+        try:
+            return self._g[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def __setattr__(self, name, value):
+        self._g[name] = value
+
+
 def _autom_mod():
+    # TEST-HARNESS D7 slice 2: the module the tests patch must be the one
+    # _RoomAutomation's methods actually read. A sibling file's per-test
+    # URA eviction (oc_pillar_b_admin_surface) can leave a DIFFERENT
+    # automation module in sys.modules than the one bound at collection.
+    if _RoomAutomation is not None:
+        return _D7GlobalsView(_RoomAutomation.check_auto_off_warning.__globals__)
     return sys.modules[_AUTOMATION_NAME]
 
 

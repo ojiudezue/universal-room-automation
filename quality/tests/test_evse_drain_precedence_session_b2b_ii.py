@@ -473,7 +473,14 @@ def test_must_start_by_timer_armed_on_transitioned_entry():
     _orig_now = getattr(_dt_mod, "now")
     _pinned = datetime(2026, 7, 17, 2, 0, 0)
     _dt_mod.now = lambda: _pinned
+    _d7_extra = []
     try:
+        # TEST-HARNESS D7 slice 2: also pin the dt production binds at call
+        # time (inside the try so the finally always restores).
+        from _d7_isolation import other_dt_modules as _d7_other_dt
+        _d7_extra = [(m, m.now) for m in _d7_other_dt()]
+        for _m, _ in _d7_extra:
+            _m.now = lambda: _pinned
         fire_at = _pinned + timedelta(hours=3)
         coord._arm_dp_must_start_by_timer(fire_at)
         assert len(fake.calls) == 1, (
@@ -488,6 +495,8 @@ def test_must_start_by_timer_armed_on_transitioned_entry():
     finally:
         _extracted_ns["async_track_point_in_time"] = None
         _dt_mod.now = _orig_now
+        for _m, _f in _d7_extra:
+            _m.now = _f
 
 
 from contextlib import contextmanager as _contextmanager
@@ -546,13 +555,22 @@ def test_must_start_by_arm_skipped_when_fire_at_in_past():
     # comparison in `_arm_dp_must_start_by_timer` uses the same clock.
     _FROZEN = datetime(2026, 1, 1, 12, 0, 0)
     _dt_mod.now = lambda: _FROZEN
+    _d7_extra = []
     try:
+        # TEST-HARNESS D7 slice 2: also pin the dt production binds at call
+        # time (inside the try so the finally always restores).
+        from _d7_isolation import other_dt_modules as _d7_other_dt
+        _d7_extra = [(m, m.now) for m in _d7_other_dt()]
+        for _m, _ in _d7_extra:
+            _m.now = lambda: _FROZEN
         past = _FROZEN - timedelta(hours=48)
         coord._arm_dp_must_start_by_timer(past)
         assert len(fake.calls) == 0
         assert coord._dp_must_start_unsub is None
     finally:
         _dt_mod.now = _saved_now
+        for _m, _f in _d7_extra:
+            _m.now = _f
         _extracted_ns["async_track_point_in_time"] = None
 
 

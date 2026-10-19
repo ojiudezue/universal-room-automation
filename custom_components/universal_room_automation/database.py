@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.71
+# Universal Room Automation vv5.103.72
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -3028,7 +3028,13 @@ class UniversalRoomDatabase:
             )
             return []
 
-    async def count_house_state_changes_since(self, since_iso: str) -> int:
+    async def count_house_state_changes_since(
+        self,
+        since_iso: str,
+        *,
+        state: str | None = None,
+        exclude_same_previous: bool = False,
+    ) -> int:
         """Return the number of house_state_log rows with timestamp >= since_iso.
 
         v4.6.5.1 P4 (M3 fix from v4.6.4 review): supports
@@ -3044,13 +3050,24 @@ class UniversalRoomDatabase:
         bare date string). TZ note: there is an existing UTC-vs-local
         approximation here matching the production `_count_transition` reset
         check — not new to this fix.
+
+        Sleep-mask cycle D3 (away_entries_today hydration): optional
+        ``state`` adds ``AND state = ?``; with ``exclude_same_previous`` it
+        also adds ``AND (previous_state IS NULL OR previous_state <> ?)``
+        (a real ENTRY into ``state``). Neither kwarg passed → the SQL and
+        params are byte-identical to the original call.
         """
+        sql = "SELECT COUNT(*) FROM house_state_log WHERE timestamp >= ?"
+        params: list = [since_iso]
+        if state is not None:
+            sql += " AND state = ?"
+            params.append(state)
+            if exclude_same_previous:
+                sql += " AND (previous_state IS NULL OR previous_state <> ?)"
+                params.append(state)
         try:
             async with self._db() as db:
-                cursor = await db.execute(
-                    "SELECT COUNT(*) FROM house_state_log WHERE timestamp >= ?",
-                    (since_iso,),
-                )
+                cursor = await db.execute(sql, tuple(params))
                 row = await cursor.fetchone()
                 return int(row[0]) if row else 0
         except Exception as e:

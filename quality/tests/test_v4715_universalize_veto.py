@@ -157,12 +157,18 @@ _ura_pkg_name = "custom_components.universal_room_automation"
 if _ura_pkg_name not in sys.modules:
     _ura_pkg = _mock_module(_ura_pkg_name)
     _ura_pkg.__file__ = str(PKG / "__init__.py")
+    # TEST-HARNESS D7: a real __path__, so relative imports the loaded
+    # modules make (coordinator_diagnostics -> ..database) resolve when this
+    # file runs ALONE. It used to rely on an earlier file having installed a
+    # package with a usable __path__ (alone: collection ModuleNotFoundError).
+    _ura_pkg.__path__ = [str(PKG)]
     sys.modules[_ura_pkg_name] = _ura_pkg
 
 _dc_pkg_name = "custom_components.universal_room_automation.domain_coordinators"
 if _dc_pkg_name not in sys.modules:
     _dc_pkg = _mock_module(_dc_pkg_name)
     _dc_pkg.__file__ = str(DC_PATH / "__init__.py")
+    _dc_pkg.__path__ = [str(DC_PATH)]  # TEST-HARNESS D7 (see above)
     sys.modules[_dc_pkg_name] = _dc_pkg
 
 for _submod in ("const",):
@@ -1333,13 +1339,17 @@ class TestD3InferenceOrchestration:
         """SLEEP → mmwave OFF then ON for 90s+ → WAKING transition fires."""
         # Lock dt_util.utcnow to a fixed naive value in presence.py's namespace
         # so other test files' clock-patching can't perturb timer arithmetic.
-        from custom_components.universal_room_automation.domain_coordinators import (
-            presence as presence_mod,
-        )
         from unittest.mock import patch as _patch
         fixed_now = datetime(2026, 5, 30, 14, 0, 0)
 
-        with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        # TEST-HARNESS D7: patch the namespace the coordinator ACTUALLY runs
+        # in (its function globals). Patching the module found under the
+        # name in sys.modules missed whenever a later-collected file had
+        # re-registered `...domain_coordinators.presence`: the class bound
+        # here kept reading the unpatched dt_util (naive vs aware TypeError
+        # in the full suite; green alone).
+        _mock_dt = MagicMock()
+        with _patch.dict(PresenceCoordinator._run_inference.__globals__, {"dt_util": _mock_dt}):
             _mock_dt.utcnow.return_value = fixed_now
             _mock_dt.now.return_value = fixed_now
 
@@ -1426,13 +1436,17 @@ class TestD3InferenceOrchestration:
     @pytest.mark.asyncio
     async def test_guest_exit_fires_after_sustained_quiet(self):
         """GUEST + sustained exit signal >= threshold → HOME_DAY accepted."""
-        from custom_components.universal_room_automation.domain_coordinators import (
-            presence as presence_mod,
-        )
         from unittest.mock import patch as _patch
         fixed_now = datetime(2026, 5, 30, 14, 0, 0)
 
-        with _patch.object(presence_mod, "dt_util") as _mock_dt:
+        # TEST-HARNESS D7: patch the namespace the coordinator ACTUALLY runs
+        # in (its function globals). Patching the module found under the
+        # name in sys.modules missed whenever a later-collected file had
+        # re-registered `...domain_coordinators.presence`: the class bound
+        # here kept reading the unpatched dt_util (naive vs aware TypeError
+        # in the full suite; green alone).
+        _mock_dt = MagicMock()
+        with _patch.dict(PresenceCoordinator._run_inference.__globals__, {"dt_util": _mock_dt}):
             _mock_dt.utcnow.return_value = fixed_now
             _mock_dt.now.return_value = fixed_now
 

@@ -776,6 +776,18 @@ class _RecordingStore:
         self.delay_saves.append({"payload": payload, "delay": delay})
 
 
+def _mgr_house_state_machine_cls():
+    """TEST-HARNESS D7 slice 2: the HouseStateMachine class the MANAGER
+    module actually uses. A sibling file can leave a different
+    house_state / manager module pair in sys.modules than the one this file
+    imported at collection; mixing the two mixes a naive and an aware
+    clock."""
+    from custom_components.universal_room_automation.domain_coordinators.manager import (
+        CoordinatorManager,
+    )
+    return CoordinatorManager.__init__.__globals__["HouseStateMachine"]
+
+
 def _install_manager_with_store(hass, store):
     from custom_components.universal_room_automation.domain_coordinators.manager import (
         CoordinatorManager,
@@ -788,7 +800,7 @@ def _install_manager_with_store(hass, store):
 @pytest.mark.asyncio
 async def test_c_high_1_restore_loads_sleep_and_sets_boot_restore_active(tmp_path):
     hass = FakeHass(tmp_path)
-    src = HouseStateMachine(HouseState.SLEEP)
+    src = _mgr_house_state_machine_cls()(HouseState.SLEEP)
     seed = src.to_persisted_dict()
     store = _RecordingStore(seed=seed)
     m = _install_manager_with_store(hass, store)
@@ -812,7 +824,9 @@ async def test_c_high_1_transition_triggers_debounced_save(tmp_path, monkeypatch
     m._wire_house_state_persistence()
     machine = m._house_state_machine
     machine._state = HouseState.HOME_DAY
-    machine._state_since = dt_util.utcnow() - timedelta(hours=1)
+    # TEST-HARNESS D7 slice 2: the clock the machine's own module reads.
+    _machine_dt = type(machine).dwell_seconds.fget.__globals__["dt_util"]
+    machine._state_since = _machine_dt.utcnow() - timedelta(hours=1)
     machine.transition(HouseState.HOME_EVENING, "test")
     assert len(store.delay_saves) >= 1
     assert store.delay_saves[-1]["payload"]["state"] == "home_evening"

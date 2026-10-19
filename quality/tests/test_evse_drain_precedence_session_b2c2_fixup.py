@@ -291,13 +291,22 @@ def _frozen_dt_now(anchor: datetime):
     of a tick — the tick's arithmetic (drain_hours, charge_hours vs
     hours_until_end_of_night) is sensitive to wall clock. v5.17.1
     _FrozenClock lesson."""
-    _dt_mod = _sys.modules["homeassistant.util.dt"]
-    _saved = _dt_mod.now
-    _dt_mod.now = lambda: anchor
+    # TEST-HARNESS D7 slice 2: production does `from homeassistant.util
+    # import dt` at call time, which reads the PARENT package attribute; a
+    # sibling stub install can leave that pointing at a different object
+    # than sys.modules["homeassistant.util.dt"]. Freeze every distinct one.
+    _targets = [_sys.modules["homeassistant.util.dt"]]
+    _parent_dt = getattr(_sys.modules.get("homeassistant.util"), "dt", None)
+    if _parent_dt is not None and _parent_dt is not _targets[0]:
+        _targets.append(_parent_dt)
+    _saved = [(m, m.now) for m in _targets]
+    for _m in _targets:
+        _m.now = lambda: anchor
     try:
         yield
     finally:
-        _dt_mod.now = _saved
+        for _m, _now in _saved:
+            _m.now = _now
 
 
 def test_transition_entry_pauses_actual_configured_evse_id():

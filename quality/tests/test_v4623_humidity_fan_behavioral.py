@@ -160,6 +160,11 @@ _ura_pkg_name = "custom_components.universal_room_automation"
 if _ura_pkg_name not in sys.modules:
     _ura_pkg = _mock_module(_ura_pkg_name)
     _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+    # TEST-HARNESS D7: a real __path__ so automation.py's relative imports
+    # (.cover_ownership, ...) resolve. The empty one only worked when an
+    # earlier file (test_ac_ramp_master_option_persistence) had left ITS
+    # package — with a usable __path__ — resident for the session.
+    _ura_pkg.__path__ = [_ura_root]
     sys.modules[_ura_pkg_name] = _ura_pkg
 
 _const_full = "custom_components.universal_room_automation.const"
@@ -270,6 +275,17 @@ def _run(coro):
     """Run a coroutine synchronously for testing."""
     return asyncio.get_event_loop().run_until_complete(coro)
 
+
+
+import pytest as _d7_pytest_clock  # noqa: E402
+
+
+@_d7_pytest_clock.fixture(autouse=True)
+def _d7_restore_set_now_clocks(monkeypatch):
+    """TEST-HARNESS D7 slice 2: undo this file's _set_now clock writes after
+    every test (they can land on the real / an orphaned real dt module)."""
+    from _d7_isolation import restore_clocks_after_test
+    restore_clocks_after_test(monkeypatch, globals())
 
 def _set_now(dt: datetime) -> None:
     """Override the 'now' function used by dt_util in automation.py.

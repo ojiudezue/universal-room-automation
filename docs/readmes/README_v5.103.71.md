@@ -30,7 +30,13 @@ Cards: ZONE-DELETE-ORPHAN-HVAC-SENSORS-1, INIT-UNTRACKED-TASK-4211-1, SECURITY-R
 - The three overnight fixes: each has its own tests and mutation drills (see the review record).
 - Full-suite name-diff at 624159098 vs a3f5b9dd9: CLEAN, 0 NEW / 3 GONE (deploy SIGINT trap, untracked-task guard, zone-delete prefix enumeration); 71 -> 68 failing.
 
-## Live validation (prospective)
-- Installed and loaded: manifest v5.103.71, all URA entries loaded, no new URA ERRORs.
-- No `observability WS commands registration failed` warning in the system log.
-- Zone delete, the setup-task path and security re-fire are not exercised by a restart. The proof for those is in the test suite.
+## Validated 2026-10-18 (restart 12:19–12:22 CDT, read 12:25–12:35)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and loaded | PASS | manifest v5.103.71 on the HA mount; `ha_get_integration` 50/50 URA entries `loaded` |
+| No URA ERRORs | PASS | system_log ERROR level: no `universal_room_automation` entries. WARNINGs are boot-time (HVAC boot-settle timeout, coverage re-anchor, unavailable-sensor holds, deprecations) and pre-existing |
+| No `observability WS commands registration failed` | PASS | absent from system_log after restart |
+| Zone delete / setup task / security re-fire | NOT EXERCISED BY RESTART | proven in-suite only (see Tests); none fires on boot |
+
+Same restart, not URA: `input_text` failed to set up (`packages/upzone_zone2_package.yaml:77`, `max: 4096` > HA limit 255), which also failed `spook`. Pre-existing: the file dates from 2025-10-11 and `input_text.upstairs_zone_meta` has no recorder history. Carded separately.

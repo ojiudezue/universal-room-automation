@@ -41,26 +41,31 @@ def _fake_track_state_change_event(hass, entities, cb):
     return lambda: setattr(hass, "_cb", None)
 
 
-def _mod(name, **attrs):
-    """Ensure a stub module exists and carries `attrs`.
+def _mod(mp, name, **attrs):
+    """Ensure a stub module exists and carries `attrs` — via ``mp``.
 
     SUITE-ORDER-POLLUTION fix (2026-08-23): ADDITIVE, not replacing. If another
-    test file already installed this module, keep it (and its attributes, which
-    that file depends on) and only set the ones THIS file needs. Replacing it
-    outright would make this file a donor in the opposite direction.
+    test file already installed this module (or it is the REAL HA module), keep
+    it and only set the attributes THIS file needs.
+
+    TEST-HARNESS D7 (2026-10-18): every write goes through a MonkeyPatch
+    (``mp``) so it is UNDONE at teardown. The file used to write
+    ``er.async_get`` / ``core.Event`` / ``core.HomeAssistant`` onto the REAL
+    homeassistant modules at import time and never restore them, poisoning
+    every later real-HA test in the session (the D7 donor).
     """
     m = sys.modules.get(name)
     if m is None:
         m = types.ModuleType(name)
-        sys.modules[name] = m
+        mp.setitem(sys.modules, name, m)
     if not hasattr(m, "__path__"):
-        m.__path__ = []  # package shape, so submodules can be imported
+        mp.setattr(m, "__path__", [], raising=False)  # package shape
     for k, v in attrs.items():
-        setattr(m, k, v)
+        mp.setattr(m, k, v, raising=False)
     return m
 
 
-def _install_ha_stubs():
+def _install_ha_stubs(mp):
     """Install the stubs THIS file needs, whether or not others exist.
 
     WAS `if "homeassistant" in sys.modules: return` — an all-or-nothing guard
@@ -77,8 +82,8 @@ def _install_ha_stubs():
     `homeassistant` says nothing about whether the specific pieces this file
     needs are there.
     """
-    _mod("homeassistant")
-    core = _mod("homeassistant.core")
+    _mod(mp, "homeassistant")
+    core = _mod(mp, "homeassistant.core")
 
     class Event:
         def __init__(self, data, time_fired=None):
@@ -88,21 +93,20 @@ def _install_ha_stubs():
     class HomeAssistant:  # noqa: D401
         pass
 
-    core.Event = Event
-    core.HomeAssistant = HomeAssistant
+    mp.setattr(core, "Event", Event, raising=False)
+    mp.setattr(core, "HomeAssistant", HomeAssistant, raising=False)
 
-    helpers = _mod("homeassistant.helpers")
-    ev = _mod("homeassistant.helpers.event")
+    _mod(mp, "homeassistant.helpers")
+    _mod(mp, "homeassistant.helpers.event",
+         async_track_state_change_event=_fake_track_state_change_event)
 
-    ev.async_track_state_change_event = _fake_track_state_change_event
-
-    er = _mod("homeassistant.helpers.entity_registry")
+    er = _mod(mp, "homeassistant.helpers.entity_registry")
 
     class _Entry:  # noqa: D401 — exported for tests via er._Entry
         def __init__(self, platform):
             self.platform = platform
 
-    er._Entry = _Entry
+    mp.setattr(er, "_Entry", _Entry, raising=False)
 
     class _Reg:
         def __init__(self, mapping):
@@ -113,19 +117,29 @@ def _install_ha_stubs():
     def async_get(hass):
         return _Reg(getattr(hass, "_reg_map", {}))
 
-    er.async_get = async_get
+    mp.setattr(er, "async_get", async_get, raising=False)
 
-    util = _mod("homeassistant.util")
-    dt = _mod("homeassistant.util.dt")
-    dt.utcnow = lambda: datetime.now(timezone.utc)
-    dt.now = dt.utcnow
+    _mod(mp, "homeassistant.util")
+    _utc = lambda: datetime.now(timezone.utc)  # noqa: E731
+    _mod(mp, "homeassistant.util.dt", utcnow=_utc, now=_utc)
 
 
-_install_ha_stubs()
+@pytest.fixture(scope="module", autouse=True)
+def _ha_stubs_module():
+    """Install the stubs for this MODULE's lifetime and undo them after.
+
+    TEST-HARNESS D7: was an import-time ``_install_ha_stubs()`` that never
+    restored. Module scope so ``chatter_mod`` (module scope) imports the
+    detector against these stubs, exactly as the import-time install did.
+    """
+    mp = pytest.MonkeyPatch()
+    _install_ha_stubs(mp)
+    yield
+    mp.undo()
 
 
 @pytest.fixture(autouse=True)
-def _stubs_win_at_run_time():
+def _stubs_win_at_run_time(_ha_stubs_module, monkeypatch):
     """Re-assert this file's HA stubs immediately before EVERY test.
 
     SUITE-ORDER-POLLUTION fix 3 (2026-08-23). `_install_ha_stubs()` runs at
@@ -143,7 +157,7 @@ def _stubs_win_at_run_time():
     re-assertion can. `_mod()` is additive, so this only re-sets the attributes
     THIS file owns and does not clobber other files' stubs.
     """
-    _install_ha_stubs()
+    _install_ha_stubs(monkeypatch)
     yield
 
 
@@ -184,7 +198,7 @@ _install_ura_package()
 
 
 @pytest.fixture(scope="module")
-def chatter_mod():
+def chatter_mod(_ha_stubs_module):
     mod = _spec_load(
         "test_ura_pkg.domain_coordinators.chatter_detector",
         str(_URA / "domain_coordinators" / "chatter_detector.py"),

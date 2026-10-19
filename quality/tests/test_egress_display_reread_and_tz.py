@@ -83,6 +83,25 @@ def _run(coro):
     return loop.run_until_complete(coro)
 
 
+@pytest.fixture(autouse=True)
+def _d7_event_helper_present(monkeypatch):
+    """TEST-HARNESS D7 slice 2: sensor.async_added_to_hass lazily imports
+    ``async_track_time_change`` from homeassistant.helpers.event. In the
+    full suite a sibling's stub of that module (without the name) can be in
+    sys.modules / on the parent package; supply an inert one for the test's
+    duration (the tests assert on the DB boundary, not on the timer)."""
+    import sys as _sys
+
+    cands = [_sys.modules.get("homeassistant.helpers.event"),
+             getattr(_sys.modules.get("homeassistant.helpers"), "event", None)]
+    for mod in cands:
+        if mod is not None and not hasattr(mod, "async_track_time_change"):
+            monkeypatch.setattr(
+                mod, "async_track_time_change",
+                lambda *a, **k: (lambda: None), raising=False,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Stub DB shared across the two sensor tests
 # ---------------------------------------------------------------------------

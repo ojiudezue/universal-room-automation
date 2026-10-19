@@ -66,6 +66,10 @@ AUTODETECT_NAME_DENYLIST_PREFILL = C.AUTODETECT_NAME_DENYLIST_PREFILL
 # ---------------------------------------------------------------------------
 _slice1 = importlib.import_module("test_onboarding_simplify_slice1")
 _install_registries = _slice1._install_registries
+# TEST-HARNESS D7: the borrowed installer writes onto the real registry
+# modules; this autouse fixture (bound here so pytest runs it for this file
+# too) undoes it after every test.
+_d7_restore_registries = _slice1._d7_restore_registries
 _reg_entry = _slice1._reg_entry
 _cf = _slice1._cf
 _make_config_flow = _slice1._make_config_flow

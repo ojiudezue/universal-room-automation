@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.71
+# Universal Room Automation vv5.103.72
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.71"
+VERSION: Final = "v5.103.72"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -648,6 +648,54 @@ D2_PIR_STALENESS_MULTIPLIER: Final = 2
 # constant rather than an options-flow field because this is a
 # performance kill-switch, not a user-facing knob.
 D3_DIAGNOSTIC_ENABLED: Final = True
+
+# HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1 (plan
+# PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 2).
+# Rung 1 (review-only): both change the house-state AWAY decision, so a
+# flip must go through review, not a dashboard slider.
+#
+# D1 kill switch. True: the nobody-home branch of the inference engine
+# reads a SLEEP-mode zone's raw ("night") occupancy instead of treating
+# the SLEEP-pinned zone as empty, and (D1b) after the sleep window ends
+# that raw occupancy counts as people so SLEEP can discharge via WAKING.
+# False: today's masked behaviour (every SLEEP-pinned zone reads empty).
+# The Rev 2 fan-loop breaker was dropped by stress test P5 (parked).
+PRESENCE_NOBODY_HOME_READS_RAW_IN_SLEEP: Final = True
+# D1 trip-wire (Rev 2.1, AUDIT_census_arc_and_away_holistic.md §P5): one
+# stuck-signal NM when the house is STILL in SLEEP, census 0, held ONLY by
+# raw occupancy, more than this many seconds after the sleep window ENDS
+# (the D1b wake discharge failed). An overnight raw hold is normal on a
+# census-0 house and never fires. Rung 1: review-only safety bound.
+# Kill switch: 0 disables.
+SLEEP_RAW_HOLD_NM_BOUND_S: Final = 5400
+# D2 kill switch. True: a person whose Bermuda room fix is STALE (younger
+# than CONF_PERSON_DECAY_TIMEOUT) counts as home in the path-α/β trusted
+# denominator. False: STALE persons are excluded (pre-cycle behaviour).
+# CONF_PERSON_DECAY_TIMEOUT = 0 also makes D2 inert (STALE never assigned).
+PRESENCE_STALE_RESIDENT_COUNTS_HOME: Final = True
+# Sleep-mask cycle Rev 3 (plan §R3 / §R3.1 / §R3.2, ZONE-TRACKER-PER-SENSOR-
+# WIPE-1). Rung 1: a correctness fix on a SHARED primitive (occupancy
+# substrate + zone tracker); flipping it must be reviewed.
+# True: a zone room is occupied iff ANY registered Tier-1 sensor reads `on`
+#   — the substrate's per-kind bool is the OR over the room's entities of
+#   that kind (seed AND live, one rule `_kind_on_now`), an off-edge clears
+#   only its own kind in the tracker, a deleted entity / removed room /
+#   boot-settle change discharges exactly, and the D4d trip-wire runs.
+# False: byte-identical to the reviewed branch dad3bf6e7 — last-writer per
+#   (room, kind), full-room clear on any off-edge, and the D-H1 night
+#   live-sensor limb + WAKING forcing line in presence.py (the workaround).
+# READ RULE (plan §R3.2.2): every reader does `_ura_const.
+# ZONE_OCCUPANCY_PER_ENTITY_ENABLED` at call time (attribute read on the
+# const module) — never `from ..const import` — so ONE test patch reaches
+# presence.py, occupancy_substrate.py and __init__.py. Lint-enforced.
+ZONE_OCCUPANCY_PER_ENTITY_ENABLED: Final = True
+# D4d trip-wire bound (plan §R3.6 / §R3.1.7, PICK R3-3): one HIGH
+# stuck-signal NM when the house is held out of AWAY by Tier-1 room sensors
+# alone (census 0, every trusted tracker away, no BLE) for longer than this.
+# In practice it pages only while the Frigate fleet is dark (otherwise path
+# alpha discharges the empty house). Rung 1 (review-only safety bound).
+# Kill switch: 0 disables. Only runs while ZONE_OCCUPANCY_PER_ENTITY_ENABLED.
+ZONE_HOLD_ALL_AWAY_NM_BOUND_S: Final = 7200
 
 # Fan-noise mitigation D1 (Layer-1 silent interference-conditioned discount
 # + decay). Per-Presence-Coordinator hold duration applied when a room is

@@ -50,10 +50,16 @@ def _parse_datetime(s):
         return None
 
 
-_dt_mod.utcnow = _utcnow
-_dt_mod.now = _utcnow
-_dt_mod.parse_datetime = _parse_datetime
-_dt_mod.UTC = _tz_module.utc
+@pytest.fixture(autouse=True)
+def _d7_tz_aware_dt(monkeypatch):
+    """TEST-HARNESS D7: was an import-time write onto the shared
+    homeassistant.util.dt (never undone), so every file COLLECTED after this
+    one saw this clock (victims: the NM trio, fixed victim-side in slice 1).
+    Now per test; monkeypatch also undoes the in-test writes below."""
+    monkeypatch.setattr(_dt_mod, "utcnow", _utcnow, raising=False)
+    monkeypatch.setattr(_dt_mod, "now", _utcnow, raising=False)
+    monkeypatch.setattr(_dt_mod, "parse_datetime", _parse_datetime, raising=False)
+    monkeypatch.setattr(_dt_mod, "UTC", _tz_module.utc, raising=False)
 
 
 # ---------------------------------------------------------------------------

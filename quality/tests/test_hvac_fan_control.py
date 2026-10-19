@@ -75,106 +75,122 @@ _mods = {
     "aiosqlite": MagicMock(),
 }
 
-for name, attrs in _mods.items():
-    if isinstance(attrs, dict):
-        sys.modules.setdefault(name, _mock_module(name, **attrs))
-    else:
-        sys.modules.setdefault(name, attrs)
+# TEST-HARNESS D7: everything this file installs into sys.modules to import
+# FanController is scoped — restored on exit of the block, re-installed only
+# while THIS module's tests run (lazy imports in hvac_fans resolve against
+# the same stubs as before). It used to leave a placeholder package, a
+# partial const and a partial signals module behind for every later file.
+from _d7_isolation import import_scope as _d7_import_scope, reinstall as _d7_reinstall  # noqa: E402
 
-# Bypass __init__.py
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+with _d7_import_scope() as _D7_INSTALLED:
+    for name, attrs in _mods.items():
+        if isinstance(attrs, dict):
+            sys.modules.setdefault(name, _mock_module(name, **attrs))
+        else:
+            sys.modules.setdefault(name, attrs)
 
-_cc = types.ModuleType("custom_components")
-_cc.__path__ = [os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")]
-sys.modules.setdefault("custom_components", _cc)
+    # Bypass __init__.py
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-_ura = types.ModuleType("custom_components.universal_room_automation")
-_ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
-_ura.__path__ = [_ura_path]
-_ura.__package__ = "custom_components.universal_room_automation"
-sys.modules["custom_components.universal_room_automation"] = _ura
+    _cc = types.ModuleType("custom_components")
+    _cc.__path__ = [os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")]
+    sys.modules.setdefault("custom_components", _cc)
 
-_ura_const = types.ModuleType("custom_components.universal_room_automation.const")
-_ura_const.DOMAIN = "universal_room_automation"
-_ura_const.VERSION = "4.0.15"
-_ura_const.CONF_ENTRY_TYPE = "entry_type"
-_ura_const.CONF_ROOM_NAME = "room_name"
-# v4.7.16.2: bedroom gate for sleep-state occupied fan trust
-_ura_const.CONF_ROOM_TYPE = "room_type"
-_ura_const.ROOM_TYPE_BEDROOM = "bedroom"
-_ura_const.ROOM_TYPE_GENERIC = "generic"
-_ura_const.CONF_FANS = "fans"
-_ura_const.CONF_HUMIDITY_FANS = "humidity_fans"
-_ura_const.CONF_HUMIDITY_FAN_THRESHOLD = "humidity_fan_threshold"
-_ura_const.CONF_HUMIDITY_FAN_MAX_RUNTIME = "humidity_fan_max_runtime"
-_ura_const.DEFAULT_HUMIDITY_THRESHOLD = 60
-_ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
-_ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
-_ura_const.ENTRY_TYPE_ROOM = "room"
-# 2026-06-11 fan-trust state extension: per-room fan_sleep_policy
-# now consumed by hvac_fans.FanController.update at the speed-cap site.
-_ura_const.CONF_FAN_SLEEP_POLICY = "fan_sleep_policy"
-_ura_const.DEFAULT_FAN_SLEEP_POLICY = "reduce"
-_ura_const.FAN_SLEEP_OFF = "off"
-_ura_const.FAN_SLEEP_REDUCE = "reduce"
-_ura_const.FAN_SLEEP_NORMAL = "normal"
-sys.modules["custom_components.universal_room_automation.const"] = _ura_const
-from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-4
-_ura_ensure_const(); _ura_ensure_signals()
+    _ura = types.ModuleType("custom_components.universal_room_automation")
+    _ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
+    _ura.__path__ = [_ura_path]
+    _ura.__package__ = "custom_components.universal_room_automation"
+    sys.modules["custom_components.universal_room_automation"] = _ura
 
-_dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
-_dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]
-sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
+    _ura_const = types.ModuleType("custom_components.universal_room_automation.const")
+    _ura_const.DOMAIN = "universal_room_automation"
+    _ura_const.VERSION = "4.0.15"
+    _ura_const.CONF_ENTRY_TYPE = "entry_type"
+    _ura_const.CONF_ROOM_NAME = "room_name"
+    # v4.7.16.2: bedroom gate for sleep-state occupied fan trust
+    _ura_const.CONF_ROOM_TYPE = "room_type"
+    _ura_const.ROOM_TYPE_BEDROOM = "bedroom"
+    _ura_const.ROOM_TYPE_GENERIC = "generic"
+    _ura_const.CONF_FANS = "fans"
+    _ura_const.CONF_HUMIDITY_FANS = "humidity_fans"
+    _ura_const.CONF_HUMIDITY_FAN_THRESHOLD = "humidity_fan_threshold"
+    _ura_const.CONF_HUMIDITY_FAN_MAX_RUNTIME = "humidity_fan_max_runtime"
+    _ura_const.DEFAULT_HUMIDITY_THRESHOLD = 60
+    _ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
+    _ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
+    _ura_const.ENTRY_TYPE_ROOM = "room"
+    # 2026-06-11 fan-trust state extension: per-room fan_sleep_policy
+    # now consumed by hvac_fans.FanController.update at the speed-cap site.
+    _ura_const.CONF_FAN_SLEEP_POLICY = "fan_sleep_policy"
+    _ura_const.DEFAULT_FAN_SLEEP_POLICY = "reduce"
+    _ura_const.FAN_SLEEP_OFF = "off"
+    _ura_const.FAN_SLEEP_REDUCE = "reduce"
+    _ura_const.FAN_SLEEP_NORMAL = "normal"
+    sys.modules["custom_components.universal_room_automation.const"] = _ura_const
+    from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-4
+    _ura_ensure_const(); _ura_ensure_signals()
 
-_dc_signals = types.ModuleType("custom_components.universal_room_automation.domain_coordinators.signals")
-for sig in [
-    "SIGNAL_ENERGY_CONSTRAINT", "SIGNAL_HOUSE_STATE_CHANGED",
-    "SIGNAL_PERSON_ARRIVING", "SIGNAL_SAFETY_HAZARD",
-]:
-    setattr(_dc_signals, sig, f"ura_{sig.lower()}")
-_dc_signals.EnergyConstraint = MagicMock()
-sys.modules["custom_components.universal_room_automation.domain_coordinators.signals"] = _dc_signals
+    _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
+    _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]
+    sys.modules["custom_components.universal_room_automation.domain_coordinators"] = _dc
 
-# Mock heavy HVAC sub-modules (but NOT hvac_const — we need real constants).
-# Only the stubs this file ADDS are tracked and removed right after the
-# import below, so no MagicMock module leaks into later files (e.g.
-# test_envoy_auto_derive imports the real hvac_predict).
-_HVAC_STUBS_ADDED = []
-for mod_name in [
-    "custom_components.universal_room_automation.domain_coordinators.hvac_override",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_preset",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_fan",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_cover",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_zone_intel",
-    "custom_components.universal_room_automation.domain_coordinators.hvac_predict",
-    "custom_components.universal_room_automation.domain_coordinators.base",
-]:
-    if mod_name not in sys.modules:
-        sys.modules[mod_name] = MagicMock()
-        _HVAC_STUBS_ADDED.append(mod_name)
+    _dc_signals = types.ModuleType("custom_components.universal_room_automation.domain_coordinators.signals")
+    for sig in [
+        "SIGNAL_ENERGY_CONSTRAINT", "SIGNAL_HOUSE_STATE_CHANGED",
+        "SIGNAL_PERSON_ARRIVING", "SIGNAL_SAFETY_HAZARD",
+    ]:
+        setattr(_dc_signals, sig, f"ura_{sig.lower()}")
+    _dc_signals.EnergyConstraint = MagicMock()
+    sys.modules["custom_components.universal_room_automation.domain_coordinators.signals"] = _dc_signals
 
-# ---------------------------------------------------------------------------
-# Import the module under test — FanController
-# ---------------------------------------------------------------------------
+    # Mock heavy HVAC sub-modules (but NOT hvac_const — we need real constants).
+    # Only the stubs this file ADDS are tracked and removed right after the
+    # import below, so no MagicMock module leaks into later files (e.g.
+    # test_envoy_auto_derive imports the real hvac_predict).
+    _HVAC_STUBS_ADDED = []
+    for mod_name in [
+        "custom_components.universal_room_automation.domain_coordinators.hvac_override",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_preset",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_fan",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_cover",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zone_intel",
+        "custom_components.universal_room_automation.domain_coordinators.hvac_predict",
+        "custom_components.universal_room_automation.domain_coordinators.base",
+    ]:
+        if mod_name not in sys.modules:
+            sys.modules[mod_name] = MagicMock()
+            _HVAC_STUBS_ADDED.append(mod_name)
 
-try:
-    from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
-        FanController,
-        RoomFanState,
-        DEFAULT_FAN_VACANCY_HOLD,
-    )
-finally:
-    # Restore (even if the import raised): drop the stubs this file
-    # installed, and the hvac_fans module that was bound against them
-    # (FanController et al. stay referenced here).
-    for _k in _HVAC_STUBS_ADDED:
-        sys.modules.pop(_k, None)
-    if _HVAC_STUBS_ADDED:
-        sys.modules.pop(
-            "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
-            None,
+    # ---------------------------------------------------------------------------
+    # Import the module under test — FanController
+    # ---------------------------------------------------------------------------
+
+    try:
+        from custom_components.universal_room_automation.domain_coordinators.hvac_fans import (
+            FanController,
+            RoomFanState,
+            DEFAULT_FAN_VACANCY_HOLD,
         )
+    finally:
+        # Restore (even if the import raised): drop the stubs this file
+        # installed, and the hvac_fans module that was bound against them
+        # (FanController et al. stay referenced here).
+        for _k in _HVAC_STUBS_ADDED:
+            sys.modules.pop(_k, None)
+        if _HVAC_STUBS_ADDED:
+            sys.modules.pop(
+                "custom_components.universal_room_automation.domain_coordinators.hvac_fans",
+                None,
+            )
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _d7_module_stubs():
+    yield from _d7_reinstall(_D7_INSTALLED)
 
 
 # ---------------------------------------------------------------------------

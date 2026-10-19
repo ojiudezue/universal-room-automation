@@ -413,7 +413,11 @@ def test_dedup_no_boost_when_latch_matches_entity_leg():
         frig_index={"front_door": ["dev_fd"]},
         dev_id_map={"sensor.front_door_last_recognized_face_2": "dev_fd"},
     )
-    from homeassistant.util import dt as _dt_util
+    # TEST-HARNESS D7 slice 2: the entity leg's timestamp comes from the
+    # clock camera_census itself reads (its module dt_util), the same clock
+    # that stamps the latch -- a sibling file can leave a different dt object
+    # behind ``from homeassistant.util import dt``.
+    _dt_util = PersonCensus._on_frigate_face_msg.__globals__["dt_util"]
     entity_ts = _dt_util.utcnow() - timedelta(seconds=5)
     entity_state = MagicMock()
     entity_state.state = "Oji Udezue"

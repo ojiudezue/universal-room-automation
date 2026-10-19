@@ -34,11 +34,25 @@ from unittest.mock import MagicMock
 import pytest
 
 # Re-bind dt_util same as sibling NM tests (order-independence).
-_dt_util_mod = _sys.modules.get("homeassistant.util.dt")
-if _dt_util_mod is not None:
-    _dt_util_mod.utcnow = _datetime.utcnow
-    _dt_util_mod.now = _datetime.now
-    _dt_util_mod.as_local = lambda dt: dt
+# TEST-HARNESS D7: this used to be an IMPORT-time write onto the shared
+# homeassistant.util.dt module -- never restored (a leak into every later
+# file) and itself lost to whichever file was collected after this one (the
+# tests then compared naive stamps with an aware clock, red in the full suite,
+# green alone). Now: a per-test, auto-restored pin on the dt_util that the
+# NotificationManager under test actually reads.
+@pytest.fixture(autouse=True)
+def _d7_naive_nm_clock(monkeypatch):
+    import test_notification_manager as _tnm
+    targets = []
+    for _m in (_sys.modules.get("homeassistant.util.dt"),
+               _tnm.NotificationManager.__init__.__globals__.get("dt_util")):
+        if _m is not None and all(_m is not _t for _t in targets):
+            targets.append(_m)
+    for _m in targets:
+        monkeypatch.setattr(_m, "utcnow", _datetime.utcnow, raising=False)
+        monkeypatch.setattr(_m, "now", _datetime.now, raising=False)
+        monkeypatch.setattr(_m, "as_local", lambda dt: dt, raising=False)
+    yield
 
 from test_notification_manager import _make_hass, _make_config
 from test_nm_cycle_c2_life_safety_union import _hass_with_extras
