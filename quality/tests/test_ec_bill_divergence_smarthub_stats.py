@@ -216,7 +216,8 @@ def _make(imp=IMP, exp=EXP, db=None, cycle_day=23, query=None, recorder=True):
     for n in ("_maybe_schedule_utility_refresh", "_cancel_utility_refresh",
               "_async_refresh_utility_stats", "_compute_utility_comparison",
               "_utility_statistics_divergence", "_async_decision_cycle",
-              "_utility_stat_ids"):
+              "_utility_stat_ids", "_current_utility_cache",
+              "_push_bill_forecast_inputs", "_bill_forecast_after_refresh"):
         _bind(s, n)
     calls: list[tuple] = []
 

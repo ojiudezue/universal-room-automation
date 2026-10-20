@@ -468,6 +468,20 @@ Card EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1. Plan:
   `utility_window`, `utility_days`, `ec_days`, `ec_underpriced_days`, `utility_data_age_h`,
   `utility_stale`, `utility_last_cycle`, `utility_stats_refreshed_at`, `utility_stats_error`.
   Sign: utility minus EC (positive = EC under-counts).
+- **Bill prediction (EC-BILL-PREDICTION-FORECAST-1).** State = utility cost to date
+  (`utility_cost`) + forecast of the remaining days + the rate-file service charge once. Remaining
+  days run from the utility window end (not today) to the next cycle start; each is priced at the
+  same-weekday mean of the last 4 weeks (`BILL_FORECAST_DOW_WEEKS`), else the trailing 7-day mean.
+  Attributes: `prediction_source` (`utility`; `unavailable` when stats are stale or missing or the
+  cache is from another cycle window; `learning` before day `BILL_FORECAST_MIN_DAYS`=3;
+  `ec_uncorrected` when no utility statistic id is set: the old EC straight line, which reads
+  20-34% low), `actual_to_date`, `remainder_cost`, `remainder_days`, `fixed_charge`,
+  `actual_window_end`, `cycle_end`, `days_remaining`. Accuracy ledger (`energy_state` key
+  `bill_forecast_ledger`, one snapshot per day, scored at cycle close from
+  `utility_last_cycle.utility_bill_estimate`, unscored 7 days after close without coverage,
+  `no_horizons` when no day-7/14/21 snapshot exists): `accuracy_mape_by_horizon` (days 7/14/21),
+  `accuracy_cycles_scored`, `last_cycle_actual`, `last_cycle_error_by_horizon`,
+  `ledger_days_this_cycle`. Display only; no decision reads it.
 - **Reading it (F1 caveat).** EC's `energy_daily` before 2026-10-09 is priced below the lowest
   possible effective rate on many days. `ec_underpriced_days` counts window days whose EC average
   import rate is below the TOU engine's floor for that date; while it is above 0, a large positive

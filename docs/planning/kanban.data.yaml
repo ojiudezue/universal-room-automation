@@ -32494,7 +32494,7 @@ cards:
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
   status: shipped_organic
-  shipped_version: v5.103.77
+  shipped_version: v5.103.79
   tier: 2
   created: "2026-10-18"
   refinement_status: refined

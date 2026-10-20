@@ -1467,6 +1467,26 @@ UTILITY_DAY_COMPLETE_LAST_HOUR: Final = 23
 # at the floor as under-priced because of float noise).
 UTILITY_RATE_FLOOR_REL_TOL: Final = 1e-6
 
+# EC-BILL-PREDICTION-FORECAST-1 (PLANNING_ec_bill_prediction_forecast.md, D0
+# winner P3). All rung 1: display-only feature, changes should be reviewed.
+# Learning gate: no prediction before this many local days into the cycle
+# (D0: P3 at day 3 is ~13% MAPE, comparable to day 7). Replaces the literal 7.
+BILL_FORECAST_MIN_DAYS: Final = 3
+# Fallback remainder rate when a remaining day has no same-weekday history:
+# mean utility net cost over this many days before the utility window end.
+BILL_FORECAST_TRAILING_DAYS: Final = 7
+# Same-weekday mean looks back this many weeks (D0 backtest used 4).
+BILL_FORECAST_DOW_WEEKS: Final = 4
+# Horizons (local day of cycle) scored by the accuracy ledger.
+BILL_ACCURACY_HORIZONS: Final = (7, 14, 21)
+# Ledger keeps at most this many cycles (one year).
+BILL_LEDGER_MAX_CYCLES: Final = 12
+# A closed cycle not covered by the utility series within this many days of
+# the next cycle start is written unscored (one week of SmartHub outage).
+BILL_LEDGER_SCORE_DEADLINE_DAYS: Final = 7
+# energy_state key holding the ledger JSON.
+BILL_FORECAST_LEDGER_KEY: Final = "bill_forecast_ledger"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # EC billing from Emporia daily counters (PLANNING_ec_billing_emporia_counters)
 # ─────────────────────────────────────────────────────────────────────────────
