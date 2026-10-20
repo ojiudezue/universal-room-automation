@@ -26,8 +26,19 @@ HA mechanism (review B, read from installed HA core.py:2313-2347): an identical 
 
 - Recorder excludes for ~18k rows/hr with no history consumer, and the corrupt Envoy lifetime production counter. Ledger + undo steps: `docs/planning/RUNBOOK_recorder_excludes.md`.
 
-## Live validation (to fill after restart)
+## Validated 2026-10-20 (restart 16:34:52 CDT; window 16:40-17:48, 1.13 h)
 
-- URA states rows/hr and new state_attributes rows/hr vs 20.1k / 7.0k (2026-10-20 13:00-16:00).
-- `*_automation_health` attributes identical across ticks in an occupied room.
-- Excluded entities write 0 rows; 50/50 URA entries loaded, 0 URA ERRORs.
+| Criterion | Result | Evidence (recorder `states`, rows/hr) |
+|---|---|---|
+| House write rate down | PASS | 109.5k vs 131.5k baseline (13:00-16:00) |
+| URA write rate down | PASS | 8.8k vs 20.1k (includes the 252 mirror excludes); distinct (entity, attributes) pairs 5.0k vs 7.0k |
+| `*_automation_health` | PASS | 67 vs 923 |
+| `*_last_automation_trigger` | PASS | 42 vs 600 |
+| `*_time_since_motion` | PASS | 53 vs 1,480 |
+| `*_occupancy_timeout_remaining` | PASS | 187 vs 548 (30 s steps during countdowns, as designed) |
+| census validation age | PASS | 0 vs 151 |
+| `ac_kwh_rate_*` | as expected | 376 total: kW value still changes while the AC runs (review B); attribute rows deduplicated |
+| Excluded entities write 0 rows | PASS | last rows for study_a_illuminance, invisoutlet co2, hahm_loop_lag_p95, frigate bridge automation all at 16:34:24, before the restart |
+| Load | PASS | manifest v5.103.78; only URA ERRORs were 2 shutdown-time "write worker closed" lines (16:34:21) |
+
+Caveat: one evening hour vs an afternoon baseline; occupancy and AC load differ between the windows.
