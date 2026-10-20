@@ -2577,11 +2577,13 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
 
         # STUCK-SENSOR-1 D2a — current-tick D1 exclusion set (dutycycle
         # sensors promoted into the exclusion path). Empty list when
-        # no exclusion engaged. Shape: [(entity_id, kind, engaged_at_iso)].
+        # no exclusion engaged. Shape: [(entity_id, kind)].
+        # RECORDER-CHURN-DIAG-SENSORS fix-up: the coordinator re-stamps each
+        # exclusion with `now` every tick, so the timestamp is dropped here
+        # (sorted for a stable order). Coordinator logic unchanged.
         _excluded_now = getattr(c, "_dutycycle_excluded_now", {}) or {}
         attrs["excluded_sensors"] = [
-            (eid, "dutycycle", ts.isoformat() if ts else None)
-            for eid, ts in _excluded_now.items()
+            (eid, "dutycycle") for eid in sorted(_excluded_now)
         ]
 
         # --- Tier 1: Debounce ---
@@ -3151,20 +3153,9 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
             else:
                 attrs["last_seen"] = self._last_occupant_time.isoformat()
 
-            # Calculate time ago
-            now = dt_util.utcnow()
-            last_time = dt_util.parse_datetime(
-                self._last_occupant_time if isinstance(self._last_occupant_time, str)
-                else self._last_occupant_time.isoformat()
-            )
-            if last_time is None:
-                last_time = now
-            elif last_time.tzinfo is None:
-                from datetime import timezone
-                last_time = last_time.replace(tzinfo=timezone.utc)
-            time_diff = now - last_time
-            attrs["time_ago"] = str(time_diff).split('.')[0]
-        
+            # RECORDER-CHURN-DIAG-SENSORS fix-up: `time_ago` dropped (it was
+            # recomputed every refresh); `last_seen` answers the same question.
+
         return attrs
 
 
@@ -4209,7 +4200,8 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         if ts.tzinfo is None:
             from datetime import timezone  # v4.2.9: replaced pytz
             ts = ts.replace(tzinfo=timezone.utc)
-        delta = now - ts
+        # Clamp clock skew (a census stamp in the future) to 0.
+        delta = max(now - ts, timedelta(0))
         # RECORDER-CHURN-DIAG-SENSORS: floored to whole minutes so the state
         # changes once a minute, not every refresh.
         return _quantize_floor(

@@ -272,3 +272,40 @@ def test_ac_kwh_rate_stale_flag_still_computed():
 
 def test_ac_kwh_rate_last_updated_unrecorded():
     assert "last_updated" in sen.HVACACRampKwhRateSensor._unrecorded_attributes
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1
+# ---------------------------------------------------------------------------
+def test_automation_health_excluded_sensors_stable_across_restamp():
+    """The coordinator re-stamps `_dutycycle_excluded_now[eid] = now` every
+    tick (coordinator.py ~3383 / ~3526). Publishing that stamp churned."""
+    ent, c = _health()
+    c._dutycycle_excluded_now = {"binary_sensor.b": T0, "binary_sensor.a": T0}
+    with patch.object(sen.dt_util, "now", return_value=T0):
+        _s1, a1 = _read(ent)
+    c._dutycycle_excluded_now = {
+        "binary_sensor.a": T0 + timedelta(seconds=30),
+        "binary_sensor.b": T0 + timedelta(seconds=30),
+    }
+    with patch.object(sen.dt_util, "now", return_value=T0 + timedelta(seconds=30)):
+        _s2, a2 = _read(ent)
+    assert a1["excluded_sensors"] == a2["excluded_sensors"] == [
+        ("binary_sensor.a", "dutycycle"), ("binary_sensor.b", "dutycycle"),
+    ]
+
+
+def test_census_validation_age_future_stamp_clamped_to_zero():
+    ent = _census_age(T0 + timedelta(seconds=90))  # census stamp 90 s ahead
+    with patch.object(sen.dt_util, "utcnow", return_value=T0):
+        assert ent.native_value == 0
+
+
+def test_last_occupant_no_time_ago_identical_across_refresh():
+    ent = object.__new__(sen.LastOccupantSensor)
+    ent._last_occupant_time = "2026-10-20T09:00:00+00:00"
+    with patch.object(sen.dt_util, "utcnow", return_value=T0):
+        a1 = dict(ent.extra_state_attributes)
+    with patch.object(sen.dt_util, "utcnow", return_value=T0 + timedelta(minutes=5)):
+        a2 = dict(ent.extra_state_attributes)
+    assert a1 == a2 == {"last_seen": "2026-10-20T09:00:00+00:00"}
