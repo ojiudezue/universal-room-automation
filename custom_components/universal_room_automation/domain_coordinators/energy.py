@@ -6408,6 +6408,13 @@ class EnergyCoordinator(BaseCoordinator):
             )
             return
         self._cycle_in_flight = True
+        # Fix-up A#3: hand the bill predictor the live utility config BEFORE
+        # the body's accumulate(), so a configured install never shows a
+        # first-tick ec_uncorrected prediction.
+        try:
+            self._push_bill_forecast_inputs()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("bill forecast input push failed", exc_info=True)
         try:
             await self._decision_cycle_body()
         finally:
@@ -11391,6 +11398,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._peak_avoidance.set_bill_cycle_day(day, now)
         _LOGGER.info("Billing cycle day set to %d (changed=%s)", day, changed)
         if changed:
+            # Fix-up A#1: the utility cache describes the old cycle window;
+            # drop it and let the next decision cycle refresh at once.
+            self._utility_stats_cache = None
+            self._utility_stats_last_run = None
             # Review B B1: a superseded reseed must not finish last and write
             # the old window's totals.
             _prev = self._bill_cycle_reseed_task
@@ -11961,7 +11972,11 @@ class EnergyCoordinator(BaseCoordinator):
             return
         refresh(now)
         if not getattr(self, "_bill_ledger_ready", False):
-            return
+            # Fix-up B (MEDIUM): the setup restore can time out before the
+            # ledger step. Retry it lazily; ready is set only on a successful
+            # load, so a persisted ledger is never overwritten by an empty one.
+            if not await self._load_bill_forecast_ledger():
+                return
         cache = self._current_utility_cache()
         if not self._billing.ledger_tick(now, cache.get("last_cycle")):
             return
@@ -11973,18 +11988,28 @@ class EnergyCoordinator(BaseCoordinator):
             BILL_FORECAST_LEDGER_KEY, self._billing.ledger.to_json(),
         )
 
-    async def _restore_bill_forecast_ledger(self) -> None:
-        """Restore the bill accuracy ledger; ledger ops are enabled after."""
+    async def _load_bill_forecast_ledger(self) -> bool:
+        """Load the persisted ledger; True (and ready) only on a successful read.
+
+        A missing row is a successful read (fresh ledger). No DB or a read
+        error leaves ready False so nothing is written over the stored ledger.
+        """
         from .energy_const import BILL_FORECAST_LEDGER_KEY  # noqa: PLC0415
         db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return False
         try:
-            if db is not None:
-                raw = await db.restore_energy_state(BILL_FORECAST_LEDGER_KEY)
-                self._billing.ledger.load_json(raw)
+            raw = await db.restore_energy_state(BILL_FORECAST_LEDGER_KEY)
         except Exception as e:  # noqa: BLE001
             _LOGGER.warning("Could not restore bill forecast ledger: %s", e)
-        finally:
-            self._bill_ledger_ready = True
+            return False
+        self._billing.ledger.load_json(raw)
+        self._bill_ledger_ready = True
+        return True
+
+    async def _restore_bill_forecast_ledger(self) -> None:
+        """Setup restore step; a failure is retried lazily after a refresh."""
+        await self._load_bill_forecast_ledger()
 
     def _utility_statistics_divergence(self) -> dict[str, Any]:
         """D3 publish shape (legacy keys kept, like-for-like values)."""

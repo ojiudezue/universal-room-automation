@@ -522,6 +522,7 @@ def _coord(db, imp=IMP, ready=True):
               "_compute_utility_comparison", "_utility_stat_ids",
               "_current_utility_cache", "_push_bill_forecast_inputs",
               "_bill_forecast_after_refresh", "_restore_bill_forecast_ledger",
+              "_load_bill_forecast_ledger",
               "_utility_statistics_divergence"):
         setattr(s, n, getattr(em.EnergyCoordinator, n).__get__(s))
     return s
@@ -608,15 +609,37 @@ def test_ledger_one_snapshot_per_day():
     assert s._billing.get_status()["ledger_days_this_cycle"] == 2
 
 
+class _KVReadFails(_KV):
+    async def restore_energy_state(self, key):
+        raise RuntimeError("db busy")
+
+
 def test_ledger_waits_for_restore():
-    """Before the restore has run, ledger ops neither snapshot nor write."""
+    """Restore not done and the lazy load fails: no snapshot, no write."""
     now = _now(2026, 10, 20)
-    db = _KV()
+    db = _KVReadFails()
     s = _coord(db, ready=False)
     s._billing._check_cycle_reset(now)
     _refresh(s, now, _days_rows(date(2026, 8, 24), date(2026, 10, 18), 1.0))
     assert db.saves == []
+    assert s._bill_ledger_ready is False
+    assert s._billing.ledger.cycles == []
     assert s._billing.get_status()["prediction_source"] == "utility"
+
+
+def test_ledger_lazy_restore_after_setup_timeout():
+    """Fix-up B: setup restore never ran (timeout). The first refresh loads
+    the stored ledger, then appends today's snapshot; stored days survive."""
+    now = _now(2026, 10, 20)
+    stored = _ledger_with(preds={7: 180.0, 14: 190.0}).to_json()
+    db = _KV({"bill_forecast_ledger": stored})
+    s = _coord(db, ready=False)
+    s._billing._check_cycle_reset(now)
+    _refresh(s, now, _days_rows(date(2026, 8, 24), date(2026, 10, 18), 1.0))
+    assert s._bill_ledger_ready is True
+    payload = json.loads(db.store["bill_forecast_ledger"])
+    assert sorted(payload["cycles"][0]["snapshots"]) == ["14", "26", "7"]
+    assert payload["cycles"][0]["snapshots"]["7"]["predicted"] == 180.0
 
 
 def test_ledger_restore_roundtrip():
@@ -783,3 +806,68 @@ def test_restore_all_sequential_restores_ledger():
     assert s._bill_ledger_ready is True
     assert len(s._billing.ledger.cycles) == 1
     assert sorted(s._billing.ledger.cycles[0]["snapshots"]) == ["14", "21", "26", "7"]
+
+
+
+def test_bill_pred_unavailable_when_cache_from_other_cycle():
+    """Fix-up A#1: cycle day changed 23 -> 24; the cached current window still
+    starts 09-23. Never mix windows: unavailable until the refresh."""
+    now = _now(2026, 10, 20)
+    daily = _series(date(2026, 8, 24), date(2026, 10, 19), lambda d: 5.0)
+    st = _predict(_tracker(), now, _cache(date(2026, 10, 19), daily, 100.0,
+                                          date(2026, 9, 23), now.date(), now=now))
+    assert st["predicted_bill"] is None
+    assert st["prediction_source"] == "unavailable"
+
+
+def test_set_bill_cycle_day_drops_utility_cache():
+    """Fix-up A#1: a cycle-day change drops the cache and the refresh stamp
+    so the next decision cycle refreshes at once."""
+    s = _coord(_KV())
+    s._utility_stats_cache = {"current": {"window_start": "2026-09-24"}}
+    s._utility_stats_last_run = _now(2026, 10, 20)
+    s._peak_avoidance = types.SimpleNamespace(set_bill_cycle_day=lambda d, n: None)
+    s._bill_cycle_reseed_task = None
+
+    async def _reseed(now):
+        return None
+
+    s._reseed_cycle_after_day_change = _reseed
+
+    def _create_task(coro):
+        coro.close()
+        return None
+
+    s.hass.async_create_task = _create_task
+    em.EnergyCoordinator.set_bill_cycle_day(s, 10)
+    assert s._utility_stats_cache is None
+    assert s._utility_stats_last_run is None
+
+
+def test_decision_cycle_pushes_inputs_before_body():
+    """Fix-up A#3: the body's accumulate() already sees configured=True on the
+    very first tick (no ec_uncorrected flap)."""
+    s = _coord(_KV())
+    s._cycle_in_flight = False
+    s._tou_boundary_unsub = object()
+    seen = []
+
+    async def _body():
+        seen.append(s._billing._utility_inputs)
+
+    s._decision_cycle_body = _body
+    s._utility_stats_inflight = True  # keep the finally-path scheduler quiet
+    s._async_decision_cycle = em.EnergyCoordinator._async_decision_cycle.__get__(s)
+    _run(s._async_decision_cycle())
+    assert seen == [{"configured": True, "cache": None}]
+
+
+def test_ledger_cycle_without_horizon_snapshots_not_scored():
+    """Fix-up A#4: covered close, but only day-26 snapshot -> no_horizons,
+    excluded from accuracy_cycles_scored."""
+    led = _ledger_with(preds={26: 200.0})
+    assert led.try_close(date(2026, 10, 25), _block()) is True
+    assert led.cycles[0]["status"] == "no_horizons"
+    a = led.attributes(None)
+    assert a["accuracy_cycles_scored"] == 0
+    assert a["last_cycle_actual"] is None

@@ -1431,6 +1431,10 @@ def compute_bill_forecast(
         return None
     cutoff = min(date.fromisoformat(window_end_iso), today)
     cur = cache.get("current")
+    if cur and cur.get("window_start") != cycle_start.isoformat():
+        # Fix-up A#1: cache built for another cycle window (cycle day just
+        # changed); wait for the refresh rather than mix windows.
+        return None
     if cur:
         actual = float(cur.get("utility_net_cost") or 0.0)
         cutoff = date.fromisoformat(cur["window_end"])
@@ -1550,7 +1554,8 @@ class BillForecastLedger:
                     for h in BILL_ACCURACY_HORIZONS
                     if str(h) in c["snapshots"]
                 }
-                c["status"] = "scored"
+                # Fix-up A#4: no horizon snapshot -> nothing to score.
+                c["status"] = "scored" if c["errors"] else "no_horizons"
                 changed = True
             elif today >= nxt + timedelta(days=BILL_LEDGER_SCORE_DEADLINE_DAYS):
                 c["status"] = "unscored"
