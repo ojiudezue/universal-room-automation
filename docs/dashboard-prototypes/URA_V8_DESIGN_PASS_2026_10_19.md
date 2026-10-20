@@ -144,3 +144,15 @@ Graph card choice: **apexcharts-card**. Each series takes a `transform` (W→kW)
 | `ura-v8-backups/20261020T070740_p2-pre-pass3.json` | "Solar left" stat shortening |
 
 These backups are `data.config` from `.storage/lovelace.ura_v8`, taken before each write. Restore the same way as above, with `ha_config_set_dashboard(url_path="ura-v8", config=<file>)`.
+
+## Greeting clip fix (2026-10-20)
+
+Report: the top of the "Good morning, Oji" greeting on `/ura-v8/now` was clipped on the 15.6" wall panels (1600x900 CSS px, sidebar hidden, with and without the header).
+
+Investigation (no config change made):
+- The greeting is a plain `markdown` card (`_ura_addon: welcome`, `grid_options.columns: full`) in section 0. It has no card_mod, no fixed height and no negative margin. Nothing in the Now view has a negative margin, `translate` or vertical card_mod. The only fixed height is the House State hero (`height: 260px`) in a different section.
+- The Material-Clean theme's `card-mod-root-yaml` only sets `padding-left: 200px` at ≥768px. It has no vertical rules.
+- Emulated with a same-origin 1600x900 iframe in four states: sidebar docked, sidebar hidden, header shown, and header hidden through injected `.header{display:none}`. The card rendered fully every time (top ≈128px with the header, ~114px tall).
+- The only clip-like state seen was a transient sliver while the markdown template was still rendering on first load. It went away once the template resolved.
+
+Conclusion: not reproducible from config. If the panels still show the clip, capture a screenshot from a panel and check its browser zoom/font scaling and kiosk setup. Pre-investigation config backup: `ura-v8-backups/20261020T123217Z_pre-greeting-fix.json`.
