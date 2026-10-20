@@ -31264,7 +31264,8 @@ cards:
   operator_answer_2026_10_17: "Operator 2026-10-17: retention 365 days (option B) for environmental_data / energy_snapshots / occupancy_events. room_transitions: same 365 unless the plan shows a reason not to. Tier 2-DB; offline DB copy before first prune."
   title: The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables
   thread: platform
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.76
   created: '2026-09-29 20:05'
   updated: "2026-10-18 02:16"
   refinement_status: "refined"
@@ -32460,7 +32461,8 @@ cards:
   arc_cut_v5_103_72: "separate producer fix in person_coordinator, own cycle"
   title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.76
   tier: 2
   created: "2026-10-18"
   refinement_status: refined
@@ -32471,7 +32473,8 @@ cards:
   arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.76
   tier: 1
   created: "2026-10-18"
   refinement_status: initial
@@ -32486,7 +32489,8 @@ cards:
   arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.76
   tier: 2
   created: "2026-10-18"
   refinement_status: refined
