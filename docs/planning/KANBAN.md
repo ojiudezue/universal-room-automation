@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T08:05:51-05:00_ - _Data commit: `eadee3646d87`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T08:07:44-05:00_ - _Data commit: `6e01907096ed`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-10-20T08:05:51-05:00_ - _Data commit: `eadee3646d87`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
-| 🧭 Pre-planning | 15 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 14 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 2 |
@@ -19,7 +19,7 @@ _Generated: 2026-10-20T08:05:51-05:00_ - _Data commit: `eadee3646d87`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 21 |
 | 🅿️ Parked | 94 |
-| ✅ Done | 351 |
+| ✅ Done | 352 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 _(none)_
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `EC-BLIND-DEESCALATE-TOP-RATE-1` - TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21) — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
@@ -183,16 +183,7 @@ _created 2026-10-20 08:30_
   - `tier`: 2
   - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
 
-### `PAUSED-ROOM-FLEET-ALERT-1` - Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **rooms** - status: **pre_planning**
-_created 2026-10-20 08:30_
-- **Origin:** 2026-10-20 - HomeLab accepted idea 6 in principle (ffa7d06): one sensor, blank unless a room is paused > X, e.g. 'Paused: Study A 3h, Kitchen'; operator picks which At a Glance chip it replaces.
-- **Why:** Forgotten pause is the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 problem; panels give it a visible surface.
-- **Next:** Build sensor (threshold X on knob ladder), send entity id to HomeLab.
-- **Forensic keys (1):**
-  - `tier`: 1
-
-### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#12 · WSJF 1.8 · v9 tc3 u2 /e8_
+### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#11 · WSJF 1.8 · v9 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
@@ -202,7 +193,7 @@ thread: **optimization** - status: **pre_planning**
   - `related`: OC-SHADOW-SAMPLES-EMPTY-1
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#13 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
 - **Problem / Solution:**
@@ -215,7 +206,7 @@ _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -226,7 +217,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#15 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#14 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -931,10 +922,11 @@ thread: **notifications** - status: **waiting_operator** - approval: **pending**
 _created 2026-10-20 08:30_
 - **Origin:** 2026-10-20 - Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel spli...
 - **Why:** Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != o...
-- **Next:** PICK: HomeLab/URA split for panels (who owns LED/announce), then APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship.
-- **Forensic keys (2):**
+- **Next:** APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship.
+- **Forensic keys (3):**
   - `tier`: 2
   - `targeting_operator_2026_10_20`: Operator (via HomeLab): occupied-rooms-only is too narrow (hallways rarely register occupied). Target = panels in an occupied zone + panels in rooms adjacent to occupied rooms + own room occupied; URA designs targeting AND LED gating. Pa...
+  - `split_decided_2026_10_20`: Operator: URA owns the panel LEDs. Operator approves which panel ideas get built.
 
 ### `RECORDER-WRITE-RATE-ATTENUATION-1` - Attenuate top recorder writers (ESPectre, UDM CPU/mem, LD2410 distance, panel diagnostics, device_time) — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **waiting_operator**
@@ -2711,8 +2703,18 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (351)
+## ✅ Done (352)
 _closed, evidence in refs_
+
+### `PAUSED-ROOM-FLEET-ALERT-1` - Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **rooms** - status: **done**
+_created 2026-10-20 08:30_
+- **Origin:** 2026-10-20 - HomeLab accepted idea 6 in principle (ffa7d06): one sensor, blank unless a room is paused > X, e.g. 'Paused: Study A 3h, Kitchen'; operator picks which At a Glance chip it replaces.
+- **Why:** Forgotten pause is the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 problem; panels give it a visible surface.
+- **Next:** Build sensor (threshold X on knob ladder), send entity id to HomeLab.
+- **Forensic keys (2):**
+  - `closed_reason`: Operator 2026-10-20: no paused-room notifications (20 paused rooms are deliberate).
+  - `tier`: 1
 
 ### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _WSJF 2.8 · v6 tc4 u4 /e5_
 thread: **safety** - status: **done** - approval: **unreviewed**

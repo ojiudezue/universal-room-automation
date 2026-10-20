@@ -47,7 +47,8 @@ cards:
   origin: {"date": "2026-10-20", "gist": "Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel split - treat as facts, not approvals."}
   why: "Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != off; Study A/B LEDs may be missing. Announce via assist_satellite.announce on assist_satellite.<p>_assist_satellite. Rules: occupied rooms only; sleep/home_night safety only; Master is a bedroom; clear only what URA set."
   targeting_operator_2026_10_20: "Operator (via HomeLab): occupied-rooms-only is too narrow (hallways rarely register occupied). Target = panels in an occupied zone + panels in rooms adjacent to occupied rooms + own room occupied; URA designs targeting AND LED gating. Panel->room: master_panel=Master Bedroom, study_a_panel=Study A, study_b_panel=Study B, up_hallway_panel=Upstairs Hallway, media_room_panel=Media, kitchen_panel=Kitchen, entry_way_panel=Foyer/front door (verify URA room names). Reuse URA zone membership + room adjacency config (prior-art scan)."
-  next: "PICK: HomeLab/URA split for panels (who owns LED/announce), then APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
+  split_decided_2026_10_20: "Operator: URA owns the panel LEDs. Operator approves which panel ideas get built."
+  next: "APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
   links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
 - id: WALLPANEL-TOUCH-WITNESS-1
   title: "Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value)"
@@ -62,7 +63,8 @@ cards:
   next: "Check whether panels are already Bermuda scanners mapped to their rooms; measure touch + noise rates; then plan."
 - id: PAUSED-ROOM-FLEET-ALERT-1
   title: "Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip"
-  status: "pre_planning"
+  status: "done"
+  closed_reason: "Operator 2026-10-20: no paused-room notifications (20 paused rooms are deliberate)."
   tier: 1
   thread: "rooms"
   created: "2026-10-20 08:30"
