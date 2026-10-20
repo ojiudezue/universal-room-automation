@@ -32558,6 +32558,38 @@ cards:
   updated: "2026-10-19 02:03"
   measured_2026_10_19_overnight: "REFUTED (read-only, recorder 10-11 04:17 -> 10-19 01:51 CDT, sensor.ura_presence_coordinator_signal_consensus_confidence, 6,309 rows). CODE (hvac.py:2711-2752): the gate ENGAGES only when consensus < 0.5 AND < 30 s since a house-state transition (:2744); it RELEASES at >= 0.7 (:2727). The card's 'engages below 0.7' was WRONG - 0.7 is only the release level. MEASURED: values seen 1.0 / 0.9 / 0.6 / 0.5 only - NEVER below 0.5, so the engage condition was never met in 8 days. The card's scenario (phones away + a sensor holding a zone, e.g. Jaya fan-radar) produces 0.6, or 0.5 with the engine-confidence penalty (presence.py:7790-7819) - it cannot engage the gate. Longest sub-0.7 episode: 10-14 09:09-15:06 (357 min at 0.5-0.6, travel week, Jaya + guest home, real occupants) - gate could not engage. 222 sub-0.7 episodes, median 0.5 min, p90 5.5 min. Switch.ura_hvac_coordinator_hvac_consensus_defer_gate never off. LOG GAP (stated, not an all-clear): ha_get_logs error_log search 'defer gate' returned 0 matches but only over the newest 2000-line window; journald grep empty; hvac.d6_deferrals_today is not exposed on any entity. The recorder engage-condition evidence is the authority here."
   residual_2026_10_19: "Latent only: _d6_gate_engaged (hvac.py:2750) is a latch with no expiry. It can pin only if consensus drops below 0.5 (needs phones-away 0.4 + camera-only 0.15 or engine <0.85 0.1 stacked) within 30 s of a transition and then stalls under 0.7. REVIVAL TRIGGER: any recorded consensus < 0.5, or a 'D6: HVAC defer gate ENGAGED' log line -> reopen and add a max-age (knob) to the latch."
+- id: HVAC-ZONE3-NIGHT-SAWTOOTH-1
+  title: "Zone 3 HVAC flips sleep <-> away every 15-60 min all night (11 trips 10-17/18, ~58% on sleep); operator names the robot vacuum as the cause"
+  thread: hvac
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-20"
+  origin: "Session 10-18/10-19 zone 3 night analysis; operator: robot vacuum."
+  next: "DO: change the vacuum's schedule or add a no-go zone for the zone 3 rooms at night -> I pull which zone 3 sensor it trips and re-measure the night sawtooth as the check."
+- id: JAYA-WINDOW-CONTACT-UNAVAILABLE-1
+  title: "Jaya Bedroom window contact (openclose_aquara_zigbee_jayabedroom_contact_2) is unavailable, so egress and open-window checks for that room read nothing"
+  thread: presence
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-20"
+  origin: "Jaya Bedroom ghost-blip analysis 10-19."
+  next: "DO: replace the battery or re-pair the Aqara contact -> I confirm it reports and the room's open-window check reads it."
+- id: QREVO-OFFLINE-1
+  title: "Roborock Qrevo S is offline / has no area; one of its two device rows has 0 entities"
+  thread: devices
+  status: investigating
+  tier: 1
+  created: "2026-10-20"
+  origin: "Device registry sweep 10-19."
+  next: "Measure: Roborock entry state + vacuum.roborock_qrevo_s availability history; then DO for the operator if the robot needs re-linking."
+- id: FAN-PHANTOM-RETRO-EPISODES-1
+  title: "Memory records repeated phantom_retro episodes in Jaya Bedroom (fan-release correlated, holds up to ~2 h) - check rate and whether the paused-room change altered it"
+  thread: presence
+  status: investigating
+  tier: 1
+  created: "2026-10-20"
+  origin: "memory_query episodes room:jaya_bedroom, 10-12/10-13 rows (fan_release_correlation)."
+  next: "Measure: phantom_retro count per room per day for 14 d before and after v5.103.75 -> close if flat/explained, else plan."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
