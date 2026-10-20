@@ -539,8 +539,9 @@ DRILLS = [
      "        elif _guest_override:\n            self._guest_reason = \"override\"\n", "",
      "test_guest_reason_override"),
     ("d3_unrecorded_key_dropped", SENS,
-     "        {\"stale_counted_home\", \"nobody_home_zone_input\"}\n    )",
-     "        {\"stale_counted_home\"}\n    )",
+     # HOUSE-STATE-SENSOR-ATTR-CHURN-1 reflowed the set one key per line.
+     "            \"stale_counted_home\",\n            \"nobody_home_zone_input\",\n",
+     "            \"stale_counted_home\",\n",
      "test_unrecorded_attributes_set"),
     ("d3_sensor_attr_detached", SENS,
      "                int(_away_getter()) if callable(_away_getter) else 0",

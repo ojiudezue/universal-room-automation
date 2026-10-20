@@ -620,6 +620,46 @@ def test_import_scope_guard_flags_in_place_mutation(_d7_tmp_pkg):
         parent.TABLE["c"] = 3
 
 
+def test_real_package_scope_restores_rebound_parent_attr(_d7_tmp_pkg):
+    """The 2026-10-20 bill-cycle shape: a stub child is set aside, the real
+    child is imported (rebinding the parent attribute), and on exit both
+    sys.modules AND the parent attribute point at the stub again."""
+    from _d7_isolation import real_package_scope
+
+    name, parent = _d7_tmp_pkg
+    stub = types.ModuleType(f"{name}.child")  # no __spec__ -> a stub
+    sys.modules[f"{name}.child"] = stub
+    parent.child = stub
+    with real_package_scope(
+        lambda n, m: n == f"{name}.child" and m.__spec__ is None,
+        prefixes=(name,),
+    ):
+        real = importlib.import_module(f"{name}.child")
+        assert real is not stub and real.X == 1
+        assert parent.child is real
+    assert sys.modules[f"{name}.child"] is stub
+    assert parent.child is stub
+
+
+def test_file_scope_restores_attr_write_on_existing_module(_d7_tmp_pkg):
+    """A test that rebinds a function on a pre-existing module
+    (``ha_er.async_get = fake``) gets it put back when the file ends."""
+    from _d7_isolation import file_scope
+
+    name, parent = _d7_tmp_pkg
+    original = parent.TABLE
+    gen = file_scope(prefixes=(name,))
+    next(gen)
+    parent.TABLE = {"fake": True}
+    parent.ADDED = 1
+    sys.modules[f"{name}.extra"] = types.ModuleType(f"{name}.extra")
+    with pytest.raises(StopIteration):
+        next(gen)
+    assert parent.TABLE is original
+    assert not hasattr(parent, "ADDED")
+    assert f"{name}.extra" not in sys.modules
+
+
 _ISOLATION = _TESTS / "_d7_isolation.py"
 
 

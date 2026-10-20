@@ -482,3 +482,14 @@ def test_cleared_leak_options_override_not_defeated_by_data():
     ).read()
     assert "options.get(CONF_WATER_LEAK_SENSOR) or " not in src
     assert src.count("if CONF_WATER_LEAK_SENSOR in coord.entry.options:") == 2
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

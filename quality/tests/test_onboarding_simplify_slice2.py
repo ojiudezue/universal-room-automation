@@ -487,3 +487,14 @@ def test_bathroom_create_path_writes_full_expected_key_set():
         assert got == want, (
             f"T4 INV-1: key {k} value drift — got {got!r}, expected {want!r}"
         )
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

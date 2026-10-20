@@ -1073,3 +1073,17 @@ def test_vacancy_sweep_call_decoupled_from_hvac_denomination():
     assert "_sweep_light_ok = not getattr(" in src
     # Both sweep-call `if` blocks should be gated by _sweep_light_ok.
     assert src.count("_sweep_light_ok") >= 4  # 2 decls + 2 uses
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+import pytest as _ord_pytest  # noqa: E402
+
+
+@_ord_pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

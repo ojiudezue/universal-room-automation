@@ -881,3 +881,14 @@ def test_reset_button_end_to_end():
     assert hvac._vacancy_grace_constrained == hvac_const.DEFAULT_VACANCY_GRACE_CONSTRAINED
     assert hvac._max_occupancy_hours == hvac_const.DEFAULT_MAX_OCCUPANCY_HOURS
     assert hvac._zone_entry_dwell == hvac_const.DEFAULT_ZONE_ENTRY_DWELL_MINUTES
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()
