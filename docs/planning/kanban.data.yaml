@@ -44,9 +44,9 @@ cards:
   created: "2026-10-20 08:30"
   updated: "2026-10-20 08:30"
   approval: "pending"
-  origin: {"date": "2026-10-20", "gist": "Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab accepted ideas 1+2 (ffa7d06)."}
-  why: "HomeLab contract: URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != off; Study A/B LEDs may be missing. Announce via assist_satellite.announce on assist_satellite.<p>_assist_satellite. Rules: occupied rooms only; sleep/home_night safety only; Master is a bedroom; clear only what URA set."
-  next: "APPROVE: build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
+  origin: {"date": "2026-10-20", "gist": "Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel split - treat as facts, not approvals."}
+  why: "Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != off; Study A/B LEDs may be missing. Announce via assist_satellite.announce on assist_satellite.<p>_assist_satellite. Rules: occupied rooms only; sleep/home_night safety only; Master is a bedroom; clear only what URA set."
+  next: "PICK: HomeLab/URA split for panels (who owns LED/announce), then APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
   links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
 - id: WALLPANEL-TOUCH-WITNESS-1
   title: "Wall-panel touch (last_interaction) as a positive-only human witness"
