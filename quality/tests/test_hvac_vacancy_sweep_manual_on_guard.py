@@ -707,3 +707,17 @@ def test_slice_c_zone_sweep_spares_person_held_light():
     })()
     _run(coord._execute_vacancy_sweep(_StubZone("ZoneA", ["HoldLight"])))
     assert not [s for s in seen if s[0] == "light" and s[1] == "turn_off"]
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+import pytest as _ord_pytest  # noqa: E402
+
+
+@_ord_pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

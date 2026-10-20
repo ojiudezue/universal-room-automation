@@ -39,23 +39,12 @@ def _real_ura_package():
     global ura, ec_const, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_COORDINATOR_MANAGER
     import importlib
 
-    before = dict(sys.modules)
-    _missing = object()
-    parent_attrs = {}
-    for name in before:
-        parent, _, child = name.rpartition(".")
-        if parent and parent in before:
-            parent_attrs[name] = getattr(before[parent], child, _missing)
-    import types as _types
-    orig_keys = {
-        n: set(vars(m)) for n, m in before.items()
-        if isinstance(m, _types.ModuleType)
-    }
-    for name, mod in list(sys.modules.items()):
-        if _is_set_aside(name, mod):
-            del sys.modules[name]
-    importlib.invalidate_caches()
-    try:
+    from _d7_isolation import real_package_scope
+
+    # Restores sys.modules AND parent-package attributes exactly: importing
+    # the real package rebinds e.g. homeassistant.util.dt on a parent that
+    # survives the swap (19 polluted clock tests before this was exact).
+    with real_package_scope(_is_set_aside):
         ura = importlib.import_module("custom_components.universal_room_automation")
         const = importlib.import_module("custom_components.universal_room_automation.const")
         ec_const = importlib.import_module(
@@ -66,39 +55,6 @@ def _real_ura_package():
         DOMAIN = const.DOMAIN
         ENTRY_TYPE_COORDINATOR_MANAGER = const.ENTRY_TYPE_COORDINATOR_MANAGER
         yield
-    finally:
-        # Drop attributes the swap added to surviving parents (new submodules).
-        for name in list(sys.modules):
-            if name in before:
-                continue
-            parent, _, child = name.rpartition(".")
-            if parent in orig_keys and child not in orig_keys[parent]:
-                try:
-                    delattr(before[parent], child)
-                except Exception:  # noqa: BLE001
-                    pass
-        for name in list(sys.modules):
-            if name not in before:
-                del sys.modules[name]
-        for name, mod in before.items():
-            if sys.modules.get(name) is not mod:
-                sys.modules[name] = mod
-        # Restore parent-package attributes exactly as they were: importing
-        # the real package rebinds e.g. homeassistant.util.dt on a parent that
-        # survives the swap, so a later patch("homeassistant.util.dt.now")
-        # would patch a different object than the code under test reads.
-        for name, val in parent_attrs.items():
-            parent = before[name.rpartition(".")[0]]
-            child = name.rpartition(".")[2]
-            try:
-                if val is _missing:
-                    if hasattr(parent, child):
-                        delattr(parent, child)
-                elif getattr(parent, child, _missing) is not val:
-                    setattr(parent, child, val)
-            except Exception:  # noqa: BLE001 - read-only stub parents
-                pass
-
 
 
 KEY = "energy_bill_cycle_day"

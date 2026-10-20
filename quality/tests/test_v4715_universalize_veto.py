@@ -1634,3 +1634,14 @@ class TestD4HelperRelocation:
         # accepts the input shape; the test mainly proves the method runs
         # without raising on the v3.22.2-derived shape.
         assert confirmed >= 0  # don't over-constrain the production shape
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

@@ -59,6 +59,18 @@ from test_perimeter_alert_nm_routing import (  # noqa: E402
 # helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _pin_clock_inside_night_window(monkeypatch):
+    """Burst-demotion only applies inside PERIMETER_BURST_NIGHT_WINDOW
+    (23-05). The sibling bootstrap binds a REAL wall clock, so these tests
+    used to pass only at night or when an earlier file leaked a frozen
+    clock (TEST-SUITE-ORDER-INDEP-PRODSTUBS-1). Pin 02:00 per test; a test
+    that needs another hour monkeypatches over this."""
+    fixed = _perimeter.dt_util.now().replace(hour=2, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(_perimeter.dt_util, "now", lambda: fixed)
+    monkeypatch.setattr(_perimeter.dt_util, "utcnow", lambda: fixed)
+
+
 FRONT = "binary_sensor.front_yard_person_occupancy"
 CAM_KEY = "front_yard"
 

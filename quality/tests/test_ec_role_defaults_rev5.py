@@ -29,8 +29,9 @@ import sys
 # This file needs the REAL integration package, so a module-scoped fixture
 # sets aside every `custom_components*` entry plus any stubbed
 # `homeassistant*` entry (not a really-imported module), imports the real modules
-# fresh, and on teardown restores sys.modules EXACTLY as it was (added keys
-# removed, replaced keys put back) so nothing leaks onward. Production code
+# fresh, and on teardown restores sys.modules, attributes of pre-existing
+# modules and parent-package attributes EXACTLY as they were
+# (_d7_isolation.real_package_scope) so nothing leaks onward. Production code
 # is untouched. The module globals below are bound by that fixture.
 # ---------------------------------------------------------------------------
 ura = None
@@ -56,12 +57,9 @@ def _real_ura_package():
     global ura, ec_const, CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_COORDINATOR_MANAGER
     import importlib
 
-    before = dict(sys.modules)
-    for name, mod in list(sys.modules.items()):
-        if _is_set_aside(name, mod):
-            del sys.modules[name]
-    importlib.invalidate_caches()
-    try:
+    from _d7_isolation import real_package_scope
+
+    with real_package_scope(_is_set_aside):
         ura = importlib.import_module("custom_components.universal_room_automation")
         const = importlib.import_module("custom_components.universal_room_automation.const")
         ec_const = importlib.import_module(
@@ -72,13 +70,6 @@ def _real_ura_package():
         DOMAIN = const.DOMAIN
         ENTRY_TYPE_COORDINATOR_MANAGER = const.ENTRY_TYPE_COORDINATOR_MANAGER
         yield
-    finally:
-        for name in list(sys.modules):
-            if name not in before:
-                del sys.modules[name]
-        for name, mod in before.items():
-            if sys.modules.get(name) is not mod:
-                sys.modules[name] = mod
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

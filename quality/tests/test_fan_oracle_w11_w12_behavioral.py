@@ -1079,3 +1079,17 @@ def test_batch_d_g7_prearrival_fan_on_only_for_hvac_owned_fans():
     assert skipped == {
         r: "not_hvac_managed" for (r, _m, w) in _BD_ROWS if not w
     }
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+import pytest as _ord_pytest  # noqa: E402
+
+
+@_ord_pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()
