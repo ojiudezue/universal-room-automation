@@ -36,6 +36,49 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: WALLPANEL-URA-NOTIFY-1
+  title: "URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)"
+  status: "waiting_operator"
+  tier: 2
+  thread: "notifications"
+  created: "2026-10-20 08:30"
+  updated: "2026-10-20 08:30"
+  approval: "pending"
+  origin: {"date": "2026-10-20", "gist": "Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab accepted ideas 1+2 (ffa7d06)."}
+  why: "HomeLab contract: URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != off; Study A/B LEDs may be missing. Announce via assist_satellite.announce on assist_satellite.<p>_assist_satellite. Rules: occupied rooms only; sleep/home_night safety only; Master is a bedroom; clear only what URA set."
+  next: "APPROVE: build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
+  links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
+- id: WALLPANEL-TOUCH-WITNESS-1
+  title: "Wall-panel touch (last_interaction) as a positive-only human witness"
+  status: "pre_planning"
+  tier: 2
+  thread: "presence"
+  created: "2026-10-20 08:30"
+  updated: "2026-10-20 08:30"
+  origin: {"date": "2026-10-20", "gist": "HomeLab accepted idea 3 (ffa7d06)."}
+  why: "A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presence state-of-play read + measure touch rate first."
+  next: "Measure touch rate per panel, then plan."
+- id: PAUSED-ROOM-FLEET-ALERT-1
+  title: "Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip"
+  status: "pre_planning"
+  tier: 1
+  thread: "rooms"
+  created: "2026-10-20 08:30"
+  updated: "2026-10-20 08:30"
+  origin: {"date": "2026-10-20", "gist": "HomeLab accepted idea 6 in principle (ffa7d06): one sensor, blank unless a room is paused > X, e.g. 'Paused: Study A 3h, Kitchen'; operator picks which At a Glance chip it replaces."}
+  why: "Forgotten pause is the ROOM-OVERRIDE-SWITCH-FORGOTTEN-1 problem; panels give it a visible surface."
+  next: "Build sensor (threshold X on knob ladder), send entity id to HomeLab."
+  links: {"parent": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1"}
+- id: RECORDER-WRITE-RATE-ATTENUATION-1
+  title: "Attenuate top recorder writers (ESPectre, UDM CPU/mem, LD2410 distance, panel diagnostics, device_time)"
+  status: "waiting_operator"
+  tier: 1
+  thread: "platform"
+  created: "2026-10-20 08:30"
+  updated: "2026-10-20 08:30"
+  origin: {"date": "2026-10-20", "gist": "HomeLab handoff: DB 15.3 GB, ESPectre ~6k rows/hr. Operator: attenuate, don't stop; keep ESPectre on."}
+  why: "Audit docs/planning/AUDIT_recorder_write_rate_2026_10_20.md: ESPectre 5.0k/hr (250 ms eval), UDM 1.8k+2.0k/hr, jaya_3 distance 886/hr (occupancy, same config as ziri_3). ~9.6k rows/hr removable."
+  next: "APPROVE: ESPHome filters + reflash (espectre, jaya_3, ziri_3), UDM 1-min template copies + exclude raw, exclude panel diagnostics/device_time/time_since_motion -> I apply and measure before/after."
 - id: DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1
   title: "The v8 dashboard's People table errors because Ziri has no BLE tracker ('No first item, sequence was empty')"
   thread: "dashboard"
