@@ -104,3 +104,43 @@ Backups are full `config` objects taken before each pass in `docs/dashboard-prot
 | `20261019T034438_pre-pass4.json` | pass 4 |
 
 To restore, call `ha_config_set_dashboard(url_path="ura-v8", config=<file contents>)` with the current BestPracticeKey from `ha_get_skill_guide('references/dashboard-guide.md')`. That is a full replace. View paths never changed, so bookmarks survive either way.
+
+## Pass 2 (2026-10-20)
+
+Operator asks: one occupied colour, better graphs, less prose, a solar forecast-vs-actual chart, and the Helios card. Three writes, each through `ha_config_set_dashboard` (python_transform) on `ura-v8` only. Every template was checked against live state with `ha_eval_template` before it was written. Room pop-ups were left alone.
+
+Note: HA restarted on its own during this pass (not caused by these writes). For a few minutes URA entities were missing and the frontend showed "Starting…". The screenshots were taken during that window. Values were re-checked once the entities came back.
+
+### Installs
+None. HACS already had **apexcharts-card v2.2.3**, **mini-graph-card v0.13.0** and **Helios 2026.9.6**. The resources `/hacsfiles/apexcharts-card/apexcharts-card.js` and `/hacsfiles/Helios/helios.js` were already registered.
+
+Graph card choice: **apexcharts-card**. Each series takes a `transform` (W→kW) and a `data_generator` (needed to plot the Solcast `detailedForecast` attribute), and the card supports `span: {start: day}` and a "now" marker. mini-graph-card can do none of that. It stays installed but is no longer used in ura-v8.
+
+### What changed
+| Ask | Change |
+|---|---|
+| 1. One occupied colour | `room_card` template: the card, icon, name, label and temp chip now use `var(--yellow)` / `var(--yellow-dark)` when occupied, in place of the per-card `variables.color`. Rooms › Zones cards: green became yellow for "occupied" in the same way. The small status dot on zone cards is unchanged. Green still means "ok/healthy" in the heroes. Per-card `variables.color` values are still in the config but no longer affect anything. |
+| 2. Graphs | Energy "Solar vs house draw · last 24 h": mini-graph (solar in kW on one axis, both SPAN legs in W on a second axis) replaced by an apexcharts chart with one kW axis. SPAN legs use `transform: x/1000`, 10-min averages, and the header shows current values. |
+| 4. Forecast vs actual | Energy "Solar today · forecast vs actual" (replaced the plain "Solcast Today" tile). Midnight→midnight apexcharts with a Solcast `pv_estimate` area, a `pv_estimate10` line, actual `production_ct_power` (15-min avg, runs up to now) and a Now marker. Header shows forecast-today kWh and `solar_day_class.forecast_remaining_kwh`. |
+| 4. Helios | New section "Live energy (Helios)" (column_span 2) just below "Energy now". Its card config is copied verbatim from ura-v6 views[1].sections[1].cards[2], same entities and `cache-id`. |
+| 3. Text → tiles | New `stat` button-card template: icon + small-caps label, large value, small sub-line, colour via `variables.color`. It replaced prose on three cards: **Energy › Battery Strategy Detail** (9 stats; SOC turns red below reserve; the threshold sentence stays as one small line), **Now › Today** (House draw, Solar left, Tomorrow) and **Climate** hero markdown (8 stats: nudges, resets, ease-off, guard, pre-arrival, pre-cool, solar covers, zone intel, plus a Zone \| Guard \| Changes \| Resets \| Last table). The information is the same as before. |
+
+### Before / after
+- Energy graph: before, two y-axes (kW and W) on one chart. After, one kW axis, with house draw and solar directly comparable.
+- Battery Strategy Detail: before, 4 lines of bold-label prose. After, a 3×3 stat grid. "Mode" is 8 columns wide so "self consumption" fits.
+- Screens: `ura-v8-screens/p2_after_desktop_rooms_occupied_yellow.jpg`, `p2_after_desktop_climate_stats.png`, `p2_after_desktop_now_today_stats.jpg`. The Energy charts were checked live: both apexcharts and Helios render.
+
+### Not done / caveats
+- The climate zone table and Zone Timers markdown were still blank about 8 s after load. This is the known markdown first-paint latency, made worse by the HA startup. The template renders correctly via `ha_eval_template`.
+- The other text-heavy cards (EV Charging Detail, Solar-Aware EV, Energy Savings, People census/diagnostics tables) are left as is. They are already tables rather than prose.
+- Envoy `energy_production_today` reads 20 610 (broken), so the forecast chart does not show "actual kWh today".
+- Phone width was not re-shot this pass.
+
+### Rollback
+| File | Restores the state before |
+|---|---|
+| `ura-v8-backups/20261020T070245_p2-pre-pass1.json` | all of Pass 2 (2026-10-20) |
+| `ura-v8-backups/20261020T070657_p2-pre-pass2.json` | zone-card yellow + Mode width |
+| `ura-v8-backups/20261020T070740_p2-pre-pass3.json` | "Solar left" stat shortening |
+
+These backups are `data.config` from `.storage/lovelace.ura_v8`, taken before each write. Restore the same way as above, with `ha_config_set_dashboard(url_path="ura-v8", config=<file>)`.
