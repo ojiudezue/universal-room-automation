@@ -507,6 +507,26 @@ async def test_setter_dispatch_key_applies_live_without_reload() -> None:
     energy.set_peak_buffer_target.assert_called_once_with(85)
 
 
+@pytest.mark.asyncio
+async def test_utility_statistic_ids_save_does_not_reload() -> None:
+    """EC-BILL B-M1: saving ONLY the two utility statistic ids (read live by
+    EC every refresh) reloads neither the parent nor the CM entry."""
+    before = _pre_options()
+    after = {
+        **before,
+        "energy_utility_import_statistic_id": "smarthub:new_import",
+        "energy_utility_export_statistic_id": "smarthub:new_export",
+    }
+    hass = await _listen(before, after)
+    hass.config_entries.async_reload.assert_not_called()
+    # Snapshot advanced (no retry loop on the next save).
+    snap = hass.data[DOMAIN]["cm_last_applied_options"]["cm-test"]
+    assert snap["energy_utility_import_statistic_id"] == "smarthub:new_import"
+    # Clearing one (feature off) is also reload-free.
+    hass = await _listen(after, {**after, "energy_utility_export_statistic_id": ""})
+    hass.config_entries.async_reload.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Repair-issue scanner.
 # ---------------------------------------------------------------------------

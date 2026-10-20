@@ -7514,6 +7514,13 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "inclement_hold_removed",
     "inclement_buy_added",
     "inclement_buy_removed",
+    # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 B-M1 fix-up — utility hourly
+    # statistic ids (== energy_const.CONF_ENERGY_UTILITY_{IMPORT,EXPORT}_
+    # STATISTIC_ID). EC re-reads them from the CM options on every refresh
+    # / publish (`EnergyCoordinator._utility_stat_ids`); no live-attr push.
+    # Also in OPTIONS_RELOAD_SUPPRESS_KEYS below (a save never reloads).
+    "energy_utility_import_statistic_id",
+    "energy_utility_export_statistic_id",
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -7563,6 +7570,11 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "inclement_hold_removed",
     "inclement_buy_added",
     "inclement_buy_removed",
+    # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 B-M1 fix-up — utility statistic
+    # ids are read live from CM options; saving them must NOT reload the CM
+    # or the parent integration.
+    "energy_utility_import_statistic_id",
+    "energy_utility_export_statistic_id",
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     # Part 2 D2 — Routine family
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
