@@ -49,6 +49,7 @@ cards:
   targeting_operator_2026_10_20: "Operator (via HomeLab): occupied-rooms-only is too narrow (hallways rarely register occupied). Target = panels in an occupied zone + panels in rooms adjacent to occupied rooms + own room occupied; URA designs targeting AND LED gating. Panel->room: master_panel=Master Bedroom, study_a_panel=Study A, study_b_panel=Study B, up_hallway_panel=Upstairs Hallway, media_room_panel=Media, kitchen_panel=Kitchen, entry_way_panel=Foyer/front door (verify URA room names). Reuse URA zone membership + room adjacency config (prior-art scan)."
   split_decided_2026_10_20: "Operator: URA owns the panel LEDs. Operator approves which panel ideas get built."
   next: "PICK: A (recommended) separate opt-in panel integration that subscribes to URA alert/occupancy state, URA adds only a generic room-targeted alert event; or B build inside URA NM -> I plan the chosen shape."
+  areas_2026_10_20: "Operator assigned areas to the Upstairs Hallway and Entry Way panels (all 7 panels now have areas)."
   AUDIT_2026_10_20_alert_lights: "Room alert_lights is dead in this install: automation.py handle_safety_alert/handle_security_alert have no callers; aggregation.py:1421 returns when the Coordinator Manager exists. Only live LED path is NM nm_alert_lights (one house-wide light) via notification_manager.py:1696. URA fires no HA bus event for notifications (only ura_action, ura_person_egress_event). The earlier 'reuse alert_lights' recommendation was wrong."
   links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
 - id: WALLPANEL-TOUCH-WITNESS-1
@@ -32525,7 +32526,9 @@ cards:
   arc_cut_v5_103_72: "priority follow-up cycle immediately after this ship"
   title: "A room renamed through options drops out of the zone tier (zone tracker keys by room name)"
   thread: presence
-  status: "waiting_operator"
+  status: parked
+  operator_answer_2026_10_20: "A: one Tier-3 cycle (presence + person + HVAC + fan maps re-keyed on rename). Park for now to keep a clear lane."
+  revisit_if: "lane clears, or a room rename is planned"
   tier: 3
   created: "2026-10-18"
   refinement_status: "refined"
@@ -32577,7 +32580,9 @@ cards:
 - id: JAYA-WINDOW-CONTACT-UNAVAILABLE-1
   title: "Jaya Bedroom window contact (openclose_aquara_zigbee_jayabedroom_contact_2) is unavailable, so egress and open-window checks for that room read nothing"
   thread: presence
-  status: waiting_operator
+  status: parked
+  operator_answer_2026_10_20: "Operator knows; do not raise again."
+  revisit_if: "the contact reports again (then confirm the open-window check reads it)"
   tier: 1
   created: "2026-10-20"
   origin: "Jaya Bedroom ghost-blip analysis 10-19."
