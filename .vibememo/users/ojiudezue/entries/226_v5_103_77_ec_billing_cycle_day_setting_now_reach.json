@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "226",
+  "author": "ojiudezue",
+  "session_id": "claude_20261020_170154_ship_v5_103_77",
+  "timestamp": "2026-10-20T17:01:54Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.77 shipped: EC: billing cycle day setting now reaches the billing engine",
+  "summary": "EC: billing cycle day setting now reaches the billing engine",
+  "why": "Operator chose cycle day 24 (PEC bills 24th->24th). Saving it did nothing: the knob was never wired, found live after v5.103.76 when cycle_start_date stayed 09-23. Wiring it in place avoids a parent reload (watchdog hazard) and the re-seed keeps the running cycle's money totals honest.",
+  "implications": "Shipped EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 at v5.103.77; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.77.md (Live criteria).",
+  "revisit_trigger": "after restart: predicted_bill cycle_start_date = 2026-09-24, cost_this_cycle not zeroed",
+  "refs": {
+    "cards": [
+      "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.77.md"
+    ],
+    "release_notes": "energy_bill_cycle_day was never passed to CostTracker/PeakAvoidanceTracker, so every install billed from the 23rd. Now wired, clamped 1-28, applied in place on save (no reload), mid-cycle change re-keys and re-seeds totals from the DB. Two reviews; full-suite name-diff clean."
+  }
+}

@@ -75,3 +75,14 @@ Estimated saving from the first three lines alone: ~9,650 of the top-25 rows/hr.
 
 ## Unknowns
 Contents of the external ESPectre package yaml; whether Master's wall-panel bridge is on 1.6.9; push-vs-poll for the unifi sensors; ESPHome ld2410 change-only publish behavior; any URA consumer of the ESPectre or UDM entities (not grepped).
+
+## Measured after restart (2026-10-20)
+The excludes took effect at the 09:59 CDT restart (recorder run 1200, 14:59:25Z). Source: `states` in `/config/home-assistant_v2.db` (read-only). "Excluded" means the 52 `states_meta` entities matched by the 3 named entities and the 2026-10-20 globs (`*_detection_distance`, the six `*_panel_*` diagnostics, `*_device_time`).
+
+| window (UTC) | total rows/hr | excluded-set rows/hr | everything else rows/hr |
+|---|---|---|---|
+| before: 11:58-14:58 (3 h) | 148,648 | 9,448 | 139,200 |
+| after: 15:00-15:50 (50 min) | 146,971 | 0 | 146,971 |
+| delta | -1,677 (-1.1%) | -9,448 (-100%) | +7,771 (+5.6%) |
+
+The excludes work: the targeted entities wrote 0 rows, and the 9.4k/hr removed matches the ~9.65k/hr estimated above. The total barely moved because everything else rose 5.6% in the after-window. The likely causes are post-boot churn (entities re-reporting and registry updates in the first hour) and the change in time of day. I have not checked either cause. A like-for-like comparison against the same clock hours on a later day would separate them.
