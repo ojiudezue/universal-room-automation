@@ -32603,6 +32603,15 @@ cards:
   created: "2026-10-20"
   origin: "memory_query episodes room:jaya_bedroom, 10-12/10-13 rows (fan_release_correlation)."
   next: "Measure: phantom_retro count per room per day for 14 d before and after v5.103.75 -> close if flat/explained, else plan."
+- id: JAYA-VENT-MOVE-EFFECT-1
+  title: "Did the 10-15/16 physical vent move cool Jaya Bedroom? First look: a ~1-1.7 F narrower end-of-cooling-run gap on 10-15/16, reverted 10-17+; inside the prior 3.4-5.9 F noise; post-move week confounded (family away)"
+  thread: hvac
+  status: waiting_me
+  tier: 1
+  created: "2026-10-20"
+  origin: "Operator 10-20: vent moved Thu/Fri last week to supply colder air. Audit: docs/planning/AUDIT_jaya_evening_temp_shift_2026_10_20.md (scripts .claude/scratch/jaya_vent.py, jaya_cool.py)."
+  revisit_if: "5+ normal days with the family home and outdoor > 80 F since 10-18"
+  next: "Me: one-shot re-run of jaya_cool.py: end-of-cooling-run Jaya-minus-controls gap vs the 4.2-4.5 F pre-move baseline -> close done (helped / didn't) with the number."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

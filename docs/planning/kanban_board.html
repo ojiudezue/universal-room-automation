@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-20T10:59:57-05:00</b></span>
-<span>data <b>deaafdc6ed83</b></span>
+<span>generated <b>2026-10-20T11:34:23-05:00</b></span>
+<span>data <b>bd2c45b1a84e</b></span>
 <span>reconciled <b>2026-10-20</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">9<span class="den"> / 181</span></span>
+<span class="metric">9<span class="den"> / 182</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 26 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -416,7 +416,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>In progress <b>1</b></span>
 <span>Review <b>0</b></span>
 <span>Waiting on operator <b>29</b></span>
-<span>Waiting on me (Claude) <b>1</b></span>
+<span>Waiting on me (Claude) <b>2</b></span>
 <span>Shipped (organic open) <b>25</b></span>
 <span>Parked <b>97</b></span>
 <span>Done <b>352</b></span>
@@ -514,9 +514,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="waiting_me">
-<h2>Waiting on me (Claude) <span class="count">1</span><span class="hint">I owe something</span></h2>
+<h2>Waiting on me (Claude) <span class="count">2</span><span class="hint">I owe something</span></h2>
 <div class="cards">
 <details class="card ap-explicit" data-id="HA-GC-GEN2-PAUSES-1" draggable="true"><summary><span class="id">HA-GC-GEN2-PAUSES-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.6 · v7 tc4 u2 /e5</span><span class="apl">explicit</span><span class="title">Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap)</span><div class="tagline">health_monitor<span class="sep">·</span>measure-before-build<span class="sep">·</span>no-fabrication-verify</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-14 02:50 · updated 2026-10-18 02:02 · refined</div><dt>Problem / Solution</dt><dd>Problem: about once a minute the whole of Home Assistant stops for ~1.8 seconds while Python does a full memory clean-up. Everything waits: lights, sensors, URA&#x27;s decisions. The clean-up is slow because the heap holds a very large number...</dd><dt>Origin</dt><dd>2026-10-14 - HM v2.1 W16 read on the overnight pass proved the GC hypothesis for the ~2 s/80 s house-wide pauses</dd><dt>Why</dt><dd>This is the residual house-wide pause the v5.103.56 cycle explicitly left as &quot;not URA, GC hypothesis pending&quot;. It is now confirmed and has a measurable target.</dd><dt>Next</dt><dd>Me, next ATTENDED session (default taken 10-17; it is an HA config write so not overnight): set Health Monitor option gc_refreeze_h 0 -&gt; 4 h, then re-read gc_gen2_1h / loop_stalls 8-12 h later; close if pauses stay &lt;5/h, else lower to 2 h.</dd><dt>Refs</dt><dd>~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)</dd><dt>Forensic (8)</dt><dd><ul class="forensic"><li><code>triage_2026_10_17</code>: Default taken: set HM gc_refreeze_h 0 -&gt; 4 in an attended session (HA config write).</li><li><code>paged_2026_10_16_overnight</code>: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).</li><li><code>measured_2026_10_16_overnight</code>: Read-only, 2026-10-16 02:05 CDT. The freeze effect DECAYS with uptime. sensor.hahm_loop_lag_p95: gc_frozen true, 4.29M objects frozen at 2026-10-15 17:49Z (one freeze, 13.3 h ago, took 1.6 s), gc_gen2_1h 178, gc_gen2_max_ms_1h 597; senso...</li><li><code>measured_2026_10_15_overnight</code>: Read-only, 02:10 10-15 (HM v2.2.0 with gc_freeze ON since 10-14 06:58; HA up since 17:30). The freeze shortened the full collections but did not remove the stalls: sensor.hahm_loop_lag_p95 gc_gen2_max_ms_1h 529.91 ms (was ~1,800 before t...</li><li><code>root_cause_2026_10_14</code>: ROOT CAUSE 04:57: house runs Python 3.14.6; Python 3.14.5 REVERTED 3.14&#x27;s incremental GC (whose point was cutting max pauses 10x+ on large heaps) back to the 3.13 generational GC (docs.python.org/3.14/whatsnew/3.14.html). Profiler object...</li><li><code>correction_2026_10_14</code>: CORRECTION (operator challenged &#x27;how did you confirm this&#x27;): the 3.14.5 incremental-GC revert is REAL but CONTEXT ONLY - the two collectors were never compared on this house, and a widespread regression would show in forum chatter. Confi...</li><li><code>research_2026_10_14</code>: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core&#x27;s only gc.collect is profiler start_log_object_sources (profiler installed, but ...</li><li><code>measured_2026_10_14_overnight</code>: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="JAYA-VENT-MOVE-EFFECT-1" draggable="true"><summary><span class="id">JAYA-VENT-MOVE-EFFECT-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Did the 10-15/16 physical vent move cool Jaya Bedroom? First look: a ~1-1.7 F narrower end-of-cooling-run gap on 10-15/16, reverted 10-17+; inside the prior 3.4-5.9 F noise; post-move week confounded (family away)</span><div class="tagline">hvac</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-20</div><dt>Next</dt><dd>Me: one-shot re-run of jaya_cool.py: end-of-cooling-run Jaya-minus-controls gap vs the 4.2-4.5 F pre-move baseline -&gt; close done (helped / didn&#x27;t) with the number.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li><li><code>revisit_if</code>: 5+ normal days with the family home and outdoor &gt; 80 F since 10-18</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="shipped_organic">
@@ -1027,7 +1028,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>deaafdc6ed83</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>bd2c45b1a84e</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

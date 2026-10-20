@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T10:59:57-05:00_ - _Data commit: `deaafdc6ed83`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T11:34:23-05:00_ - _Data commit: `bd2c45b1a84e`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -16,7 +16,7 @@ _Generated: 2026-10-20T10:59:57-05:00_ - _Data commit: `deaafdc6ed83`_ - _last_r
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 29 |
-| ⏳ Waiting on me (Claude) | 1 |
+| ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 25 |
 | 🅿️ Parked | 97 |
 | ✅ Done | 352 |
@@ -986,7 +986,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (1)
+## ⏳ Waiting on me (Claude) (2)
 _I owe something_
 
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 2.6 · v7 tc4 u2 /e5_
@@ -1008,6 +1008,14 @@ _created 2026-10-14 02:50 · updated 2026-10-18 02:02 · refined_
   - `correction_2026_10_14`: CORRECTION (operator challenged 'how did you confirm this'): the 3.14.5 incremental-GC revert is REAL but CONTEXT ONLY - the two collectors were never compared on this house, and a widespread regression would show in forum chatter. Confi...
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
+
+### `JAYA-VENT-MOVE-EFFECT-1` - Did the 10-15/16 physical vent move cool Jaya Bedroom? First look: a ~1-1.7 F narrower end-of-cooling-run gap on 10-15/16, reverted 10-17+; inside the prior 3.4-5.9 F noise; post-move week confounded (family away) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **waiting_me**
+_created 2026-10-20_
+- **Next:** Me: one-shot re-run of jaya_cool.py: end-of-cooling-run Jaya-minus-controls gap vs the 4.2-4.5 F pre-move baseline -> close done (helped / didn't) with the number.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `revisit_if`: 5+ normal days with the family home and outdoor > 80 F since 10-18
 
 ## 🚀 Shipped (organic open) (25)
 _live, awaiting proof_
