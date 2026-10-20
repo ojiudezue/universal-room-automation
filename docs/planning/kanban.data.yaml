@@ -32498,6 +32498,7 @@ cards:
   updated: "2026-10-19 02:41"
   plan_2026_10_19_overnight: "Step-2 plan written: docs/planning/PLANNING_ec_bill_divergence_from_smarthub_stats.md (5736915ec), Tier 2. MEASURED GO: SmartHub hourly import stat (meta 4699, import-only) + export (6396), no gaps > 1 h since 08-23; SmartHub posts once a day ~16-17 UTC, so the newest hour is 13-38 h old (card's ~16 h is best case -> stale threshold 48 h). Summed over PEC read-day windows the hourly import is within ~1% of three real bills (-0.7%, +1.1%, +0.3%). Last full cycle 08-23..09-22: SmartHub 3669.4 kWh / $295.13 vs EC energy_daily 3428.4 kWh / $199.40. Design: off by default (two options fields hold the stat ids), hourly read via the recorder executor, priced with energy_billing.py TOU functions, compared with get_energy_daily_for_cycle over the same local dates, divergence kWh + $ for current + last cycle on the predicted-bill sensor; no overlap -> no divergence published. Only readers: sensor attrs + ura_v6 dashboard card."
   finding_2026_10_19_ec_history: "Found by the plan probe (residual, folded here): EC's own energy_daily under-prices import on 28 of 57 days (all before 10-09) - cost per kWh below the lowest possible rate - so the first live $ divergence will read ~+25%, mostly EC history, not the utility. Three bad EC days: 10-12 import ~42 kWh high; 10-15 and 10-16 export ~2x SmartHub's."
+  operator_answer_2026_10_20: "Cycle day = 24 (operator). Set energy_bill_cycle_day 23 -> 24 in the same options save as the stat ids + clearing energy_utility_meter_entity, after the v5.103.76 restart; Live numbers recomputed for the 24th."
   operator_questions_2026_10_19: "(1) PEC bills run 24th/25th -> 24th/25th but energy_bill_cycle_day = 23 - is 23 right? (config knob, not code). (2) OK to set the two SmartHub statistic ids in EC options in the same restart window as Step 1?"
   plan_review_2026_10_19_overnight: "Plan review FIX-PLAN (appended to the plan doc): H1 the hourly refresh must NOT be awaited inside _async_decision_cycle (its _cycle_in_flight guard at energy.py:6352-6375 drops a TOU-boundary tick that arrives while it is set) -> tracked background task, cancelled on unload, with a blocked-refresh test; M1 Live numbers assume cycle day 23 - recompute if the knob changes, previous cycle start via _get_cycle_start(cycle_start - 1 day); M2 publish ec_underpriced_days so a +25% divergence explains itself; L1-L3 wording/first-run/unload. Recorder call, change-column choice, consumer set (display only) verified."
   built_2026_10_19_overnight: "BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, cancelled on teardown; recorder executor; TOU-engine pricing; same-window compare; ec_underpriced_days; 2 new EC options fields (blank = off) - NOTE they are construction keys, so saving them reloads the integration (pair with a restart window). 25 new tests; 192 related energy/options tests pass; 20/20 mutation drills red. Deviations: per-day DB reads for ec_underpriced_days (~60/h), service charge from the predicted_bill constant. README draft docs/readmes/README_v5.103.76.md. Reviews A (correctness) + B (async/lifecycle) running; C (mutation) after."
@@ -32561,11 +32562,13 @@ cards:
 - id: HVAC-ZONE3-NIGHT-SAWTOOTH-1
   title: "Zone 3 HVAC flips sleep <-> away every 15-60 min all night (11 trips 10-17/18, ~58% on sleep); operator names the robot vacuum as the cause"
   thread: hvac
-  status: waiting_operator
+  status: parked
   tier: 1
   created: "2026-10-20"
   origin: "Session 10-18/10-19 zone 3 night analysis; operator: robot vacuum."
-  next: "DO: change the vacuum's schedule or add a no-go zone for the zone 3 rooms at night -> I pull which zone 3 sensor it trips and re-measure the night sawtooth as the check."
+  operator_instruction_2026_10_20: "Leave the vacuum alone for now. Floated idea: ignore zone HVAC occupancy while a cleaning run is in progress and no room has first-sourced (non-vacuum-explained) movement."
+  revisit_if: "operator picks this back up, or the sawtooth costs comfort/energy measurably"
+  next: "Parked by operator. Candidate design when revived: vacuum-cleaning gate on zone HVAC occupancy (vacuum state = cleaning AND no first-sourced room movement -> zone ignores the blip)."
 - id: JAYA-WINDOW-CONTACT-UNAVAILABLE-1
   title: "Jaya Bedroom window contact (openclose_aquara_zigbee_jayabedroom_contact_2) is unavailable, so egress and open-window checks for that room read nothing"
   thread: presence
