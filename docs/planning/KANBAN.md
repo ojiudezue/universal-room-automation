@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T08:04:40-05:00_ - _Data commit: `5b338c332c21`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T08:05:51-05:00_ - _Data commit: `eadee3646d87`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -173,14 +173,15 @@ _created 2026-10-04 01:00 · updated 2026-10-19 02:12_
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
   - `recount_2026_10_19_overnight`: RECOUNT DONE (per your 10-17 instruction). Recorder, sensor.envoy_482543015950_current_battery_discharge unavailable episodes by local day: 10-11 9 drops/266 min down, 10-12 4/297, 10-13 4/145, 10-14 13/109, 10-15 1/586, 10-16 1/714, 10-...
 
-### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel touch (last_interaction) as a positive-only human witness — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WALLPANEL-TOUCH-WITNESS-1` - Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning**
 _created 2026-10-20 08:30_
 - **Origin:** 2026-10-20 - HomeLab accepted idea 3 (ffa7d06).
 - **Why:** A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presen...
-- **Next:** Measure touch rate per panel, then plan.
-- **Forensic keys (1):**
+- **Next:** Check whether panels are already Bermuda scanners mapped to their rooms; measure touch + noise rates; then plan.
+- **Forensic keys (2):**
   - `tier`: 2
+  - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
 
 ### `PAUSED-ROOM-FLEET-ALERT-1` - Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **rooms** - status: **pre_planning**

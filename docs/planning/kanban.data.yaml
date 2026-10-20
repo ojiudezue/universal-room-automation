@@ -50,7 +50,7 @@ cards:
   next: "PICK: HomeLab/URA split for panels (who owns LED/announce), then APPROVE build NM -> panel LED + announce (Tier 2, plan first, prior-art scan of NM channels) -> I plan, review, build, ship."
   links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
 - id: WALLPANEL-TOUCH-WITNESS-1
-  title: "Wall-panel touch (last_interaction) as a positive-only human witness"
+  title: "Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value)"
   status: "pre_planning"
   tier: 2
   thread: "presence"
@@ -58,7 +58,8 @@ cards:
   updated: "2026-10-20 08:30"
   origin: {"date": "2026-10-20", "gist": "HomeLab accepted idea 3 (ffa7d06)."}
   why: "A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presence state-of-play read + measure touch rate first."
-  next: "Measure touch rate per panel, then plan."
+  panel_sensor_facts_2026_10_20: "HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion/face need camera (off, CPU cost); proximity ~5 cm; each panel is a BLE proxy (Master sees ~88). Ranking by marginal value: BLE proxy as Bermuda scanner > touch witness > noise activity >> temp/lux (rooms already have better sensors)."
+  next: "Check whether panels are already Bermuda scanners mapped to their rooms; measure touch + noise rates; then plan."
 - id: PAUSED-ROOM-FLEET-ALERT-1
   title: "Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip"
   status: "pre_planning"
