@@ -87,3 +87,13 @@ Unverified risks:
 The other panel rooms are tier 1 by area. If Bermuda adopts the Study A/B panels, those rooms likely move to tier 1 (unverified).
 
 **First fix:** the operator assigns areas to the Up Hallway and Entry Way panels in the device registry.
+
+## 6. Correction (same day): room `alert_lights` does not fire
+
+- `automation.py:4895` `handle_safety_alert` and `:4909` `handle_security_alert` have no callers anywhere.
+- `aggregation.py:1421`: the legacy temp/humidity/leak flash returns early whenever the Coordinator Manager exists, which it always does here.
+- Nine rooms have `alert_lights` set; none of them can flash today.
+- The only live LED path is NM `nm_alert_lights` (one light, house-wide), `notification_manager.py:1696`.
+- URA fires no HA bus event for notifications, so an outside integration cannot subscribe to alerts today.
+
+Section 4's "REUSE alert_lights" verdict is withdrawn. Revised direction: a separate opt-in panel integration; URA's part is a generic room-targeted alert event.
