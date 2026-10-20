@@ -100,3 +100,26 @@ Existing idiom followed: `_unrecorded_attributes` on `SafetyStatusSensor`, `Secu
 - **Discriminator:** if the row count drops sharply while blobs stay high, something else
   changed (polling or write path), not this fix. If blobs stay at about 2,869, the exclusion
   did not take effect (wrong class, or a stale install).
+
+---
+
+# Also in v5.103.76: per-person GPS uses the freshest tracker
+
+Card: PERSON-GPS-ANY-HOME-WINS-1. Plan: `docs/planning/PLANNING_person_gps_freshest_wins.md`. Tier 2, two reviews (A correctness, B ripple/lifecycle/test authority), both SHIP.
+
+- **Before:** a person with several GPS trackers took the reading of the last one listed, so a stale iPad could overwrite the phone.
+- **Now:** the freshest tracker in a real state (`home`, `not_home` or a zone) wins; unknown/unavailable never beats a real reading. This matches HA's own `person` entity. Kill switch: `PERSON_GPS_FRESHEST_WINS_ENABLED`.
+- **Scope:** diagnostic only. Location and home/away still come from `person.<x>.state`; this changes `tracker_sources`, `tracking_reason` and `confidence` attributes.
+- **Live:** no-op at Madrone (one GPS tracker per person). Check at Wigton: `person.omonele`'s `tracker_sources.gps` matches its freshest reporting tracker.
+
+---
+
+# Also in v5.103.76: 365-day retention for room history tables
+
+Card: DB-SIZE-GROWTH-1. Plan: `docs/planning/PLANNING_db_retention_365d.md`. Tier 2-DB, three reviews (A data integrity, B migration/lifecycle, C mutation), all SHIP.
+
+- Nightly (02:30) batched prune of `environmental_data`, `energy_snapshots`, `occupancy_events` and `room_transitions`: rows older than 365 days. 1,000-row batches, 0.1 s yield, at most 100 batches per table per night. `RETENTION_ROOM_HISTORY_DAYS = 365` (0 disables), `ROOM_HISTORY_PRUNE_MAX_BATCHES = 100`.
+- The two duplicated nightly op lists in `__init__.py` are now one shared list (`nightly_maintenance.py`).
+- **No row is old enough yet** (oldest 2025-11-19): deletion starts about 2026-11-19, ~one day of rows per night. Stops growth; does not shrink the file.
+- **Live:** the 02:30 log shows a `room_history` run with 0 deleted per table; no write-queue warnings.
+- Offline DB copy taken before deploy (D0).
