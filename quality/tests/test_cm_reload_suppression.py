@@ -360,6 +360,7 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
         "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
+        "_CONF_ENERGY_BILL_CYCLE_DAY":              "energy_bill_cycle_day",
         # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
         "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S":      "nm_a1_tripped_breaker_zero_window_s",
         "_CONF_TRIPPED_BREAKER_ROUTE_NM":           "nm_a1_tripped_breaker_route_nm",

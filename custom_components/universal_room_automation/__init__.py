@@ -6766,6 +6766,9 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP as _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
     CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN as _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN,
     CONF_ENERGY_CLOUD_LAG_ALERT_S as _CONF_ENERGY_CLOUD_LAG_ALERT_S,
+    # EC-BILL-CYCLE-DAY-WIRED-1: cycle day applies in place (setter re-keys
+    # + re-seeds from DB); no CM/parent reload.
+    CONF_ENERGY_BILL_CYCLE_DAY as _CONF_ENERGY_BILL_CYCLE_DAY,
     CONF_ENERGY_DP_EVAL_DELAY_MIN as _CONF_ENERGY_DP_EVAL_DELAY_MIN,
     CONF_ENERGY_DP_MARGIN_MIN as _CONF_ENERGY_DP_MARGIN_MIN,
     CONF_ENERGY_DP_MUST_START_BY_MIN as _CONF_ENERGY_DP_MUST_START_BY_MIN,
@@ -7238,6 +7241,7 @@ _EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
     _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP:      ("set_soc_divergence_threshold_pp", int),
     _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN:         ("set_soc_divergence_dwell_min",    int),
     _CONF_ENERGY_CLOUD_LAG_ALERT_S:                ("set_cloud_lag_alert_s",           int),
+    _CONF_ENERGY_BILL_CYCLE_DAY:                   ("set_bill_cycle_day",              int),
 }
 
 # Off-peak drain takes (quality, value) — special-cased below.
@@ -7522,6 +7526,8 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
     _CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN,
     _CONF_ENERGY_CLOUD_LAG_ALERT_S,
+    # EC-BILL-CYCLE-DAY-WIRED-1 — live-apply via `_EC_SETTER_DISPATCH`.
+    _CONF_ENERGY_BILL_CYCLE_DAY,
     # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
     # Consumed via `nm_cycle_a_knob(...)`; cache invalidated by the
     # update listener; no live-attr push, no reload.

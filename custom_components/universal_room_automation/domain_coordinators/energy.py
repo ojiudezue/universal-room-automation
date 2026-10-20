@@ -627,6 +627,7 @@ class EnergyCoordinator(BaseCoordinator):
         self._utility_stats_last_run: datetime | None = None
         self._utility_stats_inflight: bool = False
         self._utility_stats_task = None
+        self._bill_cycle_reseed_task = None
         self._utility_stats_cache: dict[str, Any] | None = None
         self._utility_stats_error: str | None = None
         self._utility_stats_refreshed_at: str | None = None
@@ -680,8 +681,19 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_BILLING_SOURCE,
             DEFAULT_ENERGY_BILLING_SOURCE,
         )
+        # EC-BILL-CYCLE-DAY-WIRED-1: the configured cycle day was never
+        # passed in, so both trackers ran on the default 23.
+        from .energy_const import (
+            CONF_ENERGY_BILL_CYCLE_DAY,
+            DEFAULT_BILL_CYCLE_START_DAY,
+            clamp_bill_cycle_day,
+        )
+        _bill_cycle_day = clamp_bill_cycle_day(
+            ec.get(CONF_ENERGY_BILL_CYCLE_DAY, DEFAULT_BILL_CYCLE_START_DAY)
+        )
         self._billing = CostTracker(
             hass, self._tou,
+            bill_cycle_day=_bill_cycle_day,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
             solar_entity=ec.get(CONF_ENERGY_SOLAR_ENTITY),
             grid_import_entity=ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY),
@@ -694,7 +706,9 @@ class EnergyCoordinator(BaseCoordinator):
         # Isolated from CostTracker so any fault here cannot touch
         # cost_today / cost_this_cycle / predicted_bill.
         from .energy_billing import PeakAvoidanceTracker
-        self._peak_avoidance = PeakAvoidanceTracker(hass)
+        self._peak_avoidance = PeakAvoidanceTracker(
+            hass, bill_cycle_day=_bill_cycle_day,
+        )
         # Lifetime baseline cache (loaded lazily on first accumulate).
         self._savings_baselines: dict[str, dict] = {}
         self._savings_baselines_loaded: bool = False
@@ -11354,6 +11368,48 @@ class EnergyCoordinator(BaseCoordinator):
     def soc_divergence_dwell_min(self) -> int:
         return getattr(self._battery, "_soc_divergence_dwell_min", 0)
 
+    @property
+    def bill_cycle_day(self) -> int:
+        return self._billing._bill_cycle_day
+
+    def set_bill_cycle_day(self, value: int) -> None:
+        """EC-BILL-CYCLE-DAY-WIRED-1: apply a cycle-day change in place.
+
+        Both trackers re-key without wiping the running cycle; the cost
+        totals (and outage-day count) are then re-seeded from the DB for the
+        new window by a tracked background task.
+        """
+        from homeassistant.util import dt as _dt
+        from .energy_const import clamp_bill_cycle_day
+        day = clamp_bill_cycle_day(value)
+        now = _dt.now()
+        changed = self._billing.set_bill_cycle_day(day, now)
+        self._peak_avoidance.set_bill_cycle_day(day, now)
+        _LOGGER.info("Billing cycle day set to %d (changed=%s)", day, changed)
+        if changed:
+            # Review B B1: a superseded reseed must not finish last and write
+            # the old window's totals.
+            _prev = self._bill_cycle_reseed_task
+            if _prev is not None and not _prev.done():
+                _prev.cancel()
+            self._bill_cycle_reseed_task = self.hass.async_create_task(
+                self._reseed_cycle_after_day_change(now)
+            )
+
+    async def _reseed_cycle_after_day_change(self, now) -> None:
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            cycle_start = self._billing._get_cycle_start(now).isoformat()
+            data = await db.get_energy_daily_for_cycle(
+                cycle_start, now.date().isoformat()
+            )
+            self._billing.reseed_cycle(data)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("Billing cycle re-seed after day change failed: %s", e)
+        await self._refresh_outage_days_this_cycle()
+
     def set_soc_divergence_dwell_min(self, value: int) -> None:
         v = max(0, int(value))
         self._battery._soc_divergence_dwell_min = v
@@ -11697,6 +11753,11 @@ class EnergyCoordinator(BaseCoordinator):
                 "utility stats task cancel raised (swallowed)", exc_info=True,
             )
         self._utility_stats_task = None
+        # EC-BILL-CYCLE-DAY-WIRED-1: one-shot re-seed task (same teardown).
+        _reseed = getattr(self, "_bill_cycle_reseed_task", None)
+        if _reseed is not None and not _reseed.done():
+            _reseed.cancel()
+        self._bill_cycle_reseed_task = None
 
     async def _query_utility_statistics(self, start_utc, statistic_ids: set[str]):
         """Hourly ``change`` rows for ``statistic_ids`` since ``start_utc``.
