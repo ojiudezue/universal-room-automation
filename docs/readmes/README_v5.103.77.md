@@ -18,7 +18,8 @@ Card: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (residual `residual_2026_10_20_cyc
 
 - `test_ec_bill_cycle_day_wired.py`: 20 tests against the real package. Builder drills M1–M11 all RED; orchestrator drilled the B1 supersede-cancel and B2 teardown-cancel guards, both RED, tree clean.
 - Four test files that keep hand-written setter/suppress stubs updated (count 111).
-- Full-suite name-diff: see the deploy record.
+- Full-suite name-diff vs the v5.103.76 suite: CLEAN, 11 = 11, 0 new / 0 gone (17,774 passed).
+- Test-harness fix in the same file: its real-package fixture now restores parent-package attributes exactly; before that, 19 later clock-dependent tests failed in full-suite order (patch("homeassistant.util.dt.now") hit a different module object than the code read).
 
 ## Live validation (replace with a Validated table)
 
