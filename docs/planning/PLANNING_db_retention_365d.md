@@ -187,11 +187,25 @@ kill-switch). One adversarial plan review before build.
 ## 10. Plan-completion tracking (fill at cycle close)
 | Item | Done? | If not, why / where tracked |
 |---|---|---|
-| D0 offline copy | | |
-| D1 DAO + tests | | |
-| D2 both lists + test | | |
-| D3 constant + docstring | | |
+| D0 offline copy | no (deploy-time operator step) | run at deploy, before restart |
+| D1 DAO + tests | built (feature/db-retention-365) | `cleanup_room_history` + `_room_history_cutoff`, `database.py`; tests `quality/tests/test_db_retention_room_history.py` |
+| D2 both lists + test | built, via PR-2 hoist | One list `nightly_cleanup_ops()` + runner `run_nightly_cleanup()` in new `nightly_maintenance.py`; both `__init__.py` closures call the runner. 9 existing source-grep list tests in 5 files converted to behavioural calls of the list/runner. |
+| D3 constant + docstring | built | `RETENTION_ROOM_HISTORY_DAYS=365`, `ROOM_HISTORY_PRUNE_MAX_BATCHES=100` in `const.py`; docstring on `get_room_transition_counts` |
+| PR-6 early-exit | not done (optional) | builder's call; scan measured cheap |
 | Live 2026-11-20 first-prune check | | carry as a dated check on the card, not a soak |
+
+### Build notes (2026-10-20)
+- **First-prune estimate re-measured 2026-10-20** (live DB, read-only `immutable=1` open of the main file;
+  1,457,754,112 B): rows older than 365 d = **0** in all four tables. Oldest: env `2025-11-19T12:04:17`,
+  energy `2025-11-19T12:04:17`, occupancy `2025-11-20T17:15:05`, room_transitions `2026-01-04 19:31:19-06:00`.
+  First-day volumes: env 6 rows and energy 6 rows before 2025-11-20; occupancy 19 rows before 2025-11-21;
+  room_transitions 643 rows before 2026-01-05. So the first nights delete single-digit to hundreds of rows;
+  steady state ~12 k env + ~12 k energy + ~0.5 k occ + ~1.3 k transitions per night, well under the cap.
+- **Wire-in gap (reported, not closed):** the two `__init__.py` call sites (`_nightly_db_maintenance`,
+  `_nightly_maintenance_deferred` -> `run_nightly_cleanup`) are closures ~600 lines inside `async_setup_entry`;
+  neutering either call leaves the suite green. The pre-hoist inline loops had the same exposure. The list and
+  the runner themselves are anchored. Closing it needs a setup harness that captures the
+  `async_track_time_change` callbacks; reviewers should judge whether that is in scope.
 
 ## Plan review (2026-10-18 overnight)
 

@@ -1099,19 +1099,12 @@ def test_v478_fixup_A_H2_startup_audit_skips_paused_zones(override_src):
 
 
 def test_v478_fixup_B_H1_prune_wired_into_both_cleanup_lists():
-    """B-H1 / C-H2 (Bug Class #27): prune_stale_egress_state must be wired
-    into BOTH _cleanup_ops lists in __init__.py — primary maintenance path
-    AND deferred maintenance path. Without this, the DAO is dead code and
-    rows for removed zones / interrupted transitions leak.
-    """
-    src = _read(os.path.join(ROOT_REL, "__init__.py"))
-    # Count must be >= 2 (one per list). Source has the string twice if
-    # both are wired.
-    n = src.count('"prune_stale_egress_state"')
-    assert n >= 2, (
-        f"prune_stale_egress_state appears {n} time(s); must be in BOTH "
-        f"_cleanup_ops and _cleanup_ops_d lists"
+    """B-H1 / C-H2 (Bug Class #27): prune_stale_egress_state is in the ONE
+    shared nightly op list both maintenance paths run."""
+    from custom_components.universal_room_automation.nightly_maintenance import (
+        nightly_cleanup_ops,
     )
+    assert ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}) in nightly_cleanup_ops()
 
 
 def test_v478_fixup_B_H2_initial_restore_gate_blocks_first_tick():

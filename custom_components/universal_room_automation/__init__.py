@@ -127,6 +127,7 @@ from .const import (
 from .coordinator import UniversalRoomCoordinator
 from .automation import _classify_detritus_id  # ROOM-CREATE-AREA-PREFILL-DETRITUS-1 D4
 from .database import UniversalRoomDatabase
+from .nightly_maintenance import run_nightly_cleanup  # DB-SIZE-GROWTH-1
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
 from .perimeter_alert import PerimeterAlertManager  # v3.5.1
@@ -2728,86 +2729,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         # v4.2.8: Nightly DB maintenance at 2:30 AM — all cleanup
                         # operations batched to avoid blocking write queue.
-                        _cleanup_ops = [
-                            ("predictions", "prune_prediction_results", {"days": 30}),
-                            ("census", "cleanup_census", {"retention_days": 90}),
-                            ("energy_history", "cleanup_energy_history", {"retention_days": 180}),
-                            ("external_conditions", "cleanup_external_conditions", {"retention_days": 90}),
-                            ("notifications", "prune_notification_log", {"retention_days": 30}),
-                            ("inbound", "prune_inbound_log", {"retention_days": 30}),
-                            ("person_data", "cleanup_person_data", {"retention_days": 90}),
-                            ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
-                            ("anomaly_log", "cleanup_anomaly_log", {"retention_days_point_in_time": 90, "retention_days_regime_shift": 365}),
-                            # v4.7.8 fix-up B-H1 / C-H2 (Bug Class #27):
-                            # paired cleanup for egress_state. Bounded by
-                            # zone count but deleted rooms / orphaned
-                            # transitions need a sweep to age out.
-                            ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
-                            # v4.7.36 fix-up B3: wire Phase 1 + Phase 3
-                            # optimizer prunes into the nightly cadence so
-                            # findings/digest rows don't grow unbounded.
-                            ("optimization_findings", "prune_optimization_findings", {}),
-                            ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
-                            # v5.11.0 F-MED (B-MED-2 fix-up): the D2
-                            # shadow-samples table needs the same nightly
-                            # prune wiring as findings/digest — else
-                            # ``optimizer_shadow_samples`` grows unbounded.
-                            ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
-                            # Fix-up A-HIGH-1 (Batch 4): retention prune for
-                            # decision_log rows. `dp_eval` uses the module
-                            # const `CONF_DP_EVAL_LOG_RETENTION_DAYS` (90d);
-                            # the two blind-window row types share the same
-                            # retention today. Each decision_type gets its
-                            # own op so batching / logging is per-type.
-                            ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
-                            ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
-                            ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
-                            # DB space-reclamation: bounded incremental_vacuum
-                            # runs LAST so the prunes above have already freed
-                            # pages for it to reclaim. No-ops cleanly until the
-                            # supervised activation VACUUM (the button-triggered
-                            # full-vacuum method) converts the DB to INCREMENTAL
-                            # auto_vacuum. Bounded (<=2000 pages, ~8 MB) so it
-                            # completes far under the 5-min budget + 120s guard.
-                            ("incremental_vacuum", "incremental_vacuum", {}),
-                            # MEMORY-COMPACTOR-1 D4 (LOW-1 fix): append
-                            # AFTER incremental_vacuum so the compactor
-                            # rides free at the end of the rotation. The
-                            # adapter is cadence-guarded and no-ops when
-                            # MEMORY_COMPACTOR_ENABLED is False.
-                            ("memory_compactor", "run_memory_compactor", {}),
-                            # MEMORY-WRITERS-SILENT-DROP-1 D3: weekly
-                            # writer-health trip-wire. Internally cadence-
-                            # guarded (RAM ts); nightly tick is a no-op
-                            # 6/7 days. A zero-row writer-backed type
-                            # fires one WARNING + one anomaly row.
-                            ("memory_writer_health", "run_memory_writer_health_check", {}),
-                        ]
-
+                        # DB-SIZE-GROWTH-1 (PR-2): the op list + rotating loop
+                        # live in nightly_maintenance.py, shared with the
+                        # deferred-startup path below (no mirror to drift).
                         async def _nightly_db_maintenance(_now):
                             """Run all DB cleanup at 2:30 AM (batched, 5-min budget, rotating)."""
                             _db = hass.data.get(DOMAIN, {}).get("database")
                             if not _db:
                                 return
-                            from homeassistant.util import dt as _dtu
-                            _start = _dtu.utcnow()
-                            # Rotate start index so later tables get fair access
-                            _idx = hass.data[DOMAIN].get("_nightly_start_idx", 0)
-                            n = len(_cleanup_ops)
-                            for i in range(n):
-                                op = _cleanup_ops[(_idx + i) % n]
-                                name, method_name, kwargs = op
-                                if (_dtu.utcnow() - _start).total_seconds() > 300:
-                                    _LOGGER.warning("Nightly maintenance hit 5-min budget — continuing tomorrow from %s", name)
-                                    break
-                                try:
-                                    method = getattr(_db, method_name, None)
-                                    if method:
-                                        await method(**kwargs)
-                                except Exception as exc:
-                                    _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
-                                await asyncio.sleep(1.0)
-                            hass.data[DOMAIN]["_nightly_start_idx"] = (_idx + 1) % n
+                            await run_nightly_cleanup(hass.data[DOMAIN], _db)
 
                             # v4.6.2 D4: fire regime detector after cleanup ops.
                             # entry.async_create_background_task ensures the task is
@@ -2879,72 +2809,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 async_track_time_change as _attc_d,
             )
 
-            _cleanup_ops_d = [
-                ("predictions", "prune_prediction_results", {"days": 30}),
-                ("census", "cleanup_census", {"retention_days": 90}),
-                ("energy_history", "cleanup_energy_history", {"retention_days": 180}),
-                ("external_conditions", "cleanup_external_conditions", {"retention_days": 90}),
-                ("notifications", "prune_notification_log", {"retention_days": 30}),
-                ("inbound", "prune_inbound_log", {"retention_days": 30}),
-                ("person_data", "cleanup_person_data", {"retention_days": 90}),
-                ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
-                ("anomaly_log", "cleanup_anomaly_log", {"retention_days_point_in_time": 90, "retention_days_regime_shift": 365}),
-                # v4.7.8 fix-up B-H1 / C-H2 (Bug Class #27): mirror primary
-                # path so the deferred-startup branch also schedules the
-                # egress_state prune.
-                ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
-                # v4.7.36 fix-up B3: mirror primary path so deferred-startup
-                # branch also schedules the optimizer prunes.
-                ("optimization_findings", "prune_optimization_findings", {}),
-                ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
-                # v5.11.0 F-MED (D-MED-2 fix-up): mirror primary path so
-                # deferred-startup ALSO schedules the shadow-samples prune.
-                ("optimizer_shadow_samples", "prune_optimizer_shadow_samples", {}),
-                # Fix-up A-HIGH-1 (Batch 4) mirror: deferred-startup path
-                # also schedules the decision_log prunes.
-                ("decision_log_dp_eval", "cleanup_decision_log", {"decision_type": "dp_eval", "retention_days": 90}),
-                ("decision_log_blind_window_defer", "cleanup_decision_log", {"decision_type": "blind_window_defer", "retention_days": 90}),
-                ("decision_log_blind_window_liveness_release", "cleanup_decision_log", {"decision_type": "blind_window_liveness_release", "retention_days": 90}),
-                # DB space-reclamation fix-up HIGH-1: mirror the primary path
-                # so a deferred-startup (DB-init-race) boot ALSO schedules the
-                # bounded incremental_vacuum. Without this, the deferred branch
-                # never reclaims freed pages. Runs LAST, identical semantics.
-                ("incremental_vacuum", "incremental_vacuum", {}),
-                # MEMORY-COMPACTOR-1 fix-up C1 / B-HIGH-1 (Bug Class #27):
-                # mirror the primary path so a deferred-startup boot ALSO
-                # runs the nightly compactor. Without this, on any boot that
-                # loses the DB-init race, `_last_compactor_run_ts` stays None
-                # forever and no room-scoped facts are ever distilled by the
-                # nightly path (button still works). Same short-circuit / cadence
-                # guard semantics as primary.
-                ("memory_compactor", "run_memory_compactor", {}),
-                # MEMORY-WRITERS-SILENT-DROP-1 D3 mirror: deferred-startup
-                # path also schedules the weekly writer-health trip-wire.
-                ("memory_writer_health", "run_memory_writer_health_check", {}),
-            ]
-
+            # DB-SIZE-GROWTH-1 (PR-2): same shared op list + loop as primary.
             async def _nightly_maintenance_deferred(_now):
                 _db = hass.data.get(DOMAIN, {}).get("database")
                 if not _db:
                     return
-                from homeassistant.util import dt as _dtu3
-                _start = _dtu3.utcnow()
-                _idx = hass.data.get(DOMAIN, {}).get("_nightly_start_idx", 0)
-                n = len(_cleanup_ops_d)
-                for i in range(n):
-                    op = _cleanup_ops_d[(_idx + i) % n]
-                    name, method_name, kwargs = op
-                    if (_dtu3.utcnow() - _start).total_seconds() > 300:
-                        _LOGGER.warning("Nightly maintenance hit 5-min budget — continuing tomorrow from %s", name)
-                        break
-                    try:
-                        method = getattr(_db, method_name, None)
-                        if method:
-                            await method(**kwargs)
-                    except Exception as exc:
-                        _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
-                    await asyncio.sleep(1.0)
-                hass.data.get(DOMAIN, {})["_nightly_start_idx"] = (_idx + 1) % n
+                await run_nightly_cleanup(hass.data.get(DOMAIN, {}), _db)
 
                 # v4.6.2 D4: fire regime detector (deferred path, same as primary)
                 _regime_det = hass.data.get(DOMAIN, {}).get("regime_detector")
