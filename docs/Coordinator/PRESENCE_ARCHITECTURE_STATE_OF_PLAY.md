@@ -1,6 +1,7 @@
 # PRESENCE — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` as of 2026-10-11; the live house is on v5.103.50.
+**Recorder churn, display only (built 2026-10-20, `fix/recorder-churn-diag-sensors`, NOT deployed):** the room sensors `Time Since Motion` (floor 60 s), `Occupancy Timeout Remaining` (ceil 30 s) and `Census Validation Age` (floor 60 s) publish stepped values; `coordinator.data` keeps the raw seconds, so no decision changes. Automation Health publishes start/deadline timestamps instead of elapsed/remaining numbers. Quanta: `const.DIAG_*_QUANTUM_S` (rung 1).
 **Paused rooms (built 2026-10-19, `fix/paused-room-lights-fans`, NOT deployed — ROOM-OVERRIDE-SWITCH-FORGOTTEN-1):** the room Automation switch / Manual Mode now also stop HVAC-tier and fan-recheck occupancy lights/fans; see §4.5 and §6 item 3.
 **Fan-noise running rejection Rev 2 (built 2026-10-11, `fix/fan-noise-running-rejection`, NOT deployed — Tier 2-DB):** C1a recheck VACATED leaves the fan off; C2 fan-immune witness by capability + model safety net (name regex retired); C3 fan belief held through unavailable flaps + reconciler quarantine veto; C4 cooldown 900 + per-family window + rehydrate fixes; C5 transition gate retired (0.0). See §5, §6, §10 item 8, gold patterns. Code at the cited lines wins once merged
 (`person_coordinator.py:3` header). Builders / planners / reviewers of ANY presence-adjacent

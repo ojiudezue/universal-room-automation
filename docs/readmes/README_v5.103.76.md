@@ -125,3 +125,18 @@ Card: DB-SIZE-GROWTH-1. Plan: `docs/planning/PLANNING_db_retention_365d.md`. Tie
 - **No row is old enough yet** (oldest 2025-11-19): deletion starts about 2026-11-19, ~one day of rows per night. Stops growth; does not shrink the file.
 - **Live:** the 02:30 log shows a `room_history` run with 0 deleted per table; no write-queue warnings.
 - Offline DB copy taken before deploy (D0).
+
+
+## Validated 2026-10-20 (v5.103.76 restart ~10:45, v5.103.77 restart ~12:00 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Bill check reads SmartHub statistics | PASS | `utility_source: statistics`, `utility_stats_refreshed_at: 2026-10-20T12:04`, `utility_stats_error: null` |
+| Same-window comparison | PASS | `utility_window: 2026-09-24..2026-10-20` (cycle day 24 after v5.103.77) |
+| No false 100% divergence | PASS | `utility_divergence_pct: 3.4` (kWh). Cost: utility $176.71 vs EC $136.43; `ec_underpriced_days: 9` explains most of the $ gap (EC history, per plan M2) |
+| Statistic ids saved without a reload | PASS | options save applied; all 50 entries stayed loaded |
+| Load | PASS | manifest v5.103.76, 50/50 loaded, 0 URA ERRORs |
+| House-state attr churn | not yet measured | one-shot recorder blob check due 1-2 h after restart |
+| GPS freshest-wins | no-op here | one GPS tracker per person at Madrone; Wigton check pending its re-enable |
+| 365-day retention | not yet exercised | first 02:30 run tonight should log `room_history` with 0 deleted |
+| Clear `energy_utility_meter_entity` | NOT DONE via API | entity selector rejects an empty value; unused now that the import statistic id is set |
