@@ -54,6 +54,9 @@ from .domain_coordinators.signals import SIGNAL_HOUSE_POLICY_UPDATE
 
 from .const import (
     DOMAIN,
+    DIAG_CENSUS_VALIDATION_AGE_QUANTUM_S,
+    DIAG_OCCUPANCY_TIMEOUT_REMAINING_QUANTUM_S,
+    DIAG_TIME_SINCE_MOTION_QUANTUM_S,
     LAST_EXIT_BACKFILL_REREAD_SLACK_S,
     ICON_TEMPERATURE,
     ICON_HUMIDITY,
@@ -124,6 +127,37 @@ from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .room_classification import get_room_classification
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _quantize_floor(value, quantum):
+    """Floor ``value`` (seconds) to a multiple of ``quantum``.
+
+    RECORDER-CHURN-DIAG-SENSORS: diagnostic elapsed-time sensors publish a
+    stepped value so consecutive refreshes write the same state. ``None``
+    passes through; ``quantum <= 1`` disables quantization.
+    """
+    if value is None:
+        return None
+    value = int(value)
+    quantum = int(quantum)
+    if quantum <= 1:
+        return value
+    return (value // quantum) * quantum
+
+
+def _quantize_ceil(value, quantum):
+    """Ceil ``value`` (seconds) to a multiple of ``quantum`` (0 stays 0).
+
+    Used for remaining-time countdowns so the published value never reads
+    0 while time remains. ``None`` passes through; ``quantum <= 1`` disables.
+    """
+    if value is None:
+        return None
+    value = int(value)
+    quantum = int(quantum)
+    if quantum <= 1 or value <= 0:
+        return value
+    return -(-value // quantum) * quantum
 
 
 def _camera_input_dark_latch_state(hass) -> bool:
@@ -782,8 +816,13 @@ class OccupancyTimeoutSensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> int:
-        """Return the timeout remaining in seconds."""
-        return self.coordinator.data.get(STATE_TIMEOUT_REMAINING, 0) if self.coordinator.data else 0
+        """Return the timeout remaining in seconds, ceiled to 30 s steps.
+
+        RECORDER-CHURN-DIAG-SENSORS: the raw countdown changed every refresh
+        (one recorder row each). ``coordinator.data`` keeps the raw value.
+        """
+        raw = self.coordinator.data.get(STATE_TIMEOUT_REMAINING, 0) if self.coordinator.data else 0
+        return _quantize_ceil(raw, DIAG_OCCUPANCY_TIMEOUT_REMAINING_QUANTUM_S)
 
 
 # ===================================================================
@@ -1692,8 +1731,14 @@ class TimeSinceMotionSensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return seconds since last motion."""
-        return self.coordinator.data.get(STATE_TIME_SINCE_MOTION) if self.coordinator.data else None
+        """Return seconds since last motion, floored to whole minutes.
+
+        RECORDER-CHURN-DIAG-SENSORS: unit stays seconds; the value steps
+        every 60 s instead of every refresh. ``coordinator.data`` keeps the
+        raw value.
+        """
+        raw = self.coordinator.data.get(STATE_TIME_SINCE_MOTION) if self.coordinator.data else None
+        return _quantize_floor(raw, DIAG_TIME_SINCE_MOTION_QUANTUM_S)
 
 
 class TimeSinceOccupiedSensor(UniversalRoomEntity, SensorEntity):
@@ -2114,15 +2159,11 @@ class LastAutomationTriggerSensor(UniversalRoomEntity, SensorEntity):
         }
         
         if self.coordinator._last_trigger_time:
+            # RECORDER-CHURN-DIAG-SENSORS: the relative `time_ago` string was
+            # recomputed every refresh (one recorder row each); dropped. The
+            # absolute `timestamp` answers the same question.
             attrs["timestamp"] = self.coordinator._last_trigger_time.isoformat()
-            time_ago = (dt_util.now() - self.coordinator._last_trigger_time).total_seconds()
-            if time_ago < 60:
-                attrs["time_ago"] = f"{int(time_ago)} seconds ago"
-            elif time_ago < 3600:
-                attrs["time_ago"] = f"{int(time_ago / 60)} minutes ago"
-            else:
-                attrs["time_ago"] = f"{int(time_ago / 3600)} hours ago"
-        
+
         return attrs
 
 
@@ -2157,15 +2198,9 @@ class LastAutomationActionSensor(UniversalRoomEntity, SensorEntity):
         }
         
         if self.coordinator._last_action_time:
+            # RECORDER-CHURN-DIAG-SENSORS: `time_ago` dropped (per-refresh churn).
             attrs["timestamp"] = self.coordinator._last_action_time.isoformat()
-            time_ago = (dt_util.now() - self.coordinator._last_action_time).total_seconds()
-            if time_ago < 60:
-                attrs["time_ago"] = f"{int(time_ago)} seconds ago"
-            elif time_ago < 3600:
-                attrs["time_ago"] = f"{int(time_ago / 60)} minutes ago"
-            else:
-                attrs["time_ago"] = f"{int(time_ago / 3600)} hours ago"
-        
+
         return attrs
 
 
@@ -2197,20 +2232,12 @@ class LastAutomationTimeSensor(UniversalRoomEntity, SensorEntity):
         """Return additional context about the last automation."""
         attrs = {}
         
+        # RECORDER-CHURN-DIAG-SENSORS: `time_ago` dropped (per-refresh churn);
+        # the entity's own state is the timestamp.
         if self.coordinator._last_action_time:
-            time_ago = (dt_util.now() - self.coordinator._last_action_time).total_seconds()
-            if time_ago < 60:
-                attrs["time_ago"] = f"{int(time_ago)} seconds ago"
-            elif time_ago < 3600:
-                attrs["time_ago"] = f"{int(time_ago / 60)} minutes ago"
-            else:
-                attrs["time_ago"] = f"{int(time_ago / 3600)} hours ago"
-            
             attrs["action"] = self.coordinator._last_action_description or "Unknown"
             attrs["trigger"] = self.coordinator._last_trigger_source or "Unknown"
-        else:
-            attrs["time_ago"] = "Never"
-        
+
         return attrs
 
 class DevicesSensor(UniversalRoomEntity, SensorEntity):
@@ -2512,16 +2539,31 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
         now = dt_util.now()
         attrs: dict[str, Any] = {}
 
+        # RECORDER-CHURN-DIAG-SENSORS (2026-10-20): every attribute below is a
+        # value that changes only on a TRANSITION (start / deadline
+        # timestamps, flags). The old elapsed/remaining numbers
+        # (session_duration_minutes, failsafe_remaining_minutes,
+        # debounce_elapsed_seconds, grace_remaining_seconds, stuck on_hours)
+        # changed on every 30 s refresh and wrote one recorder row each.
+
         # --- Tier 1: Occupancy session & failsafe ---
         if c._became_occupied_time and (c.data or {}).get("occupied", False):
-            session_s = (now - c._became_occupied_time).total_seconds()
-            attrs["session_duration_minutes"] = round(session_s / 60, 1)
-            attrs["failsafe_remaining_minutes"] = max(
-                0, round((4 * 3600 - session_s) / 60, 1)
-            )
+            attrs["session_started_at"] = c._became_occupied_time.isoformat()
+            # The room's real failsafe duration (room-type keyed), not the
+            # old hard-coded 4 h.
+            try:
+                failsafe_s = c._get_failsafe_duration_seconds()
+            except Exception:  # noqa: BLE001 — display only
+                failsafe_s = None
+            if isinstance(failsafe_s, (int, float)):
+                attrs["failsafe_at"] = (
+                    c._became_occupied_time + timedelta(seconds=failsafe_s)
+                ).isoformat()
+            else:
+                attrs["failsafe_at"] = None
         else:
-            attrs["session_duration_minutes"] = 0
-            attrs["failsafe_remaining_minutes"] = None
+            attrs["session_started_at"] = None
+            attrs["failsafe_at"] = None
         attrs["failsafe_fired"] = c._failsafe_fired
 
         # --- Tier 1: Stuck sensors ---
@@ -2529,38 +2571,41 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
         for eid, since in c._sensor_on_since.items():
             on_hours = (now - since).total_seconds() / 3600
             if on_hours > c._stuck_sensor_hours:
-                stuck.append({"entity_id": eid, "on_hours": round(on_hours, 1)})
+                stuck.append({"entity_id": eid, "on_since": since.isoformat()})
         attrs["stuck_sensors"] = stuck
         attrs["stuck_sensor_count"] = len(stuck)
 
         # STUCK-SENSOR-1 D2a — current-tick D1 exclusion set (dutycycle
         # sensors promoted into the exclusion path). Empty list when
-        # no exclusion engaged. Shape: [(entity_id, kind, engaged_at_iso)].
+        # no exclusion engaged. Shape: [(entity_id, kind)].
+        # RECORDER-CHURN-DIAG-SENSORS fix-up: the coordinator re-stamps each
+        # exclusion with `now` every tick, so the timestamp is dropped here
+        # (sorted for a stable order). Coordinator logic unchanged.
         _excluded_now = getattr(c, "_dutycycle_excluded_now", {}) or {}
         attrs["excluded_sensors"] = [
-            (eid, "dutycycle", ts.isoformat() if ts else None)
-            for eid, ts in _excluded_now.items()
+            (eid, "dutycycle") for eid in sorted(_excluded_now)
         ]
 
         # --- Tier 1: Debounce ---
         if c._occupancy_first_detected is not None:
             elapsed = (now - c._occupancy_first_detected).total_seconds()
             attrs["debounce_active"] = elapsed < c._occupancy_debounce_seconds
-            attrs["debounce_elapsed_seconds"] = round(elapsed, 1)
+            attrs["debounce_started_at"] = c._occupancy_first_detected.isoformat()
         else:
             attrs["debounce_active"] = False
-            attrs["debounce_elapsed_seconds"] = None
+            attrs["debounce_started_at"] = None
 
         # --- Tier 1: Sensor grace period ---
         if c._all_sensors_unavailable_since is not None:
             elapsed = (now - c._all_sensors_unavailable_since).total_seconds()
             attrs["grace_active"] = elapsed < c._unavail_grace_seconds
-            attrs["grace_remaining_seconds"] = max(
-                0, round(c._unavail_grace_seconds - elapsed, 1)
-            )
+            attrs["grace_until"] = (
+                c._all_sensors_unavailable_since
+                + timedelta(seconds=c._unavail_grace_seconds)
+            ).isoformat()
         else:
             attrs["grace_active"] = False
-            attrs["grace_remaining_seconds"] = None
+            attrs["grace_until"] = None
 
         # --- Tier 2: Sleep bypass ---
         if hasattr(c, "automation") and c.automation:
@@ -3108,20 +3153,9 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
             else:
                 attrs["last_seen"] = self._last_occupant_time.isoformat()
 
-            # Calculate time ago
-            now = dt_util.utcnow()
-            last_time = dt_util.parse_datetime(
-                self._last_occupant_time if isinstance(self._last_occupant_time, str)
-                else self._last_occupant_time.isoformat()
-            )
-            if last_time is None:
-                last_time = now
-            elif last_time.tzinfo is None:
-                from datetime import timezone
-                last_time = last_time.replace(tzinfo=timezone.utc)
-            time_diff = now - last_time
-            attrs["time_ago"] = str(time_diff).split('.')[0]
-        
+            # RECORDER-CHURN-DIAG-SENSORS fix-up: `time_ago` dropped (it was
+            # recomputed every refresh); `last_seen` answers the same question.
+
         return attrs
 
 
@@ -4166,8 +4200,13 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         if ts.tzinfo is None:
             from datetime import timezone  # v4.2.9: replaced pytz
             ts = ts.replace(tzinfo=timezone.utc)
-        delta = now - ts
-        return int(delta.total_seconds())
+        # Clamp clock skew (a census stamp in the future) to 0.
+        delta = max(now - ts, timedelta(0))
+        # RECORDER-CHURN-DIAG-SENSORS: floored to whole minutes so the state
+        # changes once a minute, not every refresh.
+        return _quantize_floor(
+            int(delta.total_seconds()), DIAG_CENSUS_VALIDATION_AGE_QUANTUM_S,
+        )
 
 
 # ============================================================================
@@ -13443,6 +13482,10 @@ class HVACACRampKwhRateSensor(
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # RECORDER-CHURN-DIAG-SENSORS: the source's `last_updated` is unique per
+    # reading, so recording it made every attribute blob unique. Live attribute
+    # kept for display; recorder history uses the state's own last_changed.
+    _unrecorded_attributes = frozenset({"last_updated"})
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry,
@@ -13536,8 +13579,11 @@ class HVACACRampKwhRateSensor(
             "climate_entity": self._climate_entity,
             "source_entity": source_entity or "unset",
             "source_unit": source_unit,
+            # RECORDER-CHURN-DIAG-SENSORS: `age_seconds` dropped (changed on
+            # every write). `last_updated` changes only on new source data and
+            # is unrecorded (see `_unrecorded_attributes`); `stale` flips only
+            # on a transition.
             "last_updated": last_ts,
-            "age_seconds": int(age_s) if age_s is not None else None,
             "stale": stale,
             "kwh_threshold": getattr(zone, "kwh_rate_threshold", 0.8),
         }

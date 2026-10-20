@@ -1,5 +1,6 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-10-20 (built, `fix/recorder-churn-diag-sensors`, NOT deployed, display only):** `sensor.ura_hvac_ac_ramp_kwh_rate_<zone>` no longer publishes `age_seconds`; `last_updated` is kept live but unrecorded; `stale` is still computed. No HVAC decision reads this sensor.
 **2026-10-19 (built, `fix/paused-room-lights-fans`, NOT deployed):** paused rooms (Automation switch off / Manual Mode on) are skipped by the HVAC zone vacancy sweep, comfort fans, sleep-onset fan, pre-arrival fans and the fan recheck arm — see §4.2b "Paused rooms".
 **Currency fix 2026-10-14:** the per-section "NOT deployed" tags below were stale — every HVAC build listed here has SHIPPED (v5.103.20 / .23 / .24 / .36 / .39 / .40 / .41 / .51). Open residuals: see `HVAC-W1C-GENERIC-THERMOSTAT-1` (P2 review residuals) and §11.
 
