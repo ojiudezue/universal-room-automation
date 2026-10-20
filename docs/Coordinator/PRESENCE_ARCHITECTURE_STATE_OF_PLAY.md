@@ -191,8 +191,15 @@ tracker of a source type wins. A second GPS device that never reads home (2026-1
 ~100 m from `zone.home` centre with a 53 m radius) therefore overwrote the phone's GPS axis with
 `away`. Removed from `person.oji_udezue` 2026-10-18 (operator). Keep each person to phone app GPS +
 BLE IRK (`private_ble_device_*`); the `*_bermuda_tracker` is Bermuda's own tracker derived from the
-same IRK (operator), so it duplicates the BLE axis harmlessly. Open: whether "any GPS home wins"
-should replace last-wins (carded in the sleep-mask/BLE-memory plan).
+same IRK (operator), so it duplicates the BLE axis harmlessly.
+**Freshest-GPS-wins (PERSON-GPS-ANY-HOME-WINS-1, branch `fix/person-gps-freshest-wins`, NOT
+deployed; plan `docs/planning/PLANNING_person_gps_freshest_wins.md`):** the GPS axis is the real
+reading (`home` / away) of the GPS tracker with the newest `last_updated`; unknown/unavailable never
+beats a real reading; ties and undated trackers keep list order. Same rule as HA's own `person`
+entity (`person/__init__.py` `_update_state`). Any-home-wins was rejected (a left-at-home device
+would hold a person home). Kill switch `PERSON_GPS_FRESHEST_WINS_ENABLED` (rung 1). Scope: in the
+no-room / no-Bermuda branches location comes from `person.<x>.state`, not this axis; the axis sets
+`tracker_sources`, `tracking_reason` and `confidence` (diagnostic). WiFi axis is still last-wins.
 
 **All three AWAY branches already need residents' phones/BLE gone** (2026-10-18 verify): nobody-home
 via `census_count` (includes BLE ids), α via `all_tracked_persons_away`, β via the trusted-or-lost
@@ -643,6 +650,12 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    - A zone held by Tier-1 while all phones are away keeps consensus ≤ 0.6, so it pins an already-engaged gate for the length of the hold.
    - D4 cannot engage the gate alone (1 − 0.4 − 0.1 = 0.5).
    - Accepted by name (PICK R3-4); card HVAC-CONSENSUS-GATE-PIN-1 (probe first). No HVAC code change.
+
+23. **"The iPad's stale GPS overwrote the phone and so drove URA's AWAY decisions."** OVERSTATED
+   (2026-10-20, freshest-GPS plan producer check). URA's last-wins GPS axis feeds only
+   `tracker_sources` / `tracking_reason` / `confidence`; location in the no-room / no-Bermuda branches
+   comes from `person.<x>.state` (`person_coordinator.py` S2/S3/S5 wrapper). HA's person entity already
+   picks the freshest GPS, so the iPad could move AWAY only when its fix was the freshest one HA saw.
 
 ## 11. Read before you touch — agent checklist
 

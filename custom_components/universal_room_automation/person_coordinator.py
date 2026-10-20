@@ -66,7 +66,30 @@ from .const import (
 # protocol-level fail-safe; any change requires code review.
 BLE_FLEET_LIVENESS_WINDOW_S = 90
 
+# PERSON-GPS-ANY-HOME-WINS-1: per-person GPS axis = freshest real GPS
+# reading (newest `last_updated`), not the last tracker in the list.
+# Rung 1 (module constant, kill switch): a policy choice that should
+# change only through review. False = legacy last-tracker-wins.
+PERSON_GPS_FRESHEST_WINS_ENABLED = True
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _gps_newer_or_equal(candidate: datetime | None, best: datetime | None) -> bool:
+    """True if a GPS reading stamped ``candidate`` replaces one stamped ``best``.
+
+    No timestamp ranks oldest. Equal stamps (and None vs None) return True,
+    so on a tie the later tracker in the list wins (legacy order). A
+    naive/aware mix that cannot be compared also returns True (legacy order).
+    """
+    if candidate is None:
+        return best is None
+    if best is None:
+        return True
+    try:
+        return candidate >= best
+    except TypeError:
+        return True
 
 
 # PATH-ALPHA D2a: matrix-row stamp builder. Enforces WARN-gated vocabulary
@@ -204,6 +227,20 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001 - defensive
             return sources
 
+        # PERSON-GPS-ANY-HOME-WINS-1 (freshest-GPS-wins): the GPS axis is the
+        # reading of the GPS tracker with the newest `last_updated` among
+        # trackers that report a real state (home / not_home / zone). A
+        # tracker reading unknown/unavailable never beats a real reading,
+        # whatever its timestamp; it only yields "unknown" when no GPS
+        # tracker has a real state. Ties (incl. trackers with no usable
+        # timestamp) keep the legacy rule: the later tracker in the list
+        # wins. Same choice as HA's own person entity (person/__init__.py
+        # `_update_state` / `_get_latest`). Kill switch:
+        # PERSON_GPS_FRESHEST_WINS_ENABLED (False = legacy last-wins).
+        _gps_best_value: str | None = None
+        _gps_best_ts: datetime | None = None
+        _gps_saw_unknown = False
+
         for tracker_id in device_trackers:
             try:
                 ts = self.hass.states.get(tracker_id)
@@ -221,12 +258,23 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             if src_type == "gps":
                 # HA companion GPS: state in {"home","not_home","<zone>","unknown","unavailable"}.
                 if state == "home":
-                    sources["gps"] = "home"
+                    _gps_value = "home"
                 elif state in ("unknown", "unavailable", "", "None"):
-                    sources["gps"] = "unknown"
+                    _gps_value = "unknown"
                 else:
                     # not_home OR any named zone → treat as away signal.
-                    sources["gps"] = "away"
+                    _gps_value = "away"
+                if not PERSON_GPS_FRESHEST_WINS_ENABLED:
+                    sources["gps"] = _gps_value  # legacy last-tracker-wins
+                elif _gps_value == "unknown":
+                    _gps_saw_unknown = True
+                else:
+                    _ts = getattr(ts, "last_updated", None)
+                    if not isinstance(_ts, datetime):
+                        _ts = None
+                    if _gps_best_value is None or _gps_newer_or_equal(_ts, _gps_best_ts):
+                        _gps_best_value = _gps_value
+                        _gps_best_ts = _ts
             elif src_type == "router":
                 if state == "home":
                     sources["wifi"] = "home"
@@ -239,6 +287,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             # BLE trackers show up as source_type=bluetooth_le / private_ble;
             # handled via the Bermuda area sensor path (higher-fidelity than
             # the raw device_tracker.state).
+        if PERSON_GPS_FRESHEST_WINS_ENABLED:
+            if _gps_best_value is not None:
+                sources["gps"] = _gps_best_value
+            elif _gps_saw_unknown:
+                sources["gps"] = "unknown"
         return sources
 
     def _ble_fleet_live(self, now: datetime) -> bool:
