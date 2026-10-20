@@ -5567,8 +5567,22 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
     # recorder (HA Entity._unrecorded_attributes). The low-churn D3 fields
     # (last_away_branch, last_away_at, away_entries_today, guest_reason)
     # ARE recorded — the day-7 scorecard reads them.
+    # HOUSE-STATE-SENSOR-ATTR-CHURN-1 (measured 2026-10-19): ~2,870 rows/day
+    # carried 2,869 DISTINCT attribute blobs (~9.5 MB/day) for 13 state
+    # changes — dwell_seconds changes every 30 s poll, zones/inputs every few
+    # minutes. dwell_seconds is derivable from state_since; signal_consensus
+    # value/band/inputs stay recorded on sensor.ura_presence_coordinator_signal_consensus_confidence;
+    # zones has no recorder-history reader. Live state.attributes unaffected.
     _unrecorded_attributes = frozenset(
-        {"stale_counted_home", "nobody_home_zone_input"}
+        {
+            "stale_counted_home",
+            "nobody_home_zone_input",
+            "dwell_seconds",
+            "zones",
+            "signal_consensus",
+            "signal_consensus_band",
+            "signal_consensus_inputs",
+        }
     )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:

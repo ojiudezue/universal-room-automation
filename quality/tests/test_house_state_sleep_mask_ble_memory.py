@@ -1699,8 +1699,17 @@ def _sensor_attrs(w):
 
 
 def test_unrecorded_attributes_set(monkeypatch, clock):
+    # HOUSE-STATE-SENSOR-ATTR-CHURN-1 widened the set with five churny keys.
     assert SE.PresenceHouseStateSensor._unrecorded_attributes == frozenset(
-        {"stale_counted_home", "nobody_home_zone_input"}
+        {
+            "stale_counted_home",
+            "nobody_home_zone_input",
+            "dwell_seconds",
+            "zones",
+            "signal_consensus",
+            "signal_consensus_band",
+            "signal_consensus_inputs",
+        }
     )
     # HA's recorder strips exactly the merged set (Entity base + class).
     s = object.__new__(SE.PresenceHouseStateSensor)

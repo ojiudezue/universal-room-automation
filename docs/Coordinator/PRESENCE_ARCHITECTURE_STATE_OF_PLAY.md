@@ -133,7 +133,12 @@ control falls through to path β / GUEST / SLEEP.
 - `away_entries_today`: counted in `_dispatch_house_state_change` after the boot-settle and observation gates, next to the `house_state_log` write. The getter reads 0 on a new local day. At setup it is hydrated with a naive-UTC `start_of_local_day` bound, via `count_house_state_changes_since(..., state="away", exclude_same_previous=True)`.
 - `guest_reason`: `guest_room:<room>` > `unidentified_persistent` > `override` > `none`.
 
-`stale_counted_home` and `nobody_home_zone_input` are in `_unrecorded_attributes`.
+`stale_counted_home` and `nobody_home_zone_input` are in `_unrecorded_attributes`. Since
+HOUSE-STATE-SENSOR-ATTR-CHURN-1 (branch `fix/house-state-attr-unrecorded`, NOT deployed) so are
+`dwell_seconds`, `zones`, `signal_consensus`, `signal_consensus_band` and `signal_consensus_inputs`
+(`sensor.py` `PresenceHouseStateSensor`). Live attributes are unchanged. For recorder history, use
+`state_since` for dwell, and use `sensor.ura_presence_coordinator_signal_consensus_confidence` (value, `consensus_band`,
+`signal_consensus_inputs`) for consensus.
 
 **Veto-path verdict** (corrected 2026-10-18, §10 #16): the house-state sensor attribute
 `veto_path` (`sensor.py:5661`) mirrors the engine's `_veto_path` (`presence.py:6518`), values
