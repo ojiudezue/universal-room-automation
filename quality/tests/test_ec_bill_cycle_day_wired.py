@@ -209,7 +209,13 @@ def test_coordinator_setter_reseeds_from_db_for_new_window():
     with patch("homeassistant.util.dt.now", return_value=NOW):
         c.set_bill_cycle_day(24)
         assert len(captured) == 1
-        asyncio.run(captured[0])
+        # Not asyncio.run(): it clears the thread's current event loop, which
+        # breaks later suite files that call asyncio.get_event_loop().
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(captured[0])
+        finally:
+            loop.close()
     db.get_energy_daily_for_cycle.assert_awaited_once_with("2026-09-24", "2026-10-20")
     assert c._billing._cost_this_cycle == 41.0
 
