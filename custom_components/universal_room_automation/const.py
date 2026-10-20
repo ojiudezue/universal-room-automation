@@ -1948,6 +1948,21 @@ STATE_ENERGY_EFFICIENCY_SCORE: Final = "energy_efficiency_score"
 STATE_ENERGY_WASTE_IDLE: Final = "energy_waste_idle"
 STATE_TIME_SINCE_MOTION: Final = "time_since_motion"
 STATE_TIME_SINCE_OCCUPIED: Final = "time_since_last_occupied"
+
+# RECORDER-CHURN-DIAG-SENSORS (2026-10-20): publish quanta for diagnostic
+# elapsed/remaining sensors. Rung 1 (module const): display granularity only,
+# no automation reads the published value (coordinator.data keeps the raw
+# second-resolution value). A value <= 1 disables quantization (raw seconds).
+# Why: each distinct published value is one recorder `states` row; the raw
+# per-refresh seconds wrote ~600 rows/hr/room (measured 2026-10-20).
+# Time Since Motion: floor to whole minutes (unit stays seconds).
+DIAG_TIME_SINCE_MOTION_QUANTUM_S: Final = 60
+# Census Validation Age: floor to whole minutes (dashboard thresholds are
+# 300 s and above, so a 60 s step never moves a band edge by more than 59 s).
+DIAG_CENSUS_VALIDATION_AGE_QUANTUM_S: Final = 60
+# Occupancy Timeout Remaining: ceil to 30 s so a live countdown never reads 0
+# while time remains.
+DIAG_OCCUPANCY_TIMEOUT_REMAINING_QUANTUM_S: Final = 30
 STATE_DAYS_SINCE_OCCUPIED: Final = "days_since_occupied"
 STATE_TIME_IN_COMFORT: Final = "time_in_comfort_zone_today"
 STATE_TIME_UNCOMFORTABLE: Final = "time_uncomfortable_today"
