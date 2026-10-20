@@ -55,6 +55,8 @@ All one-shot reads of `sensor.ura_energy_coordinator_predicted_bill` attributes,
 
 # Also in v5.103.76: house-state sensor attribute churn left out of the recorder
 
+Card: HOUSE-STATE-SENSOR-ATTR-CHURN-1. Tier 1.
+
 
 ## Summary
 `sensor.ura_presence_coordinator_presence_house_state` wrote about 2,870 recorder rows a day.
