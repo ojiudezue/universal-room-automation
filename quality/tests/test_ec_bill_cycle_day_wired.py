@@ -62,6 +62,19 @@ def _real_ura_package():
         for name, mod in before.items():
             if sys.modules.get(name) is not mod:
                 sys.modules[name] = mod
+        # Re-point parent-package attributes too: importing the real package
+        # rebinds e.g. homeassistant.util.dt on its parent, and a later
+        # patch("homeassistant.util.dt.now") would then patch a different
+        # module object than the one `from homeassistant.util import dt`
+        # returns (polluted 19 clock-dependent tests in the full suite).
+        for name, mod in before.items():
+            parent, _, child = name.rpartition(".")
+            if parent and parent in sys.modules:
+                try:
+                    if getattr(sys.modules[parent], child, None) is not mod:
+                        setattr(sys.modules[parent], child, mod)
+                except Exception:  # noqa: BLE001 - read-only stub parents
+                    pass
 
 
 
