@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "228",
+  "author": "ojiudezue",
+  "session_id": "claude_20261020_224733_ship_v5_103_79",
+  "timestamp": "2026-10-20T22:47:33Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.79 shipped: Bill prediction uses SmartHub cost and tracks its accuracy",
+  "summary": "Bill prediction uses SmartHub cost and tracks its accuracy",
+  "why": "Operator wanted a 1-2 week extrapolation that tracks actuals so accuracy is visible over time. The straight line on URA cost ran 20-34% low; SmartHub statistics now give real cost to date. A D0 backtest over 4 cycles picked same-weekday pricing for the remainder (15% error at days 7/14 vs 32-43%); bias correction showed no gain, so it is parked.",
+  "implications": "Shipped EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 at v5.103.79; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.79.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_energy_coordinator_predicted_bill prediction_source==utility and accuracy_cycles_scored>=1 after the 2026-11-24 cycle close, with accuracy_mape_by_horizon populated",
+  "refs": {
+    "cards": [
+      "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.79.md"
+    ],
+    "release_notes": "The predicted bill now uses SmartHub's real cost so far plus a same-weekday forecast for the rest of the cycle, adds the service charge once, and keeps a per-cycle accuracy record (error at day 7, 14 and 21)."
+  }
+}
