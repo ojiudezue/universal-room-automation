@@ -272,6 +272,21 @@ DEFAULT_TOU_RATE_FILE: Final = "universal_room_automation/tou_rates.json"
 CONF_ENERGY_RESERVE_SOC: Final = "energy_reserve_soc"
 CONF_ENERGY_DECISION_INTERVAL: Final = "energy_decision_interval"
 CONF_ENERGY_BILL_CYCLE_DAY: Final = "energy_bill_cycle_day"
+# EC-BILL-CYCLE-DAY-WIRED-1: bounds match the options-form selector (1..28 —
+# every month has a 28th, so the cycle day always exists). Rung 1: a form
+# guard, not policy. A malformed/missing value falls back to the default.
+BILL_CYCLE_DAY_MIN: Final = 1
+BILL_CYCLE_DAY_MAX: Final = 28
+
+
+def clamp_bill_cycle_day(value: object) -> int:
+    """Coerce the configured bill-cycle day to an int in [1, 28]."""
+    try:
+        v = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return DEFAULT_BILL_CYCLE_START_DAY
+    return max(BILL_CYCLE_DAY_MIN, min(BILL_CYCLE_DAY_MAX, v))
+
 CONF_ENERGY_SOLAR_ENTITY: Final = "energy_solar_entity"
 CONF_ENERGY_GRID_ENTITY: Final = "energy_grid_entity"
 CONF_ENERGY_BATTERY_SOC_ENTITY: Final = "energy_battery_soc_entity"

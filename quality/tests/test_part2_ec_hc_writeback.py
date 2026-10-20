@@ -148,6 +148,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "energy_soc_divergence_threshold_pp",
     "energy_soc_divergence_dwell_min",
     "energy_cloud_lag_alert_s",
+    # EC-BILL-CYCLE-DAY-WIRED-1
+    "energy_bill_cycle_day",
     # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
     "nm_a1_tripped_breaker_zero_window_s",
     "nm_a1_tripped_breaker_route_nm",
@@ -260,6 +262,7 @@ def _verify_hand_typed_conf_literals() -> None:
         "energy_soc_divergence_threshold_pp": "CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP",
         "energy_soc_divergence_dwell_min": "CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN",
         "energy_cloud_lag_alert_s": "CONF_ENERGY_CLOUD_LAG_ALERT_S",
+        "energy_bill_cycle_day": "CONF_ENERGY_BILL_CYCLE_DAY",
         # Bayesian.
         "bayesian_cell_staleness_days": "CONF_BAYESIAN_CELL_STALENESS_DAYS",
         # NM Cycle A-2 (12 knobs + optimizer allowlist).
@@ -384,7 +387,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +1 inclement_preonset_floor (EC storm Stage B D-B6 slider) -> 104
     # +4 EC storm Stage E E1.6 alert-selection override lists -> 108
     # +2 EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 utility statistic ids -> 110
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 110
+    # +1 EC-BILL-CYCLE-DAY-WIRED-1 energy_bill_cycle_day -> 111
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 111
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +616,7 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP": "energy_soc_divergence_threshold_pp",
         "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN":    "energy_soc_divergence_dwell_min",
         "_CONF_ENERGY_CLOUD_LAG_ALERT_S":           "energy_cloud_lag_alert_s",
+        "_CONF_ENERGY_BILL_CYCLE_DAY":              "energy_bill_cycle_day",
         # NM Cycle A-2 (2026-07-20) — 12 Cycle-A knobs + optimizer allowlist.
         "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S":      "nm_a1_tripped_breaker_zero_window_s",
         "_CONF_TRIPPED_BREAKER_ROUTE_NM":           "nm_a1_tripped_breaker_route_nm",

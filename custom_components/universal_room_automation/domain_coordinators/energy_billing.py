@@ -543,6 +543,31 @@ class CostTracker:
             # Cycle day doesn't exist in last month (e.g., 31st in Feb)
             return last_month
 
+    def set_bill_cycle_day(self, day: int, now: datetime) -> bool:
+        """EC-BILL-CYCLE-DAY-WIRED-1: change the cycle day mid-cycle.
+
+        Re-keys `_cycle_start_date` to the new boundary WITHOUT zeroing the
+        accumulators, so the next `_check_cycle_reset` does not wipe the
+        running cycle. The caller re-seeds the totals for the new window
+        from the DB (`reseed_cycle`). Returns True when the day changed.
+        """
+        if day == self._bill_cycle_day:
+            return False
+        self._bill_cycle_day = day
+        self._cycle_start_date = self._get_cycle_start(now).isoformat()
+        return True
+
+    def reseed_cycle(self, db_cycle_data: dict) -> None:
+        """Rebuild cycle totals = DB full days in the window + today so far.
+
+        `get_energy_daily_for_cycle(start, today)` excludes today, so today's
+        in-memory accumulators are added back. Used after a cycle-day change.
+        """
+        self._import_kwh_cycle = float(db_cycle_data.get("import_kwh", 0) or 0) + self._import_kwh_today
+        self._export_kwh_cycle = float(db_cycle_data.get("export_kwh", 0) or 0) + self._export_kwh_today
+        self._cost_this_cycle = float(db_cycle_data.get("net_cost", 0) or 0) + self._cost_today
+        self._db_days_in_cycle = int(db_cycle_data.get("days", 0) or 0)
+
     def update_from_db(self, db_cycle_data: dict) -> None:
         """Update cycle accumulators from DB data on startup.
 
@@ -786,6 +811,20 @@ class PeakAvoidanceTracker:
             return last_month.replace(day=day)
         except ValueError:
             return last_month
+
+    def set_bill_cycle_day(self, day: int, now: datetime) -> bool:
+        """EC-BILL-CYCLE-DAY-WIRED-1: re-key the cycle without zeroing.
+
+        PA has no per-day DB source, so the running cycle totals are kept
+        (they may include the shifted day(s)); the next real boundary of the
+        new day resets them cleanly. Returns True when the day changed.
+        """
+        if day == self._bill_cycle_day:
+            return False
+        self._bill_cycle_day = day
+        if self._cycle_start_date:
+            self._cycle_start_date = self._get_cycle_start(now).isoformat()
+        return True
 
     def _maybe_reset(self, now: datetime) -> None:
         today = now.date().isoformat()
