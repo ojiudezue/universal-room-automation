@@ -1,7 +1,7 @@
 """Energy forecasting and prediction for Energy Coordinator.
 
 Sub-Cycle E5: Daily energy prediction, battery full time estimate,
-forecast accuracy tracking with Bayesian adjustment.
+forecast accuracy tracking with a damped mean-error adjustment.
 v3.7.12: Sunrise refresh, DB-backed accuracy, temperature regression.
 """
 
@@ -123,7 +123,8 @@ class DailyEnergyPredictor:
             d: deque(maxlen=8) for d in range(7)
         }
 
-        # Bayesian adjustment factor (starts at 1.0, adjusts with accuracy)
+        # Damped mean-error adjustment factor (starts at 1.0). Not Bayesian:
+        # 1 + mean(last-7 pct error)/100 x 0.3, clamped to [0.7, 1.3].
         self._adjustment_factor: float = 1.0
 
         # Temperature regression (learned after 30+ days)
@@ -897,7 +898,10 @@ class AccuracyTracker:
         }
 
     def get_adjustment_factor(self) -> float:
-        """Calculate Bayesian adjustment factor from recent accuracy.
+        """Damped mean-error adjustment factor from recent accuracy (not Bayesian).
+
+        1 + mean(last 7 pct errors)/100 x 0.3, clamped to [0.7, 1.3]; 1.0 until
+        3 samples exist.
 
         If predictions consistently under-estimate, factor > 1.0.
         If predictions consistently over-estimate, factor < 1.0.

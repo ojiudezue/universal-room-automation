@@ -629,6 +629,9 @@ class EnergyCoordinator(BaseCoordinator):
         self._utility_stats_task = None
         self._bill_cycle_reseed_task = None
         self._utility_stats_cache: dict[str, Any] | None = None
+        # EC-BILL-PREDICTION-FORECAST-1: ledger ops wait for the restore so a
+        # refresh racing setup cannot be clobbered by the restored payload.
+        self._bill_ledger_ready: bool = False
         self._utility_stats_error: str | None = None
         self._utility_stats_refreshed_at: str | None = None
         self._utility_stats_ids_used: tuple[str, str] | None = None
@@ -1524,6 +1527,7 @@ class EnergyCoordinator(BaseCoordinator):
         await self._restore_envoy_cache()
         await self._restore_load_shedding_level()
         await self._restore_solar_follow_state()
+        await self._restore_bill_forecast_ledger()
 
     def _register_solar_follow_timer(self) -> None:
         """Register the SolarFollowController 60s modulation tick.
@@ -6404,6 +6408,13 @@ class EnergyCoordinator(BaseCoordinator):
             )
             return
         self._cycle_in_flight = True
+        # Fix-up A#3: hand the bill predictor the live utility config BEFORE
+        # the body's accumulate(), so a configured install never shows a
+        # first-tick ec_uncorrected prediction.
+        try:
+            self._push_bill_forecast_inputs()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("bill forecast input push failed", exc_info=True)
         try:
             await self._decision_cycle_body()
         finally:
@@ -11387,6 +11398,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._peak_avoidance.set_bill_cycle_day(day, now)
         _LOGGER.info("Billing cycle day set to %d (changed=%s)", day, changed)
         if changed:
+            # Fix-up A#1: the utility cache describes the old cycle window;
+            # drop it and let the next decision cycle refresh at once.
+            self._utility_stats_cache = None
+            self._utility_stats_last_run = None
             # Review B B1: a superseded reseed must not finish last and write
             # the old window's totals.
             _prev = self._bill_cycle_reseed_task
@@ -11679,6 +11694,10 @@ class EnergyCoordinator(BaseCoordinator):
         # B-M1 fix-up: ids are read LIVE from the CM options every call, so
         # an options save applies without any reload.
         imp_id, exp_id = self._utility_stat_ids()
+        # EC-BILL-PREDICTION-FORECAST-1: every decision cycle hands the bill
+        # predictor the live config + cache (before the kill-switch return,
+        # so blanking the id switches the predictor off the utility path).
+        self._push_bill_forecast_inputs()
         if not imp_id:
             return
         if self._utility_stats_inflight:
@@ -11822,6 +11841,7 @@ class EnergyCoordinator(BaseCoordinator):
             )
             self._utility_stats_error = None
             self._utility_stats_refreshed_at = now.isoformat()
+            await self._bill_forecast_after_refresh(now)
         except asyncio.CancelledError:
             raise
         except Exception as err:  # noqa: BLE001
@@ -11843,12 +11863,13 @@ class EnergyCoordinator(BaseCoordinator):
         from datetime import datetime as _dt, timedelta as _td  # noqa: PLC0415
         from .energy_billing import (  # noqa: PLC0415
             build_utility_divergence_block,
+            daily_net_from_priced,
+            service_charge,
             sum_utility_window,
             tou_import_rate_floor,
             utility_window_end,
         )
         from .energy_const import (  # noqa: PLC0415
-            PEC_FIXED_CHARGES,
             UTILITY_RATE_FLOOR_REL_TOL,
             UTILITY_STATS_STALE_H,
         )
@@ -11899,13 +11920,15 @@ class EnergyCoordinator(BaseCoordinator):
                 # A-M2 fix-up: service charge from the LOADED rate file
                 # (TOURateEngine.service_availability_monthly); the PEC
                 # constant only when the engine cannot supply a number.
-                _svc = getattr(self._tou, "service_availability_monthly", None)
-                if isinstance(_svc, bool) or not isinstance(_svc, (int, float)):
-                    _svc = PEC_FIXED_CHARGES["service_availability"]
+                # Single producer shared with the bill predictor.
                 last["utility_bill_estimate"] = round(
-                    last["utility_net_cost"] + float(_svc), 2,
+                    last["utility_net_cost"] + service_charge(self._tou), 2,
                 )
                 out["last_cycle"] = last
+        # EC-BILL-PREDICTION-FORECAST-1: the predictor's inputs (window end
+        # and per-day net $ of the covered dates) from the SAME priced series.
+        out["window_end"] = window_end.isoformat() if window_end else None
+        out["daily_net"] = daily_net_from_priced(priced, window_end)
         if newest_ts is not None:
             newest = _dt.fromtimestamp(float(newest_ts), tz)
             age_h = (now - newest).total_seconds() / 3600.0
@@ -11918,19 +11941,82 @@ class EnergyCoordinator(BaseCoordinator):
             out["stale"] = True
         return out
 
-    def _utility_statistics_divergence(self) -> dict[str, Any]:
-        """D3 publish shape (legacy keys kept, like-for-like values)."""
+    def _current_utility_cache(self) -> dict[str, Any]:
+        """The utility cache if it describes the CURRENT ids, else {}.
+
+        B-M1: ids changed since the cached run; never publish (or predict
+        from) the old series' comparison under the new ids.
+        """
         cache = self._utility_stats_cache or {}
         if getattr(self, "_utility_stats_ids_used", None) not in (
             None, self._utility_stat_ids(),
         ):
-            # B-M1: ids changed since the cached run; never publish the old
-            # series' comparison under the new ids.
             cache = {}
+        return cache
+
+    def _push_bill_forecast_inputs(self) -> None:
+        """Hand the bill predictor its utility inputs (configured + cache)."""
+        setter = getattr(self._billing, "set_utility_forecast_inputs", None)
+        if setter is None:
+            return
+        configured = bool(self._utility_stat_ids()[0])
+        setter(configured, self._current_utility_cache() or None)
+
+    async def _bill_forecast_after_refresh(self, now) -> None:
+        """After a utility refresh: re-predict, snapshot/score the ledger,
+        persist when the ledger changed (one write per day + one at close).
+        """
+        self._push_bill_forecast_inputs()
+        refresh = getattr(self._billing, "refresh_prediction", None)
+        if refresh is None:
+            return
+        refresh(now)
+        if not getattr(self, "_bill_ledger_ready", False):
+            # Fix-up B (MEDIUM): the setup restore can time out before the
+            # ledger step. Retry it lazily; ready is set only on a successful
+            # load, so a persisted ledger is never overwritten by an empty one.
+            if not await self._load_bill_forecast_ledger():
+                return
+        cache = self._current_utility_cache()
+        if not self._billing.ledger_tick(now, cache.get("last_cycle")):
+            return
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        from .energy_const import BILL_FORECAST_LEDGER_KEY  # noqa: PLC0415
+        await db.save_energy_state(
+            BILL_FORECAST_LEDGER_KEY, self._billing.ledger.to_json(),
+        )
+
+    async def _load_bill_forecast_ledger(self) -> bool:
+        """Load the persisted ledger; True (and ready) only on a successful read.
+
+        A missing row is a successful read (fresh ledger). No DB or a read
+        error leaves ready False so nothing is written over the stored ledger.
+        """
+        from .energy_const import BILL_FORECAST_LEDGER_KEY  # noqa: PLC0415
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return False
+        try:
+            raw = await db.restore_energy_state(BILL_FORECAST_LEDGER_KEY)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("Could not restore bill forecast ledger: %s", e)
+            return False
+        self._billing.ledger.load_json(raw)
+        self._bill_ledger_ready = True
+        return True
+
+    async def _restore_bill_forecast_ledger(self) -> None:
+        """Setup restore step; a failure is retried lazily after a refresh."""
+        await self._load_bill_forecast_ledger()
+
+    def _utility_statistics_divergence(self) -> dict[str, Any]:
+        """D3 publish shape (legacy keys kept, like-for-like values)."""
+        cache = self._current_utility_cache()
         cur = cache.get("current") or None
         return {
             "utility_source": "statistics",
-            "prediction_source": "envoy",
             # Legacy keys: current-window utility import / EC billed import
             # (``envoy_kwh`` name kept for the dashboard) / kWh divergence %.
             "utility_kwh": cur.get("utility_import_kwh") if cur else None,
@@ -12011,7 +12097,6 @@ class EnergyCoordinator(BaseCoordinator):
             "envoy_kwh": round(envoy_kwh, 2),
             "divergence_pct": round(divergence_pct, 1),
             "cycles_aligned": cycles_aligned,
-            "prediction_source": "envoy",
             "utility_entity": self._utility_meter_entity,
         }
 

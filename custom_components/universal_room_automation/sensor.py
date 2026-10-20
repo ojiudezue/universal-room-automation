@@ -11122,7 +11122,7 @@ class EnergyCostCycleSensor(AggregationEntity, SensorEntity):
 
 
 class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
-    """Predicted monthly bill (available after 7 days in cycle).
+    """Predicted bill for the current cycle (EC-BILL-PREDICTION-FORECAST-1).
 
     Entity: sensor.ura_energy_predicted_bill
     Device: URA: Energy Coordinator
@@ -11170,10 +11170,22 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
         if billing:
             attrs["days_in_cycle"] = billing.get("days_in_cycle", 0)
             attrs["cycle_start_date"] = billing.get("cycle_start_date", "")
+            # EC-BILL-PREDICTION-FORECAST-1: the billing predictor is the
+            # single producer of prediction_source (R1) and the forecast
+            # breakdown + accuracy ledger attributes (D1/D2).
+            for _k in (
+                "prediction_source", "actual_to_date", "remainder_cost",
+                "remainder_days", "fixed_charge", "actual_window_end",
+                "cycle_end", "days_remaining",
+                "accuracy_mape_by_horizon", "accuracy_cycles_scored",
+                "last_cycle_actual", "last_cycle_error_by_horizon",
+                "ledger_days_this_cycle",
+            ):
+                if _k in billing:
+                    attrs[_k] = billing[_k]
         # v4.2.17: Utility meter divergence
         divergence = energy.utility_meter_divergence
         if divergence:
-            attrs["prediction_source"] = divergence.get("prediction_source", "envoy")
             attrs["utility_kwh"] = divergence.get("utility_kwh")
             attrs["envoy_kwh"] = divergence.get("envoy_kwh")
             attrs["utility_divergence_pct"] = divergence.get("divergence_pct")
@@ -11227,6 +11239,10 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
             except Exception:
                 pass  # fall back to 30
         days_remaining = max(0, cycle_length_days - days_in_cycle)
+        # R5: one cycle length per sensor — the billing status's days_remaining
+        # (derived from the cycle helper) wins when present.
+        if billing and billing.get("days_remaining") is not None:
+            days_remaining = int(billing["days_remaining"])
         projected_remaining = avg_per_day * days_remaining
         full_cycle_pace = cycle_savings + projected_remaining
 
