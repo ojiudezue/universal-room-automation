@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "225",
+  "author": "ojiudezue",
+  "session_id": "claude_20261020_153917_ship_v5_103_76",
+  "timestamp": "2026-10-20T15:39:17Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.76 shipped: EC bill check from SmartHub hourly stats; house-state attr churn unrecorded; GPS freshest-wins; 365-day room-history retention",
+  "summary": "EC bill check from SmartHub hourly stats; house-state attr churn unrecorded; GPS freshest-wins; 365-day room-history retention",
+  "why": "Operator asked to finish the SmartHub bill work and the queue in one awake window. The bill check read a dead monthly entity (false 100% divergence); hourly statistics are alive and match PEC bills within ~1%. The other three were reviewed and low-risk, so batching them costs one restart instead of four. Retention was operator-chosen (365 d) to stop 52% DB growth before rows age past a year in Nov.",
+  "implications": "Shipped EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1, HOUSE-STATE-SENSOR-ATTR-CHURN-1, PERSON-GPS-ANY-HOME-WINS-1, DB-SIZE-GROWTH-1 at v5.103.76; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.76.md (Live criteria).",
+  "revisit_trigger": "1 h after restart: utility_source=statistics with cycle day 24; recorder blob rate for house-state sensor; 02:30 log shows room_history run",
+  "refs": {
+    "cards": [
+      "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1",
+      "HOUSE-STATE-SENSOR-ATTR-CHURN-1",
+      "PERSON-GPS-ANY-HOME-WINS-1",
+      "DB-SIZE-GROWTH-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.76.md"
+    ],
+    "release_notes": "EC bill divergence now compares SmartHub hourly statistics priced by the TOU engine over the same window (display only). House-state sensor stops recording churny per-poll attributes. Per-person GPS axis uses the freshest real-state tracker (diagnostic only). Nightly batched 365-day prune of four room-history tables (no rows old enough yet). Full-suite name-diff clean (11=11)."
+  }
+}

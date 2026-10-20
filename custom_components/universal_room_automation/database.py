@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.75
+# Universal Room Automation vv5.103.76
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -5202,6 +5202,84 @@ class UniversalRoomDatabase:
             _LOGGER.info("Energy history cleanup: deleted %d rows older than %d days", total_deleted, retention_days)
         return total_deleted
 
+    # DB-SIZE-GROWTH-1: (table, clock) for the per-room history prune. The
+    # clock is the clock each table's producer writes its `timestamp` in:
+    # env/energy/occupancy store naive UTC (`datetime.utcnow().isoformat()`),
+    # room_transitions stores local wall time with offset. The cutoff date is
+    # computed in that same clock so the error is always on the KEEP side.
+    _ROOM_HISTORY_TABLES: tuple[tuple[str, str], ...] = (
+        ("environmental_data", "utc"),
+        ("energy_snapshots", "utc"),
+        ("occupancy_events", "utc"),
+        ("room_transitions", "local"),
+    )
+
+    @staticmethod
+    def _room_history_cutoff(clock: str, retention_days: int) -> str:
+        """Date-only cutoff 'YYYY-MM-DD' in the table's own clock.
+
+        A 10-char date prefix compares correctly against both stored formats
+        ('YYYY-MM-DDTHH..' and 'YYYY-MM-DD HH..'): every row ON the cutoff
+        date sorts >= the cutoff and is kept, so no row younger than
+        ``retention_days`` days is ever deleted (keep-side error < 1 day).
+        """
+        today = dt_util.utcnow().date() if clock == "utc" else dt_util.now().date()
+        return (today - timedelta(days=retention_days)).isoformat()
+
+    async def cleanup_room_history(
+        self,
+        retention_days: int,
+        batch_size: int = 1000,
+        max_batches: int | None = None,
+    ) -> int:
+        """Delete per-room history rows older than ``retention_days``.
+
+        DB-SIZE-GROWTH-1. Tables: environmental_data, energy_snapshots,
+        occupancy_events, room_transitions. ``retention_days <= 0`` disables
+        (no query). Batched rowid-IN DELETEs through ``_db()`` (single
+        writer), 0.1 s yield between batches, at most ``max_batches`` batches
+        per table per call; the remainder is carried to the next night.
+        """
+        if retention_days <= 0:
+            return 0
+        if max_batches is None:
+            from .const import ROOM_HISTORY_PRUNE_MAX_BATCHES
+            max_batches = ROOM_HISTORY_PRUNE_MAX_BATCHES
+        total_deleted = 0
+        for table, clock in self._ROOM_HISTORY_TABLES:
+            cutoff = self._room_history_cutoff(clock, retention_days)
+            table_deleted = 0
+            batches = 0
+            while batches < max_batches:
+                batches += 1
+                try:
+                    async with self._db() as db:
+                        cursor = await db.execute(
+                            f"DELETE FROM {table} WHERE rowid IN ("
+                            f"SELECT rowid FROM {table} WHERE timestamp < ? LIMIT ?)",
+                            (cutoff, batch_size))
+                        await db.commit()
+                        deleted = cursor.rowcount
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.error("Room history cleanup (%s) failed: %s", table, e)
+                    break
+                table_deleted += deleted
+                if deleted < batch_size:
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                _LOGGER.warning(
+                    "Room history cleanup (%s) hit the %d-batch cap; "
+                    "continuing next night", table, max_batches,
+                )
+            total_deleted += table_deleted
+            # Log even on 0 so the nightly run is observable (plan PR-5).
+            _LOGGER.info(
+                "Room history cleanup: %s deleted %d rows older than %s (%d d)",
+                table, table_deleted, cutoff, retention_days,
+            )
+        return total_deleted
+
     async def cleanup_external_conditions(self, retention_days: int = 90, batch_size: int = 1000) -> int:
         """Delete external_conditions rows older than retention_days. v4.2.8: Batched."""
         cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
@@ -7267,6 +7345,9 @@ class UniversalRoomDatabase:
 
         Each dict has: person_id, from_room, to_room, timestamp,
         duration_seconds, confidence.
+
+        ``days=None`` ("all time") is bounded by the nightly retention prune
+        (``RETENTION_ROOM_HISTORY_DAYS``): at most ~1 year of rows exist.
         """
         try:
             async with self._db_read() as db:

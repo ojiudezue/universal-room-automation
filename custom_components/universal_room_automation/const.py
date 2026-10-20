@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.75
+# Universal Room Automation vv5.103.76
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.75"
+VERSION: Final = "v5.103.76"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2090,6 +2090,17 @@ RETENTION_ARCHIVE: Final = 365    # Keep daily summaries for 1 year
 RETENTION_PREDICTIONS: Final = 365 # Keep all predictions for learning
 RETENTION_DEBUG: Final = 30       # Keep debug events for 30 days
 RETENTION_ENERGY_HISTORY: Final = 90  # v3.1.6: Energy history for predictions
+# DB-SIZE-GROWTH-1 (operator 2026-10-17): age-based retention for the four
+# per-room history tables (environmental_data, energy_snapshots,
+# occupancy_events, room_transitions). Module-constant rung: deleting history
+# is irreversible, so changing it requires a reviewed code change.
+# 0 = keep forever (kill switch: the nightly prune issues no DELETE).
+# Longest in-repo reader look-back is 90 d (bayesian_predictor days=90).
+RETENTION_ROOM_HISTORY_DAYS: Final = 365
+# Per-table, per-night cap on DELETE batches (x batch_size 1000 rows). Bounds
+# write-queue occupancy (2026-06-09 write-flood incident); any remainder is
+# carried to the next night. Steady state needs ~13 batches/table/night.
+ROOM_HISTORY_PRUNE_MAX_BATCHES: Final = 100
 
 # ============================================================================
 # COMFORT & ENERGY THRESHOLDS

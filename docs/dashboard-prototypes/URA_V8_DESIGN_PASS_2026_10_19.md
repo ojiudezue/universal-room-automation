@@ -104,3 +104,64 @@ Backups are full `config` objects taken before each pass in `docs/dashboard-prot
 | `20261019T034438_pre-pass4.json` | pass 4 |
 
 To restore, call `ha_config_set_dashboard(url_path="ura-v8", config=<file contents>)` with the current BestPracticeKey from `ha_get_skill_guide('references/dashboard-guide.md')`. That is a full replace. View paths never changed, so bookmarks survive either way.
+
+## Pass 2 (2026-10-20)
+
+Operator asks: one occupied colour, better graphs, less prose, a solar forecast-vs-actual chart, and the Helios card. Three writes, each through `ha_config_set_dashboard` (python_transform) on `ura-v8` only. Every template was checked against live state with `ha_eval_template` before it was written. Room pop-ups were left alone.
+
+Note: HA restarted on its own during this pass (not caused by these writes). For a few minutes URA entities were missing and the frontend showed "Starting…". The screenshots were taken during that window. Values were re-checked once the entities came back.
+
+### Installs
+None. HACS already had **apexcharts-card v2.2.3**, **mini-graph-card v0.13.0** and **Helios 2026.9.6**. The resources `/hacsfiles/apexcharts-card/apexcharts-card.js` and `/hacsfiles/Helios/helios.js` were already registered.
+
+Graph card choice: **apexcharts-card**. Each series takes a `transform` (W→kW) and a `data_generator` (needed to plot the Solcast `detailedForecast` attribute), and the card supports `span: {start: day}` and a "now" marker. mini-graph-card can do none of that. It stays installed but is no longer used in ura-v8.
+
+### What changed
+| Ask | Change |
+|---|---|
+| 1. One occupied colour | `room_card` template: the card, icon, name, label and temp chip now use `var(--yellow)` / `var(--yellow-dark)` when occupied, in place of the per-card `variables.color`. Rooms › Zones cards: green became yellow for "occupied" in the same way. The small status dot on zone cards is unchanged. Green still means "ok/healthy" in the heroes. Per-card `variables.color` values are still in the config but no longer affect anything. |
+| 2. Graphs | Energy "Solar vs house draw · last 24 h": mini-graph (solar in kW on one axis, both SPAN legs in W on a second axis) replaced by an apexcharts chart with one kW axis. SPAN legs use `transform: x/1000`, 10-min averages, and the header shows current values. |
+| 4. Forecast vs actual | Energy "Solar today · forecast vs actual" (replaced the plain "Solcast Today" tile). Midnight→midnight apexcharts with a Solcast `pv_estimate` area, a `pv_estimate10` line, actual `production_ct_power` (15-min avg, runs up to now) and a Now marker. Header shows forecast-today kWh and `solar_day_class.forecast_remaining_kwh`. |
+| 4. Helios | New section "Live energy (Helios)" (column_span 2) just below "Energy now". Its card config is copied verbatim from ura-v6 views[1].sections[1].cards[2], same entities and `cache-id`. |
+| 3. Text → tiles | New `stat` button-card template: icon + small-caps label, large value, small sub-line, colour via `variables.color`. It replaced prose on three cards: **Energy › Battery Strategy Detail** (9 stats; SOC turns red below reserve; the threshold sentence stays as one small line), **Now › Today** (House draw, Solar left, Tomorrow) and **Climate** hero markdown (8 stats: nudges, resets, ease-off, guard, pre-arrival, pre-cool, solar covers, zone intel, plus a Zone \| Guard \| Changes \| Resets \| Last table). The information is the same as before. |
+
+### Before / after
+- Energy graph: before, two y-axes (kW and W) on one chart. After, one kW axis, with house draw and solar directly comparable.
+- Battery Strategy Detail: before, 4 lines of bold-label prose. After, a 3×3 stat grid. "Mode" is 8 columns wide so "self consumption" fits.
+- Screens: `ura-v8-screens/p2_after_desktop_rooms_occupied_yellow.jpg`, `p2_after_desktop_climate_stats.png`, `p2_after_desktop_now_today_stats.jpg`. The Energy charts were checked live: both apexcharts and Helios render.
+
+### Not done / caveats
+- The climate zone table and Zone Timers markdown were still blank about 8 s after load. This is the known markdown first-paint latency, made worse by the HA startup. The template renders correctly via `ha_eval_template`.
+- The other text-heavy cards (EV Charging Detail, Solar-Aware EV, Energy Savings, People census/diagnostics tables) are left as is. They are already tables rather than prose.
+- Envoy `energy_production_today` reads 20 610 (broken), so the forecast chart does not show "actual kWh today".
+- Phone width was not re-shot this pass.
+
+### Rollback
+| File | Restores the state before |
+|---|---|
+| `ura-v8-backups/20261020T070245_p2-pre-pass1.json` | all of Pass 2 (2026-10-20) |
+| `ura-v8-backups/20261020T070657_p2-pre-pass2.json` | zone-card yellow + Mode width |
+| `ura-v8-backups/20261020T070740_p2-pre-pass3.json` | "Solar left" stat shortening |
+
+These backups are `data.config` from `.storage/lovelace.ura_v8`, taken before each write. Restore the same way as above, with `ha_config_set_dashboard(url_path="ura-v8", config=<file>)`.
+
+## Greeting clip fix (2026-10-20)
+
+Report: the top of the "Good morning, Oji" greeting on `/ura-v8/now` was clipped on the 15.6" wall panels (1600x900 CSS px, sidebar hidden, with and without the header).
+
+Investigation (no config change made):
+- The greeting is a plain `markdown` card (`_ura_addon: welcome`, `grid_options.columns: full`) in section 0. It has no card_mod, no fixed height and no negative margin. Nothing in the Now view has a negative margin, `translate` or vertical card_mod. The only fixed height is the House State hero (`height: 260px`) in a different section.
+- The Material-Clean theme's `card-mod-root-yaml` only sets `padding-left: 200px` at ≥768px. It has no vertical rules.
+- Emulated with a same-origin 1600x900 iframe in four states: sidebar docked, sidebar hidden, header shown, and header hidden through injected `.header{display:none}`. The card rendered fully every time (top ≈128px with the header, ~114px tall).
+- The only clip-like state seen was a transient sliver while the markdown template was still rendering on first load. It went away once the template resolved.
+
+Conclusion: not reproducible from config. If the panels still show the clip, capture a screenshot from a panel and check its browser zoom/font scaling and kiosk setup. Pre-investigation config backup: `ura-v8-backups/20261020T123217Z_pre-greeting-fix.json`.
+
+## Addendum 2026-10-20 — climate first paint, phone check, Envoy daily production
+
+Backups: `ura-v8-backups/20261020T145932Z_pre-climate-phone-envoy.json`, `20261020T145932Z_energy_2_pre-envoy.json`, `20261020T145932Z_energy_3_pre-envoy.json`. No dashboard config was written this pass.
+
+- **Climate zone table and Zone Timers.** Not a config defect. All 49 entity ids exist, the attributes are populated, and the Zone Timers template renders cleanly through `ha_eval_template`. Both cards were blank only while HA was still starting (the "Starting alexa_devices" toast was showing), because server-side markdown templates wait on the backend. On a warm reload both filled within about 2 s. A client-side rewrite (button-card JS) would only make sense if blank first paint is still a problem after startup.
+- **Phone width (reasoned from config).** The Chrome window would not resize below desktop width. Every view is a `sections` view (max_columns 3), which collapses to one column on a phone. There are no fixed pixel widths above 40px, no horizontal-stacks or forced multi-column grids, and the ApexCharts cards use auto width. The one tight spot: the four Now stat tiles at `columns: 3` are about 83px wide on a phone, so long values get an ellipsis. Cosmetic; left as is.
+- **Envoy daily production: repoint HELD.** The long-term statistics on `sensor.envoy_482543015950_lifetime_energy_production` (statistics_meta id 5649, MWh) are poisoned. In the last 60 days about 30 days show a daily change of 14,554 to 552,938 kWh (for example 2026-09-17: 531,720; 2026-09-18: 552,938), because each glitch or reset adds the whole lifetime counter back into the sum. 2026-10-04 and 2026-10-07 show 0. Clean days are 45 to 176 kWh. A `statistic` card with `change`, or ApexCharts statistics, would show these impossible values. The `_2` sibling (id 7376) only has data for 2026-10-06 to 10-09. Statistics were not edited.
+  - Consumers of the broken `_today` / `_last_seven_days` sensors: `energy_2` (mushroom "Solar Today" tile), `energy_3` ("Solar Today" tile and a plotly hourly bar trace), plus `energy_dashboard`, `ura_v5` and `ura_v4`. `ura_v8` has none. Non-dashboard: the Solcast Solar config entry (01JNSVQKVB7G56BAQ2DC8PGGZ1) references one of them. Not edited.

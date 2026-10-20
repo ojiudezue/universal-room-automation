@@ -208,7 +208,17 @@ def _make_coord(tracked=("oji",)):
     entry = MagicMock()
     entry.data = {"tracked_persons": list(tracked)}
     entry.options = {}
-    coord = pc_mod.PersonTrackingCoordinator(hass, entry)
+    # When the real HA package is loaded (stubs skipped), the real
+    # DataUpdateCoordinator.__init__ calls frame.report_usage, which raises
+    # "Frame helper not set up" outside a hass fixture. Scoped patch only
+    # for construction (restored on exit) so the file passes standalone.
+    from unittest.mock import patch as _patch
+    _frame = sys.modules.get("homeassistant.helpers.frame")
+    if _frame is not None and hasattr(_frame, "report_usage"):
+        with _patch.object(_frame, "report_usage", lambda *a, **k: None):
+            coord = pc_mod.PersonTrackingCoordinator(hass, entry)
+    else:
+        coord = pc_mod.PersonTrackingCoordinator(hass, entry)
     # Defensive: if a sibling test polluted homeassistant.helpers.update_
     # coordinator.DataUpdateCoordinator with a MagicMock BEFORE our module
     # loaded, our super().__init__ may have absorbed hass into a Mock.
@@ -535,3 +545,148 @@ def test_tracking_reason_vocabulary_pin():
         assert row[const_mod.ATTR_TRACKING_REASON] in const_mod.TRACKING_REASON_VALUES, (
             f"{label}: reason {row[const_mod.ATTR_TRACKING_REASON]!r} not in vocab"
         )
+
+
+# ---------------------------------------------------------------------------
+# PERSON-GPS-ANY-HOME-WINS-1 — freshest-GPS-wins on the per-person GPS axis.
+# Oracles are hand-derived from the rule in the plan
+# (docs/planning/PLANNING_person_gps_freshest_wins.md §3): newest
+# last_updated among real GPS readings; unknown never beats a real reading;
+# ties / missing stamps -> later tracker in the list.
+# ---------------------------------------------------------------------------
+
+_T0 = datetime(2026, 10, 18, 9, 0, 0)
+
+
+def _gps(hass, eid, state, last_updated, source_type="gps"):
+    st = _FakeState(state, {"source_type": source_type})
+    st.last_updated = last_updated
+    hass._states[eid] = st
+
+
+def _person(*trackers):
+    return _FakeState("home", {"device_trackers": list(trackers)})
+
+
+def test_gps_freshest_phone_beats_stale_ipad_listed_last():
+    """iPad case: phone home (fresh), iPad not_home (stale) listed LAST.
+    Legacy last-wins would read away; freshest-wins reads home."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "home", _T0 + timedelta(minutes=5))
+    _gps(hass, "device_tracker.ipad", "not_home", _T0)
+    inv = coord._read_source_inventory(_person("device_tracker.phone", "device_tracker.ipad"))
+    assert inv["gps"] == "home", inv
+
+
+def test_gps_freshest_is_not_any_home_wins():
+    """A stale left-at-home device must NOT hold the axis home when a
+    fresher GPS fix says away (the reason any-home-wins was rejected)."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "not_home", _T0 + timedelta(minutes=5))
+    _gps(hass, "device_tracker.ipad", "home", _T0)
+    inv = coord._read_source_inventory(_person("device_tracker.phone", "device_tracker.ipad"))
+    assert inv["gps"] == "away", inv
+    # Order must not matter when stamps differ.
+    inv2 = coord._read_source_inventory(_person("device_tracker.ipad", "device_tracker.phone"))
+    assert inv2["gps"] == "away", inv2
+
+
+def test_gps_named_zone_reads_away():
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "Work", _T0 + timedelta(minutes=1))
+    _gps(hass, "device_tracker.ipad", "home", _T0)
+    inv = coord._read_source_inventory(_person("device_tracker.ipad", "device_tracker.phone"))
+    assert inv["gps"] == "away", inv
+
+
+@pytest.mark.parametrize("bad_state", ["unknown", "unavailable", ""])
+def test_gps_unknown_never_beats_a_real_reading(bad_state):
+    """A fresher unknown/unavailable tracker must not erase an older real
+    reading; listed last so legacy last-wins would read unknown."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "home", _T0)
+    _gps(hass, "device_tracker.ipad", bad_state, _T0 + timedelta(hours=1))
+    inv = coord._read_source_inventory(_person("device_tracker.phone", "device_tracker.ipad"))
+    assert inv["gps"] == "home", inv
+
+
+def test_gps_only_unknown_trackers_read_unknown():
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "unavailable", _T0)
+    _gps(hass, "device_tracker.ipad", "unknown", _T0)
+    inv = coord._read_source_inventory(_person("device_tracker.phone", "device_tracker.ipad"))
+    assert inv["gps"] == "unknown", inv
+
+
+def test_gps_no_gps_tracker_reads_missing():
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.router", "home", _T0, source_type="router")
+    inv = coord._read_source_inventory(_person("device_tracker.router"))
+    assert inv["gps"] == "MISSING", inv
+    assert inv["wifi"] == "home", inv
+
+
+def test_gps_equal_timestamps_later_tracker_wins():
+    """Exact tie keeps the legacy rule (later in list wins), both orders."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.a", "home", _T0)
+    _gps(hass, "device_tracker.b", "not_home", _T0)
+    assert coord._read_source_inventory(_person("device_tracker.a", "device_tracker.b"))["gps"] == "away"
+    assert coord._read_source_inventory(_person("device_tracker.b", "device_tracker.a"))["gps"] == "home"
+
+
+def test_gps_missing_timestamp_ranks_oldest():
+    """A tracker with no usable last_updated loses to a dated one in
+    either order; two undated trackers fall back to list order."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.dated", "home", _T0)
+    _gps(hass, "device_tracker.undated", "not_home", None)
+    assert coord._read_source_inventory(_person("device_tracker.dated", "device_tracker.undated"))["gps"] == "home"
+    assert coord._read_source_inventory(_person("device_tracker.undated", "device_tracker.dated"))["gps"] == "home"
+    _gps(hass, "device_tracker.undated2", "home", "not-a-datetime")
+    assert coord._read_source_inventory(_person("device_tracker.undated2", "device_tracker.undated"))["gps"] == "away"
+    assert coord._read_source_inventory(_person("device_tracker.undated", "device_tracker.undated2"))["gps"] == "home"
+
+
+def test_gps_non_gps_source_type_ignored_even_if_newest():
+    """A router / BLE tracker never feeds the GPS axis, however fresh."""
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "home", _T0)
+    _gps(hass, "device_tracker.router", "not_home", _T0 + timedelta(hours=1), source_type="router")
+    _gps(hass, "device_tracker.irk", "not_home", _T0 + timedelta(hours=2), source_type="bluetooth_le")
+    inv = coord._read_source_inventory(
+        _person("device_tracker.phone", "device_tracker.router", "device_tracker.irk"))
+    assert inv["gps"] == "home", inv
+    assert inv["wifi"] == "not_home", inv
+
+
+def test_gps_kill_switch_restores_last_tracker_wins(monkeypatch):
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "home", _T0 + timedelta(minutes=5))
+    _gps(hass, "device_tracker.ipad", "not_home", _T0)
+    monkeypatch.setattr(pc_mod, "PERSON_GPS_FRESHEST_WINS_ENABLED", False)
+    inv = coord._read_source_inventory(_person("device_tracker.phone", "device_tracker.ipad"))
+    assert inv["gps"] == "away", inv
+
+
+def test_gps_freshest_wins_through_async_update_data():
+    """Enclosing-method anchor: the no-Bermuda-sensor branch of
+    `_async_update_data` stamps tracker_sources + confidence from the
+    freshest GPS. Person home, phone GPS home (fresh), iPad not_home
+    (stale, listed last): row 10 -> confidence 0.75, gps=home. Legacy
+    last-wins gives gps=away -> away_gps_only 0.92 (reason rewritten)."""
+    import asyncio
+    coord, hass = _make_coord()
+    _gps(hass, "device_tracker.phone", "home", _T0 + timedelta(minutes=5))
+    _gps(hass, "device_tracker.ipad", "not_home", _T0)
+    hass.set("person.oji", "home",
+             {"device_trackers": ["device_tracker.phone", "device_tracker.ipad"]})
+
+    async def _noop(*_a, **_k): return None
+    coord._build_scanner_room_map = _noop  # type: ignore[assignment]
+    coord._find_bermuda_area_sensor = _noop  # type: ignore[assignment]
+    result = asyncio.get_event_loop().run_until_complete(coord._async_update_data())
+    row = result["oji"]
+    assert row[const_mod.ATTR_TRACKER_SOURCES]["gps"] == "home", row
+    assert row["confidence"] == 0.75, row
+    assert row["location"] == "home", row

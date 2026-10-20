@@ -118,48 +118,23 @@ def test_cleanup_anomaly_log_warning_on_error():
 # Bug Class #27: registered in BOTH cleanup lists
 # ---------------------------------------------------------------------------
 
+def _nightly_ops():
+    from custom_components.universal_room_automation.nightly_maintenance import (
+        nightly_cleanup_ops,
+    )
+    return nightly_cleanup_ops()
+
+
 def test_cleanup_anomaly_log_registered_in_cleanup_ops():
-    """Bug Class #27: cleanup_anomaly_log must appear in _cleanup_ops list."""
-    src = _init_src()
-    idx = src.find("_cleanup_ops = [")
-    assert idx >= 0, "_cleanup_ops list not found in __init__.py"
-    bracket_end = src.find("]", idx)
-    block = src[idx:bracket_end + 1]
-    assert "cleanup_anomaly_log" in block, (
-        "Bug Class #27: cleanup_anomaly_log must be in _cleanup_ops "
-        "(first path — wins the DB init race)"
-    )
-
-
-def test_cleanup_anomaly_log_registered_in_cleanup_ops_d():
-    """Bug Class #27: cleanup_anomaly_log must appear in _cleanup_ops_d list."""
-    src = _init_src()
-    idx = src.find("_cleanup_ops_d = [")
-    assert idx >= 0, "_cleanup_ops_d list not found in __init__.py"
-    bracket_end = src.find("]", idx)
-    block = src[idx:bracket_end + 1]
-    assert "cleanup_anomaly_log" in block, (
-        "Bug Class #27: cleanup_anomaly_log must be in _cleanup_ops_d "
-        "(deferred path — same race as activity logger)"
-    )
+    """Bug Class #27: cleanup_anomaly_log is in the ONE shared nightly op list
+    that both the primary and deferred-startup paths run."""
+    assert any(m == "cleanup_anomaly_log" for _, m, _ in _nightly_ops())
 
 
 def test_cleanup_anomaly_log_retention_kwargs_in_both_lists():
-    """Both lists must pass the dual-window kwargs, not just retention_days."""
-    src = _init_src()
-    for list_name in ("_cleanup_ops = [", "_cleanup_ops_d = ["):
-        idx = src.find(list_name)
-        assert idx >= 0
-        bracket_end = src.find("]", idx)
-        block = src[idx:bracket_end + 1]
-        assert "retention_days_point_in_time" in block, (
-            f"cleanup_anomaly_log entry in {list_name} must pass "
-            "retention_days_point_in_time kwarg"
-        )
-        assert "retention_days_regime_shift" in block, (
-            f"cleanup_anomaly_log entry in {list_name} must pass "
-            "retention_days_regime_shift kwarg"
-        )
+    """The op passes the dual-window kwargs, not just retention_days."""
+    kw = [k for _, m, k in _nightly_ops() if m == "cleanup_anomaly_log"]
+    assert kw == [{"retention_days_point_in_time": 90, "retention_days_regime_shift": 365}]
 
 
 # ===========================================================================

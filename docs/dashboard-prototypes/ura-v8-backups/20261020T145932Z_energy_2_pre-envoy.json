@@ -1,0 +1,598 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace.energy_2",
+  "data": {
+    "config": {
+      "button_card_templates": {
+        "md3_battery": {
+          "styles": {
+            "card": [
+              {
+                "background": "linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08))"
+              },
+              {
+                "border": "2px solid rgba(76, 175, 80, 0.4)"
+              },
+              {
+                "border-radius": "16px"
+              },
+              {
+                "backdrop-filter": "blur(10px)"
+              }
+            ]
+          }
+        }
+      },
+      "views": [
+        {
+          "path": "energy2",
+          "type": "panel",
+          "title": "Energy",
+          "badges": [],
+          "cards": [
+            {
+              "type": "vertical-stack",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "# ⚡ Energy Command Center\nReal-time monitoring and intelligent automation\n",
+                  "card_mod": {
+                    "style": "ha-card {\n  background: transparent;\n  box-shadow: none;\n  padding: 24px 16px 8px 16px;\n}\nh1 {\n  background: linear-gradient(135deg, var(--primary-color), var(--accent-color));\n  -webkit-background-clip: text;\n  -webkit-text-fill-color: transparent;\n  font-size: 28px;\n  font-weight: 300;\n  margin: 0 0 4px 0;\n}\np {\n  color: var(--secondary-text-color);\n  font-size: 13px;\n  margin: 0;\n}\n"
+                  }
+                },
+                {
+                  "type": "custom:mushroom-chips-card",
+                  "chips": [
+                    {
+                      "type": "template",
+                      "icon": "mdi:solar-power",
+                      "content": "{{ states('sensor.envoy_482543015950_current_power_production')|float(0)|round(2) }} kW",
+                      "icon_color": "orange",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_current_power_production"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15), rgba(255, 193, 7, 0.05)) !important;\n  border: 1px solid rgba(255, 152, 0, 0.3) !important;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:battery-high",
+                      "content": "{{ states('sensor.envoy_482543015950_battery')|float(0)|round(0) }}%",
+                      "icon_color": "green",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_battery"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(102, 187, 106, 0.05)) !important;\n  border: 1px solid rgba(76, 175, 80, 0.3) !important;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:home-lightning-bolt",
+                      "content": "{{ states('sensor.envoy_482543015950_current_power_consumption')|float(0)|round(2) }} kW",
+                      "icon_color": "blue",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.envoy_482543015950_current_power_consumption"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(33, 150, 243, 0.15), rgba(66, 165, 245, 0.05)) !important;\n  border: 1px solid rgba(33, 150, 243, 0.3) !important;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:transmission-tower",
+                      "content": "{{ states('sensor.mains_vue_3_power_minute_average')|float(0)|round(2) }} kW",
+                      "icon_color": "{% if states('sensor.mains_vue_3_power_minute_average')|float(0) > 0 %}red{% else %}green{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.mains_vue_3_power_minute_average"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(156, 39, 176, 0.15), rgba(171, 71, 188, 0.05)) !important;\n  border: 1px solid rgba(156, 39, 176, 0.3) !important;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:weather-sunny",
+                      "content": "{{ states('sensor.solcast_pv_forecast_forecast_today')|float(0)|round(1) }} kWh",
+                      "icon_color": "amber",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.solcast_pv_forecast_forecast_today"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 202, 40, 0.05)) !important;\n  border: 1px solid rgba(255, 193, 7, 0.3) !important;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "template",
+                      "icon": "mdi:engine",
+                      "content": "{{ states('sensor.generac_2325624_status_2') }}",
+                      "icon_color": "{% if is_state('sensor.generac_2325624_status_2', 'Running') %}red{% elif is_state('sensor.generac_2325624_status_2', 'Ready') %}teal{% else %}grey{% endif %}",
+                      "tap_action": {
+                        "action": "more-info",
+                        "entity": "sensor.generac_2325624_status_2"
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: linear-gradient(135deg, rgba(158, 158, 158, 0.15), rgba(189, 189, 189, 0.05)) !important;\n  border: 1px solid rgba(158, 158, 158, 0.3) !important;\n}\n"
+                      }
+                    }
+                  ],
+                  "alignment": "center",
+                  "card_mod": {
+                    "style": "ha-card {\n  background: rgba(var(--rgb-card-background-color), 0.3);\n  backdrop-filter: blur(20px);\n  border-radius: 24px;\n  border: 1px solid rgba(255, 255, 255, 0.05);\n  padding: 8px;\n  margin: 0 8px;\n}\n.chip-container {\n  gap: 8px !important;\n}\n"
+                  }
+                },
+                {
+                  "type": "horizontal-stack",
+                  "cards": [
+                    {
+                      "type": "custom:power-flow-card-plus",
+                      "entities": {
+                        "grid": {
+                          "icon": "mdi:transmission-tower",
+                          "name": "Grid",
+                          "color": {
+                            "production": [
+                              156,
+                              204,
+                              101
+                            ],
+                            "consumption": [
+                              244,
+                              67,
+                              54
+                            ]
+                          },
+                          "entity": "sensor.mains_vue_3_power_minute_average",
+                          "color_icon": true,
+                          "display_state": "two_way"
+                        },
+                        "home": {
+                          "icon": "mdi:home",
+                          "name": "Home",
+                          "color": [
+                            33,
+                            150,
+                            243
+                          ],
+                          "entity": "sensor.envoy_482543015950_current_power_consumption",
+                          "color_icon": true
+                        },
+                        "solar": {
+                          "icon": "mdi:solar-power",
+                          "name": "Solar",
+                          "color": [
+                            255,
+                            152,
+                            0
+                          ],
+                          "entity": "sensor.envoy_482543015950_current_power_production",
+                          "color_icon": true,
+                          "display_zero_state": true
+                        },
+                        "battery": {
+                          "icon": "mdi:battery",
+                          "name": "Battery",
+                          "color": {
+                            "production": [
+                              76,
+                              175,
+                              80
+                            ],
+                            "consumption": [
+                              76,
+                              175,
+                              80
+                            ]
+                          },
+                          "entity": "sensor.envoy_482543015950_current_battery_discharge",
+                          "color_icon": true,
+                          "display_state": "two_way",
+                          "state_of_charge": "sensor.envoy_482543015950_battery"
+                        }
+                      },
+                      "w_decimals": 0,
+                      "kw_decimals": 2,
+                      "max_flow_rate": 6,
+                      "min_flow_rate": 0.75,
+                      "watt_threshold": 0,
+                      "clickable_entities": true,
+                      "display_zero_lines": {
+                        "mode": "show",
+                        "grey_color": [
+                          100,
+                          100,
+                          100
+                        ],
+                        "transparency": 50
+                      },
+                      "use_new_flow_rate_model": true,
+                      "card_mod": {
+                        "style": "ha-card {\n  background: rgba(var(--rgb-card-background-color), 0.4);\n  backdrop-filter: blur(25px);\n  border-radius: 24px;\n  border: 1px solid rgba(255, 255, 255, 0.08);\n  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);\n}\n"
+                      }
+                    },
+                    {
+                      "type": "vertical-stack",
+                      "cards": [
+                        {
+                          "type": "markdown",
+                          "content": "## 📊 Billing Period\n**Day {{ ((now().day - 24) % 30) + 1 }} of 30** · Ends Feb 24\n",
+                          "card_mod": {
+                            "style": "ha-card {\n  background: transparent;\n  box-shadow: none;\n  padding: 12px 16px 8px 16px;\n}\nh2 {\n  color: var(--primary-text-color);\n  font-size: 16px;\n  font-weight: 500;\n  margin: 0 0 4px 0;\n}\np {\n  color: var(--secondary-text-color);\n  font-size: 13px;\n  margin: 0;\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.mains_vue_3_mainsfromgrid_energy_this_month')|float(0)|round(1) }} kWh",
+                          "secondary": "Grid Import MTD",
+                          "icon": "mdi:transmission-tower-import",
+                          "icon_color": "purple",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.mains_vue_3_mainsfromgrid_energy_this_month"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(135deg, rgba(156, 39, 176, 0.2), rgba(171, 71, 188, 0.05));\n  border: 1px solid rgba(156, 39, 176, 0.3);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.mains_vue_2_mainstogrid_energy_this_month')|float(0)|round(1) }} kWh",
+                          "secondary": "Grid Export MTD",
+                          "icon": "mdi:transmission-tower-export",
+                          "icon_color": "light-green",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.mains_vue_2_mainstogrid_energy_this_month"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(135deg, rgba(139, 195, 74, 0.2), rgba(156, 204, 101, 0.05));\n  border: 1px solid rgba(139, 195, 74, 0.3);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "{{ states('sensor.envoy_482543015950_energy_production_today')|float(0)|round(1) }} kWh",
+                          "secondary": "Solar Today",
+                          "icon": "mdi:solar-power",
+                          "icon_color": "orange",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.envoy_482543015950_energy_production_today"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(135deg, rgba(255, 152, 0, 0.2), rgba(255, 167, 38, 0.05));\n  border: 1px solid rgba(255, 152, 0, 0.3);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "horizontal",
+                          "primary": "${{ ((states('sensor.mains_vue_3_mainsfromgrid_energy_this_month')|float(0) * 0.098355) + 32.50)|round(2) }}",
+                          "secondary": "Estimated Grid Cost",
+                          "icon": "mdi:currency-usd",
+                          "icon_color": "teal",
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(135deg, rgba(0, 150, 136, 0.2), rgba(38, 166, 154, 0.05));\n  border: 1px solid rgba(0, 150, 136, 0.3);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:mushroom-template-card",
+                  "primary": "💡 Smart Recommendations",
+                  "secondary": "{% set forecast = states('sensor.solcast_pv_forecast_forecast_remaining_today')|float(0) %}\n{% set battery = states('sensor.envoy_482543015950_battery')|float(0) %}\n{% set hour = now().hour %}\n{% if forecast > 10 and battery < 90 %}\n🔋 Batteries charging - {{ forecast|round(1) }} kWh remaining today\n{% endif %}\n{% if forecast > 5 and hour < 16 %}\n🚗 EV Charging Window - 11 AM to 4 PM optimal\n{% endif %}\n{% if battery > 80 and hour >= 17 %}\n❄️ Pre-cool House - Battery at {{ battery }}%, use before peak\n{% endif %}\n{% if forecast < 3 %}\n⚠️ Low Solar Day - Defer heavy loads to preserve battery\n{% elif forecast <= 5 %}\n☁️ Moderate Solar - {{ forecast|round(1) }} kWh remaining\n{% else %}\n☀️ Good Solar Day - {{ forecast|round(1) }} kWh expected\n{% endif %}\n",
+                  "icon": "mdi:lightbulb-on",
+                  "icon_color": "amber",
+                  "multiline_secondary": true,
+                  "card_mod": {
+                    "style": "ha-card {\n  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15), rgba(255, 235, 59, 0.05));\n  border: 1px solid rgba(255, 193, 7, 0.25);\n  border-radius: 20px;\n  backdrop-filter: blur(15px);\n  margin: 8px;\n}\n"
+                  }
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## ☀️ Solar: Forecast vs Actual",
+                      "card_mod": {
+                        "style": "ha-card {\n  background: transparent;\n  box-shadow: none;\n  padding: 16px 16px 0 16px;\n}\nh2 {\n  color: var(--primary-text-color);\n  font-size: 18px;\n  font-weight: 500;\n  margin: 0;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "custom:apexcharts-card",
+                      "header": {
+                        "show": false
+                      },
+                      "graph_span": "24h",
+                      "span": {
+                        "start": "day"
+                      },
+                      "now": {
+                        "show": true,
+                        "label": "Now",
+                        "color": "var(--primary-color)"
+                      },
+                      "apex_config": {
+                        "chart": {
+                          "height": 180,
+                          "background": "transparent",
+                          "fontFamily": "Roboto, sans-serif"
+                        },
+                        "grid": {
+                          "borderColor": "rgba(255, 255, 255, 0.08)",
+                          "strokeDashArray": 4
+                        },
+                        "legend": {
+                          "show": true,
+                          "position": "top",
+                          "fontSize": "13px",
+                          "fontWeight": 500,
+                          "labels": {
+                            "colors": "var(--primary-text-color)"
+                          }
+                        },
+                        "xaxis": {
+                          "labels": {
+                            "style": {
+                              "colors": "var(--secondary-text-color)",
+                              "fontSize": "11px"
+                            }
+                          },
+                          "axisBorder": {
+                            "color": "rgba(255, 255, 255, 0.08)"
+                          }
+                        },
+                        "yaxis": {
+                          "labels": {
+                            "style": {
+                              "colors": "var(--secondary-text-color)",
+                              "fontSize": "11px"
+                            }
+                          }
+                        },
+                        "tooltip": {
+                          "theme": "dark"
+                        }
+                      },
+                      "series": [
+                        {
+                          "entity": "sensor.solcast_pv_forecast_forecast_today",
+                          "name": "Forecast",
+                          "type": "area",
+                          "color": "rgba(255, 193, 7, 0.8)",
+                          "opacity": 0.3,
+                          "stroke_width": 2,
+                          "curve": "smooth",
+                          "data_generator": "const data = [];\nconst fc = entity.attributes.detailedHourly;\nif (fc) {\n  fc.forEach(f => {\n    data.push([new Date(f.period_start).getTime(), f.pv_estimate]);\n  });\n}\nreturn data;\n"
+                        },
+                        {
+                          "entity": "sensor.envoy_482543015950_current_power_production",
+                          "name": "Actual",
+                          "type": "line",
+                          "color": "rgba(255, 152, 0, 1)",
+                          "stroke_width": 3,
+                          "curve": "smooth",
+                          "extend_to": "now"
+                        }
+                      ],
+                      "card_mod": {
+                        "style": "ha-card {\n  background: rgba(var(--rgb-card-background-color), 0.4);\n  backdrop-filter: blur(25px);\n  border-radius: 20px;\n  border: 1px solid rgba(255, 255, 255, 0.08);\n  margin: 0 8px 8px 8px;\n  overflow: hidden;\n}\n"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## 🔋 Battery Bank\n**40 kWh Total** · {{ states('sensor.envoy_482543015950_battery') }}% Average · {{ (states('sensor.envoy_482543015950_available_battery_energy')|float / 1000)|round(1) }} kWh Available\n",
+                      "card_mod": {
+                        "style": "ha-card {\n  background: transparent;\n  box-shadow: none;\n  padding: 16px 16px 8px 16px;\n}\nh2 {\n  color: var(--primary-text-color);\n  font-size: 18px;\n  font-weight: 500;\n  margin: 0 0 4px 0;\n}\np {\n  color: var(--secondary-text-color);\n  font-size: 13px;\n  margin: 0;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "horizontal-stack",
+                      "cards": [
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432007622_battery') }}%",
+                          "secondary": "#1",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432007622_battery')|int > 50 %}green{% elif states('sensor.encharge_492432007622_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432007622_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432020546_battery') }}%",
+                          "secondary": "#2",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432020546_battery')|int > 50 %}green{% elif states('sensor.encharge_492432020546_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432020546_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432021078_battery') }}%",
+                          "secondary": "#3",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432021078_battery')|int > 50 %}green{% elif states('sensor.encharge_492432021078_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432021078_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492432021081_battery') }}%",
+                          "secondary": "#4",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492432021081_battery')|int > 50 %}green{% elif states('sensor.encharge_492432021081_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492432021081_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "horizontal-stack",
+                      "cards": [
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451005488_battery') }}%",
+                          "secondary": "#5",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451005488_battery')|int > 50 %}green{% elif states('sensor.encharge_492451005488_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451005488_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451005492_battery') }}%",
+                          "secondary": "#6",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451005492_battery')|int > 50 %}green{% elif states('sensor.encharge_492451005492_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451005492_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451006223_battery') }}%",
+                          "secondary": "#7",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451006223_battery')|int > 50 %}green{% elif states('sensor.encharge_492451006223_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451006223_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        },
+                        {
+                          "type": "custom:mushroom-template-card",
+                          "layout": "vertical",
+                          "primary": "{{ states('sensor.encharge_492451006228_battery') }}%",
+                          "secondary": "#8",
+                          "icon": "mdi:battery",
+                          "icon_color": "{% if states('sensor.encharge_492451006228_battery')|int > 50 %}green{% elif states('sensor.encharge_492451006228_battery')|int > 20 %}amber{% else %}red{% endif %}",
+                          "tap_action": {
+                            "action": "more-info",
+                            "entity": "sensor.encharge_492451006228_battery"
+                          },
+                          "card_mod": {
+                            "style": "ha-card {\n  background: linear-gradient(180deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.08));\n  border: 2px solid rgba(76, 175, 80, 0.4);\n  border-radius: 16px;\n  backdrop-filter: blur(10px);\n}\n"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "vertical-stack",
+                  "cards": [
+                    {
+                      "type": "markdown",
+                      "content": "## ☀️ Microinverters Performance\n**50 QCell 485W Panels** · 24.25 kW System · Sorted by Output\n",
+                      "card_mod": {
+                        "style": "ha-card {\n  background: transparent;\n  box-shadow: none;\n  padding: 16px 16px 8px 16px;\n}\nh2 {\n  color: var(--primary-text-color);\n  font-size: 18px;\n  font-weight: 500;\n  margin: 0 0 4px 0;\n}\np {\n  color: var(--secondary-text-color);\n  font-size: 13px;\n  margin: 0;\n}\n"
+                      }
+                    },
+                    {
+                      "type": "custom:auto-entities",
+                      "card": {
+                        "type": "glance",
+                        "columns": 10,
+                        "show_icon": true,
+                        "show_name": false,
+                        "show_state": true,
+                        "state_color": false
+                      },
+                      "sort": {
+                        "method": "state",
+                        "numeric": true,
+                        "reverse": true
+                      },
+                      "filter": {
+                        "exclude": [
+                          {
+                            "entity_id": "*ac_current*"
+                          },
+                          {
+                            "entity_id": "*lifetime*"
+                          },
+                          {
+                            "entity_id": "*energy_production*"
+                          }
+                        ],
+                        "include": [
+                          {
+                            "entity_id": "sensor.inverter_5424*",
+                            "attributes": {
+                              "device_class": "power"
+                            }
+                          }
+                        ]
+                      },
+                      "card_mod": {
+                        "style": "ha-card {\n  background: rgba(var(--rgb-card-background-color), 0.4);\n  backdrop-filter: blur(25px);\n  border-radius: 20px;\n  border: 1px solid rgba(255, 255, 255, 0.08);\n  padding: 16px;\n  margin: 0 8px 16px 8px;\n}\n.entity {\n  padding: 8px 4px !important;\n}\n.state {\n  font-size: 12px !important;\n  font-weight: 600 !important;\n  color: rgba(255, 152, 0, 0.9) !important;\n}\nha-state-icon {\n  color: rgba(255, 152, 0, 0.7) !important;\n  --mdc-icon-size: 20px !important;\n}\n"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "card_mod": {
+                "style": "ha-card {\n  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.95));\n  padding: 0;\n}\n"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

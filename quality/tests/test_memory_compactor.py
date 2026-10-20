@@ -624,87 +624,22 @@ async def test_disabled_returns_none(tmp_path, monkeypatch):
     assert s1 is None and s2 is None
 
 
-def _extract_cleanup_ops_names(src: str, list_name: str) -> list[str]:
-    """AST-parse __init__.py and return the ordered list of op-names
-    from the assignment `<list_name> = [ ("name", "method", {}), ... ]`.
-    Returns the first-tuple-element strings so tests can assert
-    presence + relative order without brittle substring scanning.
-    """
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        for tgt in node.targets:
-            if not isinstance(tgt, ast.Name) or tgt.id != list_name:
-                continue
-            if not isinstance(node.value, ast.List):
-                continue
-            out: list[str] = []
-            for elt in node.value.elts:
-                if isinstance(elt, ast.Tuple) and elt.elts:
-                    first = elt.elts[0]
-                    if isinstance(first, ast.Constant) and isinstance(
-                        first.value, str,
-                    ):
-                        out.append(first.value)
-            return out
-    return []
+def _nightly_op_names() -> list[str]:
+    from custom_components.universal_room_automation.nightly_maintenance import (
+        nightly_cleanup_ops,
+    )
+    return [name for name, _, _ in nightly_cleanup_ops()]
 
 
 @pytest.mark.asyncio
 async def test_nightly_ops_includes_memory_compactor():
-    """Wiring anchor (C1/B-HIGH-1 fix, 2026-08-14): AST-parse both the
-    primary ``_cleanup_ops`` and the deferred-startup
-    ``_cleanup_ops_d`` list literals in ``__init__.py``. Assert that
-    ``memory_compactor`` appears in BOTH (after ``incremental_vacuum``
-    in both). Prior source-scan anchor was hollow — the single primary
-    substring passed while the deferred branch was missing the
-    compactor entirely.
-    """
-    src_path = Path(__file__).parent.parent.parent / (
-        "custom_components/universal_room_automation/__init__.py"
-    )
-    src = src_path.read_text()
-    primary = _extract_cleanup_ops_names(src, "_cleanup_ops")
-    deferred = _extract_cleanup_ops_names(src, "_cleanup_ops_d")
-    assert primary, "could not AST-extract _cleanup_ops list"
-    assert deferred, "could not AST-extract _cleanup_ops_d list"
-    # Presence in BOTH.
-    for lst_name, lst in (("_cleanup_ops", primary),
-                           ("_cleanup_ops_d", deferred)):
-        assert "memory_compactor" in lst, (
-            f"{lst_name} missing 'memory_compactor' entry — "
-            f"deferred-startup boots would never run the compactor"
-        )
-        assert "incremental_vacuum" in lst
-        # Compactor AFTER incremental_vacuum in both (rides at end).
-        assert lst.index("memory_compactor") > lst.index("incremental_vacuum"), (
-            f"'memory_compactor' must appear AFTER 'incremental_vacuum' "
-            f"in {lst_name}"
-        )
-
-
-def test_cleanup_ops_deferred_mirrors_primary():
-    """Permanent parity guard (B-HIGH-1 recommendation, Bug Class #27):
-    the deferred-startup ``_cleanup_ops_d`` MUST contain every op-name
-    that the primary ``_cleanup_ops`` contains. Prevents the class of
-    drift that has now claimed four fix-ups in this file (see
-    egress_state, optimizer prunes, shadow_samples, decision_log,
-    incremental_vacuum, and now memory_compactor).
-    """
-    src_path = Path(__file__).parent.parent.parent / (
-        "custom_components/universal_room_automation/__init__.py"
-    )
-    src = src_path.read_text()
-    primary = set(_extract_cleanup_ops_names(src, "_cleanup_ops"))
-    deferred = set(_extract_cleanup_ops_names(src, "_cleanup_ops_d"))
-    missing = primary - deferred
-    assert not missing, (
-        "Deferred-startup nightly branch is missing ops present in the "
-        f"primary branch: {sorted(missing)}. Every op added to "
-        "_cleanup_ops must be mirrored into _cleanup_ops_d (Bug Class "
-        "#27, see repeated fix-up history in __init__.py)."
-    )
+    """Wiring anchor: memory_compactor is in the ONE shared nightly op list
+    (both primary and deferred-startup paths run it; DB-SIZE-GROWTH-1 removed
+    the duplicated list literals), after incremental_vacuum."""
+    lst = _nightly_op_names()
+    assert "memory_compactor" in lst
+    assert "incremental_vacuum" in lst
+    assert lst.index("memory_compactor") > lst.index("incremental_vacuum")
 
 
 # ---------------------------------------------------------------------------

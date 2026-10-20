@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.75
+# Universal Room Automation vv5.103.76
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5567,8 +5567,22 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
     # recorder (HA Entity._unrecorded_attributes). The low-churn D3 fields
     # (last_away_branch, last_away_at, away_entries_today, guest_reason)
     # ARE recorded — the day-7 scorecard reads them.
+    # HOUSE-STATE-SENSOR-ATTR-CHURN-1 (measured 2026-10-19): ~2,870 rows/day
+    # carried 2,869 DISTINCT attribute blobs (~9.5 MB/day) for 13 state
+    # changes — dwell_seconds changes every 30 s poll, zones/inputs every few
+    # minutes. dwell_seconds is derivable from state_since; signal_consensus
+    # value/band/inputs stay recorded on sensor.ura_presence_coordinator_signal_consensus_confidence;
+    # zones has no recorder-history reader. Live state.attributes unaffected.
     _unrecorded_attributes = frozenset(
-        {"stale_counted_home", "nobody_home_zone_input"}
+        {
+            "stale_counted_home",
+            "nobody_home_zone_input",
+            "dwell_seconds",
+            "zones",
+            "signal_consensus",
+            "signal_consensus_band",
+            "signal_consensus_inputs",
+        }
     )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -11124,6 +11138,27 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
             attrs["utility_kwh"] = divergence.get("utility_kwh")
             attrs["envoy_kwh"] = divergence.get("envoy_kwh")
             attrs["utility_divergence_pct"] = divergence.get("divergence_pct")
+            # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D3: statistics-sourced
+            # comparison adds its keys; the legacy entity path (no
+            # utility_source key) leaves the attribute dict unchanged.
+            if divergence.get("utility_source") == "statistics":
+                cur = divergence.get("current") or {}
+                attrs["utility_source"] = "statistics"
+                attrs["utility_cost"] = divergence.get("utility_cost")
+                attrs["ec_cost"] = divergence.get("ec_cost")
+                attrs["utility_divergence_cost"] = divergence.get("divergence_cost")
+                attrs["utility_divergence_cost_pct"] = divergence.get(
+                    "divergence_cost_pct"
+                )
+                attrs["utility_window"] = divergence.get("window")
+                attrs["utility_days"] = cur.get("utility_days")
+                attrs["ec_days"] = cur.get("ec_days")
+                attrs["ec_underpriced_days"] = cur.get("ec_underpriced_days")
+                attrs["utility_data_age_h"] = divergence.get("data_age_h")
+                attrs["utility_stale"] = divergence.get("stale")
+                attrs["utility_last_cycle"] = divergence.get("last_cycle")
+                attrs["utility_stats_refreshed_at"] = divergence.get("refreshed_at")
+                attrs["utility_stats_error"] = divergence.get("error")
 
         # v4.3.0 D4: arbitrage counterfactual
         # Show what the bill WOULD be without arbitrage, plus accrued and

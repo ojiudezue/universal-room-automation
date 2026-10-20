@@ -606,42 +606,40 @@ class TestButtonAndWiring:
         assert 'get("database")' in press
 
     def test_incremental_vacuum_in_nightly_ops(self):
-        """incremental_vacuum is a member of BOTH nightly schedules.
-
-        Fix-up HIGH-1: the op must appear in _cleanup_ops (primary path) AND
-        _cleanup_ops_d (deferred / DB-init-race path). A loose substring check
-        passed even when only the primary path had it; we parse each list body
-        and assert the op is present in each (total count across both == 2).
+        """incremental_vacuum is in the ONE shared nightly op list that both
+        nightly paths (primary + deferred-startup) run (DB-SIZE-GROWTH-1
+        hoisted the duplicated literals into nightly_maintenance.py).
         """
-        src = _init_src()
-        op_tuple = '("incremental_vacuum", "incremental_vacuum", {})'
-
-        def _list_body(var_name: str) -> str:
-            start = src.find(f"{var_name} = [")
-            assert start >= 0, f"{var_name} not found"
-            end = src.find("]", start)
-            assert end >= 0, f"{var_name} list close not found"
-            return src[start:end]
-
-        primary = _list_body("_cleanup_ops")
-        deferred = _list_body("_cleanup_ops_d")
-        assert op_tuple in primary, "incremental_vacuum missing from _cleanup_ops"
-        assert op_tuple in deferred, "incremental_vacuum missing from _cleanup_ops_d"
-        # Count across both schedules == 2 (present in each, exactly once).
-        assert src.count(op_tuple) == 2
+        from custom_components.universal_room_automation.nightly_maintenance import (
+            nightly_cleanup_ops,
+        )
+        ops = nightly_cleanup_ops()
+        assert ops.count(("incremental_vacuum", "incremental_vacuum", {})) == 1
 
     def test_supervised_vacuum_not_in_nightly_schedule(self):
-        """vacuum_full_supervised must NOT be wired into _cleanup_ops.
-
-        It must never appear as a scheduled cleanup-ops tuple (a blocking
-        full VACUUM is button-triggered only). A doc-comment mention is fine;
-        what we forbid is the method name used as an op in the list.
-        """
-        src = _init_src()
-        assert '"vacuum_full_supervised"' not in src
-        assert "vacuum_full_supervised," not in src
+        """vacuum_full_supervised must NOT be a scheduled nightly op
+        (a blocking full VACUUM is button-triggered only)."""
+        from custom_components.universal_room_automation.nightly_maintenance import (
+            nightly_cleanup_ops,
+        )
+        assert all(m != "vacuum_full_supervised" for _, m, _ in nightly_cleanup_ops())
 
     def test_nightly_loop_budget_respected(self):
-        """The nightly loop still has the 5-min budget break (unchanged)."""
-        src = _init_src()
-        assert "hit 5-min budget" in src
+        """The nightly runner stops starting ops after the 300 s budget."""
+        from datetime import datetime, timedelta, timezone
+        from custom_components.universal_room_automation import nightly_maintenance as nm
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        times = iter([t0, t0, t0 + timedelta(seconds=301)] + [t0] * 50)
+        calls = []
+
+        class _DB:
+            def __getattr__(self, name):
+                async def _m(**kw):
+                    calls.append(name)
+                return _m
+
+        async def _ns(_s):
+            return None
+
+        _run(nm.run_nightly_cleanup({}, _DB(), now_fn=lambda: next(times), sleep=_ns))
+        assert len(calls) == 1

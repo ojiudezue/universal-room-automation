@@ -31,10 +31,15 @@ Plan: `docs/planning/PLANNING_fan_recheck_bedroom_still_risk_veto_scope.md`. **T
   - Review C: 33 sites, with gaps closed in 02880ec69;
   - orchestrator: the mid-flight sleep cancel mutated, 6 tests went RED, then restored.
 
-## Live validation (to be replaced by a Validated table)
+## Validated 2026-10-20
 
-- **Install and load:** manifest v5.103.73, 50/50 entries loaded, no URA ERRORs.
-- **Veto counter:** `sensor.jaya_bedroom_jaya_bedroom_bedroom_4_fan_recheck_state` has no `high_still_risk` key after the restart. `sleep_state` increments only in home_night/sleep/waking.
-- **Organic check:** the next daytime fan-on radar-sole hold with Jaya away produces a `fan_recheck_outcome` row for `room:jaya_bedroom`.
+Restarts carrying this build: 02:05 CDT (07:05:40Z, recorder run 1199) and 09:59 CDT (14:59:25Z, run 1200). Evidence comes from the 09:59 boot unless marked. Read-only checks (ha-mcp, the recorder DB, the URA DB via `ssh ha`).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install and load | PASS | `/config/custom_components/universal_room_automation/manifest.json` version `v5.103.75` (it carries .73 and .74). `ha_get_integration`: 50/50 URA entries `loaded`. `system_log` ERROR filter for URA: 0 entries. error_log after boot has WARNING-level boot transients only (sensors unavailable for 60s, census cameras unavailable, HA deprecation notices). |
+| Veto counter: no `high_still_risk` key | PASS | `sensor.jaya_bedroom_jaya_bedroom_bedroom_4_fan_recheck_state` attribute `fan_recheck_veto_counts = {room_paused: 2}` (02:05 boot: `{room_paused: 5}`). No `high_still_risk` key on either boot. |
+| `sleep_state` counts only in home_night/sleep/waking | Not yet exercised | No `sleep_state` veto key on either boot. Jaya Bedroom was paused (`switch.jaya_bedroom_automation` off since 07:06Z), so `room_paused` vetoes every evaluation first. In-suite only. |
+| Organic: `fan_recheck_outcome` row for `room:jaya_bedroom` | Not yet exercised | `memory_episodes` with `episode_type='fan_recheck_outcome'` since 07:05Z: only `room:study_a` (2 rows, last 12:26Z). Jaya cannot qualify while paused. Re-check after the room is unpaused. |
 
 Restart: installed now, **restart held** (today's restart budget is used). It goes with the next approved restart.

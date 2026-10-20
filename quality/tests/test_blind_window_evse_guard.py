@@ -1715,27 +1715,14 @@ def test_A_HIGH_1_cleanup_decision_log_source_anchored_sql():
 
 
 def test_A_HIGH_1_cleanup_decision_log_wired_into_nightly_cadence():
-    """Source-anchored: both nightly-cadence registration sites must
-    include entries for dp_eval, blind_window_defer, blind_window_
-    liveness_release, otherwise rows grow unbounded.
-    """
-    src_path = _os.path.join(
-        _os.path.dirname(__file__), "..", "..", "custom_components",
-        "universal_room_automation", "__init__.py",
+    """The shared nightly op list (run by both nightly paths) prunes all
+    three decision_log types at 90 d."""
+    from custom_components.universal_room_automation.nightly_maintenance import (
+        nightly_cleanup_ops,
     )
-    with open(src_path) as f:
-        src = f.read()
-    # BOTH registration blocks (primary + deferred-startup mirror).
-    for token in (
-        '"cleanup_decision_log", {"decision_type": "dp_eval"',
-        '"cleanup_decision_log", {"decision_type": "blind_window_defer"',
-        '"cleanup_decision_log", {"decision_type": "blind_window_liveness_release"',
-    ):
-        # Must appear twice: primary + deferred-startup mirror.
-        assert src.count(token) == 2, (
-            f"A-HIGH-1: nightly-cadence registration missing/asymmetric "
-            f"for {token!r} (found {src.count(token)}, expected 2)"
-        )
+    got = sorted(k["decision_type"] for _, m, k in nightly_cleanup_ops()
+                 if m == "cleanup_decision_log" and k.get("retention_days") == 90)
+    assert got == ["blind_window_defer", "blind_window_liveness_release", "dp_eval"]
 
 
 # ===========================================================================
