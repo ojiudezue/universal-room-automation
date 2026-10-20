@@ -5109,6 +5109,16 @@ class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
 # ============================================================================
 
 
+def _version_status_attrs(hass: HomeAssistant) -> dict:
+    """loaded/installed version + restart_pending from version_check.py."""
+    st = hass.data.get(DOMAIN, {}).get("version_status") or {}
+    return {
+        "loaded_version": st.get("loaded_version"),
+        "installed_version": st.get("installed_version"),
+        "restart_pending": st.get("restart_pending", False),
+    }
+
+
 class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
     """Sensor showing Coordinator Manager status (running/stopped).
 
@@ -5157,6 +5167,8 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
             ),
             "decisions_today": manager.decisions_today,
             "conflicts_resolved_today": manager.conflicts_resolved_today,
+            # EC-LOADED-VS-INSTALLED-VERSION-1 (version_check.py)
+            **_version_status_attrs(self.hass),
         }
 
 

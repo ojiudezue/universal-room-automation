@@ -33,6 +33,12 @@ DOMAIN: Final = "universal_room_automation"
 NAME: Final = "Universal Room Automation"
 VERSION: Final = "v5.103.81"
 
+# EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
+# to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
+# a protocol cadence, not operator policy; hourly is cheap (one small file read
+# in the executor) and a pending restart is informational, not urgent.
+VERSION_CHECK_INTERVAL_S: Final = 3600
+
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
 

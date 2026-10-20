@@ -2300,6 +2300,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Setting up Universal Room Automation integration entry")
         hass.data[DOMAIN]["integration"] = entry
 
+        # EC-LOADED-VS-INSTALLED-VERSION-1: loaded (const.VERSION) vs
+        # installed (manifest.json on disk) -> repair issue while a restart
+        # is pending. Once now, then hourly; unsub on this entry's unload.
+        # Own timer (not the hourly EC role scan): that scan is a sync
+        # @callback gated on a CM entry existing; this needs an async
+        # executor read on every install.
+        try:
+            from .version_check import async_start_version_check
+            await async_start_version_check(hass, entry)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("version check start failed (non-fatal)", exc_info=True)
+
         # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): register the
         # Rooms grouping device under the INTEGRATION entry so the ~40
         # room devices can nest House -> Rooms -> Room instead of hanging
