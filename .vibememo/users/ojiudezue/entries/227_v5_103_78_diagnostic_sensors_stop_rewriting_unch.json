@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "227",
+  "author": "ojiudezue",
+  "session_id": "claude_20261020_213313_ship_v5_103_78",
+  "timestamp": "2026-10-20T21:33:13Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.78 shipped: Diagnostic sensors stop rewriting unchanged information",
+  "summary": "Diagnostic sensors stop rewriting unchanged information",
+  "why": "Recorder audit 2026-10-20: URA ~20k rows/hr, ~7k new attribute rows/hr, mostly diagnostic sensors whose countdowns/time_ago/per-tick timestamps changed every 30 s tick. HA writes no row for an identical state+attributes write (core.py:2313), so making values stable removes the rows without touching decisions, which read coordinator raw data.",
+  "implications": "Shipped RECORDER-CHURN-SWEEP-URASENSORS-1 at v5.103.78; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.78.md (Live criteria).",
+  "revisit_trigger": "recorder: URA-platform states rows/hr and distinct attributes_id/hr over 3 full hours post-restart vs 20.1k / 7.0k baseline; automation_health attributes_id/hr ~0 when no transition",
+  "refs": {
+    "cards": [
+      "RECORDER-CHURN-SWEEP-URASENSORS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.78.md"
+    ],
+    "release_notes": "Diagnostic sensors (automation health, last trigger/action/occupant, time since motion, census age, timeout remaining, AC kWh rate) now publish stable values between ticks, cutting recorder writes. No automation behaviour change."
+  }
+}
