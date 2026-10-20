@@ -21,8 +21,10 @@ Card: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (residual `residual_2026_10_20_cyc
 - Full-suite name-diff vs the v5.103.76 suite: CLEAN, 11 = 11, 0 new / 0 gone (17,774 passed).
 - Test-harness fix in the same file: its real-package fixture now restores parent-package attributes exactly; before that, 19 later clock-dependent tests failed in full-suite order (patch("homeassistant.util.dt.now") hit a different module object than the code read).
 
-## Live validation (replace with a Validated table)
+## Validated 2026-10-20 (restart ~12:00 CDT)
 
-- `sensor.ura_energy_coordinator_predicted_bill` shows `cycle_start_date: 2026-09-24` after the restart (24 is already saved; no re-save needed).
-- `cost_this_cycle` is not zeroed by the change.
-- No URA ERRORs; 50/50 entries loaded.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Cycle starts on the 24th | PASS | `sensor.ura_energy_coordinator_predicted_bill` `cycle_start_date: 2026-09-24`, `days_in_cycle: 26` (was 09-23 before) |
+| Running total not zeroed | PASS | predicted bill 189.92 (188.57 before the restart) |
+| Load | PASS | manifest v5.103.77, 50/50 URA entries loaded, 0 URA ERRORs in the core log |
