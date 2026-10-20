@@ -5570,6 +5570,10 @@ class OptimizationCoordinator(BaseCoordinator):
                 self._notify_dedup_just_set = set()
             self._notify_dedup_just_set.add(dkey_str)
         sev_map = {"critical": Severity.CRITICAL, "high": Severity.HIGH}
+        # NM-SIGNATURE (2026-10-20): NM.async_notify has never accepted the
+        # event_class / dedup_key kwargs; the old first call always raised
+        # TypeError and fell back to this exact call. Dedup is enforced
+        # above via _notify_dedup_state.
         try:
             await nm.async_notify(
                 coordinator_id="optimization",
@@ -5578,28 +5582,7 @@ class OptimizationCoordinator(BaseCoordinator):
                 message=finding.description,
                 hazard_type=None,
                 location=finding.target_id or "house",
-                # A2: pass a stable identity so NM can dedup downstream too.
-                event_class=(
-                    f"optimizer.{finding.dimension}"
-                    if finding.dimension is not None else "optimizer"
-                ),
-                dedup_key=(str(finding.dedup_key)
-                           if finding.dedup_key is not None else None),
             )
-        except TypeError:
-            # NM signature may not accept the new kwargs in tests/older
-            # builds; retry without them so the notification still fires.
-            try:
-                await nm.async_notify(
-                    coordinator_id="optimization",
-                    severity=sev_map[finding.severity],
-                    title=f"URA Optimizer — {finding.dimension}",
-                    message=finding.description,
-                    hazard_type=None,
-                    location=finding.target_id or "house",
-                )
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
 
