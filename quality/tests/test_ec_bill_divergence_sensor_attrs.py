@@ -44,6 +44,7 @@ class _FakeEnergy:
         )
         self.billing_status = {
             "prediction_label": "Early",
+            "prediction_source": "ec_uncorrected",
             "days_in_cycle": 5,
             "cycle_start_date": "2026-10-23",
         }
@@ -53,6 +54,9 @@ class _FakeEnergy:
 
     def _utility_stat_ids(self):
         return em.EnergyCoordinator._utility_stat_ids(self)
+
+    def _current_utility_cache(self):
+        return em.EnergyCoordinator._current_utility_cache(self)
 
     def _utility_statistics_divergence(self):
         return em.EnergyCoordinator._utility_statistics_divergence(self)
@@ -77,7 +81,7 @@ def test_predicted_bill_attrs_unchanged_when_ids_blank():
         "status": "Early",
         "days_in_cycle": 5,
         "cycle_start_date": "2026-10-23",
-        "prediction_source": "envoy",
+        "prediction_source": "ec_uncorrected",
         "utility_kwh": 500.0,
         "envoy_kwh": 400.0,
         "utility_divergence_pct": 20.0,
@@ -104,7 +108,9 @@ def test_predicted_bill_attrs_statistics_keys_published():
              "data_age_h": 28.0, "stale": False}
     attrs = _attrs(_FakeEnergy(imp_id="smarthub:a", cache=cache))
     # Legacy keys, like-for-like values from statistics (not the entity's 500).
-    assert attrs["prediction_source"] == "envoy"
+    # R1: the billing predictor is the only producer; the divergence dict
+    # no longer carries a hardcoded "envoy".
+    assert attrs["prediction_source"] == "ec_uncorrected"
     assert attrs["utility_kwh"] == 600.0
     assert attrs["envoy_kwh"] == 480.0
     assert attrs["utility_divergence_pct"] == 20.0

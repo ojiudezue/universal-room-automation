@@ -13,6 +13,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    BILL_ACCURACY_HORIZONS,
+    BILL_FORECAST_DOW_WEEKS,
+    BILL_FORECAST_MIN_DAYS,
+    BILL_FORECAST_TRAILING_DAYS,
+    BILL_LEDGER_MAX_CYCLES,
+    BILL_LEDGER_SCORE_DEADLINE_DAYS,
     BILLING_SOURCE_AUTO,
     BILLING_SOURCE_METER,
     BILLING_SOURCE_POWER,
@@ -20,6 +26,7 @@ from .energy_const import (
     DEFAULT_ENERGY_BILLING_SOURCE,
     PEAK_AVOIDANCE_MIN_SERVED_KW,
     PEC_FIXED_CHARGES,
+    UTILITY_STATS_STALE_H,
 )
 from .energy_billing_counters import CounterAccrualTracker
 from .energy_tou import TOURateEngine
@@ -146,6 +153,15 @@ class CostTracker:
         # Bill prediction
         self._predicted_bill: float | None = None
         self._last_accumulate_time: float | None = None
+        # EC-BILL-PREDICTION-FORECAST-1: inputs pushed by the coordinator
+        # (never fetched from here), the per-run forecast breakdown, the
+        # single producer of `prediction_source`, and the accuracy ledger.
+        self._utility_inputs: dict[str, Any] | None = None
+        self._forecast: dict[str, Any] = {}
+        self._prediction_source: str = "learning"
+        self._cycle_end: date | None = None
+        self._days_remaining: int | None = None
+        self.ledger = BillForecastLedger()
 
         # PLANNING_ec_billing_emporia_counters §D2: counter accrual tracker.
         # Instantiated unconditionally so `_counters.last_net_kw()` is always
@@ -648,38 +664,130 @@ class CostTracker:
             self._import_kwh_today, self._export_kwh_today, self._cost_today,
         )
 
-    def _update_prediction(self, now: datetime) -> None:
-        """Update bill prediction.
+    def _get_next_cycle_start(self, cycle_start: date) -> date:
+        """First local date on which `_get_cycle_start` leaves `cycle_start`.
 
-        Uses DB day count if available (survives restarts), else in-memory.
-        Shows prediction after 7+ days of data in current cycle.
+        This is the day the tracker rolls the cycle over, derived from the
+        same helper (no hand-rolled month arithmetic).
         """
-        effective_days = getattr(self, "_db_days_in_cycle", 0) or self._days_in_cycle
-        if effective_days < 7:
+        d = cycle_start + timedelta(days=1)
+        for _ in range(62):
+            probe = datetime(d.year, d.month, d.day, 12)
+            if self._get_cycle_start(probe) != cycle_start:
+                return d
+            d += timedelta(days=1)
+        return cycle_start + timedelta(days=30)
+
+    def set_utility_forecast_inputs(
+        self, configured: bool, cache: dict[str, Any] | None,
+    ) -> None:
+        """Coordinator push: utility statistics config + current cache.
+
+        `configured` is whether a utility import statistic id is set; `cache`
+        is the coordinator's utility comparison (None when absent or
+        describing other ids). Read by `_update_prediction` only.
+        """
+        self._utility_inputs = {"configured": bool(configured), "cache": cache}
+
+    def _utility_cache_stale(self, cache: dict[str, Any] | None, now: datetime) -> bool:
+        """Stale when missing, flagged stale, or newest hour older than the gate.
+
+        The age is re-evaluated against `now` so a refresh that keeps
+        failing (cache kept) still goes stale.
+        """
+        if not cache or cache.get("stale") is not False:
+            return True
+        newest = cache.get("newest_hour")
+        if not newest:
+            return True
+        try:
+            newest_dt = datetime.fromisoformat(str(newest))
+        except (TypeError, ValueError):
+            return True
+        if newest_dt.tzinfo is None or now.tzinfo is None:
+            return True
+        return (now - newest_dt).total_seconds() / 3600.0 > UTILITY_STATS_STALE_H
+
+    def _update_prediction(self, now: datetime) -> None:
+        """Update the bill prediction (EC-BILL-PREDICTION-FORECAST-1, P3).
+
+        Utility statistics configured and fresh: SmartHub-priced cost to date
+        + remaining days forecast (same-weekday mean) + service charge once.
+        Configured but stale/missing: unavailable (no EC fallback, D0 ratio
+        stdev > 10 pp). Not configured: the legacy EC straight line, labelled
+        `ec_uncorrected`.
+        """
+        # Entry reset: every run starts from an empty breakdown.
+        self._forecast = {}
+        cycle_start = self._get_cycle_start(now)
+        next_start = self._get_next_cycle_start(cycle_start)
+        self._cycle_end = next_start
+        today = now.date()
+        self._days_remaining = max(0, (next_start - today).days)
+        day_of_cycle = (today - cycle_start).days
+        svc = service_charge(self._tou)
+
+        if day_of_cycle < BILL_FORECAST_MIN_DAYS:
             self._predicted_bill = None
-            self._prediction_label = f"Learning ({effective_days} days)"
+            self._prediction_label = f"Learning ({day_of_cycle} days)"
+            self._prediction_source = "learning"
             return
 
-        self._prediction_label = None
+        inputs = self._utility_inputs or {}
+        if inputs.get("configured"):
+            cache = inputs.get("cache")
+            fc = None
+            if not self._utility_cache_stale(cache, now):
+                fc = compute_bill_forecast(
+                    cycle_start=cycle_start,
+                    next_cycle_start=next_start,
+                    today=today,
+                    cache=cache,
+                    svc=svc,
+                )
+            if fc is None:
+                self._predicted_bill = None
+                self._prediction_label = "Unavailable (utility stats stale)"
+                self._prediction_source = "unavailable"
+                return
+            self._forecast = fc
+            self._predicted_bill = fc["predicted"]
+            self._prediction_label = None
+            self._prediction_source = "utility"
+            return
 
-        # Estimate total cycle days (~30)
-        cycle_start = self._get_cycle_start(now)
-        next_month = cycle_start.month + 1
-        next_year = cycle_start.year
-        if next_month > 12:
-            next_month = 1
-            next_year += 1
-        try:
-            cycle_end = cycle_start.replace(year=next_year, month=next_month)
-        except ValueError:
-            cycle_end = cycle_start + timedelta(days=30)
-        total_days = (cycle_end - cycle_start).days or 30
-
-        # Linear extrapolation + fixed charges
+        # Not configured: legacy straight line on EC cost (known to read low).
+        effective_days = getattr(self, "_db_days_in_cycle", 0) or self._days_in_cycle
+        total_days = (next_start - cycle_start).days
         daily_rate = self._cost_this_cycle / max(effective_days, 1)
-        projected_variable = daily_rate * total_days
-        fixed = PEC_FIXED_CHARGES["service_availability"]
-        self._predicted_bill = round(projected_variable + fixed, 2)
+        self._prediction_label = None
+        self._prediction_source = "ec_uncorrected"
+        self._predicted_bill = round(daily_rate * total_days + svc, 2)
+
+    def refresh_prediction(self, now: datetime) -> None:
+        """Public re-run after the coordinator pushes new utility inputs."""
+        self._update_prediction(now)
+
+    def ledger_tick(
+        self, now: datetime, last_cycle: dict[str, Any] | None,
+    ) -> bool:
+        """Snapshot today's prediction and score closed cycles.
+
+        Returns True when the ledger changed (caller persists).
+        """
+        changed = False
+        # Only a utility-sourced prediction (never None there) is scored.
+        if self._prediction_source == "utility":
+            cycle_start = self._get_cycle_start(now)
+            changed |= self.ledger.record_snapshot(
+                cycle_start,
+                self._get_next_cycle_start(cycle_start),
+                (now.date() - cycle_start).days,
+                self._predicted_bill,
+                self._forecast.get("actual_window_end"),
+            )
+        changed |= self.ledger.try_close(now.date(), last_cycle)
+        return changed
 
     @property
     def cost_today(self) -> float:
@@ -698,7 +806,7 @@ class CostTracker:
 
     @property
     def predicted_bill(self) -> float | None:
-        """Predicted monthly bill (available after 7 days)."""
+        """Predicted bill for the current cycle (after BILL_FORECAST_MIN_DAYS)."""
         return self._predicted_bill
 
     @property
@@ -708,7 +816,7 @@ class CostTracker:
 
     @property
     def prediction_label(self) -> str | None:
-        """Learning label shown while < 7 days of data."""
+        """Status label: Learning / Unavailable, None when predicting."""
         return getattr(self, "_prediction_label", None)
 
     def get_status(self) -> dict[str, Any]:
@@ -726,6 +834,20 @@ class CostTracker:
             "cycle_start_date": self._cycle_start_date,
             "predicted_bill": self.predicted_bill,
             "prediction_label": self.prediction_label,
+            # EC-BILL-PREDICTION-FORECAST-1: sole producer of the source;
+            # forecast breakdown; cycle length for every consumer (R5).
+            "prediction_source": self._prediction_source,
+            "actual_to_date": self._forecast.get("actual_to_date"),
+            "remainder_cost": self._forecast.get("remainder_cost"),
+            "remainder_days": self._forecast.get("remainder_days"),
+            "fixed_charge": self._forecast.get("fixed_charge"),
+            "actual_window_end": self._forecast.get("actual_window_end"),
+            "cycle_end": self._cycle_end.isoformat() if self._cycle_end else None,
+            "days_remaining": self._days_remaining,
+            **self.ledger.attributes(
+                date.fromisoformat(self._cycle_start_date)
+                if self._cycle_start_date else None
+            ),
             "current_effective_rate": round(self.current_effective_rate, 6),
             # PLANNING_ec_billing_emporia_counters §D7 — additive attributes.
             "billing_source_today": self._billing_source_today,
@@ -1218,6 +1340,260 @@ def sum_utility_window(
             out["export_credit"] += rec["exp_credit"]
     out["net_cost"] = out["import_cost"] - out["export_credit"]
     return out
+
+
+def service_charge(tou: Any) -> float:
+    """Monthly service-availability charge: rate file first, PEC constant fallback.
+
+    Single producer for the bill's fixed charge (A-M2 rule): used by the
+    predictor and by the coordinator's `last_cycle.utility_bill_estimate`.
+    """
+    svc = getattr(tou, "service_availability_monthly", None)
+    if isinstance(svc, bool) or not isinstance(svc, (int, float)):
+        svc = PEC_FIXED_CHARGES["service_availability"]
+    return float(svc)
+
+
+def daily_net_from_priced(
+    priced: dict[date, dict[str, Any]], end: date | None,
+) -> dict[str, float]:
+    """``{iso_date: net $}`` for priced dates before ``end`` (exclusive).
+
+    Same arithmetic as ``sum_utility_window`` (import cost - export credit),
+    per day, so the remainder forecast reads the series the actual reads.
+    """
+    if end is None:
+        return {}
+    return {
+        d.isoformat(): rec["imp_cost"] - rec["exp_credit"]
+        for d, rec in priced.items()
+        if d < end
+    }
+
+
+def forecast_remainder(
+    daily_net: dict[date, float],
+    cutoff: date,
+    rem_start: date,
+    rem_end: date,
+    weeks: int = BILL_FORECAST_DOW_WEEKS,
+    trailing_days: int = BILL_FORECAST_TRAILING_DAYS,
+) -> float | None:
+    """P3 remainder: each day in ``[rem_start, rem_end)`` priced at the mean of
+    the same weekday over the last ``weeks`` weeks (only days before
+    ``cutoff``, i.e. already covered by the utility series); a day with no
+    such history uses the mean of the ``trailing_days`` before ``cutoff``.
+    None when a day can be priced by neither.
+    """
+    trail = [
+        daily_net[cutoff - timedelta(days=k)]
+        for k in range(1, trailing_days + 1)
+        if (cutoff - timedelta(days=k)) in daily_net
+    ]
+    trail_mean = sum(trail) / len(trail) if trail else None
+    total = 0.0
+    d = rem_start
+    while d < rem_end:
+        same_dow = []
+        for k in range(1, weeks + 1):
+            src = d - timedelta(days=7 * k)
+            if src < cutoff and src in daily_net:
+                same_dow.append(daily_net[src])
+        if same_dow:
+            total += sum(same_dow) / len(same_dow)
+        elif trail_mean is not None:
+            total += trail_mean
+        else:
+            return None
+        d += timedelta(days=1)
+    return total
+
+
+def compute_bill_forecast(
+    *,
+    cycle_start: date,
+    next_cycle_start: date,
+    today: date,
+    cache: dict[str, Any],
+    svc: float,
+) -> dict[str, Any] | None:
+    """Predicted bill = utility cost to date + remainder forecast + svc once.
+
+    The actual-to-date is the coordinator's published ``current.utility_net_cost``
+    (no svc). Remaining days start at the utility window end (R2), not today:
+    the window lags by a day or more and never holds a partial day. Before the
+    window reaches the cycle start (R3) the actual is 0 and the whole cycle is
+    forecast. None when the utility series has no complete day or a remaining
+    day cannot be priced.
+    """
+    window_end_iso = cache.get("window_end")
+    if not window_end_iso:
+        return None
+    cutoff = min(date.fromisoformat(window_end_iso), today)
+    cur = cache.get("current")
+    if cur:
+        actual = float(cur.get("utility_net_cost") or 0.0)
+        cutoff = date.fromisoformat(cur["window_end"])
+    else:
+        actual = 0.0
+    rem_start = max(cutoff, cycle_start)
+    daily_net = {
+        date.fromisoformat(k): float(v)
+        for k, v in (cache.get("daily_net") or {}).items()
+    }
+    remainder = forecast_remainder(daily_net, cutoff, rem_start, next_cycle_start)
+    if remainder is None:
+        return None
+    actual = round(actual, 2)
+    remainder = round(remainder, 2)
+    fixed = round(float(svc), 2)
+    return {
+        "predicted": round(actual + remainder + fixed, 2),
+        "actual_to_date": actual,
+        "remainder_cost": remainder,
+        "remainder_days": (next_cycle_start - rem_start).days,
+        "fixed_charge": fixed,
+        "actual_window_end": cutoff.isoformat(),
+    }
+
+
+def _pct_error(predicted: float, actual: float) -> float:
+    # Same bounded reference as `_utility_pct`: a near-zero (net-export) bill
+    # cannot blow the percentage up.
+    return (predicted - actual) / max(abs(actual), 1.0) * 100.0
+
+
+class BillForecastLedger:
+    """Daily prediction snapshots per cycle, scored at cycle close (D2).
+
+    Persisted as JSON in ``energy_state`` by the coordinator. Each cycle:
+    ``{cycle_start, next_cycle_start, snapshots: {day: {predicted,
+    actual_window_end}}, status: open|scored|unscored, actual,
+    utility_net_cost, ec_net_cost, errors: {horizon: signed %}}``.
+    """
+
+    def __init__(self) -> None:
+        self.cycles: list[dict[str, Any]] = []
+
+    def _cycle(self, cycle_start: date) -> dict[str, Any] | None:
+        key = cycle_start.isoformat()
+        for c in self.cycles:
+            if c["cycle_start"] == key:
+                return c
+        return None
+
+    def record_snapshot(
+        self,
+        cycle_start: date,
+        next_cycle_start: date,
+        day_of_cycle: int,
+        predicted: float,
+        actual_window_end: str | None,
+    ) -> bool:
+        """One snapshot per local day; returns False (no change) on a repeat."""
+        c = self._cycle(cycle_start)
+        if c is None:
+            c = {
+                "cycle_start": cycle_start.isoformat(),
+                "next_cycle_start": next_cycle_start.isoformat(),
+                "snapshots": {},
+                "status": "open",
+                "actual": None,
+                "errors": {},
+            }
+            self.cycles.append(c)
+            self.cycles.sort(key=lambda x: x["cycle_start"])
+            del self.cycles[:-BILL_LEDGER_MAX_CYCLES]
+            if c not in self.cycles:
+                return False
+        if c["status"] != "open":
+            return False
+        key = str(int(day_of_cycle))
+        if key in c["snapshots"]:
+            return False
+        c["snapshots"][key] = {
+            "predicted": predicted,
+            "actual_window_end": actual_window_end,
+        }
+        return True
+
+    def try_close(self, today: date, last_cycle: dict[str, Any] | None) -> bool:
+        """Score open cycles that have ended (I4, R4).
+
+        Scored only from a utility ``last_cycle`` block covering exactly
+        ``[cycle_start, next_cycle_start)``. Not covered by
+        ``next_cycle_start + BILL_LEDGER_SCORE_DEADLINE_DAYS`` -> unscored.
+        A lagging or stale refresh before the deadline leaves the cycle open.
+        """
+        changed = False
+        for c in self.cycles:
+            if c["status"] != "open":
+                continue
+            nxt = date.fromisoformat(c["next_cycle_start"])
+            if today < nxt:
+                continue
+            covered = (
+                last_cycle is not None
+                and last_cycle.get("window_start") == c["cycle_start"]
+                and last_cycle.get("window_end") == c["next_cycle_start"]
+                and last_cycle.get("utility_bill_estimate") is not None
+            )
+            if covered:
+                actual = float(last_cycle["utility_bill_estimate"])
+                c["actual"] = actual
+                c["utility_net_cost"] = last_cycle.get("utility_net_cost")
+                c["ec_net_cost"] = last_cycle.get("ec_net_cost")
+                c["errors"] = {
+                    str(h): round(
+                        _pct_error(c["snapshots"][str(h)]["predicted"], actual), 1,
+                    )
+                    for h in BILL_ACCURACY_HORIZONS
+                    if str(h) in c["snapshots"]
+                }
+                c["status"] = "scored"
+                changed = True
+            elif today >= nxt + timedelta(days=BILL_LEDGER_SCORE_DEADLINE_DAYS):
+                c["status"] = "unscored"
+                c["actual"] = None
+                c["errors"] = {}
+                changed = True
+        return changed
+
+    def attributes(self, cycle_start: date | None = None) -> dict[str, Any]:
+        scored = [c for c in self.cycles if c["status"] == "scored"]
+        mape: dict[int, float] = {}
+        for h in BILL_ACCURACY_HORIZONS:
+            vals = [abs(c["errors"][str(h)]) for c in scored if str(h) in c["errors"]]
+            if vals:
+                mape[h] = round(sum(vals) / len(vals), 1)
+        last = scored[-1] if scored else None
+        current = self._cycle(cycle_start) if cycle_start else None
+        return {
+            "accuracy_mape_by_horizon": mape,
+            "accuracy_cycles_scored": len(scored),
+            "last_cycle_actual": last["actual"] if last else None,
+            "last_cycle_error_by_horizon": (
+                {int(k): v for k, v in last["errors"].items()} if last else {}
+            ),
+            "ledger_days_this_cycle": len(current["snapshots"]) if current else 0,
+        }
+
+    def to_json(self) -> str:
+        import json
+        return json.dumps({"v": 1, "cycles": self.cycles}, sort_keys=True)
+
+    def load_json(self, raw: str | None) -> None:
+        """Restore; a malformed payload leaves the ledger empty."""
+        import json
+        if not raw:
+            return
+        try:
+            data = json.loads(raw)
+            cycles = data.get("cycles")
+            if isinstance(cycles, list):
+                self.cycles = [c for c in cycles if isinstance(c, dict)][-BILL_LEDGER_MAX_CYCLES:]
+        except (ValueError, TypeError, AttributeError):
+            _LOGGER.debug("bill forecast ledger restore: bad payload", exc_info=True)
 
 
 def tou_import_rate_floor(tou: Any, day: date, tz) -> float:
