@@ -11387,6 +11387,11 @@ class EnergyCoordinator(BaseCoordinator):
         self._peak_avoidance.set_bill_cycle_day(day, now)
         _LOGGER.info("Billing cycle day set to %d (changed=%s)", day, changed)
         if changed:
+            # Review B B1: a superseded reseed must not finish last and write
+            # the old window's totals.
+            _prev = self._bill_cycle_reseed_task
+            if _prev is not None and not _prev.done():
+                _prev.cancel()
             self._bill_cycle_reseed_task = self.hass.async_create_task(
                 self._reseed_cycle_after_day_change(now)
             )

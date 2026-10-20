@@ -220,3 +220,38 @@ def test_coordinator_setter_unchanged_day_schedules_nothing():
     with patch("homeassistant.util.dt.now", return_value=NOW):
         c.set_bill_cycle_day(24)
     c.hass.async_create_task.assert_not_called()
+
+
+def _pending_task():
+    t = MagicMock()
+    t.done.return_value = False
+    return t
+
+
+def test_second_change_cancels_superseded_reseed():
+    """Review B B1: a superseded reseed is cancelled, not left to finish last."""
+    c = _coord({KEY: 23})
+    first, second = _pending_task(), _pending_task()
+    tasks = iter([first, second])
+
+    def _create(coro):
+        coro.close()
+        return next(tasks)
+
+    c.hass.async_create_task = MagicMock(side_effect=_create)
+    with patch("homeassistant.util.dt.now", return_value=NOW):
+        c.set_bill_cycle_day(15)
+        c.set_bill_cycle_day(10)
+    first.cancel.assert_called_once()
+    second.cancel.assert_not_called()
+    assert c._bill_cycle_reseed_task is second
+
+
+def test_teardown_cancels_running_reseed():
+    """Review B B2: teardown cancels a reseed still in flight."""
+    c = _coord({KEY: 23})
+    running = _pending_task()
+    c._bill_cycle_reseed_task = running
+    c._cancel_utility_refresh()
+    running.cancel.assert_called_once()
+    assert c._bill_cycle_reseed_task is None
