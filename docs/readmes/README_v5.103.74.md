@@ -33,11 +33,16 @@ Card: EC-SELFHEAL-UNEXPLAINED-RESENDS-1. Audit: `docs/planning/AUDIT_ec_selfheal
 
 During an Envoy local outage the watchdog abstains with no time bound, and cloud verification still pages. The old witness had the same blind spot. A code trip-wire for "witness unavailable > N min while an episode is open" goes on EC-SELFHEAL-UNEXPLAINED-RESENDS-1.
 
-## Live validation (to be replaced by a Validated table)
+## Validated 2026-10-20
 
-- **Load:** manifest v5.103.74 loaded, no URA ERRORs, no "reserve witness fallback" INFO line on this house (the sensor resolved).
-- **Witness reads live:** the command trail's hardware witness reads the live sensor value, not 10.
-- **Divergence rows drop:** `write_local_witness_divergence` rows fall from a 13–172/day baseline to near zero (one-shot DB query at disposal).
-- **No false pages:** no `pending_write_stuck` rows with `oracle_seen=10.0` unless the sensor read 10.
+Restarts carrying this build: 02:05 CDT (07:05:40Z, recorder run 1199) and 09:59 CDT (14:59:25Z, run 1200). Evidence comes from the 09:59 boot unless marked. Read-only checks (ha-mcp, the recorder DB, the URA DB via `ssh ha`).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install and load | PASS | `/config/custom_components/universal_room_automation/manifest.json` version `v5.103.75` (it carries .73 and .74). `ha_get_integration`: 50/50 URA entries `loaded`. `system_log` ERROR filter for URA: 0 entries. error_log after boot has WARNING-level boot transients only (sensors unavailable for 60s, census cameras unavailable, HA deprecation notices). |
+| No "reserve witness fallback" INFO line | Cannot observe | The URA logger runs at WARNING (`log_level_raw: 30` on every entry), so this INFO line can't show in logs either way. Indirect evidence: `sensor.envoy_482543015950_reserve_battery_level` exists and resolves (state `10`). |
+| Witness reads the live sensor, not 10 | As expected, but this test can't tell the two apart | Live reserve is 10 (`sensor.envoy_482543015950_reserve_battery_level = 10`; strategy `last_verified_write_reserve_soc.oracle_seen = "10.0"`, commanded 10). The live value equals the old hard-coded 10, so this reading can't distinguish the fix from the bug. At 09:59 the Envoy was still coming up (`envoy_available: false`, `command_trail.hardware_enforced.value = null`). Re-check when the reserve is above 10. |
+| Divergence rows drop | PASS (early) | URA DB `anomaly_log`, `metric_name LIKE '%witness_divergence%'`: **0 rows since 07:05Z** (02:05 CDT). Daily baseline: 10-10 35, 10-11 172, 10-12 58, 10-13 16, 10-14 37, 10-15 29, 10-16 32, 10-17 120, 10-19 21. Caveat: 10-18, and 10-20 before the restart, also had 0, so ~8 h at zero is consistent with the fix but doesn't prove it yet. |
+| No false `pending_write_stuck` pages with `oracle_seen=10.0` | PASS | 0 `pending_write_stuck` anomaly rows since 07:05Z. There were 2 `write_verification_failed` rows (09:16Z, 09:36Z), both `reason: self_heal_starvation` on `reserve_soc` commanded 10. That is a different path and not a stuck-write page. Strategy attribute `pending_write_stuck_state.reserve_soc.active = false`. |
 
 Restart: installed, **restart held**. It ships in the same restart as v5.103.73.

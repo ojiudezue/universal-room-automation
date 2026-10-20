@@ -59,11 +59,15 @@ These now skip paused rooms:
   - Review C: 17 gate mutations, all RED. Its 3 surviving mutations were closed by the 25188ad02 tests.
   - Orchestrator: neutered the sleep-onset gate, and `test_sleep_onset_skips_paused_room` went RED. Restored.
 
-## Live validation (replace with a Validated table)
+## Validated 2026-10-20
 
-- **Load:** manifest v5.103.75, all entries loaded, no URA ERRORs.
-- **Sweep skip:** an INFO "skipped paused room" log line appears when a zone sweep passes a paused room. If no sweep occurs, record this as not yet exercised.
-- **Recheck veto:** the fan recheck state sensor shows a `room_paused` veto count for a paused room with a fan on.
-- **No light-off in paused rooms:** a one-shot recorder query finds no URA-originated light turn_off in a paused room after the restart.
+Restarts carrying this build: 02:05 CDT (07:05:40Z, recorder run 1199) and 09:59 CDT (14:59:25Z, run 1200). Evidence comes from the 09:59 boot unless marked. Read-only checks (ha-mcp, the recorder DB, the URA DB via `ssh ha`).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Install and load | PASS | `/config/custom_components/universal_room_automation/manifest.json` version `v5.103.75` (it carries .73 and .74). `ha_get_integration`: 50/50 URA entries `loaded`. `system_log` ERROR filter for URA: 0 entries. error_log after boot has WARNING-level boot transients only (sensors unavailable for 60s, census cameras unavailable, HA deprecation notices). |
+| Sweep skip INFO line | Cannot observe | The "skipped paused room" line is INFO and the URA logger is at WARNING, so it never reaches the log. Proven in-suite only. Use the next criterion instead. |
+| Recheck veto `room_paused` | PASS | `sensor.jaya_bedroom_jaya_bedroom_bedroom_4_fan_recheck_state` `fan_recheck_veto_counts = {room_paused: 2}` (09:59 boot); `{room_paused: 5}` at the 02:05 boot. Jaya Bedroom is paused (`switch.jaya_bedroom_automation` = off). |
+| No URA light-off in paused rooms | PASS | Recorder, since 07:05:40Z: `switch.switch_sonoffm4rm_matter_jayabedroom` (the room's only configured light) went on 11:48:43Z and off 12:14:12Z. The off state carries no user context and no parent context, and no `call_service` or `ura_action` event shares its context. A recorder search for any `call_service`/`ura_action` with `turn_off` targeting `jayabedroom` since restart returns 0 rows. So the off came from the device itself (physical or Matter report), not from URA. Scope: Jaya Bedroom, the paused room seen in this pass. |
 
 Restart: installed, **restart held**. It goes with v5.103.73 and v5.103.74.
