@@ -72,7 +72,7 @@ from ..const import (
     TRACKING_STATUS_STALE,  # v5.7.0 WS-A1
 )
 from .. import const as _ura_const  # ZONE_OCCUPANCY_PER_ENTITY_ENABLED (attr read, §R3.2.2)
-from .base import BaseCoordinator, CoordinatorAction, Intent
+from .base import BaseCoordinator, CoordinatorAction, Intent, Severity
 from .coordinator_diagnostics import (
     AnomalyDetector,
     DecisionLog,
@@ -6126,14 +6126,14 @@ class PresenceCoordinator(BaseCoordinator):
                 self._pending_nm_tasks = set()
             _task = self.hass.async_create_task(
                 nm.async_notify(
+                    coordinator_id=self.coordinator_id,
+                    severity=Severity.MEDIUM,
                     title="Presence wake-backstop fired",
                     message=(
                         f"WAKING backstop forced wake past {backstop_hour:02d}:00 "
                         f"(census_count={self._census_count}, "
                         f"reason={wake_reason}). Investigate upstream WAKING gate."
                     ),
-                    severity="medium",
-                    source="presence_coordinator",
                 )
             )
             self._pending_nm_tasks.add(_task)
