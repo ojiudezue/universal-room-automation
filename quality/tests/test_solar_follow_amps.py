@@ -1153,6 +1153,8 @@ def test_e2_async_teardown_cancels_solar_follow_timer():
     stub._save_load_shedding_level = _anoop
     stub._cancel_listeners = MagicMock()
 
+    # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: cancels moved into a helper.
+    stub._cancel_actuation_timers = lambda: energy.EnergyCoordinator._cancel_actuation_timers(stub)
     _run(energy.EnergyCoordinator.async_teardown(stub))
 
     assert unsub_calls == [1], "solar_follow_timer_unsub not invoked in teardown"
@@ -1190,6 +1192,8 @@ def test_e3_async_teardown_invokes_solar_follow_cancel_all():
     stub._save_load_shedding_level = _anoop
     stub._cancel_listeners = MagicMock()
 
+    # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: cancels moved into a helper.
+    stub._cancel_actuation_timers = lambda: energy.EnergyCoordinator._cancel_actuation_timers(stub)
     _run(energy.EnergyCoordinator.async_teardown(stub))
 
     assert sf.cancel_all.called, "SolarFollowController.cancel_all not invoked"

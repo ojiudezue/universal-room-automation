@@ -2753,3 +2753,13 @@ OUTAGE_LEDGER_SEED_MAX_PAGES: Final = 10
 # per sensor keeps the corroboration signal. Suppressed edges are still kept
 # in RAM for corroboration and counted on the next row. 0 = no gap.
 OUTAGE_LOCAL_MIN_GAP_MIN: Final = 30
+
+# EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: bound on the Stage-1 shutdown-job
+# persist of EC state (rung 1: a protocol window — it must stay under HA's
+# 20 s STOPPING_STAGE_SHUTDOWN_TIMEOUT, which runs every shutdown job
+# concurrently, incl. the 15 s anomaly-baseline flush; changing it needs review).
+EC_STOP_SAVE_TIMEOUT_S: Final = 10
+# Before persisting, the stop job waits at most this long for an in-flight
+# decision cycle to finish (rung 1, same protocol window; worst-case job wall
+# time = this + EC_STOP_SAVE_TIMEOUT_S = 13 s, still under HA's 20 s Stage 1).
+EC_STOP_CYCLE_WAIT_S: Final = 3

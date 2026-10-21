@@ -26958,6 +26958,20 @@ cards:
     generalized (no URA leakage; reviewed WSJF section for accuracy). Pushed to GitHub main 5ffddeb. Reflects
     "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
     (carded).'
+- id: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
+  title: "Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped"
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.103.81
+  residual_2026_10_20_review: "Focused review of 9c38ed0a2 SHIP. LOW-1: SolarFollowController._stopped never reset (unreachable: HA stop never re-sets-up the same instance) - add a reset in _register_stop_save_job next time EC is touched. LOW-2: safety-hazard emergency load-shed listener (energy.py:1250/1471) is deliberately NOT gated by _ec_stopping - document as intentional."
+  measured_2026_10_20: "CONFIRMED. Most keys save only via the 15-min periodic writer (energy.py:10151, every 3rd 5-min cycle); the stop save (async_teardown energy.py:10777-10787) runs after HA Stage 2 cancels the URA write worker (core.py:1093). Up to 15 min of EC state lost per restart; medium risk = EVSE pause owner sets (a fresh pause can boot as a physically-off EVSE with no owner, energy.py:1665-1672). Precedent fix exists: manager.py:549-575/660-680 async_add_shutdown_job for anomaly baselines."
+  tier: 2
+  created: "2026-10-20 19:55"
+  updated: "2026-10-20 19:55"
+  origin: "Mid-turn find 2026-10-20: v5.103.80 restart logged 26 'DB write skipped: write worker is closed' ERRORs (12:02 restart: 34; 16:34: 4)."
+  why: "database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic save is lost on restart."
+  next: "BUILD: EC registers hass.async_add_shutdown_job (Stage 1, worker alive) running the teardown persist with a timeout (module constant); teardown saves skip at DEBUG when hass.is_stopping; mutation-anchored test; check Stage-1 20 s budget shared with anomaly-baseline job."
+  adjacency: "ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering."
 - id: NM-NOTIFY-SIGNATURE-MISMATCH-1
   title: "Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered"
   thread: notifications
