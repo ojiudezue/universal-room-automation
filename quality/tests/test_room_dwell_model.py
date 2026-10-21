@@ -20,6 +20,17 @@ from custom_components.universal_room_automation import room_dwell_model as rdm
 from custom_components.universal_room_automation.const import DOMAIN
 
 CHI = "America/Chicago"
+
+
+async def _inline(func, *args):
+    return func(*args)
+
+
+def _hass(domain: dict):
+    """Minimal hass: hass.data + an inline executor (the build runs in
+    async_add_executor_job in production)."""
+    return SimpleNamespace(data={DOMAIN: domain},
+                           async_add_executor_job=_inline)
 UTC = timezone.utc
 
 
@@ -156,6 +167,7 @@ async def test_dao_against_production_schema(tmp_path):
     assert await db.initialize()
     seed(db, "INSERT INTO environmental_data (room_id, timestamp, occupied) "
              "VALUES (?, ?, ?)", [
+        ("E1", "2026-10-20T00:00:00", 1),          # at since: included
         ("E1", "2026-10-20T10:00:01.000000", 1),
         ("E1", "2026-10-20T10:05:01.000000", 0),
         ("E1", "2026-10-20T10:10:01.000000", 1),
@@ -168,6 +180,7 @@ async def test_dao_against_production_schema(tmp_path):
         "2026-10-20T00:00:00", "2026-10-21T00:00:00",
     )
     assert sorted(rows) == [
+        ("E1", "2026-10-20T00", 1, 1),
         ("E1", "2026-10-20T10", 2, 3),
         ("E1", "2026-10-20T11", 0, 1),
         ("E2", "2026-10-20T10", 1, 1),
@@ -228,7 +241,7 @@ async def test_today_excluded_from_training(tmp_path):
             ("E1", "2026-10-21T15:00:01", 1),
             ("E1", "2026-10-21T15:05:01", 1),
         ])
-        hass = SimpleNamespace(data={DOMAIN: {"database": db}})
+        hass = _hass({"database": db})
         runner = rdm.RoomDwellModelRunner(hass)
         now_local = datetime(2026, 10, 21, 15, 0, tzinfo=tz)
         with patch.object(dt_util, "now", return_value=now_local), \
@@ -242,7 +255,7 @@ async def test_today_excluded_from_training(tmp_path):
 
 @pytest.mark.asyncio
 async def test_runner_no_database_marks_failed():
-    hass = SimpleNamespace(data={DOMAIN: {}})
+    hass = _hass({})
     runner = rdm.RoomDwellModelRunner(hass)
     assert await runner.async_refresh() is False
     assert runner.model.status == "refresh_failed"
@@ -256,7 +269,7 @@ async def test_runner_db_error_keeps_previous():
             return_value=[("E1", "2026-10-20T15", 6, 12)]),
         get_closed_person_visits=AsyncMock(return_value=[]),
     )
-    hass = SimpleNamespace(data={DOMAIN: {"database": db}})
+    hass = _hass({"database": db})
     runner = rdm.RoomDwellModelRunner(hass)
     assert await runner.async_refresh() is True
     db.get_room_occupied_share_by_hour = AsyncMock(side_effect=OSError("busy"))
@@ -276,7 +289,7 @@ async def test_runner_start_schedules_and_stop_cancels():
     unsub_nightly, unsub_initial = MagicMock(), MagicMock()
     tc = MagicMock(return_value=unsub_nightly)
     cl = MagicMock(return_value=unsub_initial)
-    hass = SimpleNamespace(data={DOMAIN: {}})
+    hass = _hass({})
     with patch.object(ha_event, "async_track_time_change", tc), \
             patch.object(ha_event, "async_call_later", cl):
         runner = await rdm.async_setup_room_dwell_model(hass)
@@ -303,7 +316,7 @@ async def test_runner_disabled_schedules_nothing():
     from homeassistant.helpers import event as ha_event
 
     tc, cl = MagicMock(), MagicMock()
-    hass = SimpleNamespace(data={DOMAIN: {}})
+    hass = _hass({})
     with patch.object(const, "OCC_ANOMALY_DWELL_ENABLED", False), \
             patch.object(ha_event, "async_track_time_change", tc), \
             patch.object(ha_event, "async_call_later", cl):
@@ -317,7 +330,7 @@ async def test_runner_disabled_schedules_nothing():
 async def test_setup_replaces_previous_runner():
     from homeassistant.helpers import event as ha_event
 
-    hass = SimpleNamespace(data={DOMAIN: {}})
+    hass = _hass({})
     with patch.object(ha_event, "async_track_time_change", MagicMock()), \
             patch.object(ha_event, "async_call_later", MagicMock()):
         first = await rdm.async_setup_room_dwell_model(hass)
@@ -386,3 +399,108 @@ async def test_integration_setup_wires_room_dwell_model() -> None:
                 wd.uninstall(hass)
         setup.assert_awaited_once_with(hass)
         assert runner.async_stop in integ.unloads
+
+
+@pytest.mark.asyncio
+async def test_refresh_passes_naive_utc_window():
+    """G8: Chicago now 2026-10-21 10:00 CDT; window = 56 whole local days
+    ending at local midnight, sent as naive UTC strings."""
+    db = SimpleNamespace(
+        get_room_occupied_share_by_hour=AsyncMock(return_value=[]),
+        get_closed_person_visits=AsyncMock(return_value=[]),
+    )
+    with default_tz(CHI) as tz:
+        runner = rdm.RoomDwellModelRunner(_hass({"database": db}))
+        now_local = datetime(2026, 10, 21, 10, 0, tzinfo=tz)
+        with patch.object(dt_util, "now", return_value=now_local), \
+                patch.object(dt_util, "utcnow",
+                             return_value=now_local.astimezone(UTC)):
+            assert await runner.async_refresh() is True
+    db.get_room_occupied_share_by_hour.assert_awaited_once_with(
+        "2026-08-26T05:00:00", "2026-10-21T05:00:00")
+    assert db.get_closed_person_visits.await_args.args[:2] == (
+        "2026-08-26 00:00:00", "2026-10-21 00:00:00")
+
+
+@pytest.mark.asyncio
+async def test_stop_during_read_discards_result():
+    """G11: a stop that lands while the DB read is in flight wins."""
+    holder = {}
+
+    async def _read(*_a):
+        await holder["runner"].async_stop()
+        return [("E1", "2026-10-20T15", 6, 12)]
+
+    db = SimpleNamespace(
+        get_room_occupied_share_by_hour=AsyncMock(side_effect=_read),
+        get_closed_person_visits=AsyncMock(return_value=[]),
+    )
+    runner = rdm.RoomDwellModelRunner(_hass({"database": db}))
+    holder["runner"] = runner
+    assert await runner.async_refresh() is False
+    assert not runner.model.has_model
+
+
+@pytest.mark.asyncio
+async def test_build_runs_in_executor():
+    calls = []
+
+    async def _exec(func, *args):
+        calls.append(func)
+        return func(*args)
+
+    db = SimpleNamespace(
+        get_room_occupied_share_by_hour=AsyncMock(
+            return_value=[("E1", "2026-10-20T15", 6, 12)]),
+        get_closed_person_visits=AsyncMock(return_value=[]),
+    )
+    hass = SimpleNamespace(data={DOMAIN: {"database": db}},
+                           async_add_executor_job=_exec)
+    runner = rdm.RoomDwellModelRunner(hass)
+    assert await runner.async_refresh() is True
+    assert calls == [rdm.RoomDwellModel.build]
+    assert runner.model.has_model
+
+
+@pytest.mark.asyncio
+async def test_failed_first_build_retries_once():
+    from homeassistant.helpers import event as ha_event
+
+    later = []
+
+    def _call_later(_hass, delay, cb):
+        unsub = MagicMock()
+        later.append((delay, cb, unsub))
+        return unsub
+
+    hass = _hass({})  # no database: the first build fails
+    with patch.object(ha_event, "async_track_time_change", MagicMock()), \
+            patch.object(ha_event, "async_call_later", _call_later):
+        runner = await rdm.async_setup_room_dwell_model(hass)
+        assert [d for d, _, _ in later] == [120]
+        await later[0][1](None)
+        assert [d for d, _, _ in later] == [120, 600]
+        await runner.async_stop()
+    later[1][2].assert_called_once_with()  # the pending retry is cancelled
+
+
+@pytest.mark.asyncio
+async def test_successful_first_build_schedules_no_retry():
+    from homeassistant.helpers import event as ha_event
+
+    later = []
+    db = SimpleNamespace(
+        get_room_occupied_share_by_hour=AsyncMock(return_value=[]),
+        get_closed_person_visits=AsyncMock(return_value=[]),
+    )
+    hass = _hass({"database": db})
+
+    def _call_later(_hass, delay, cb):
+        later.append((delay, cb))
+        return MagicMock()
+
+    with patch.object(ha_event, "async_track_time_change", MagicMock()), \
+            patch.object(ha_event, "async_call_later", _call_later):
+        await rdm.async_setup_room_dwell_model(hass)
+        await later[0][1](None)
+    assert [d for d, _ in later] == [120]

@@ -2157,7 +2157,15 @@ OCC_ANOMALY_LOG_COOLDOWN_S: Final = 1800
 # sensor state still evaluates. Was the literal 300 in the old sensor.
 OCC_ANOMALY_STARTUP_GRACE_S: Final = 300
 # Bound on the person_visits rows read per refresh for usual_people (display).
-OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS: Final = 50000
+# Live 2026-10-21: ~66k closed visits in 56 days (50000 truncated); parsing
+# runs in the executor.
+OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS: Final = 200000
+# One retry this long after a failed (or no-database) first model build.
+OCC_ANOMALY_RETRY_DELAY_S: Final = 600
+# Longest single occupancy episode the occupancy_events readers will count
+# (get_occupancy_time_today / get_occupancy_percentage). Rung 1: bounds the
+# damage of a missing exit row; also the prior-event look-back.
+OCC_EPISODE_MAX_S: Final = 43200
 # Visits longer than this are ignored for usual_people (stale open-ended rows).
 OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S: Final = 86400
 # Room "today" DB sensors (Occupancy Pct Today, Time Occupied Today, Time

@@ -5437,25 +5437,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         database = self.hass.data[DOMAIN].get("database")
         if database:
             # Log occupancy changes (use was_occupied captured before _last_occupied_state update)
-            if data[STATE_OCCUPIED] != was_occupied:
-                if data[STATE_OCCUPIED]:
-                    # Entry event
-                    trigger = data.get(STATE_OCCUPANCY_SOURCE, "motion")
-                    await database.log_occupancy_event(
-                        self.entry.entry_id,
-                        "entry",
-                        trigger
-                    )
-                else:
-                    # Exit event (calculate duration)
-                    if self._last_motion_time:
-                        duration = int((now - self._last_motion_time).total_seconds())
-                        await database.log_occupancy_event(
-                            self.entry.entry_id,
-                            "exit",
-                            None,
-                            duration
-                        )
+            await self._async_log_occupancy_edge(
+                database, data, was_occupied, now,
+            )
             
             # Log environmental data (every 5 minutes)
             if self._last_env_log is None or (now - self._last_env_log).total_seconds() >= 300:
@@ -5828,6 +5812,34 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             "entity": self._last_action_entity,
             "time": self._last_action_time,
         }
+
+    async def _async_log_occupancy_edge(
+        self, database, data: dict, was_occupied, now: datetime,
+    ) -> None:
+        """Write the occupancy_events entry/exit row for this tick's edge.
+
+        The exit row is ALWAYS written on the occupied->vacant edge. The
+        fan-demote, failsafe and fan-recheck release paths clear
+        ``_last_motion_time`` first, and a missing exit row made the episode
+        readers count phantom occupancy (review A, occupancy-dwell branch;
+        live 2026-10: 50 entry->entry vs 1586 entry->exit in 7 days).
+        ``duration`` (seconds since last motion) is None without a stamp.
+        """
+        if data[STATE_OCCUPIED] == was_occupied:
+            return
+        if data[STATE_OCCUPIED]:
+            trigger = data.get(STATE_OCCUPANCY_SOURCE, "motion")
+            await database.log_occupancy_event(
+                self.entry.entry_id, "entry", trigger,
+            )
+            return
+        duration = (
+            int((now - self._last_motion_time).total_seconds())
+            if self._last_motion_time else None
+        )
+        await database.log_occupancy_event(
+            self.entry.entry_id, "exit", None, duration,
+        )
 
     def get_became_occupied_time(self) -> datetime | None:
         """

@@ -16165,7 +16165,8 @@ class OccupancyPercentageTodaySensor(_TodayDbRefreshMixin, UniversalRoomEntity, 
                 self.coordinator.entry.entry_id,
             )
             now = dt_util.now()
-            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            # start_of_local_day: DST-correct (a 23 h / 25 h day) - review A.
+            midnight = dt_util.start_of_local_day()
             elapsed_secs = (now - midnight).total_seconds()
             if elapsed_secs > 0:
                 self._cached_value = _quantize_pct(

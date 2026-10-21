@@ -106,6 +106,50 @@ class RoomDwellModel:
 
     # -- build ---------------------------------------------------------------
 
+    @staticmethod
+    def build(
+        rows: Iterable[tuple[str, str, int, int]],
+        tz: tzinfo,
+        visit_rows: Iterable[tuple[str, str, str, str]] = (),
+        max_visit_s: float = 86400.0,
+    ) -> tuple[dict, dict, dict]:
+        """Pure, CPU-bound parse (runs in the executor). Raises on bad rows.
+
+        ``rows``: ``(entry_id, utc_hour_bucket, occupied_sum, n)``.
+        ``visit_rows``: ``(person_id, room_name, entry_local, exit_local)``.
+        Returns ``(cells, days, people)`` for ``apply``.
+        """
+        cells: dict[str, dict[Cell, list[int]]] = {}
+        dates: dict[str, dict[Cell, set]] = {}
+        for entry_id, bucket, occ_sum, n in rows:
+            if not n:
+                continue
+            local = _parse_utc_hour_bucket(bucket).astimezone(tz)
+            c = cell_of(local)
+            slot = cells.setdefault(entry_id, {}).setdefault(c, [0, 0])
+            slot[0] += int(occ_sum)
+            slot[1] += int(n)
+            dates.setdefault(entry_id, {}).setdefault(c, set()).add(
+                local.date(),
+            )
+        days = {
+            e: {c: len(ds) for c, ds in per.items()}
+            for e, per in dates.items()
+        }
+        people = RoomDwellModel._build_people(visit_rows, max_visit_s)
+        return cells, days, people
+
+    def apply(
+        self, built: tuple[dict, dict, dict], *, now_utc: datetime,
+        window_days: int,
+    ) -> None:
+        """Swap in a built model (on the event loop)."""
+        self._cells, self._days, self._people = built
+        self.status = STATUS_OK
+        self.last_refresh_utc = now_utc
+        self.last_error = None
+        self.window_days = window_days
+
     def refresh(
         self,
         rows: Iterable[tuple[str, str, int, int]],
@@ -116,42 +160,14 @@ class RoomDwellModel:
         visit_rows: Iterable[tuple[str, str, str, str]] = (),
         max_visit_s: float = 86400.0,
     ) -> bool:
-        """Rebuild from DAO rows; swap only on success.
-
-        ``rows``: ``(entry_id, utc_hour_bucket, occupied_sum, n)``.
-        ``visit_rows``: ``(person_id, room_name, entry_local, exit_local)``.
-        On any exception the previous model stays and ``status`` becomes
-        ``refresh_failed``. Returns True on success.
-        """
+        """``build`` + ``apply`` in one call; the previous model stays and
+        ``status`` becomes ``refresh_failed`` on any build error."""
         try:
-            cells: dict[str, dict[Cell, list[int]]] = {}
-            dates: dict[str, dict[Cell, set]] = {}
-            for entry_id, bucket, occ_sum, n in rows:
-                if not n:
-                    continue
-                local = _parse_utc_hour_bucket(bucket).astimezone(tz)
-                c = cell_of(local)
-                slot = cells.setdefault(entry_id, {}).setdefault(c, [0, 0])
-                slot[0] += int(occ_sum)
-                slot[1] += int(n)
-                dates.setdefault(entry_id, {}).setdefault(c, set()).add(
-                    local.date(),
-                )
-            days = {
-                e: {c: len(ds) for c, ds in per.items()}
-                for e, per in dates.items()
-            }
-            people = self._build_people(visit_rows, max_visit_s)
+            built = self.build(rows, tz, visit_rows, max_visit_s)
         except Exception as exc:  # noqa: BLE001 — coherent-old on any error
             self.mark_failed(f"{type(exc).__name__}: {exc}")
             return False
-        self._cells = cells
-        self._days = days
-        self._people = people
-        self.status = STATUS_OK
-        self.last_refresh_utc = now_utc
-        self.last_error = None
-        self.window_days = window_days
+        self.apply(built, now_utc=now_utc, window_days=window_days)
         return True
 
     @staticmethod
@@ -165,10 +181,6 @@ class RoomDwellModel:
                 end = datetime.fromisoformat(str(exit_raw))
             except ValueError:
                 continue
-            if start.tzinfo is not None:
-                start = start.replace(tzinfo=None)
-            if end.tzinfo is not None:
-                end = end.replace(tzinfo=None)
             if end <= start or (end - start).total_seconds() > max_visit_s:
                 continue
             cur = start
@@ -278,6 +290,7 @@ class RoomDwellModelRunner:
         self.model = RoomDwellModel()
         self._unsub_nightly = None
         self._unsub_initial = None
+        self._unsub_retry = None
         self._stopped = False
 
     def async_start(self) -> None:
@@ -290,6 +303,7 @@ class RoomDwellModelRunner:
         from .const import (
             OCC_ANOMALY_DWELL_ENABLED,
             OCC_ANOMALY_REFRESH_LOCAL_TIME,
+            OCC_ANOMALY_RETRY_DELAY_S,
             OCC_ANOMALY_SETUP_REFRESH_DELAY_S,
         )
 
@@ -301,9 +315,18 @@ class RoomDwellModelRunner:
         async def _nightly(_now) -> None:
             await self.async_refresh()
 
+        async def _retry(_now) -> None:
+            self._unsub_retry = None
+            await self.async_refresh()
+
         async def _initial(_now) -> None:
             self._unsub_initial = None
-            await self.async_refresh()
+            ok = await self.async_refresh()
+            if not ok and not self._stopped:
+                # one retry after a failed / no-database first build
+                self._unsub_retry = async_call_later(
+                    self.hass, OCC_ANOMALY_RETRY_DELAY_S, _retry,
+                )
 
         self._unsub_nightly = async_track_time_change(
             self.hass, _nightly, hour=hh, minute=mm, second=0,
@@ -317,7 +340,7 @@ class RoomDwellModelRunner:
         from .const import DOMAIN
 
         self._stopped = True
-        for attr in ("_unsub_nightly", "_unsub_initial"):
+        for attr in ("_unsub_nightly", "_unsub_initial", "_unsub_retry"):
             unsub = getattr(self, attr)
             setattr(self, attr, None)
             if unsub is not None:
@@ -366,18 +389,24 @@ class RoomDwellModelRunner:
             _LOGGER.warning("Room dwell model refresh failed (keeping previous): %s", exc)
             self.model.mark_failed(f"{type(exc).__name__}: {exc}")
             return False
-        if self._stopped:
-            return False
-        ok = self.model.refresh(
-            rows, tz, now_utc=dt_util.utcnow(), window_days=days,
-            visit_rows=visits, max_visit_s=OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S,
-        )
-        if ok:
-            _LOGGER.info(
-                "Room dwell model refreshed: %d rooms, window %d days",
-                len(self.model._cells), days,
+        try:
+            # CPU-bound parse of ~60k rows + visits off the event loop.
+            built = await self.hass.async_add_executor_job(
+                RoomDwellModel.build, rows, tz, visits,
+                OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S,
             )
-        return ok
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("Room dwell model build failed (keeping previous): %s", exc)
+            self.model.mark_failed(f"{type(exc).__name__}: {exc}")
+            return False
+        if self._stopped:  # a stop during the read or the build wins
+            return False
+        self.model.apply(built, now_utc=dt_util.utcnow(), window_days=days)
+        _LOGGER.info(
+            "Room dwell model refreshed: %d rooms, window %d days",
+            len(self.model._cells), days,
+        )
+        return True
 
 
 async def async_setup_room_dwell_model(hass) -> RoomDwellModelRunner:

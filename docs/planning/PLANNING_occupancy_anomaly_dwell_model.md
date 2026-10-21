@@ -1,6 +1,6 @@
 # PLANNING: Room occupancy-anomaly sensor on a dwell model
 
-**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** BUILT 2026-10-21 on `feat/occupancy-dwell-anomaly` (README_v5.103.82), not deployed.
+**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** BUILT 2026-10-21 on `feat/occupancy-dwell-anomaly` (README_v5.103.83), not deployed.
 
 **Build notes (deviations, operator decisions 2026-10-21):**
 - D0 runs AFTER deploy as the live check (operator), as the committed script `scripts/probes/occupancy_dwell_backtest.py`. Knob defaults kept as §6.
@@ -13,6 +13,7 @@
 - Data depth: `environmental_data` runs from 2025-11-19 (no purge problem; URA retention 365 d). The "7 days" is HA's recorder (`purge_keep_days: 7`), which limits how far back the replay can go, not the model.
 - The four "today" sensors had the same never-called `async_update`. Fixed in this branch: throttled refresh from the coordinator update (`TODAY_SENSOR_REFRESH_S` = 300) and quantized values.
 - The forecast-sensors-onto-RoomDwellModel switch is the next card, not this branch.
+- **Review fix-up (A/B/C, renumbered v5.103.83):** exit row always written (producer) + `OCC_EPISODE_MAX_S` 12 h episode cap and bounded look-back (readers); model build in the executor with a stop-wins guard; one 600 s retry after a failed first build; visits cap 200000; docstring cost corrected; pct uses `start_of_local_day`; 18 new drills (71 total, all RED).
 **Evidence base:** `docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md` (the D0 audit of the old model).
 **Also read:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` (landed while this plan was being written; folded into §9).
 

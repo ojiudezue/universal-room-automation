@@ -1,4 +1,4 @@
-# v5.103.82: the room occupancy-anomaly sensor works, on a dwell model
+# v5.103.83: the room occupancy-anomaly sensor works, on a dwell model
 
 Card: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1. Plan: `docs/planning/PLANNING_occupancy_anomaly_dwell_model.md`. Tier 2-DB (new DAO, changed `anomaly_log` row type/payload). Deploy risk: LOW (a disabled-by-default diagnostic sensor; read-only model; no actuation, no notification).
 
@@ -16,10 +16,13 @@ Card: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1. Plan: `docs/planning/PLANNING_o
 - Knobs: `const.OCC_ANOMALY_*` (rung 1). Kill switch `OCC_ANOMALY_DWELL_ENABLED`. Learning gate `OCC_ANOMALY_MIN_CELL_DAYS` = 4 plus floor `OCC_ANOMALY_MIN_CELL_SAMPLES` = 24. A sample-count gate of 200 was replaced at fix-up because a 56-day weekend cell holds at most 192 samples (16 days), so weekends could never learn.
 - **The four room "today" sensors now refresh** (Occupancy Pct Today, Time Occupied Today, Time Uncomfortable Today, Avg Time To Comfort). Same defect as the anomaly sensor: logic in `async_update`, never called. Now each coordinator update starts at most one DB refresh per sensor per `TODAY_SENSOR_REFRESH_S` (300 s), never two in flight, in a task cancelled on removal. Values are quantized (minutes to `TODAY_SENSOR_MINUTES_QUANTUM` = 5, percent to `TODAY_SENSOR_PCT_QUANTUM` = 1) to keep recorder churn low (v5.103.78 pattern). They are still disabled by default.
 - Side fixes: `get_occupancy_time_today` (wrong key: room name vs entry_id; counted an event type the writer never emits; always 0), `get_occupancy_percentage` (local cutoff vs UTC timestamps; summed time-since-last-motion as episode length), and `get_uncomfortable_minutes_today` (same name key at the same call sites; UTC midnight). All now use entry_id, a local-midnight/naive-UTC window, and entry/exit pairing.
+- **Missing exit rows no longer become phantom occupancy (review A).** The room coordinator now always writes the `occupancy_events` exit row on the occupied->vacant edge (`duration` NULL when the fan-demote, failsafe or fan-recheck release path already cleared the motion stamp; live 7 days had 50 entry->entry pairs against 1586 entry->exit). The readers bound the prior-event look-back and cap any one episode at `OCC_EPISODE_MAX_S` = 12 h; an entry while an episode is open closes it at that entry or the cap, whichever is sooner. The only other reader of `duration` (the room data export) already writes NULL as empty. Occupancy Pct Today divides by time since `start_of_local_day` (DST-correct).
+- **Model build off the event loop (review B).** The parse of ~60k hour rows and the visits runs in `hass.async_add_executor_job`; the swap happens on the loop, and a stop during the read or build discards the result. One retry `OCC_ANOMALY_RETRY_DELAY_S` = 600 s after a failed or no-database first build. `OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS` raised 50000 -> 200000 (live: ~66k closed visits in 56 days were being truncated).
 
 ## Tests
 
-- `test_room_dwell_model.py` (17), `test_occupancy_anomaly_dwell.py` (26), `test_occupancy_db_side_fixes.py` (18). DB tests run the real `UniversalRoomDatabase.initialize()`. 54 single-site mutation drills, all RED.
+- `test_room_dwell_model.py` (22), `test_occupancy_anomaly_dwell.py` (26), `test_occupancy_db_side_fixes.py` (32). DB tests run the real `UniversalRoomDatabase.initialize()`. 71 single-site mutation drills, all RED (review fix-up added 18: exit-row producer and edge guard, episode cap, entry-closes-episode, latest prior event, window-start inclusive, event-type filter, in-window evidence, open-at-start, multi-day window, naive-UTC window, share lower bound, stop during read/build, executor build, retry scheduled / only on failure / cancelled on stop, comfort quantization).
+- Review-fix notes: the tz-aware normalisation in the visits parser was dropped (G16; `person_visits` times are naive local by construction). The prior-event look-back bound is belt-and-braces under the 12 h cap (a dangling entry older than the cap contributes nothing either way); it keeps the query small. The exit-row writer was extracted to `UniversalRoomCoordinator._async_log_occupancy_edge` so it can be tested against the real DB; its call inside `_async_update_data` is not behaviourally anchored (no full room-tick harness exists).
 - `test_nm_notify_signature_sites.py`: the deleted NM site's anchors removed. `test_v461_canary_migrations.py`: the Bayesian source-grep tests retired (behavioural row-shape test replaces them).
 
 ## Post-deploy check (operator 2026-10-21: the D0 replay runs after deploy)
@@ -47,5 +50,6 @@ At the plan's 900 s the same replay gave a house median of 5 fires/day and 11 in
 | Explains off | Every enabled room in `off` shows `learning_status` / `suppressed_reason` consistent with its state; weekend cells show `learning_status: ok` and `cell_days` >= 4 |
 | Today sensors refresh | An enabled `sensor.<room>_time_occupied_today` changes during the day in steps of 5 min, and its `last_updated` moves at most every ~5 min |
 | Row shape | After the first `on`: one `anomaly_log` row `metric_name='occupancy.dwell_anomaly'` with non-NULL `expected_share` in `context_json` |
+| Exit rows | `occupancy_events` for any room: no `entry` followed by `entry` created after deploy (fan-demote / failsafe exits now have a row with NULL duration) |
 | No notification | `notification_log` has no row from `bayesian_predictor` / `occupancy` after deploy |
 | Logs | No `Room dwell model refresh failed` WARNING; no ERROR from `binary_sensor` |

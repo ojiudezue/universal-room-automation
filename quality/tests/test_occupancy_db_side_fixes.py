@@ -301,3 +301,180 @@ async def test_today_remove_cancels_refresh():
         await s.async_will_remove_from_hass()
     await asyncio.sleep(0)
     assert task.cancelled()
+
+
+
+# ---------------------------------------------------------------------------
+# Review A: missing exit rows must not become phantom occupancy.
+# Clock: now 15:00Z (10:00 CDT), local midnight 05:00Z, OCC_EPISODE_MAX_S
+# 12 h. Oracles are hand-computed seconds.
+# ---------------------------------------------------------------------------
+
+
+async def _today(tmp_path, rows):
+    db = make_real_db(tmp_path)
+    assert await db.initialize()
+    seed(db, EV, rows)
+    with default_tz("America/Chicago") as tz:
+        p_now, p_utc = _clock(tz)
+        with p_now, p_utc:
+            return await db.get_occupancy_time_today("E1")
+
+
+async def _pct(tmp_path, rows, days):
+    db = make_real_db(tmp_path)
+    assert await db.initialize()
+    seed(db, EV, rows)
+    with default_tz("America/Chicago") as tz:
+        p_now, p_utc = _clock(tz)
+        with p_now, p_utc:
+            return await db.get_occupancy_percentage("E1", days=days)
+
+
+@pytest.mark.asyncio
+async def test_weeks_old_dangling_entry_counts_nothing(tmp_path):
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-01T12:00:00", "entry", "motion", None),
+    ]) == 0
+
+
+@pytest.mark.asyncio
+async def test_episode_capped_at_max(tmp_path):
+    # entry 00:00Z, never exited: counts 05:00 -> 12:00 (cap) = 25200
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-16T00:00:00", "entry", "motion", None),
+    ]) == 25200
+
+
+@pytest.mark.asyncio
+async def test_entry_entry_closes_at_next_entry_or_cap(tmp_path):
+    # open 00:30Z (cap 12:30) -> 05:00-12:30 = 27000; new entry 13:00,
+    # exit 13:10 = 600. A reader that ignores the second entry counts 27000.
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-16T00:30:00", "entry", "motion", None),
+        ("E1", "2026-09-16T13:00:00", "entry", "motion", None),
+        ("E1", "2026-09-16T13:10:00", "exit", None, None),
+    ]) == 27600
+
+
+@pytest.mark.asyncio
+async def test_latest_prior_event_wins(tmp_path):
+    # prior entry 02:00, prior exit 03:00: the LATEST prior event (exit)
+    # decides, so nothing is open at midnight. Plus 06:00-06:10 = 600.
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-16T02:00:00", "entry", "motion", None),
+        ("E1", "2026-09-16T03:00:00", "exit", None, 5),
+        ("E1", "2026-09-16T06:00:00", "entry", "motion", None),
+        ("E1", "2026-09-16T06:10:00", "exit", None, 5),
+    ]) == 600
+
+
+@pytest.mark.asyncio
+async def test_event_exactly_at_window_start_is_in_window(tmp_path):
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-16T05:00:00", "entry", "motion", None),
+        ("E1", "2026-09-16T06:00:00", "exit", None, 5),
+    ]) == 3600
+
+
+@pytest.mark.asyncio
+async def test_foreign_event_type_ignored(tmp_path):
+    assert await _today(tmp_path, [
+        ("E1", "2026-09-16T06:00:00", "entry", "motion", None),
+        ("E1", "2026-09-16T06:30:00", "occupied", None, 7200),
+        ("E1", "2026-09-16T07:00:00", "exit", None, 5),
+    ]) == 3600
+
+
+@pytest.mark.asyncio
+async def test_pct_in_window_event_is_evidence(tmp_path):
+    # only an exit in the window (nothing open): 0 %, not None
+    assert await _pct(tmp_path, [
+        ("E1", "2026-09-16T06:00:00", "exit", None, 5),
+    ], days=1) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_pct_open_at_start_without_window_events(tmp_path):
+    # window [09-15 15:00Z, 09-16 15:00Z); entry 09-15 13:00Z never exits:
+    # capped at 09-16 01:00Z -> 10 h inside the window = 10/24
+    assert await _pct(tmp_path, [
+        ("E1", "2026-09-15T13:00:00", "entry", "motion", None),
+    ], days=1) == pytest.approx(10 / 24 * 100)
+
+
+@pytest.mark.asyncio
+async def test_pct_multi_day_window(tmp_path):
+    # days=3 -> [09-13 15:00Z, 09-16 15:00Z). In: 09-14 10:00-12:00 (2 h).
+    # Out: 09-12 10:00-12:00.  2 h / 72 h.
+    assert await _pct(tmp_path, [
+        ("E1", "2026-09-12T10:00:00", "entry", "motion", None),
+        ("E1", "2026-09-12T12:00:00", "exit", None, 5),
+        ("E1", "2026-09-14T10:00:00", "entry", "motion", None),
+        ("E1", "2026-09-14T12:00:00", "exit", None, 5),
+    ], days=3) == pytest.approx(2 / 72 * 100)
+
+
+# Producer: the exit row is always written on the occupied->vacant edge.
+
+
+async def _edge(tmp_path, *, was, now_occ, last_motion):
+    from occ_dwell_helpers import fetch
+
+    from custom_components.universal_room_automation import coordinator as cmod
+    from custom_components.universal_room_automation.const import (
+        STATE_OCCUPANCY_SOURCE, STATE_OCCUPIED,
+    )
+
+    db = make_real_db(tmp_path)
+    assert await db.initialize()
+    await db.start_write_worker()
+    try:
+        c = cmod.UniversalRoomCoordinator.__new__(cmod.UniversalRoomCoordinator)
+        c.entry = SimpleNamespace(entry_id="E1", data={})
+        c._last_motion_time = last_motion
+        now = datetime(2026, 9, 16, 15, 0, tzinfo=UTC)
+        await c._async_log_occupancy_edge(
+            db, {STATE_OCCUPIED: now_occ, STATE_OCCUPANCY_SOURCE: "motion"},
+            was, now,
+        )
+    finally:
+        await db.stop_write_worker()
+    return fetch(db, "SELECT event_type, trigger_source, duration "
+                     "FROM occupancy_events WHERE room_id='E1'")
+
+
+@pytest.mark.asyncio
+async def test_exit_row_written_without_motion_stamp(tmp_path):
+    rows = await _edge(tmp_path, was=True, now_occ=False, last_motion=None)
+    assert rows == [("exit", None, None)]
+
+
+@pytest.mark.asyncio
+async def test_exit_row_with_motion_stamp_keeps_duration(tmp_path):
+    lm = datetime(2026, 9, 16, 14, 55, tzinfo=UTC)
+    rows = await _edge(tmp_path, was=True, now_occ=False, last_motion=lm)
+    assert rows == [("exit", None, 300)]
+
+
+@pytest.mark.asyncio
+async def test_entry_row_written_on_rising_edge(tmp_path):
+    assert await _edge(tmp_path, was=False, now_occ=True, last_motion=None) \
+        == [("entry", "motion", None)]
+
+
+@pytest.mark.asyncio
+async def test_no_row_without_edge(tmp_path):
+    assert await _edge(tmp_path, was=True, now_occ=True, last_motion=None) == []
+
+
+# G12: Avg Time To Comfort quantized.
+
+
+@pytest.mark.asyncio
+async def test_avg_time_to_comfort_quantized():
+    # 60 occupied min, 17 uncomfortable: round(17/60*30) = 8 -> 5
+    s = _live("AvgTimeToComfortSensor", _db(occ_secs=3600, unc=17))
+    _update(s, T0)
+    await asyncio.gather(*s._tasks)
+    assert s.native_value == 5

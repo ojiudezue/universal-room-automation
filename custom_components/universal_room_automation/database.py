@@ -3528,53 +3528,64 @@ class UniversalRoomDatabase:
         """Occupied seconds for ``room_id`` in [start_utc, end_utc).
 
         Pairs ``occupancy_events`` entry/exit rows (the only event types the
-        writer emits, ``coordinator.py`` data-logging block) and clips each
-        episode to the window. An episode open at ``start_utc`` (last event
-        before the window is an entry) counts from ``start_utc``; one still
-        open at ``end_utc`` counts to ``end_utc``. Both bounds are naive UTC,
-        the same clock as the stored ``timestamp`` (``datetime.utcnow()``).
+        writer emits, ``coordinator.py`` data-logging block). Bounds are naive
+        UTC, the stored clock (``datetime.utcnow()``). The exit row's
+        ``duration`` (seconds since last motion, may be NULL) is NOT used.
 
-        The stored ``duration`` of an exit row is NOT used: it is seconds
-        since the last motion at exit, not the episode length.
+        Missing exit rows must not become phantom occupancy (review A):
+          * the prior-event look-back is bounded to OCC_EPISODE_MAX_S before
+            the window, so a weeks-old dangling entry is ignored;
+          * every episode is capped at OCC_EPISODE_MAX_S from its entry;
+          * an entry while an episode is open closes it at that entry (or at
+            the cap, whichever is sooner) and opens a new one.
+        Each episode is clipped to the window.
 
         Returns ``(seconds, had_evidence)``; ``had_evidence`` is False when
-        there is no event in the window and no episode open at its start.
+        no event is in the window and no capped episode overlaps it.
         """
-        start_s = start_utc.isoformat()
-        end_s = end_utc.isoformat()
+        from .const import OCC_EPISODE_MAX_S
+
+        cap = timedelta(seconds=OCC_EPISODE_MAX_S)
         cursor = await db.execute(
-            """SELECT event_type FROM occupancy_events
-               WHERE room_id = ? AND timestamp < ?
+            """SELECT timestamp, event_type FROM occupancy_events
+               WHERE room_id = ? AND timestamp >= ? AND timestamp < ?
                  AND event_type IN ('entry', 'exit')
                ORDER BY timestamp DESC LIMIT 1""",
-            (room_id, start_s),
+            (room_id, (start_utc - cap).isoformat(), start_utc.isoformat()),
         )
         prev = await cursor.fetchone()
         open_at: datetime | None = (
-            start_utc if prev is not None and prev[0] == "entry" else None
+            datetime.fromisoformat(str(prev[0]))
+            if prev is not None and prev[1] == "entry" else None
         )
-        had_evidence = open_at is not None
+        total = 0.0
+        had_evidence = False
+
+        def _close(at: datetime) -> None:
+            nonlocal total, had_evidence
+            stop = min(at, open_at + cap, end_utc)
+            span = (stop - max(open_at, start_utc)).total_seconds()
+            if span > 0:
+                total += span
+                had_evidence = True
+
         cursor = await db.execute(
             """SELECT timestamp, event_type FROM occupancy_events
                WHERE room_id = ? AND timestamp >= ? AND timestamp < ?
                  AND event_type IN ('entry', 'exit')
                ORDER BY timestamp ASC""",
-            (room_id, start_s, end_s),
+            (room_id, start_utc.isoformat(), end_utc.isoformat()),
         )
-        total = 0.0
         for ts_raw, event_type in await cursor.fetchall():
             had_evidence = True
             ts = datetime.fromisoformat(str(ts_raw))
-            if ts.tzinfo is not None:
-                ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
-            if event_type == "entry":
-                if open_at is None:
-                    open_at = ts
-            elif open_at is not None:
-                total += max(0.0, (ts - open_at).total_seconds())
+            if open_at is not None:
+                _close(ts)
                 open_at = None
+            if event_type == "entry":
+                open_at = ts
         if open_at is not None:
-            total += max(0.0, (end_utc - open_at).total_seconds())
+            _close(end_utc)
         return total, had_evidence
 
     async def get_occupancy_percentage(self, room_id: str, days: int = 7) -> float | None:
@@ -8120,11 +8131,14 @@ class UniversalRoomDatabase:
     ) -> list[tuple[str, str, int, int]]:
         """Occupied samples per room per UTC hour (room dwell model, D1).
 
-        One indexed range scan of ``environmental_data`` (the 5-min room
-        snapshot, ``coordinator.py`` data-logging block) grouped by
+        Reads ``environmental_data`` (the 5-min room snapshot,
+        ``coordinator.py`` data-logging block) over the window and groups by
         ``(room_id, substr(timestamp, 1, 13))`` = entry_id and the UTC hour
-        bucket ``YYYY-MM-DDTHH``. ``since_utc`` / ``until_utc`` are naive-UTC
-        ISO strings (the stored clock); the window is ``[since, until)``.
+        bucket ``YYYY-MM-DDTHH``. Cost: a full scan plus a temp B-tree for
+        the GROUP BY (no index covers it); ~1.5 s live over 56 days, once a
+        night (accepted, review A). ``since_utc`` / ``until_utc`` are
+        naive-UTC ISO strings (the stored clock); the window is
+        ``[since, until)``.
         NULL ``occupied`` rows (first tick before the room settles) are
         excluded from both sums. Read-only; raises on DB error so the caller
         keeps its previous model (coherent-old).
