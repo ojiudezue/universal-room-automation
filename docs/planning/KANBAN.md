@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T19:44:54-05:00_ - _Data commit: `900d371061b0`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T19:50:02-05:00_ - _Data commit: `8f8c016ec094`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -10,10 +10,10 @@ _Generated: 2026-10-20T19:44:54-05:00_ - _Data commit: `900d371061b0`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 12 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 28 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -33,7 +33,7 @@ _created 2026-10-20 19:30_
   - `tier`: 1
   - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `QREVO-OFFLINE-1` - Roborock Qrevo S is offline / has no area; one of its two device rows has 0 entities — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -49,15 +49,6 @@ _created 2026-10-20_
 - **Next:** Measure: phantom_retro count per room per day for 14 d before and after v5.103.75 -> close if flat/explained, else plan.
 - **Forensic keys (1):**
   - `tier`: 1
-
-### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **investigating**
-_created 2026-10-20 19:55_
-- **Why:** database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic s...
-- **Next:** MEASURE: for each skipped key, is it also saved on change at runtime (then loss = 0) or only at stop (real loss)? Then either order EC's final persist before the writer closes (stop listener priority) or accept + downgrade the log to WAR...
-- **Forensic keys (2):**
-  - `tier`: 2
-  - `adjacency`: ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering.
 
 ## 🧭 Pre-planning (14)
 _idea being decomposed_
@@ -478,7 +469,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
@@ -492,6 +483,16 @@ _created 2026-10-17 16:30 · updated 2026-10-19 02:41 · refined_
   - `tier`: 1
   - `instance_2026_10_19_overnight`: LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_component...
   - `prior_art_2026_10_19`: REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + h...
+
+### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **in_progress**
+_created 2026-10-20 19:55_
+- **Why:** database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic s...
+- **Next:** BUILD: EC registers hass.async_add_shutdown_job (Stage 1, worker alive) running the teardown persist with a timeout (module constant); teardown saves skip at DEBUG when hass.is_stopping; mutation-anchored test; check Stage-1 20 s budget ...
+- **Forensic keys (3):**
+  - `measured_2026_10_20`: CONFIRMED. Most keys save only via the 15-min periodic writer (energy.py:10151, every 3rd 5-min cycle); the stop save (async_teardown energy.py:10777-10787) runs after HA Stage 2 cancels the URA write worker (core.py:1093). Up to 15 min ...
+  - `tier`: 2
+  - `adjacency`: ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering.
 
 ## 🔍 Review (0)
 _under review_
