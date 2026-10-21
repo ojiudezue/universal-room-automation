@@ -143,6 +143,7 @@ def _restore(monkeypatch, stored_eid, snap=20.0):
 def test_restore_swapped_entity_invalidates_snapshot(monkeypatch):
     ec = _restore(monkeypatch, "sensor.envoy_482543015950_lifetime_energy_production")
     assert ec._lifetime_production_snapshot == 0.0
+    assert ec._production_snapshot_poisoned is True
     assert ec._lifetime_net_import_snapshot == 10.0   # other legs untouched
     ec._billing.restore_daily.assert_called_once()    # rest of restore ran
 
@@ -193,3 +194,55 @@ def test_save_midnight_snapshot_records_provenance(monkeypatch):
     db.save_energy_state.assert_any_await(
         ec_const.ENERGY_STATE_KEY_PRODUCTION_SNAPSHOT_ENTITY, CT
     )
+
+
+# --- Review A MEDIUM: production-rejected day must not learn via legacy ---
+def _spy_learners(ec):
+    ec._predictor = MagicMock()
+    ec._predictor._get_current_prediction.return_value = {
+        "predicted_consumption_kwh": 60.0,
+        "predicted_consumption_source": "model",
+    }
+    ec._predictor._prediction_temperature = None
+    ec._predictor._adjustment_factor = 1.0
+    ec._accuracy = MagicMock()
+    ec._accuracy.evaluate_accuracy.return_value = None
+    ec._accuracy.get_adjustment_factor.return_value = 1.23
+    ec._lifetime_consumption_snapshot = 15.0   # VALID legacy baseline (15.0 -> 15.6)
+    return ec
+
+
+def _assert_no_learning(ec):
+    assert ec.saved_calls[0]["consumption_kwh"] is None
+    ec._predictor.record_actual_consumption.assert_not_called()
+    ec._accuracy.evaluate_accuracy.assert_not_called()
+    assert ec._predictor._adjustment_factor == 1.0
+
+
+def test_flapped_production_day_no_legacy_consumption(monkeypatch):
+    ec = _spy_learners(_ec(monkeypatch, prod_snap=0.046, prod_now=0.046, hwm=20.6))
+    ec._maybe_reset_daily()
+    _assert_no_learning(ec)
+
+
+def test_poisoned_production_day_no_legacy_consumption(monkeypatch):
+    # The restore poison shape: snap 0.0 + flag. With any production reading
+    # the flap guard (snap 0.0 < floor) also rejects, so the flag is the only
+    # rejector when the production counter is UNAVAILABLE at midnight
+    # (current None, no mark) — the case pinned here.
+    ec = _spy_learners(_ec(monkeypatch, prod_snap=0.0, prod_now=None, hwm=None))
+    ec._production_snapshot_poisoned = True
+    ec._maybe_reset_daily()
+    _assert_no_learning(ec)
+    assert ec._production_snapshot_poisoned is False   # day-scoped, cleared
+
+
+def test_legacy_fallback_kept_for_other_leg_failure(monkeypatch):
+    """Original case: a NON-production leg invalid -> legacy delta still learns."""
+    ec = _spy_learners(_ec(monkeypatch, prod_snap=20.0, prod_now=20.05, hwm=20.04))
+    ec._lifetime_net_import_snapshot = None
+    ec._maybe_reset_daily()
+    assert ec.saved_calls[0]["consumption_kwh"] == pytest.approx(600.0)  # (15.6-15.0)*1000
+    ec._predictor.record_actual_consumption.assert_called_once()
+    ec._accuracy.evaluate_accuracy.assert_called_once()
+    assert ec._predictor._adjustment_factor == 1.23

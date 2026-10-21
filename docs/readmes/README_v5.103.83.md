@@ -24,10 +24,13 @@ Consumption was understated on the 0.0 days, and that fed the forecast.
    entity the production snapshot came from in the existing `energy_state` KV
    store (key `lifetime_production_snapshot_entity`; no schema change). On
    restore, if the recorded entity is absent or differs from the current one,
-   the production snapshot is set to `0.0` (D5a's "never seeded" value). That
-   day's solar and derived consumption are then NULL instead of a cross-entity
-   delta, and the next midnight re-seeds a clean baseline. Expect exactly one
-   NULL solar day after deploy.
+   the production snapshot is set to `0.0` (D5a's "never seeded" value) and a
+   day-scoped `_production_snapshot_poisoned` flag is set. That day's solar AND
+   consumption are NULL (see item 3a), instead of a cross-entity delta, and the
+   next midnight re-seeds a clean baseline. Expect exactly one NULL solar and
+   consumption day after deploy. Exception: if the Envoy-reboot recovery
+   re-seed in the consumption crosscheck fires that day, it re-seeds all legs
+   together and clears the flag, so the day is a consistent partial day.
 3. **Flap rejection** (`energy.py` `_production_not_flapped`): an in-memory
    high-water mark of the production reading (it only rises). A snapshot below
    `(1 − LIFETIME_PRODUCTION_MAX_DROP_FRACTION) × hwm` is rejected and the day
@@ -35,7 +38,16 @@ Consumption was understated on the 0.0 days, and that fed the forecast.
    rung 1 (module constant: a safety bound on a monotonic counter should need
    review to change; `1.0` disables it). A flapped *current* needs no separate
    check because it is already caught by the monotonic check or by the snapshot
-   check.
+   check. Known limit: a genuine counter reset (Envoy or CT replaced) looks
+   like a flap, so days are rejected until the next HA restart clears the
+   in-memory mark.
+3a. **No legacy fallback on a production-rejected day** (Review A MEDIUM): when
+   the production baseline is rejected by the provenance flag or the flap
+   guard, `_maybe_reset_daily` no longer falls back to the net-import-only
+   legacy delta (a known-wrong figure). `consumption_kwh` is NULL and none of
+   `record_actual_consumption`, `evaluate_accuracy` or the adjustment-factor
+   update runs that day. The legacy fallback is kept for its original cases
+   (another leg invalid).
 4. `get_energy_summary()` now carries `lifetime_production_entity`.
 
 ## Backfill
@@ -49,7 +61,7 @@ and recomputes consumption from all five legs. That is not part of this cycle.
 It was not run against the live DB.
 
 ## Tests
-`quality/tests/test_ec_solar_ct_counter_flap.py` (11 tests) drives the real
+`quality/tests/test_ec_solar_ct_counter_flap.py` (14 tests) drives the real
 `_maybe_reset_daily`, `_restore_midnight_snapshot`, and `_save_midnight_snapshot`.
 Shared stub `test_ec_billing_d5a_baseline_guard_sites._bare_ec` gains `_lifetime_production_hwm`.
 

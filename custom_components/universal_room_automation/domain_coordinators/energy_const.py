@@ -1205,8 +1205,8 @@ CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: Final = "energy_lifetime_production_enti
 # EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.83) — rung 1 (module constant):
 # a lifetime production reading (snapshot or current) below
 # (1 - this) x the in-memory high-water mark is a counter flap, not a real
-# value; the day's solar/derived consumption is written NULL rather than a
-# silent 0.0. Safety bound on a monotonic counter — changing it should
+# value; the day's solar AND consumption are written NULL (no legacy
+# net-import fallback, no forecast learning) rather than a silent 0.0. Safety bound on a monotonic counter — changing it should
 # require review. 1.0 disables the check (nothing is ever below 0 x hwm).
 LIFETIME_PRODUCTION_MAX_DROP_FRACTION: Final = 0.5
 # energy_state KV key recording which entity the persisted production

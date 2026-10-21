@@ -910,6 +910,9 @@ class EnergyCoordinator(BaseCoordinator):
         # EC-SOLAR-LIFETIME-COUNTER-FLAP-1: in-memory high-water mark of the
         # production counter (flap rejection; see _production_not_flapped).
         self._lifetime_production_hwm: float | None = None
+        # Set when restore invalidated the production snapshot (provenance
+        # mismatch); cleared at the midnight reset. Day-scoped.
+        self._production_snapshot_poisoned: bool = False
         self._lifetime_net_import_snapshot: float | None = None
         self._lifetime_net_export_snapshot: float | None = None
         self._lifetime_battery_charged_snapshot: float | None = None
@@ -2625,8 +2628,13 @@ class EnergyCoordinator(BaseCoordinator):
                 # lifetime_energy_production to production_ct_energy_delivered)
                 # → poison it to 0.0 (D5a "never seeded" = invalid baseline):
                 # today's solar row is NULL rather than a cross-entity delta.
-                # 0.0 is not re-seeded mid-day (seeding only fills None) and
-                # is replaced at the next midnight reset.
+                # 0.0 is not re-seeded by the per-tick seeding (it only fills
+                # None); it is replaced at the next midnight reset, or earlier
+                # by the Envoy-reboot recovery re-seed in the consumption
+                # crosscheck, which re-seeds all legs together (that day is
+                # then a consistent partial day, not a cross-entity delta).
+                # _production_snapshot_poisoned also suppresses the legacy
+                # consumption fallback for the day (see _maybe_reset_daily).
                 if self._lifetime_production_snapshot is not None:
                     try:
                         stored_eid = await db.restore_energy_state(
@@ -2641,6 +2649,7 @@ class EnergyCoordinator(BaseCoordinator):
                             stored_eid, self._entity_lifetime_production,
                         )
                         self._lifetime_production_snapshot = 0.0
+                        self._production_snapshot_poisoned = True
                 _LOGGER.info(
                     "Restored midnight snapshots for today (%s)", today
                 )
@@ -3143,6 +3152,9 @@ class EnergyCoordinator(BaseCoordinator):
             or current_production > self._lifetime_production_hwm
         ):
             self._lifetime_production_hwm = current_production
+        # Known limit: a GENUINE counter reset (Envoy/CT replaced, counter
+        # restarts near 0) is indistinguishable from a flap, so days are
+        # rejected (NULL) until the next HA restart clears this in-memory mark.
 
         if today != self._last_reset_date:
             # Capture yesterday's billing totals BEFORE they're reset
@@ -3156,6 +3168,13 @@ class EnergyCoordinator(BaseCoordinator):
             # being invalid (None, zero, or non-monotonic). Writes NULL
             # rather than silently multiplying MWh×1000 against a zero
             # snapshot — the mechanism that produced the 4 bad rows.
+            # EC-SOLAR-LIFETIME-COUNTER-FLAP-1: production baseline rejected
+            # by the provenance poison or the flap guard. On such a day the
+            # legacy net-import-only fallback is a known-wrong consumption
+            # figure, so it must not be written or learned from.
+            _production_rejected = self._production_snapshot_poisoned or not self._production_not_flapped(
+                self._lifetime_production_snapshot, current_production
+            )
             _d5a_derived_ok = (
                 self._last_reset_date
                 and self._is_valid_lifetime_baseline(
@@ -3215,6 +3234,14 @@ class EnergyCoordinator(BaseCoordinator):
             # §D5a: baseline-validity guard — fail-closed if the lifetime
             # consumption snapshot is zero/None. Without this guard a
             # restart leaving snap=0 produced MWh×1000 kWh garbage rows.
+            elif _production_rejected:
+                _LOGGER.warning(
+                    "Production baseline rejected (provenance swap or counter "
+                    "flap: snap=%s current=%s hwm=%s) — consumption NULL, no "
+                    "legacy fallback, no forecast learning today",
+                    self._lifetime_production_snapshot, current_production,
+                    self._lifetime_production_hwm,
+                )
             elif (
                 self._last_reset_date
                 and self._is_valid_lifetime_baseline(
@@ -3307,6 +3334,7 @@ class EnergyCoordinator(BaseCoordinator):
             # Reset ALL 6 snapshots for new day
             self._lifetime_consumption_snapshot = current_lifetime
             self._lifetime_production_snapshot = current_production
+            self._production_snapshot_poisoned = False
             self._lifetime_net_import_snapshot = current_net_import
             self._lifetime_net_export_snapshot = current_net_export
             self._lifetime_battery_charged_snapshot = current_battery_charged
@@ -3567,6 +3595,7 @@ class EnergyCoordinator(BaseCoordinator):
                 cp = self._get_lifetime_production()
                 if cp is not None:
                     self._lifetime_production_snapshot = cp
+                    self._production_snapshot_poisoned = False
                 cni = self._get_lifetime_net_import()
                 if cni is not None:
                     self._lifetime_net_import_snapshot = cni
