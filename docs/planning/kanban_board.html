@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-20T17:47:33-05:00</b></span>
-<span>data <b>57082e07acd8</b></span>
+<span>generated <b>2026-10-20T17:54:30-05:00</b></span>
+<span>data <b>42d143f604ac</b></span>
 <span>reconciled <b>2026-10-20</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">9<span class="den"> / 181</span></span>
+<span class="metric">9<span class="den"> / 183</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 26 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -409,11 +409,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>0</b></span>
+<span>Inbox <b>1</b></span>
 <span>Investigating <b>2</b></span>
 <span>Pre-planning <b>14</b></span>
 <span>Planned <b>12</b></span>
-<span>In progress <b>1</b></span>
+<span>In progress <b>2</b></span>
 <span>Review <b>0</b></span>
 <span>Waiting on operator <b>28</b></span>
 <span>Waiting on me (Claude) <b>2</b></span>
@@ -423,8 +423,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">0</span><span class="hint">raw capture</span></h2>
-<div class="none">(none)</div>
+<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
+<div class="cards">
+<details class="card" data-id="BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1" draggable="true"><summary><span class="id">BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-20 19:30</div><dt>Why</dt><dd>binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all &#x27;off&#x27; for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...</dd><dt>Next</dt><dd>PICK: A (recommended - DELETE bucket candidate: feature never ran, no consumer) or B wire evaluation into the coordinator update + measure false-positive rate before enabling paging -&gt; I card the build or the removal.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li><li><code>adjacency</code>: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+</div>
 </section>
 <section class="lane" data-col="investigating">
 <h2>Investigating <span class="count">2</span><span class="hint">measuring; truth not yet known</span></h2>
@@ -470,9 +472,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
+<h2>In progress <span class="count">2</span><span class="hint">being built</span></h2>
 <div class="cards">
 <details class="card ap-unreviewed" data-id="EC-LOADED-VS-INSTALLED-VERSION-1" draggable="true"><summary><span class="id">EC-LOADED-VS-INSTALLED-VERSION-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 4.5 · v4 tc3 u2 /e2</span><span class="apl">unreviewed</span><span class="title">Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-17 16:30 · updated 2026-10-19 02:41 · refined</div><dt>Origin</dt><dd>2026-10-17 - EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, &lt;=1/day while op...</dd><dt>Why</dt><dd>Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record...</dd><dt>Next</dt><dd>Me: Tier-1 build to review (overnight queue, after the current validator run).</dd><dt>Parsimony</dt><dd>[BUILD (Tier 1, small; reuse sw_version)] After a deploy is installed but HA has not restarted, nothing shows that the running URA is older than the installed one, so live checks silently read old code.</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li><li><code>instance_2026_10_19_overnight</code>: LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_component...</li><li><code>prior_art_2026_10_19</code>: REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + h...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="NM-NOTIFY-SIGNATURE-MISMATCH-1" draggable="true"><summary><span class="id">NM-NOTIFY-SIGNATURE-MISMATCH-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Four async_notify call sites never matched NM&#x27;s signature, so those alerts raised TypeError and never delivered</span><div class="tagline">notifications</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-10-20 20:10</div><dt>Why</dt><dd>presence wake-backstop, binary_sensor occupancy-anomaly, perimeter route_reason legs + test button, optimizer dead kwargs+TypeError retry. Fixed on fix/nm-notify-signature-mismatch 1e7a1ad21; reviews A+B SHIP; name-diff CLEAN.</dd><dt>Next</dt><dd>Deploy; live-validate no NM TypeError in logs.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li><li><code>adjacency</code>: NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="review">
@@ -1028,7 +1031,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>57082e07acd8</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>42d143f604ac</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

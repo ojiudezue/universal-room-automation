@@ -2,18 +2,18 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T17:47:33-05:00_ - _Data commit: `57082e07acd8`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T17:54:30-05:00_ - _Data commit: `42d143f604ac`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 12 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 28 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -21,10 +21,17 @@ _Generated: 2026-10-20T17:47:33-05:00_ - _Data commit: `57082e07acd8`_ - _last_r
 | 🅿️ Parked | 96 |
 | ✅ Done | 353 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **inbox**
+_created 2026-10-20 19:30_
+- **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
+- **Next:** PICK: A (recommended - DELETE bucket candidate: feature never ran, no consumer) or B wire evaluation into the coordinator update + measure false-positive rate before enabling paging -> I card the build or the removal.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
@@ -462,7 +469,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
@@ -476,6 +483,15 @@ _created 2026-10-17 16:30 · updated 2026-10-19 02:41 · refined_
   - `tier`: 1
   - `instance_2026_10_19_overnight`: LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_component...
   - `prior_art_2026_10_19`: REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + h...
+
+### `NM-NOTIFY-SIGNATURE-MISMATCH-1` - Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **notifications** - status: **in_progress**
+_created 2026-10-20 20:10_
+- **Why:** presence wake-backstop, binary_sensor occupancy-anomaly, perimeter route_reason legs + test button, optimizer dead kwargs+TypeError retry. Fixed on fix/nm-notify-signature-mismatch 1e7a1ad21; reviews A+B SHIP; name-diff CLEAN.
+- **Next:** Deploy; live-validate no NM TypeError in logs.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `adjacency`: NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1.
 
 ## 🔍 Review (0)
 _under review_

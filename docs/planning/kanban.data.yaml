@@ -26958,6 +26958,28 @@ cards:
     generalized (no URA leakage; reviewed WSJF section for accuracy). Pushed to GitHub main 5ffddeb. Reflects
     "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
     (carded).'
+- id: NM-NOTIFY-SIGNATURE-MISMATCH-1
+  title: "Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered"
+  thread: notifications
+  status: in_progress
+  tier: 1
+  created: "2026-10-20 20:10"
+  updated: "2026-10-20 20:10"
+  origin: "Mid-turn find 2026-10-20 (Halo plan review 1: presence.py:6128 wake-backstop)."
+  why: "presence wake-backstop, binary_sensor occupancy-anomaly, perimeter route_reason legs + test button, optimizer dead kwargs+TypeError retry. Fixed on fix/nm-notify-signature-mismatch 1e7a1ad21; reviews A+B SHIP; name-diff CLEAN."
+  next: "Deploy; live-validate no NM TypeError in logs."
+  adjacency: "NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1."
+- id: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1
+  title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
+  thread: presence
+  status: inbox
+  tier: 1
+  created: "2026-10-20 19:30"
+  updated: "2026-10-20 19:30"
+  origin: "Mid-turn find 2026-10-20 (reviews of fix/nm-notify-signature-mismatch)."
+  why: "binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log ever. Its notify call was also broken (fixed on fix/nm-notify-signature-mismatch). Disabled by default."
+  next: "PICK: A (recommended - DELETE bucket candidate: feature never ran, no consumer) or B wire evaluation into the coordinator update + measure false-positive rate before enabling paging -> I card the build or the removal."
+  adjacency: "NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch)."
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
   residual_2026_10_20_runtime_slice: "Runtime-leak slice built on test/order-indep-prodstubs a7f6d7c59 (file_scope + real_package_scope helpers in _d7_isolation.py; 38 runtime leakers fenced; 107-file probe leakers 36->5; perimeter_burst_demotion pinned to 02:00). MERGED to develop 2026-10-20 (46bc9fea5; review SHIP; name-diff CLEAN 0 new / 1 gone with URA_SOURCE_MUTATION=1). Fix-ups: OC pillar donors left unscoped on purpose (D7 drills depend on them); stale d3_unrecorded_key_dropped drill anchor repaired; v4511 import check runs in real_package_scope. OPEN: file_scope may evict a real module first-imported during a file (duplicate-module risk, reviewer LOW) - add an only-evict-stubs rule if it ever bites; suite_namediff.py looks for .venv-ha in the worktree (run from main checkout). DEFERRED: (a) test_hvac_vacancy_sweep_manual_on_guard installs MagicMock stubs at collection (breaks ec_outage_ledger + dpm_drift_guard, fails same on develop) -> needs import_scope; (b) develop-alone failures: test_v4623_humidity_fan_behavioral(5), test_optimization_coordinator(10), test_snap1_at_detection_snapshots(1), test_v47181_sleep_wake_deadlock (collection: no module .database); (c) importlib.reload sites test_room_covers_garage_guard, test_radar_tuning_phase_a; (d) grep-flagged files the probe did not catch, unverified."
   shipped_2026_10_14: "Merged to develop (test-only, no deploy): fix/suite-order-indep 707652bbe/df21ea450/5ffcadc34. pytest_collectstart hook backfills real production symbols into partial sys.modules stubs (setdefault, so deliberate partial stubs survive); test_v5172 run-alone fixed. Gate: quality/tools/collect_order_matrix.py seeds 1,2,3,11,22,33 + reverse = 0 errors, 0 drift (before: 1-10 errors, -17..-152 tests). Full-suite run name-diff vs 2c00f499a: 0 NEW, 0 GONE."
