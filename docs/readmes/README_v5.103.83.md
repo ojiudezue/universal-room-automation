@@ -53,3 +53,15 @@ At the plan's 900 s the same replay gave a house median of 5 fires/day and 11 in
 | Exit rows | `occupancy_events` for any room: no `entry` followed by `entry` created after deploy (fan-demote / failsafe exits now have a row with NULL duration) |
 | No notification | `notification_log` has no row from `bayesian_predictor` / `occupancy` after deploy |
 | Logs | No `Room dwell model refresh failed` WARNING; no ERROR from `binary_sensor` |
+
+## Validated 2026-10-21 (restart ~18:23 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Load | PASS | 0 URA ERROR/Traceback lines after boot; 0 `write worker is closed` over the restart |
+| Model builds after start | PASS | `binary_sensor.studya_room_device_occupancy_anomaly`: `model_status ok`, `model_refreshed_at 23:27:58Z` (≈2 min after start), `model_window_days 56` |
+| Sensor evaluates with attributes | PASS | Study A, weekday 18:00 cell: `expected_share 0.3026`, `cell_days 40`, `cell_samples 466`, `learning_status ok`, `usual_people` Oji; Kitchen: `expected_share 0.1848`, usual people Jaya 0.56 / Oji 0.32 / Ezinne 0.10; both `off` (rooms vacant) |
+| Measures dwell, not arrivals | PASS | Study A weekday share 0.30 at 18:00 (old Bayesian model gave ~0.01) |
+| Exit rows on vacancy | PASS (rate) | occupancy_events today (UTC): 240 entry / 228 exit, normal daily rate; no burst after the restart |
+| NULL-duration exit on fan/failsafe vacate | PENDING | no such vacate since the restart (0 NULL-duration exits so far) |
+| Replay G1-G4 after a week live | PENDING | `scripts/probes/occupancy_dwell_backtest.py --days 7` |
