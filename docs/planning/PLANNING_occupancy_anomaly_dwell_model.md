@@ -2,7 +2,7 @@
 
 **Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** plan v1, not reviewed, not built.
 **Evidence base:** `docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md` (the D0 audit of the old model).
-**Pending input:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` did not exist when this plan was written. Revise §9 against it before the plan review (see Open questions).
+**Also read:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` (landed while this plan was being written; folded into §9).
 
 ## Operator decisions (binding)
 
@@ -291,7 +291,11 @@ If G1 or G2 fails at every setting, the card goes back to the operator with the 
 | `predict_room_occupancy`, `predict_room_occupancy_at_time` | `bayesian_predictor.py:466, 814` | Not a triage subject (live consumers) | See the predictions audit (pending) for whether the same arrival bias hurts the energy forecast and the forecast sensors. |
 | `LearningStatus` ACTIVE ≥ 50 | `bayesian_predictor.py:645-652` | Not touched | D0 showed it is vacuous for anomaly use; other readers may rely on it |
 
-**Predictions audit (pending).** `AUDIT_predictions_room_zone_house_2026_10_21.md` was not present when this plan was written. Before the plan review, read it and: (a) if it finds the shared Bayesian model arrival-biased for its live consumers, add a cross-reference card, not scope here; (b) if it proposes a shared room-level dwell producer, decide whether `RoomDwellModel` should be that producer (likely yes; it is general) and say so here.
+**Predictions audit (landed 2026-10-21, `AUDIT_predictions_room_zone_house_2026_10_21.md`).** It confirms the root cause independently and widens it:
+- The same arrival-count model feeds `sensor.<person>_likely_next_room`, the per-room `bayesian_occupancy_forecast` / `_pattern` sensors and this anomaly sensor ("shared root cause 1", audit line 97). Backtested, the room occupancy forecast has no skill over a constant: AUC 0.605, Brier 0.0854 against 0.0847 for always-the-base-rate (14 d, 3,127 samples). The "94.4% hit rate" headline is the empty-room base rate.
+- The audit lists all those as display-only. It did not enumerate the energy-forecast use of `predict_room_occupancy` (`energy_forecast.py:445,499`); this plan does not either. That stays a non-goal here.
+- Its suggested card 3 ("dwell-based occupancy") is the same producer as D1. **Decision for this plan:** build `RoomDwellModel` as a general room-level component (no anomaly-specific logic inside it), so the forecast sensors can switch to it in a later card without a rebuild. Switching them is NOT in this cycle; card it as a sibling (adjacent to the audit's suggested card 3) with the D0 backtest as its evidence.
+- The audit's "no skill baseline anywhere" point applies here: D0 G3 (Study A weekday daytime) and the share-vs-visits table are this plan's skill checks.
 
 ---
 
@@ -308,5 +312,5 @@ Suggested review framings: A = model arithmetic and edge cases (DST, NULLs, empt
 1. **Night in your own bedroom vs. anywhere else at night.** With a room-level model, Ziri up at 03:00 in the kitchen will turn the Kitchen sensor on if that is rare. That is the intended behaviour ("routine change"). Confirm.
 2. **Signal in observation mode.** Today the signal is sent even in observation mode; the record is not. Keep that split?
 3. **Which rooms to enable.** The 9 enabled entities stay enabled. Enable more after D0, or leave it to you?
-4. **Predictions audit.** Revise §9 when it lands (see above).
+4. **Shared producer.** OK to card "switch the occupancy forecast sensors to `RoomDwellModel`" as a sibling once this ships (§9)?
 5. **Side finds.** Card the `get_occupancy_time_today` key/event-type mismatch and the `get_occupancy_percentage` time-zone mix?
