@@ -832,6 +832,12 @@ class BayesianPredictor:
     def get_anomaly_score(self, room_id: str, is_occupied: bool) -> dict:
         """Check if current occupancy is anomalous vs Bayesian prediction.
 
+        RETIRED for the occupancy-anomaly sensor; superseded by
+        room_dwell_model (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1). This is
+        an arrival-count model used as a dwell question (Study A scored
+        0.004), so it has no production reader. DELETE candidate after the
+        dwell sensor is live-validated (plan §9); kept until then.
+
         Returns a dict with:
             predicted_probability: float or None
             anomaly: bool (True if occupied but predicted < 10% and ACTIVE)

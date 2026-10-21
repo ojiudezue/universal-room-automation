@@ -77,6 +77,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 | `SIGNAL_HOUSE_STATE_CHANGED` | `presence.py` (dispatcher) | HVAC override arrester, fans, lighting, security, EVSE, battery, memory writers |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |
 | `person.*` entities + `sensor.<person>_room` | `person_coordinator.py` | guest gate, census identity fusion, egress, perimeter enrichment |
+| `environmental_data.occupied` (5-min sample of room `STATE_OCCUPIED`, keyed by entry_id) | `coordinator.py` data-logging block | **room dwell model** (`room_dwell_model.py`, branch `feat/occupancy-dwell-anomaly`, NOT deployed): share of time occupied by local hour x weekday/weekend, nightly rebuild, read-only → `binary_sensor.<room>_occupancy_anomaly` (display only; no notification). Also `get_uncomfortable_minutes_today`. |
 
 ---
 
@@ -488,6 +489,7 @@ entity-name regex).
 Open-ish cards touching presence / BLE / fan / mmWave / census (most-recent first; one-line
 each; verify current status in the board):
 
+- **BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1** (built 2026-10-21, branch `feat/occupancy-dwell-anomaly`, NOT deployed, README_v5.103.82). `binary_sensor.<room>_occupancy_anomaly` never evaluated (logic in `async_update`, never called on a coordinator entity) and its Bayesian arrival model scored long-dwell rooms as rare (Study A 0.004). Now it evaluates in `_handle_coordinator_update` against the room dwell model (§1 table). On only when: occupied; cell share < `OCC_ANOMALY_SHARE_THRESHOLD` (0.02); cell samples ≥ `OCC_ANOMALY_MIN_CELL_SAMPLES` (200); occupied ≥ `OCC_ANOMALY_DEBOUNCE_S` (900 s); house not GUEST; model refreshed. Rising edge: `SIGNAL_OCCUPANCY_ANOMALY` + one `anomaly_log` row `occupancy.dwell_anomaly`, gated by startup grace, per-room cooldown and **presence** observation mode (the room coordinator has no `_observation_mode`; the old check was always False). No NM on any path. It learns phantom holds as "usual" (Study A ZK hold, Jaya LD2410 fan loop) and shows a phantom at a new hour as an anomaly: accepted, display only. Known at build: a 56-day weekend cell holds at most 192 samples (< 200), so weekend cells stay `learning` until the knobs are tuned from the post-deploy D0 replay (`scripts/probes/occupancy_dwell_backtest.py`). Side fixes in the same branch: `get_occupancy_time_today` / `get_occupancy_percentage` / `get_uncomfortable_minutes_today` (entry_id key, local-day window, entry/exit pairing). `bayesian_predictor.get_anomaly_score` has no production reader now (DELETE candidate after live validation).
 - **HOUSE-STATE-SENSOR-BOOT-AWAY-DISPLAY-1** (2026-10-11) — boot-time house-state sensor
   reads AWAY while inference still settling.
 - **CENSUS-NAME-SPACE-DEDUP-1** (2026-10-11) — census name-space dedup gap.

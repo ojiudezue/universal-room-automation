@@ -2117,6 +2117,44 @@ RETENTION_ROOM_HISTORY_DAYS: Final = 365
 # carried to the next night. Steady state needs ~13 batches/table/night.
 ROOM_HISTORY_PRUNE_MAX_BATCHES: Final = 100
 
+# ----------------------------------------------------------------------------
+# Room occupancy-anomaly on a dwell model (BAYES-OCCUPANCY-ANOMALY-NEVER-
+# EVALUATES-1, plan docs/planning/PLANNING_occupancy_anomaly_dwell_model.md §6).
+# All rung 1 (module constants): the sensor is a diagnostic with no consumer,
+# and the parsimony rule keeps its timing off the options flow. Tune after the
+# post-deploy D0 replay (scripts/probe_occupancy_dwell_backtest.py).
+# ----------------------------------------------------------------------------
+# Kill switch for the whole dwell path. False: the sensor stays off with
+# learning_status "disabled"; no model refresh, no DB read.
+OCC_ANOMALY_DWELL_ENABLED: Final = True
+# Training window in days (8 weeks ~ 8 samples per weekend cell). Clamped to
+# RETENTION_ROOM_HISTORY_DAYS when that is non-zero.
+OCC_ANOMALY_WINDOW_DAYS: Final = 56
+# The room is "unusually occupied" when its learned share of occupied time for
+# this local (hour, day type) is STRICTLY below this. 0.0 disables firing.
+OCC_ANOMALY_SHARE_THRESHOLD: Final = 0.02
+# Minimum 5-min samples in a cell before it may fire (~40% of a full weekday
+# cell over 56 days). Below it the sensor is off with learning_status
+# "learning".
+OCC_ANOMALY_MIN_CELL_SAMPLES: Final = 200
+# Continuous occupancy required before firing; a pass-through is not an
+# anomaly. 0 = fire on the first qualifying tick.
+OCC_ANOMALY_DEBOUNCE_S: Final = 900
+# Nightly model rebuild, local time (one bounded GROUP BY read).
+OCC_ANOMALY_REFRESH_LOCAL_TIME: Final = "03:40"
+# First rebuild this long after integration setup (keeps it out of boot).
+OCC_ANOMALY_SETUP_REFRESH_DELAY_S: Final = 120
+# At most one anomaly_log row (and signal) per room per this many seconds.
+# 0 = one per rising edge. Was the literal 1800 in the old sensor.
+OCC_ANOMALY_LOG_COOLDOWN_S: Final = 1800
+# No anomaly_log row / signal for this long after the entity is created; the
+# sensor state still evaluates. Was the literal 300 in the old sensor.
+OCC_ANOMALY_STARTUP_GRACE_S: Final = 300
+# Bound on the person_visits rows read per refresh for usual_people (display).
+OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS: Final = 50000
+# Visits longer than this are ignored for usual_people (stale open-ended rows).
+OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S: Final = 86400
+
 # ============================================================================
 # COMFORT & ENERGY THRESHOLDS
 # ============================================================================

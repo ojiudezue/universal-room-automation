@@ -1,6 +1,14 @@
 # PLANNING: Room occupancy-anomaly sensor on a dwell model
 
-**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** plan v1, not reviewed, not built.
+**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** BUILT 2026-10-21 on `feat/occupancy-dwell-anomaly` (README_v5.103.82), not deployed.
+
+**Build notes (deviations, operator decisions 2026-10-21):**
+- D0 runs AFTER deploy as the live check (operator), as the committed script `scripts/probes/occupancy_dwell_backtest.py`. Knob defaults kept as §6.
+- Q1 answered yes (rare-hour visit fires). Q2: signal AND row both skip in observation mode, read from the PRESENCE coordinator's `observation_mode`. §5/D3's "today the signal is sent in observation mode" was wrong: the old code skipped both, but its check read `coordinator._observation_mode`, which the room coordinator does not have (always False).
+- Side finds fixed here, not carded (operator): plus `get_uncomfortable_minutes_today` (same name-key at the same sensor call sites, and a UTC midnight), and exit-row `duration` is time-since-last-motion, not episode length, so both occupancy DAOs now pair entry/exit rows.
+- `occupied IS NOT NULL` in the DAO is belt-and-braces: `COUNT(occupied)` already skips NULL.
+- Arithmetic finding from the build-time replay: a 56-day weekend cell holds at most 16 x 12 = 192 samples, below `OCC_ANOMALY_MIN_CELL_SAMPLES` = 200 ("40% of a weekday cell"), so weekend cells never leave `learning` and G4 ("every cell") cannot pass at these defaults.
+- The forecast-sensors-onto-RoomDwellModel switch is the next card, not this branch.
 **Evidence base:** `docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md` (the D0 audit of the old model).
 **Also read:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` (landed while this plan was being written; folded into §9).
 

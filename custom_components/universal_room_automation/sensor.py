@@ -16104,7 +16104,9 @@ class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
             now = dt_util.now()
             midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
             elapsed_secs = (now - midnight).total_seconds()
@@ -16156,7 +16158,9 @@ class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
             self._cached_value = occupied_secs // 60
         except Exception as e:
             _LOGGER.error("Error fetching time occupied: %s", e)
@@ -16200,7 +16204,7 @@ class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
             return
         try:
             self._cached_value = await database.get_uncomfortable_minutes_today(
-                room_name
+                self.coordinator.entry.entry_id,
             )
         except Exception as e:
             _LOGGER.error("Error fetching uncomfortable minutes: %s", e)
@@ -16245,9 +16249,11 @@ class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
             uncomfortable_mins = await database.get_uncomfortable_minutes_today(
-                room_name
+                self.coordinator.entry.entry_id,
             )
             occupied_mins = occupied_secs // 60
             if occupied_mins > 0:

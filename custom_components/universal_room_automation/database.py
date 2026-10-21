@@ -3522,49 +3522,83 @@ class UniversalRoomDatabase:
     # PHASE 3: OCCUPANCY PREDICTION QUERIES
     # =========================================================================
 
+    async def _occupied_seconds_between(
+        self, db, room_id: str, start_utc: datetime, end_utc: datetime,
+    ) -> tuple[float, bool]:
+        """Occupied seconds for ``room_id`` in [start_utc, end_utc).
+
+        Pairs ``occupancy_events`` entry/exit rows (the only event types the
+        writer emits, ``coordinator.py`` data-logging block) and clips each
+        episode to the window. An episode open at ``start_utc`` (last event
+        before the window is an entry) counts from ``start_utc``; one still
+        open at ``end_utc`` counts to ``end_utc``. Both bounds are naive UTC,
+        the same clock as the stored ``timestamp`` (``datetime.utcnow()``).
+
+        The stored ``duration`` of an exit row is NOT used: it is seconds
+        since the last motion at exit, not the episode length.
+
+        Returns ``(seconds, had_evidence)``; ``had_evidence`` is False when
+        there is no event in the window and no episode open at its start.
+        """
+        start_s = start_utc.isoformat()
+        end_s = end_utc.isoformat()
+        cursor = await db.execute(
+            """SELECT event_type FROM occupancy_events
+               WHERE room_id = ? AND timestamp < ?
+                 AND event_type IN ('entry', 'exit')
+               ORDER BY timestamp DESC LIMIT 1""",
+            (room_id, start_s),
+        )
+        prev = await cursor.fetchone()
+        open_at: datetime | None = (
+            start_utc if prev is not None and prev[0] == "entry" else None
+        )
+        had_evidence = open_at is not None
+        cursor = await db.execute(
+            """SELECT timestamp, event_type FROM occupancy_events
+               WHERE room_id = ? AND timestamp >= ? AND timestamp < ?
+                 AND event_type IN ('entry', 'exit')
+               ORDER BY timestamp ASC""",
+            (room_id, start_s, end_s),
+        )
+        total = 0.0
+        for ts_raw, event_type in await cursor.fetchall():
+            had_evidence = True
+            ts = datetime.fromisoformat(str(ts_raw))
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+            if event_type == "entry":
+                if open_at is None:
+                    open_at = ts
+            elif open_at is not None:
+                total += max(0.0, (ts - open_at).total_seconds())
+                open_at = None
+        if open_at is not None:
+            total += max(0.0, (end_utc - open_at).total_seconds())
+        return total, had_evidence
+
     async def get_occupancy_percentage(self, room_id: str, days: int = 7) -> float | None:
         """
-        Calculate percentage of time room was occupied over the last N days.
-        Returns percentage (0-100) or None if insufficient data.
+        Percentage of time the room was occupied over the last N days.
+        Returns percentage (0-100) or None if there is no evidence.
+
+        Side-find fix (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 branch): the
+        cutoff was a LOCAL ``dt_util.now()`` compared with naive-UTC stored
+        timestamps (window off by the UTC offset), and it summed exit-row
+        ``duration`` (seconds since last motion, not episode length). Now a
+        naive-UTC window and entry/exit pairing.
         """
         try:
-            cutoff = dt_util.now() - timedelta(days=days)
-
+            end_utc = dt_util.utcnow().replace(tzinfo=None)
+            start_utc = end_utc - timedelta(days=days)
             async with self._db_read() as db:
-                # Get all entry/exit events in period
-                cursor = await db.execute("""
-                    SELECT timestamp, event_type, duration
-                    FROM occupancy_events
-                    WHERE room_id = ? 
-                    AND timestamp >= ?
-                    ORDER BY timestamp ASC
-                """, (room_id, cutoff.isoformat()))
-                
-                events = await cursor.fetchall()
-                
-                if not events:
-                    return None
-                
-                # Calculate total occupied time
-                total_occupied_seconds = 0
-                current_entry_time = None
-                
-                for event in events:
-                    timestamp = datetime.fromisoformat(event[0])
-                    event_type = event[1]
-                    duration = event[2]
-                    
-                    if event_type == "entry":
-                        current_entry_time = timestamp
-                    elif event_type == "exit" and duration:
-                        total_occupied_seconds += duration
-                
-                # Calculate percentage
-                total_period_seconds = days * 24 * 3600
-                percentage = (total_occupied_seconds / total_period_seconds) * 100
-                
-                return min(100.0, max(0.0, percentage))
-                
+                total, had_evidence = await self._occupied_seconds_between(
+                    db, room_id, start_utc, end_utc,
+                )
+            if not had_evidence:
+                return None
+            percentage = total / (days * 24 * 3600) * 100
+            return min(100.0, max(0.0, percentage))
         except Exception as e:
             _LOGGER.error("Error calculating occupancy percentage: %s", e)
             return None
@@ -8025,24 +8059,25 @@ class UniversalRoomDatabase:
             return []
 
     async def get_occupancy_time_today(self, room_id: str) -> int:
-        """Get total occupied seconds since midnight from occupancy_events.
+        """Occupied seconds since local midnight for ``room_id`` (entry_id).
 
-        Sums duration of all 'occupied' events for the room today.
-        Returns seconds.
+        Side-find fix (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 branch): the
+        callers passed the room NAME while ``occupancy_events`` is keyed by
+        entry_id, and the query summed ``event_type='occupied'`` rows that the
+        writer never emits (it writes ``entry`` / ``exit``), so it always
+        returned 0. Now entry/exit pairing from local midnight (as naive UTC)
+        to now.
         """
         try:
-            midnight = dt_util.start_of_local_day().isoformat()
+            start_utc = dt_util.as_utc(dt_util.start_of_local_day()).replace(
+                tzinfo=None,
+            )
+            end_utc = dt_util.utcnow().replace(tzinfo=None)
             async with self._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT COALESCE(SUM(duration), 0)
-                       FROM occupancy_events
-                       WHERE room_id = ?
-                         AND event_type = 'occupied'
-                         AND timestamp >= ?""",
-                    (room_id, midnight),
+                total, _ = await self._occupied_seconds_between(
+                    db, room_id, start_utc, end_utc,
                 )
-                row = await cursor.fetchone()
-                return row[0] if row else 0
+            return int(total)
         except Exception as e:
             _LOGGER.error("Error getting occupancy time today: %s", e)
             return 0
@@ -8056,8 +8091,11 @@ class UniversalRoomDatabase:
         Returns approximate minutes.
         """
         try:
-            now = dt_util.utcnow()
-            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Local midnight as naive UTC (stored clock). Was UTC midnight,
+            # so "today" started at 19:00 local (side-find, same branch).
+            midnight = dt_util.as_utc(dt_util.start_of_local_day()).replace(
+                tzinfo=None,
+            )
             async with self._db_read() as db:
                 cursor = await db.execute(
                     """SELECT COUNT(*)
@@ -8076,6 +8114,62 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error getting uncomfortable minutes: %s", e)
             return 0
+
+    async def get_room_occupied_share_by_hour(
+        self, since_utc: str, until_utc: str,
+    ) -> list[tuple[str, str, int, int]]:
+        """Occupied samples per room per UTC hour (room dwell model, D1).
+
+        One indexed range scan of ``environmental_data`` (the 5-min room
+        snapshot, ``coordinator.py`` data-logging block) grouped by
+        ``(room_id, substr(timestamp, 1, 13))`` = entry_id and the UTC hour
+        bucket ``YYYY-MM-DDTHH``. ``since_utc`` / ``until_utc`` are naive-UTC
+        ISO strings (the stored clock); the window is ``[since, until)``.
+        NULL ``occupied`` rows (first tick before the room settles) are
+        excluded from both sums. Read-only; raises on DB error so the caller
+        keeps its previous model (coherent-old).
+
+        Returns ``[(room_id, utc_hour, occupied_sum, n), ...]``.
+        """
+        async with self._db_read() as db:
+            cursor = await db.execute(
+                """SELECT room_id, substr(timestamp, 1, 13) AS utc_hour,
+                          SUM(CASE WHEN occupied THEN 1 ELSE 0 END),
+                          COUNT(occupied)
+                   FROM environmental_data
+                   WHERE timestamp >= ? AND timestamp < ?
+                     AND occupied IS NOT NULL
+                   GROUP BY room_id, utc_hour""",
+                (since_utc, until_utc),
+            )
+            rows = await cursor.fetchall()
+        return [(str(r[0]), str(r[1]), int(r[2] or 0), int(r[3] or 0)) for r in rows]
+
+    async def get_closed_person_visits(
+        self, since_local: str, until_local: str, limit: int,
+    ) -> list[tuple[str, str, str, str]]:
+        """Closed ``person_visits`` rows in ``[since_local, until_local)``.
+
+        ``person_visits.entry_time`` / ``exit_time`` are naive LOCAL times
+        (``log_person_entry`` writes ``datetime.now()``) and ``room_id`` is
+        the room display name. Display input for the dwell model's
+        ``usual_people`` attribute (BLE-derived, sparse). Bounded by
+        ``limit``, newest first. Read-only; raises on DB error.
+
+        Returns ``[(person_id, room_id, entry_time, exit_time), ...]``.
+        """
+        async with self._db_read() as db:
+            cursor = await db.execute(
+                """SELECT person_id, room_id, entry_time, exit_time
+                   FROM person_visits
+                   WHERE entry_time >= ? AND entry_time < ?
+                     AND exit_time IS NOT NULL
+                   ORDER BY entry_time DESC
+                   LIMIT ?""",
+                (since_local, until_local, int(limit)),
+            )
+            rows = await cursor.fetchall()
+        return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]
 
     # =========================================================================
     # v4.5.11: AC RAMP-DOWN STATE + EVENT LOG
