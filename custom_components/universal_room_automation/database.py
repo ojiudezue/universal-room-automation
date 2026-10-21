@@ -5062,6 +5062,8 @@ class UniversalRoomDatabase:
                         [(i, r) for i, r in enumerate(readings)],
                     )
                 await db.commit()
+        except DBShuttingDown:
+            _LOGGER.debug("save_peak_import_history skipped: HA shutting down")
         except Exception as e:
             _LOGGER.error("Error saving peak import history: %s", e)
 
@@ -5105,6 +5107,8 @@ class UniversalRoomDatabase:
                     dt_util.utcnow().isoformat(),
                 ))
                 await db.commit()
+        except DBShuttingDown:
+            _LOGGER.debug("save_evse_state(%s) skipped: HA shutting down", evse_id)
         except Exception as e:
             _LOGGER.error("Error saving EVSE state for %s: %s", evse_id, e)
 
@@ -5349,6 +5353,8 @@ class UniversalRoomDatabase:
                         await db.rollback()
                     except Exception:
                         pass
+        except DBShuttingDown:
+            _LOGGER.debug("save_circuit_state skipped: HA shutting down")
         except Exception as e:
             _LOGGER.error("Error connecting to DB for circuit state save: %s", e)
 
@@ -5419,6 +5425,8 @@ class UniversalRoomDatabase:
                     now,
                 ))
                 await db.commit()
+        except DBShuttingDown:
+            _LOGGER.debug("save_envoy_cache skipped: HA shutting down")
         except Exception as e:
             _LOGGER.error("Error saving envoy cache: %s", e)
 
@@ -5488,6 +5496,8 @@ class UniversalRoomDatabase:
                 ))
                 await db.commit()
                 _LOGGER.debug("Saved midnight snapshot for %s", data.get("snapshot_date"))
+        except DBShuttingDown:
+            _LOGGER.debug("save_midnight_snapshot skipped: HA shutting down")
         except Exception as e:
             _LOGGER.error("Error saving midnight snapshot: %s", e)
 
@@ -5529,6 +5539,10 @@ class UniversalRoomDatabase:
                     VALUES (?, ?, ?)
                 """, (key, value, now))
                 await db.commit()
+        except DBShuttingDown:
+            # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: expected after HA Stage 2
+            # cancels the write worker; the Stage-1 EC stop job already saved.
+            _LOGGER.debug("save_energy_state(%s) skipped: HA shutting down", key)
         except Exception as e:
             _LOGGER.error("Error saving energy state key '%s': %s", key, e)
 
