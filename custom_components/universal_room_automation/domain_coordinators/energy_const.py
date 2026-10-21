@@ -1202,7 +1202,7 @@ CONF_ENERGY_ENVOY_ENTITY: Final = "energy_envoy_entity"
 CONF_ENERGY_BATTERY_CAPACITY_ENTITY: Final = "energy_battery_capacity_entity"
 CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: Final = "energy_lifetime_consumption_entity"
 CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: Final = "energy_lifetime_production_entity"
-# EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.83) — rung 1 (module constant):
+# EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82) — rung 1 (module constant):
 # a lifetime production reading (snapshot or current) below
 # (1 - this) x the in-memory high-water mark is a counter flap, not a real
 # value; the day's solar AND consumption are written NULL (no legacy
@@ -1658,7 +1658,7 @@ def derive_envoy_config(serial: str) -> dict[str, str]:
         CONF_ENERGY_NET_POWER_ENTITY: f"sensor.envoy_{serial}_current_net_power_consumption",
         CONF_ENERGY_BATTERY_CAPACITY_ENTITY: f"sensor.envoy_{serial}_battery_capacity",
         CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_consumption",
-        # EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.83): the inverter-sum
+        # EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82): the inverter-sum
         # ``lifetime_energy_production`` counter flaps to ~0.046 MWh (32 drops
         # in 686 hourly samples, 2026-09-20..10-21) → silent 0.0 / NULL solar
         # rows. The production-CT counter is monotonic, same unit (MWh), and

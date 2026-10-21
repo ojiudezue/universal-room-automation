@@ -1,4 +1,4 @@
-# v5.103.83 — Daily solar uses the production-CT counter
+# v5.103.82 — Daily solar uses the production-CT counter
 
 **Card:** EC-SOLAR-LIFETIME-COUNTER-FLAP-1 · **Tier:** 1 (energy accounting; no battery/reserve decision path touched)
 

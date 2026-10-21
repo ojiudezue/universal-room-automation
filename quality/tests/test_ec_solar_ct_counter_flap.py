@@ -1,4 +1,4 @@
-"""EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.83) behavioural tests.
+"""EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82) behavioural tests.
 
 The inverter-sum ``lifetime_energy_production`` counter flaps to ~0.046 MWh;
 the EC now derives the monotonic production-CT counter, records snapshot
