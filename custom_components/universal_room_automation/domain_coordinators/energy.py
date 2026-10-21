@@ -6236,7 +6236,7 @@ class EnergyCoordinator(BaseCoordinator):
         """Point-in-time callback: drive MUST_START_FORCED + release."""
         # Clear handle first — this fire is one-shot.
         self._dp_must_start_unsub = None
-        if getattr(self, "_ec_stopping", False):
+        if getattr(self, "_ec_stopping", False) is True:
             return  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: no actuation
         try:
             from .energy_drain_precedence import DPState, try_transition
@@ -6300,7 +6300,7 @@ class EnergyCoordinator(BaseCoordinator):
         if TOU_BOUNDARY_TICK_DELAY_S < 0:
             return
         # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: never re-arm after stop.
-        if getattr(self, "_ec_stopping", False):
+        if getattr(self, "_ec_stopping", False) is True:
             return
         # Runtime absence of helper (test bootstraps that predate v5.17.3):
         # silently no-op so those tests stay green. In production this would
@@ -6418,7 +6418,7 @@ class EnergyCoordinator(BaseCoordinator):
         """
         if not self._enabled:
             return
-        if getattr(self, "_ec_stopping", False):
+        if getattr(self, "_ec_stopping", False) is True:
             return  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
         if self._cycle_in_flight:
             _LOGGER.debug(
@@ -10872,7 +10872,7 @@ class EnergyCoordinator(BaseCoordinator):
                 )
             self._tou_boundary_unsub = None
         self._cancel_dp_must_start_by_timer()
-        if getattr(self, "_ec_stopping", False):
+        if getattr(self, "_ec_stopping", False) is True:
             sf = getattr(self, "_solar_follow", None)
             if sf is not None:
                 sf._stopped = True  # noqa: SLF001 — scheduled ticks no-op

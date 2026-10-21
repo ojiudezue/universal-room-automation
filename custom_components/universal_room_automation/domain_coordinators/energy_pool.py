@@ -5180,7 +5180,7 @@ class SolarFollowController:
         # confirm gate.
         # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: no actuation after the EC
         # Stage-1 stop job (a tick already scheduled may still fire).
-        if getattr(self, "_stopped", False):
+        if getattr(self, "_stopped", False) is True:
             return
         if self._tick_in_flight:
             _LOGGER.debug("solar-follow tick reentry suppressed")
