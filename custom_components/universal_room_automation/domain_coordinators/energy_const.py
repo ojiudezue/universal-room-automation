@@ -2759,3 +2759,7 @@ OUTAGE_LOCAL_MIN_GAP_MIN: Final = 30
 # 20 s STOPPING_STAGE_SHUTDOWN_TIMEOUT, which runs every shutdown job
 # concurrently, incl. the 15 s anomaly-baseline flush; changing it needs review).
 EC_STOP_SAVE_TIMEOUT_S: Final = 10
+# Before persisting, the stop job waits at most this long for an in-flight
+# decision cycle to finish (rung 1, same protocol window; worst-case job wall
+# time = this + EC_STOP_SAVE_TIMEOUT_S = 13 s, still under HA's 20 s Stage 1).
+EC_STOP_CYCLE_WAIT_S: Final = 3

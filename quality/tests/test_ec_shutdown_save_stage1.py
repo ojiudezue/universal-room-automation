@@ -34,7 +34,7 @@ CONST_MOD = (
 DB_MOD = "custom_components.universal_room_automation.database"
 
 _OTHER_SAVES = (
-    "_save_evse_state", "_save_circuit_state", "_save_energy_baselines",
+    "_save_evse_state", "_save_power_profiles", "_save_circuit_state", "_save_energy_baselines",
     "_save_envoy_cache", "_save_midnight_snapshot", "_save_load_shedding_level",
 )
 
@@ -71,6 +71,10 @@ def _shell(hass, peak=None):
     c._peak_import_history = peak if peak is not None else []
     c.timer_cancels = []
     c._decision_timer_unsub = lambda: c.timer_cancels.append(1)
+    for n in ("_outage_ledger", "_solar_follow_timer_unsub", "_solar_follow",
+              "_tou_boundary_unsub", "_write_verifier", "_dp_must_start_unsub"):
+        setattr(c, n, None)
+    c._cycle_in_flight = False
     for n in _OTHER_SAVES:
         setattr(c, n, AsyncMock())
     return c
@@ -173,9 +177,7 @@ async def test_same_save_after_worker_closed_lands_nothing(tmp_path):
 async def test_stop_job_then_teardown_does_not_double_write():
     hass = _ShutdownHass(_FakeDB())
     c = _shell(hass)
-    for n in ("_solar_follow_timer_unsub", "_solar_follow", "_tou_boundary_unsub",
-              "_outage_ledger", "_write_verifier", "_dp_eval_last_task",
-              "_optimizer_intent_unsub"):
+    for n in ("_dp_eval_last_task", "_optimizer_intent_unsub"):
         setattr(c, n, None)
     c._cancel_listeners = lambda: None
     c._cancel_utility_refresh = lambda: None
@@ -196,9 +198,7 @@ async def test_teardown_without_stop_job_still_persists_once():
     """Reload / unload path (no HA stop): teardown keeps persisting."""
     hass = _ShutdownHass(_FakeDB())
     c = _shell(hass)
-    for n in ("_solar_follow_timer_unsub", "_solar_follow", "_tou_boundary_unsub",
-              "_outage_ledger", "_write_verifier", "_dp_eval_last_task",
-              "_optimizer_intent_unsub"):
+    for n in ("_dp_eval_last_task", "_optimizer_intent_unsub"):
         setattr(c, n, None)
     c._cancel_listeners = lambda: None
     c._cancel_utility_refresh = lambda: None
@@ -287,3 +287,176 @@ async def test_dao_other_runtime_error_still_logs_error(tmp_path, caplog, dao):
         await _dao_calls(db)[dao]()
     assert any(r.levelno == logging.ERROR and "disk on fire" in r.getMessage()
                for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1: no EC actuation after the Stage-1 job
+# ---------------------------------------------------------------------------
+class _Recorder:
+    def __init__(self):
+        self.calls = []
+
+    def unsub(self, name):
+        return lambda: self.calls.append(name)
+
+
+def test_stop_job_cancels_every_actuation_timer():
+    import asyncio as _a
+    from types import SimpleNamespace
+    rec = _Recorder()
+    c = _shell(_ShutdownHass())
+    c._outage_ledger = SimpleNamespace(cancel=lambda: rec.calls.append("ledger"))
+    c._solar_follow_timer_unsub = rec.unsub("sf_timer")
+    c._solar_follow = SimpleNamespace(cancel_all=lambda: rec.calls.append("sf_verify"))
+    c._tou_boundary_unsub = rec.unsub("tou")
+    c._dp_must_start_unsub = rec.unsub("dp")
+    c._write_verifier = SimpleNamespace(cancel_all=lambda: rec.calls.append("wv"))
+    c._utility_stats_closed = False
+    _a.run(c._async_persist_on_stop())
+    assert sorted(rec.calls) == ["dp", "ledger", "sf_timer", "sf_verify", "tou", "wv"]
+    assert c._utility_stats_closed is True
+    assert c._solar_follow._stopped is True
+    assert c.timer_cancels == [1]
+
+
+def _actuating_shell(monkeypatch):
+    """Shell whose decision body / DP release / solar tick call a service."""
+    E = sys.modules[ENERGY_MOD]
+    pool = sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators.energy_pool"
+    ]
+    from types import SimpleNamespace
+    service_log = []
+    arms = []
+
+    async def _svc(*a, **k):
+        service_log.append(a)
+
+    hass = _ShutdownHass()
+    hass.services = SimpleNamespace(async_call=_svc)
+    c = _shell(hass)
+    c._enabled = True
+    c._push_bill_forecast_inputs = lambda: None
+    c._maybe_schedule_utility_refresh = lambda: None
+
+    async def _body():
+        await hass.services.async_call("switch", "turn_off", {"entity_id": "evse"})
+
+    c._decision_cycle_body = _body
+    c._tou = SimpleNamespace(
+        get_current_period=lambda: "peak",
+        get_next_period_change_dt=lambda: __import__("datetime").datetime(
+            2099, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+    )
+    c._dp_carrier = None
+    c._apply_dp_must_start_release = lambda tou_period=None: hass.async_create_task(
+        hass.services.async_call("switch", "turn_on", {"entity_id": "evse"}))
+    monkeypatch.setattr(E, "async_track_point_in_time",
+                        lambda h, cb, when: arms.append(when) or (lambda: None))
+    sf = pool.SolarFollowController.__new__(pool.SolarFollowController)
+    sf._tick_in_flight = False
+
+    async def _sf_body():
+        await hass.services.async_call("number", "set_value", {"value": 16})
+
+    sf._tick_body = _sf_body
+    sf._pending_verify = {}
+    c._solar_follow = sf
+    return c, hass, service_log, arms
+
+
+async def _fire_all(c, hass):
+    await c._on_tou_boundary(None)
+    await c._on_dp_must_start_by(None)
+    await c._solar_follow._tick()
+    await hass.drain()
+
+
+@pytest.mark.asyncio
+async def test_callbacks_actuate_before_stop_control(monkeypatch):
+    """Control: the same fired callbacks DO call services pre-stop."""
+    c, hass, service_log, arms = _actuating_shell(monkeypatch)
+    await _fire_all(c, hass)
+    assert len(service_log) == 3
+    assert len(arms) >= 1  # TOU boundary re-armed
+
+
+@pytest.mark.asyncio
+async def test_callbacks_fired_after_stop_job_make_no_service_calls(monkeypatch):
+    c, hass, service_log, arms = _actuating_shell(monkeypatch)
+    await c._async_persist_on_stop()
+    await _fire_all(c, hass)
+    assert service_log == []
+    assert arms == []  # TOU boundary cannot re-arm after stop
+    await c._async_decision_cycle()  # periodic tick already queued
+    assert service_log == []
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1b: wait (bounded) for an in-flight decision cycle
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_stop_job_waits_for_in_flight_cycle_before_persist():
+    c = _shell(_ShutdownHass())
+    order = []
+    c._cycle_in_flight = True
+
+    async def _finish():
+        await asyncio.sleep(0.2)
+        order.append("cycle_done")
+        c._cycle_in_flight = False
+
+    async def _evse():
+        order.append("evse_saved")
+
+    c._save_evse_state = _evse
+    t = asyncio.ensure_future(_finish())
+    await c._async_persist_on_stop()
+    await t
+    assert order == ["cycle_done", "evse_saved"]
+
+
+@pytest.mark.asyncio
+async def test_stop_job_cycle_wait_is_bounded(monkeypatch):
+    E = sys.modules[ENERGY_MOD]
+    monkeypatch.setattr(E, "EC_STOP_CYCLE_WAIT_S", 0.05)
+    c = _shell(_ShutdownHass())
+    c._cycle_in_flight = True  # never finishes
+    await asyncio.wait_for(c._async_persist_on_stop(), 2.0)
+    assert c._save_evse_state.await_count == 1
+
+
+def test_cycle_wait_constant_pinned():
+    E = sys.modules[ENERGY_MOD]
+    assert E.EC_STOP_CYCLE_WAIT_S == 3
+    assert E.EC_STOP_CYCLE_WAIT_S + E.EC_STOP_SAVE_TIMEOUT_S < 20
+
+
+# ---------------------------------------------------------------------------
+# Fix-ups 2+3: EVSE first; power profiles included
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_evse_saved_first_when_timeout_cuts_sequence(monkeypatch):
+    E = sys.modules[ENERGY_MOD]
+    monkeypatch.setattr(E, "EC_STOP_SAVE_TIMEOUT_S", 0.05)
+    c = _shell(_ShutdownHass(), peak=[1.0])
+    order = []
+
+    async def _evse():
+        order.append("evse")
+
+    async def _hang():
+        order.append("peak")
+        await asyncio.Event().wait()
+
+    c._save_evse_state = _evse
+    c._save_peak_import_history = _hang
+    await asyncio.wait_for(c._async_persist_on_stop(), 2.0)
+    assert order == ["evse", "peak"]
+
+
+@pytest.mark.asyncio
+async def test_power_profiles_persisted_on_stop():
+    c = _shell(_ShutdownHass())
+    await c._async_persist_on_stop()
+    assert c._save_power_profiles.await_count == 1

@@ -45,6 +45,7 @@ from .energy_forecast import AccuracyTracker, DailyEnergyPredictor, RoomPowerPro
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
 from ..const import DOMAIN as _DOMAIN  # v4.2.5: Module-level for lambda closures
 from .energy_const import (
+    EC_STOP_CYCLE_WAIT_S,
     EC_STOP_SAVE_TIMEOUT_S,
     CONF_ENERGY_ARBITRAGE_ENABLED,
     CONF_ENERGY_ARBITRAGE_SOC_TARGET,
@@ -825,6 +826,8 @@ class EnergyCoordinator(BaseCoordinator):
         # + "stop persist already ran" latch (teardown skips the re-save).
         self._stop_save_unsub = None
         self._stop_persist_done = False
+        # Set by the stop job: no decision cycle / TOU re-arm / DP fire after.
+        self._ec_stopping = False
         # v5.17.3 D1: point-in-time listener for at-boundary TOU tick.
         # A periodic tick at 5min interval lags a TOU transition by up to
         # 5 minutes. This handle fires ONE extra `_async_decision_cycle`
@@ -6233,6 +6236,8 @@ class EnergyCoordinator(BaseCoordinator):
         """Point-in-time callback: drive MUST_START_FORCED + release."""
         # Clear handle first — this fire is one-shot.
         self._dp_must_start_unsub = None
+        if getattr(self, "_ec_stopping", False):
+            return  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: no actuation
         try:
             from .energy_drain_precedence import DPState, try_transition
             from homeassistant.util import dt as dt_util
@@ -6293,6 +6298,9 @@ class EnergyCoordinator(BaseCoordinator):
         """
         # KILL SWITCH — negative delay disables the feature entirely.
         if TOU_BOUNDARY_TICK_DELAY_S < 0:
+            return
+        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: never re-arm after stop.
+        if getattr(self, "_ec_stopping", False):
             return
         # Runtime absence of helper (test bootstraps that predate v5.17.3):
         # silently no-op so those tests stay green. In production this would
@@ -6410,6 +6418,8 @@ class EnergyCoordinator(BaseCoordinator):
         """
         if not self._enabled:
             return
+        if getattr(self, "_ec_stopping", False):
+            return  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
         if self._cycle_in_flight:
             _LOGGER.debug(
                 "decision cycle already in flight — skipping re-entrant tick"
@@ -10748,6 +10758,7 @@ class EnergyCoordinator(BaseCoordinator):
         (same pattern as the manager.py anomaly-baseline flush).
         """
         self._stop_persist_done = False
+        self._ec_stopping = False
         if self._stop_save_unsub is not None:
             return
         try:
@@ -10759,12 +10770,17 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("EC stop-save job registration failed", exc_info=True)
 
     async def _async_persist_state(self) -> None:
-        """The stop-time persist sequence (shared by Stage-1 job + teardown)."""
+        """The stop-time persist sequence (shared by Stage-1 job + teardown).
+
+        EVSE state FIRST: the pause-owner sets are safety-relevant (a fresh
+        pause must not boot as an ownerless physically-off EVSE), so they
+        land even if the timeout cuts the rest of the sequence short.
+        """
+        await self._save_evse_state()
         # Save peak import history so it survives restarts
         if self._peak_import_history:
             await self._save_peak_import_history()
-        # Save EVSE state for restart recovery
-        await self._save_evse_state()
+        await self._save_power_profiles()
         # v3.13.1: Save circuit monitor state
         await self._save_circuit_state()
         # v3.13.2: Save energy baselines
@@ -10784,9 +10800,17 @@ class EnergyCoordinator(BaseCoordinator):
         if self._stop_persist_done:
             return
         self._stop_persist_done = True
-        if self._decision_timer_unsub is not None:
-            self._decision_timer_unsub()
-            self._decision_timer_unsub = None
+        # No EC actuation after Stage 1: stop every timer/listener first.
+        self._ec_stopping = True
+        self._cancel_actuation_timers()
+        # Let an in-flight decision cycle finish (bounded) so the persist
+        # captures its result instead of racing it.
+        try:
+            async with asyncio.timeout(EC_STOP_CYCLE_WAIT_S):
+                while getattr(self, "_cycle_in_flight", False):
+                    await asyncio.sleep(0.05)
+        except TimeoutError:
+            _LOGGER.debug("EC stop: decision cycle still in flight; persisting")
         try:
             async with asyncio.timeout(EC_STOP_SAVE_TIMEOUT_S):
                 await self._async_persist_state()
@@ -10799,15 +10823,12 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001 — never break HA shutdown
             _LOGGER.warning("Energy STOP save failed", exc_info=True)
 
-    async def async_teardown(self) -> None:
-        """Tear down — cancel decision timer first to prevent races, then persist."""
-        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: drop the Stage-1 job.
-        if self._stop_save_unsub is not None:
-            try:
-                self._stop_save_unsub()
-            except Exception:  # noqa: BLE001 — already removed
-                _LOGGER.debug("EC stop-save job unsub raised", exc_info=True)
-            self._stop_save_unsub = None
+    def _cancel_actuation_timers(self) -> None:
+        """Cancel every EC timer/listener that can actuate or write.
+
+        Shared by async_teardown and the Stage-1 stop job
+        (EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1). Idempotent.
+        """
         # EC-BILL B-L3 fix-up: stop new utility-statistics refreshes before
         # any await below lets an in-flight decision cycle finish.
         self._utility_stats_closed = True
@@ -10850,6 +10871,32 @@ class EnergyCoordinator(BaseCoordinator):
                     "TOU boundary unsub raised (swallowed)", exc_info=True,
                 )
             self._tou_boundary_unsub = None
+        self._cancel_dp_must_start_by_timer()
+        if getattr(self, "_ec_stopping", False):
+            sf = getattr(self, "_solar_follow", None)
+            if sf is not None:
+                sf._stopped = True  # noqa: SLF001 — scheduled ticks no-op
+        try:
+            verifier = getattr(self, "_write_verifier", None)
+            if verifier is not None:
+                verifier.cancel_all()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "write_verifier.cancel_all raised (swallowed)", exc_info=True,
+            )
+
+    async def async_teardown(self) -> None:
+        """Tear down — cancel decision timer first to prevent races, then persist."""
+        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: drop the Stage-1 job.
+        if self._stop_save_unsub is not None:
+            try:
+                self._stop_save_unsub()
+            except Exception:  # noqa: BLE001 — already removed
+                _LOGGER.debug("EC stop-save job unsub raised", exc_info=True)
+            self._stop_save_unsub = None
+        # Helper sets _utility_stats_closed first (EC-BILL B-L3) and cancels
+        # every timer before any await below.
+        self._cancel_actuation_timers()
         # Persist unless the Stage-1 stop job already did (no double-write).
         if not self._stop_persist_done:
             self._stop_persist_done = True
