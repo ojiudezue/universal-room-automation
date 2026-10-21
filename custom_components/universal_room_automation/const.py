@@ -2142,8 +2142,10 @@ OCC_ANOMALY_MIN_CELL_DAYS: Final = 4
 # a cell whose days are mostly outage gaps stays "learning".
 OCC_ANOMALY_MIN_CELL_SAMPLES: Final = 24
 # Continuous occupancy required before firing; a pass-through is not an
-# anomaly. 0 = fire on the first qualifying tick.
-OCC_ANOMALY_DEBOUNCE_S: Final = 900
+# anomaly. 0 = fire on the first qualifying tick. 1800 not the plan's 900:
+# the 7-day D0 replay (2026-10-21) at 900 gave a house median of 5 fires a
+# day; at 1800 a median of 0 with at most 2 per room (passes G1).
+OCC_ANOMALY_DEBOUNCE_S: Final = 1800
 # Nightly model rebuild, local time (one bounded GROUP BY read).
 OCC_ANOMALY_REFRESH_LOCAL_TIME: Final = "03:40"
 # First rebuild this long after integration setup (keeps it out of boot).

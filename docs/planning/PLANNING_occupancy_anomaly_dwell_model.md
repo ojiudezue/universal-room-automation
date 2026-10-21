@@ -9,6 +9,7 @@
 - `occupied IS NOT NULL` in the DAO is belt-and-braces: `COUNT(occupied)` already skips NULL.
 - Arithmetic finding from the build-time replay: a 56-day weekend cell holds at most 16 x 12 = 192 samples, below `OCC_ANOMALY_MIN_CELL_SAMPLES` = 200 ("40% of a weekday cell"), so weekend cells never leave `learning` and G4 ("every cell") cannot pass at these defaults.
   **Fix-up (coordinator 2026-10-21):** the gate is now `OCC_ANOMALY_MIN_CELL_DAYS` = 4 distinct local days per cell, with a sample floor `OCC_ANOMALY_MIN_CELL_SAMPLES` = 24. Replay at the new gate: G4 47/47; G1 still fails at 900 s (median 5/day).
+- **Shipped setting (coordinator 2026-10-21): `OCC_ANOMALY_DEBOUNCE_S` = 1800** (§6 said 900). 7-day replay at 0.02 / 1800 s / 48-cell: G1 PASS (median 0/day, max 2 per room, 5 fires total), G2 PASS heuristic (0 of 5 overlap a resident visit), G3 PASS (0 Study A daytime fires; share 0.56), G4 PASS (47/47).
 - Data depth: `environmental_data` runs from 2025-11-19 (no purge problem; URA retention 365 d). The "7 days" is HA's recorder (`purge_keep_days: 7`), which limits how far back the replay can go, not the model.
 - The four "today" sensors had the same never-called `async_update`. Fixed in this branch: throttled refresh from the coordinator update (`TODAY_SENSOR_REFRESH_S` = 300) and quantized values.
 - The forecast-sensors-onto-RoomDwellModel switch is the next card, not this branch.

@@ -10,7 +10,7 @@ Card: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1. Plan: `docs/planning/PLANNING_o
 ## Fix
 
 - **Dwell model** (`room_dwell_model.py`, new): share of time each room is occupied by local hour x weekday/weekend, from the 5-minute `environmental_data.occupied` samples URA already keeps (365 days). One bounded `GROUP BY` read 120 s after setup and nightly at 03:40; nothing written; a failed refresh keeps the previous model. Today is excluded from training. DST handled per UTC hour bucket.
-- **Sensor** evaluates on every room-coordinator update. On only when: occupied, the cell's usual share is below 2%, the cell's samples span at least 4 distinct days (and at least 24 samples, a floor), occupied at least 15 min, house not GUEST, model refreshed. Off on the first tick any of those fails.
+- **Sensor** evaluates on every room-coordinator update. On only when: occupied, the cell's usual share is below 2%, the cell's samples span at least 4 distinct days (and at least 24 samples, a floor), occupied at least 30 min (`OCC_ANOMALY_DEBOUNCE_S` = 1800; the plan's 900 failed G1), house not GUEST, model refreshed. Off on the first tick any of those fails.
 - **Attributes explain the state**: `expected_share`, `threshold`, `cell_samples`, `cell_days`, `cell`, `usual_hours`, `occupied_since`, `occupied_for_min`, `debounce_remaining_s`, `occupancy_source`, `radar_sole`, `ble_persons`, `usual_people` (BLE visits, labelled), `learning_status`, `model_status`, `model_refreshed_at`, `suppressed_reason`, `last_anomaly_at`. `occupied_for_min` and `debounce_remaining_s` are unrecorded.
 - **No notification on any path** (operator ruling). The rising edge sends `SIGNAL_OCCUPANCY_ANOMALY` (zero consumers) and writes one `anomaly_log` row, type `occupancy.dwell_anomaly`, coordinator `occupancy`, severity INFO. Both are skipped inside the 5-min startup grace, inside the 30-min per-room cooldown, and in presence observation mode (`switch.ura_presence_observation_mode`; the old check read a room-coordinator attribute that does not exist).
 - Knobs: `const.OCC_ANOMALY_*` (rung 1). Kill switch `OCC_ANOMALY_DWELL_ENABLED`. Learning gate `OCC_ANOMALY_MIN_CELL_DAYS` = 4 plus floor `OCC_ANOMALY_MIN_CELL_SAMPLES` = 24. A sample-count gate of 200 was replaced at fix-up because a 56-day weekend cell holds at most 192 samples (16 days), so weekends could never learn.
@@ -26,16 +26,16 @@ Card: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1. Plan: `docs/planning/PLANNING_o
 
 `ssh ha "python3 - --days 7" < scripts/probes/occupancy_dwell_backtest.py` reports G1-G4. HA's recorder keeps 7 days (`purge_keep_days: 7`), so the replay of `binary_sensor.<room>_occupied` covers 7 days. The training data (`environmental_data`) goes back to 2025-11-19, so the 56-day window is full.
 
-Build-time run (2026-10-21, 7 days, shipped setting 0.02 / 900 s / 48-cell, day gate 4 / floor 24):
+Build-time run (2026-10-21, 7 days, **shipped setting 0.02 / 1800 s / 48-cell**, day gate 4 / floor 24):
 
 | Gate | Result | Detail |
 |---|---|---|
-| G1 rate | FAIL | house median 5 fires/day (1-6 per day); max 11 in one room (Exercise Room, the "ZK never on" room) |
-| G2 quality | PASS (heuristic) | 3 of 20 sampled fires overlap a resident BLE visit; needs a human read |
+| G1 rate | PASS | house median 0 fires/day (5 in 7 days: 0, 0, 1, 2, 0, 0, 2); max 2 in one room |
+| G2 quality | PASS (heuristic) | 0 of 5 fires overlap a resident BLE visit (Guest Bedroom 2 Bathroom x2, Stair Closet, Game Room, Exercise Room); needs a human read |
 | G3 Study A | PASS | 0 daytime fires; weekday 09-17 share 0.56 |
 | G4 learning | PASS | 47/47 rooms have every cell learned (weekend cells now included) |
 
-Only debounce 1800 s passes G1 (median 0, max 2 per room). Tune from the full replay.
+At the plan's 900 s the same replay gave a house median of 5 fires/day and 11 in one room (G1 fail), which is why 1800 ships. Exercise Room fires (the most frequent room at 900 s, one at 1800 s) are probably the fault of its radar (card EXERCISE-ROOM-ZK-NEVER-ON-1), not real visits.
 
 ## Live acceptance (prospective)
 

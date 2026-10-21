@@ -120,7 +120,7 @@ def _make(model=None, *, house="home_day", observation=False, db=None,
 
 
 def _tick(ent, coord, *, occupied: bool, now: datetime = NOW,
-          occupied_for_s: float | None = 1200.0):
+          occupied_for_s: float | None = 2400.0):
     coord.data = {
         STATE_OCCUPIED: occupied,
         STATE_OCCUPANCY_SOURCE: "presence_sensors",
@@ -159,7 +159,7 @@ def test_fires_when_all_clauses_hold():
     assert a["cell_samples"] == 480
     assert a["learning_status"] == "ok"
     assert a["suppressed_reason"] is None
-    assert a["occupied_for_min"] == 20
+    assert a["occupied_for_min"] == 40
     assert a["radar_sole"] is True and a["ble_persons"] == ["ziri"]
     assert a["room"] == "Kitchen"
 
@@ -244,12 +244,12 @@ def test_empty_cell_with_gates_at_zero_is_learning():
 
 def test_clause_d_debounce_boundary():
     ent, coord = _make(_model(*LOW))
-    assert _tick(ent, coord, occupied=True, occupied_for_s=899) is False
+    assert _tick(ent, coord, occupied=True, occupied_for_s=1799) is False
     assert ent.extra_state_attributes["suppressed_reason"] == "debouncing"
     assert ent.extra_state_attributes["debounce_remaining_s"] == 1
-    assert _tick(ent, coord, occupied=True, occupied_for_s=900) is True
+    assert _tick(ent, coord, occupied=True, occupied_for_s=1800) is True
     ent2, coord2 = _make(_model(*LOW))
-    assert _tick(ent2, coord2, occupied=True, occupied_for_s=901) is True
+    assert _tick(ent2, coord2, occupied=True, occupied_for_s=1801) is True
 
 
 def test_clause_d_no_coordinator_stamp_uses_first_seen():
@@ -258,10 +258,10 @@ def test_clause_d_no_coordinator_stamp_uses_first_seen():
     ent, coord = _make(_model(*LOW))
     assert _tick(ent, coord, occupied=True, occupied_for_s=None) is False
     assert ent.extra_state_attributes["suppressed_reason"] == "debouncing"
-    later = NOW + timedelta(seconds=899)
+    later = NOW + timedelta(seconds=1799)
     assert _tick(ent, coord, occupied=True, now=later,
                  occupied_for_s=None) is False
-    later = NOW + timedelta(seconds=900)
+    later = NOW + timedelta(seconds=1800)
     assert _tick(ent, coord, occupied=True, now=later,
                  occupied_for_s=None) is True
 
@@ -270,7 +270,7 @@ def test_clause_d_first_seen_resets_on_vacant():
     ent, coord = _make(_model(*LOW))
     _tick(ent, coord, occupied=True, occupied_for_s=None)
     _tick(ent, coord, occupied=False, now=NOW + timedelta(seconds=600))
-    t = NOW + timedelta(seconds=1000)
+    t = NOW + timedelta(seconds=1900)
     assert _tick(ent, coord, occupied=True, now=t, occupied_for_s=None) is False
 
 
@@ -327,7 +327,7 @@ async def test_evaluates_on_coordinator_update():
                              config_entry=None)
             self.entry = SimpleNamespace(entry_id=ENTRY_ID,
                                          data={"room_name": "Kitchen"})
-            self.became = NOW - timedelta(seconds=1200)
+            self.became = NOW - timedelta(seconds=2400)
 
         def get_became_occupied_time(self):
             return self.became
@@ -383,7 +383,7 @@ async def test_no_notification_on_rising_edge():
     assert payload == {
         "room": "Kitchen", "entry_id": ENTRY_ID, "expected_share": 0.0042,
         "threshold": 0.02, "cell": "weekday 03:00",
-        "occupied_since": (NOW - timedelta(seconds=1200)).isoformat(),
+        "occupied_since": (NOW - timedelta(seconds=2400)).isoformat(),
         "occupancy_source": "presence_sensors", "radar_sole": True,
     }
 
