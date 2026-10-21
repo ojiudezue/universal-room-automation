@@ -40,6 +40,64 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: PREDICT-MODEL-DWELL-MIGRATION-1
+  title: "Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room"
+  thread: presence
+  status: "planned"
+  tier: 2
+  created: "2026-10-21 17:10"
+  updated: "2026-10-21 17:10"
+  origin: "Operator 2026-10-21 on the predictions audit: 'YES. Why postpone?' Audit docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md suggested card 3."
+  why: "Audit: next-room top-1 hit rate equals always-guess-usual-room (Jaya worse); room occupancy forecast AUC 0.605, Brier no better than constant; +1h/+4h ~ now. Root cause: bayesian_predictor counts arrivals not dwell and ignores the current room. predict_room_occupancy is read by energy_forecast.py:445,499 and the forecast sensors."
+  next: "After BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 ships (v5.103.83, provides RoomDwellModel): plan the source-swap of the forecast sensors + energy_forecast reads onto RoomDwellModel, and a next-room model conditioned on current room; acceptance = beats the trivial baseline in a backtest."
+  links: {"depends_on": ["BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1"], "related": ["PREDICT-SCORER-BASELINE-SKILL-1"]}
+  adjacency: "Swept board for predict/bayesian/next_room/forecast: sibling of the anomaly card (same model); NEW work."
+- id: PREDICT-SCORER-BASELINE-SKILL-1
+  title: "Prediction accuracy sensors report no skill over a trivial baseline ('94%' is the empty-room base rate)"
+  thread: presence
+  status: "planned"
+  tier: 1
+  created: "2026-10-21 17:10"
+  updated: "2026-10-21 17:10"
+  origin: "Predictions audit 2026-10-21, suggested card 2; operator approved carding."
+  why: "Next-room and occupancy accuracy sensors score hit rate only; 91% of samples are empty rooms so a no-skill model reads ~94%. No consumer can tell a useful prediction from a constant."
+  next: "Add a skill-vs-baseline attribute (hit rate minus always-guess-mode/base-rate) and dedupe flapping transitions; gate any future prediction consumer on skill > 0."
+  links: {"related": ["PREDICT-MODEL-DWELL-MIGRATION-1"]}
+  adjacency: "NEW; same audit."
+- id: PREDICT-PATTERN-DETECTED-ORPHANS-1
+  title: "About 25 occupancy_pattern_detected entities are orphans nothing sets (unavailable since 10-20)"
+  thread: presence
+  status: "waiting_operator"
+  tier: 1
+  created: "2026-10-21 17:10"
+  updated: "2026-10-21 17:10"
+  origin: "Predictions audit 2026-10-21, suggested card 1."
+  why: "No code sets the value; registry entries are leftovers."
+  next: "APPROVE: remove the ~25 orphan occupancy_pattern_detected registry entries (registry removal; no history purge) -> I remove them and record the list."
+  adjacency: "NEW."
+- id: EC-FORECAST-TRUTH-GAPS-1
+  title: "Energy forecasts cannot be scored or trained: energy_daily has missing days, predicted production is null, apparent forecast high is unavailable"
+  thread: energy
+  status: "planned"
+  tier: 2
+  created: "2026-10-21 17:10"
+  updated: "2026-10-21 17:10"
+  origin: "Predictions audit 2026-10-21, suggested card 4; folds the solar backfill residual of EC-SOLAR-LIFETIME-COUNTER-FLAP-1."
+  why: "energy_daily consumption/prediction rows missing 10-05..10-17 entirely; predicted_production_kwh null (solar input null so forecast_today/forecasted_import read unknown); weather_apparent_forecast_high unavailable; EC consumption forecast self-scored 'poor' (10-19: 211-224 kWh forecast vs 107.9 actual); persistence beats it. Past solar rows are not repaired by scripts/backfill_energy_daily_from_counters.py (Emporia legs only)."
+  next: "Investigate null predicted production + apparent-forecast-high; then a backfill mode reading CT statistic 5654 (solar) and recomputing consumption for 09-13..10-21, dry-run first, operator APPROVE before --apply."
+  links: {"related": ["EC-SOLAR-LIFETIME-COUNTER-FLAP-1"]}
+  adjacency: "NEW; adjacent to the solar card (same table)."
+- id: BLE-FOYER-STUDYA-RETUNE-1
+  title: "Oji's phone reads Foyer ~35% of true Study A time (shared wall, new Foyer scanners); Bermuda offsets retuned 10-21"
+  thread: presence
+  status: "waiting_me"
+  tier: 1
+  created: "2026-10-21 17:10"
+  updated: "2026-10-21 17:10"
+  origin: "Operator 2026-10-21: 'retune foyer and study A based on history'; approved the four-offset change."
+  why: "Applied 16:5x 10-21 (Bermuda options, calibration2): First BLE Proxy Foyer +3->0, Entry Way Panel 0->-3, Screek BP1_A +3->+6, Study A Panel 0->+3. Others unchanged (Master Screek +6, BedPresence +6, Jaya +12). Undo = set those four back. BP1_B is not plugged in (operator). Receiving Room spillover (0.1% precision) not addressed."
+  next: "Me: after ~1 day of normal use, re-measure share of true Study A time where iphone_oji_area = Foyer (was 35%) and Study A pulling from Study B / Master Bedroom; then close or adjust; consider Receiving Room."
+  adjacency: "NEW; swept BLE/Bermuda cards."
 - id: EC-SOLAR-LIFETIME-COUNTER-FLAP-1
   title: "EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days"
   thread: energy
@@ -55,20 +113,23 @@ cards:
   adjacency: "NEW; swept board for solar/lifetime_energy_production/energy_daily; related to the 10-20 Energy-prefs switch (no card) and RECORDER excludes runbook."
 - id: WALLPANEL-URA-NOTIFY-1
   title: "URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)"
-  status: "waiting_operator"
+  status: "in_progress"
   tier: 2
   thread: "notifications"
   created: "2026-10-20 08:30"
-  updated: "2026-10-20 08:30"
+  updated: "2026-10-21 17:10"
   approval: "pending"
   origin: {"date": "2026-10-20", "gist": "Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel split - treat as facts, not approvals."}
   why: "Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != off; Study A/B LEDs may be missing. Announce via assist_satellite.announce on assist_satellite.<p>_assist_satellite. Rules: occupied rooms only; sleep/home_night safety only; Master is a bedroom; clear only what URA set."
   targeting_operator_2026_10_20: "Operator (via HomeLab): occupied-rooms-only is too narrow (hallways rarely register occupied). Target = panels in an occupied zone + panels in rooms adjacent to occupied rooms + own room occupied; URA designs targeting AND LED gating. Panel->room: master_panel=Master Bedroom, study_a_panel=Study A, study_b_panel=Study B, up_hallway_panel=Upstairs Hallway, media_room_panel=Media, kitchen_panel=Kitchen, entry_way_panel=Foyer/front door (verify URA room names). Reuse URA zone membership + room adjacency config (prior-art scan)."
   split_decided_2026_10_20: "Operator: URA owns the panel LEDs. Operator approves which panel ideas get built."
-  next: "PICK: A (recommended) separate opt-in panel integration that subscribes to URA alert/occupancy state, URA adds only a generic room-targeted alert event; or B build inside URA NM -> I plan the chosen shape."
+  next: "Halo S1b: URA NM delivery channel to halo.indicate/release (Tier 2-DB plan in docs/planning/PLANNING_wallpanel_integration.md), then S2 (NM drives room alert_lights)."
   areas_2026_10_20: "Operator assigned areas to the Upstairs Hallway and Entry Way panels (all 7 panels now have areas)."
   AUDIT_2026_10_20_alert_lights: "Room alert_lights is dead in this install: automation.py handle_safety_alert/handle_security_alert have no callers; aggregation.py:1421 returns when the Coordinator Manager exists. Only live LED path is NM nm_alert_lights (one house-wide light) via notification_manager.py:1696. URA fires no HA bus event for notifications (only ura_action, ura_person_egress_event). The earlier 'reuse alert_lights' recommendation was wrong."
   links: {"related": "WALLPANEL-TOUCH-WITNESS-1"}
+  shipped_2026_10_21_halo_s1a: "Operator picked A (separate integration, named Halo, repo ojiudezue/halo-panels, public; Gitea Okosisi/halo-panels). S1a built and installed: lease arbiter, sleep floor, snapshot/restore, kill switch. 7 panel subentries live incl. Study A (its bridge had no MQTT broker; operator entered it 10-21, HomeLab renamed to light.wallpanel_study_a_led). 0.1.1: devices 'Halo house controls' / '<Area> panel', labels 'Panel lights' / 'Start-up delay', entity ids pinned. Live LED tests: Kitchen on/off + restore OK; Study A blue blink confirmed by operator."
+  residual_halo_followups_2026_10_21: "(a) Start-up delay also fires on a subentry add/reload, suppressing non-critical indications for 180 s house-wide: apply it only on a real HA start. (b) Move HomeLab's panel screen automations (wallpanel_fleet_wake / _sleep_after_grace / _force_off_secure) into Halo as display behaviour, jointly with HomeLab; laundry alert becomes a URA NM notification. (c) Nest each Halo panel device under its MQTT bridge device (via_device across integrations: test first, DEVICE_TREE.md hazards). (d) Bridge LED reports on/off only, never rgb/effect, so colour cannot be confirmed in HA (bridge limit, HomeLab side)."
+
 - id: WALLPANEL-TOUCH-WITNESS-1
   title: "Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value)"
   status: "pre_planning"
@@ -27007,7 +27068,8 @@ cards:
   operator_answer_2026_10_20_b: "Operator: \"I would not alert. The routine change is enough. It should assert in its sensor and give more information.\" -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why (expected vs actual, who usually is where at this time, which signal made the room occupied, how long, learning status). Keep signal + anomaly_log row."
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
-  status: "pre_planning"
+  status: shipped_organic
+  shipped_version: v5.103.83
   operator_answer_2026_10_20: "Operator: \"Make the sensor work.\" -> B (wire evaluation), measure false-positive rate first (D0)."
   tier: 2
   created: "2026-10-20 19:30"

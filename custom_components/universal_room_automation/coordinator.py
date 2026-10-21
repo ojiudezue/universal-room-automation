@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.82
+# Universal Room Automation vv5.103.83
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -5437,25 +5437,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         database = self.hass.data[DOMAIN].get("database")
         if database:
             # Log occupancy changes (use was_occupied captured before _last_occupied_state update)
-            if data[STATE_OCCUPIED] != was_occupied:
-                if data[STATE_OCCUPIED]:
-                    # Entry event
-                    trigger = data.get(STATE_OCCUPANCY_SOURCE, "motion")
-                    await database.log_occupancy_event(
-                        self.entry.entry_id,
-                        "entry",
-                        trigger
-                    )
-                else:
-                    # Exit event (calculate duration)
-                    if self._last_motion_time:
-                        duration = int((now - self._last_motion_time).total_seconds())
-                        await database.log_occupancy_event(
-                            self.entry.entry_id,
-                            "exit",
-                            None,
-                            duration
-                        )
+            await self._async_log_occupancy_edge(
+                database, data, was_occupied, now,
+            )
             
             # Log environmental data (every 5 minutes)
             if self._last_env_log is None or (now - self._last_env_log).total_seconds() >= 300:
@@ -5709,7 +5693,22 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # HIGH-1: clear BLE-only anchor on true vacancy so a stale
         # hours-old value cannot poison the next occupancy session.
         self._ble_only_hold_since = None
+        was_occupied = self._last_occupied_state
         self._last_occupied_state = False
+        # Review (occupancy-dwell branch): this release sets
+        # _last_occupied_state False OUT OF BAND, so the next tick sees no
+        # occupied->vacant edge and writes no exit row. Write it here (the
+        # motion stamp is already cleared, so duration is NULL), through the
+        # same writer. Only on a real occupied->vacant change.
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if was_occupied and database is not None:
+            self.entry.async_create_background_task(
+                self.hass,
+                self._async_log_occupancy_edge(
+                    database, {STATE_OCCUPIED: False}, True, dt_util.now(),
+                ),
+                "ura_fan_recheck_exit_row",
+            )
         # HVAC fast occupancy response (plan §4.1): a fan-recheck release
         # ends HVAC evidence WITHOUT stamping (no falling-edge stamp either)
         # — the release is a correction of a fan-induced signal, not a last
@@ -5828,6 +5827,37 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             "entity": self._last_action_entity,
             "time": self._last_action_time,
         }
+
+    async def _async_log_occupancy_edge(
+        self, database, data: dict, was_occupied, now: datetime,
+    ) -> None:
+        """Write the occupancy_events entry/exit row for this tick's edge.
+
+        The exit row is ALWAYS written on the in-tick occupied->vacant edge.
+        The fan-demote and failsafe paths clear ``_last_motion_time`` inside
+        the tick, so the edge is still seen here and ``duration`` (seconds
+        since last motion) is None. The fan-recheck release sets
+        ``_last_occupied_state`` False out of band, so the tick sees no edge;
+        ``apply_fan_recheck_release`` calls this writer itself. A missing exit
+        row made the episode readers count phantom occupancy (review A,
+        occupancy-dwell branch; live 2026-10: 50 entry->entry vs 1586
+        entry->exit in 7 days).
+        """
+        if data[STATE_OCCUPIED] == was_occupied:
+            return
+        if data[STATE_OCCUPIED]:
+            trigger = data.get(STATE_OCCUPANCY_SOURCE, "motion")
+            await database.log_occupancy_event(
+                self.entry.entry_id, "entry", trigger,
+            )
+            return
+        duration = (
+            int((now - self._last_motion_time).total_seconds())
+            if self._last_motion_time else None
+        )
+        await database.log_occupancy_event(
+            self.entry.entry_id, "exit", None, duration,
+        )
 
     def get_became_occupied_time(self) -> datetime | None:
         """

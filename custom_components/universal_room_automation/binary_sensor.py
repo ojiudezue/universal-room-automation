@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.82
+# Universal Room Automation vv5.103.83
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -36,6 +36,7 @@ from .const import (
     STATE_OCCUPIED,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
+    STATE_RADAR_SOLE_TICK,
     STATE_MOTION_DETECTED,
     STATE_PRESENCE_DETECTED,
     STATE_DARK,
@@ -3351,35 +3352,56 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
 
 
 # ============================================================================
-# v4.0.0-B2: Bayesian Occupancy Anomaly
+# Occupancy anomaly on a dwell model (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1)
 # ============================================================================
 
 
 class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
-    """Per-room binary sensor: true when occupancy is anomalous.
+    """Per-room: on when the room is occupied at an hour it usually is not.
 
-    Anomalous = room is occupied but Bayesian predicted < 10% probability
-    AND learning status is ACTIVE (enough observations to be confident).
+    Plan ``docs/planning/PLANNING_occupancy_anomaly_dwell_model.md`` (D2/D3).
+    Invariant I1 - ``on`` only when ALL hold at that instant:
+      (a) the room coordinator's STATE_OCCUPIED is true;
+      (b) the learned share for the current local (hour, day type) is
+          strictly below OCC_ANOMALY_SHARE_THRESHOLD;
+      (c) that cell's samples span >= OCC_ANOMALY_MIN_CELL_DAYS distinct
+          local days and number >= OCC_ANOMALY_MIN_CELL_SAMPLES;
+      (d) the room has been continuously occupied >= OCC_ANOMALY_DEBOUNCE_S;
+      (e) house state is not GUEST;
+      (f) the dwell model has completed at least one successful refresh.
+    It turns off on the first coordinator update where any clause fails.
 
-    Suppressed during GUEST house state to avoid false positives from
-    untracked visitors.
-
-    Fires SIGNAL_OCCUPANCY_ANOMALY and NM alert on activation.
-    Diagnostic, disabled by default.
+    Evaluated on every room-coordinator update (``_handle_coordinator_update``,
+    pure in-memory). The old ``async_update`` was never called (no polling),
+    so the sensor never evaluated. No notification on any path (operator
+    ruling 2026-10-20: "I would not alert"). On the rising edge it sends
+    SIGNAL_OCCUPANCY_ANOMALY and writes one ``anomaly_log`` row, after the
+    startup grace, outside presence observation mode (Bug Class #23: gated at
+    the dispatch site) and outside OCC_ANOMALY_LOG_COOLDOWN_S.
+    Diagnostic, disabled by default (unique_id suffix unchanged).
     """
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
     _attr_icon = "mdi:account-alert"
+    # Churny per-tick attributes stay out of the recorder
+    # (HOUSE-STATE-SENSOR-ATTR-CHURN-1 pattern).
+    _unrecorded_attributes = frozenset({
+        "occupied_for_min", "debounce_remaining_s",
+    })
 
     def __init__(self, coordinator) -> None:
         """Initialize."""
         super().__init__(coordinator, "occupancy_anomaly", "Occupancy Anomaly")
-        self._anomaly_data: dict = {}
         self._is_anomaly: bool = False
-        self._last_alert_time = None
+        self._attrs: dict = {}
         self._startup_time = dt_util.utcnow()
+        self._last_record_time = None  # utc; cooldown for row + signal
+        self._last_anomaly_at = None  # local iso of the last rising edge
+        # Fallback occupied-since when the coordinator has no stamp.
+        self._occ_seen_since = None
+        self._pending_tasks: set = set()
 
     @property
     def is_on(self) -> bool:
@@ -3388,103 +3410,209 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return anomaly score details."""
-        attrs = dict(self._anomaly_data) if self._anomaly_data else {}
+        """Explain the state (operator ruling: assert and inform)."""
+        attrs = dict(self._attrs)
         attrs["room"] = self.coordinator.entry.data.get("room_name", "")
+        attrs["last_anomaly_at"] = self._last_anomaly_at
         return attrs
 
-    async def async_update(self) -> None:
-        """Evaluate anomaly score."""
-        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
-        if predictor is None:
-            self._is_anomaly = False
-            self._anomaly_data = {}
-            return
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Evaluate I1 on every room-coordinator update, then write state."""
+        self._evaluate()
+        super()._handle_coordinator_update()
 
-        room_name = self.coordinator.entry.data.get("room_name", "")
-        is_occupied = bool(
-            self.coordinator.data.get(STATE_OCCUPIED) if self.coordinator.data else False
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel any in-flight anomaly_log write (Bug Class #19)."""
+        for task in list(self._pending_tasks):
+            task.cancel()
+        self._pending_tasks.clear()
+        await super().async_will_remove_from_hass()
+
+    def _evaluate(self) -> None:
+        from .const import (
+            OCC_ANOMALY_DEBOUNCE_S,
+            OCC_ANOMALY_DWELL_ENABLED,
+            OCC_ANOMALY_MIN_CELL_DAYS,
+            OCC_ANOMALY_MIN_CELL_SAMPLES,
+            OCC_ANOMALY_SHARE_THRESHOLD,
         )
-
-        self._anomaly_data = predictor.get_anomaly_score(room_name, is_occupied)
-        was_anomaly = self._is_anomaly
-        new_anomaly = self._anomaly_data.get("anomaly", False)
-
-        # Suppress during GUEST house state
-        if new_anomaly:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is not None:
-                house_state = str(getattr(manager, "house_state", None) or "").lower()
-                if house_state == "guest":
-                    new_anomaly = False
-                    self._anomaly_data["suppressed_reason"] = "guest_mode"
-
-        self._is_anomaly = new_anomaly
-
-        # Fire signal and NM alert on new anomaly (rising edge)
-        # Skip alerts in observation mode (Bug Class #23)
-        if new_anomaly and not was_anomaly:
-            if not getattr(self.coordinator, '_observation_mode', False):
-                await self._fire_anomaly_alert(room_name)
-
-    async def _fire_anomaly_alert(self, room_name: str) -> None:
-        """Fire SIGNAL_OCCUPANCY_ANOMALY and send NM notification."""
-        from homeassistant.helpers.dispatcher import async_dispatcher_send
-        from .domain_coordinators.signals import SIGNAL_OCCUPANCY_ANOMALY
+        from .room_dwell_model import HASS_DATA_KEY, cell_label, cell_of
 
         now = dt_util.now()
-        # Startup grace period: suppress alerts for 5 minutes after init
-        if (dt_util.utcnow() - self._startup_time).total_seconds() < 300:
-            return
-        # Cooldown: don't re-alert within 30 minutes
-        if self._last_alert_time is not None:
-            elapsed = (now - self._last_alert_time).total_seconds()
-            if elapsed < 1800:
-                return
+        data = self.coordinator.data or {}
+        entry_id = self.coordinator.entry.entry_id
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        threshold = float(OCC_ANOMALY_SHARE_THRESHOLD)
 
-        self._last_alert_time = now
-
-        async_dispatcher_send(
-            self.hass,
-            SIGNAL_OCCUPANCY_ANOMALY,
-            {
-                "room": room_name,
-                "predicted_probability": self._anomaly_data.get("predicted_probability"),
-                "time_bin": self._anomaly_data.get("time_bin"),
-                "day_type": self._anomaly_data.get("day_type"),
-            },
+        # (a) occupied, and the occupied-since clock for (d).
+        occupied = bool(data.get(STATE_OCCUPIED))
+        since = None
+        if occupied:
+            try:
+                since = self.coordinator.get_became_occupied_time()
+            except Exception:  # noqa: BLE001
+                since = None
+            if self._occ_seen_since is None:
+                self._occ_seen_since = now
+            if since is None:
+                since = self._occ_seen_since
+        else:
+            self._occ_seen_since = None
+        occupied_for_s = (
+            max(0.0, (now - since).total_seconds()) if since is not None else None
         )
 
-        # v4.6.1 canary: persist to unified anomaly_log via AnomalyEvent.
-        # Parallel write — existing signal dispatch and NM alert unchanged.
-        await self._store_bayesian_anomaly_event(room_name)
+        attrs: dict = {
+            "expected_share": None,
+            "threshold": threshold,
+            "cell_samples": 0,
+            "cell_days": 0,
+            "cell": cell_label(cell_of(now)),
+            "usual_hours": None,
+            "occupied": occupied,
+            "occupied_since": since.isoformat() if since is not None else None,
+            "occupied_for_min": (
+                int(occupied_for_s // 60) if occupied_for_s is not None else None
+            ),
+            "debounce_remaining_s": None,
+            "occupancy_source": data.get(STATE_OCCUPANCY_SOURCE),
+            "radar_sole": data.get(STATE_RADAR_SOLE_TICK),
+            "ble_persons": data.get(STATE_BLE_PERSONS),
+            "usual_people": None,
+            "learning_status": None,
+            "model_status": None,
+            "model_refreshed_at": None,
+            "model_window_days": None,
+            "suppressed_reason": None,
+        }
 
-        # NM alert — severity based on time of day
-        is_night = now.hour < 6 or now.hour >= 22
-        from .domain_coordinators.base import Severity
-        severity = Severity.HIGH if is_night else Severity.MEDIUM
-
-        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
-        if nm is not None:
-            try:
-                await nm.async_notify(
-                    coordinator_id="bayesian_predictor",
-                    severity=severity,
-                    title=f"Unexpected occupancy: {room_name}",
-                    message=(
-                        f"Room '{room_name}' is occupied but Bayesian model predicted "
-                        f"<10% probability for this time period."
-                    ),
+        on = False
+        if not OCC_ANOMALY_DWELL_ENABLED:
+            attrs["learning_status"] = "disabled"
+            attrs["model_status"] = "disabled"
+            attrs["suppressed_reason"] = "disabled"
+        else:
+            runner = self.hass.data.get(DOMAIN, {}).get(HASS_DATA_KEY)
+            model = getattr(runner, "model", None)
+            if model is not None:
+                attrs["model_status"] = model.status
+                attrs["model_refreshed_at"] = (
+                    model.last_refresh_utc.isoformat()
+                    if model.last_refresh_utc else None
                 )
-            except Exception as e:
-                _LOGGER.debug("NM alert for occupancy anomaly failed: %s", e)
+                attrs["model_window_days"] = model.window_days
+            if model is None or not model.has_model:
+                # (f) no successful refresh yet
+                attrs["learning_status"] = "no_model"
+                attrs["suppressed_reason"] = "no_model"
+            else:
+                share, n = model.lookup(entry_id, now)
+                attrs["expected_share"] = (
+                    round(share, 4) if share is not None else None
+                )
+                attrs["cell_samples"] = n
+                cell_days = model.cell_days(entry_id, now)
+                attrs["cell_days"] = cell_days
+                attrs["usual_hours"] = model.usual_hours(entry_id, threshold)
+                attrs["usual_people"] = {
+                    "source": "ble_visits",
+                    "people": model.usual_people(room_name, entry_id, now),
+                }
+                if (
+                    share is None
+                    or cell_days < OCC_ANOMALY_MIN_CELL_DAYS
+                    or n < OCC_ANOMALY_MIN_CELL_SAMPLES
+                ):
+                    # (c) not enough history in this cell
+                    attrs["learning_status"] = "learning"
+                    attrs["suppressed_reason"] = "learning"
+                else:
+                    attrs["learning_status"] = "ok"
+                    if occupied and share < threshold:  # (a) and (b), strict
+                        remaining = float(OCC_ANOMALY_DEBOUNCE_S) - (
+                            occupied_for_s or 0.0
+                        )
+                        if remaining > 0:
+                            # (d) not yet debounced
+                            attrs["debounce_remaining_s"] = int(remaining)
+                            attrs["suppressed_reason"] = "debouncing"
+                        elif self._house_is_guest():
+                            # (e) guest suppression
+                            attrs["suppressed_reason"] = "guest_mode"
+                        else:
+                            on = True
 
-    async def _store_bayesian_anomaly_event(self, room_name: str) -> None:
-        """Persist bayesian occupancy anomaly to unified anomaly_log.
+        was_on = self._is_anomaly
+        self._is_anomaly = on
+        self._attrs = attrs
+        if on and not was_on:
+            self._last_anomaly_at = now.isoformat()
+            self._on_rising_edge(room_name, entry_id, attrs)
 
-        v4.6.1 canary migration: proves AnomalyEvent shape for an existing
-        frequent emitter. Existing NM + signal paths remain unchanged.
-        """
+    def _house_is_guest(self) -> bool:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        return str(getattr(manager, "house_state", None) or "").lower() == "guest"
+
+    def _presence_observation_mode(self) -> bool:
+        """switch.ura_presence_observation_mode. The room coordinator has no
+        observation mode of its own (the old getattr read was always False)."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        try:
+            presence = manager.coordinators.get("presence") if manager else None
+        except Exception:  # noqa: BLE001
+            presence = None
+        return bool(getattr(presence, "observation_mode", False))
+
+    def _on_rising_edge(self, room_name: str, entry_id: str, attrs: dict) -> None:
+        """Signal + one anomaly_log row, gated. Never notifies (I2)."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        from .const import OCC_ANOMALY_LOG_COOLDOWN_S, OCC_ANOMALY_STARTUP_GRACE_S
+        from .domain_coordinators.signals import SIGNAL_OCCUPANCY_ANOMALY
+
+        utc_now = dt_util.utcnow()
+        if (utc_now - self._startup_time).total_seconds() < OCC_ANOMALY_STARTUP_GRACE_S:
+            return
+        if self._presence_observation_mode():
+            _LOGGER.info(
+                "[observation mode] occupancy anomaly in %s: signal and "
+                "anomaly_log row suppressed", room_name,
+            )
+            return
+        if (
+            self._last_record_time is not None
+            and (utc_now - self._last_record_time).total_seconds()
+            < OCC_ANOMALY_LOG_COOLDOWN_S
+        ):
+            return
+        self._last_record_time = utc_now
+
+        signal_payload = {
+            "room": room_name,
+            "entry_id": entry_id,
+            "expected_share": attrs.get("expected_share"),
+            "threshold": attrs.get("threshold"),
+            "cell": attrs.get("cell"),
+            "occupied_since": attrs.get("occupied_since"),
+            "occupancy_source": attrs.get("occupancy_source"),
+            "radar_sole": attrs.get("radar_sole"),
+        }
+        async_dispatcher_send(self.hass, SIGNAL_OCCUPANCY_ANOMALY, signal_payload)
+
+        row_payload = dict(signal_payload)
+        row_payload["cell_samples"] = attrs.get("cell_samples")
+        row_payload["ble_persons"] = attrs.get("ble_persons")
+        task = self.hass.async_create_task(
+            self._store_dwell_anomaly_event(room_name, row_payload),
+        )
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+
+    async def _store_dwell_anomaly_event(self, room_name: str, payload: dict) -> None:
+        """Persist one ``occupancy.dwell_anomaly`` row via the single DAO."""
         from .domain_coordinators.anomaly_event import (
             AnomalyEvent,
             AnomalySeverity,
@@ -3494,20 +3622,17 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
             return
-
+        share = payload.get("expected_share")
         event = AnomalyEvent(
-            coordinator="bayesian",
-            type="bayesian.prediction_anomaly",
-            severity=AnomalySeverity.WARNING,
+            coordinator="occupancy",
+            type="occupancy.dwell_anomaly",
+            severity=AnomalySeverity.INFO,
             anomaly_type=AnomalyType.POINT_IN_TIME,
             detected_at=dt_util.utcnow().isoformat(),
-            payload={
-                "room_id": room_name,
-                "predicted_probability": self._anomaly_data.get("predicted_probability"),
-                "time_bin": self._anomaly_data.get("time_bin"),
-                "day_type": self._anomaly_data.get("day_type"),
-                "learning_status": self._anomaly_data.get("learning_status"),
-            },
+            payload=payload,
+            observed_value=1.0,
+            expected_mean=float(share) if share is not None else 0.0,
+            sample_size=int(payload.get("cell_samples") or 0),
             room_id=room_name,
         )
         await db.save_anomaly_event(event)

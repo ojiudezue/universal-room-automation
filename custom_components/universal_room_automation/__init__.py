@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.82
+# Universal Room Automation vv5.103.83
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4842,6 +4842,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # We NO LONGER register them as sidebar panels or serve their static
         # paths — a small, reversible first step before the code is deleted.
         # Retained on disk pending DELETE-REACT-DASHBOARDS-1 phase 2.
+
+        # BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 D1: the room dwell model
+        # (read-only; nightly GROUP BY over environmental_data) that the
+        # per-room occupancy-anomaly sensor reads. Stopped on unload.
+        try:
+            from .room_dwell_model import async_setup_room_dwell_model
+
+            _dwell_runner = await async_setup_room_dwell_model(hass)
+            entry.async_on_unload(_dwell_runner.async_stop)
+        except Exception:  # noqa: BLE001 — diagnostic; never block setup
+            _LOGGER.warning("Room dwell model setup failed (non-fatal)", exc_info=True)
 
         _LOGGER.info("Integration entry setup complete with aggregation sensors")
         return True

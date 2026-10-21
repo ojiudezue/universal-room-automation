@@ -37,6 +37,11 @@ SIGNAL_EGRESS_EXIT_BACKFILLED: Final = "ura_egress_exit_backfilled"
 # polling hass.data. Replaces v4.6.5.2's 30-attempt × 1s polling helper.
 SIGNAL_DATABASE_READY: Final = "ura_database_ready"
 SIGNAL_BAYESIAN_UPDATED: Final = "ura_bayesian_updated"
+# Rising edge of binary_sensor.<room>_occupancy_anomaly (dwell model,
+# BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1). Zero consumers today (kept by
+# operator request). Payload dict: room, entry_id, expected_share, threshold,
+# cell, occupied_since, occupancy_source, radar_sole. Not sent in presence
+# observation mode, inside the startup grace, or inside the per-room cooldown.
 SIGNAL_OCCUPANCY_ANOMALY: Final = "ura_occupancy_anomaly"
 
 # v4.5.20: per-coord refresh signals for Presence + MF anomaly sensors.

@@ -76,3 +76,12 @@ Shared stub `test_ec_billing_d5a_baseline_guard_sites._bare_ec` gains `_lifetime
 - **Discriminator:** under the old counter a flap day reads `0.0` or NULL. Under the
   fix it reads a positive value matching the CT delta. A different failure, such as
   a stale CT, would show a value that disagrees with the statistics delta.
+
+## Validated 2026-10-21 (restart ~16:55 CDT) — partial; daily rows pending
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Installed and loaded | PASS | HACS v5.103.82; installed `energy_const.py` derives `production_ct_energy_delivered`; 0 URA ERROR/Traceback lines in the HA log after boot |
+| Shutdown save | PASS | 0 `write worker is closed` lines over the restart |
+| Switch-over day NULL, no learning | PENDING | first evaluable at 2026-10-22 00:00 local (today's row) |
+| Next full day solar = CT daily delta ±1% | PENDING | first evaluable at 2026-10-23 00:00 local (row for 10-22) |

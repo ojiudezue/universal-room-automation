@@ -1,6 +1,19 @@
 # PLANNING: Room occupancy-anomaly sensor on a dwell model
 
-**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** plan v1, not reviewed, not built.
+**Card:** BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (thread: presence). **Status:** BUILT 2026-10-21 on `feat/occupancy-dwell-anomaly` (README_v5.103.83), not deployed.
+
+**Build notes (deviations, operator decisions 2026-10-21):**
+- D0 runs AFTER deploy as the live check (operator), as the committed script `scripts/probes/occupancy_dwell_backtest.py`. Knob defaults kept as §6.
+- Q1 answered yes (rare-hour visit fires). Q2: signal AND row both skip in observation mode, read from the PRESENCE coordinator's `observation_mode`. §5/D3's "today the signal is sent in observation mode" was wrong: the old code skipped both, but its check read `coordinator._observation_mode`, which the room coordinator does not have (always False).
+- Side finds fixed here, not carded (operator): plus `get_uncomfortable_minutes_today` (same name-key at the same sensor call sites, and a UTC midnight), and exit-row `duration` is time-since-last-motion, not episode length, so both occupancy DAOs now pair entry/exit rows.
+- `occupied IS NOT NULL` in the DAO is belt-and-braces: `COUNT(occupied)` already skips NULL.
+- Arithmetic finding from the build-time replay: a 56-day weekend cell holds at most 16 x 12 = 192 samples, below `OCC_ANOMALY_MIN_CELL_SAMPLES` = 200 ("40% of a weekday cell"), so weekend cells never leave `learning` and G4 ("every cell") cannot pass at these defaults.
+  **Fix-up (coordinator 2026-10-21):** the gate is now `OCC_ANOMALY_MIN_CELL_DAYS` = 4 distinct local days per cell, with a sample floor `OCC_ANOMALY_MIN_CELL_SAMPLES` = 24. Replay at the new gate: G4 47/47; G1 still fails at 900 s (median 5/day).
+- **Shipped setting (coordinator 2026-10-21): `OCC_ANOMALY_DEBOUNCE_S` = 1800** (§6 said 900). 7-day replay at 0.02 / 1800 s / 48-cell: G1 PASS (median 0/day, max 2 per room, 5 fires total), G2 PASS heuristic (0 of 5 overlap a resident visit), G3 PASS (0 Study A daytime fires; share 0.56), G4 PASS (47/47).
+- Data depth: `environmental_data` runs from 2025-11-19 (no purge problem; URA retention 365 d). The "7 days" is HA's recorder (`purge_keep_days: 7`), which limits how far back the replay can go, not the model.
+- The four "today" sensors had the same never-called `async_update`. Fixed in this branch: throttled refresh from the coordinator update (`TODAY_SENSOR_REFRESH_S` = 300) and quantized values.
+- The forecast-sensors-onto-RoomDwellModel switch is the next card, not this branch.
+- **Review fix-up (A/B/C, renumbered v5.103.83):** exit row always written (producer) + `OCC_EPISODE_MAX_S` 12 h episode cap and bounded look-back (readers); model build in the executor with a stop-wins guard; one 600 s retry after a failed first build; visits cap 200000; docstring cost corrected; pct uses `start_of_local_day`; 18 new drills (71 total, all RED).
 **Evidence base:** `docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md` (the D0 audit of the old model).
 **Also read:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` (landed while this plan was being written; folded into §9).
 
