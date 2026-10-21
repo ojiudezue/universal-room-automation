@@ -40,6 +40,18 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: EC-SOLAR-LIFETIME-COUNTER-FLAP-1
+  title: "EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days"
+  thread: energy
+  status: "in_progress"
+  tier: 1
+  created: "2026-10-21 16:50"
+  updated: "2026-10-21 16:50"
+  origin: "Operator 2026-10-21: 'Be sure its still right and its not a cumulative issue. Else approved.' Follow-up of the 10-20 solar entity switch (HA Energy/dashboards/Solcast moved to production_ct_energy_delivered)."
+  why: "Prober 10-21: envoy lifetime_energy_production flaps between true (~17-20.7 MWh) and 0.046 (32 drops in 686 hourly samples since 09-20; other lifetime legs 0). EC uses it as a cumulative counter with day-start snapshot + delta, so of the last 40 energy_daily rows 5 are silently 0.0 and 31 NULL; consumption (which trains the forecast) is understated on the 0.0 days. PWA reads energy_production_today and is unaffected."
+  next: "Ship v5.103.82 (fix/ec-solar-ct-counter): derive default -> production_ct_energy_delivered, snapshot provenance re-seed, high-water-mark flap guard, rejected day = NULL solar + consumption and no learning. Live: next midnight row solar matches CT daily delta within 1%."
+  residual_backfill: "Past solar rows are not repaired: scripts/backfill_energy_daily_from_counters.py only covers Emporia legs; a solar mode reading statistic 5654 is new scope."
+  adjacency: "NEW; swept board for solar/lifetime_energy_production/energy_daily; related to the 10-20 Energy-prefs switch (no card) and RECORDER excludes runbook."
 - id: WALLPANEL-URA-NOTIFY-1
   title: "URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)"
   status: "waiting_operator"
