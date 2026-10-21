@@ -23,7 +23,10 @@ Card: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1. Tier 2, reviews A (correctness) SH
 - `test_ec_shutdown_save_stage1.py`: 28 tests; 30 mutation drills RED (real DB rows written by the job; no service calls from any EC callback fired after the stop job; EVSE saved first when the timeout cuts the sequence; bounded waits).
 - Full-suite name-diff vs develop 406c03485 with URA_SOURCE_MUTATION=1: CLEAN, 11 = 11, 0 new / 0 gone (after fixing a mock-truthiness regression in the first fix-up).
 
-## Live validation (to fill after restart)
+## Validated 2026-10-21
 
-- The restart that installs this version is the first one with the new code on the way *up* only; the first shutdown that runs the new job is the *next* restart. Check then: 0 `write worker is closed` ERROR lines from EC saves; energy_state rows' update times at the stop instant.
-- 50/50 URA entries loaded, 0 URA ERRORs after boot.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Load (restart 14:13 CDT) | PASS | 50/50 URA entries loaded, 0 URA ERRORs after boot |
+| Stop job saves while the writer is alive (restart 15:45 CDT, first stop running the new job) | PASS | URA DB `energy_state` rows (peak_avoidance_snapshot, drain_precedence_state_v1, ev_force_charge_until, wv_* ...) all stamped 20:45:47 UTC = the stop instant |
+| No shutdown save errors | PASS | 0 `write worker is closed` lines in the HA container log over the restart (previous restarts: 26 and 34) |
