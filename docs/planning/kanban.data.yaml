@@ -26988,7 +26988,8 @@ cards:
 - id: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
-  status: inbox
+  status: investigating
+  operator_answer_2026_10_20: "Operator: \"Make the sensor work.\" -> B (wire evaluation), measure false-positive rate first (D0)."
   tier: 1
   created: "2026-10-20 19:30"
   updated: "2026-10-20 19:30"
@@ -31815,10 +31816,11 @@ cards:
   next: "MEASURE: per session, line up occupancy edges, house_state (sleep), the room's sleep-protection gate decision, configured night_lights entity, and the light's state history + context (URA vs device-local). Then confirm-or-refute; fix only if URA path is shown not firing."
   related: [NIGHT-LIGHT-ACTION-SELECTOR-1]
 - id: WIGTON-URA-REENABLE-1
+  operator_answer_2026_10_20: "Operator: \"Don't start stage 1 at wigton\". Parked; do not raise again until the operator brings it up."
   applied_2026_10_17: "Operator-approved, applied 2026-10-18 02:41 CDT via a one-shot token, read back OK. G4 retune: anti_interference ON for Chinenye (0xa4c138a55ceaf91b), Gym, Living Room, Master Bath; Gym static 10->6; Master Bath fading 60->120; Master Bedroom motion 8->6 (all 17 fleet units now at target). Ecobee *_occupancy removed from occupancy_sensors of Study Hallway, Game room, Down Guest bedroom hallway via options flow (ecobee motion + temp/humidity kept; Game room keeps its mmWave presence). Entries remain disabled. Basis: AUDIT_wigton_sensor_settle_and_replay_2026_10_17.md. Re-run G5 after >=24h to confirm."
   title: Bring URA back online at Wigton through binary gates (stall known, fixes installed, configs clean, sensors tuned, staged room-on)
   thread: wigton
-  status: planned
+  status: parked
   tier: 1
   created: "2026-10-10 16:00"
   updated: "2026-10-10 16:00"
