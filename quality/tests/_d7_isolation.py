@@ -172,6 +172,51 @@ def _restore_parent_attrs(before: dict, after: dict) -> None:
             pass
 
 
+def file_scope(prefixes=DEFAULT_PREFIXES):
+    """Generator body for a module-scoped autouse fixture that puts back
+    everything a test FILE did to ``sys.modules`` and to pre-existing
+    modules under ``prefixes`` while its tests ran -- stubs installed at
+    test time, production modules lazily imported against those stubs,
+    attribute writes onto real modules (``ha_er.async_get = fake``), and
+    parent-package attributes (``homeassistant.util.dt = stub``).
+
+    Usage::
+
+        @pytest.fixture(autouse=True, scope="module")
+        def _restore_module_state():
+            yield from file_scope()
+
+    TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 runtime slice. Only covers what the
+    tests do at RUN time; import-time stubs belong in ``import_scope``.
+    """
+    with import_scope(prefixes, attrs=True):
+        yield
+
+
+@contextmanager
+def real_package_scope(set_aside, prefixes=DEFAULT_PREFIXES):
+    """Set aside ``sys.modules`` entries for which ``set_aside(name, mod)``
+    is true (typically every URA module and every non-real HA stub), so the
+    block can import the REAL package; on exit restore sys.modules,
+    attributes of pre-existing modules, and parent-package attributes
+    exactly as they were.
+
+    Importing the real package rebinds attributes on parents that outlive
+    the swap (e.g. ``homeassistant.util.dt``); without the attribute restore
+    a later ``patch("homeassistant.util.dt.now")`` patches a different
+    object than the code under test reads (19 polluted clock tests,
+    2026-10-20, test_ec_bill_cycle_day_wired.py).
+    """
+    import importlib
+
+    with import_scope(prefixes, attrs=True):
+        for name, mod in list(sys.modules.items()):
+            if _matches(name, prefixes) and set_aside(name, mod):
+                del sys.modules[name]
+        importlib.invalidate_caches()
+        yield
+
+
 def reinstall(installed: dict, prefixes=DEFAULT_PREFIXES):
     """Generator body for a module-scoped fixture: re-install what the import
     block put in, run the module's tests, then put every key under

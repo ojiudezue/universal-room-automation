@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.79
+# Universal Room Automation vv5.103.80
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -3461,19 +3461,20 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
 
         # NM alert — severity based on time of day
         is_night = now.hour < 6 or now.hour >= 22
-        severity = "high" if is_night else "medium"
+        from .domain_coordinators.base import Severity
+        severity = Severity.HIGH if is_night else Severity.MEDIUM
 
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is not None:
             try:
                 await nm.async_notify(
+                    coordinator_id="bayesian_predictor",
+                    severity=severity,
                     title=f"Unexpected occupancy: {room_name}",
                     message=(
                         f"Room '{room_name}' is occupied but Bayesian model predicted "
                         f"<10% probability for this time period."
                     ),
-                    severity=severity,
-                    source="bayesian_predictor",
                 )
             except Exception as e:
                 _LOGGER.debug("NM alert for occupancy anomaly failed: %s", e)

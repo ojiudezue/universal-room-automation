@@ -567,6 +567,38 @@ class TestD2AuditRows:
         ), ring_reasons
 
     @pytest.mark.asyncio
+    async def test_audit_row_route_reason_caller_supplied_wins(self):
+        """NM-SIGNATURE (2026-10-20): a caller-supplied route_reason
+        (CONSOL-1 perimeter enrichment) is accepted by async_notify and
+        replaces the computed label on the delivered-path audit row; the
+        default None keeps the computed label (see the test above)."""
+        hass = _make_hass()
+        _put_house_awake(hass)
+        nm = _install_nm(hass, _cfg_all_channels())
+        db = _install_db(hass)
+
+        await nm.async_notify(
+            "perimeter_alert", Severity.MEDIUM,
+            "Perimeter Alert — Person", "Person spotted",
+            hazard_type=NM_HAZARD_EXTERIOR_PERSON,
+            location="front_yard",
+            snapshot_path=SNAP,
+            route_reason="enriched_llmvision",
+        )
+
+        audit_reasons = [
+            c.kwargs.get("route_reason")
+            for c in db.log_notification.await_args_list
+            if c.kwargs.get("message") == "[audit]"
+        ]
+        assert "enriched_llmvision" in audit_reasons, audit_reasons
+        assert (
+            NM_ROUTE_REASON_FORCE_IMMEDIATE_SECURITY_IMAGE not in audit_reasons
+        ), audit_reasons
+        ring_reasons = [e.get("route_reason") for e in nm._routing_audit_log]
+        assert "enriched_llmvision" in ring_reasons, ring_reasons
+
+    @pytest.mark.asyncio
     async def test_audit_row_route_reason_dnd_suppressed_security_image(self):
         """L9: quiet hours + no bypass matching MEDIUM → the audit row
         carries the DND-suppressed-security-image constant (not the

@@ -29,8 +29,13 @@ _DC = os.path.join(_URA, "domain_coordinators")
 
 
 def _load_module(mod_name: str, path: str):
-    if mod_name in sys.modules:
-        return sys.modules[mod_name]
+    existing = sys.modules.get(mod_name)
+    # Reuse only the real file-backed module: a sibling file may have left a
+    # partial stub under this name (TEST-SUITE-ORDER-INDEP-PRODSTUBS-1).
+    if existing is not None and os.path.abspath(
+        str(getattr(existing, "__file__", "") or "")
+    ) == os.path.abspath(path):
+        return existing
     spec = _ilu.spec_from_file_location(mod_name, path)
     m = _ilu.module_from_spec(spec)
     sys.modules[mod_name] = m
@@ -668,3 +673,17 @@ def test_hvac_preset_reasons_ast_completeness_across_all_call_sites():
         f"reasons emitted at runtime but missing from HVAC_PRESET_REASONS: "
         f"{sorted(missing)}"
     )
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+import pytest as _ord_pytest  # noqa: E402
+
+
+@_ord_pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

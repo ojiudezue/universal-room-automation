@@ -1759,3 +1759,14 @@ class TestResolveBaselineRangeHeatLow:
         pred._hvac_coord._last_emitted_range = {"z1": (68.0, 76.0)}
         got = pred._resolve_baseline_range("z1")
         assert got == (65.0, 80.0), got
+
+
+# TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every
+# sys.modules entry / module attribute this file's tests changed at run time
+# (stubs, production modules imported against them, parent-package attrs)
+# when the file finishes, so later files never inherit them.
+@pytest.fixture(autouse=True, scope="module")
+def _restore_module_state_after_file():
+    from _d7_isolation import file_scope
+
+    yield from file_scope()

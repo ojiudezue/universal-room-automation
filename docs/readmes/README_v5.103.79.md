@@ -26,8 +26,14 @@ Card: EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 (residual: bill prediction). Plan:
 - `test_ec_bill_prediction_forecast.py` (58 tests); 39 mutation drills all RED. Cycle days 1/24/28, Feb/leap/Dec-Jan, lag 0/1/2, stale stats.
 - Full-suite name-diff vs develop: CLEAN, 12 = 12, 0 new / 0 gone (with URA_SOURCE_MUTATION=1).
 
-## Live validation (to fill after restart)
+## Validated 2026-10-20 (restart ~17:49 CDT)
 
-- `predicted_bill` `prediction_source: utility`, value ≈ $238 range for cycle ending 10-24 (176.71 + ~29 + 32.50, review A sanity check); `fixed_charge` 32.5; `actual_window_end` within 48 h.
-- `bill_forecast_ledger` row present in energy_state after the first utility refresh; `ledger_days_this_cycle` ≥ 1.
-- 50/50 URA entries loaded, 0 URA ERRORs.
+| Criterion | Result | Evidence |
+|---|---|---|
+| Uses SmartHub cost | PASS | `sensor.ura_energy_coordinator_predicted_bill` = 238.44, `prediction_source: utility` |
+| Arithmetic matches the independent check | PASS | `actual_to_date` 176.71 + `remainder_cost` 29.23 (4 days) + `fixed_charge` 32.5 = 238.44; review A's hand calculation from SmartHub hourly data gave ≈ $238 |
+| Cycle bounds | PASS | `cycle_start_date` 2026-09-24, `cycle_end` 2026-10-24, `actual_window_end` 2026-10-20, `days_remaining` 4 |
+| Ledger persisted | PASS | URA DB `energy_state` key `bill_forecast_ledger` (212 bytes); `ledger_days_this_cycle` 1, `accuracy_cycles_scored` 0 (first scoring at the 10-24 close; first full cycle 11-24) |
+| Load | PASS | manifest v5.103.79; no URA ERROR after the restart (one BlueBubbles send failure at 17:40 was before it and unrelated) |
+
+Not provable live yet: cycle scoring and MAPE (needs a cycle close).

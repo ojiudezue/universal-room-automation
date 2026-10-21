@@ -114,6 +114,37 @@ def test_person_leg_route_reason_failed_fall_through(monkeypatch):
     )
 
 
+def test_person_leg_enriched_notify_binds_real_nm_signature(monkeypatch):
+    """NM-SIGNATURE (2026-10-20): the enriched person-leg call passes
+    ``route_reason``; it must bind to the REAL NotificationManager.async_notify
+    signature (before the fix it raised TypeError and the alert was lost)."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators.notification_manager import (
+        NotificationManager,
+    )
+    sig = inspect.signature(NotificationManager.async_notify)
+    bound = []
+
+    async def _bind(*a, **kw):
+        bound.append(sig.bind(None, *a, **kw))
+
+    hass, nm = _make_hass(
+        house_state="away",
+        perimeter_cameras=["camera.front_yard"],
+        enrichment_enabled=True,
+        enrichment_cameras=["binary_sensor.front_yard_person_occupancy"],
+    )
+    nm.async_notify = AsyncMock(side_effect=_bind)
+    _install_spy_adapter(monkeypatch, return_value="A person in a hoodie.")
+    mgr = _run(_setup_mgr(hass))
+    _pin_snapshot(mgr)
+    _run(mgr._async_handle_perimeter_trigger(
+        "binary_sensor.front_yard_person_occupancy",
+    ))
+    assert len(bound) == 1, "enriched person alert did not bind/deliver"
+    assert bound[0].arguments["route_reason"] == _const.NM_ROUTE_REASON_ENRICHED
+
+
 # ============================================================================
 # CONSOL-1 fix-up C-SN2 — S2 VEHICLE wire-in anchor (mirrors S1 above).
 # ============================================================================

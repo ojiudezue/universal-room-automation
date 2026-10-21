@@ -1342,10 +1342,17 @@ class NotificationManager:
         source_anomaly_id: int | None = None,
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
+        route_reason: str | None = None,
     ) -> None:
         """Main notification entry point — called by coordinators.
 
         Routes to appropriate channels based on severity and config.
+
+        ``route_reason`` (CONSOL-1, wired 2026-10-20): caller-supplied audit
+        label (e.g. NM_ROUTE_REASON_ENRICHED). When not None it replaces the
+        computed route_reason on the delivered-path audit row; None keeps the
+        computed label byte-identically. Before this param existed, every
+        perimeter call that passed it raised TypeError and the alert was lost.
 
         Args:
             source_anomaly_id: Row id of the anomaly_log row that triggered
@@ -1933,6 +1940,8 @@ class NotificationManager:
                         else "legacy_fallback"
                     )
                 )
+                if route_reason is not None:
+                    _audit_route_reason = route_reason
                 await self._emit_audit_row(
                     coordinator_id=coordinator_id,
                     severity=severity,

@@ -1293,6 +1293,22 @@ class TestImportResolution:
     _PKG = "custom_components.universal_room_automation"
 
     def _check_imports_resolve(self, module_name: str):
+        # Import the REAL modules, not whatever partial stub a sibling file
+        # left in sys.modules (TEST-SUITE-ORDER-INDEP-PRODSTUBS-1: this used
+        # to pass only when an earlier file leaked the real package).
+        import types as _types
+
+        from _d7_isolation import real_package_scope
+
+        def _set_aside(name, mod):
+            if name == "custom_components" or name.startswith("custom_components."):
+                return True
+            return not isinstance(mod, _types.ModuleType) or mod.__spec__ is None
+
+        with real_package_scope(_set_aside):
+            self._check_imports_resolve_real(module_name)
+
+    def _check_imports_resolve_real(self, module_name: str):
         import importlib
         import importlib.util
 
