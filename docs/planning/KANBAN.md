@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T19:50:02-05:00_ - _Data commit: `8f8c016ec094`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-20T21:17:37-05:00_ - _Data commit: `aeda286a03c8`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -13,11 +13,11 @@ _Generated: 2026-10-20T19:50:02-05:00_ - _Data commit: `8f8c016ec094`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 12 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 28 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 27 |
+| 🚀 Shipped (organic open) | 28 |
 | 🅿️ Parked | 96 |
 | ✅ Done | 353 |
 
@@ -469,7 +469,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
 ### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
@@ -483,16 +483,6 @@ _created 2026-10-17 16:30 · updated 2026-10-19 02:41 · refined_
   - `tier`: 1
   - `instance_2026_10_19_overnight`: LIVE INSTANCE right now (02:3x CDT): .storage/core.device_registry shows 64 URA devices at sw_version v5.103.72 (the LOADED code - DeviceInfo sw_version=VERSION at __init__.py:2322/:4994/:5178, _devices.py:81/:92), while custom_component...
   - `prior_art_2026_10_19`: REUSE: the loaded version is already published as DeviceInfo sw_version on every URA device (above). The missing piece is only the comparison against the on-disk manifest, so the build is: one executor read of manifest.json (at setup + h...
-
-### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress**
-_created 2026-10-20 19:55_
-- **Why:** database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic s...
-- **Next:** BUILD: EC registers hass.async_add_shutdown_job (Stage 1, worker alive) running the teardown persist with a timeout (module constant); teardown saves skip at DEBUG when hass.is_stopping; mutation-anchored test; check Stage-1 20 s budget ...
-- **Forensic keys (3):**
-  - `measured_2026_10_20`: CONFIRMED. Most keys save only via the 15-min periodic writer (energy.py:10151, every 3rd 5-min cycle); the stop save (async_teardown energy.py:10777-10787) runs after HA Stage 2 cancels the URA write worker (core.py:1093). Up to 15 min ...
-  - `tier`: 2
-  - `adjacency`: ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering.
 
 ## 🔍 Review (0)
 _under review_
@@ -1023,7 +1013,7 @@ _created 2026-10-20_
   - `tier`: 1
   - `revisit_if`: 5+ normal days with the family home and outdoor > 80 F since 10-18
 
-## 🚀 Shipped (organic open) (27)
+## 🚀 Shipped (organic open) (28)
 _live, awaiting proof_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#1 · WSJF 5.0 · v4 tc4 u2 /e2_
@@ -1337,7 +1327,19 @@ _created 2026-10-18 · updated 2026-10-19 02:41 · refined_
   - `built_2026_10_19_overnight`: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...
   - `reviewed_2026_10_19_overnight`: BUILT + REVIEWED TO REVIEW LANE (not merged, not deployed). Branch feature/ec-bill-divergence-smarthub-stats @ 1dd44edd3 (pushed). Reviews (3 framing-disjoint): A correctness SHIP (M1 empty EC side published +-100 -> fixed; M2 service ch...
 
-### `NM-NOTIFY-SIGNATURE-MISMATCH-1` - Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **shipped_organic**
+_created 2026-10-20 19:55_
+- **Why:** database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic s...
+- **Next:** BUILD: EC registers hass.async_add_shutdown_job (Stage 1, worker alive) running the teardown persist with a timeout (module constant); teardown saves skip at DEBUG when hass.is_stopping; mutation-anchored test; check Stage-1 20 s budget ...
+- **Forensic keys (5):**
+  - `residual_2026_10_20_review`: Focused review of 9c38ed0a2 SHIP. LOW-1: SolarFollowController._stopped never reset (unreachable: HA stop never re-sets-up the same instance) - add a reset in _register_stop_save_job next time EC is touched. LOW-2: safety-hazard emergenc...
+  - `restart_owed_2026_10_20`: v5.103.81 deployed + HACS-installed 21:20 CDT; restart HELD (house home_night). Owed at next morning restart: load check; then at the restart AFTER that, validate the new stop job (0 EC write-worker-closed ERRORs; evse/registry energy_st...
+  - `measured_2026_10_20`: CONFIRMED. Most keys save only via the 15-min periodic writer (energy.py:10151, every 3rd 5-min cycle); the stop save (async_teardown energy.py:10777-10787) runs after HA Stage 2 cancels the URA write worker (core.py:1093). Up to 15 min ...
+  - `tier`: 2
+  - `adjacency`: ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering.
+
+### `NM-NOTIFY-SIGNATURE-MISMATCH-1` - Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **shipped_organic**
 _created 2026-10-20 20:10_
 - **Why:** presence wake-backstop, binary_sensor occupancy-anomaly, perimeter route_reason legs + test button, optimizer dead kwargs+TypeError retry. Fixed on fix/nm-notify-signature-mismatch 1e7a1ad21; reviews A+B SHIP; name-diff CLEAN.
@@ -1346,7 +1348,7 @@ _created 2026-10-20 20:10_
   - `tier`: 1
   - `adjacency`: NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1.
 
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#24 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#25 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-14 02:20 · updated 2026-10-15 02:05 · refined_
 - **Problem / Solution:**
@@ -1373,7 +1375,7 @@ _created 2026-09-14 02:20 · updated 2026-10-15 02:05 · refined_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#25 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **energy** - status: **shipped_organic** - approval: **blocked**
 _created 2026-10-12 02:06 · updated 2026-10-19 02:11 · initial_
 - **Problem / Solution:**
@@ -1393,7 +1395,7 @@ _created 2026-10-12 02:06 · updated 2026-10-19 02:11 · initial_
   - `adjacency_2026_10_12`: NEW. Swept: board (EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 = different owner, arbitrage rung-1/WAIT at night; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 done = arbitrage release vs fill-priority; EVSE-SOLAR-STOP-CONDITIONS-1 parked menti...
   - `organic_check_2026_10_19_overnight`: PARTIAL (URA ura_activity_log charger_on/off, 10-16 -> 10-19). No threshold chatter of the old shape (repeated fill_priority pause/resume minutes apart while SOC crosses 80) appears: fill_priority pauses are once per mid-peak day (10-16 ...
 
-### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#26 · WSJF 1.3 · v7 tc8 u2 /e13_
+### `HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1` - With the family away and only an untracked occupant home, the house flips AWAY <-> home every few minutes (33 AWAY entries on 10-14), and each flip rewrites the HVAC presets — _#27 · WSJF 1.3 · v7 tc8 u2 /e13_
 thread: **presence** - status: **shipped_organic** - approval: **blocked**
 _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
 - **Problem / Solution:**
@@ -1422,7 +1424,7 @@ _created 2026-10-15 02:05 · updated 2026-10-16 02:17 · refined_
   - `measured_2026_10_15_overnight`: URA DB house_state_log (read-only): AWAY entries per UTC day 09-25..10-13 = 0-13 (median 2); 10-14 = 33, with 33 arriving and 0 guest. Transitions 10-14 12:30-23:50Z: away->arriving via census_update 30; arriving->home_day via deferred_r...
   - `config_first_2026_10_15_overnight`: Settings that could stop it today without code: select.ura_coordinator_manager_house_state_override (options auto/away/arriving/home_day/home_evening/home_night/sleep/waking/guest/vacation, currently auto). Setting it to guest or a home ...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#27 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#28 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
 - **Problem / Solution:**
