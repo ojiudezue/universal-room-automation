@@ -113,6 +113,8 @@ from ..const import (
     CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD,
     CAMERA_INPUT_DEGRADED_DWELL_S,
     BOOT_SETTLE_S,
+    CAMERA_DETECTOR_FROZEN_S,
+    CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
@@ -163,6 +165,15 @@ from .signals import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Fleet-scope one-shot finding kinds (dedup_key[0]). Both are exempt from the
+# per-cycle findings cap AND from the HIGH->digest defer gate, because each is
+# a once-per-episode operator wake-up that is latched on emit (Bug Class #53:
+# a dropped or deferred row would leave the latch set and never page).
+_FLEET_ONESHOT_KINDS: tuple[str, ...] = (
+    "camera_input_dark",
+    "camera_detector_hung",
+)
 
 
 def _ura_ctx_kwargs(domain: str) -> dict:
@@ -640,6 +651,15 @@ class OptimizationCoordinator(BaseCoordinator):
         # per plan §5 — the optimizer is set up during the integration
         # bring-up alongside the rest of URA, so the delta is sub-second).
         self._camera_input_dark_boot_ref: datetime = dt_util.utcnow()
+        # CAMERA-SILENT-PRODUCER-TRIPWIRE-1: frozen detection_fps tracking.
+        # RAM-only by design (plan I1): the value and our OWN first-seen
+        # timestamp; HA last_changed is never read. A restart re-arms.
+        self._detector_last_value: float | None = None
+        self._detector_value_since: datetime | None = None
+        self._detector_hung_fired: bool = False
+        self._detector_frozen_s: int = 0
+        self._detector_entity_id: str | None = None
+        self._detector_unresolved_logged: bool = False
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
         # RAM-only for room sensor_health (a restart re-persists once per
@@ -1081,6 +1101,11 @@ class OptimizationCoordinator(BaseCoordinator):
             # delivery.
             ("camera_input_dark",
              self._evaluate_camera_input_dark_dimension),
+            # CAMERA-SILENT-PRODUCER-TRIPWIRE-1: detector hang (fps frozen
+            # while every person sensor stays available). Disjoint from
+            # camera_input_dark, which owns the unavailable case.
+            ("camera_detector_hung",
+             self._evaluate_camera_detector_hung_dimension),
             ("comfort", self._evaluate_comfort_dimension),
             # Phase 3 — room-level.
             ("occupancy_accuracy", self._evaluate_occupancy_accuracy_dimension),
@@ -3049,6 +3074,131 @@ class OptimizationCoordinator(BaseCoordinator):
             dedup_key=("camera_input_dark", "fleet"),
         ))
         return findings
+
+    def _resolve_detector_fps_entity(self) -> str | None:
+        """Resolve the Frigate fleet detection_fps entity via the registry.
+
+        Matches platform ``frigate``, domain ``sensor`` and a unique_id
+        ending in CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX. Never a literal
+        entity_id (IDENTITY_FUSION_CAMERAS_MANUAL ``_2`` rules). Returns
+        None when zero or more than one entity matches.
+        """
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            reg = er.async_get(self.hass)
+            entities = list(reg.entities.values())
+        except Exception:  # noqa: BLE001
+            return None
+        matches = [
+            e.entity_id for e in entities
+            if getattr(e, "platform", None) == "frigate"
+            and getattr(e, "domain", None) == "sensor"
+            and str(getattr(e, "unique_id", "") or "").endswith(
+                CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX
+            )
+        ]
+        if len(matches) != 1:
+            return None
+        return matches[0]
+
+    def _reset_detector_dwell(self) -> None:
+        self._detector_last_value = None
+        self._detector_value_since = None
+        self._detector_frozen_s = 0
+
+    def _evaluate_camera_detector_hung_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Frozen-stat trip-wire for a hung Frigate detector.
+
+        PLANNING_camera_detector_hung_tripwire.md Rev 2 D1. Fires ONE
+        finding per process lifetime per episode when the fleet
+        detection_fps value has not changed for CAMERA_DETECTOR_FROZEN_S
+        of observed time past boot settle. Any non-numeric read resets
+        the dwell (camera_input_dark owns unavailable). Unresolved
+        entity (e.g. Protect-only install) is inert with one INFO log.
+        """
+        # 1) Kill switch — before anything else (elapsed >= 0 is always true).
+        if CAMERA_DETECTOR_FROZEN_S <= 0:
+            return []
+        # 2) Resolve through the entity registry.
+        entity_id = self._resolve_detector_fps_entity()
+        self._detector_entity_id = entity_id
+        if entity_id is None:
+            self._reset_detector_dwell()
+            if not self._detector_unresolved_logged:
+                _LOGGER.info(
+                    "camera_detector_hung_inert_unresolved — no single "
+                    "Frigate sensor with unique_id suffix %r; detector-hang "
+                    "tripwire inert", CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX,
+                )
+                self._detector_unresolved_logged = True
+            return []
+        # 3) Read; non-numeric resets the dwell.
+        st = self.hass.states.get(entity_id)
+        raw = getattr(st, "state", None) if st is not None else None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = None
+        if value is None or value != value:  # None or NaN
+            self._reset_detector_dwell()
+            return []
+        now = dt_util.utcnow()
+        # 4) Value change (or first numeric read) re-anchors and clears latch.
+        if (
+            self._detector_last_value is None
+            or value != self._detector_last_value
+        ):
+            if self._detector_hung_fired:
+                _LOGGER.info(
+                    "camera_detector_hung cleared: %s changed to %s",
+                    entity_id, value,
+                )
+            self._detector_last_value = value
+            self._detector_value_since = now
+            self._detector_hung_fired = False
+        since = self._detector_value_since or now
+        self._detector_frozen_s = int((now - since).total_seconds())
+        # 5) Dwell anchored at max(first-seen, boot settle end).
+        settle_end = self._camera_input_dark_boot_ref + timedelta(
+            seconds=BOOT_SETTLE_S,
+        )
+        anchor = since if since > settle_end else settle_end
+        elapsed = (now - anchor).total_seconds()
+        if elapsed < CAMERA_DETECTOR_FROZEN_S:
+            return []
+        if self._detector_hung_fired:
+            return []
+        self._detector_hung_fired = True
+        frozen_s = self._detector_frozen_s
+        description = (
+            f"Frigate detector appears hung: {entity_id} has held "
+            f"{value:g} for {frozen_s}s while cameras stay available. "
+            f"Run `docker restart frigate`."
+        )
+        _LOGGER.warning(
+            "camera_detector_hung FIRE: %s frozen at %s for %ds",
+            entity_id, value, frozen_s,
+        )
+        return [OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high",
+            confidence=0.9,
+            score=0.0,
+            description=description,
+            proposed_action=None,
+            payload={
+                "kind": "camera_detector_hung",
+                "entity_id": entity_id,
+                "frozen_value": value,
+                "frozen_s": frozen_s,
+            },
+            dedup_key=("camera_detector_hung", "fleet"),
+        )]
 
     def _exterior_person_sensors(self) -> dict[str, str]:
         """Map camera_key -> its person-detection binary_sensor entity_id.
@@ -5558,7 +5708,7 @@ class OptimizationCoordinator(BaseCoordinator):
             return (
                 isinstance(dkey, tuple)
                 and len(dkey) >= 1
-                and dkey[0] == "camera_input_dark"
+                and dkey[0] in _FLEET_ONESHOT_KINDS
             )
 
         # Preserve META rows AND camera_input_dark separately — both
@@ -5712,7 +5862,7 @@ class OptimizationCoordinator(BaseCoordinator):
         _is_camera_input_dark_finding = (
             isinstance(_dkey, tuple)
             and len(_dkey) >= 1
-            and _dkey[0] == "camera_input_dark"
+            and _dkey[0] in _FLEET_ONESHOT_KINDS
         )
         if not _is_camera_input_dark_finding:
             if should_defer_high_to_digest(self.hass, finding):

@@ -4601,6 +4601,17 @@ CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD: Final = 0.25
 CAMERA_INPUT_DEGRADED_DWELL_S: Final = 270
 BOOT_SETTLE_S: Final = 180
 
+# CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (PLANNING_camera_detector_hung_tripwire.md
+# Rev 2). A hung Frigate detector leaves every person sensor available but the
+# fleet detection_fps stat stops changing. D0 probe (10-13..10-21): longest
+# healthy same-value run 5.0 min, so 3x = 900 s. Module const (rung 1): a fitted
+# number, retune via reviewed change. Kill switch: <= 0 disables the check.
+CAMERA_DETECTOR_FROZEN_S: Final = 900
+# Registry match key for the Frigate fleet detection_fps sensor. Live registry
+# (2026-10-21): unique_id "<frigate_entry_id>:sensor_fps:detection"; per-camera
+# fps sensors end "..._detection" (no colon) and so do not match.
+CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX: Final = ":sensor_fps:detection"
+
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated
 # the noise floor with unactionable "you might tweak X" pages that belonged

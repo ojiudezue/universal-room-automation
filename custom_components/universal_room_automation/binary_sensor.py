@@ -3306,6 +3306,8 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
             "affected_entities": [],
             "nm_latch_fired": False,
             "boot_settle_remaining_s": 0,
+            "detector_frozen_s": 0,
+            "detector_hung_fired": False,
         }
         if opt is not None:
             try:
@@ -3327,6 +3329,13 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
                 )
                 attrs["nm_latch_fired"] = bool(
                     getattr(opt, "_camera_input_dark_fired", False)
+                )
+                # CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (display only).
+                attrs["detector_frozen_s"] = int(
+                    getattr(opt, "_detector_frozen_s", 0) or 0
+                )
+                attrs["detector_hung_fired"] = bool(
+                    getattr(opt, "_detector_hung_fired", False)
                 )
                 from .const import BOOT_SETTLE_S as _BOOT_SETTLE_S
                 boot_ref = getattr(
