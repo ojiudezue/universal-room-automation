@@ -30,7 +30,12 @@ Four `NotificationManager.async_notify` call sites passed arguments the method n
 - `test_nm_notify_signature_sites.py`: per-site behavioural tests binding against `inspect.signature(NotificationManager.async_notify)`; every site mutation-drilled RED.
 - Full-suite name-diff vs develop 42d143f60 with URA_SOURCE_MUTATION=1: CLEAN, 11 = 11, 0 new / 0 gone.
 
-## Live validation (to fill after restart)
+## Validated 2026-10-20 (restart 19:45 CDT)
 
-- No `NM notify failed` / TypeError lines from URA notify call sites in the core log.
-- 50/50 URA entries loaded, 0 URA ERRORs.
+| Criterion | Result | Evidence |
+|---|---|---|
+| No notify TypeErrors | PASS | core log since the restart: 0 `NM notify failed` / `unexpected keyword` lines |
+| Load | PASS | manifest v5.103.80; `predicted_bill` writing again after boot; 0 URA ERRORs after the restart |
+| Shutdown noise | as expected (pre-existing) | 26 `DB write skipped: write worker is closed` ERRORs at 19:45:28, all during shutdown (12:02 restart had 34). Carded separately: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1 |
+
+Not provable live yet: a wake-backstop delivery (fires at most once a day, only when the waking gate stalls).
