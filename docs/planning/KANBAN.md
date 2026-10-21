@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-20T22:18:23-05:00_ - _Data commit: `cebafcc06aa6`_ - _last_reconciled: 2026-10-20_
+_Generated: 2026-10-21T02:05:14-05:00_ - _Data commit: `54d8dff0a5d8`_ - _last_reconciled: 2026-10-20_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-10-20T22:18:23-05:00_ - _Data commit: `cebafcc06aa6`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 30 |
+| ⏸️ Waiting on operator | 29 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 28 |
 | 🅿️ Parked | 97 |
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 _(none)_
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `EC-BLIND-DEESCALATE-TOP-RATE-1` - TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21) — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
@@ -183,7 +183,20 @@ _created 2026-10-20 08:30_
   - `tier`: 2
   - `panel_sensor_facts_2026_10_20`: HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion...
 
-### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#11 · WSJF 1.8 · v9 tc3 u2 /e8_
+### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **pre_planning**
+_created 2026-10-20 19:30 · updated 2026-10-21 15:00 · refined_
+- **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
+- **Next:** Plan v1 (dwell-based room model, sensor only, D0 14-day replay gate) being written -> docs/planning/PLANNING_occupancy_anomaly_dwell_model.md; then revise against AUDIT_predictions_room_zone_house_2026_10_21.md (running), then 1 plan rev...
+- **Forensic keys (6):**
+  - `operator_answer_2026_10_20_b`: Operator: "I would not alert. The routine change is enough. It should assert in its sensor and give more information." -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why ...
+  - `operator_answer_2026_10_20`: Operator: "Make the sensor work." -> B (wire evaluation), measure false-positive rate first (D0).
+  - `tier`: 2
+  - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
+  - `operator_answer_2026_10_21`: Operator picked C (rebuild on a dwell model): "Then write it" ... "It might need to be revised based on the audit. But lets get v1 on the board."
+  - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
+
+### `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` - Optimization Coordinator redesign toward a self-optimizing house: goals + tools + log-driven problem spotting + optimization loops (current OC = 6,822 findings/14d, ~90% noise, never left shadow) — _#12 · WSJF 1.8 · v9 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 - **Why:** AUDIT_v6_milestone_candidates.md: OC in shadow, never actuated; findings ~90% tier-1 noise; optimizer_shadow_samples 0 rows so the v2 promotion gate can never pass. Operator wants the house to find and fix its own problems instead of the...
 - **Next:** Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.
@@ -193,7 +206,7 @@ thread: **optimization** - status: **pre_planning**
   - `related`: OC-SHADOW-SAMPLES-EMPTY-1
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
 
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#13 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
 - **Problem / Solution:**
@@ -206,7 +219,7 @@ _created 2026-10-16 · updated 2026-10-16 02:07 · refined_
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -217,7 +230,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#14 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#15 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -461,7 +474,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (30)
+## ⏸️ Waiting on operator (29)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -873,19 +886,7 @@ _created 2026-10-20 08:30_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **waiting_operator**
-_created 2026-10-20 19:30 · updated 2026-10-21 02:05 · refined_
-- **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
-- **Next:** PICK: (A, recommended) retire the anomaly sensor and its alert code: the model is measured broken, nothing consumes it, and the 'unusual for this person' job already has a home in the routine detector (ROUTINE-CARE-DASHBOARD-1, sensor-on...
-- **Forensic keys (5):**
-  - `operator_answer_2026_10_20_b`: Operator: "I would not alert. The routine change is enough. It should assert in its sensor and give more information." -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why ...
-  - `operator_answer_2026_10_20`: Operator: "Make the sensor work." -> B (wire evaluation), measure false-positive rate first (D0).
-  - `tier`: 1
-  - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
-  - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#25 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -901,7 +902,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#26 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -921,7 +922,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **waiting_operator** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
 - **Problem / Solution:**
@@ -944,7 +945,7 @@ _created 2026-10-05 02:22 · updated 2026-10-14 03:05 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#29 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -964,7 +965,7 @@ _created 2026-09-27 02:40 · updated 2026-10-19 02:03 · refined_
   - `contradiction_2026_10_19_overnight`: CARD-WAS-WRONG on its own next: update_2026_10_15 records YOUR answer ('rapid change isn't that a heat thing for fire? If so it's a fix') and verified temperature_rise_extreme maps to OVERHEAT (safety.py:670, :859) -> disposition FIX (B)...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#30 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#29 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**

@@ -26994,16 +26994,17 @@ cards:
   operator_answer_2026_10_20_b: "Operator: \"I would not alert. The routine change is enough. It should assert in its sensor and give more information.\" -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why (expected vs actual, who usually is where at this time, which signal made the room occupied, how long, learning status). Keep signal + anomaly_log row."
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
-  status: "waiting_operator"
+  status: "pre_planning"
   operator_answer_2026_10_20: "Operator: \"Make the sensor work.\" -> B (wire evaluation), measure false-positive rate first (D0)."
-  tier: 1
+  tier: 2
   created: "2026-10-20 19:30"
-  updated: "2026-10-21 02:05"
+  updated: "2026-10-21 15:00"
   origin: "Mid-turn find 2026-10-20 (reviews of fix/nm-notify-signature-mismatch)."
   why: "binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log ever. Its notify call was also broken (fixed on fix/nm-notify-signature-mismatch). Disabled by default."
-  next: "PICK: (A, recommended) retire the anomaly sensor and its alert code: the model is measured broken, nothing consumes it, and the 'unusual for this person' job already has a home in the routine detector (ROUTINE-CARE-DASHBOARD-1, sensor-only dashboard colour); or (C) rebuild it on a dwell model (how long each room is normally occupied per time of day, from person_visits / recorder occupied minutes), Tier 2-DB: plan + measure the new model's false-positive rate first. (Wiring the current model is off the table: it would read 'unusual' for most normal use.) -> A: I build the removal to review; C: I write the plan."
+  next: "Plan v1 (dwell-based room model, sensor only, D0 14-day replay gate) being written -> docs/planning/PLANNING_occupancy_anomaly_dwell_model.md; then revise against AUDIT_predictions_room_zone_house_2026_10_21.md (running), then 1 plan review, then build."
   adjacency: "NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch)."
   refinement_status: "refined"
+  operator_answer_2026_10_21: "Operator picked C (rebuild on a dwell model): \"Then write it\" ... \"It might need to be revised based on the audit. But lets get v1 on the board.\""
   d0_result_2026_10_21_overnight: "D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition counts), not where they stay: Oji's Study A, his second-longest-dwell room (20 h in 14 days), gets a 1.1% share and predicts 0.004. Its own accuracy table shows 57% of genuinely occupied samples already fall below the 0.10 'unusual' line. Replaying 14 days, the wired sensor would turn on ~14 times/day across the 9 enabled rooms (5.6/day even with a 15-min debounce), nearly all normal use. With no alert (your 10-20 ruling) that is harmless but meaningless: the sensor would say 'unusual' for most ordinary use. Wiring it as-is (old option B) is therefore not a real fix, and a real fix is a new producer (dwell-based model), which is Tier 2-DB and needs your go. Not acted on overnight."
   links: {"related": ["ROUTINE-CARE-DASHBOARD-1"], "context": "ROUTINE-CARE-DASHBOARD-1 is the existing 'unusual for this person' surface (sensor/dashboard only, no alert) - the same job the operator described on 10-20; if A is picked, it is the survivor."}
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
