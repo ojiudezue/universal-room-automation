@@ -208,6 +208,9 @@ def _make(imp=IMP, exp=EXP, db=None, cycle_day=23, query=None, recorder=True):
     s._enabled = True
     s._cycle_in_flight = False
     s._tou_boundary_unsub = object()  # suppress re-arm in finally
+    # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: teardown reads these.
+    s._stop_save_unsub = None
+    s._stop_persist_done = False
 
     async def _noop_body():
         return None
@@ -217,7 +220,8 @@ def _make(imp=IMP, exp=EXP, db=None, cycle_day=23, query=None, recorder=True):
               "_async_refresh_utility_stats", "_compute_utility_comparison",
               "_utility_statistics_divergence", "_async_decision_cycle",
               "_utility_stat_ids", "_current_utility_cache",
-              "_push_bill_forecast_inputs", "_bill_forecast_after_refresh"):
+              "_push_bill_forecast_inputs", "_bill_forecast_after_refresh",
+              "_async_persist_state"):
         _bind(s, n)
     calls: list[tuple] = []
 

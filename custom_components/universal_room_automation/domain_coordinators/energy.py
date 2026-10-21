@@ -12,7 +12,7 @@ import collections
 import logging
 from typing import Any, NamedTuple
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HassJob, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
@@ -45,6 +45,7 @@ from .energy_forecast import AccuracyTracker, DailyEnergyPredictor, RoomPowerPro
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
 from ..const import DOMAIN as _DOMAIN  # v4.2.5: Module-level for lambda closures
 from .energy_const import (
+    EC_STOP_SAVE_TIMEOUT_S,
     CONF_ENERGY_ARBITRAGE_ENABLED,
     CONF_ENERGY_ARBITRAGE_SOC_TARGET,
     CONF_ENERGY_BATTERY_CAPACITY_ENTITY,
@@ -820,6 +821,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_load_shed_bundle_str: str | None = None
 
         self._decision_timer_unsub = None
+        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: Stage-1 shutdown-job handle
+        # + "stop persist already ran" latch (teardown skips the re-save).
+        self._stop_save_unsub = None
+        self._stop_persist_done = False
         # v5.17.3 D1: point-in-time listener for at-boundary TOU tick.
         # A periodic tick at 5min interval lags a TOU transition by up to
         # 5 minutes. This handle fires ONE extra `_async_decision_cycle`
@@ -1225,6 +1230,9 @@ class EnergyCoordinator(BaseCoordinator):
         )
         # Timer managed separately via _decision_timer_unsub — do NOT add to
         # _unsub_listeners to avoid double-unsubscribe in async_teardown
+
+        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: persist in HA Stage 1.
+        self._register_stop_save_job()
 
         # SolarFollowController D1 — register the 60s modulation tick AFTER
         # _restore_all_sequential has hydrated _original_amps/_touched.
@@ -10728,8 +10736,78 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.debug("Could not restore energy baselines (may not exist yet): %s", e)
 
+    def _register_stop_save_job(self) -> None:
+        """Register the Stage-1 shutdown job that persists EC state.
+
+        EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: HA does not call
+        ``async_teardown`` on a stop/restart (config entries are not
+        unloaded), and Stage 2 cancels URA's DB write worker, after which
+        every write fast-fails (database.py ``DBShuttingDown``). So state
+        changed since the last 15-min periodic save was lost each restart.
+        ``async_add_shutdown_job`` runs in Stage 1 while the worker is alive
+        (same pattern as the manager.py anomaly-baseline flush).
+        """
+        self._stop_persist_done = False
+        if self._stop_save_unsub is not None:
+            return
+        try:
+            # Zero-arg coroutine: core runs async_run_hass_job(job.job, *()).
+            self._stop_save_unsub = self.hass.async_add_shutdown_job(
+                HassJob(self._async_persist_on_stop, "ura.energy_stop_save")
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug("EC stop-save job registration failed", exc_info=True)
+
+    async def _async_persist_state(self) -> None:
+        """The stop-time persist sequence (shared by Stage-1 job + teardown)."""
+        # Save peak import history so it survives restarts
+        if self._peak_import_history:
+            await self._save_peak_import_history()
+        # Save EVSE state for restart recovery
+        await self._save_evse_state()
+        # v3.13.1: Save circuit monitor state
+        await self._save_circuit_state()
+        # v3.13.2: Save energy baselines
+        await self._save_energy_baselines()
+        # v3.15.0: Save envoy cache, midnight snapshot, load shedding level
+        await self._save_envoy_cache()
+        await self._save_midnight_snapshot()
+        await self._save_load_shedding_level()
+
+    async def _async_persist_on_stop(self) -> None:
+        """Stage-1 shutdown job: stop the decision timer, then persist.
+
+        Bounded by ``EC_STOP_SAVE_TIMEOUT_S`` so a wedged DB cannot eat the
+        shared 20 s Stage-1 budget. Idempotent: the latch is set before the
+        first await, so a second call (or a later teardown) does not re-save.
+        """
+        if self._stop_persist_done:
+            return
+        self._stop_persist_done = True
+        if self._decision_timer_unsub is not None:
+            self._decision_timer_unsub()
+            self._decision_timer_unsub = None
+        try:
+            async with asyncio.timeout(EC_STOP_SAVE_TIMEOUT_S):
+                await self._async_persist_state()
+        except TimeoutError:
+            _LOGGER.warning(
+                "Energy STOP save exceeded %ds — abandoning flush to avoid "
+                "stalling HA shutdown",
+                EC_STOP_SAVE_TIMEOUT_S,
+            )
+        except Exception:  # noqa: BLE001 — never break HA shutdown
+            _LOGGER.warning("Energy STOP save failed", exc_info=True)
+
     async def async_teardown(self) -> None:
         """Tear down — cancel decision timer first to prevent races, then persist."""
+        # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1: drop the Stage-1 job.
+        if self._stop_save_unsub is not None:
+            try:
+                self._stop_save_unsub()
+            except Exception:  # noqa: BLE001 — already removed
+                _LOGGER.debug("EC stop-save job unsub raised", exc_info=True)
+            self._stop_save_unsub = None
         # EC-BILL B-L3 fix-up: stop new utility-statistics refreshes before
         # any await below lets an in-flight decision cycle finish.
         self._utility_stats_closed = True
@@ -10772,19 +10850,10 @@ class EnergyCoordinator(BaseCoordinator):
                     "TOU boundary unsub raised (swallowed)", exc_info=True,
                 )
             self._tou_boundary_unsub = None
-        # Save peak import history so it survives restarts
-        if self._peak_import_history:
-            await self._save_peak_import_history()
-        # Save EVSE state for restart recovery
-        await self._save_evse_state()
-        # v3.13.1: Save circuit monitor state
-        await self._save_circuit_state()
-        # v3.13.2: Save energy baselines
-        await self._save_energy_baselines()
-        # v3.15.0: Save envoy cache, midnight snapshot, load shedding level
-        await self._save_envoy_cache()
-        await self._save_midnight_snapshot()
-        await self._save_load_shedding_level()
+        # Persist unless the Stage-1 stop job already did (no double-write).
+        if not self._stop_persist_done:
+            self._stop_persist_done = True
+            await self._async_persist_state()
         # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
         # re-setup after teardown re-subscribes cleanly (the double-
         # subscribe guard reads ``if self._optimizer_intent_unsub is None``).

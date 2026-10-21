@@ -812,6 +812,8 @@ async def test_outage_sweep_task_cancelled_on_unload(monkeypatch):
 
     c = _Shell()
     c._decision_timer_unsub = None
+    c._stop_save_unsub = None  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
+    c._stop_persist_done = False
     c._outage_ledger = led
 
     class _StopTeardown(Exception):
@@ -869,6 +871,8 @@ async def test_async_setup_arms_outage_ledger():
     c = _Shell()
     c.hass = _Hass(_FakeDB())
     c._decision_timer_unsub = None
+    c._stop_save_unsub = None  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
+    c._stop_persist_done = False
     c._solar_follow = None
     c._decision_interval = 5
 
@@ -1648,6 +1652,8 @@ async def test_async_setup_runs_legacy_threat_list_check():
     c = _Shell()
     c.hass = _Hass(_FakeDB())
     c._decision_timer_unsub = None
+    c._stop_save_unsub = None  # EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
+    c._stop_persist_done = False
     c._solar_follow = None
     c._decision_interval = 5
 
