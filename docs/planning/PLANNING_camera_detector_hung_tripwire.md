@@ -1,6 +1,10 @@
 # PLANNING — Camera detector-hung trip-wire (re-scope of CAMERA-SILENT-PRODUCER-TRIPWIRE-1)
 
-Status: plan, not reviewed. Tier 2 (one adversarial plan review before build). Read-only scoping, 2026-10-21 overnight.
+Status: **Rev 2**, plan review folded in (FIX-PLAN, `docs/reviews/plan-review/PLAN_REVIEW_camera_detector_hung_tripwire.md`). Tier 2. Read-only scoping, 2026-10-21 overnight.
+
+**Changelog**
+- Rev 1 (2026-10-21): initial re-scope (SIMPLIFY to a frozen-stat check). D0 RESULT appended by the coordinator: GO, FROZEN_S=900.
+- Rev 2 (2026-10-21): plan review folded in. HIGH: added the per-cycle findings-cap exemption (`optimization.py:5363-5384`) as emission site 4, and fixed the post-build grep check. MED: I1 restated as one page per process lifetime per episode, with re-page after a rebuild accepted, plus a new-instance re-arm test. MED: fps entity resolved through the entity registry (Frigate config entry, `detection_fps` unique_id), not the `_2` literal. MED: any non-numeric state resets the dwell, and `last_changed` is never trusted. LOW: staged daytime detector pause is a REQUIRED live check. LOW: `FROZEN_S<=0` returns no findings, with a test. Added a §5a builder brief.
 Presence-adjacent (camera/census input health). Read for this plan: `PLANNING_frigate_down_tripwire.md` (Rev 2, shipped),
 the card body in full, `optimization.py` evaluators. Not HVAC.
 
@@ -48,19 +52,23 @@ Prior plans consulted: `PLANNING_frigate_down_tripwire.md` (its non-goals exclud
 ## 2. Falsifiable invariant
 
 > **I1:** If `sensor.frigate_detection_fps_2` holds a valid numeric state whose *value* has not changed for
-> ≥ `CAMERA_DETECTOR_FROZEN_S` of continuous observed time after boot settle, then exactly one
-> `camera_detector_hung` finding is emitted and routed to NM (not to the digest) within one optimizer
-> cycle (300 s), regardless of how many HA restarts happened earlier in the episode.
+> ≥ `CAMERA_DETECTOR_FROZEN_S` of continuous observed time after boot settle (dwell anchored at the first
+> numeric value this process saw), then exactly **one** `camera_detector_hung` finding **per process lifetime
+> per episode** is emitted, survives the per-cycle findings cap, and is routed to NM (not to the digest) within
+> one optimizer cycle (300 s) of the dwell completing.
+> **Accepted consequence (operator pick, Rev 2):** the latch and NM dedup are RAM-only (`optimization.py:5555`). A
+> restart or CM rebuild during a long hang re-arms and re-pages after `FROZEN_S + BOOT_SETTLE_S` (about 18 min). This
+> acts as a reminder, and restarts are at most a few per day. No `notification_log` seeding.
 > **I2 (no false fire):** while the value changes at least once per `CAMERA_DETECTOR_FROZEN_S`, no such finding is emitted.
 
-Reviewer D should break I1 with a restart cadence shorter than `FROZEN_S + BOOT_SETTLE_S` (that is a legal
-reachable config; the answer is the restart-gap measurement in D0), and break I2 with a healthy fleet that is
-legitimately constant. The constant case is the open empirical question that D0 must close: overnight with
-no motion anywhere, fps may sit at 0.
+Reviewer D should break I1 with a restart cadence shorter than `FROZEN_S + BOOT_SETTLE_S` (that is a legal,
+reachable config: the page is late, not lost, because the dwell re-accumulates after each boot), with a cap-saturated
+cycle (site 4), and with an `unknown` boot state followed by the pre-boot value. Break I2 with a healthy fleet that is
+legitimately constant. D0 closed that question: the longest healthy run with an unchanged value is 5.0 min.
 
 ## 3. Producer / consumer
 
-- **Producer:** Frigate `/api/stats` reaches HA over MQTT/HA-integration polling as `sensor.frigate_detection_fps_2` (fleet-sum detection fps). Healthy cadence is about 20 s and values vary 23-67 at 02:00 CDT. Dependency health: it is the same Frigate integration entry as the person sensors. When Frigate is fully down, the value goes `unavailable` and camera_input_dark owns that case. The new check must **skip** non-numeric states so the two checks never both fire on one episode.
+- **Producer:** Frigate `/api/stats` reaches HA over MQTT/HA-integration polling as the Frigate config entry's `detection_fps` sensor (today `sensor.frigate_detection_fps_2`; fleet-sum detection fps). **Resolution (Rev 2):** resolve the entity_id at evaluation time through the entity registry: an entry whose `platform == "frigate"`, `domain == "sensor"`, and `unique_id` ends with `CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX` (`"detection_fps"`). Never use the `_2` literal (IDENTITY_FUSION_CAMERAS_MANUAL `_2` rules). If none resolves, or more than one does, log once at INFO (`camera_detector_hung_inert_unresolved`) and stay inert. The builder must verify the real unique_id shape from the live `core.entity_registry` before coding the suffix, and record it in the test fixture. Healthy cadence is about 20 s and values vary 23-67 at 02:00 CDT. Dependency health: it is the same Frigate integration entry as the person sensors. When Frigate is fully down, the value goes `unavailable` and camera_input_dark owns that case. The new check must **skip** non-numeric states so the two checks never both fire on one episode.
 - **Unverified producer assumption (D0 gate):** the card says fps was "frozen" during the 09-29 hang. Recorder retention (earliest about 10-11) no longer covers 09-29, so the claim cannot be re-checked from HA today. D0 must find whether *healthy* fps is ever constant for ≥ 15 min (for example a nightly 0). If it is, the predicate becomes "constant AND value > 0", or the plan falls back to the coral `inference_speed` stat.
 - **Consumer:** `_notify_if_severe` (trust: wake the operator to `docker restart frigate`). The binary_sensor attributes are display only. Nothing else reads it. No presence or census consumer by design (non-goal).
 
@@ -68,7 +76,9 @@ no motion anywhere, fps may sit at 0.
 1. New `_evaluate_camera_detector_hung_dimension`, added to the registry next to `optimization.py:1073`. This is the only emit site.
 2. `_notify_if_severe` exemption at `optimization.py:5522`. Widen the tuple test to `{"camera_input_dark","camera_detector_hung"}`, keeping the outer-guard shape so the `test_nm_cycle_a2` mutation anchor still holds.
 3. `binary_sensor.py:3305-3335` attribute block: add `detector_frozen_s`, `detector_hung_fired`. The binary sensor's on/off truth stays the census latch, so its semantics do not change.
-grep after build: `grep -rn "camera_detector_hung" custom_components/` must return exactly sites 1-3 plus const.
+4. **(Rev 2, review HIGH)** Per-cycle findings-cap exemption `_is_camera_input_dark` at `optimization.py:5363-5384` (cap `OPTIMIZER_MAX_FINDINGS_PER_CYCLE`). Widen it to the same two-kind set. If this site is missed, a saturated cycle drops the finding after the latch is already set, and no page is ever sent (Bug Class #53).
+
+**Post-build grep check:** `grep -rn "camera_detector_hung" custom_components/` must hit the evaluator (site 1), the NM guard (site 2), the cap exemption (site 4), and const. Site 3 uses attribute names, so check it with `grep -n "detector_hung_fired\|detector_frozen_s" custom_components/universal_room_automation/binary_sensor.py`. Prefer a single shared module-level tuple, for example `_FLEET_ONESHOT_KINDS = ("camera_input_dark", "camera_detector_hung")`, read by both sites 2 and 4. Then also `grep -n _FLEET_ONESHOT_KINDS` must show exactly the definition plus 2 reads.
 
 ## 5. Deliverables
 
@@ -89,19 +99,39 @@ Over the full recorder retention for `sensor.frigate_detection_fps_2` (plus any 
 - NOT verifiable: no detector-hang episode lies inside retention (last hang ended 10-08 12:14), so the claim that fps freezes (rather than, e.g., oscillating at low values) during a hang is still the card's 09-29 observation, not re-measured. Acceptance must include a staged check (e.g. stop the Frigate detector / pause the container in daytime) or accept this as the first live hang.
 
 ### D1 — frozen-stat evaluator
-The evaluator remembers `(last_value, value_since)` in RAM. On each tick: if the state is non-numeric, reset and return (camera_input_dark owns that). If the value differs, reset `value_since=now`. If `now - max(value_since, boot_ref + BOOT_SETTLE_S) ≥ FROZEN_S` and the latch is not set, fire once. The latch clears on the first value change.
+The evaluator remembers `(last_value, value_since)` in RAM. Exact per-tick order:
+1. `if CAMERA_DETECTOR_FROZEN_S <= 0: return []` (kill switch; nothing else runs).
+2. Resolve the entity through the registry (§3). If it is unresolved, set `last_value = value_since = None`, log once, and return [].
+3. Read the state. If it is missing or non-numeric (`unknown`, `unavailable`, empty, or fails `float()`), set `last_value = value_since = None` and return []. That case belongs to camera_input_dark. **The dwell therefore starts at the first numeric value observed after boot. No pre-boot value is ever carried over, and `last_changed`/`last_reported` are never read.**
+4. If `last_value is None` or the value differs from `last_value`: set `last_value = value`, `value_since = now`, and clear the latch.
+5. `elapsed = now - max(value_since, boot_ref + BOOT_SETTLE_S)`. If `elapsed ≥ FROZEN_S` and the latch is not set, set the latch and emit one finding. The predicate is value-agnostic, per D0: a constant 0 counts too.
 - **Verify:** fixture where fps is constant (value>0) for FROZEN_S+cycle → exactly one finding, `dedup_key=("camera_detector_hung","fleet")`, `payload.kind="camera_detector_hung"`, description says "docker restart Frigate".
 - **Verify (discriminating):** same fixture but `unavailable` → zero detector_hung findings, and camera_input_dark fires instead. This separates hang from down.
 - **Verify:** value changes every 20 s for 2 h → zero findings. A constant value, followed by a restart (coordinator rebuilt), followed by the same constant value → fires FROZEN_S+BOOT_SETTLE after boot. This is the restart-survival test and must drive real cycles, not an `inspect.getsource` grep (Bug Class #62).
-- **Verify:** fps entity missing entirely while denominator>0 → log once and do not fire. Total disappearance belongs to camera_input_dark, which already counts missing as unavailable.
-- **Test:** `test_detector_hung_fires_once_on_frozen_value`, `test_detector_hung_silent_when_unavailable`, `test_detector_hung_survives_coordinator_rebuild`, `test_detector_hung_clears_on_change`, `test_detector_hung_kill_switch`, `test_detector_hung_pages_not_digest` (drives `_notify_if_severe`).
-- **Mutation:** remove the latch → the once-test goes red. Remove the NM exemption → the pages-test goes red.
+- **Verify:** fps entity absent from the registry → one INFO log, zero findings across many ticks, and no exception.
+- **Verify:** registry resolution follows the unique_id. If the fixture renames the entity_id to `sensor.frigate_detection_fps` (no `_2`) with the same unique_id, the check still fires.
+- **Verify (boot):** `unknown` for 2 ticks, then a constant numeric value → fires only `FROZEN_S` after the first numeric tick (and not before `boot_ref + BOOT_SETTLE_S + FROZEN_S`). An `unavailable` blip mid-dwell restarts the dwell.
+- **Verify (cap):** a cycle with more than `OPTIMIZER_MAX_FINDINGS_PER_CYCLE` high findings plus the hung finding → the hung finding survives the cap.
+- **Test:** `test_detector_hung_fires_once_on_frozen_value`, `test_detector_hung_silent_when_unavailable`, `test_detector_hung_new_instance_rearms_and_fires_once` (builds a **new** OptimizationCoordinator instance against the same frozen state; asserts exactly one finding from the new instance after `FROZEN_S + BOOT_SETTLE_S`, and zero before), `test_detector_hung_clears_on_change`, `test_detector_hung_kill_switch_zero_and_negative` (`FROZEN_S` set to 0 and to -1 → `[]` even with a frozen value for hours), `test_detector_hung_non_numeric_resets_dwell`, `test_detector_hung_resolves_via_registry_unique_id`, `test_detector_hung_inert_when_unresolved`, `test_detector_hung_survives_findings_cap`, `test_detector_hung_pages_not_digest` (drives `_notify_if_severe`).
+- **Mutation:** remove the latch → the once-test goes red. Remove the NM exemption (site 2) → the pages-test goes red. Remove the cap exemption (site 4) → the cap-test goes red. Make step 3 skip the reset → the non-numeric test goes red. Restore and `git status` clean after each drill.
 
 ### D2 — NM exemption + attributes (sites 2-3)
-- **Live:** after restart, `binary_sensor.ura_coordinator_manager_camera_input_dark` carries `detector_frozen_s` < 60 most of the time and `detector_hung_fired=false`. Organic acceptance: the next Frigate degrade produces an NM titled sensor_health / camera_detector_hung within FROZEN_S+300 s, **and** the person sensors show zero transitions over the same window (the discriminator that this was a hang and not a quiet fps). It must NOT fire on an ordinary day. The one-shot disposition query is the `notification_log` rows for the kind over 7 days, with 0 expected absent a hang.
+- **Live (passive):** after restart, `binary_sensor.ura_coordinator_manager_camera_input_dark` carries `detector_frozen_s` < 60 most of the time and `detector_hung_fired=false`.
+- **Live (REQUIRED, operator-run, daytime only, not during sleep):** a staged detector pause. Stop or pause the Frigate detector so that the process, status, and camera fps stay up (for example, pause the detector in Frigate, or give the Coral a short `docker pause`). Then observe: (a) whether `detection_fps` freezes, oscillates, or goes `unavailable`. This is the first measurement of the hang mechanism, which D0 could not verify. (b) If it freezes, a `camera_detector_hung` NM page arrives within `FROZEN_S + 300 s`. If it goes `unavailable`, camera_input_dark fires instead, and this check is confirmed silent. If it oscillates, this check cannot see the hang: record the result and PARK per §10. Restore Frigate (30 s docker restart) right after. The cycle does not close without this row in the README validation table.
+- **Live (organic):** the next Frigate degrade produces an NM titled sensor_health / camera_detector_hung within FROZEN_S+300 s, **and** the person sensors show zero transitions over the same window (the discriminator that this was a hang and not a quiet fps). It must NOT fire on an ordinary day. The one-shot disposition query is the `notification_log` rows for the kind over 7 days, with 0 expected absent a hang.
+
+## 5a. Builder brief — likely mistakes (from plan review)
+1. **Missing the cap site (site 4).** Both exemptions must be widened: the NM guard AND `_is_camera_input_dark` in the findings cap. Use one shared tuple.
+2. **NM guard shape.** Widen the *outer* `dedup_key[0] in KINDS` tuple test that wraps `if should_defer_high_to_digest(...)`. Do NOT add a conjunction inside `should_defer_high_to_digest` or its predicate. The `test_nm_cycle_a2` mutation anchor depends on that line staying verbatim. Run that test after the change.
+3. **Trusting `last_changed`/`last_reported`.** HA writes no row for an identical value, and both fields reset on restart. Track the value and your own first-seen timestamp only.
+4. **Carrying a pre-boot value.** Any non-numeric read (including boot-time `unknown`) resets to `None`. The dwell starts at the first numeric value.
+5. **A rebuild test that reuses the same instance.** The re-arm test must construct a NEW coordinator object. Resetting fields on the old one proves nothing about the lifecycle.
+6. **Kill switch.** `<= 0` must short-circuit before the elapsed comparison, because `elapsed >= 0` is always true.
+7. **Hardcoding `_2`.** Resolve through the registry by unique_id suffix.
+8. **Wire-in anchor.** Tests must drive real optimizer cycles through the registry entry (site 1). A source grep is not a test (Bug Class #62).
 
 ## 6. Prior DO-NOT-SHIP findings, disposition
-- A-HIGH-1 RAM reset: the window is minutes, not hours, and the freeze persists across restarts. Proven by `test_..._survives_coordinator_rebuild`.
+- A-HIGH-1 RAM reset: the window is minutes, not hours, and the freeze persists across restarts, so the page is delayed, never lost. Re-paging after a rebuild is accepted (I1). Proven by `test_detector_hung_new_instance_rearms_and_fires_once`.
 - A-HIGH-2 min fleet: one fleet-level stat, nothing to shrink. N/A.
 - A-MED-1 disappearance: camera_input_dark already covers it.
 - A-MED-2 vacation-empty house: fps is detection load, which comes from motion and continuous object tracking, not from occupancy. D0 checks the quiet-night case.
@@ -111,8 +141,8 @@ The evaluator remembers `(last_value, value_since)` in RAM. On each tick: if the
 ## 7. Knobs
 | Knob | Default | Rung | Why / kill switch |
 |---|---|---|---|
-| `CAMERA_DETECTOR_FROZEN_S` | 900 (set by D0) | module const | A fitted number from measured cadence; retuning needs review. `0` disables. |
-| `CAMERA_DETECTOR_FPS_ENTITY` | `"sensor.frigate_detection_fps_2"` | module const | Same `_2` convention as the hardcoded `sensor.frigate_status_2` (`camera_census.py:238`). A second-home rollout makes this a candidate for the options flow later. |
+| `CAMERA_DETECTOR_FROZEN_S` | 900 (D0: 3 × 5.0 min max healthy run) | module const | A fitted number from measured cadence; retuning needs review. **`<= 0` → evaluator returns `[]` before any read** (tested at 0 and -1). |
+| `CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX` | `"detection_fps"` (verify against the live registry) | module const | Registry match key. Replaces the Rev 1 `_2` literal entity_id. Unresolved → inert, with one log. |
 | `BOOT_SETTLE_S` | 180 | REUSED | |
 
 ## 8. Non-goals / parked
