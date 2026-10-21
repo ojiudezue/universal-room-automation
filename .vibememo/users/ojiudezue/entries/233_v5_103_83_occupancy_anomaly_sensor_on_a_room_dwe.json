@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "233",
+  "author": "ojiudezue",
+  "session_id": "claude_20261021_232344_ship_v5_103_83",
+  "timestamp": "2026-10-21T23:23:44Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.83 shipped: Occupancy anomaly sensor on a room dwell model",
+  "summary": "Occupancy anomaly sensor on a room dwell model",
+  "why": "Operator wanted the sensor working but correct ('they need to be right'), sensor-only. The old Bayesian model counted arrivals not dwell (Study A scored 1% despite 20 h). Chose a per-room hour-of-week occupied-share model from environmental_data (already recorded every 5 min, 365-day retention) over patching the threshold. Built first and replayed after, per operator ('we forget these cards'): replay at 1800 s debounce gives median 0 fires/day, max 2 per room, 0 false fires in Study A weekdays, 47/47 rooms learned. Reviews A/B/C + a focused fourth pass; exit-row gap on three vacate paths fixed at the producer.",
+  "implications": "Shipped BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 at v5.103.83; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.83.md (Live criteria).",
+  "revisit_trigger": "D0 replay (scripts/probes/occupancy_dwell_backtest.py --days 7) after a week live: G1-G4 still pass; any fires judged by a person",
+  "refs": {
+    "cards": [
+      "BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.83.md"
+    ],
+    "release_notes": "- Room occupancy-anomaly sensor now evaluates, using each room's usual occupied share by hour and weekday/weekend (56 days of URA history); sensor only, no notification; 30-min debounce\n- Exit row written on every room vacancy; occupied-time and occupancy % sensors pair entry/exit with a 12 h episode cap; today sensors refresh every 5 min"
+  }
+}
