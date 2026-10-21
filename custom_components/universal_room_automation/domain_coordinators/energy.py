@@ -902,7 +902,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._lifetime_consumption_snapshot: float | None = None
 
         # v3.14.0: Additional lifetime snapshots for derived consumption.
-        # With net-consumption CT, lifetime_energy_consumption = net grid import only.
+        # NOTE (COVERAGE-EVENING-ATTRIBUTION-DRIFT-1, measured 2026-09-23): on this
+        # Envoy lifetime_energy_consumption is TOTAL home consumption (total - net
+        # = production - export to 5 decimals); lifetime_net_energy_consumption is
+        # the net figure. The derived formula below does not depend on either.
         # True consumption = grid_import + solar_self_consumed + net_battery_discharge.
         self._lifetime_production_snapshot: float | None = None
         self._lifetime_net_import_snapshot: float | None = None
@@ -3067,8 +3070,9 @@ class EnergyCoordinator(BaseCoordinator):
         actual = grid_import + (solar_produced - solar_exported) + (battery_discharged - battery_charged)
         The (solar_produced - solar_exported) term includes solar that charged the battery,
         so we must subtract battery_charged to avoid double-counting.
-        With net-consumption CT, lifetime_energy_consumption = net grid import only,
-        NOT total home consumption. The derived formula is accurate regardless of CT mode.
+        On this Envoy lifetime_energy_consumption is TOTAL home consumption (measured
+        2026-09-23; the net figure is lifetime_net_energy_consumption). The derived
+        formula is accurate regardless of CT mode.
         Must run BEFORE billing.accumulate() to capture yesterday's totals.
         """
         from homeassistant.util import dt as dt_util
