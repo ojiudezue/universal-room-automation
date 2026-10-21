@@ -66,6 +66,7 @@ def _bare_ec() -> EC:
     # Snapshot state.
     ec._lifetime_consumption_snapshot = None
     ec._lifetime_production_snapshot = None
+    ec._lifetime_production_hwm = None  # EC-SOLAR-LIFETIME-COUNTER-FLAP-1
     ec._lifetime_net_import_snapshot = None
     ec._lifetime_net_export_snapshot = None
     ec._lifetime_battery_charged_snapshot = None
