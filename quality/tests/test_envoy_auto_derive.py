@@ -236,7 +236,7 @@ class TestDeriveEnvoyConfig:
         assert result[CONF_ENERGY_NET_POWER_ENTITY] == f"sensor.envoy_{serial}_current_net_power_consumption"
         assert result[CONF_ENERGY_BATTERY_CAPACITY_ENTITY] == f"sensor.envoy_{serial}_battery_capacity"
         assert result[CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY] == f"sensor.envoy_{serial}_lifetime_energy_consumption"
-        assert result[CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY] == f"sensor.envoy_{serial}_lifetime_energy_production"
+        assert result[CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY] == f"sensor.envoy_{serial}_production_ct_energy_delivered"  # v5.103.82: lifetime counter flaps
         assert result[CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY] == f"sensor.envoy_{serial}_lifetime_net_energy_consumption"
         assert result[CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY] == f"sensor.envoy_{serial}_lifetime_net_energy_production"
         assert result[CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY] == f"sensor.envoy_{serial}_lifetime_battery_energy_charged"

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "230",
+  "author": "ojiudezue",
+  "session_id": "claude_20261021_predictions_solar",
+  "timestamp": "2026-10-21T21:19:59Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "URA predictions audited: none is both useful and correct; anomaly sensor rebuilt on a dwell model",
+  "summary": "URA predictions audited: none is both useful and correct; anomaly sensor rebuilt on a dwell model",
+  "why": "Operator plans to use predictions for advanced behaviour but 'they need to be right'. Audit (AUDIT_predictions_room_zone_house_2026_10_21.md): next-room no better than always-guess-usual-room, room forecasts AUC 0.605 ~ constant, '94%' accuracy = empty-room base rate, energy forecasts worse than yesterday-persistence. Root cause: the Bayesian model counts arrivals not dwell, ignores current room, scorers have no trivial baseline. Operator chose rebuild over retire for the anomaly sensor, sensor-only (no alert), and to build first then run the 14-day replay as the live check ('we forget these kinds of cards').",
+  "implications": "Nothing may consume a URA prediction for actuation until its producer beats a trivial baseline. RoomDwellModel (per-room occupied share by hour x day-type from environmental_data) is the intended shared producer; forecast sensors move onto it next.",
+  "revisit_trigger": "Post-deploy D0 replay G1-G4 fails at all settings -> retire the anomaly sensor.",
+  "refs": {
+    "cards": [
+      "BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1"
+    ],
+    "docs": [
+      "docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md",
+      "docs/planning/PLANNING_occupancy_anomaly_dwell_model.md"
+    ]
+  }
+}

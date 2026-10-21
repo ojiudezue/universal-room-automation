@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "231",
+  "author": "ojiudezue",
+  "session_id": "claude_20261021_predictions_solar",
+  "timestamp": "2026-10-21T21:19:59Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "EC solar daily delta switched to the Envoy CT counter after the lifetime counter was shown to flap",
+  "summary": "EC solar daily delta switched to the Envoy CT counter after the lifetime counter was shown to flap",
+  "why": "Operator asked to confirm it was not a cumulative non-issue. Measured: envoy lifetime_energy_production flaps to 0.046 MWh (32 drops since 09-20; other lifetime legs 0), so day deltas were silently 0.0 on 5 of 40 days and NULL on 31, understating consumption that trains the forecast. CT counter is monotonic and agrees when healthy. Review A found rejected days fell back to a net-import-only consumption that still trained learners; fixed to write NULL and learn nothing.",
+  "implications": "Rejected production days record NULL solar and consumption, never a wrong number. LIFETIME_PRODUCTION_MAX_DROP_FRACTION=0.5 guard is in-memory; a genuine counter reset rejects days until the next restart. Past solar rows are not repaired (backfill script only covers Emporia legs).",
+  "revisit_trigger": "First midnight after deploy: energy_daily solar matches CT daily delta within 1%.",
+  "refs": {
+    "cards": [
+      "EC-SOLAR-LIFETIME-COUNTER-FLAP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.83.md"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "232",
+  "author": "ojiudezue",
+  "session_id": "claude_20261021_214441_ship_v5_103_82",
+  "timestamp": "2026-10-21T21:44:41Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.82 shipped: Daily solar uses the production CT counter",
+  "summary": "Daily solar uses the production CT counter",
+  "why": "Operator asked to confirm it was not a cumulative non-issue: the counter's flaps land on day boundaries, so day deltas were 0.0 on 5 and NULL on 31 of 40 days, and consumption (forecast training) was understated. The CT counter is monotonic, same unit, agrees when healthy. Chose re-seed-to-NULL on the switch day over a cross-entity delta, and NULL with no learning over the net-import-only legacy fallback (review A MEDIUM), because a missing day is safer for the forecast than a wrong one.",
+  "implications": "Shipped EC-SOLAR-LIFETIME-COUNTER-FLAP-1 at v5.103.82; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.82.md (Live criteria).",
+  "revisit_trigger": "First midnight after the switch day: energy_daily solar_production_kwh matches the CT daily delta within 1%",
+  "refs": {
+    "cards": [
+      "EC-SOLAR-LIFETIME-COUNTER-FLAP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.82.md"
+    ],
+    "release_notes": "- EC daily solar/consumption now read the Envoy production CT counter; the lifetime production counter flaps to 0.046 MWh and left energy_daily solar 0.0 or NULL on most days\n- A day whose production baseline is rejected (entity switch or flap) records NULL solar and consumption and trains nothing"
+  }
+}

@@ -1202,6 +1202,16 @@ CONF_ENERGY_ENVOY_ENTITY: Final = "energy_envoy_entity"
 CONF_ENERGY_BATTERY_CAPACITY_ENTITY: Final = "energy_battery_capacity_entity"
 CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: Final = "energy_lifetime_consumption_entity"
 CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: Final = "energy_lifetime_production_entity"
+# EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82) — rung 1 (module constant):
+# a lifetime production reading (snapshot or current) below
+# (1 - this) x the in-memory high-water mark is a counter flap, not a real
+# value; the day's solar AND consumption are written NULL (no legacy
+# net-import fallback, no forecast learning) rather than a silent 0.0. Safety bound on a monotonic counter — changing it should
+# require review. 1.0 disables the check (nothing is ever below 0 x hwm).
+LIFETIME_PRODUCTION_MAX_DROP_FRACTION: Final = 0.5
+# energy_state KV key recording which entity the persisted production
+# snapshot was read from (snapshot provenance across entity swaps).
+ENERGY_STATE_KEY_PRODUCTION_SNAPSHOT_ENTITY: Final = "lifetime_production_snapshot_entity"
 CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY: Final = "energy_lifetime_net_import_entity"
 CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY: Final = "energy_lifetime_net_export_entity"
 CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "energy_lifetime_battery_charged_entity"
@@ -1648,7 +1658,12 @@ def derive_envoy_config(serial: str) -> dict[str, str]:
         CONF_ENERGY_NET_POWER_ENTITY: f"sensor.envoy_{serial}_current_net_power_consumption",
         CONF_ENERGY_BATTERY_CAPACITY_ENTITY: f"sensor.envoy_{serial}_battery_capacity",
         CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_consumption",
-        CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_production",
+        # EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82): the inverter-sum
+        # ``lifetime_energy_production`` counter flaps to ~0.046 MWh (32 drops
+        # in 686 hourly samples, 2026-09-20..10-21) → silent 0.0 / NULL solar
+        # rows. The production-CT counter is monotonic, same unit (MWh), and
+        # agrees with it when healthy. Explicit config still overrides.
+        CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: f"sensor.envoy_{serial}_production_ct_energy_delivered",
         CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY: f"sensor.envoy_{serial}_lifetime_net_energy_consumption",
         CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY: f"sensor.envoy_{serial}_lifetime_net_energy_production",
         CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: f"sensor.envoy_{serial}_lifetime_battery_energy_charged",
