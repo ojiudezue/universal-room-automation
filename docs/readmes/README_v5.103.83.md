@@ -53,3 +53,7 @@ states guard each turns specific tests RED.
 - The attribute `whole_house` tracks the daily rise of
   `sensor.envoy_482543015950_lifetime_energy_consumption`, not of the net sensor.
 - `sensor.universal_room_automation_whole_house_cost_today` is unchanged (still NET-based).
+- After a CM reload, `whole_house_source` returns to `ec_total` and coverage does not
+  publish a NET-based value. A source switch yields one no-data cycle (debug log
+  "whole-house source switched"), then TOTAL reads against a baseline anchored at
+  the switch.

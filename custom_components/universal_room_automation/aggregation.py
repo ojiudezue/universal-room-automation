@@ -3584,7 +3584,27 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         contribution this cycle (B-H1).
         """
         sensors, source = self._resolve_whole_house_sources()
+        # Source-switch guard (Bug Class #7, boot/reload variant): NET and
+        # TOTAL are different quantities, so the cycle on which the
+        # resolved source flips (e.g. EC absent during boot or a CM reload)
+        # publishes no data instead of a value from the other quantity.
+        # The first-ever resolution (from "unknown") reads normally.
+        # _whole_house_source deliberately tracks the RESOLVED source every
+        # cycle (unlike _whole_house_scope, which retains on dead cycles):
+        # the guard compares against the previous pick, so a switch that
+        # happens during a dead cycle is still caught on that cycle.
+        previous = getattr(self, "_whole_house_source", "unknown")
         self._whole_house_source = source
+        if previous != "unknown" and previous != source:
+            _LOGGER.debug(
+                "Energy coverage whole-house source switched %s -> %s; "
+                "publishing no data for this cycle", previous, source,
+            )
+            # Read-and-discard so the new source's today-delta baseline
+            # anchors at the switch moment (the next cycle reads cleanly).
+            if sensors:
+                self._classify_and_accumulate(sensors, "__whole_house__")
+            return None
         if not sensors:
             return None
 

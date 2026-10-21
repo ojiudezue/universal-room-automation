@@ -145,3 +145,34 @@ def test_cost_sensor_still_reads_net(monkeypatch):
     cost.entry = _entry()
     monkeypatch.setattr(_agg, "_get_effective_rate_kwh", lambda h: (0.5, "t"))
     assert cost.native_value == pytest.approx(1.5)  # 3 kWh NET * 0.5
+
+
+def test_net_to_total_switch_publishes_no_data_then_total_baseline():
+    """EC appears mid-run (boot / CM reload): the switch cycle is no-data,
+    then TOTAL reads against its OWN baseline anchored at the switch."""
+    states = _States()
+    hass = _hass(states, None)
+    sensor = _coverage(hass)
+    states.set_kwh(NET, 12928.0)
+    states.set_kwh(TOTAL, 28641.0)
+    assert sensor.native_value == -4.0          # NET anchored
+    states.set_kwh(NET, 12931.0)
+    assert sensor.native_value == -1.0          # NET +3 - 4
+    hass.data[DOMAIN] = {"coordinator_manager": SimpleNamespace(
+        coordinators={"energy": SimpleNamespace(
+            _entity_lifetime_consumption=TOTAL)})}
+    assert sensor.native_value is None          # switch cycle: no data
+    states.set_kwh(TOTAL, 28651.0)
+    assert sensor.native_value == 6.0           # TOTAL +10 - 4, no jump
+    assert sensor.extra_state_attributes["whole_house_source"] == "ec_total"
+
+
+def test_total_to_net_switch_publishes_no_data():
+    states = _States()
+    hass = _hass(states, SimpleNamespace(_entity_lifetime_consumption=TOTAL))
+    sensor = _coverage(hass)
+    states.set_kwh(NET, 12928.0)
+    states.set_kwh(TOTAL, 28641.0)
+    assert sensor.native_value == -4.0
+    hass.data.clear()                            # EC gone (reload)
+    assert sensor.native_value is None
