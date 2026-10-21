@@ -592,6 +592,11 @@ def _bare(*, override_vacant=False, override_occupied=False, last_occ=False):
     object.__setattr__(c, "_ble_only_hold_since", None)
     object.__setattr__(c, "_last_occupied_since_for_handler", None)
     object.__setattr__(c, "data", {})
+    # apply_fan_recheck_release reads hass.data for the DB (exit row,
+    # occupancy-dwell branch); no DB here, so no row is written.
+    hass = MagicMock()
+    hass.data = {}
+    object.__setattr__(c, "hass", hass)
     return c
 
 

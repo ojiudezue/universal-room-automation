@@ -181,7 +181,12 @@ class RoomDwellModel:
                 end = datetime.fromisoformat(str(exit_raw))
             except ValueError:
                 continue
-            if end <= start or (end - start).total_seconds() > max_visit_s:
+            try:
+                long_visit = (end - start).total_seconds() > max_visit_s
+                backwards = end <= start
+            except TypeError:  # mixed naive/aware row: skip, don't fail
+                continue
+            if backwards or long_visit:
                 continue
             cur = start
             while cur < end:

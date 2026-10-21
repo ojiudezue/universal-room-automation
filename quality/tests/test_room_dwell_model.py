@@ -504,3 +504,20 @@ async def test_successful_first_build_schedules_no_retry():
         await rdm.async_setup_room_dwell_model(hass)
         await later[0][1](None)
     assert [d for d, _ in later] == [120]
+
+
+def test_mixed_tz_visit_row_skipped_not_fatal():
+    """A naive entry with an aware exit must be skipped, not fail the build."""
+    m = rdm.RoomDwellModel()
+    ok = m.refresh(
+        [("E1", "2026-10-14T10", 12, 12)], UTC,
+        now_utc=datetime(2026, 10, 16, tzinfo=UTC), window_days=56,
+        visit_rows=[
+            ("oji", "Study A", "2026-10-14 10:00:00", "2026-10-14T10:30:00+00:00"),
+            ("jaya", "Study A", "2026-10-14 10:00:00", "2026-10-14 10:30:00"),
+        ],
+    )
+    assert ok is True
+    assert m.usual_people("Study A", "E1",
+                          datetime(2026, 10, 21, 10, 5, tzinfo=UTC)) == [
+        {"person": "jaya", "share": 0.5}]

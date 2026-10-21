@@ -478,3 +478,59 @@ async def test_avg_time_to_comfort_quantized():
     _update(s, T0)
     await asyncio.gather(*s._tasks)
     assert s.native_value == 5
+
+
+# Fan-recheck release: sets _last_occupied_state False out of band, so the
+# next tick sees no edge. The release itself writes the exit row (once).
+
+
+async def _release(tmp_path, *, was_occupied):
+    from occ_dwell_helpers import fetch
+
+    from custom_components.universal_room_automation import coordinator as cmod
+    from custom_components.universal_room_automation.const import (
+        DOMAIN, STATE_OCCUPIED,
+    )
+
+    db = make_real_db(tmp_path)
+    assert await db.initialize()
+    await db.start_write_worker()
+    tasks = []
+
+    def _bg(hass, coro, name, **_kw):
+        t = asyncio.ensure_future(coro)
+        tasks.append(t)
+        return t
+
+    try:
+        c = cmod.UniversalRoomCoordinator.__new__(cmod.UniversalRoomCoordinator)
+        c.hass = SimpleNamespace(data={DOMAIN: {"database": db}})
+        c.entry = SimpleNamespace(entry_id="E1", data={"room_name": "Kitchen"},
+                                  async_create_background_task=_bg)
+        c.data = {STATE_OCCUPIED: was_occupied}
+        c._last_motion_time = datetime(2026, 9, 16, 14, 0, tzinfo=UTC)
+        c._became_occupied_time = None
+        c._ble_only_hold_since = None
+        c._last_occupied_state = was_occupied
+        c._hvac_evidence_active = True
+        c.apply_fan_recheck_release()
+        await asyncio.gather(*tasks)
+        # the next tick's edge logic, with was_occupied = _last_occupied_state
+        await c._async_log_occupancy_edge(
+            db, {STATE_OCCUPIED: False}, c._last_occupied_state,
+            datetime(2026, 9, 16, 15, 0, tzinfo=UTC),
+        )
+    finally:
+        await db.stop_write_worker()
+    return fetch(db, "SELECT event_type, duration FROM occupancy_events "
+                     "WHERE room_id='E1'")
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_release_writes_one_exit_row(tmp_path):
+    assert await _release(tmp_path, was_occupied=True) == [("exit", None)]
+
+
+@pytest.mark.asyncio
+async def test_fan_recheck_release_when_vacant_writes_nothing(tmp_path):
+    assert await _release(tmp_path, was_occupied=False) == []
