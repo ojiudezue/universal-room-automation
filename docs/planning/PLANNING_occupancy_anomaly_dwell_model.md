@@ -8,6 +8,9 @@
 - Side finds fixed here, not carded (operator): plus `get_uncomfortable_minutes_today` (same name-key at the same sensor call sites, and a UTC midnight), and exit-row `duration` is time-since-last-motion, not episode length, so both occupancy DAOs now pair entry/exit rows.
 - `occupied IS NOT NULL` in the DAO is belt-and-braces: `COUNT(occupied)` already skips NULL.
 - Arithmetic finding from the build-time replay: a 56-day weekend cell holds at most 16 x 12 = 192 samples, below `OCC_ANOMALY_MIN_CELL_SAMPLES` = 200 ("40% of a weekday cell"), so weekend cells never leave `learning` and G4 ("every cell") cannot pass at these defaults.
+  **Fix-up (coordinator 2026-10-21):** the gate is now `OCC_ANOMALY_MIN_CELL_DAYS` = 4 distinct local days per cell, with a sample floor `OCC_ANOMALY_MIN_CELL_SAMPLES` = 24. Replay at the new gate: G4 47/47; G1 still fails at 900 s (median 5/day).
+- Data depth: `environmental_data` runs from 2025-11-19 (no purge problem; URA retention 365 d). The "7 days" is HA's recorder (`purge_keep_days: 7`), which limits how far back the replay can go, not the model.
+- The four "today" sensors had the same never-called `async_update`. Fixed in this branch: throttled refresh from the coordinator update (`TODAY_SENSOR_REFRESH_S` = 300) and quantized values.
 - The forecast-sensors-onto-RoomDwellModel switch is the next card, not this branch.
 **Evidence base:** `docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md` (the D0 audit of the old model).
 **Also read:** `docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md` (landed while this plan was being written; folded into §9).

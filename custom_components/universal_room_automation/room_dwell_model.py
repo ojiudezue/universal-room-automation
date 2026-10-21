@@ -95,6 +95,8 @@ class RoomDwellModel:
     def __init__(self) -> None:
         # {entry_id: {cell: [occupied_sum, n]}}
         self._cells: dict[str, dict[Cell, list[int]]] = {}
+        # {entry_id: {cell: distinct local dates with samples}}
+        self._days: dict[str, dict[Cell, int]] = {}
         # {room_name: {cell: {person_id: seconds}}}
         self._people: dict[str, dict[Cell, dict[str, float]]] = {}
         self.status: str = STATUS_NEVER_REFRESHED
@@ -123,20 +125,28 @@ class RoomDwellModel:
         """
         try:
             cells: dict[str, dict[Cell, list[int]]] = {}
+            dates: dict[str, dict[Cell, set]] = {}
             for entry_id, bucket, occ_sum, n in rows:
                 if not n:
                     continue
                 local = _parse_utc_hour_bucket(bucket).astimezone(tz)
-                slot = cells.setdefault(entry_id, {}).setdefault(
-                    cell_of(local), [0, 0],
-                )
+                c = cell_of(local)
+                slot = cells.setdefault(entry_id, {}).setdefault(c, [0, 0])
                 slot[0] += int(occ_sum)
                 slot[1] += int(n)
+                dates.setdefault(entry_id, {}).setdefault(c, set()).add(
+                    local.date(),
+                )
+            days = {
+                e: {c: len(ds) for c, ds in per.items()}
+                for e, per in dates.items()
+            }
             people = self._build_people(visit_rows, max_visit_s)
         except Exception as exc:  # noqa: BLE001 — coherent-old on any error
             self.mark_failed(f"{type(exc).__name__}: {exc}")
             return False
         self._cells = cells
+        self._days = days
         self._people = people
         self.status = STATUS_OK
         self.last_refresh_utc = now_utc
@@ -196,6 +206,10 @@ class RoomDwellModel:
         if not slot or not slot[1]:
             return None, 0
         return slot[0] / slot[1], slot[1]
+
+    def cell_days(self, entry_id: str, local_dt: datetime) -> int:
+        """Distinct local dates that contributed samples to this cell."""
+        return int(self._days.get(entry_id, {}).get(cell_of(local_dt), 0))
 
     def occupied_samples(self, entry_id: str, local_dt: datetime) -> int:
         slot = self._cells.get(entry_id, {}).get(cell_of(local_dt))

@@ -2133,10 +2133,14 @@ OCC_ANOMALY_WINDOW_DAYS: Final = 56
 # The room is "unusually occupied" when its learned share of occupied time for
 # this local (hour, day type) is STRICTLY below this. 0.0 disables firing.
 OCC_ANOMALY_SHARE_THRESHOLD: Final = 0.02
-# Minimum 5-min samples in a cell before it may fire (~40% of a full weekday
-# cell over 56 days). Below it the sensor is off with learning_status
-# "learning".
-OCC_ANOMALY_MIN_CELL_SAMPLES: Final = 200
+# Learning gate: a cell may fire only when samples came from at least this
+# many distinct local days. Day-based so weekend cells can learn: a 56-day
+# window has ~16 weekend days but only 16 x 12 = 192 samples per weekend
+# cell (the old 200-sample gate could never pass for weekends).
+OCC_ANOMALY_MIN_CELL_DAYS: Final = 4
+# Sample floor under the day gate (half an hour-cell's 12 samples x 4 days):
+# a cell whose days are mostly outage gaps stays "learning".
+OCC_ANOMALY_MIN_CELL_SAMPLES: Final = 24
 # Continuous occupancy required before firing; a pass-through is not an
 # anomaly. 0 = fire on the first qualifying tick.
 OCC_ANOMALY_DEBOUNCE_S: Final = 900
@@ -2154,6 +2158,15 @@ OCC_ANOMALY_STARTUP_GRACE_S: Final = 300
 OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS: Final = 50000
 # Visits longer than this are ignored for usual_people (stale open-ended rows).
 OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S: Final = 86400
+# Room "today" DB sensors (Occupancy Pct Today, Time Occupied Today, Time
+# Uncomfortable Today, Avg Time To Comfort): at most one DB refresh per
+# sensor per this many seconds, triggered from the coordinator update
+# (their async_update was never called). Values are quantized to
+# TODAY_SENSOR_MINUTES_QUANTUM (minutes) / TODAY_SENSOR_PCT_QUANTUM (%) so
+# they add no recorder churn (v5.103.78 pattern).
+TODAY_SENSOR_REFRESH_S: Final = 300
+TODAY_SENSOR_MINUTES_QUANTUM: Final = 5
+TODAY_SENSOR_PCT_QUANTUM: Final = 1
 
 # ============================================================================
 # COMFORT & ENERGY THRESHOLDS

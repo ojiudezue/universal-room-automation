@@ -49,12 +49,19 @@ def _bucket(local: datetime) -> str:
     return local.astimezone(UTC).strftime("%Y-%m-%dT%H")
 
 
-def _model(occ: int, n: int, at: datetime = NOW) -> rdm.RoomDwellModel:
-    """A refreshed model whose cell at ``at`` holds occ/n."""
+def _model(occ: int, n: int, at: datetime = NOW, days: int = 8
+           ) -> rdm.RoomDwellModel:
+    """A refreshed model whose cell at ``at`` holds occ/n, spread over
+    ``days`` distinct prior weeks (same weekday and hour)."""
+    rows = []
+    for k in range(days):
+        n_k = n // days + (1 if k < n % days else 0)
+        o_k = occ // days + (1 if k < occ % days else 0)
+        wk = (at - timedelta(days=7 * (k + 1))).astimezone(
+            dt_util.DEFAULT_TIME_ZONE)
+        rows.append((ENTRY_ID, _bucket(wk), o_k, n_k))
     m = rdm.RoomDwellModel()
-    prior_week = (at - timedelta(days=7)).astimezone(dt_util.DEFAULT_TIME_ZONE)
-    assert m.refresh([(ENTRY_ID, _bucket(prior_week), occ, n)],
-                     dt_util.DEFAULT_TIME_ZONE,
+    assert m.refresh(rows, dt_util.DEFAULT_TIME_ZONE,
                      now_utc=at, window_days=56)
     return m
 
@@ -189,18 +196,49 @@ def test_usual_room_never_fires():
     assert ent.extra_state_attributes["usual_hours"].startswith("weekdays 03")
 
 
-def test_clause_c_min_samples_boundary():
-    ent, coord = _make(_model(0, 199))
+def test_clause_c_min_days_boundary():
+    ent, coord = _make(_model(0, 48, days=3))
     assert _tick(ent, coord, occupied=True) is False
     assert ent.extra_state_attributes["learning_status"] == "learning"
     assert ent.extra_state_attributes["suppressed_reason"] == "learning"
-    ent2, coord2 = _make(_model(0, 200))
+    assert ent.extra_state_attributes["cell_days"] == 3
+    ent2, coord2 = _make(_model(0, 48, days=4))
     assert _tick(ent2, coord2, occupied=True) is True
+    assert ent2.extra_state_attributes["cell_days"] == 4
+
+
+def test_clause_c_sample_floor_boundary():
+    ent, coord = _make(_model(0, 23, days=4))
+    assert _tick(ent, coord, occupied=True) is False
+    assert ent.extra_state_attributes["learning_status"] == "learning"
+    ent2, coord2 = _make(_model(0, 24, days=4))
+    assert _tick(ent2, coord2, occupied=True) is True
+
+
+def test_weekend_cell_can_learn():
+    """A full 56-day weekend cell (8 Saturdays x 12 samples = 96) passes the
+    gate; under the old 200-sample gate it never could."""
+    sat = datetime(2026, 10, 24, 3, 5, tzinfo=UTC)
+    ent, coord = _make(_model(0, 96, at=sat, days=8))
+    assert _tick(ent, coord, occupied=True, now=sat) is True
+    assert ent.extra_state_attributes["cell"] == "weekend 03:00"
 
 
 def test_clause_c_empty_cell_is_learning():
     ent, coord = _make(_model(0, 480, at=NOW + timedelta(hours=5)))
     assert _tick(ent, coord, occupied=True) is False
+    assert ent.extra_state_attributes["learning_status"] == "learning"
+
+
+def test_empty_cell_with_gates_at_zero_is_learning():
+    """Config extreme: both learning knobs at 0 must not let an empty cell
+    (no share) fire or crash."""
+    from custom_components.universal_room_automation import const
+
+    ent, coord = _make(_model(0, 480, at=NOW + timedelta(hours=5)))
+    with patch.object(const, "OCC_ANOMALY_MIN_CELL_DAYS", 0), \
+            patch.object(const, "OCC_ANOMALY_MIN_CELL_SAMPLES", 0):
+        assert _tick(ent, coord, occupied=True) is False
     assert ent.extra_state_attributes["learning_status"] == "learning"
 
 

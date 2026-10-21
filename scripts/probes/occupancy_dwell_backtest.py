@@ -46,7 +46,9 @@ DOMAIN = "universal_room_automation"
 WINDOW_DAYS = 56
 THRESHOLDS = (0.01, 0.02, 0.05)
 DEBOUNCES = (0, 300, 900, 1800)
-MIN_CELL_SAMPLES = 200
+# Learning gate (const.OCC_ANOMALY_MIN_CELL_DAYS / _MIN_CELL_SAMPLES).
+MIN_CELL_DAYS = 4
+MIN_CELL_SAMPLES = 24
 SHIPPED = (0.02, 900, "48")
 STEP_S = 60
 # Plan G-thresholds.
@@ -121,9 +123,10 @@ def train(ura, tz, start_local, end_local):
         local = datetime.strptime(h, "%Y-%m-%dT%H").replace(
             tzinfo=timezone.utc).astimezone(tz)
         for m in ("48", "168"):
-            slot = out[m][room].setdefault(cell(local, m), [0, 0])
+            slot = out[m][room].setdefault(cell(local, m), [0, 0, set()])
             slot[0] += occ or 0
             slot[1] += n or 0
+            slot[2].add(local.date())
     return out, secs
 
 
@@ -205,7 +208,8 @@ def replay_day(ura, ha, tz, rooms, hs_entity, day_local):
                         local = datetime.fromtimestamp(ts, timezone.utc).astimezone(tz)
                         slot = room_cells.get(cell(local, m))
                         fire = False
-                        if on and slot and slot[1] >= MIN_CELL_SAMPLES:
+                        if (on and slot and slot[1] >= MIN_CELL_SAMPLES
+                                and len(slot[2]) >= MIN_CELL_DAYS):
                             share = slot[0] / slot[1]
                             fire = (share < thr and occ_for >= deb
                                     and house[k] != "guest")
@@ -380,15 +384,15 @@ def main():
     weekday_full = 0
     for eid in names:
         cells = (last_models or {}).get("48", {}).get(eid, {})
-        if len(cells) == 48 and all(n >= MIN_CELL_SAMPLES for _, n in cells.values()):
+        def ok(v):
+            return v[1] >= MIN_CELL_SAMPLES and len(v[2]) >= MIN_CELL_DAYS
+        if len(cells) == 48 and all(ok(v) for v in cells.values()):
             full += 1
-        wd = [n for (h, d), (_o, n) in cells.items() if d == "weekday"]
-        if len(wd) == 24 and all(n >= MIN_CELL_SAMPLES for n in wd):
+        wd = [v for (h, d), v in cells.items() if d == "weekday"]
+        if len(wd) == 24 and all(ok(v) for v in wd):
             weekday_full += 1
-    # A weekend cell holds at most (WINDOW_DAYS * 2 / 7) days x 12 samples
-    # (56 d -> 16 x 12 = 192). If that is below MIN_CELL_SAMPLES, weekend
-    # cells can never leave "learning" and G4 ("every cell") cannot pass.
-    weekend_cap = int(WINDOW_DAYS * 2 / 7) * 12
+    # Max distinct days a weekend cell can have in the window.
+    weekend_cap = int(WINDOW_DAYS * 2 / 7)
     shipped_row = next(r for r in sweep if (r["threshold"], r["debounce_s"],
                                              r["model"]) == (thr, deb, m))
     report["gates_shipped_setting"] = {
@@ -401,8 +405,8 @@ def main():
         "G3_study_a_daytime_fires": g3, "G3": g3 == 0,
         "G4_rooms_fully_learned": f"{full}/{len(names)}",
         "G4_rooms_weekday_cells_learned": f"{weekday_full}/{len(names)}",
-        "weekend_cell_max_samples": weekend_cap,
-        "weekend_cells_can_learn": weekend_cap >= MIN_CELL_SAMPLES,
+        "weekend_cell_max_days": weekend_cap,
+        "weekend_cells_can_learn": weekend_cap >= MIN_CELL_DAYS,
         "G4": (full / len(names) >= G4_MIN_ROOM_FRACTION) if names else False,
     }
 

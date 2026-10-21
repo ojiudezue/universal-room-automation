@@ -60,6 +60,8 @@ def test_share_by_local_hour_daytype():
         assert m.lookup("other", wd10) == (None, 0)
         assert m.status == "ok" and m.has_model
         assert m.usual_hours("R", 0.02) == "weekdays 09-16"
+        assert m.cell_days("R", wd10) == 40
+        assert m.cell_days("R", we10) == 16
 
 
 def test_dst_fallback_buckets():
@@ -75,6 +77,7 @@ def test_dst_fallback_buckets():
         sun_01 = datetime(2026, 11, 8, 1, 30, tzinfo=tz)
         sun_00 = datetime(2026, 11, 8, 0, 30, tzinfo=tz)
         assert m.lookup("R", sun_01) == (0.5, 24)
+        assert m.cell_days("R", sun_01) == 1  # two buckets, one local date
         assert m.lookup("R", sun_00) == (0.0, 12)
 
 

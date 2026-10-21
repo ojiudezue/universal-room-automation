@@ -3364,7 +3364,8 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
       (a) the room coordinator's STATE_OCCUPIED is true;
       (b) the learned share for the current local (hour, day type) is
           strictly below OCC_ANOMALY_SHARE_THRESHOLD;
-      (c) that cell has at least OCC_ANOMALY_MIN_CELL_SAMPLES samples;
+      (c) that cell's samples span >= OCC_ANOMALY_MIN_CELL_DAYS distinct
+          local days and number >= OCC_ANOMALY_MIN_CELL_SAMPLES;
       (d) the room has been continuously occupied >= OCC_ANOMALY_DEBOUNCE_S;
       (e) house state is not GUEST;
       (f) the dwell model has completed at least one successful refresh.
@@ -3432,6 +3433,7 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         from .const import (
             OCC_ANOMALY_DEBOUNCE_S,
             OCC_ANOMALY_DWELL_ENABLED,
+            OCC_ANOMALY_MIN_CELL_DAYS,
             OCC_ANOMALY_MIN_CELL_SAMPLES,
             OCC_ANOMALY_SHARE_THRESHOLD,
         )
@@ -3465,6 +3467,7 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             "expected_share": None,
             "threshold": threshold,
             "cell_samples": 0,
+            "cell_days": 0,
             "cell": cell_label(cell_of(now)),
             "usual_hours": None,
             "occupied": occupied,
@@ -3509,12 +3512,18 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
                     round(share, 4) if share is not None else None
                 )
                 attrs["cell_samples"] = n
+                cell_days = model.cell_days(entry_id, now)
+                attrs["cell_days"] = cell_days
                 attrs["usual_hours"] = model.usual_hours(entry_id, threshold)
                 attrs["usual_people"] = {
                     "source": "ble_visits",
                     "people": model.usual_people(room_name, entry_id, now),
                 }
-                if share is None or n < OCC_ANOMALY_MIN_CELL_SAMPLES:
+                if (
+                    share is None
+                    or cell_days < OCC_ANOMALY_MIN_CELL_DAYS
+                    or n < OCC_ANOMALY_MIN_CELL_SAMPLES
+                ):
                     # (c) not enough history in this cell
                     attrs["learning_status"] = "learning"
                     attrs["suppressed_reason"] = "learning"
