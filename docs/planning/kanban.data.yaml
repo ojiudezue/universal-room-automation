@@ -26961,7 +26961,8 @@ cards:
 - id: NM-NOTIFY-SIGNATURE-MISMATCH-1
   title: "Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered"
   thread: notifications
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.80
   tier: 1
   created: "2026-10-20 20:10"
   updated: "2026-10-20 20:10"
