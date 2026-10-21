@@ -2117,6 +2117,67 @@ RETENTION_ROOM_HISTORY_DAYS: Final = 365
 # carried to the next night. Steady state needs ~13 batches/table/night.
 ROOM_HISTORY_PRUNE_MAX_BATCHES: Final = 100
 
+# ----------------------------------------------------------------------------
+# Room occupancy-anomaly on a dwell model (BAYES-OCCUPANCY-ANOMALY-NEVER-
+# EVALUATES-1, plan docs/planning/PLANNING_occupancy_anomaly_dwell_model.md §6).
+# All rung 1 (module constants): the sensor is a diagnostic with no consumer,
+# and the parsimony rule keeps its timing off the options flow. Tune after the
+# post-deploy D0 replay (scripts/probe_occupancy_dwell_backtest.py).
+# ----------------------------------------------------------------------------
+# Kill switch for the whole dwell path. False: the sensor stays off with
+# learning_status "disabled"; no model refresh, no DB read.
+OCC_ANOMALY_DWELL_ENABLED: Final = True
+# Training window in days (8 weeks ~ 8 samples per weekend cell). Clamped to
+# RETENTION_ROOM_HISTORY_DAYS when that is non-zero.
+OCC_ANOMALY_WINDOW_DAYS: Final = 56
+# The room is "unusually occupied" when its learned share of occupied time for
+# this local (hour, day type) is STRICTLY below this. 0.0 disables firing.
+OCC_ANOMALY_SHARE_THRESHOLD: Final = 0.02
+# Learning gate: a cell may fire only when samples came from at least this
+# many distinct local days. Day-based so weekend cells can learn: a 56-day
+# window has ~16 weekend days but only 16 x 12 = 192 samples per weekend
+# cell (the old 200-sample gate could never pass for weekends).
+OCC_ANOMALY_MIN_CELL_DAYS: Final = 4
+# Sample floor under the day gate (half an hour-cell's 12 samples x 4 days):
+# a cell whose days are mostly outage gaps stays "learning".
+OCC_ANOMALY_MIN_CELL_SAMPLES: Final = 24
+# Continuous occupancy required before firing; a pass-through is not an
+# anomaly. 0 = fire on the first qualifying tick. 1800 not the plan's 900:
+# the 7-day D0 replay (2026-10-21) at 900 gave a house median of 5 fires a
+# day; at 1800 a median of 0 with at most 2 per room (passes G1).
+OCC_ANOMALY_DEBOUNCE_S: Final = 1800
+# Nightly model rebuild, local time (one bounded GROUP BY read).
+OCC_ANOMALY_REFRESH_LOCAL_TIME: Final = "03:40"
+# First rebuild this long after integration setup (keeps it out of boot).
+OCC_ANOMALY_SETUP_REFRESH_DELAY_S: Final = 120
+# At most one anomaly_log row (and signal) per room per this many seconds.
+# 0 = one per rising edge. Was the literal 1800 in the old sensor.
+OCC_ANOMALY_LOG_COOLDOWN_S: Final = 1800
+# No anomaly_log row / signal for this long after the entity is created; the
+# sensor state still evaluates. Was the literal 300 in the old sensor.
+OCC_ANOMALY_STARTUP_GRACE_S: Final = 300
+# Bound on the person_visits rows read per refresh for usual_people (display).
+# Live 2026-10-21: ~66k closed visits in 56 days (50000 truncated); parsing
+# runs in the executor.
+OCC_ANOMALY_USUAL_PEOPLE_MAX_VISITS: Final = 200000
+# One retry this long after a failed (or no-database) first model build.
+OCC_ANOMALY_RETRY_DELAY_S: Final = 600
+# Longest single occupancy episode the occupancy_events readers will count
+# (get_occupancy_time_today / get_occupancy_percentage). Rung 1: bounds the
+# damage of a missing exit row; also the prior-event look-back.
+OCC_EPISODE_MAX_S: Final = 43200
+# Visits longer than this are ignored for usual_people (stale open-ended rows).
+OCC_ANOMALY_USUAL_PEOPLE_MAX_VISIT_S: Final = 86400
+# Room "today" DB sensors (Occupancy Pct Today, Time Occupied Today, Time
+# Uncomfortable Today, Avg Time To Comfort): at most one DB refresh per
+# sensor per this many seconds, triggered from the coordinator update
+# (their async_update was never called). Values are quantized to
+# TODAY_SENSOR_MINUTES_QUANTUM (minutes) / TODAY_SENSOR_PCT_QUANTUM (%) so
+# they add no recorder churn (v5.103.78 pattern).
+TODAY_SENSOR_REFRESH_S: Final = 300
+TODAY_SENSOR_MINUTES_QUANTUM: Final = 5
+TODAY_SENSOR_PCT_QUANTUM: Final = 1
+
 # ============================================================================
 # COMFORT & ENERGY THRESHOLDS
 # ============================================================================

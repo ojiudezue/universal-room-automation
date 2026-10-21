@@ -4843,6 +4843,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # paths — a small, reversible first step before the code is deleted.
         # Retained on disk pending DELETE-REACT-DASHBOARDS-1 phase 2.
 
+        # BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 D1: the room dwell model
+        # (read-only; nightly GROUP BY over environmental_data) that the
+        # per-room occupancy-anomaly sensor reads. Stopped on unload.
+        try:
+            from .room_dwell_model import async_setup_room_dwell_model
+
+            _dwell_runner = await async_setup_room_dwell_model(hass)
+            entry.async_on_unload(_dwell_runner.async_stop)
+        except Exception:  # noqa: BLE001 — diagnostic; never block setup
+            _LOGGER.warning("Room dwell model setup failed (non-fatal)", exc_info=True)
+
         _LOGGER.info("Integration entry setup complete with aggregation sensors")
         return True
     

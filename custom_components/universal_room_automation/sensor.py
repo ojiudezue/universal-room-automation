@@ -16073,7 +16073,64 @@ class HouseRoutineStatusSensor(AggregationEntity, SensorEntity):
         return self._cached_attrs
 
 
-class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
+class _TodayDbRefreshMixin:
+    """Throttled DB refresh for the room "today" sensors.
+
+    Their ``async_update`` was never called (coordinator entities are not
+    polled), so they never refreshed (found on the occupancy-dwell branch).
+    Now each coordinator update starts at most one refresh per
+    ``TODAY_SENSOR_REFRESH_S`` per sensor, never two at once; the DB query
+    runs in a tracked task (Bug Class #19) and writes state when done.
+    Values are quantized in ``async_update`` (recorder churn, v5.103.78).
+    """
+
+    _today_last_refresh = None
+    _today_task = None
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        from .const import TODAY_SENSOR_REFRESH_S
+
+        now = dt_util.utcnow()
+        due = (
+            self._today_last_refresh is None
+            or (now - self._today_last_refresh).total_seconds()
+            >= TODAY_SENSOR_REFRESH_S
+        )
+        if due and (self._today_task is None or self._today_task.done()):
+            self._today_last_refresh = now
+            self._today_task = self.hass.async_create_task(
+                self._async_today_refresh(),
+            )
+        super()._handle_coordinator_update()
+
+    async def _async_today_refresh(self) -> None:
+        await self.async_update()
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        task = self._today_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._today_task = None
+        await super().async_will_remove_from_hass()
+
+
+def _quantize_minutes(minutes):
+    from .const import TODAY_SENSOR_MINUTES_QUANTUM
+
+    q = int(TODAY_SENSOR_MINUTES_QUANTUM) or 1
+    return (int(minutes) // q) * q
+
+
+def _quantize_pct(pct):
+    from .const import TODAY_SENSOR_PCT_QUANTUM
+
+    q = TODAY_SENSOR_PCT_QUANTUM or 1
+    return round(round(pct / q) * q, 1)
+
+
+class OccupancyPercentageTodaySensor(_TodayDbRefreshMixin, UniversalRoomEntity, SensorEntity):
     """Percentage of today the room has been occupied.
 
     Diagnostic, disabled by default.
@@ -16104,13 +16161,16 @@ class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
             now = dt_util.now()
-            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            # start_of_local_day: DST-correct (a 23 h / 25 h day) - review A.
+            midnight = dt_util.start_of_local_day()
             elapsed_secs = (now - midnight).total_seconds()
             if elapsed_secs > 0:
-                self._cached_value = round(
-                    occupied_secs / elapsed_secs * 100, 1
+                self._cached_value = _quantize_pct(
+                    occupied_secs / elapsed_secs * 100
                 )
             else:
                 self._cached_value = 0.0
@@ -16124,7 +16184,7 @@ class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
         return self._cached_value
 
 
-class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
+class TimeOccupiedTodaySensor(_TodayDbRefreshMixin, UniversalRoomEntity, SensorEntity):
     """Total time the room has been occupied today (minutes).
 
     Diagnostic, disabled by default.
@@ -16156,8 +16216,10 @@ class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
-            self._cached_value = occupied_secs // 60
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
+            self._cached_value = _quantize_minutes(occupied_secs // 60)
         except Exception as e:
             _LOGGER.error("Error fetching time occupied: %s", e)
             self._cached_value = None
@@ -16168,7 +16230,7 @@ class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
         return self._cached_value
 
 
-class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
+class TimeUncomfortableTodaySensor(_TodayDbRefreshMixin, UniversalRoomEntity, SensorEntity):
     """Minutes outside comfort zone while occupied today.
 
     Diagnostic, disabled by default.
@@ -16199,8 +16261,10 @@ class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            self._cached_value = await database.get_uncomfortable_minutes_today(
-                room_name
+            self._cached_value = _quantize_minutes(
+                await database.get_uncomfortable_minutes_today(
+                    self.coordinator.entry.entry_id,
+                )
             )
         except Exception as e:
             _LOGGER.error("Error fetching uncomfortable minutes: %s", e)
@@ -16212,7 +16276,7 @@ class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
         return self._cached_value
 
 
-class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
+class AvgTimeToComfortSensor(_TodayDbRefreshMixin, UniversalRoomEntity, SensorEntity):
     """Average time to reach comfort after occupancy starts (minutes).
 
     Estimated from the ratio of uncomfortable-to-total occupied time.
@@ -16245,9 +16309,11 @@ class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
             self._cached_value = None
             return
         try:
-            occupied_secs = await database.get_occupancy_time_today(room_name)
+            occupied_secs = await database.get_occupancy_time_today(
+                self.coordinator.entry.entry_id,
+            )
             uncomfortable_mins = await database.get_uncomfortable_minutes_today(
-                room_name
+                self.coordinator.entry.entry_id,
             )
             occupied_mins = occupied_secs // 60
             if occupied_mins > 0:
@@ -16256,7 +16322,9 @@ class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
                 # arrival is ~that fraction of average session length
                 uncomfort_ratio = uncomfortable_mins / occupied_mins
                 # Average session is ~30 min; comfort time scales with ratio
-                self._cached_value = max(0, round(uncomfort_ratio * 30))
+                self._cached_value = _quantize_minutes(
+                    max(0, round(uncomfort_ratio * 30))
+                )
             else:
                 self._cached_value = None
         except Exception as e:

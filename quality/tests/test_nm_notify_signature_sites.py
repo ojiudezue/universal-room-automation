@@ -11,8 +11,10 @@ severity.
 Sites (each mutation-drilled — revert the fix → the named test goes RED):
   - presence.py  _emit_wake_backstop_anomaly
         → test_wake_backstop_notify_binds_real_signature
-  - binary_sensor.py OccupancyAnomalyBinarySensor._fire_anomaly_alert
-        → test_bayesian_anomaly_notify_binds_real_signature_{day,night}
+  - (binary_sensor.py OccupancyAnomalyBinarySensor NM site DELETED by
+    BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1, operator ruling "no alert";
+    its no-notify invariant is pinned by
+    test_occupancy_anomaly_dwell.py::test_no_notification_on_rising_edge)
   - optimization.py _notify_if_severe (event_class/dedup_key kwargs)
         → test_optimizer_notify_binds_on_first_call
   - button.py SendTestPerimeterAlertButton (route_reason kwarg; fixed by
@@ -106,48 +108,6 @@ async def test_wake_backstop_notify_binds_real_signature():
 
     _assert_single_enum_call(nm, "presence", Severity.MEDIUM)
     assert "wake-backstop" in nm.bound[0].arguments["title"]
-
-
-# ---------------------------------------------------------------------------
-# binary_sensor.py — bayesian occupancy anomaly
-# ---------------------------------------------------------------------------
-
-
-async def _drive_anomaly(hour: int) -> _BindingNM:
-    from custom_components.universal_room_automation import binary_sensor as bs
-
-    nm = _BindingNM()
-    ent = bs.OccupancyAnomalyBinarySensor.__new__(bs.OccupancyAnomalyBinarySensor)
-    ent.hass = SimpleNamespace(data={DOMAIN: {"notification_manager": nm}})
-    ent._startup_time = datetime(2000, 1, 1)
-    ent._last_alert_time = None
-    ent._anomaly_data = {}
-    ent._store_bayesian_anomaly_event = AsyncMock()
-    fixed_now = datetime(2026, 10, 20, hour, 0, 0)
-    with patch.object(bs, "async_dispatcher_send", MagicMock(), create=True), \
-         patch(
-             "homeassistant.helpers.dispatcher.async_dispatcher_send",
-             MagicMock(),
-         ), \
-         patch.object(bs.dt_util, "now", return_value=fixed_now), \
-         patch.object(
-             bs.dt_util, "utcnow",
-             return_value=datetime(2026, 10, 20, 12, 0, 0),
-         ):
-        await ent._fire_anomaly_alert("Kitchen")
-    return nm
-
-
-@pytest.mark.asyncio
-async def test_bayesian_anomaly_notify_binds_real_signature_day():
-    nm = await _drive_anomaly(hour=14)
-    _assert_single_enum_call(nm, "bayesian_predictor", Severity.MEDIUM)
-
-
-@pytest.mark.asyncio
-async def test_bayesian_anomaly_notify_binds_real_signature_night():
-    nm = await _drive_anomaly(hour=23)
-    _assert_single_enum_call(nm, "bayesian_predictor", Severity.HIGH)
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
-"""v4.6.1 Canary migrations — energy crosscheck + bayesian anomaly.
+"""v4.6.1 Canary migrations — energy crosscheck (bayesian canary retired).
 
 Source-grep tests verify:
 1. Energy _crosscheck_consumption() ALSO emits AnomalyEvent (parallel write)
-2. Bayesian _fire_anomaly_alert() ALSO calls _store_bayesian_anomaly_event()
-3. Both use the correct coordinator/type/event_class/severity values
-4. Existing paths (in-memory flag, NM alert, signal) remain intact
+2. (Bayesian canary retired: see the note at the former Bayesian section)
+3. The energy canary uses the correct coordinator/type/event_class/severity
+4. Existing energy paths remain intact
 5. New helpers use local imports (Bug Class #34)
 """
 
@@ -14,12 +14,6 @@ from pathlib import Path
 def _energy_src() -> str:
     return Path(
         "custom_components/universal_room_automation/domain_coordinators/energy.py"
-    ).read_text()
-
-
-def _binary_sensor_src() -> str:
-    return Path(
-        "custom_components/universal_room_automation/binary_sensor.py"
     ).read_text()
 
 
@@ -146,95 +140,12 @@ def test_energy_canary_routes_through_save_anomaly_event():
 
 
 # ---------------------------------------------------------------------------
-# Bayesian canary
+# Bayesian canary: RETIRED (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1). The
+# occupancy-anomaly row is now type 'occupancy.dwell_anomaly'; its shape is
+# pinned BEHAVIOURALLY (real DB, real DAO) by
+# test_occupancy_anomaly_dwell.py::test_anomaly_log_row_shape, and the
+# no-notification invariant by ::test_no_notification_on_rising_edge.
 # ---------------------------------------------------------------------------
-
-def test_bayesian_fire_alert_calls_store_bayesian_event():
-    """_fire_anomaly_alert must call _store_bayesian_anomaly_event."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _fire_anomaly_alert(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "_store_bayesian_anomaly_event" in block, (
-        "_fire_anomaly_alert must call _store_bayesian_anomaly_event "
-        "for unified anomaly_log persistence (v4.6.1 canary)"
-    )
-
-
-def test_bayesian_store_helper_exists():
-    src = _binary_sensor_src()
-    assert "async def _store_bayesian_anomaly_event(" in src, (
-        "binary_sensor.py must define _store_bayesian_anomaly_event async method"
-    )
-
-
-def test_bayesian_canary_uses_correct_coordinator_type():
-    src = _binary_sensor_src()
-    idx = src.find("async def _store_bayesian_anomaly_event(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert '"bayesian"' in block or "'bayesian'" in block, (
-        "Bayesian canary must set coordinator='bayesian'"
-    )
-    assert "bayesian.prediction_anomaly" in block, (
-        "Bayesian canary must set type='bayesian.prediction_anomaly'"
-    )
-
-
-def test_bayesian_canary_uses_point_in_time_class():
-    """v4.7.12 D2: raw string replaced by typed enum AnomalyType.POINT_IN_TIME."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _store_bayesian_anomaly_event(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert (
-        "AnomalyType.POINT_IN_TIME" in block
-        or "EVENT_CLASS_POINT_IN_TIME" in block
-        or "point_in_time" in block
-    )
-
-
-def test_bayesian_canary_uses_warning_severity():
-    src = _binary_sensor_src()
-    idx = src.find("async def _store_bayesian_anomaly_event(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "WARNING" in block, "Bayesian anomaly must be WARNING severity"
-
-
-def test_bayesian_canary_uses_local_import():
-    """Bug Class #34: AnomalyEvent imported inside the helper."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _store_bayesian_anomaly_event(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "from .domain_coordinators.anomaly_event import" in block or \
-           "from .domain_coordinators import" in block or \
-           "AnomalyEvent" in block, (
-        "Bug Class #34: AnomalyEvent must be imported inside the helper"
-    )
-
-
-def test_bayesian_canary_routes_through_save_anomaly_event():
-    """v4.6.1 review fix B2/F1: bayesian canary delegates to DAO."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _store_bayesian_anomaly_event(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "save_anomaly_event(event)" in block, (
-        "Bayesian canary must call db.save_anomaly_event(event) — single write path"
-    )
-    assert "INSERT INTO anomaly_log" not in block, (
-        "Bayesian canary must NOT contain raw INSERT INTO anomaly_log — that "
-        "SQL lives only in database.save_anomaly_event() (review fix B2/F1)."
-    )
-
 
 def test_canary_helpers_no_longer_carry_local_try_except():
     """After B2/F1 fix, the DAO owns the try/except. Canary helpers don't
@@ -244,7 +155,6 @@ def test_canary_helpers_no_longer_carry_local_try_except():
     """
     for src_loader, fn in (
         (_energy_src, "_store_crosscheck_anomaly_event"),
-        (_binary_sensor_src, "_store_bayesian_anomaly_event"),
     ):
         src = src_loader()
         idx = src.find(f"async def {fn}(")
@@ -257,25 +167,3 @@ def test_canary_helpers_no_longer_carry_local_try_except():
         )
 
 
-def test_bayesian_fire_alert_still_dispatches_signal():
-    """Original signal dispatch must remain — canary is parallel, not replacement."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _fire_anomaly_alert(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "SIGNAL_OCCUPANCY_ANOMALY" in block or "async_dispatcher_send" in block, (
-        "Existing signal dispatch in _fire_anomaly_alert must be preserved"
-    )
-
-
-def test_bayesian_fire_alert_still_sends_nm_notification():
-    """NM notification must remain — canary is additive."""
-    src = _binary_sensor_src()
-    idx = src.find("async def _fire_anomaly_alert(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "async_notify" in block or "notification_manager" in block, (
-        "Existing NM notification in _fire_anomaly_alert must be preserved"
-    )
