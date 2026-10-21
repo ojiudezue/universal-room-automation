@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.util import dt as dt_util
 
-from occ_dwell_helpers import default_tz, fetch, make_real_db
+from occ_dwell_helpers import real_package, default_tz, fetch, make_real_db
 
 from custom_components.universal_room_automation import binary_sensor as bs
 from custom_components.universal_room_automation import room_dwell_model as rdm
@@ -35,6 +35,20 @@ ENTRY_ID = "entry_kitchen"
 # Wednesday 03:30 UTC; the tests run with HA's default tz, and the model is
 # fed buckets in that same zone via _bucket(), so the "now" cell is fixed.
 NOW = datetime(2026, 10, 21, 3, 5, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """Import the REAL package for this file's tests (order-robustness:
+    earlier files leave partial sys.modules stubs; review 2026-10-21)."""
+    import importlib
+
+    global dt_util, bs, rdm
+    with real_package():
+        dt_util = importlib.import_module("homeassistant.util.dt")
+        bs = importlib.import_module("custom_components.universal_room_automation.binary_sensor")
+        rdm = importlib.import_module("custom_components.universal_room_automation.room_dwell_model")
+        yield
 
 
 @pytest.fixture(autouse=True)

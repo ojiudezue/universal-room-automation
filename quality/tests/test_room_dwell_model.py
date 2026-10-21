@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.util import dt as dt_util
 
-from occ_dwell_helpers import default_tz, fetch, make_real_db, seed
+from occ_dwell_helpers import real_package, default_tz, fetch, make_real_db, seed
 
 from custom_components.universal_room_automation import room_dwell_model as rdm
 from custom_components.universal_room_automation.const import DOMAIN
@@ -32,6 +32,19 @@ def _hass(domain: dict):
     return SimpleNamespace(data={DOMAIN: domain},
                            async_add_executor_job=_inline)
 UTC = timezone.utc
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """Import the REAL package for this file's tests (order-robustness:
+    earlier files leave partial sys.modules stubs; review 2026-10-21)."""
+    import importlib
+
+    global dt_util, rdm
+    with real_package():
+        dt_util = importlib.import_module("homeassistant.util.dt")
+        rdm = importlib.import_module("custom_components.universal_room_automation.room_dwell_model")
+        yield
 
 
 def _rows_weekday_9_to_17(tz, start_local: datetime, days: int):

@@ -9,8 +9,6 @@ import sqlite3
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-from homeassistant.util import dt as dt_util
-
 
 def make_real_db(tmp_path):
     from custom_components.universal_room_automation.database import (
@@ -48,9 +46,52 @@ def fetch(db, sql: str, params: tuple = ()) -> list[tuple]:
         conn.close()
 
 
+def is_set_aside(name: str, mod) -> bool:
+    """Same rule as test_ec_role_defaults_rev5: every URA module and every
+    non-real HA stub is set aside, so the block imports the REAL package
+    (files collected earlier leave partial stubs in sys.modules)."""
+    import types
+
+    if name == "custom_components" or name.startswith("custom_components."):
+        return True
+    if name == "homeassistant" or name.startswith("homeassistant."):
+        return not isinstance(mod, types.ModuleType) or mod.__spec__ is None
+    return False
+
+
+RELOAD_HA_MODULES = (
+    "homeassistant.helpers.update_coordinator",
+)
+
+
+@contextmanager
+def real_package():
+    """Module-scoped real-package scope (``_d7_isolation``); restores
+    sys.modules exactly on exit."""
+    import importlib
+    import sys
+
+    from _d7_isolation import real_package_scope
+
+    with real_package_scope(is_set_aside):
+        # Some files collected earlier overwrite attributes of REAL HA
+        # modules (e.g. ``update_coordinator.DataUpdateCoordinator =
+        # MagicMock`` or a bare class). Re-execute those modules in place;
+        # real_package_scope(attrs=True) puts every attribute back on exit,
+        # so other files see exactly what they had.
+        for name in RELOAD_HA_MODULES:
+            mod = sys.modules.get(name)
+            if mod is not None and getattr(mod, "__spec__", None) is not None:
+                importlib.reload(mod)
+        yield
+
+
 @contextmanager
 def default_tz(name: str):
     """Set HA's default time zone for the block, then restore it."""
+    import importlib
+
+    dt_util = importlib.import_module("homeassistant.util.dt")
     prev = dt_util.DEFAULT_TIME_ZONE
     dt_util.set_default_time_zone(dt_util.get_time_zone(name))
     try:

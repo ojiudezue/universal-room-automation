@@ -22,9 +22,21 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.util import dt as dt_util
 
-from occ_dwell_helpers import default_tz, make_real_db, seed
+from occ_dwell_helpers import real_package, default_tz, make_real_db, seed
 
 UTC = timezone.utc
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _real_ura_package():
+    """Import the REAL package for this file's tests (order-robustness:
+    earlier files leave partial sys.modules stubs; review 2026-10-21)."""
+    import importlib
+
+    global dt_util
+    with real_package():
+        dt_util = importlib.import_module("homeassistant.util.dt")
+        yield
 EV = ("INSERT INTO occupancy_events (room_id, timestamp, event_type, "
       "trigger_source, duration) VALUES (?, ?, ?, ?, ?)")
 
