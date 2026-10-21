@@ -26961,7 +26961,9 @@ cards:
 - id: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
   title: "Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped"
   thread: energy
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.81
+  residual_2026_10_20_review: "Focused review of 9c38ed0a2 SHIP. LOW-1: SolarFollowController._stopped never reset (unreachable: HA stop never re-sets-up the same instance) - add a reset in _register_stop_save_job next time EC is touched. LOW-2: safety-hazard emergency load-shed listener (energy.py:1250/1471) is deliberately NOT gated by _ec_stopping - document as intentional."
   measured_2026_10_20: "CONFIRMED. Most keys save only via the 15-min periodic writer (energy.py:10151, every 3rd 5-min cycle); the stop save (async_teardown energy.py:10777-10787) runs after HA Stage 2 cancels the URA write worker (core.py:1093). Up to 15 min of EC state lost per restart; medium risk = EVSE pause owner sets (a fresh pause can boot as a physically-off EVSE with no owner, energy.py:1665-1672). Precedent fix exists: manager.py:549-575/660-680 async_add_shutdown_job for anomaly baselines."
   tier: 2
   created: "2026-10-20 19:55"

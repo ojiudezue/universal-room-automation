@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "229",
+  "author": "ojiudezue",
+  "session_id": "claude_20261021_021737_ship_v5_103_81",
+  "timestamp": "2026-10-21T02:17:37Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.81 shipped: Energy state is saved at shutdown, and nothing actuates after it",
+  "summary": "Energy state is saved at shutdown, and nothing actuates after it",
+  "why": "Restart logs showed 26-34 skipped EC saves. HA never unloads integrations on stop, so EC teardown persist never ran; state relied on a 15-min periodic save, and EC timers kept firing after URA's DB writer closed, able to actuate during shutdown. A Stage-1 shutdown job (existing manager.py pattern) stops the timers, waits for an in-flight cycle, and persists with EVSE owner sets first.",
+  "implications": "Shipped EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1 at v5.103.81; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.81.md (Live criteria).",
+  "revisit_trigger": "At the next HA restart after install: zero 'write worker is closed' ERROR lines from EC saves, and energy_state rows for evse/registry keys updated within seconds of the stop",
+  "refs": {
+    "cards": [
+      "EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.81.md"
+    ],
+    "release_notes": "The energy coordinator now saves its state in HA's first shutdown stage, while the database writer is running, and stops its timers first, so no EV charger or battery command is sent during shutdown."
+  }
+}
