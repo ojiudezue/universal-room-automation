@@ -26958,6 +26958,17 @@ cards:
     generalized (no URA leakage; reviewed WSJF section for accuracy). Pushed to GitHub main 5ffddeb. Reflects
     "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
     (carded).'
+- id: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
+  title: "Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped"
+  thread: energy
+  status: investigating
+  tier: 2
+  created: "2026-10-20 19:55"
+  updated: "2026-10-20 19:55"
+  origin: "Mid-turn find 2026-10-20: v5.103.80 restart logged 26 'DB write skipped: write worker is closed' ERRORs (12:02 restart: 34; 16:34: 4)."
+  why: "database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic save is lost on restart."
+  next: "MEASURE: for each skipped key, is it also saved on change at runtime (then loss = 0) or only at stop (real loss)? Then either order EC's final persist before the writer closes (stop listener priority) or accept + downgrade the log to WARNING."
+  adjacency: "ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering."
 - id: NM-NOTIFY-SIGNATURE-MISMATCH-1
   title: "Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered"
   thread: notifications
