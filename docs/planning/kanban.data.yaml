@@ -26986,6 +26986,7 @@ cards:
   next: "Deploy; live-validate no NM TypeError in logs."
   adjacency: "NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1."
 - id: BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1
+  operator_answer_2026_10_20_b: "Operator: \"I would not alert. The routine change is enough. It should assert in its sensor and give more information.\" -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why (expected vs actual, who usually is where at this time, which signal made the room occupied, how long, learning status). Keep signal + anomaly_log row."
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
   status: investigating
