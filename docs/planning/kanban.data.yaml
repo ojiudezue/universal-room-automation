@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-20'
+  last_reconciled: '2026-10-21'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -43,7 +43,8 @@ cards:
 - id: EC-SOLAR-LIFETIME-COUNTER-FLAP-1
   title: "EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days"
   thread: energy
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.82
   tier: 1
   created: "2026-10-21 16:50"
   updated: "2026-10-21 16:50"
