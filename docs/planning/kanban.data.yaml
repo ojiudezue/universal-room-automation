@@ -67,14 +67,15 @@ cards:
 - id: PREDICT-PATTERN-DETECTED-ORPHANS-1
   title: "About 25 occupancy_pattern_detected entities are orphans nothing sets (unavailable since 10-20)"
   thread: presence
-  status: "waiting_operator"
+  status: "parked"
   tier: 1
   created: "2026-10-21 17:10"
   updated: "2026-10-21 17:10"
   origin: "Predictions audit 2026-10-21, suggested card 1."
   why: "No code sets the value; registry entries are leftovers."
-  next: "APPROVE: remove the ~25 orphan occupancy_pattern_detected registry entries (registry removal; no history purge) -> I remove them and record the list."
+  next: "Parked (operator 10-21: nothing-sets-it is not a reason to delete). Revisit when a real pattern-detection sensor is built (e.g. on RoomDwellModel via PREDICT-MODEL-DWELL-MIGRATION-1): it would reuse unique_id <entry>_occupancy_pattern_detected and revive these rows; or remove if that design picks another name."
   adjacency: "NEW."
+  verified_2026_10_21: "Not wrong data: the class OccupancyPatternDetectedSensor was a stub that always returned 'No Pattern Detected' (TODO), removed in v3.20.2 (13b992fd4, 2026-03-31) with 14 other stub entities. 27 registry rows remain (disabled-by-default diagnostic); const STATE_OCCUPANCY_PATTERN still defined, unused. Removing the rows changes nothing now; keeping them costs nothing; a future sensor with the same unique_id would reattach to them."
 - id: EC-FORECAST-TRUTH-GAPS-1
   title: "Energy forecasts cannot be scored or trained: energy_daily has missing days, predicted production is null, apparent forecast high is unavailable"
   thread: energy
