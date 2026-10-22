@@ -95,7 +95,8 @@ cards:
   rank: {"value": 5, "time_criticality": 6, "effort": 2}
   title: "ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card"
   thread: dashboard
-  status: "planned"
+  status: "review"
+  built_2026_10_22: "Chips live on all 47 ura-v8 tiles (room_card template JS field) + detail popup cards (status/control, unusual, who's here, offline, window+HVAC). Backup docs/dashboard-prototypes/ura-v8-backups/20261022T212645Z_pre_room_status_chips.json. Gaps: anomaly sensor only 9 rooms, window sensor 8 rooms, 18 rooms lack unavailable_entities sensor. Next: operator looks at it."
   tier: 1
   created: "2026-10-21 20:10"
   origin: "Operator 2026-10-21: 'add some status chips for the room representation in ura v8 for when light are on or a fan is on in the room. Should be absent when not on.' Then approved all suggested extras: 'I like them all.'"
