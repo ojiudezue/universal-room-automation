@@ -20,7 +20,7 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .const import RETENTION_ROOM_HISTORY_DAYS
+from .const import PREDICTION_RESULTS_RETENTION_DAYS, RETENTION_ROOM_HISTORY_DAYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ NIGHTLY_START_IDX_KEY = "_nightly_start_idx"
 def nightly_cleanup_ops() -> list[tuple[str, str, dict[str, Any]]]:
     """Return the ordered (name, db_method_name, kwargs) nightly ops."""
     return [
-        ("predictions", "prune_prediction_results", {"days": 30}),
+        ("predictions", "prune_prediction_results",
+         {"days": PREDICTION_RESULTS_RETENTION_DAYS}),
         ("census", "cleanup_census", {"retention_days": 90}),
         ("energy_history", "cleanup_energy_history", {"retention_days": 180}),
         ("external_conditions", "cleanup_external_conditions", {"retention_days": 90}),

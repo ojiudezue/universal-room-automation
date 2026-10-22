@@ -93,7 +93,7 @@ from ..const import (
     OPTIMIZER_DIMENSION_SECURITY_POSTURE,
     # v5.3.0 Phase 4 — Prediction-Validation pillar.
     OPTIMIZER_DIMENSION_PREDICTION_ACCURACY,
-    OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT,
+    OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT,
     OPTIMIZER_PREDICTION_ACCURACY_BRIER_CEILING,
     OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES,
     OPTIMIZER_PREDICTION_ACCURACY_DATA_QUALITY_FLOOR_PCT,
@@ -3735,7 +3735,8 @@ class OptimizationCoordinator(BaseCoordinator):
                     except Exception:  # noqa: BLE001
                         pass
                 cursor = await db.execute(
-                    """SELECT predicted_value, actual_value, error_value
+                    """SELECT predicted_value, actual_value, error_value,
+                              person_id
                        FROM prediction_results
                        WHERE prediction_type = 'next_room'
                          AND prediction_timestamp >= ?""",
@@ -3753,22 +3754,31 @@ class OptimizationCoordinator(BaseCoordinator):
                 "top1_hit_rate": None,
                 "brier_score": None,
                 "total_predictions": 0,
+                "baseline_top1_hit_rate": None,
+                "skill_pct": None,
             }
         total = 0
         hits = 0
         brier_sum = 0.0
         brier_n = 0
+        skill_rows: list[tuple] = []
         for r in rows:
             total += 1
             # Row may be aiosqlite.Row (mapping) or a plain tuple under
             # the test stub — handle both.
+            pid = None
             try:
                 pv = r["predicted_value"]
                 av = r["actual_value"]
                 ev = r["error_value"]
+                try:
+                    pid = r["person_id"]
+                except (KeyError, IndexError):
+                    pid = None
             except (TypeError, KeyError, IndexError):
                 try:
                     pv, av, ev = r[0], r[1], r[2]
+                    pid = r[3] if len(r) > 3 else None
                 except Exception:  # noqa: BLE001
                     continue
             try:
@@ -3776,6 +3786,7 @@ class OptimizationCoordinator(BaseCoordinator):
                 top = pred.get("top") if isinstance(pred, dict) else None
             except (TypeError, ValueError):
                 top = None
+            skill_rows.append((pid, top, av, None))
             if top is not None and top == av:
                 hits += 1
             if ev is not None:
@@ -3784,6 +3795,12 @@ class OptimizationCoordinator(BaseCoordinator):
                     brier_n += 1
                 except (TypeError, ValueError):
                     pass
+        # D7 (PREDICT-MODEL-DWELL-MIGRATION-1, operator Q5): the always-the-
+        # usual-room baseline on the SAME rows, via the one shared helper
+        # (PREDICT-SCORER-BASELINE-SKILL-1); never a second baseline.
+        from ..prediction_skill import next_room_skill
+
+        skill = next_room_skill(skill_rows)
         return {
             "top1_hit_rate": (
                 round(hits / total * 100, 1) if total else None
@@ -3792,6 +3809,8 @@ class OptimizationCoordinator(BaseCoordinator):
                 round(brier_sum / brier_n, 4) if brier_n else None
             ),
             "total_predictions": total,
+            "baseline_top1_hit_rate": skill["baseline_top1_pct"],
+            "skill_pct": skill["skill_pct"],
         }
 
     async def _evaluate_prediction_accuracy_dimension(
@@ -3907,22 +3926,32 @@ class OptimizationCoordinator(BaseCoordinator):
         # exact false-alarm risk during the boot warm-up window.)
         under_learned = max_total < OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES
 
-        # Next-room top1 hit-rate degradation.
+        # Next-room skill degradation (D7, PREDICT-MODEL-DWELL-MIGRATION-1,
+        # operator Q5): fire when the pooled top-1 is no better than always
+        # guessing each person's usual room on the same rows. The old
+        # absolute 35% floor rewarded a household with one dominant room and
+        # would flap once the current-room source lifted the pooled rate
+        # near it (plan review H1).
         nr_top1 = (
             (next_room or {}).get("top1_hit_rate") if next_room else None
         )
+        nr_base = (next_room or {}).get("baseline_top1_hit_rate")
+        nr_skill = (next_room or {}).get("skill_pct")
         if (
             not under_learned
             and next_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES
-            and nr_top1 is not None
-            and nr_top1 < OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT
+            and nr_skill is not None
+            and nr_skill <= OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT
         ):
             issues.append(
-                f"next-room top-1 hit-rate "
-                f"{nr_top1:.1f}% < floor "
-                f"{OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT:.1f}%"
+                f"next-room top-1 {nr_top1:.1f}% is no better than always "
+                f"guessing the usual room ({nr_base:.1f}%): skill "
+                f"{nr_skill:+.1f} pts <= "
+                f"{OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT:+.1f}"
             )
             payload["next_room_top1_hit_rate"] = nr_top1
+            payload["next_room_baseline_top1_hit_rate"] = nr_base
+            payload["next_room_skill_pct"] = nr_skill
             payload["next_room_total_predictions"] = next_total
 
         # Bayesian-occupancy Brier degradation (provisional surface).

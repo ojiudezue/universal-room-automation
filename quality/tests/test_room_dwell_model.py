@@ -299,18 +299,24 @@ async def test_runner_db_error_keeps_previous():
 async def test_runner_start_schedules_and_stop_cancels():
     from homeassistant.helpers import event as ha_event
 
-    unsub_nightly, unsub_initial = MagicMock(), MagicMock()
-    tc = MagicMock(return_value=unsub_nightly)
+    unsub_nightly, unsub_tick, unsub_initial = (
+        MagicMock(), MagicMock(), MagicMock())
+    tc = MagicMock(side_effect=[unsub_nightly, unsub_tick])
     cl = MagicMock(return_value=unsub_initial)
     hass = _hass({})
     with patch.object(ha_event, "async_track_time_change", tc), \
             patch.object(ha_event, "async_call_later", cl):
         runner = await rdm.async_setup_room_dwell_model(hass)
     assert hass.data[DOMAIN][rdm.HASS_DATA_KEY] is runner
-    assert tc.call_args.kwargs == {"hour": 3, "minute": 40, "second": 0}
+    # nightly refresh, then the hourly dwell_share tick (minute 2)
+    assert [c.kwargs for c in tc.call_args_list] == [
+        {"hour": 3, "minute": 40, "second": 0},
+        {"minute": 2, "second": 0},
+    ]
     assert cl.call_args.args[1] == 120
     await runner.async_stop()
     unsub_nightly.assert_called_once_with()
+    unsub_tick.assert_called_once_with()
     unsub_initial.assert_called_once_with()
     assert rdm.HASS_DATA_KEY not in hass.data[DOMAIN]
     # a stopped runner never refreshes (and never reads the DB)
@@ -534,3 +540,108 @@ def test_mixed_tz_visit_row_skipped_not_fatal():
     assert m.usual_people("Study A", "E1",
                           datetime(2026, 10, 21, 10, 5, tzinfo=UTC)) == [
         {"person": "jaya", "share": 0.5}]
+
+
+# ---------------------------------------------------------------------------
+# PREDICT-MODEL-DWELL-MIGRATION-1 D1: trained_until_utc, forecast, peak/top
+# cells. Oracles are hand-stated (literal UTC instants, literal shares).
+# ---------------------------------------------------------------------------
+
+
+async def _refresh_at(now_local):
+    db = SimpleNamespace(
+        get_room_occupied_share_by_hour=AsyncMock(
+            return_value=[("E1", "2026-10-20T15", 6, 12)]),
+        get_closed_person_visits=AsyncMock(return_value=[]),
+    )
+    runner = rdm.RoomDwellModelRunner(_hass({"database": db}))
+    with patch.object(dt_util, "now", return_value=now_local), \
+            patch.object(dt_util, "utcnow",
+                         return_value=now_local.astimezone(UTC)):
+        assert await runner.async_refresh() is True
+    return runner.model
+
+
+@pytest.mark.asyncio
+async def test_trained_until_is_start_of_refresh_day():
+    with default_tz(CHI) as tz:
+        model = await _refresh_at(datetime(2026, 10, 21, 3, 40, tzinfo=tz))
+    # local midnight 2026-10-21 CDT (UTC-5) = 05:00Z
+    assert model.trained_until_utc == datetime(2026, 10, 21, 5, 0, tzinfo=UTC)
+    assert model.trained_until_utc.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_trained_until_dst():
+    with default_tz(CHI) as tz:
+        # The fall-back day itself: midnight is still CDT -> 05:00Z.
+        m1 = await _refresh_at(datetime(2026, 11, 1, 10, 0, tzinfo=tz))
+        # The day after: midnight is CST (UTC-6) -> 06:00Z.
+        m2 = await _refresh_at(datetime(2026, 11, 2, 10, 0, tzinfo=tz))
+    assert m1.trained_until_utc == datetime(2026, 11, 1, 5, 0, tzinfo=UTC)
+    assert m2.trained_until_utc == datetime(2026, 11, 2, 6, 0, tzinfo=UTC)
+
+
+def test_trained_until_none_before_refresh():
+    assert rdm.RoomDwellModel().trained_until_utc is None
+
+
+def _utc_model(rows):
+    m = rdm.RoomDwellModel()
+    assert m.refresh(rows, UTC, now_utc=datetime(2026, 10, 22, tzinfo=UTC),
+                     window_days=56)
+    return m
+
+
+# Wed 2026-10-14 (weekday). Cells: 10:00 share 0.25, 11:00 share 0.75.
+_ROWS = [("E1", "2026-10-14T10", 3, 12), ("E1", "2026-10-14T11", 9, 12)]
+_NOW = datetime(2026, 10, 21, 10, 30, tzinfo=UTC)
+
+
+def test_forecast_blend_bounds():
+    m = _utc_model(_ROWS)
+    # +1 h target = 11:00 weekday, share 0.75
+    assert m.forecast("E1", _NOW, 1, 0.1, 0.0) == pytest.approx(0.75)
+    assert m.forecast("E1", _NOW, 1, 0.1, 1.0) == pytest.approx(0.1)
+    # 0.5 x 0.1 + 0.5 x 0.75 = 0.425
+    assert m.forecast("E1", _NOW, 1, 0.1, 0.5) == pytest.approx(0.425)
+    # 0.25 x 0.1 + 0.75 x 0.75 = 0.5875
+    assert m.forecast("E1", _NOW, 1, 0.1, 0.25) == pytest.approx(0.5875)
+    # horizon 0 is the current cell (10:00, 0.25)
+    assert m.forecast("E1", _NOW, 0, None, 0.5) == pytest.approx(0.25)
+
+
+def test_forecast_without_persistence():
+    m = _utc_model(_ROWS)
+    assert m.forecast("E1", _NOW, 1, None, 0.5) == pytest.approx(0.75)
+    # empty target cell (12:00) -> None even with a persistence value
+    assert m.forecast("E1", _NOW, 2, 0.3, 0.5) is None
+    assert m.forecast("missing", _NOW, 1, 0.3, 0.5) is None
+
+
+def test_forecast_horizon_across_dst():
+    """Fall-back 2026-11-01 (Sunday): 00:30 CDT + 4 h = 03:30 CST (local
+    hour 3), not the naive wall-clock 04:30 (hour 4)."""
+    with default_tz(CHI) as tz:
+        m = rdm.RoomDwellModel()
+        # Sunday 2026-10-25 03:xx CDT = 08Z (share 0.25), 04:xx = 09Z (0.75)
+        assert m.refresh([("E1", "2026-10-25T08", 3, 12),
+                          ("E1", "2026-10-25T09", 9, 12)], tz,
+                         now_utc=datetime(2026, 10, 26, tzinfo=UTC),
+                         window_days=56)
+        now = datetime(2026, 11, 1, 0, 30, tzinfo=tz)
+        assert m.forecast("E1", now, 4, None, 0.0) == pytest.approx(0.25)
+
+
+def test_peak_cell():
+    m = _utc_model(_ROWS + [("E1", "2026-10-17T09", 12, 12)])  # Sat 09 = 1.0
+    assert m.peak_cell("E1") == ((9, "weekend"), 1.0)
+    assert m.peak_cell("missing") is None
+
+
+def test_top_cells_count_knob():
+    m = _utc_model(_ROWS + [("E1", "2026-10-17T09", 12, 12)])
+    assert m.top_cells("E1", 2) == [((9, "weekend"), 1.0),
+                                    ((11, "weekday"), 0.75)]
+    assert len(m.top_cells("E1", 5)) == 3
+    assert m.top_cells("E1", 0) == []

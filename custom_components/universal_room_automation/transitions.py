@@ -475,11 +475,15 @@ class TransitionDetector:
                 confidence=transition.confidence,
                 via_room=transition.via_room
             )
-            await self._score_prediction(transition.person_id, transition.to_room)
+            await self._score_prediction(
+                transition.person_id, transition.to_room, transition.from_room,
+            )
         except Exception as e:
             _LOGGER.error("Failed to log transition: %s", e)
 
-    async def _score_prediction(self, person_id: str, actual_room: str) -> None:
+    async def _score_prediction(
+        self, person_id: str, actual_room: str, from_room: str | None = None,
+    ) -> None:
         """Score the cached next-room prediction against the actual transition.
 
         Called immediately after every transition insert so the prediction
@@ -514,6 +518,41 @@ class TransitionDetector:
                 )
                 return
 
+            # PREDICT-MODEL-DWELL-MIGRATION-1 D4 (I4): a prediction made FROM
+            # room A is only scored on a transition that LEFT room A. Both
+            # strings come from person_coordinator's resolved room
+            # (``location`` read by the sensor; ``previous_location`` in the
+            # ura_person_location_change event, person_coordinator.py:545-548),
+            # so an exact compare is the right one (no normaliser exists or is
+            # needed). A cache without ``current_room`` (Bayesian / away
+            # paths, or written before this field) keeps the old behaviour.
+            # Every gated-out transition is counted visibly (H2).
+            stats = (
+                self.hass.data.setdefault(DOMAIN, {})
+                .setdefault("next_room_scoring_stats", {})
+                .setdefault(person_id, {"scored": 0, "skipped_room_mismatch": 0})
+            )
+            cached_from = cache.get("current_room")
+            if (
+                cached_from is not None
+                and from_room is not None
+                and cached_from != from_room
+            ):
+                stats["skipped_room_mismatch"] = stats.get("skipped_room_mismatch", 0) + 1
+                skipped = stats["skipped_room_mismatch"]
+                if skipped % 100 == 0:
+                    scored = stats.get("scored", 0)
+                    _LOGGER.info(
+                        "next-room scoring: %s skipped %d room-mismatched "
+                        "transitions (scored %d, skip ratio %.2f)",
+                        person_id, skipped, scored,
+                        skipped / (skipped + scored),
+                    )
+                from homeassistant.helpers.dispatcher import async_dispatcher_send  # noqa: PLC0415
+                from .domain_coordinators.signals import SIGNAL_NEXT_ROOM_PREDICTION_UPDATE  # noqa: PLC0415
+                async_dispatcher_send(self.hass, SIGNAL_NEXT_ROOM_PREDICTION_UPDATE, person_id)
+                return
+
             top1_hit = 1.0 if cache["top"] == actual_room else 0.0
             top3_hit = 1.0 if actual_room in [cache["top"], *cache["alternatives"]] else 0.0
             brier = (cache["confidence"] - top1_hit) ** 2
@@ -533,6 +572,7 @@ class TransitionDetector:
                 error_value=brier,
                 prediction_timestamp=cache["timestamp"],
             )
+            stats["scored"] = stats.get("scored", 0) + 1
 
             _LOGGER.debug(
                 "Scored next-room prediction for %s: top1=%.0f top3=%.0f brier=%.4f",

@@ -2178,6 +2178,54 @@ TODAY_SENSOR_REFRESH_S: Final = 300
 TODAY_SENSOR_MINUTES_QUANTUM: Final = 5
 TODAY_SENSOR_PCT_QUANTUM: Final = 1
 
+# ----------------------------------------------------------------------------
+# Room forecasts on the dwell model + hourly dwell_share scoring + next room
+# from the current room (PREDICT-MODEL-DWELL-MIGRATION-1, plan
+# docs/planning/PLANNING_predict_dwell_migration.md §6). All rung 1: display /
+# record mechanics on diagnostic surfaces; weights come from the measured
+# backtest (scripts/probes/predict_dwell_backtest.py), not from tuning.
+# Deliberately NOT the OCC_ANOMALY_* constants: same numbers would be a
+# coincidental equality hiding two concepts.
+# ----------------------------------------------------------------------------
+# Kill switch for D2. False: the room Bayesian Occupancy Forecast / Pattern
+# sensors read the Bayesian arrival model exactly as before.
+FORECAST_DWELL_SOURCE_ENABLED: Final = True
+# Weight of the last completed hour's occupied fraction in the +1 h / +4 h
+# forecasts (P1-R runtime-alignment sweep). 0.0 = cell share only; 1.0 =
+# persistence only.
+FORECAST_PERSISTENCE_WEIGHT_1H: Final = 0.5
+FORECAST_PERSISTENCE_WEIGHT_4H: Final = 0.25
+# Cells listed in the pattern sensor's top_cells attribute (~30 bytes each).
+# 0 = attribute omitted.
+FORECAST_TOP_CELLS_COUNT: Final = 5
+# Kill switch for D3 (hourly dwell_share rows). False: no tick registered, no
+# read, no write; the forecast blend falls back to weight 0.
+DWELL_SHARE_PRODUCER_ENABLED: Final = True
+# Minute of each hour the producer runs: it scores the finished hour after its
+# last 5-min sample has landed and freezes the new hour's expected share.
+# Valid 0-14 (the freeze must happen inside the hour); an out-of-range value
+# is clamped to 2 at registration with one WARNING (never raises at import).
+DWELL_SHARE_TICK_MINUTE: Final = 2
+# An hour with fewer environmental_data samples than this is skipped, not
+# scored (HA down / stalled coordinator). 0 = score any hour with >= 1 sample.
+DWELL_SHARE_MIN_ACTUAL_SAMPLES: Final = 6
+# Kill switch for D4: True = likely_next_room predicts from the room the
+# person is in now (PatternLearner first-order chain) before the Bayesian
+# arrival model. False = old order (Bayesian -> away_typical -> frequency).
+NEXT_ROOM_CURRENT_ROOM_PRIMARY: Final = True
+# Evidence bound only (no behaviour gate): the share of transitions the
+# from-room scoring gate may drop before a person's top-1 gain stops counting
+# as evidence. Read by the accuracy sensor's skip_ratio_ok. 1.0 = never flags.
+NEXT_ROOM_MAX_SKIP_RATIO: Final = 0.30
+# Skill-vs-baseline (PREDICT-SCORER-BASELINE-SKILL-1): a next-room row is a
+# flap when the same person's next scored row comes less than this many
+# seconds later; the accuracy sensors also report skill with those dropped.
+# 0 = no dedupe (the *_dedup attributes equal the raw ones).
+NEXT_ROOM_FLAP_DEDUPE_S: Final = 60
+# Retention for prediction_results, all types (nightly prune). Must cover the
+# 37-day next_room window regime_detector reads (30 + 7).
+PREDICTION_RESULTS_RETENTION_DAYS: Final = 45
+
 # ============================================================================
 # COMFORT & ENERGY THRESHOLDS
 # ============================================================================
@@ -4268,8 +4316,14 @@ OPTIMIZER_DIMENSIONS_ALL: Final = (
 
 # v5.3.0 Phase 4 thresholds. Module constants only (no per-room CONF — the
 # accuracy surface is house/person-level, not per-room).
-# Top-1 next-room hit-rate floor (percent). Below this is "degraded".
+# Top-1 next-room hit-rate floor (percent). RETIRED as the firing rule by
+# PREDICT-MODEL-DWELL-MIGRATION-1 D7 (an absolute floor rewards a household
+# with one dominant room); kept, with no reader, for the hysteresis fallback.
 OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT: Final = 35.0
+# D7 (operator Q5): the next-room clause fires when pooled top-1 minus the
+# always-the-usual-room top-1 on the same rows is <= this many points.
+# 0.0 = "no better than the constant". Negative = never fires on skill.
+OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT: Final = 0.0
 # Brier-score ceiling for the bayesian-occupancy surface. Above this is
 # "degraded" (Brier is lower=better; 0 perfect, 0.25 is the no-skill baseline
 # for binary outcomes, so 0.30 represents materially worse-than-uninformed).

@@ -3953,13 +3953,15 @@ def _make_pred_coord(predictor, next_room):
 
 @pytest.mark.asyncio
 async def test_optimizer_prediction_accuracy_flags_degraded():
-    """Top-1 hit-rate below floor with ample samples → one house finding."""
+    """No skill over the usual-room baseline with ample samples → one house
+    finding (D7 rule; was an absolute 35% floor)."""
     from custom_components.universal_room_automation.domain_coordinators.optimization import (
         OptimizationDimension,
     )
     coord = _make_pred_coord(
         _fake_predictor(),
-        {"top1_hit_rate": 18.0, "total_predictions": 120},
+        {"top1_hit_rate": 18.0, "total_predictions": 120,
+         "baseline_top1_hit_rate": 25.0, "skill_pct": -7.0},
     )
     findings = await coord._evaluate_prediction_accuracy_dimension()
     pa = [f for f in findings
@@ -3977,11 +3979,75 @@ async def test_optimizer_prediction_accuracy_no_flag_when_healthy():
     )
     coord = _make_pred_coord(
         _fake_predictor(),
-        {"top1_hit_rate": 72.0, "total_predictions": 120},
+        {"top1_hit_rate": 72.0, "total_predictions": 120,
+         "baseline_top1_hit_rate": 30.0, "skill_pct": 42.0},
     )
     findings = await coord._evaluate_prediction_accuracy_dimension()
     assert [f for f in findings
             if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
+
+
+def _pa(findings):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    return [f for f in findings
+            if f.dimension == OptimizationDimension.PREDICTION_ACCURACY]
+
+
+@pytest.mark.asyncio
+async def test_next_room_fires_on_no_skill():
+    """D7: pooled 45% equal to its 45% baseline → fires (no skill), although
+    the old absolute rule would have cleared it (45 >= 35)."""
+    coord = _make_pred_coord(
+        _fake_predictor(),
+        {"top1_hit_rate": 45.0, "total_predictions": 120,
+         "baseline_top1_hit_rate": 45.0, "skill_pct": 0.0},
+    )
+    pa = _pa(await coord._evaluate_prediction_accuracy_dimension())
+    assert len(pa) == 1
+    assert pa[0].payload["next_room_skill_pct"] == 0.0
+    assert pa[0].payload["next_room_baseline_top1_hit_rate"] == 45.0
+    assert pa[0].payload["next_room_top1_hit_rate"] == 45.0
+    assert "usual room" in pa[0].description
+
+
+@pytest.mark.asyncio
+async def test_next_room_quiet_with_skill_below_old_floor():
+    """D7: 30% top-1 vs a 15% baseline → quiet, although the old absolute
+    rule would have fired (30 < 35)."""
+    coord = _make_pred_coord(
+        _fake_predictor(),
+        {"top1_hit_rate": 30.0, "total_predictions": 120,
+         "baseline_top1_hit_rate": 15.0, "skill_pct": 15.0},
+    )
+    assert _pa(await coord._evaluate_prediction_accuracy_dimension()) == []
+
+
+@pytest.mark.asyncio
+async def test_next_room_skill_boundary():
+    """Literal boundary at the 0.0 default: +0.1 is quiet, -0.1 fires."""
+    quiet = _make_pred_coord(_fake_predictor(), {
+        "top1_hit_rate": 40.1, "total_predictions": 120,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": 0.1})
+    fire = _make_pred_coord(_fake_predictor(), {
+        "top1_hit_rate": 39.9, "total_predictions": 120,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": -0.1})
+    assert _pa(await quiet._evaluate_prediction_accuracy_dimension()) == []
+    assert len(_pa(await fire._evaluate_prediction_accuracy_dimension())) == 1
+
+
+@pytest.mark.asyncio
+async def test_under_learned_gate_unchanged():
+    """The min-samples gate (50, literal) still holds the clause back."""
+    under = _make_pred_coord(_fake_predictor(), {
+        "top1_hit_rate": 10.0, "total_predictions": 49,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": -30.0})
+    at = _make_pred_coord(_fake_predictor(), {
+        "top1_hit_rate": 10.0, "total_predictions": 50,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": -30.0})
+    assert _pa(await under._evaluate_prediction_accuracy_dimension()) == []
+    assert len(_pa(await at._evaluate_prediction_accuracy_dimension())) == 1
 
 
 @pytest.mark.asyncio

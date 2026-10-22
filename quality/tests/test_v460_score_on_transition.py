@@ -9,6 +9,10 @@ Source-grep + AST-walk tests verify:
 """
 
 import ast
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 
@@ -30,11 +34,53 @@ def transitions_tree(transitions_src: str) -> ast.Module:
 # ---------------------------------------------------------------------------
 
 
-def test_score_prediction_method_exists(transitions_src: str):
-    """_score_prediction must be defined on TransitionDetector."""
-    assert "async def _score_prediction(self, person_id: str, actual_room: str)" in transitions_src, (
-        "D2: _score_prediction method must exist with (person_id, actual_room) signature"
-    )
+# Behavioural replacements (PREDICT-MODEL-DWELL-MIGRATION-1 D4 added a
+# from_room argument, which broke four signature/call-string greps; they are
+# now driven through the real _log_transition instead of grepped).
+
+
+@pytest.fixture(scope="module")
+def _real():
+    import importlib
+
+    from occ_dwell_helpers import real_package
+
+    with real_package():
+        yield SimpleNamespace(
+            transitions=importlib.import_module(
+                "custom_components.universal_room_automation.transitions"),
+            dt_util=importlib.import_module("homeassistant.util.dt"),
+            dispatcher=importlib.import_module("homeassistant.helpers.dispatcher"),
+        )
+
+
+def _detector(real, save):
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    cache = {"top": "Kitchen", "alternatives": ["Foyer"], "confidence": 0.5,
+             "source": "frequency",
+             "timestamp": real.dt_util.utcnow().isoformat()}
+    db = SimpleNamespace(log_transition=AsyncMock(),
+                         save_next_room_prediction_result=save)
+    hass = SimpleNamespace(data={DOMAIN: {"next_room_predictions": {"Oji": cache}}})
+    return real.transitions.TransitionDetector(hass, None, db)
+
+
+def _transition(real):
+    return real.transitions.RoomTransition(
+        person_id="Oji", from_room="Study A", to_room="Kitchen",
+        timestamp=datetime.now(timezone.utc), duration_seconds=10,
+        path_type="direct", confidence=0.9)
+
+
+@pytest.mark.asyncio
+async def test_score_prediction_method_exists(_real):
+    """_log_transition scores the cached prediction (behavioural)."""
+    save = AsyncMock()
+    det = _detector(_real, save)
+    with patch.object(_real.dispatcher, "async_dispatcher_send", MagicMock()):
+        await det._log_transition(_transition(_real))
+    save.assert_awaited_once()
 
 
 def test_score_prediction_called_from_log_transition(transitions_src: str):
@@ -74,11 +120,17 @@ def test_score_prediction_inside_try_block(transitions_src: str):
     )
 
 
-def test_score_prediction_receives_person_id_and_to_room(transitions_src: str):
-    """The call must pass transition.person_id and transition.to_room."""
-    assert "self._score_prediction(transition.person_id, transition.to_room)" in transitions_src, (
-        "D2: _score_prediction call must pass transition.person_id and transition.to_room"
-    )
+@pytest.mark.asyncio
+async def test_score_prediction_receives_person_id_and_to_room(_real):
+    """The scored row carries the transition's person and to_room."""
+    save = AsyncMock()
+    det = _detector(_real, save)
+    with patch.object(_real.dispatcher, "async_dispatcher_send", MagicMock()):
+        await det._log_transition(_transition(_real))
+    kw = save.await_args.kwargs
+    assert kw["person_id"] == "Oji"
+    assert kw["actual_room"] == "Kitchen"
+    assert kw["predicted_room"] == "Kitchen"
 
 
 # ---------------------------------------------------------------------------
@@ -86,30 +138,25 @@ def test_score_prediction_receives_person_id_and_to_room(transitions_src: str):
 # ---------------------------------------------------------------------------
 
 
-def test_score_prediction_wrapped_in_try_except(transitions_src: str):
-    """Entire body must be wrapped in a try/except so scoring failure
-    never propagates to _log_transition.
-    """
-    score_start = transitions_src.find("async def _score_prediction(self, person_id: str, actual_room: str)")
-    assert score_start >= 0
-    next_method = transitions_src.find("\n    async def ", score_start + 100)
-    if next_method < 0:
-        next_method = transitions_src.find("\n    def ", score_start + 100)
-    body = transitions_src[score_start:next_method if next_method > 0 else score_start + 4000]
-    assert "try:" in body, "D2: _score_prediction body must start with try:"
-    assert "except Exception:" in body, "D2: _score_prediction must catch Exception"
+@pytest.mark.asyncio
+async def test_score_prediction_wrapped_in_try_except(_real):
+    """A scoring failure never propagates out of _score_prediction."""
+    det = _detector(_real, AsyncMock(side_effect=RuntimeError("db gone")))
+    await det._score_prediction("Oji", "Kitchen", "Study A")   # no raise
 
 
-def test_score_prediction_warning_level_swallow(transitions_src: str):
-    """Exception must be logged at WARNING (not debug/error) with exc_info=True."""
-    score_start = transitions_src.find("async def _score_prediction(self, person_id: str, actual_room: str)")
-    assert score_start >= 0
-    next_method = transitions_src.find("\n    async def ", score_start + 100)
-    if next_method < 0:
-        next_method = transitions_src.find("\n    def ", score_start + 100)
-    body = transitions_src[score_start:next_method if next_method > 0 else score_start + 4000]
-    assert "_LOGGER.warning(" in body, "D2: swallow must be WARNING-level"
-    assert "exc_info=True" in body, "D2: swallow must include exc_info=True"
+@pytest.mark.asyncio
+async def test_score_prediction_warning_level_swallow(_real, caplog):
+    """The swallowed failure is logged at WARNING with a traceback."""
+    import logging
+
+    det = _detector(_real, AsyncMock(side_effect=RuntimeError("db gone")))
+    with caplog.at_level(logging.WARNING):
+        await det._score_prediction("Oji", "Kitchen", "Study A")
+    recs = [r for r in caplog.records if "prediction scoring failed" in r.getMessage()]
+    assert len(recs) == 1
+    assert recs[0].levelno == logging.WARNING
+    assert recs[0].exc_info is not None
 
 
 # ---------------------------------------------------------------------------
