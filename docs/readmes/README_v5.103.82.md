@@ -83,5 +83,5 @@ Shared stub `test_ec_billing_d5a_baseline_guard_sites._bare_ec` gains `_lifetime
 |---|---|---|
 | Installed and loaded | PASS | HACS v5.103.82; installed `energy_const.py` derives `production_ct_energy_delivered`; 0 URA ERROR/Traceback lines in the HA log after boot |
 | Shutdown save | PASS | 0 `write worker is closed` lines over the restart |
-| Switch-over day NULL, no learning | PENDING | first evaluable at 2026-10-22 00:00 local (today's row) |
+| Switch-over day NULL, no learning | PASS (checked 2026-10-22) | `energy_daily` 2026-10-21: `solar_production_kwh` NULL, `consumption_kwh` NULL, `predicted_consumption_kwh` / `prediction_error_pct` / `adjustment_factor` NULL (no learning row). Prior day 2026-10-20 solar 105.28, consumption 120.25. Side note, not this criterion: the 10-21 row's `import_kwh` is 0.99 (`billing_source` counter_gap), far below 10-20's 87.95; billing for the restart day looks under-counted, tracked on EC-SOLAR-LIFETIME-COUNTER-FLAP-1 |
 | Next full day solar = CT daily delta ±1% | PENDING | first evaluable at 2026-10-23 00:00 local (row for 10-22) |
