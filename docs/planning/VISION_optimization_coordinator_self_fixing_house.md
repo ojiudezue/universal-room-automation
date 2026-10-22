@@ -53,6 +53,20 @@ Operator: "we just need a risk level taxonomy where it can act alone and some wh
 - The URA parent entry is never reloaded (watchdog hazard).
 - Battery reserve and safety/security stay hard-denied, as today (`optimization.py` :4514; `security.py:1880`).
 
+### 2a. Promotable R2 fix types (rev 5, operator: "We need a set of types to promote")
+
+A fix type is the unit of promotion. Each type is a fixed verb plus a fixed target class plus a check-back, so its precision can be measured on its own. Every type starts as **propose-only**. It is promoted to act-alone by an operator tap after ≥ 20 logged proposals at ≥ 90% precision. It is demoted automatically on a failed check-back.
+
+| # | Fix type | Path (owning coordinator) | Check-back |
+|---|---|---|---|
+| P1 | Turn off a light left on in a room that has been vacant for ≥ its configured timeout | room light path via `fan_policy_oracle`/room actuation | light off and room still vacant 10 min later |
+| P2 | Turn off a fan stuck on after vacancy (humidity normal) | fan policy oracle | fan off, no humidity rise in 30 min |
+| P3 | Restore an HVAC zone preset after an unreleased borrow/excursion | HVAC `strategy_for` → `emit_set_*` (after `manual_guard_verdict`, `is_borrow_active`) | preset matches the schedule 15 min later, no manual-hold flag |
+| P4 | Retune one bounded numeric knob by one step inside its documented range | the knob's existing setter, clamped | the target metric moves the right way over the next 3 days; else revert |
+| P5 | Re-apply a room's presence-sensor settings (radar sensitivity) after drift | `reapply_radar_settings` | settings read back equal |
+
+Not promotable, ever: anything in R3; any climate write outside P3; EVSE; anything the house-sleep gate blocks.
+
 **The action log is the only static trust machinery.** Each row records:
 - what was done and at which tier;
 - why, with the evidence cited;
@@ -99,6 +113,27 @@ Operator: "It needs to understand HA ... URA and the current config ... a list o
 | HVAC preset, fan/light, energy knob retunes | R2 | through the owning coordinator's existing path (rev 3 rule, below) |
 | `set_house_state`, `security_arm/disarm`, restart | R3 | exist; never called alone |
 
+**Full tool inventory and exclusions (rev 5).** The table above is the allowed set. Everything below is explicitly excluded from the agent's catalogue, in two classes:
+
+*Never grantable (hard-denied in code, not by prompt):*
+- `homeassistant.restart` / `stop`, `hassio.*` host/add-on control, OS/backup operations.
+- Reloading the URA parent entry or any URA entry (watchdog hazard).
+- `lock.*`, `alarm_control_panel.*`, `security_arm/disarm`, `set_house_state`.
+- Battery/Envoy reserve, storage mode, charge-from-grid; EVSE start/stop/pause.
+- Recorder `purge`/`purge_entities`, entity/device/registry removal, config-entry delete/options edits, `.storage` writes.
+- Any `notify.*` or message send other than the NM digest/page.
+- `script.*` / `automation.trigger` / `scene.*` (arbitrary side effects behind one name).
+- Shell on the HA host, ESPHome flashing, HACS install/update.
+
+*Excluded today, promotable to a tier later with a named fix type:*
+- `light.*`/`fan.*`/`switch.*` raw calls: only via P1/P2 paths, never raw.
+- `climate.*` raw calls: only via P3.
+- `number.set_value` / `select.select_option` on URA knobs: only via P4, one step, clamped.
+- `automation.turn_on/off`: candidate R2 type if a pattern of disabled-by-mistake automations shows up.
+- `zha`/`mqtt` device re-interview, Bermuda offset edits: R3 propose-only until device re-sync is defined per integration.
+
+**Unified request API — revisited (operator: "really think about if we need an API that can cover all Coordinators").** Owning paths now (decision 7). The case for a unified API gets stronger as types grow: one place for tier checks, sleep gate, action-log row and check-back scheduling. The cheap middle path: a thin `request_fix(type, target, evidence)` dispatcher in URA that does the shared gate/log/check-back work and then *calls* the owning coordinator's existing path. It is not a new actuation path, so the rev-3 risks (manual-hold, arrester misattribution, precedence bypass) don't come back. Build it in slice 2, when the first R1 types go in-HA; revisit a deeper API only if ≥ 3 coordinators need the same request shape.
+
 **R2 keeps the rev-3 rule: use the owning coordinator's existing path, never a raw service call into its domain.**
 - HVAC: `strategy_for` → adapter verb → `emit_set_*` funnel inside the arrester `suppress()`, after reading `manual_guard_verdict` (`hvac_preset.py:259`) and `is_borrow_active` (`hvac_excursion.py:597`). Preset verbs only. Remove `optimization.py` from `DYNAMIC_DOMAIN_ALLOWLIST` (`hvac_const.py:1546`).
 - Fans/lights: the policy oracles (`fan_policy_oracle.py:588`).
@@ -123,6 +158,11 @@ Operator: "It needs to understand HA ... URA and the current config ... a list o
 - **Position:** the agent is memory's first automated consumer, for diagnosis and verification only, inside the memory-ineligible boundary (no memory reads for safety, security, occupancy or reserve decisions, `memory_writers.py:29-43`).
 - **Uses:** "is this normal for this room and time", "has this recurred", and fix check-backs via a real `outcome()` (today a stub, `memory_facade.py:608-627`).
 - **Prediction vs actual:** `prediction_results` type `dwell_share`. Predicted = the `expected_share` frozen before the hour; actual = the room's occupied fraction that hour. The hourly actual-fraction producer is new.
+- **Beyond rooms (rev 5, operator: "HA as well if needed but room is bounded. Find a bound").** HA-wide data is allowed, under a per-run bound:
+  - only entities linked to an open problem record, the problem's room/zone, or a changed-since-last-run item;
+  - history window ≤ 7 days per entity, statistics (hourly) beyond that, never raw recorder dumps;
+  - ≤ 50 entities and ≤ 200k tool-result tokens per run in total; the run notes when it hits the cap instead of widening;
+  - logs: only lines matching the problem's integration/entity, last 24 h.
 
 ---
 
