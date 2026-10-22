@@ -461,3 +461,6 @@ Rung 1 = module constant (change requires review); rung 3 = live Number/Select e
 | `optimizer_agent_heartbeat_deadline` | 3 | 08:00 | dead-man; empty = off |
 | Check-back windows P1 10 min / P2 30 min / P4 3 d | 1 | as listed | part of each type's definition |
 | Goals: five rank selects + bill-cap number | 3 | none | operator policy |
+
+## Rev 6 decisions (operator, 2026-10-21)
+Operator: "2 - rec" — all recommended defaults taken: D1 commit slices 0-1 + the two cheap static fixes, R1 conditional, R2 parked with revival trigger; D2 re-tiering as listed; D3 keep $25 cap, decide after slice 0; D4 rev-6 promotion rule; D5 ≥30 rated diagnoses ≥80%, extend to 2 weeks if short; D6 homelab host with missed-run page; D7 clamp existing optimizer executor to shadow in slice 1. Operator: "3 - rec" — slice-0 judge is Opus 5.5, operator checks every invented-evidence verdict.

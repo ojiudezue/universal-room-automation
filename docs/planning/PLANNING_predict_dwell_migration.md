@@ -453,3 +453,6 @@ Review: `docs/planning/REVIEW_plan_predict_dwell_migration.md` (FIX-PLAN-FIRST, 
 | L5 | — | **Accepted.** `FORECAST_TOP_CELLS_COUNT = 5` (rung 1), size stated. | §6, D1, D2 |
 
 Scope after fixes: D7 is new (one clause + one constant pair, gated on the sibling card). Under the ~20% split threshold; kept in this plan because it is the consumer side of D4's value change.
+
+## Operator decisions (2026-10-21)
+Operator: "1 - rec" — all §13 recommendations taken: Q1 energy forecast stays on the old model (card later); Q2 PREDICT-SCORER-BASELINE-SKILL-1 ships in the same release; Q3 room level only; Q4 one-off prune of ~150k old `next_room` rows: YES (permanent deletion approved); Q5 optimizer next-room finding compares against baseline skill.
