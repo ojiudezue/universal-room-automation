@@ -192,23 +192,46 @@ def test_integration_setup_entry_calls_version_check():
         data={"entry_type": "integration"}, options={}, entry_id="int1",
         title="URA",
     )
-    import asyncio
 
     async def _noop(*_a, **_k):
         return None
 
-    with patch.object(vc, "async_start_version_check", fake_start), \
-            patch.object(ura, "_migrate_room_zone_name_writethrough", lambda *a: None), \
-            patch.object(ura, "_check_and_notify_room_name_desync", _noop), \
+    # Suite-order isolation (TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 class): the
+    # stub prelude in test_domain_coordinators (pulled in by other files via
+    # `from test_domain_coordinators import *`) replaces the URA package in
+    # sys.modules with a stub that lacks the real __init__ helpers, so this
+    # test failed in full-suite order only (bisected 2026-10-21 to
+    # test_anomaly_baseline_periodic_save.py). Import a FRESH real package
+    # inside patch.dict(sys.modules): every URA key is dropped for the
+    # duration and the original mapping (stubs included) is restored on exit,
+    # so neighbouring files see exactly what they had.
+    import importlib
+    import sys
+
+    pkg = "custom_components.universal_room_automation"
+    with patch.dict(sys.modules):
+        for key in [k for k in sys.modules if k == pkg or k.startswith(pkg + ".")]:
+            del sys.modules[key]
+        live_ura = importlib.import_module(pkg)
+        live_vc = importlib.import_module(pkg + ".version_check")
+        _run_setup_with_fake_start(live_ura, live_vc, fake_start, hass, entry, _noop)
+    assert seen == [(hass, entry)]
+
+
+def _run_setup_with_fake_start(live_ura, live_vc, fake_start, hass, entry, _noop):
+    import asyncio
+
+    with patch.object(live_vc, "async_start_version_check", fake_start), \
+            patch.object(live_ura, "_migrate_room_zone_name_writethrough", lambda *a: None), \
+            patch.object(live_ura, "_check_and_notify_room_name_desync", _noop), \
             patch(
                 "custom_components.universal_room_automation.domain_coordinators"
                 "._loop_stall_watchdog.install", lambda *a: None,
             ):
         with pytest.raises(_StopSetup):
             asyncio.new_event_loop().run_until_complete(
-                ura.async_setup_entry(hass, entry)
+                live_ura.async_setup_entry(hass, entry)
             )
-    assert seen == [(hass, entry)]
 
 
 def test_coordinator_manager_sensor_exposes_version_attrs():
