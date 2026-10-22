@@ -1043,6 +1043,9 @@ class SafetyCoordinator(BaseCoordinator):
         self._hazard_clear_pending: dict[str, datetime] = {}
         self._sensor_unavailable_since: dict[str, datetime] = {}
         self._deduplicator = AlertDeduplicator()
+        # Separate window for the test_safety_hazard service so a test page
+        # never stamps (and suppresses) a real hazard's dedup key.
+        self._test_deduplicator = AlertDeduplicator()
         self._rate_detector = RateOfChangeDetector()
 
         # Discovered sensors
@@ -2576,20 +2579,7 @@ class SafetyCoordinator(BaseCoordinator):
             # Send notification if not deduplicated
             if self._deduplicator.should_alert(hazard):
                 self._alerts_sent_24h += 1
-                actions.append(
-                    NotificationAction(
-                        coordinator_id=self.COORDINATOR_ID,
-                        severity=hazard.severity,
-                        confidence=hazard.confidence,
-                        description=f"Safety alert: {hazard.message}",
-                        message=hazard.message,
-                        channels=self._get_notification_channels(hazard.severity),
-                        # SAFETY-NM-REFIRE-UNWIRED-1 D1: key NM's post-ACK
-                        # re-fire gate + life-safety classification.
-                        hazard_type=hazard.type.value,
-                        location=hazard.location,
-                    )
-                )
+                actions.append(self._hazard_notification_action(hazard))
 
         # Log decision
         if self.decision_logger is not None:
@@ -2846,6 +2836,27 @@ class SafetyCoordinator(BaseCoordinator):
         }
         return mapping.get(hazard_type, "warning")
 
+    def _hazard_notification_action(
+        self, hazard: Hazard, title_prefix: str = "Safety alert"
+    ) -> NotificationAction:
+        """Build the NotificationAction a hazard page is sent with.
+
+        Shared by the real hazard path (_respond_to_hazard) and the
+        test_safety_hazard service so a test page has exactly the real shape.
+        """
+        return NotificationAction(
+            coordinator_id=self.COORDINATOR_ID,
+            severity=hazard.severity,
+            confidence=hazard.confidence,
+            description=f"{title_prefix}: {hazard.message}",
+            message=hazard.message,
+            channels=self._get_notification_channels(hazard.severity),
+            # SAFETY-NM-REFIRE-UNWIRED-1 D1: key NM's post-ACK
+            # re-fire gate + life-safety classification.
+            hazard_type=hazard.type.value,
+            location=hazard.location,
+        )
+
     @staticmethod
     def _get_notification_channels(severity: Severity) -> list[str]:
         """Get notification channels based on severity."""
@@ -3027,16 +3038,38 @@ class SafetyCoordinator(BaseCoordinator):
             message=f"TEST: {h_type.value} in {location} (severity: {sev.name})",
         )
 
-        # Only send notification, no real response actions
-        if self._deduplicator.should_alert(hazard):
-            channels = self._get_notification_channels(sev)
+        # SAFETY-TEST-HAZARD-SENDS-NOTHING-1: send the page through the SAME
+        # dispatch a real hazard uses (manager._execute_action → NM
+        # async_notify), but with NO response actions, no signal, and no
+        # _active_hazards entry. A dedicated deduplicator is used so a test
+        # page can never suppress a real page for the same type:location.
+        # Review A1: NM has ONE active alert slot. A test page while a real
+        # alert is ALERTING/REPEATING would overwrite it, and acking the test
+        # would stop the real repeat. Refuse the test outright.
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        nm = getattr(manager, "_notification_manager", None)
+        if nm is not None and getattr(nm, "active_alert", False) is True:
+            _LOGGER.warning("test hazard refused: a live alert is active")
+            return
+        if not self._test_deduplicator.should_alert(hazard):
             _LOGGER.info(
-                "Test safety hazard: %s in %s (severity: %s, channels: %s)",
+                "Test safety hazard suppressed by test dedup window: %s in %s",
                 hazard_type,
                 location,
-                severity,
-                channels,
             )
+            return
+        action = self._hazard_notification_action(hazard, title_prefix="TEST safety alert")
+        _LOGGER.info(
+            "Test safety hazard: %s in %s (severity: %s, channels: %s)",
+            hazard_type,
+            location,
+            sev.name,
+            action.channels,
+        )
+        if manager is None:
+            _LOGGER.warning("Test safety hazard: coordinator manager unavailable, not sent")
+            return
+        await manager._execute_action(self, action)
 
     # =========================================================================
     # Hazard clearing
