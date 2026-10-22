@@ -1,4 +1,4 @@
-# URA v5.103.63: safety alerts re-page after acknowledgement; repeat schedule becomes a setting
+# URA v5.103.65: safety alerts re-page after acknowledgement; repeat schedule becomes a setting
 
 Card: SAFETY-NM-REFIRE-UNWIRED-1. Plan: `docs/planning/PLANNING_safety_nm_refire.md` Rev 4.3 (four plan-review rounds; D5 stop-on-clear withdrawn). Tier 2-DB, life-safety: reviews A (correctness) SHIP, B (lifecycle/integration) FIX-REQUIRED and fixed, C (per-site mutation, 33 sites) SHIP. Record: `docs/reviews/code-review/v5.103.63_safety_nm_refire.md`. Deploy risk: **MEDIUM** (notification behaviour of life-safety alerts). Deploy held until the operator is home (Sun 10-18).
 
@@ -27,3 +27,17 @@ Safety's alerts reached the notification manager without a hazard type or locati
 - **Live:** an unacknowledged test alert repeats on the Standard ladder (second page ~5 min after the first), not every 30 s.
 - **Live:** the options flow shows "Smoke, CO and flood repeat schedule" = Standard; saving it does not reload the Coordinator Manager.
 - **Live:** 0 URA ERRORs.
+
+## Validated 2026-10-21
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Alert pages with `hazard_type` and a location in `notification_log` | PASS (organic, not via the test service) | Safety rows since the ship carry both fields: `high_co2` / Master Bathroom (ids 22946, 22955, 2026-10-19 13:10Z and 14:24Z, MEDIUM), `freeze_risk` / Master Bathroom (ids 23395-23396, 2026-10-22 01:52:42Z, HIGH, companion, delivered=1), `low_humidity` / Garage A and Study A Closet. Pre-ship safety rows (ids 22387, 22494, 22495, 2026-10-16/17) have blank hazard_type. |
+| Acknowledge, then one re-page row after the 120 s cooldown | NOT-YET-EVALUABLE | No acknowledged safety alert and no Safety test-service call since the ship (`acknowledged=0` on all safety rows). The only life-safety-class page since the ship is the freeze alert, which is HIGH (not CRITICAL; the repeat loop is for CRITICAL: `notification_manager.py:2790` `_repeat_alert`). Needs a deliberate test smoke alert; this is a one-shot operator or tester action, not a wait. |
+| Unacknowledged alert repeats on the Standard ladder (~5 min), not 30 s | NOT-YET-EVALUABLE | same: no CRITICAL life-safety episode. The freeze alert has a single page (2 rows = one companion row plus its [audit] twin) over the ~55 min since 01:52Z. |
+| Options flow shows "Smoke, CO and flood repeat schedule" = Standard; saving does not reload CM | PASS for the default, NOT-YET-EVALUABLE for no-reload | `core.config_entries`, "URA: Coordinator Manager": key `nm_life_safety_repeat_schedule` is absent, so `_life_safety_repeat_schedule()` returns the default Standard (`notification_manager.py:2666-2685`, default `const.py:3627`). Options-flow rendering and no-reload are suite-proven only. |
+| 0 URA ERRORs | NOT-YET-EVALUABLE | log-read gap |
+
+Recommended disposition: close D1 (hazard type and location) as validated live, and keep the re-page and ladder criteria open until one test smoke alert is run (`ura-prober` can do it only if the operator authorises the Safety test service; I did not call it).
+
+_Log-scan criteria are NOT-YET-EVALUABLE (no log access from the probe); source: docs/planning/AUDIT_readme_straggler_validation_2026_10_21.md._

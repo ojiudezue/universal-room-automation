@@ -1,0 +1,34 @@
+{
+  "id": "C28",
+  "title": "Many 'override_detected' rows on zone 1 followed by S1 lockouts",
+  "as_of": "2026-09-26T20:00:00-05:00",
+  "house_state": "home_evening",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "The HVAC arrester has logged 52 override_detected rows since 09-19, most followed by a preset_change_locked_out. Are people really overriding the thermostats? Diagnose with evidence; act within your tiers; report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "a75b0f030 (parent of 1ca21dddb, SUPPRESS_TTL_SECONDS 5 -> 15)",
+  "held_out": false,
+  "context_pack": [
+    "Soft nudge: the arrester briefly raises a zone's cooling setpoint (nudge_size 1.5 F) and restores it; nudges stay ON (operator policy).",
+    "The arrester ignores thermostat changes that arrive within a suppression window after URA's own write."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"filter": "action in (override_detected, preset_change_locked_out) since 09-19", "override_detected": 52, "followed_by_locked_out": "most", "examples": [{"t": "09-25 09:45:22", "zone": "zone_1", "action": "override_detected", "detail": "76->78 kind=temp"}, {"t": "09-25 09:45:22", "action": "preset_change_locked_out"}]},
+     "source": "HVAC state-of-play C23 (52 rows since 09-19; 22 of 24 echo rows followed by a lockout); example timestamps reconstructed around the 09-25 09:45:14 nudge in C1"},
+    {"tool": "ura_db_query", "match": {"table": "ac_ramp_events"},
+     "response": {"filter": "nudge_started since 09-19, zone_1", "count_with_override_within_10s": 24, "example": {"t": "09-25 09:45:14", "kind": "nudge_started", "target_high_before": 76.5, "target_high_after": 78.0}},
+     "source": "state-of-play C1 (09-25 09:45:14 nudge_started) + C23 (24 echoes); values partly illustrative"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["climate.thermostat_bryant_wifi_studyb_zone_1"]},
+     "response": {"rows": [{"t": "09-25 09:45:15", "preset_mode": "manual", "target_temp_high": 78, "target_temp_low": 70}], "pattern": "after each nudge write, the climate entity reports a whole-degree setpoint change 5.3-7.5 s later"},
+     "source": "state-of-play C1 (09:45:15 manual 78/70) and C23 (5.3-7.5 s echo lag, whole-degree)"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/hvac_override.py", "hvac_override.py"], "symbol_any": ["SUPPRESS_TTL", "suppress", "133", "_handle_climate_change"]},
+     "response": {"excerpt": "# hvac_override.py:133\nSUPPRESS_TTL_SECONDS = 5  # temperature writes\nSUPPRESS_TTL_SECONDS_PRESET = 120\n# _handle_climate_change ~2440-2450: a change inside the TTL after URA's own write is ignored; later changes are booked as override_detected"},
+     "source": "state-of-play §2/C17 pre-fix values (5 s temp, 120 s preset)"},
+    {"tool": "read_doc", "match": {"name_any": ["HVAC_ARCHITECTURE_STATE_OF_PLAY"], "section_any": ["9.1", "lockout", "override"]},
+     "response": {"text": "9.1 Self-lockout after a borrow returns ... URA books it as override_detected at ~zero delta, the arrester declines, S1 logs preset_change_locked_out ..."},
+     "source": "pre-fix §9.1 wording (does not contain the echo finding)"}
+  ],
+  "freeze_quality": "medium: counts and lag verbatim from the ledger; row examples reconstructed"
+}

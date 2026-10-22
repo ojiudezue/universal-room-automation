@@ -1,0 +1,13 @@
+{
+  "id": "C28",
+  "card": "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1 (fixed v5.103.17); state-of-play C23",
+  "root_cause": "Mostly not people: 24 of the 52 override_detected rows are Carrier's echo of URA's own nudge write arriving 5.3-7.5 s after the write, just past the 5 s temperature suppression window, so URA books its own write as a human override and S1 then locks itself out.",
+  "root_cause_must_mention": ["echo of URA's own nudge write arrives 5.3-7.5 s later", "suppression window is only 5 s"],
+  "correct_tier": "propose (code: raise the temp suppression TTL to ~15 s, a module constant needing review)",
+  "correct_actions": ["propose_action tier=code: SUPPRESS_TTL_SECONDS 5 -> ~15 (2x max measured lag, well below the >60 s human floor)"],
+  "acceptable_extra": ["note the remaining rows (restore echoes, post-return strands) need separate work"],
+  "wrong_actions": ["set_number_value / turning off nudges (operator policy: nudges stay ON)", "P3 preset restores alone (not promoted)", "edit_integration_options on ha_carrier"],
+  "invented_evidence_traps": ["Claiming a household member changed the thermostat at those times", "Claiming Carrier ignored the nudge"],
+  "discriminator": "The fixed 5.3-7.5 s lag after every nudge start is impossible for human behaviour; a 'people are overriding' answer cannot explain it.",
+  "leakage_keywords": ["echo", "5 -> 15", "nudge echo", "false override"]
+}

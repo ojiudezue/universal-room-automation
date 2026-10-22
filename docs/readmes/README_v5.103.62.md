@@ -24,3 +24,15 @@ Card: HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1. Plan: `docs/planning/PLANNING_
 - **Live:** `sensor.ura_hvac_coordinator_active_preset_overrides` `preset_range_by_zone.zone_3` home/away/sleep stay `skipped_already_correct` with correct ranges (home 70-77, away 62-80, sleep 70-77); originals unchanged (home 70/78, away 66/80).
 - **Live:** after a zone_3 preset change, no S10 write within 600 s of it (activity log / `climate_write` rows); `s10_settle_held_s` is None for zone_3 once settled.
 - **Live:** 0 URA ERRORs after restart.
+
+## Validated 2026-10-21
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `preset_range_by_zone.zone_3` home/away/sleep stay `skipped_already_correct` with correct ranges (home 70-77, away 62-80, sleep 70-77) | PASS (sleep partial) | `sensor.ura_hvac_coordinator_active_preset_overrides` (recorder, latest state 2026-10-21 21:41:15): home `skipped_already_correct` 70.0-77.0; away `skipped_already_correct` 62.0-80.0; sleep desired 70.0-77.0 correct but `status: null` (no sleep visit since the 18:25 restart, RAM status). Latch false and failures 0 for all three. |
+| Originals unchanged (home 70/78, away 66/80) | PASS | same sensor `originals_pending_restore.zone_3`: home 70.0/78.0 captured 2026-10-13T11:38:06Z; away 66.0/80.0 captured 2026-10-13T12:14:11Z |
+| After a zone_3 preset change, no S10 write within 600 s | PASS (vacuous) | zone_3 S10 `writes: 0` for all presets, `last_write_iso` 2026-10-13 (before the ship). Since the ship (2026-10-15 19:15) 433 `preset_change` rows exist and `climate_write` has zero S10-site rows (sites seen: S1, S4, S5, S7, S11, S12, B5/B6 only). The settle gate's skip step itself is not row-logged, so "skipped because of settle" is not observable; the observable is "no S10 write", which holds. |
+| `s10_settle_held_s` is None for zone_3 once settled | PASS | sensor attribute `s10_settle_held_s: {"zone_3": null}`; no `s10_settle_held` rows in `ura_activity_log` or `notification_log` since the ship |
+| 0 URA ERRORs after restart | NOT-YET-EVALUABLE | log-read gap (see top) |
+
+_Log-scan criteria are NOT-YET-EVALUABLE (no log access from the probe); source: docs/planning/AUDIT_readme_straggler_validation_2026_10_21.md._

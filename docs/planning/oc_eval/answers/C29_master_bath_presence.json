@@ -1,0 +1,13 @@
+{
+  "id": "C29",
+  "card": "MASTER-BATH-NO-TRUSTED-PRESENCE-1",
+  "root_cause": "The card's reason is wrong, the gap is real. The do-not-use ruling covers only the Study A InvisOutlet (b7d0); the Master Bath unit (A788) works (no false holds, no misses vs 239 motion bursts). But measured it behaves motion-class: occupancy drops ~1 min after the last motion (p50 69 s, only 1/156 held > 5 min), so it cannot hold a still bather and stays out of the AWAY veto. HA exposes no hold-time knob for it.",
+  "root_cause_must_mention": ["do-not-use ruling is Study A b7d0 only, wrongly extended", "A788 works but is motion-class (~1 min hold), cannot hold a still person"],
+  "correct_tier": "propose (physical / operator pick)",
+  "correct_actions": ["propose_action tier=physical: add a ZK/ZX presence radar (or check the device's own app for a hold setting; or accept)"],
+  "acceptable_extra": ["propose correcting the probe's do-not-use extension"],
+  "wrong_actions": ["reapply_radar_settings (no knob exists)", "moving the sensor between lists via a config write alone", "proposing a code change to lengthen its hold"],
+  "invented_evidence_traps": ["Claiming the A788 is broken or has false holds", "Claiming it holds still people"],
+  "discriminator": "Answering 'it is on the do-not-use list' repeats the wrong premise; answering 'it works fine, use it for AWAY' ignores the 69 s hold distribution.",
+  "leakage_keywords": ["motion-class", "Study A b7d0 only", "CARD-WAS-WRONG", "extended it by model"]
+}

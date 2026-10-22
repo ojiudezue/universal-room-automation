@@ -1,0 +1,13 @@
+{
+  "id": "C05",
+  "card": "OC-STUCK-SENSOR-GENERALIZE-1 residual (folded into OC redesign slice 1)",
+  "root_cause": "The findings are real (7 truly silent sensors). They repeat because the 24 h repeat filter's memory (_sensor_health_last_persisted) is RAM-only and is emptied by every HA restart; the never-fires Store keeps the sensor facts, so each boot re-emits each finding on the first cycle after the evaluator is ready (~18 min).",
+  "root_cause_must_mention": ["findings are true positives", "repeat-suppression dict is in memory and reset by each restart"],
+  "correct_tier": "propose (code / slice-1 design)",
+  "correct_actions": ["propose_action tier=code: persistent, restart-safe dedup keyed by the fact (one problem record per sensor), i.e. persist the repeat filter or move to problem records", "write_problem_record per silent sensor (one per fact) is a good R0 act"],
+  "acceptable_extra": ["notify_operator LOW digest listing the 7 sensors once"],
+  "wrong_actions": ["clear_stuck_sensor_latch (R2, and these are not stuck-ON exclusions)", "calling the findings false positives", "proposing to raise the 7-day horizon"],
+  "invented_evidence_traps": ["Claiming the never-fires Store is lost on restart (the code says it is persisted)", "Accepting 'RAM-only by design' as correct without noting it produces the repeat", "Naming which 7 sensors (the snapshot does not list ids)"],
+  "leakage_keywords": ["resets on restart", "reset by each restart", "persistent dedup", "restart-safe"],
+  "discriminator": "If the Store were lost, first_seen would reset and no finding could fire for 7 days; the re-emission ~18 min after each start points at the RAM filter."
+}

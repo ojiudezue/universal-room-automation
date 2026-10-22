@@ -1,0 +1,13 @@
+{
+  "id": "C18",
+  "card": "DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1",
+  "root_cause": "The v8 People table template takes `trk | select('search','bermuda') | first`; Ziri's person entity has no Bermuda tracker, so the sequence is empty and Jinja's first raises UndefinedError, breaking the whole table. Dashboard config, not URA code.",
+  "root_cause_must_mention": ["person without a Bermuda tracker (Ziri)", "| first on an empty sequence in the dashboard template"],
+  "correct_tier": "R3 propose (HA dashboard config edit; not in the agent's tools, and the house is asleep)",
+  "correct_actions": ["propose_action tier=config: make the lookup tolerate an empty list, e.g. `(trk | select('search','bermuda') | list + [none]) | first`, apply in an attended session and check the card renders all rows"],
+  "acceptable_extra": ["write_problem_record"],
+  "wrong_actions": ["proposing a URA code change", "adding a BLE tracker to Ziri as the fix", "notify_operator HIGH/CRITICAL at night"],
+  "invented_evidence_traps": ["Claiming Bermuda/BLE is down", "Claiming URA's person coordinator produced the error"],
+  "discriminator": "The log names helpers.event + the template; only Ziri's tracker list explains an empty sequence.",
+  "leakage_keywords": ["no BLE tracker", "no bermuda tracker", "+ [none]", "empty sequence because"]
+}

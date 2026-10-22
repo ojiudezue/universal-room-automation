@@ -1,0 +1,31 @@
+{
+  "id": "C19",
+  "title": "Landscape lights did not come on at sunset on 10-18",
+  "as_of": "2026-10-19T22:00:00-05:00",
+  "house_state": "home_evening",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: the landscape lights did not come on last night (10-18) even though the automation fired. Why, and what should we do? Diagnose with evidence, act within your tiers, report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "e00454adc (repo HEAD before the 10-20 overnight diagnosis; HA automation config, not URA code)",
+  "held_out": false,
+  "context_pack": ["Landscape lighting is an HA automation (automation.landscape_lighting_lifx_matter_version), not URA. It has a repeat-until-on retry loop (<= 5) added 10-14."],
+  "fixtures": [
+    {"tool": "read_config", "match": {"target_any": ["automation:landscape_lighting_lifx_matter_version", "landscape"]},
+     "response": {"trigger": "sunset +30 min", "actions": [{"step": 0, "choose": "branch 0", "action": "switch.turn_on", "target": ["switch.switch_lowvtransformer_dewenwils_wifi_landscape1_switch_1", "..._switch_2", "..._switch_3", "switch.switch_lowvtransformer_dewenwils_wifi_landscape2_switch_1", "..._switch_2", "..._switch_3"]}, {"step": 1, "action": "repeat until lights on (<=5)", "target": "20 landscape lights"}], "continue_on_error": "not set on any step"},
+     "source": "card LANDSCAPE-RETRY-POSTFIX-CHECK-1 mechanism + why; YAML shape reconstructed"},
+    {"tool": ["ha_get_logs", "read_config"], "match": {"query_any": ["trace", "landscape", "tuya", "rejected"], "target_any": ["automation_trace:landscape_lighting_lifx_matter_version"]},
+     "response": {"trace": {"run_id": "9fd5b732", "start": "2026-10-18T19:29:29-05:00", "duration_s": 0.45, "step0": {"error": "The Tuya cloud rejected the command"}, "result": "stopped: error", "later_steps": "not executed"}},
+     "source": "card mechanism_2026_10_20 (run id, time, duration, error verbatim)"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["tuya_local", "901", "Unable to Connect"]},
+     "response": {"lines": ["tuya_local: Device reported error 901: Network Error: Unable to Connect (gklandscape_perimeter3) [1383 occurrences since 10-16]"]},
+     "source": "card measured_2026_10_19 (verbatim count)"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["light.gklandscape_perimeter1", "light.gklandscape_perimeter3", "light.gklandscape_sideapproach9", "light.hampton_landscape2"]},
+     "response": {"state": "unavailable"},
+     "source": "card: GK tuya_local cluster + hampton_landscape2 unavailable since ~10-16; entity ids reconstructed from the card's names"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["automation.landscape_lighting_lifx_matter_version"]},
+     "response": {"runs": [{"date": "10-14", "missing_at_7min": 0}, {"date": "10-15", "missing_at_7min": 1}, {"date": "10-16", "missing_at_7min": 11}, {"date": "10-17", "missing_at_7min": 10}, {"date": "10-18", "missing_at_7min": 19}, {"date": "10-19", "result": "finished normally 19:28-19:34"}]},
+     "source": "card measured (counts verbatim)"}
+  ],
+  "freeze_quality": "good: trace and counts verbatim; entity ids partly reconstructed"
+}

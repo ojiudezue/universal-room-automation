@@ -1,0 +1,25 @@
+{
+  "id": "C30",
+  "title": "One presence sensor dominates recorder attribute storage",
+  "as_of": "2026-10-19T01:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Recorder hygiene check: the HA recorder DB is large and growing. Identify why the URA house-state sensor is a top attribute writer, with evidence; act within your tiers; report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "e00454adc (repo HEAD 10-19 before the attr-unrecorded branch d1bcf0750)",
+  "held_out": true,
+  "context_pack": ["HA writes one states row per state_changed event and deduplicates attribute blobs by content."],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "recorder_states"},
+     "response": {"entity": "sensor.ura_presence_coordinator_presence_house_state", "last_24h": {"rows": 2870, "distinct_attribute_blobs": 2869, "avg_blob_bytes": 3324, "state_changes": 13}, "changes_per_attribute": {"dwell_seconds": 2869, "zones": 678, "signal_consensus_inputs": 666, "fan_interference_active": 184, "signal_consensus": 67, "signal_consensus_band": 64, "veto_path": 60, "census_count": 34, "others": "<=31"}},
+     "source": "card HOUSE-STATE-SENSOR-ATTR-CHURN-1 measured verbatim (recorder, exposed here through ura_db_query for the mock)"},
+    {"tool": "read_code", "match": {"path_any": ["sensor.py"], "symbol_any": ["PresenceHouseStateSensor", "_unrecorded_attributes", "extra_state_attributes"]},
+     "response": {"excerpt": "class PresenceHouseStateSensor(...):\n    _unrecorded_attributes = frozenset({'stale_counted_home', 'nobody_home_zone_input'})\n    @property\n    def extra_state_attributes(self):\n        return {'dwell_seconds': ..., 'zones': ..., 'signal_consensus': ..., 'signal_consensus_band': ..., 'signal_consensus_inputs': ..., 'veto_path': ..., 'census_count': ..., ...}"},
+     "source": "presence state-of-play pre-fix (only stale_counted_home and nobody_home_zone_input unrecorded); body abbreviated"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.ura_presence_coordinator_signal_consensus_confidence"]},
+     "response": {"state": "1.0", "attributes": {"consensus_band": "high", "signal_consensus_inputs": {"...": "..."}}},
+     "source": "presence state-of-play: consensus has its own recorded sensor"}
+  ],
+  "freeze_quality": "good: measurement verbatim; recorder query mocked through ura_db_query (no recorder-SQL tool in the catalogue)"
+}

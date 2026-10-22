@@ -1,0 +1,12 @@
+{
+  "id": "C30",
+  "card": "HOUSE-STATE-SENSOR-ATTR-CHURN-1 (shipped v5.103.76)",
+  "root_cause": "The house-state sensor polls every 30 s and records per-poll attributes; dwell_seconds changes every poll (plus zones, signal_consensus_inputs and others churn), so almost every row gets a new ~3.3 KB attribute blob (~9.5 MB/day) for only 13 real state changes.",
+  "root_cause_must_mention": ["dwell_seconds (per-poll counter) and other churny attributes are recorded", "~2,869 distinct blobs for 13 state changes"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: add dwell_seconds, zones, signal_consensus, signal_consensus_band, signal_consensus_inputs to _unrecorded_attributes after a consumer check (consensus has its own recorded sensor; dwell is derivable from state_since)"],
+  "wrong_actions": ["recorder purge / purge_entities (hard-denied)", "edit_integration_options to exclude the entity alone", "claiming the row count will drop (blobs shrink, rows stay)"],
+  "invented_evidence_traps": ["Claiming state flapping drives the rows (13 changes)", "Claiming the row count is the storage problem rather than the blobs"],
+  "discriminator": "Rows ~= polls while state changes are 13; only attribute churn explains distinct blobs ~= rows.",
+  "leakage_keywords": ["_unrecorded_attributes +=", "churny", "unrecord dwell_seconds"]
+}

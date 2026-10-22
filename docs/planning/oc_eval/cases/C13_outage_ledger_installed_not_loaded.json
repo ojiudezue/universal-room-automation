@@ -1,0 +1,35 @@
+{
+  "id": "C13",
+  "title": "New outage ledger wrote no rows while a Wind Advisory was active",
+  "pre_fix_commit": "34b4dfdb5 (v5.103.68 tag; the ledger shipped in v5.103.67; no code fix followed - card refuted 2026-10-17)",
+  "held_out": true,
+  "as_of": "2026-10-17T12:30:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Run. v5.103.67 added an energy outage ledger that should write an nws_alert row to ura_activity_log for each NWS alert. A Wind Advisory sat in the feed for ~4 h yesterday evening and the ledger wrote nothing. Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Deploys install new URA code through HACS; the running code changes only when Home Assistant restarts. Operator policy: no restart while the house sleeps; at most one mid-day restart per day while the operator travels.",
+    "The ledger is driven from the Energy Coordinator decision cycle."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"window": "2026-10-16T19:45Z..2026-10-17T00:00Z", "nws_alert_rows": 0, "grid_outage_rows": 0, "all_time_nws_alert_rows": 0, "energy_rows_same_window": 137, "reserve_write_row_keys_sample": ["commanded", "reason", "site"], "note": "no tick_floor / tick_hold_depth keys"},
+     "source": "card origin + refutation (reserve_write rows lacked tick_floor/tick_hold_depth that current code writes)"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.nws_alerts_gps_30_3146_98_0159_nws_alerts_alerts"]},
+     "response": {"rows": [{"t": "2026-10-16T19:45Z", "Alerts": [{"Event": "Wind Advisory", "ID": "d39a0907..."}, {"Event": "Wind Advisory", "ID": "7be42762..."}]}, {"t": "2026-10-17T00:00Z", "Alerts": []}]},
+     "source": "VERBATIM ids (truncated as in the card)"},
+    {"tool": "list_changes_since", "match": {},
+     "response": {"installs": [{"t": "2026-10-16T19:44Z", "version": "5.103.67"}, {"t": "2026-10-17T03:10Z", "version": "5.103.68"}], "ha_starts": ["2026-10-16T15:56:39Z"], "manifest_on_disk": "5.103.68"},
+     "source": "install 19:44Z and start 15:56:39Z VERBATIM; .68 install time RECONSTRUCTED"},
+    {"tool": "read_config", "match": {"target_any": ["device:URA", "device_registry", "ura_devices"]},
+     "response": {"universal_room_automation_devices_sw_version": "v5.103.66"},
+     "source": "sw_version = loaded VERSION (card EC-LOADED-VS-INSTALLED-VERSION-1 prior art); value inferred from the start time"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/energy_outage_ledger.py", "energy_outage_ledger.py", "energy.py"], "symbol_any": ["_outage_ledger_tick", "nws_alert", "ledger"]},
+     "response": {"excerpt_summary": "EnergyCoordinator._outage_ledger_tick reads the NWS alerts entity each decision cycle and queues one nws_alert row per new alert id via the DB write queue; failures are logged at DEBUG (energy.py:9265, energy_outage_ledger.py:179/217, database.py:6290)."},
+     "source": "card why (DEBUG-swallow sites); PARAPHRASE"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["outage", "ledger", "nws"]}, "response": {"lines": []}, "source": "consistent: nothing at WARNING (DEBUG swallow, or code not running)"}
+  ],
+  "freeze_quality": "good: the restart/install timeline is verbatim; sw_version inferred"
+}

@@ -1,5 +1,6 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-10-21 (doc only):** §4.2 optimizer row line refs corrected (`optimization.py:4677`/`:4826`); stuck-rule cite `coordinator.py:364` → `:387` (§9.3, C27). Found by the OC vision rev-6 review pass.
 **2026-10-20 (built, `fix/recorder-churn-diag-sensors`, NOT deployed, display only):** `sensor.ura_hvac_ac_ramp_kwh_rate_<zone>` no longer publishes `age_seconds`; `last_updated` is kept live but unrecorded; `stale` is still computed. No HVAC decision reads this sensor.
 **2026-10-19 (built, `fix/paused-room-lights-fans`, NOT deployed):** paused rooms (Automation switch off / Manual Mode on) are skipped by the HVAC zone vacancy sweep, comfort fans, sleep-onset fan, pre-arrival fans and the fan recheck arm — see §4.2b "Paused rooms".
 **Currency fix 2026-10-14:** the per-section "NOT deployed" tags below were stale — every HVAC build listed here has SHIPPED (v5.103.20 / .23 / .24 / .36 / .39 / .40 / .41 / .51). Open residuals: see `HVAC-W1C-GENERIC-THERMOSTAT-1` (P2 review residuals) and §11.
@@ -235,7 +236,7 @@ Consequences:
 | Excursion lease-expiry auto-return `hvac_excursion.py:667` | preset | yes | non-nudge kinds only |
 | S11 banking release `_release_banked_zones`; S12 pre-cool `_execute_zone_pre_cool` (begin, then `climate_write` site `S12_pre_cool`); S13 pre-heat `_execute_pre_heat` / `_return_preheat` | setpoints + preset | yes | `hvac_excursion_events`. **v5.103.23:** a pre-arrival S12 begins with `caller_site='S12_pre_arrival'`, writes ONCE from the baseline, and is ended by `async_end_pre_arrival_borrows` (triggers `pre_arrival_{arrived,timeout,interrupted,inactive,max_age}`, presets-only, no `_last_emitted_range` write). S11/S12/S13 write nothing for a returned token or a latched zone; S12/S13 never write over another live row (D4b) |
 | Egress pause/resume `hvac_egress.py:683/779/795` | mode + preset | mode **no** | `hvac_excursion_events` |
-| Optimizer `optimization.py:3546` (shadow by default) | any | — | `actuated` row, no entity_id |
+| Optimizer `optimization.py:4677` (`_dispatch_device_action`) / `:4826` (`_dispatch_config_action`), via `_apply_action` `:4282` (shadow by default; line refs corrected 2026-10-21, were `:3546`/`:3688`) | any | — | `actuated` row, no entity_id |
 
 ### 4.2b Comfort fans — who owns them (v5.103.24, Batch D, operator ruling option C)
 One per-room **Fan Mode** (`select.<room>_fan_mode`, key `room_fan_mode` in the room entry's options; reload-suppressed) feeds `const.fan_owner` — the ONE rule for every fan writer. Humidity/exhaust fans are out of scope (always room tier).
@@ -434,7 +435,7 @@ Card `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1`. Constraint: zone-scoped only, 
 **Refined 2026-09-29 (C27):** the room did not go vacant because a radar lost a still sleeper. `binary_sensor.jaya_3_presence`
 (Seeed) follows `fan.fanswitch_treat_wifi_jayabedroom`: its on-edges land 15–20 s after the fan's (09-24 20:06:15→20:06:32,
 02:40:05→02:40:21, 02:56:57→02:57:10), so while the fan runs the radar reports the fan, not Jaya. On 09-24 it read on
-continuously 21:22:23→01:37:12. URA's stuck-sensor rule (`coordinator.py:364`, `_stuck_sensor_hours = 4.0`, a hard-coded
+continuously 21:22:23→01:37:12. URA's stuck-sensor rule (`coordinator.py:387`, `_stuck_sensor_hours = 4.0`, a hard-coded
 literal with no knob) then excludes a sensor that has been on for 4 h, which is 01:22. The room goes vacant at 01:31:18, URA turns
 the fan off at 01:36:38 because the room is vacant, and the radar drops 34 s later. The 09-25 night follows the same shape
 (probe `scripts/probes/hvac_room_return_probe_raw.py`, report `docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md`,
@@ -631,7 +632,7 @@ modules — only the `(D3 recovery parked)` log text. Pinned by `test_hvac_excur
 
 **C27 (2026-09-29) — INCOMPLETE: C19's "the radars simply lost a still sleeper" (§9.3).** The Seeed radar
 `binary_sensor.jaya_3_presence` tracks the bedroom fan (on-edges 15–20 s after the fan's), so it never sensed Jaya. It was
-removed by the hard-coded 4 h stuck-sensor rule (`coordinator.py:364`) about 4 h after its last on-edge (09-24: on 21:22:23 → excluded
+removed by the hard-coded 4 h stuck-sensor rule (`coordinator.py:387`) about 4 h after its last on-edge (09-24: on 21:22:23 → excluded
 ≈01:22 → vacant 01:31:18 → fan off 01:36:38 → radar off 01:37:12). C19's ordering (vacant before fan-off) stands; its
 cause does not. Evidence: HA recorder state history for both entities, 09-23→09-25 and 09-28 (verified 2026-09-29),
 `AUDIT_hvac_hold_sizing_raw_2026_09_29.md`.

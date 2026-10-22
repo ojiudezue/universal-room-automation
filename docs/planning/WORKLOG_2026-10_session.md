@@ -193,3 +193,38 @@ grep-verified directly against the files named. Kanban card statuses were read d
 from `docs/planning/kanban.data.yaml` via a Python/yaml parse at the time of this
 reconstruction (2026-10-14) — lane assignments may have moved since if further work
 happened after this read.
+
+---
+
+## 3. Continuation 2026-10-14 → 2026-10-21 (written 2026-10-21; the log had lapsed for a week)
+
+Sources: `git log --since=2026-10-14` commit subjects (verified), README headings (grep-verified), and
+this session's own work. Per-release detail lives in each `README_v5.103.N.md`; this is the index.
+
+### Releases (verified commit subjects)
+- **v5.103.57** never-fires sensor detector, EC field clearing, shutdown DB hygiene · **.58/.59** boot stalls removed (deprecated `config_entries`, room-area lookup, camera scan) · **.60** bathroom exhaust smell rule
+- **.61** safety hazards clear on recovery · **.62** CPR settle gate · **.63** EV fill-priority re-pause buffer · **.64** exit naming / late names · **.65** safety re-page after ack (README title mislabelled "v5.103.63")
+- **EC storm/reserve arc:** .66 reserve write governor · .67 outage ledger · .68 storm Stage A · .69 Stage B+C · .70 Stage E · .74 reserve check reads live Envoy sensor
+- **.71** five Tier-1 fixes · **.72** house state sleep mask/BLE memory · **.73** fan recheck in bedrooms/media by day · **.75** paused rooms stop lights/fans
+- **Billing:** .76 SmartHub bill check + 365-day room history · .77 cycle-day setting reaches engine · .79 bill prediction from SmartHub cost
+- **.78** diagnostic sensors stop rewriting unchanged info · **.80** four NM calls that never delivered · **.81** EC shutdown save (validated 15:45 restart)
+- **.82** daily solar from the production-CT counter (card EC-SOLAR-LIFETIME-COUNTER-FLAP-1; daily rows pending 10-22/10-23)
+- **.83** occupancy anomaly on a room dwell model (BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1; 7-day replay due 10-28)
+
+### Non-URA-code work (2026-10-21) — no git trail in URA
+- **Halo** (`~/Code/halo-panels`) 0.1.1 live, 7 panels incl. Study A; HomeLab bridge 1.7.0 on all panels (colour/effect reporting).
+- **HA config:** 3 MQTT "-kiosk" devices removed; `wallpanel_fleet_force_off_secure` retargeted to the 7 ESPHome screen lights (backup in `ura-v8-backups/`).
+- **Bermuda offsets** (calibration2): Foyer proxy +3→0, Entry panel 0→-3, BP1_A +3→+6, Study A panel 0→+3. Re-measure due 10-22 19:13.
+- **Ollama workstation** back (192.168.13.62, ~16 GB GPU); pulled `glm4:9b`, `deepseek-r1:14b`.
+
+### Docs / decisions
+- Audits: predictions (no prediction both useful and correct; arrival-not-dwell), room memory + coordinator request APIs.
+- **OC vision rev 5 approved** (agent-first, R0-R3 tiers, P1-P5 promotable types, tool exclusions, $25/mo cap, 1-week R0, slice 0 model eval next).
+
+### Stragglers found by this pass
+| Item | Owner | Note |
+|---|---|---|
+| README_v5.103.62, .63 (EV buffer), .65, .67, .68 lack a `Validated` table | me | prospective-only; write back from DB/log one-shot |
+| README_v5.103.65 title says v5.103.63 | me | one-line fix |
+| Timed checks 10-22 07:17, 10-22 19:13, 10-23 07:19, 10-28 10:23 | me | session crons + on cards |
+| Worklog lapsed 10-14→10-21 | me | keep appending at each ship batch |

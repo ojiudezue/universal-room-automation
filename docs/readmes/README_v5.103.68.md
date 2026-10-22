@@ -39,3 +39,16 @@ Plan: `docs/planning/PLANNING_ec_storm_and_blind_decisions.md` Rev 3.4, Stage A.
 - **Live:** `number.*inclement_blind_full_hold_floor*` exists with value 60.
 - **Live:** 0 URA ERRORs mentioning `_reserve_action`, `tick_reserve_floor` or `rate_rank` after restart.
 - **Live (event-gated, not watched):** the first inclement hold writes `reserve_write` rows with a non-null `inclement_floor`, a non-null `floor_ok`, and `value >= inclement_floor`.
+
+## Validated 2026-10-21
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| With no inclement alert, `reserve_write` rows have `inclement_floor=null`; values and reasons match the pre-restart pattern | PASS | `ura_activity_log` `reserve_write`: 145 rows 2026-10-16 to 10-21 (1/20/0/39/80/5 per day on 10-16, 17, 18, 19, 20, 21), `json_extract(details_json,'$.inclement_floor')` is NULL for 145 of 145, `tick_floor` NULL for all. Reasons are the normal strategy text, for example id 317936 (2026-10-21 23:25:49Z) "Mid-peak (shoulder) - discharging ... (degraded telemetry: lkg)", id 317274 "Off-peak hold - SOC 8.0% <= target 10%". |
+| `number.*inclement_blind_full_hold_floor*` exists with value 60 | PASS | `number.ura_energy_coordinator_inclement_blind_full_hold_floor` = 60 (last_updated 2026-10-21 18:25:37); entity registry `disabled_by: None` |
+| 0 URA ERRORs mentioning `_reserve_action`, `tick_reserve_floor`, `rate_rank` | NOT-YET-EVALUABLE | log-read gap. Proxy: `reserve_write` rows keep landing after the restart (latest 2026-10-21T23:25:49Z), so `_reserve_action` is executing; this does not prove the absence of ERRORs. |
+| Event-gated: first inclement hold writes `reserve_write` with non-null `inclement_floor`, non-null `floor_ok`, `value >= inclement_floor` | NOT-YET-EVALUABLE (event-gated) | 0 rows with a non-null `inclement_floor` since the ship. Discriminator for later: `select ... from ura_activity_log where action='reserve_write' and json_extract(details_json,'$.inclement_floor') is not null` and check `value >= inclement_floor` and `floor_ok` not null. Per the Soak Exit rule this should carry a revival trigger (first inclement hold), not ride organic. |
+
+---
+
+_Log-scan criteria are NOT-YET-EVALUABLE (no log access from the probe); source: docs/planning/AUDIT_readme_straggler_validation_2026_10_21.md._

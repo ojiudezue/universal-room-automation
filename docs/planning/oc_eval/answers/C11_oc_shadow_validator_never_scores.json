@@ -1,0 +1,13 @@
+{
+  "id": "C11",
+  "card": "OC-SHADOW-SAMPLES-EMPTY-1 (folded into OC redesign slice 1)",
+  "root_cause": "The validator only scores self._last_findings and skips any finding younger than 900 s, but _last_findings is overwritten with the current cycle's findings every 5 min just before the validator runs, so every finding is seconds old when checked and gone by the next cycle. Nothing ever reaches scoring.",
+  "root_cause_must_mention": ["validator only sees the current cycle's findings (overwritten each 5-min cycle)", "900 s age requirement can never be met"],
+  "correct_tier": "propose (code / redesign)",
+  "correct_actions": ["propose_action tier=code: carry findings in a capped pending-validation buffer across cycles and dedup repeated findings (or replace with the action log); note DB write-volume risk"],
+  "acceptable_extra": ["note the noise: cycle_ok and prediction_accuracy re-emission"],
+  "wrong_actions": ["set_number_value / lowering the 900 s delay (cannot work: the list is replaced every 300 s)", "any actuation"],
+  "invented_evidence_traps": ["Claiming DB writes to optimizer_shadow_samples are failing", "Claiming the validator is disabled by a switch"],
+  "leakage_keywords": ["overwritten", "seconds old", "pending-validation buffer", "never ages"],
+  "discriminator": "A write-failure hypothesis predicts a non-empty in-memory buffer and DB errors; the arithmetic (900 s > 300 s replacement) explains 0 with no errors."
+}

@@ -1,0 +1,31 @@
+{
+  "id": "C21",
+  "title": "Can the HVAC Wait-for-Presence gate pin all zones for hours?",
+  "as_of": "2026-10-19T01:55:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "A plan review worried that the HVAC 'Wait for Presence' consensus gate has no time bound: once engaged it defers preset writes for all zones until consensus reaches 0.7, and a sensor holding a zone while phones are away could pin it for hours. Determine with evidence whether this has happened or can happen in practice; act within your tiers; report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "e797c5796 (card minted 10-18; no code change followed: refuted)",
+  "held_out": false,
+  "context_pack": ["switch.ura_hvac_coordinator_hvac_consensus_defer_gate is displayed as 'Wait for Presence'."],
+  "fixtures": [
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/hvac.py", "hvac.py"], "symbol_any": ["consensus", "defer", "_d6_gate_engaged", "2711", "2744"]},
+     "response": {"excerpt": "# hvac.py ~2711-2752\nif self._d6_gate_engaged:\n    if consensus >= 0.7:\n        self._d6_gate_engaged = False   # release\n    else:\n        return DEFER\nelif consensus < 0.5 and (now - last_house_state_transition) < 30:\n    self._d6_gate_engaged = True\n    _LOGGER.info('D6: HVAC defer gate ENGAGED ...')\n    return DEFER"},
+     "source": "card measured: ENGAGES only when consensus < 0.5 AND < 30 s since a transition (:2744); RELEASES at >= 0.7 (:2727); latch :2750. Code shape reconstructed"},
+    {"tool": ["ha_get_history", "recorder_statistics"], "match": {"entity_id_any": ["sensor.ura_presence_coordinator_signal_consensus_confidence"], "statistic_id_any": ["sensor.ura_presence_coordinator_signal_consensus_confidence"]},
+     "response": {"window": "10-11 04:17 .. 10-19 01:51", "rows": 6309, "distinct_values": [1.0, 0.9, 0.6, 0.5], "min": 0.5, "sub_0_7_episodes": 222, "median_episode_min": 0.5, "p90_episode_min": 5.5, "longest": "10-14 09:09-15:06 (357 min at 0.5-0.6)"},
+     "source": "card verbatim"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["switch.ura_hvac_coordinator_hvac_consensus_defer_gate"]},
+     "response": {"window": "10-11..10-19", "states": ["on"], "never_off": true},
+     "source": "card verbatim"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["defer gate", "D6", "ENGAGED"]},
+     "response": {"lines": [], "note": "searched only the newest 2000-line window"},
+     "source": "card LOG GAP note"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/presence.py", "presence.py"], "symbol_any": ["consensus", "signal_consensus", "7790"]},
+     "response": {"excerpt": "# presence.py ~7790-7819: consensus = 1.0 - 0.4*(phones_away) - 0.15*(camera_only) - 0.1*(engine_conf<0.85) ... (terms illustrative)"},
+     "source": "card mentions engine-confidence penalty at presence.py:7790-7819 and term sizes 0.4/0.15/0.1; arrangement reconstructed"}
+  ],
+  "freeze_quality": "good: measurements verbatim; code shape reconstructed but thresholds verbatim"
+}

@@ -1,0 +1,34 @@
+{
+  "id": "C05",
+  "title": "The same silent-sensor findings are re-reported several times a day",
+  "pre_fix_commit": "4fe36ec19 (not fixed in code yet; residual carded on OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1 2026-10-21; code below read at this commit)",
+  "held_out": false,
+  "as_of": "2026-10-21T14:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. The operator says the digest repeats the same 'sensor never fires' findings over and over. Decide whether the findings are real and why they repeat. Act within tiers and submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "The Optimization Coordinator runs a 5-minute cycle and persists findings to optimization_findings.",
+    "The never-fires evaluator raises a HIGH sensor_health finding when a motion/occupancy sensor URA consumes has had zero ON transitions in 7 days at >= 80% availability."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "optimization_findings"},
+     "response": {"filter": "dimension=sensor_health, kind=sensor_never_fires, last 10 h", "distinct_entities": 7, "rows": 28, "per_entity_rows": 4, "row_times_per_entity": ["~18 min after 04:12 start", "~18 min after 06:55 start", "~18 min after 09:31 start", "~18 min after 12:20 start"]},
+     "source": "vision §1: 7 sensors, re-reported after every restart, 4 times in 10 h; '~18 min after start' from the board residual; restart times RECONSTRUCTED"},
+    {"tool": "list_changes_since", "match": {},
+     "response": {"restarts": ["2026-10-21T04:12", "2026-10-21T06:55", "2026-10-21T09:31", "2026-10-21T12:20"], "deploys": ["v5.103.81 installed", "v5.103.82 installed"]},
+     "source": "RECONSTRUCTED restart times consistent with 4 restarts in 10 h on a deploy-heavy day"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["*"]},
+     "response": {"note": "for each of the 7 flagged sensors: state 'off' throughout the 7-day window, available > 95% of the time, 0 'on' rows"},
+     "source": "vision §1: 7 truly silent sensors with 0 false findings"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/optimization.py", "optimization.py"], "symbol_any": ["_sensor_health_last_persisted", "_filter_repeat_sensor_health", "never_fires", "__init__"]},
+     "response": {"lines": "640-665", "text": "# OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED\n# sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).\n# RAM-only by design: a restart re-persists once per stuck sensor,\n# which is the correct post-restart behaviour (the fact is re-stated\n# for the new boot) and bounded at one row per sensor.\nself._sensor_health_last_persisted: dict[tuple, datetime] = {}\n# OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) — sensor_never_fires:\n#   persistent dict (via HA Store) `_never_fires_state[eid]` =\n#     {first_seen, last_on_seen, unavailable_s}\n# ... the shared `_filter_repeat_sensor_health` 24h cover caps DB persistence\n# to <=1 row/entity/24h."},
+     "source": "VERBATIM optimization.py at 4fe36ec19 (lightly elided)"},
+    {"tool": "read_doc", "match": {"name_any": ["README_v5.103.57", "5.103.57"]},
+     "response": {"text": "Per-entity state (first_seen, last_on_seen, unavailable_s, unavail_since) is kept in an HA Store, loaded before the first cycle. Persistence is capped at <=1 row/entity/24h by the existing _filter_repeat_sensor_health."},
+     "source": "VERBATIM README_v5.103.57 §1"}
+  ],
+  "freeze_quality": "good: code and README verbatim; restart times reconstructed"
+}
