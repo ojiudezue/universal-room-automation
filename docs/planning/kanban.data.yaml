@@ -40,6 +40,18 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: DASH-V8-ROOM-STATUS-CHIPS-1
+  title: "ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card"
+  thread: dashboard
+  status: "planned"
+  tier: 1
+  created: "2026-10-21 20:10"
+  updated: "2026-10-21 20:10"
+  origin: "Operator 2026-10-21: 'add some status chips for the room representation in ura v8 for when light are on or a fan is on in the room. Should be absent when not on.' Then approved all suggested extras: 'I like them all.'"
+  constraint_operator: "Operator caveat (binding): 'A chip means that on detail card open, the thing can be seen or controlled' - fan chip -> fan can be turned on/off in the room detail; who's-here chip -> presence details visible in detail; same rule for every chip (lights controllable, override/pause shows the hold and a resume control, unusual shows expected vs actual from binary_sensor.<room>_occupancy_anomaly attributes, offline lists the unavailable devices, window-open shows which opening + HVAC mode)."
+  why: "Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current_persons, unavailable actuators (note sensor.<room>_unavailable_entities tracks inputs only - actuator offline needs a source), window/door contacts vs HVAC action."
+  next: "Inventory each chip's entity source and whether the room detail card already shows/controls it; add the missing detail controls first, then the chips; backup the dashboard JSON; verify in Chrome at desktop + 390 px."
+  adjacency: "Swept dashboard cards (DASH-V8-*): NEW; related to the 10-20 ura-v8 tile restyle."
 - id: PREDICT-MODEL-DWELL-MIGRATION-1
   title: "Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room"
   thread: presence
