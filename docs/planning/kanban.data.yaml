@@ -584,6 +584,18 @@ cards:
   next: 'Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.'
   rank: {value: 9, time_criticality: 3, effort: 8}
   residual_2026_10_21_never_fires_restart_repeat: "From OC-STUCK-SENSOR-GENERALIZE-1 disposal: the (sensor_never_fires, eid) dedup is in memory and resets each HA restart, so the same silent sensor is re-reported ~18 min after every start. Belongs in the first slice (persistent problem dedup)."
+- id: OC-REQUEST-FIX-DISPATCHER-1
+  created: "2026-10-21"
+  title: 'OC agent: thin request_fix(type, target, evidence) dispatcher that does tier/sleep/log/check-back and calls the owning coordinator path (no new actuation path)'
+  thread: optimization
+  status: pre_planning
+  tier: 2
+  origin: 'Operator 2026-10-21 on vision decision 7: "really think about if we need an API that can cover all Coordinators" then "Lets not lose this. Make this the seed of a plan".'
+  why: 'Shared gate/log/check-back work for every agent fix type in one place, without reopening the rev-3 risks (manual holds, arrester misattribution, precedence bypass).'
+  links: {parent: OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1}
+  adjacency_2026_10_21: 'Swept board (OC-*, HVAC funnel cards), PLANNING_/AUDIT_ request-API audit: ADJACENT to HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1 (P3 path) and OC-SHADOW-SAMPLES-EMPTY-1 (action log). NEW as a mechanism.'
+  next: 'Seed at docs/planning/PLANNING_oc_request_fix_dispatcher_SEED.md -> full plan (prior-art scan + one plan review) when slice 2 starts.'
+  rank: {value: 6, time_criticality: 2, effort: 5}
 - id: OC-SHADOW-SAMPLES-EMPTY-1
   operator_instruction_2026_10_17: "inside the redesign (board, 2026-10-18T03:51:55.526Z)"
   triage_2026_10_17: "Default A taken: fold the shadow-validator fix into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
