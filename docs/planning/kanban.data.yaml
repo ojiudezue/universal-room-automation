@@ -687,7 +687,8 @@ cards:
   created: "2026-10-21"
   title: 'test_safety_hazard service sends no notification: handler only logs (safety.py:2997-3045), so the safety pipeline and v5.103.65 re-page cannot be tested on demand'
   thread: safety
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.84
   tier: 1
   origin: 'Operator approved a CRITICAL test smoke alert 2026-10-21 to close README_v5.103.65 re-page criteria; call succeeded, 0 notification_log rows. Code read: handle_test_hazard builds a Hazard, checks the deduplicator, logs "Test safety hazard..." and returns; services.yaml says it "only sends notifications".'
   why: 'The only on-demand way to prove life-safety paging works is a no-op. Re-page/ladder criteria of v5.103.65 stay unevaluable until fixed.'
