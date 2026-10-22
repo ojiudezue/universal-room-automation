@@ -103,6 +103,10 @@ class RoomDwellModel:
         self.last_refresh_utc: datetime | None = None
         self.last_error: str | None = None
         self.window_days: int | None = None
+        # Aware UTC end of the training window (start of the refresh's local
+        # day). The dwell_share producer only freezes an hour H when this is
+        # <= start(H), so a scored prediction is always out of sample (I1).
+        self.trained_until_utc: datetime | None = None
 
     # -- build ---------------------------------------------------------------
 
@@ -141,7 +145,7 @@ class RoomDwellModel:
 
     def apply(
         self, built: tuple[dict, dict, dict], *, now_utc: datetime,
-        window_days: int,
+        window_days: int, trained_until_utc: datetime | None = None,
     ) -> None:
         """Swap in a built model (on the event loop)."""
         self._cells, self._days, self._people = built
@@ -149,6 +153,7 @@ class RoomDwellModel:
         self.last_refresh_utc = now_utc
         self.last_error = None
         self.window_days = window_days
+        self.trained_until_utc = trained_until_utc
 
     def refresh(
         self,
@@ -247,6 +252,54 @@ class RoomDwellModel:
                 parts.append(f"{label} {_ranges(hours)}")
         return "; ".join(parts) if parts else "none"
 
+    # -- forecast helpers (PREDICT-MODEL-DWELL-MIGRATION-1 D1) ---------------
+
+    def forecast(
+        self,
+        entry_id: str,
+        now: datetime,
+        horizon_h: float,
+        last_hour_fraction: float | None,
+        weight: float,
+    ) -> float | None:
+        """``w x last_hour_fraction + (1 - w) x share(cell of now + h)``.
+
+        ``now`` must be aware. The target is computed in UTC and converted
+        back to ``now``'s zone, so a horizon across a DST change lands on
+        the right local hour. Returns the cell share alone when
+        ``last_hour_fraction`` is None, and None when the target cell has no
+        samples. Pure.
+        """
+        target = (
+            now.astimezone(timezone.utc) + timedelta(hours=horizon_h)
+        ).astimezone(now.tzinfo)
+        share, _n = self.lookup(entry_id, target)
+        if share is None:
+            return None
+        if last_hour_fraction is None:
+            return share
+        w = float(weight)
+        return w * float(last_hour_fraction) + (1.0 - w) * share
+
+    def _ranked_cells(self, entry_id: str) -> list[tuple[Cell, float]]:
+        room = self._cells.get(entry_id, {})
+        ranked = [(c, occ / n) for c, (occ, n) in room.items() if n]
+        # Highest share first; ties broken by (day type, hour) so the order
+        # is deterministic.
+        ranked.sort(key=lambda cs: (-cs[1], cs[0][1], cs[0][0]))
+        return ranked
+
+    def peak_cell(self, entry_id: str) -> tuple[Cell, float] | None:
+        """The room's highest-share cell, or None without samples."""
+        ranked = self._ranked_cells(entry_id)
+        return ranked[0] if ranked else None
+
+    def top_cells(self, entry_id: str, k: int) -> list[tuple[Cell, float]]:
+        """The ``k`` highest-share cells (``k <= 0`` -> empty)."""
+        if k <= 0:
+            return []
+        return self._ranked_cells(entry_id)[:k]
+
     def usual_people(
         self, room_name: str, entry_id: str, local_dt: datetime, top: int = 3,
     ) -> list[dict[str, Any]]:
@@ -297,6 +350,15 @@ class RoomDwellModelRunner:
         self._unsub_initial = None
         self._unsub_retry = None
         self._stopped = False
+        # dwell_share producer (PREDICT-MODEL-DWELL-MIGRATION-1 D3). All in
+        # memory: a restart loses at most the current and previous hour.
+        self._unsub_dwell_tick = None
+        # {aware UTC hour start: {entry_id: (share, cell_n)}}
+        self._frozen: dict[datetime, dict[str, tuple[float, int]]] = {}
+        self._last_scored_utc_hour: datetime | None = None
+        # Occupied fraction of the last scored hour, per room (D2 blend).
+        self._last_hour_fraction: dict[str, float] = {}
+        self.skipped_freeze = 0
 
     def async_start(self) -> None:
         """Schedule the initial and nightly refresh (no-op when disabled)."""
@@ -339,13 +401,135 @@ class RoomDwellModelRunner:
         self._unsub_initial = async_call_later(
             self.hass, OCC_ANOMALY_SETUP_REFRESH_DELAY_S, _initial,
         )
+        self._register_dwell_tick(async_track_time_change)
+
+    def _register_dwell_tick(self, track_time_change) -> None:
+        """Hourly dwell_share tick on its own unsub (D3). No-op when the
+        producer is switched off."""
+        from .const import DWELL_SHARE_PRODUCER_ENABLED, DWELL_SHARE_TICK_MINUTE
+
+        if not DWELL_SHARE_PRODUCER_ENABLED:
+            return
+        minute = DWELL_SHARE_TICK_MINUTE
+        if not isinstance(minute, int) or not 0 <= minute <= 14:
+            _LOGGER.warning(
+                "DWELL_SHARE_TICK_MINUTE=%r is outside 0-14; using 2", minute,
+            )
+            minute = 2
+        self._unsub_dwell_tick = track_time_change(
+            self.hass, self._async_dwell_tick, minute=minute, second=0,
+        )
+
+    def last_hour_fraction(self, entry_id: str) -> float | None:
+        """Occupied fraction of the last scored hour (None after a restart
+        until the producer has scored an hour, and when it is off)."""
+        return self._last_hour_fraction.get(entry_id)
+
+    def _room_entry_ids(self) -> list[str]:
+        from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_ROOM
+
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception:  # noqa: BLE001
+            return []
+        return [
+            e.entry_id for e in entries
+            if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+        ]
+
+    async def _async_dwell_tick(self, _now=None) -> None:
+        """Score the finished hour, then freeze the new one. Never raises."""
+        if self._stopped:
+            return
+        try:
+            await self._dwell_tick()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("dwell_share producer tick failed: %s", exc)
+
+    async def _dwell_tick(self) -> None:
+        from homeassistant.util import dt as dt_util
+
+        from .const import DOMAIN, DWELL_SHARE_MIN_ACTUAL_SAMPLES
+
+        hour = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
+        prev = hour - timedelta(hours=1)
+
+        # 1. Score H-1 with the share frozen at its start. The frozen entry
+        # is dropped whether or not the write succeeds (no retry/backfill),
+        # and the same-hour guard is set before any await so a second
+        # invocation for the same hour does nothing (I2).
+        frozen_prev = self._frozen.pop(prev, None)
+        for key in [k for k in self._frozen if k < prev]:
+            self._frozen.pop(key, None)
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if frozen_prev is None or prev == self._last_scored_utc_hour or db is None:
+            # Nothing scored this tick: drop the older fraction rather than
+            # let D2 blend a 2+ hour old value as "last hour" (review B-L1).
+            self._last_hour_fraction = {}
+        if frozen_prev is not None and prev != self._last_scored_utc_hour:
+            self._last_scored_utc_hour = prev
+            if db is not None:
+                since = prev.replace(tzinfo=None).isoformat()
+                until = hour.replace(tzinfo=None).isoformat()
+                try:
+                    actual_rows = await db.get_room_occupied_share_by_hour(
+                        since, until,
+                    )
+                except Exception:  # noqa: BLE001
+                    self._last_hour_fraction = {}
+                    raise
+                actual: dict[str, tuple[int, int]] = {}
+                for entry_id, _bucket, occ, n in actual_rows:
+                    o, c = actual.get(entry_id, (0, 0))
+                    actual[entry_id] = (o + int(occ), c + int(n))
+                min_n = max(1, int(DWELL_SHARE_MIN_ACTUAL_SAMPLES))
+                stamp = prev.isoformat()
+                rows: list[tuple] = []
+                fractions: dict[str, float] = {}
+                for entry_id, (share, cell_n) in frozen_prev.items():
+                    occ, n = actual.get(entry_id, (0, 0))
+                    if n < min_n:
+                        continue
+                    frac = occ / n
+                    fractions[entry_id] = frac
+                    rows.append((
+                        entry_id, stamp, "dwell_share",
+                        str(round(share, 4)), cell_n,
+                        str(round(frac, 4)), round(share - frac, 4),
+                    ))
+                self._last_hour_fraction = fractions
+                if rows:
+                    await db.save_prediction_results_batch(rows)
+
+        # 2. Freeze H, only from a model trained strictly before H (I1), and
+        # only once per hour (the first tick inside H wins).
+        if hour in self._frozen:
+            return
+        model = self.model
+        trained = model.trained_until_utc
+        if not model.has_model or trained is None or trained > hour:
+            self.skipped_freeze += 1
+            _LOGGER.debug(
+                "dwell_share: no freeze for %s (model=%s trained_until=%s)",
+                hour.isoformat(), model.has_model, trained,
+            )
+            return
+        local = hour.astimezone(dt_util.DEFAULT_TIME_ZONE)
+        frozen: dict[str, tuple[float, int]] = {}
+        for entry_id in self._room_entry_ids():
+            share, n = model.lookup(entry_id, local)
+            if share is not None:
+                frozen[entry_id] = (share, n)
+        if frozen:
+            self._frozen[hour] = frozen
 
     async def async_stop(self) -> None:
         """Cancel timers and drop the hass.data reference (if it is us)."""
         from .const import DOMAIN
 
         self._stopped = True
-        for attr in ("_unsub_nightly", "_unsub_initial", "_unsub_retry"):
+        for attr in ("_unsub_nightly", "_unsub_initial", "_unsub_retry",
+                     "_unsub_dwell_tick"):
             unsub = getattr(self, attr)
             setattr(self, attr, None)
             if unsub is not None:
@@ -406,7 +590,10 @@ class RoomDwellModelRunner:
             return False
         if self._stopped:  # a stop during the read or the build wins
             return False
-        self.model.apply(built, now_utc=dt_util.utcnow(), window_days=days)
+        self.model.apply(
+            built, now_utc=dt_util.utcnow(), window_days=days,
+            trained_until_utc=end.astimezone(timezone.utc),
+        )
         _LOGGER.info(
             "Room dwell model refreshed: %d rooms, window %d days",
             len(self.model._cells), days,

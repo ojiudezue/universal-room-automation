@@ -944,10 +944,24 @@ class BayesianPredictor:
                 hits += 1
 
         n = len(rows)
+        # PREDICT-SCORER-BASELINE-SKILL-1: the same rows scored against the
+        # constant base rate, so "94%" can be read against what a no-skill
+        # constant scores (the empty-room base rate).
+        from .prediction_skill import occupancy_skill
+
+        skill = occupancy_skill(
+            (row["predicted_probability"], row["actual_occupied"])
+            for row in rows
+        )
         return {
             "brier_score": round(brier_sum / n, 4),
             "hit_rate": round(hits / n * 100, 1),
             "total_predictions": n,
+            "base_rate": skill["base_rate"],
+            "base_rate_brier": skill["base_rate_brier"],
+            "brier_skill": skill["brier_skill"],
+            "baseline_hit_rate": skill["baseline_hit_rate"],
+            "hit_rate_skill_pct": skill["hit_rate_skill_pct"],
         }
 
 
