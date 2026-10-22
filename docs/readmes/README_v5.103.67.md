@@ -39,3 +39,14 @@ Stage L of `docs/planning/PLANNING_ec_storm_and_blind_decisions.md` Rev 2.1, whi
 - **Live:** within 10 min of restart there are 0 URA ERRORs mentioning `outage` or `ledger`, and no "thread" RuntimeError.
 - **Live:** at +5 min the first cloud sweep has run. Either `grid_outage` rows exist for any off-grid events in the last 48 h, or a log line says 0 events were found, or a warning says the calendar could not be resolved.
 - **Live:** when an NWS alert is active, there is 1 `nws_alert` row per alert `ID`. After a second restart there are no duplicates.
+
+## Validated 2026-10-21
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Within 10 min of restart, 0 URA ERRORs mentioning `outage` / `ledger`, no "thread" RuntimeError | NOT-YET-EVALUABLE | log-read gap |
+| At +5 min the first cloud sweep has run: `grid_outage` rows for off-grid events in the last 48 h, or a "0 events" log line, or a calendar-unresolved warning | NOT-YET-EVALUABLE (consistent, not proven) | `grid_outage` rows: 0 (all time). Consistent with no outage: `calendar.main_panel_wall_enphase_cloud_hacs_system_event_history` recorder history 2026-10-15 to 10-21 is only `off` / `unavailable` flips, never `on` (last `off` at 2026-10-21 18:27:05, 1 min after the restart). The sweep's confirming log line is log-only, so whether it ran cannot be shown from the DB. |
+| One `nws_alert` row per alert ID; no duplicates after a second restart | PASS | `ura_activity_log`: exactly 1 `nws_alert` row total, id 316571, 2026-10-20T15:24:03-05:00, Air Quality Alert AQA, alert `id` b5000b36-2a39-4a69-4baf-2a128d57e0a1, Expires 2026-10-21T19:00:00-05:00. That alert was active across the 2026-10-21 18:25 restart and no second row appeared (cross-restart dedup held). Caveat: only one alert has been seen since the ship, so update and cancel handling is not exercised live. |
+| Side check: local witnesses | note | 0 `local_only` rows. Enpower `grid_status` shows only `unavailable` flips (e.g. 2026-10-20 23:05:56 daily), no real islanding; the README already says the local witness is unproven. |
+
+_Log-scan criteria are NOT-YET-EVALUABLE (no log access from the probe); source: docs/planning/AUDIT_readme_straggler_validation_2026_10_21.md._
