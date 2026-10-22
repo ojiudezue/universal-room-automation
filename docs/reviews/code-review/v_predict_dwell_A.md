@@ -24,3 +24,7 @@ No CRITICAL / HIGH / MEDIUM.
 ## Verdict: **SHIP**
 
 Must-fix: none. Optional: record live hourly-tick read duration in the README validation table.
+
+## Fix-up disposition (builder, 2026-10-21, after tag pre-review-v5.103.85)
+- A-LOW hourly environmental_data scan: ACCEPTED on record (read connection, off the write queue; add `idx_environmental_data_ts` only if live timing shows > ~1 s).
+- A-LOW (doc) prune docstring: no change needed.

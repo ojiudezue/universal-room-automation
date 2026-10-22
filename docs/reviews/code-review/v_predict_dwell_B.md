@@ -43,3 +43,12 @@ Read first, completely: `PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`, `SENSOR_FLEET_
 ## Verdict: **SHIP**
 
 There are no CRITICAL, HIGH or MEDIUM findings. B-L1 and B-L2 are recommended in-cycle LOW fixes (each 5 to 15 LoC). B-L2 matters most, because it biases the H2 skip-ratio Live gate.
+
+## Fix-up disposition (builder, 2026-10-21, after tag pre-review-v5.103.85)
+| ID | Disposition | Where | Anchor test (RED on neuter, drilled) |
+|---|---|---|---|
+| B-L1 | FIXED: every tick that scores nothing (no frozen hour, already scored, or no database) clears `_last_hour_fraction` | `room_dwell_model.py` `_dwell_tick` | `test_last_hour_fraction_cleared_when_nothing_scored`, `test_last_hour_fraction_cleared_without_database` |
+| B-L2 | FIXED: `_on_location_change` snapshots the cache entry before the first await and passes it via `_log_transition` to `_score_prediction(cache=...)`; direct callers still read the live cache | `transitions.py` | `test_cache_captured_before_first_await` (wire-in + scorer-side drills) |
+| B-L3 | ACCEPTED on record (operator Q5 skill rule, no hysteresis; advisory, short flicker at the one crossing) | - | - |
+| B-L4 | ACCEPTED on record (kill-switch-off cache carries `current_room: None`; scoring byte-identical) | - | - |
+| B-L5 | ACCEPTED on record (in-flight tick during stop cannot duplicate; DB errors caught) | - | - |

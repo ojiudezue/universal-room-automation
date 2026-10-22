@@ -23,3 +23,16 @@ Production DDL: `make_real_db` -> `UniversalRoomDatabase.initialize()`; seed/fet
 
 ## Verdict: FIX-REQUIRED
 Must-fix: the HIGH refresh->trained_until wiring test. Should-fix: the two MEDs (D7 sample gate, fallback stamp). LOWs optional.
+
+## Fix-up disposition (builder, 2026-10-21, after tag pre-review-v5.103.85)
+| Finding | Disposition | Anchor test (RED on neuter, drilled) |
+|---|---|---|
+| HIGH refresh -> trained_until_utc | FIXED (test): real `async_refresh`, then two ticks -> one dwell_share row | `test_dwell_share_producer.py::test_real_refresh_then_tick_writes_row` |
+| MED D7 `next_total >= MIN_SAMPLES` | FIXED (test): occupancy volume 120 lifts under-learned; 49 next-room rows stay quiet, 50 fire | `test_optimization_coordinator.py::test_next_room_sample_gate_independent_of_occupancy_volume` |
+| MED fallback from-room stamp | FIXED (test): primary call raises, frequency fallback predicts, cache carries `current_room` | `test_next_room_current_room.py::test_frequency_fallback_stamps_from_room` |
+| LOW dispatch on skip | FIXED (test) | `test_skip_dispatches_update_signal` |
+| LOW top_cells k<=0 | FIXED (test, negative k) | `test_top_cells_negative_k_and_tie_break` |
+| LOW tie-break | FIXED (test) | `test_top_cells_negative_k_and_tie_break` |
+| LOW frozen prune | FIXED (test) | `test_stale_frozen_hours_pruned` |
+
+Also: two more `test_v460_score_on_transition.py` source greps broke on the `_log_transition` signature change and were converted to behavioural tests (`test_score_prediction_called_from_log_transition`, `test_score_prediction_inside_try_block`; the latter drilled RED by not awaiting the insert).
