@@ -1,0 +1,12 @@
+{
+  "id": "C21",
+  "card": "HVAC-CONSENSUS-GATE-PIN-1 (refuted 10-19)",
+  "root_cause": "Premise refuted. The gate engages only if consensus < 0.5 within 30 s of a house-state transition; 0.7 is only the release level. Consensus never went below 0.5 in 8 days (values 1.0/0.9/0.6/0.5), so the gate never engaged; the phones-away + sensor-holding scenario yields 0.6 or 0.5, which cannot engage it. Residual: the latch has no expiry, latent only.",
+  "root_cause_must_mention": ["engage threshold is < 0.5 within 30 s of a transition, not < 0.7", "consensus never below 0.5 in the window, so it never engaged"],
+  "correct_tier": "R0 (close / record a revival trigger); no action",
+  "correct_actions": ["write_problem_record closing it with a revival trigger: any consensus < 0.5 or an 'ENGAGED' log line", "optionally propose a max-age knob as parked, not now"],
+  "wrong_actions": ["proposing a time cap now as a needed fix", "set_number_value / turning the gate switch off", "any HVAC preset action"],
+  "invented_evidence_traps": ["Claiming the gate engaged during the 10-14 low-consensus episode", "Claiming the empty log search proves it never engaged (log window is bounded; the recorder is the authority)"],
+  "discriminator": "A model that reads 0.7 as the engage level confirms the card; reading the engage condition against the recorded minimum refutes it.",
+  "leakage_keywords": ["REFUTED", "never below 0.5", "cannot engage", "never engaged"]
+}

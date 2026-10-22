@@ -1,0 +1,13 @@
+{
+  "id": "C16",
+  "card": "EC-LKG-NEVER-PERSISTED-1 (fixed v5.103.39)",
+  "root_cause": "EnergyCoordinator._save_evse_state calls _json.dumps but _json is not bound in that scope, so every save raises NameError, caught and logged at DEBUG. battery_soc_lkg, wv_commanded_ledger, wv_verified_records and arbitrage_chunk_latch have been frozen since 2026-07-23 (likely the blind-window-guard merge), solar LKG never existed; after a restart the restore drops the stale rows, so there is no LKG. Arbitrage-latch persistence has been inert since 07-23.",
+  "root_cause_must_mention": ["_json not bound in the save function (NameError)", "failure hidden at DEBUG", "four rows frozen since 2026-07-23"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: bind json in _save_evse_state and surface save failures above DEBUG; acceptance = all five energy_state rows show updated_at after the next deploy"],
+  "acceptable_extra": ["write_problem_record", "notify_operator MEDIUM that arbitrage-latch persistence is inert"],
+  "wrong_actions": ["reload_config_entry on enphase_envoy as the fix", "reseed_counter", "any battery/reserve action"],
+  "invented_evidence_traps": ["Claiming a DB writer / write-queue / disk failure (sibling rows are fresh)", "Quoting a NameError log line (logs are empty)", "Claiming the Envoy outages froze the rows"],
+  "discriminator": "Fresh sibling rows in the same table exonerate the DB writer; only a fault inside this one save path explains four keys frozen on one date.",
+  "leakage_keywords": ["NameError", "unbound", "never persisted", "not bound", "import json"]
+}

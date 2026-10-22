@@ -1,0 +1,32 @@
+{
+  "id": "C11",
+  "title": "Optimizer shadow track record is empty after a month",
+  "pre_fix_commit": "2ae06bf95 (still unfixed in code; folded into the OC redesign; code facts as measured on develop 2026-10-16)",
+  "held_out": true,
+  "as_of": "2026-10-16T02:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. optimizer_shadow_samples has no rows although the Optimization Coordinator has logged thousands of findings. Find why with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "The Optimization Coordinator runs in shadow mode; a shadow validator is meant to score each finding's prediction after it has had time to play out, writing optimizer_shadow_samples.",
+    "Promotion readiness needs >= 20 samples, >= 0.60 accuracy and a >= 7-day span."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "optimizer_shadow_samples"}, "response": {"rows": 0, "all_time": true}, "source": "card measured"},
+    {"tool": "ura_db_query", "match": {"table": "optimization_findings"},
+     "response": {"window": "2026-09-18..2026-10-16", "rows": 6886, "per_day": "~550-576 house + 160-500 room", "observed_effect_set": 0, "top_types_14d": {"meta advisory cycle_ok": 2269, "prediction_accuracy": 2140, "comfort": 1814, "sensor_health": 265, "occupancy_accuracy": 261}},
+     "source": "card measured (verbatim counts)"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/optimization.py", "optimization.py"], "symbol_any": ["_run_shadow_accuracy_validator", "_last_findings", "OPTIMIZER_SHADOW_OBSERVE_DELAY_S", "cycle"]},
+     "response": {"excerpt_summary": ":1231 self._last_findings = findings  (current cycle's findings, assigned just before the validator runs). :1449 def _run_shadow_accuracy_validator: for f in self._last_findings (:1498): if age(f) < OPTIMIZER_SHADOW_OBSERVE_DELAY_S: continue (:1522-1524); else score and append to the sample buffer (:1553-1558)."},
+     "source": "card mechanism with its line numbers; PARAPHRASE"},
+    {"tool": "read_code", "match": {"path_any": ["const.py"], "symbol_any": ["OPTIMIZER_SHADOW_OBSERVE_DELAY_S", "cycle", "OPTIMIZER_CYCLE"]},
+     "response": {"text": "OPTIMIZER_SHADOW_OBSERVE_DELAY_S = 900  (const.py:3985)\nOPTIMIZER cycle interval = 5 min (const.py:4420)"},
+     "source": "card (const.py:3985, :4420)"},
+    {"tool": "read_code", "match": {"path_any": ["sensor.py", "optimization.py"], "symbol_any": ["_compute_promotion_readiness", "promotion"]},
+     "response": {"excerpt_summary": "_compute_promotion_readiness (optimization.py:5103) feeds sensor attributes only (sensor.py:18195); it is not an actuation gate."},
+     "source": "card consumer check"}
+  ],
+  "freeze_quality": "good: counts verbatim; code paraphrased with the card's line numbers"
+}

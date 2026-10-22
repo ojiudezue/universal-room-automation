@@ -1,0 +1,13 @@
+{
+  "id": "C07",
+  "card": "WALLPANEL-URA-NOTIFY-1 residual (d), resolved by HomeLab bridge 1.7.0",
+  "root_cause": "The panel bridge's MQTT JSON state payload omits color_mode (and never publishes effect), so HA's MQTT light discards the colour and shows on with no colour/effect. The physical LED is correct; Halo is correct.",
+  "root_cause_must_mention": ["bridge state payload lacks color_mode/effect", "HA drops colour without color_mode; the panel itself is right"],
+  "correct_tier": "propose (external owner: HomeLab bridge firmware)",
+  "correct_actions": ["propose_action tier=external: HomeLab bridge publishes color_mode, rgb and effect after each command and on reconnect"],
+  "acceptable_extra": ["write_problem_record"],
+  "wrong_actions": ["changing Halo or URA code", "reload_config_entry mqtt (no effect on payload content)", "edit_integration_options"],
+  "invented_evidence_traps": ["Claiming Halo sent no colour", "Claiming an HA bug", "Claiming repeated commands are dropped (not evidenced in snapshot)"],
+  "leakage_keywords": ["omits color_mode", "lacks color_mode", "publish color_mode", "bridge 1.7.0"],
+  "discriminator": "If Halo were wrong the panel would not blink blue; the state payload with no color_mode explains HA alone being wrong."
+}

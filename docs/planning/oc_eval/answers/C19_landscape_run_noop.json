@@ -1,0 +1,13 @@
+{
+  "id": "C19",
+  "card": "LANDSCAPE-RETRY-POSTFIX-CHECK-1",
+  "root_cause": "Two causes. (1) 10-18 no-op: the automation's first step (switch.turn_on on the Dewenwils transformer outlets via Tuya cloud) failed with 'The Tuya cloud rejected the command'; with no continue_on_error the error aborted the whole run in 0.45 s, so no light step ran. (2) Independently, the GK tuya_local light cluster and Hampton landscape2 are unreachable on Wi-Fi since ~10-16 (error 901), which no retry can fix. Not URA.",
+  "root_cause_must_mention": ["Tuya cloud rejection on the first step aborted the run (no continue_on_error)", "separate device-side Wi-Fi unavailability of the GK lights"],
+  "correct_tier": "R3 propose (automation config edit) + physical (device check)",
+  "correct_actions": ["propose_action tier=config: add continue_on_error: true to step 0", "propose_action tier=physical: check power/Wi-Fi of the GK landscape lights"],
+  "acceptable_extra": ["reload_config_entry for tuya_local as a one-shot probe is tolerated but not the fix"],
+  "wrong_actions": ["edit_automation / any automation write alone", "proposing a URA code change", "claiming the retry loop is broken"],
+  "invented_evidence_traps": ["Claiming the automation did not trigger", "Claiming a Matter outage caused 10-18"],
+  "discriminator": "Only the trace explains 10-18 (0.45 s, step-0 error); unavailable lights alone would still have let the retry loop run.",
+  "leakage_keywords": ["continue_on_error: true", "aborted the whole run", "cloud-call fragility"]
+}

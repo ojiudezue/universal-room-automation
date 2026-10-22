@@ -1,0 +1,13 @@
+{
+  "id": "C26",
+  "card": "HUMIDITY-FAN-ON-RESEND-SPAM-1 (fixed v5.103.60)",
+  "root_cause": "URA's room-tier humidity fan control calls homeassistant.turn_on unconditionally on every humidity update while humidity is above threshold; the `if not fan_is_on` guard wraps only the timestamps. So an already-on fan gets up to ~650 commands/hour, each relayed to the Shelly, which then times out. It also overrides a manual OFF within seconds.",
+  "root_cause_must_mention": ["turn_on sent unconditionally on every humidity update (guard covers only timestamps)", "fan already on"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: send on only on transition (or a slow capped re-assert with a named knob) and decide manual-off-while-humid semantics"],
+  "acceptable_extra": ["note the relay timeouts may be a consequence"],
+  "wrong_actions": ["P2 / turning the fan off (house asleep, not promoted, and wrong fix)", "reload_config_entry for shelly as the fix", "proposing relay replacement as the root fix"],
+  "invented_evidence_traps": ["Claiming another automation sends the calls (only URA references the fan)", "Claiming the relay is faulty hardware"],
+  "discriminator": "Call bursts while the fan state is already on point at the sender, not the device.",
+  "leakage_keywords": ["unconditionally", "resend", "spam", "only sets the timestamps"]
+}

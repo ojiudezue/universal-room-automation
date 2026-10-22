@@ -1,0 +1,38 @@
+{
+  "id": "C03",
+  "title": "Oji's phone often places him in the Foyer while he is in Study A",
+  "pre_fix_commit": "2ae06bf95 (board state; the fix was a Bermuda options change in HA on 2026-10-21 ~16:50, no URA commit)",
+  "held_out": false,
+  "as_of": "2026-10-21T16:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: 'URA keeps putting me in the Foyer when I am at my desk in Study A. Look at the history and tell me what to change.' Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Person room location comes from Bermuda (BLE area per phone, IRK-based) read by person_coordinator; URA does not run radios.",
+    "Study A and the Foyer share a wall. Study A has a ZG-204ZK presence radar.",
+    "Bermuda per-scanner RSSI offsets live in the Bermuda integration options (calibration)."
+  ],
+  "fixtures": [
+    {"tool": ["ha_get_history", "ura_db_query"], "match": {"entity_id_any": ["sensor.iphone_oji_area"], "table_any": ["person_visits", "person_location"]},
+     "response": {"window": "2026-10-14..2026-10-21", "measure": "minutes where Study A was occupied (Study A ZK on) and Oji was the only resident whose phone was in or near Study A", "true_study_a_minutes": "baseline", "share_reported_as": {"Study A": "~60%", "Foyer": "~35%", "other (Study B, Master Bedroom)": "~5%"}, "pattern": "Foyer readings come in runs of a few minutes interleaved with Study A; they began after the new Foyer scanners were added"},
+     "source": "35% Foyer share from card BLE-FOYER-STUDYA-RETUNE-1; the Study A / other split and the 'began after' wording are RECONSTRUCTED"},
+    {"tool": "read_config", "match": {"target_any": ["bermuda_options", "bermuda"]},
+     "response": {"scanner_rssi_offsets": {"First BLE Proxy Foyer": 3, "Entry Way Panel": 0, "Screek BP1_A (Study A)": 3, "Study A Panel": 0, "Master Screek": 6, "BedPresence": 6, "Jaya": 12, "Screek BP1_B": "device not plugged in"}, "scanner_areas": {"First BLE Proxy Foyer": "Foyer", "Entry Way Panel": "Foyer", "Screek BP1_A": "Study A", "Study A Panel": "Study A"}},
+     "source": "pre-change offsets verbatim from the card; area mapping inferred from scanner names"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.iphone_oji_area"]},
+     "response": {"state": "Foyer", "attributes": {"area_scanner": "Entry Way Panel", "rssi": -71}},
+     "source": "RECONSTRUCTED illustrative instant"},
+    {"tool": "read_config", "match": {"target_any": ["ura_room:Study A"]},
+     "response": {"presence_sensors": ["binary_sensor.<study_a_zk>_presence"], "scanner_areas": []},
+     "source": "Study A has a ZK radar (SENSOR_FLEET_CLASSES); entity id placeholder"},
+    {"tool": "kanban_search", "match": {"query_any": ["foyer", "bermuda", "ble", "study a"]},
+     "response": {"cards": [{"id": "WALLPANEL-TOUCH-WITNESS-1", "why": "each wall panel is a BLE proxy; ranking: BLE proxy as Bermuda scanner > touch witness"}]},
+     "source": "board pre-fix; panels-as-scanners context"},
+    {"tool": "read_doc", "match": {"name_any": ["PRESENCE_ARCHITECTURE_STATE_OF_PLAY"]},
+     "response": {"section_3": "BLE proves coarse ROOM with scanner-area granularity when the fleet is live; it cannot prove sub-room location. Tier 2 CONF_SCANNER_AREAS lets a room borrow a scanner's area."},
+     "source": "presence state of play §3 (pre-dates the fix)"}
+  ],
+  "freeze_quality": "medium: offsets and the 35% figure are real; per-minute history is summarised and partly reconstructed"
+}

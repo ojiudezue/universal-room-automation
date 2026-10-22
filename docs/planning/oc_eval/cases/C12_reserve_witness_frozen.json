@@ -1,0 +1,40 @@
+{
+  "id": "C12",
+  "title": "Daily CRITICAL 'pending write stuck' pages for the battery reserve",
+  "pre_fix_commit": "5b3dd8068^ (parent of v5.103.74 'Reserve write check reads the live Envoy reserve sensor')",
+  "held_out": false,
+  "as_of": "2026-10-17T02:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. The reserve write checker sends 1-5 'write stuck' pages a day (CRITICAL at attempt 3). Decide whether the battery is really ignoring URA's reserve writes. Act within tiers and submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "URA sets the battery reserve through the Enphase cloud (number.iq_battery_hacs_battery_reserve). A write checker compares each commanded reserve with a local witness and re-sends up to 3 times before standing down and paging.",
+    "Battery reserve, storage mode and charge-from-grid are R3: never written by the agent."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "anomaly_log"},
+     "response": {"write_local_witness_divergence_reserve_soc": {"since_2026-08-05": {"rows": 3647, "local_seen": [10.0]}, "2026-07-18..08-04": {"rows": 3142, "local_seen": [61.0]}}, "pending_write_stuck_since_10-01": {"oracle_seen": [10.0], "attempt3_critical_days": "13 of 16"}, "example": {"t": "2026-10-14T21:02Z", "kind": "pending_write_stuck", "hw_witness": "envoy_reserve_battery_level", "oracle_seen": 10.0, "commanded": 90}},
+     "source": "VERBATIM counts from card measured_2026_10_17"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["number.enpower_482348004678_reserve_battery_level"]},
+     "response": {"window": "8 days", "distinct_states": ["10.0", "unavailable"], "rows": 107},
+     "source": "card: only 10.0 or unavailable (55+52 rows)"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["number.iq_battery_hacs_battery_reserve"]},
+     "response": {"window": "8 days", "values_seen": [5, 6, 7, 8, 10, 14, 80, 90, 99], "example": [{"t": "2026-10-14T15:47:36", "v": 90}]},
+     "source": "card"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.envoy_482543015950_reserve_battery_level"]},
+     "response": {"window": "8 days", "values_seen": [5, 6, 7, 8, 10, 14, 80, 90, 99], "example": [{"t": "2026-10-14T15:48:22", "v": 90}, {"t": "2026-10-14T10:18", "v": 10}]},
+     "source": "card: moved to 90 within a minute of the cloud on 10-14"},
+    {"tool": "read_config", "match": {"target_any": ["ura_energy_options", "energy"]},
+     "response": {"energy_reserve_soc_entity": "number.enpower_482348004678_reserve_battery_level", "note": "also used as the local write-fallback target"},
+     "source": "card: configured entity; local write-fallback energy_battery.py:842-846 / :868-877"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/energy_write_verify.py", "energy_write_verify.py"], "symbol_any": ["_local_entity_for", "witness", "reserve"]},
+     "response": {"excerpt_summary": "_local_entity_for(surface='reserve_soc') -> battery._get_entity('reserve_soc_number', role='read') (energy_write_verify.py:369-409). Docstring at :1555 says the honest witness for the reserve is sensor.envoy_*_reserve_battery_level."},
+     "source": "card (doc/code mismatch noted there); PARAPHRASE"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["WriteVerifier", "stand-down", "reserve"]},
+     "response": {"lines": ["2026-10-16 23:42 WARNING WriteVerifier: reserve_soc pending watchdog — HARD STAND-DOWN after 3 attempts; surface marked non-compliant. URA will stop commanding this surface until convergence, fresh operator-driven desire change, or cool-off expiry (3h)."]},
+     "source": "VERBATIM log line quoted in the card"}
+  ],
+  "freeze_quality": "good: counts and log verbatim; code paraphrased"
+}

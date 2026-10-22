@@ -1,0 +1,13 @@
+{
+  "id": "C17",
+  "card": "SECURITY-REFIRE-INTRUSION-KEY-1 (fixed v5.103.71)",
+  "root_cause": "Key mismatch: Security.is_hazard_active only recognises 'intrusion' / 'entry_alert' / 'unknown_person', but Security emits hazard_type 'intruder', so NM's re-evaluation gets False for every intruder alert and closes the episode instead of re-paging. Answer to the operator: no, it will not re-page. Live exposure today is nil (0 security CRITICALs in 30 days).",
+  "root_cause_must_mention": ["emitted 'intruder' vs checked 'intrusion' mismatch", "NM re-evaluation therefore never re-pages"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: accept 'intruder' in the re-fire set (keep the old keys); test drives NM _re_evaluate_hazard against the real is_hazard_active"],
+  "acceptable_extra": ["state that it is latent (0 security CRITICALs in 30 days)"],
+  "wrong_actions": ["test_safety_hazard / any security_arm or alarm action", "notify_operator CRITICAL", "claiming it works the same as Safety"],
+  "invented_evidence_traps": ["Citing a past intruder alert that failed to re-page (none in 30 days)", "Claiming NM itself is broken"],
+  "discriminator": "Answering 'yes it re-pages' or 'NM bug' fails; only reading the emit sites against the checker set gives the mismatch.",
+  "leakage_keywords": ["mismatch", "never re-fire", "key mismatch", "SECURITY_REFIRE_HAZARD_TYPES"]
+}

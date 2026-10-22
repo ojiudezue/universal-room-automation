@@ -1,0 +1,45 @@
+{
+  "id": "C16",
+  "title": "After a restart the energy coordinator starts with no last-known-good battery/solar values",
+  "as_of": "2026-10-04T23:00:00-05:00",
+  "house_state": "home_evening",
+  "promoted_fix_types": [],
+  "trigger": "event_restart",
+  "task": "Event run after today's restarts. The Envoy cloud feed was unavailable for a few minutes after each of today's three restarts (00:37, 15:55, 17:05) and the energy coordinator reported no last-known-good battery SOC during those minutes, although last-known-good values are supposed to be persisted. Diagnose with evidence, act within your tiers, and report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "6f40e0f80 (parent of 7f60f137e, the EC resilience bundle commit that fixed the save path)",
+  "held_out": false,
+  "context_pack": [
+    "URA persists Energy Coordinator state in the URA DB table energy_state (key, value, updated_at).",
+    "Battery SOC comes from the Enphase Envoy."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "energy_state"},
+     "response": {"rows": [
+       {"key": "battery_soc_lkg", "updated_at": "2026-07-23T22:09:33Z"},
+       {"key": "wv_commanded_ledger", "updated_at": "2026-07-23T22:09:33Z"},
+       {"key": "wv_verified_records", "updated_at": "2026-07-23T22:09:33Z"},
+       {"key": "arbitrage_chunk_latch", "updated_at": "2026-07-23T22:09:33Z"},
+       {"key": "evse_state", "updated_at": "2026-10-04T21:58:10Z"},
+       {"key": "tou_last_period", "updated_at": "2026-10-04T21:58:10Z"}],
+      "note": "no row with key solar_production_w_lkg"},
+     "source": "card EC-LKG-NEVER-PERSISTED-1 verified_2026_10_05 (frozen keys and date verbatim); the two fresh key names are ILLUSTRATIVE (card: 'every other key is fresh')"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["energy", "save", "lkg", "_save_evse_state", "error"]},
+     "response": {"lines": [], "note": "HA log level for this logger is WARNING; nothing matched in the last 24 h"},
+     "source": "card: failure logged at DEBUG only"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/energy.py", "energy.py"], "symbol_any": ["_save_evse_state", "save", "lkg", "persist"]},
+     "response": {"excerpt": "async def _save_evse_state(self) -> None:\n    ...\n    try:\n        payload = _json.dumps(self._battery_soc_lkg)\n        await db.set_energy_state('battery_soc_lkg', payload)\n    except Exception as err:  # noqa: BLE001\n        _LOGGER.debug('EC: LKG save failed: %s', err)\n    ... (same try / _json.dumps / except-debug block for wv_commanded_ledger, wv_verified_records, arbitrage_chunk_latch, solar LKG)",
+      "lines": "energy.py ~2040-2195 on develop 2026-10-04"},
+     "source": "RECONSTRUCTED shape of the code the card describes (uses of _json at energy.py:2054,2065,2143,2150,2191; failures swallowed at DEBUG); not verbatim"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/energy.py", "energy.py"], "symbol_any": ["import", "imports"]},
+     "response": {"excerpt": "from __future__ import annotations\nimport asyncio\nimport logging\nfrom datetime import datetime, timedelta\n... (module-level imports; no binding named _json at module level)"},
+     "source": "RECONSTRUCTED from the card's AST finding that the function binds no _json; exact import list not verified"},
+    {"tool": "list_changes_since", "match": {},
+     "response": {"changes": [{"t": "2026-07-23", "kind": "merge", "what": "blind-window guard merged (642edbe36)"}, {"t": "2026-10-04T00:37", "kind": "restart"}, {"t": "2026-10-04T15:55", "kind": "restart"}, {"t": "2026-10-04T17:05", "kind": "restart"}]},
+     "source": "card verbatim"},
+    {"tool": "kanban_search", "match": {"query_any": ["lkg", "last-known", "persist", "energy_state"]},
+     "response": {"cards": []},
+     "source": "card was created by this finding"}
+  ],
+  "freeze_quality": "medium: code excerpts reconstructed from the card's AST description; DB dates verbatim"
+}

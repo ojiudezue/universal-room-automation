@@ -1,0 +1,35 @@
+{
+  "id": "C07",
+  "title": "Wall-panel LED colour never shows in Home Assistant",
+  "pre_fix_commit": "2ae06bf95 (fix was HomeLab panel-bridge firmware 1.7.0 on 2026-10-21, outside this repo; Halo repo ~/Code/halo-panels unchanged by the fix)",
+  "held_out": true,
+  "as_of": "2026-10-21T11:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: 'Halo sets a panel LED to blue blink and the panel does blink blue, but Home Assistant shows the light as on with no colour or effect. Which side is wrong?' Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Panel LEDs are MQTT lights (light.wallpanel_<panel>_led) published by a HomeLab-owned bridge app on each panel; schema json.",
+    "Halo is a separate HA integration (operator's repo) that commands those lights through light.turn_on with rgb_color and effect.",
+    "URA does not own the bridge firmware; HomeLab does."
+  ],
+  "fixtures": [
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["light.wallpanel_kitchen_led", "light.wallpanel_study_a_led", "*wallpanel*_led"]},
+     "response": {"state": "on", "attributes": {"supported_color_modes": ["rgb"], "color_mode": null, "rgb_color": null, "effect_list": ["solid", "blink", "pulse", "alert", "notify", "cycle"], "effect": null}},
+     "source": "RECONSTRUCTED from the card's mechanism statement (HA dropped the colour; effect never published)"},
+    {"tool": "ha_get_logs", "match": {"query_any": ["halo", "light.turn_on", "wallpanel"]},
+     "response": {"lines": ["halo: indicate kitchen rgb=[0,0,255] effect=blink lease=notify (ok)"]},
+     "source": "RECONSTRUCTED illustrative Halo log line"},
+    {"tool": "read_config", "match": {"target_any": ["integration:mqtt", "device:wallpanel_kitchen", "mqtt"]},
+     "response": {"discovery": {"schema": "json", "supported_color_modes": ["rgb"], "effect": true, "command_topic": "wallpanel/kitchen/led/set", "state_topic": "wallpanel/kitchen/led/state"}, "last_state_payload": {"state": "ON"}},
+     "source": "RECONSTRUCTED: the card says the state omitted color_mode and never published effect; exact payload not recorded"},
+    {"tool": "read_doc", "match": {"name_any": ["ha_mqtt_light_json", "HA MQTT light"]},
+     "response": {"text": "JSON schema: when supported_color_modes is set, the state payload must include color_mode; color values in a state message without color_mode are ignored."},
+     "source": "HA MQTT light JSON schema behaviour as described in the card's root cause; NOT re-read from HA source for this case"},
+    {"tool": "kanban_search", "match": {"query_any": ["halo", "bridge", "colour", "color", "panel led"]},
+     "response": {"cards": [{"id": "WALLPANEL-URA-NOTIFY-1", "residual": "(d) Bridge LED reports on/off only, never rgb/effect, so colour cannot be confirmed in HA (bridge limit, HomeLab side)."}]},
+     "source": "card residual (d) as it read before 'resolved_2026_10_21_bridge_colour'; it already points at the bridge, which is acceptable pre-fix evidence"}
+  ],
+  "freeze_quality": "low-medium: mechanism known, all payloads reconstructed; the board residual partly gives away the side (accepted: it existed pre-fix)"
+}

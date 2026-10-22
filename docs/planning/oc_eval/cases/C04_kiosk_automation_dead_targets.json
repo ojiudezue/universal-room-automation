@@ -1,0 +1,37 @@
+{
+  "id": "C04",
+  "title": "Wall-panel screens stay on after the house goes to sleep",
+  "pre_fix_commit": "2ae06bf95 (fix was an HA automations.yaml edit 2026-10-21 ~21:04 CDT; pre-fix automation preserved in docs/dashboard-prototypes/ura-v8-backups/20261021T210356Z_pre_kiosk_cleanup_automations.yaml)",
+  "held_out": true,
+  "as_of": "2026-10-21T20:30:00-05:00",
+  "house_state": "home_evening",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: 'Last night the wall panels stayed lit all night except the master one. They should go dark when the house sleeps.' Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Seven wall panels (Master, Study A, Study B, Media, Upstairs Hallway, Kitchen, Entry Way) run ESPHome firmware; each exposes a screen light and an LED light.",
+    "House state is sensor.ura_coordinator_manager_house_state."
+  ],
+  "fixtures": [
+    {"tool": "read_config", "match": {"target_any": ["automation:wallpanel_fleet_force_off_secure", "wallpanel_fleet_force_off_secure", "automation"]},
+     "response": {"id": "wallpanel_fleet_force_off_secure", "alias": "Wallpanel Fleet — force screen off (away/vacation/sleep)", "triggers": [{"platform": "state", "entity_id": "sensor.ura_coordinator_manager_house_state", "to": ["away", "vacation", "sleep"], "for": "00:03:00"}], "actions": [{"action": "light.turn_off", "target": {"entity_id": ["light.master_panel_screen", "light.wall_panel_entry_kiosk_wall_panel_entry_kiosk_display", "light.wall_panel_kitchen_kiosk_wall_panel_kitchen_kiosk_display", "light.wall_panel_studyb_kiosk_wall_panel_studyb_kiosk_display"]}}], "mode": "single"},
+     "source": "VERBATIM from the pre-fix backup yaml"},
+    {"tool": "ha_search_entities", "match": {"query_any": ["panel_screen", "screen", "kiosk", "panel"]},
+     "response": {"entities": ["light.master_panel_screen", "light.study_a_panel_screen", "light.study_b_panel_screen", "light.media_room_panel_screen", "light.up_hallway_panel_screen", "light.kitchen_panel_screen", "light.entry_way_panel_screen", "light.wall_panel_entry_kiosk_wall_panel_entry_kiosk_display", "light.wall_panel_kitchen_kiosk_wall_panel_kitchen_kiosk_display", "light.wall_panel_studyb_kiosk_wall_panel_studyb_kiosk_display"]},
+     "source": "the 7 *_panel_screen ids are VERBATIM from the post-fix automation; the 3 kiosk ids from the backup"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["light.wall_panel_entry_kiosk_wall_panel_entry_kiosk_display", "light.wall_panel_kitchen_kiosk_wall_panel_kitchen_kiosk_display", "light.wall_panel_studyb_kiosk_wall_panel_studyb_kiosk_display"]},
+     "response": {"state": "unavailable", "attributes": {"restored": true}, "device": {"integration": "mqtt", "name_suffix": "-kiosk"}},
+     "source": "RECONSTRUCTED: the three MQTT '-kiosk' devices were removed as leftovers on 10-21; their exact pre-removal state was not recorded"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["light.study_a_panel_screen", "light.study_b_panel_screen", "light.media_room_panel_screen", "light.up_hallway_panel_screen", "light.kitchen_panel_screen", "light.entry_way_panel_screen", "light.master_panel_screen"]},
+     "response": {"state": "on", "attributes": {"integration": "esphome"}},
+     "source": "RECONSTRUCTED illustrative"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.ura_coordinator_manager_house_state"]},
+     "response": {"rows": [{"t": "2026-10-20T21:00", "state": "home_night"}, {"t": "2026-10-20T23:12", "state": "sleep"}, {"t": "2026-10-21T06:40", "state": "waking"}]},
+     "source": "RECONSTRUCTED plausible night"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["light.kitchen_panel_screen"]},
+     "response": {"rows": [{"t": "2026-10-20T19:02", "state": "on"}, {"t": "2026-10-21T06:41", "state": "on"}], "note": "no off between"},
+     "source": "RECONSTRUCTED"}
+  ],
+  "freeze_quality": "medium: the automation is verbatim; entity states and history are reconstructed"
+}

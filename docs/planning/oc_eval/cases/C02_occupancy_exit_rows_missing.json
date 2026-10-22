@@ -1,0 +1,38 @@
+{
+  "id": "C02",
+  "title": "occupancy_events has entry rows with no matching exit",
+  "pre_fix_commit": "fbd9ed315^ (before the occupancy-dwell review fix-up that added the exit-row writer; v5.103.83 merge 349d16745)",
+  "held_out": false,
+  "as_of": "2026-10-21T12:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: 'The per-room occupancy history looks like rooms stay occupied for hours when nobody is there. Find out why.' Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "occupancy_events is written by each room coordinator: one 'entry' row when the room becomes occupied and one 'exit' row (with duration) when it becomes vacant.",
+    "Readers pair each entry with the next exit to compute time occupied.",
+    "Rooms can become vacant through several paths: normal occupancy timeout, the fan pause-recheck VACATED verdict, the mmWave fan demotion (D2), and the max-occupancy failsafe."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "occupancy_events"},
+     "response": {"window": "last 7 days", "pairs": {"entry_then_exit": 1586, "entry_then_entry": 50},                   "sample_entry_entry": [{"room": "Jaya Bedroom", "entry1": "2026-10-19T22:41", "entry2": "2026-10-20T07:12"}, {"room": "Study A", "entry1": "2026-10-20T13:05", "entry2": "2026-10-20T16:40"}, {"room": "Guest Bedroom 1", "entry1": "2026-10-18T09:10", "entry2": "2026-10-18T19:55"}]},
+     "source": "counts verbatim from README_v5.103.83 (review A); sample rows ILLUSTRATIVE, rooms chosen from fan rooms named in the presence doc"},
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"rows": [
+        {"t": "2026-10-19T23:20", "room": "Jaya Bedroom", "action": "occupancy_cleared", "reason": "fan_recheck_vacated"},
+        {"t": "2026-10-20T13:50", "room": "Study A", "action": "occupancy_cleared", "reason": "mmwave_fan_demoted"},
+        {"t": "2026-10-18T13:10", "room": "Guest Bedroom 1", "action": "occupancy_cleared", "reason": "max_occupancy_failsafe"}]},
+     "source": "RECONSTRUCTED to match the three vacate paths the fix names; times illustrative"},
+    {"tool": "read_code", "match": {"path_any": ["coordinator.py"], "symbol_any": ["occupancy_events", "log_occupancy_event", "exit", "_async_update_data"]},
+     "response": {"excerpt_summary": "In _async_update_data the exit row is written inside the occupancy-timeout branch, using now - motion stamp as duration. The fan-demote and failsafe branches clear STATE_OCCUPIED and the motion stamp without calling the logger. The fan-recheck release clears occupancy from presence_fan_recheck.py outside the tick."},
+     "source": "PARAPHRASE of the pre-fix behaviour described in README_v5.103.83; no verbatim lines"},
+    {"tool": "read_code", "match": {"path_any": ["database.py"], "symbol_any": ["get_occupancy_time_today", "get_occupancy_percentage"]},
+     "response": {"excerpt_summary": "Pairs each entry row with the next exit row for the room; no cap on episode length; an entry with no later exit is treated as open until the next exit."},
+     "source": "PARAPHRASE of README_v5.103.83 side-fix description"},
+    {"tool": "kanban_search", "match": {"query_any": ["exit", "occupancy_events"]},
+     "response": {"cards": [{"id": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1", "title": "When two residents leave together and the camera records one exit, the backfill names whoever's tracker edge arrives first"}]},
+     "source": "board pre-fix (unrelated egress card: a distractor)"}
+  ],
+  "freeze_quality": "medium: the 50 vs 1586 counts are real; sample rows and activity-log rows are reconstructed"
+}

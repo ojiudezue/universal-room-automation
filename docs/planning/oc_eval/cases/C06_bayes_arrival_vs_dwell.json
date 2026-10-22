@@ -1,0 +1,40 @@
+{
+  "id": "C06",
+  "title": "Room occupancy-anomaly sensors never change; operator asks to make them work",
+  "pre_fix_commit": "1ad712e74^ (before the dwell-model plan; D0 audit 23699c0b0 not yet written)",
+  "held_out": false,
+  "as_of": "2026-10-20T19:30:00-05:00",
+  "house_state": "home_evening",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: 'The occupancy anomaly sensors I enabled never turn on. Make the sensor work.' Diagnose why it never changes and whether simply making it evaluate would give a useful sensor. Act within tiers and submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "binary_sensor.<room>_occupancy_anomaly is disabled by default; the operator enabled it in 9 rooms.",
+    "It is meant to say 'this room is occupied at an unusual time'."
+  ],
+  "fixtures": [
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["binary_sensor.study_a_occupancy_anomaly", "binary_sensor.studya_room_device_occupancy_anomaly", "*occupancy_anomaly"]},
+     "response": {"state": "off", "last_changed": "2026-10-14T08:02:00-05:00", "attributes": {"probability": null}},
+     "source": "card: 9 enabled, all 'off' for 6+ days; attribute shape RECONSTRUCTED"},
+    {"tool": "ura_db_query", "match": {"table": "anomaly_log"},
+     "response": {"filter": "metric_name like 'bayesian.prediction_anomaly%'", "rows": 0, "all_time": true},
+     "source": "card: 0 rows ever"},
+    {"tool": "read_code", "match": {"path_any": ["binary_sensor.py"], "symbol_any": ["OccupancyAnomalyBinarySensor", "async_update"]},
+     "response": {"excerpt_summary": "class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity): all evaluation (read the predictor, compare probability with ANOMALY_THRESHOLD 0.10 while the room is occupied, set is_on, fire alert) is inside async def async_update(self) (~3395). No _handle_coordinator_update override."},
+     "source": "PARAPHRASE of card why (binary_sensor.py ~3395)"},
+    {"tool": "read_code", "match": {"path_any": ["entity.py"], "symbol_any": ["UniversalRoomEntity", "CoordinatorEntity"]},
+     "response": {"excerpt_summary": "class UniversalRoomEntity(CoordinatorEntity) (entity.py:19). should_poll is not overridden (CoordinatorEntity sets it False)."},
+     "source": "card why (entity.py:19); should_poll fact is HA CoordinatorEntity behaviour"},
+    {"tool": "read_code", "match": {"path_any": ["bayesian_predictor.py"], "symbol_any": ["predict_room_occupancy", "get_anomaly_score", "_update", "alpha"]},
+     "response": {"excerpt_summary": "Per person, a Dirichlet over rooms per (time bin x weekday/weekend); alpha for a room is incremented once each time the person ARRIVES in that room (room-transition event). predict_room_occupancy = 1 - prod(1 - alpha_room/alpha_total) over persons (bayesian_predictor.py:466-504)."},
+     "source": "audit AUDIT_predictions_room_zone_house_2026_10_21 producer description (code fact, pre-dates the fix)"},
+    {"tool": "ura_db_query", "match": {"table_any": ["person_visits", "occupancy_events"]},
+     "response": {"window": "14 days", "oji_dwell_hours_by_room_top": [{"room": "Master Bedroom", "hours": "highest"}, {"room": "Study A", "hours": 20.0}], "oji_arrivals_by_room_top": [{"room": "Receiving Room", "count": "highest"}, {"room": "Master Bedroom"}], "note": "Study A visits are few and long"},
+     "source": "Study A 20 h from card D0 result; ordering of other rooms PARTLY RECONSTRUCTED"},
+    {"tool": "memory_query", "match": {"room_any": ["Study A"]},
+     "response": {"answer": "Study A belief share for Oji at weekday afternoon: 1.1%; predicted occupancy 0.004"},
+     "source": "card D0 result (1.1% share, 0.004)"}
+  ],
+  "freeze_quality": "good: mechanism facts from card/audit; dwell table partly reconstructed"
+}

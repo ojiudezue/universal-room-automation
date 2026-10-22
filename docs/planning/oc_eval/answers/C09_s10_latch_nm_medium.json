@@ -1,0 +1,13 @@
+{
+  "id": "C09",
+  "card": "HVAC-S10-NOTIFY-UNDELIVERED-1 (shipped v5.103.69)",
+  "root_cause": "The three S10 latch NMs are sent at MEDIUM. Under the live NM config the lowest delivering channel is companion at HIGH, so MEDIUM produces only an audit row that the digest excludes: nobody is told when S10 stops trying.",
+  "root_cause_must_mention": ["latch NMs are MEDIUM", "no channel delivers MEDIUM, so it is audit-only / excluded from digest"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: raise the three latch NMs to HIGH (one NM per latch, no volume risk); keep s10_restore_pending LOW", "explicitly reject the config lever: routing MEDIUM to a channel would also push ~24 'HVAC Override' MEDIUM rows per 14 days"],
+  "acceptable_extra": ["write_problem_record"],
+  "wrong_actions": ["edit_integration_options / NM config change as the fix", "nm_mute_person_channel", "notify_operator CRITICAL at night for a latent defect (house asleep; nothing has fired)"],
+  "invented_evidence_traps": ["Claiming an S10 latch fired recently (0 rows in 14 days)", "Claiming the companion app is broken"],
+  "leakage_keywords": ["raise to HIGH", "MEDIUM to HIGH", "audit-only", "reaches no channel"],
+  "discriminator": "A 'channel broken' hypothesis predicts HIGH rows also missing; the config shows MEDIUM simply has no channel."
+}

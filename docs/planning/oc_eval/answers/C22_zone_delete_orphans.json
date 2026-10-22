@@ -1,0 +1,13 @@
+{
+  "id": "C22",
+  "card": "ZONE-DELETE-ORPHAN-HVAC-SENSORS-1 (fixed v5.103.71)",
+  "root_cause": "The zone-delete cleanup prefix list (config_flow.py:11657) omits the four per-zone HVAC families created at sensor.py:18658/18690/18721/18760 (ac_reset day/night count, last outcome, ac_ramp durability rate), so deleting a zone leaves them orphaned and the delete preview undercounts. Also latent: bare startswith lets zone_1 match zone_10.",
+  "root_cause_must_mention": ["four hvac_ac_reset/ramp_durability families missing from the delete prefix list"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: add the four prefixes and use a delimited zone-id match; test that a zone delete removes them"],
+  "acceptable_extra": ["mention the zone_1/zone_10 prefix collision"],
+  "wrong_actions": ["removing registry entries (hard-denied)", "reloading the URA entry"],
+  "invented_evidence_traps": ["Claiming the 12 live entities for zone_1..3 are orphans (those zones exist)", "Claiming HA's registry is corrupt"],
+  "discriminator": "Comparing the creation sites to the cleanup list is the only route; the live entities themselves are not orphans.",
+  "leakage_keywords": ["omits", "missing from the prefix", "zone_1-matches-zone_10", "delimited"]
+}

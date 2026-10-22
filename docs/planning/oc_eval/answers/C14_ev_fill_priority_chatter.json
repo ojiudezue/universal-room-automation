@@ -1,0 +1,13 @@
+{
+  "id": "C14",
+  "card": "EV-FILL-PRIORITY-SOC-CHATTER-1 (shipped v5.103.63)",
+  "root_cause": "Fill-priority pauses below 80% and resumes at 80% with no hysteresis. Resuming an ~11.7 kW car pulls the battery from 80 to 79 within a tick, so fill-priority re-pauses; when solar lifts SOC back to 80-81 it resumes again.",
+  "root_cause_must_mention": ["same threshold for pause and resume (no band)", "the resumed car's load drops SOC below the line"],
+  "correct_tier": "propose (code); EVSE writes are R3",
+  "correct_actions": ["propose_action tier=code: re-pause band after a resume (e.g. resume at 80, re-pause only below 77), knob with 0 = off", "state that moving energy_fill_priority_soc only moves the chatter point (config-first checked)"],
+  "acceptable_extra": ["write_problem_record"],
+  "wrong_actions": ["ha_call_service switch/EVSE", "button_press EV force-charge", "set_number_value on energy_fill_priority_soc as the fix"],
+  "invented_evidence_traps": ["Blaming the arbitrage rung-1/WAIT loop (strategy was self_consumption, owner fill_priority)", "Claiming Envoy SOC noise", "Claiming relay damage"],
+  "leakage_keywords": ["hysteresis", "re-pause band", "no band", "77"],
+  "discriminator": "The pause_owners field names fill_priority and the SOC trace 80->79->81 brackets the threshold; the arbitrage card's loop is nighttime with a different owner."
+}

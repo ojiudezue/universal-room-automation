@@ -1,0 +1,34 @@
+{
+  "id": "C09",
+  "title": "Would anyone be told when Custom Preset Ranges gives up on a thermostat?",
+  "pre_fix_commit": "233061dbe^ (before the fix/s10-latch-nm-high branch work, 2026-10-16)",
+  "held_out": false,
+  "as_of": "2026-10-16T01:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. Check whether the HVAC Custom Preset Ranges (S10) 'gave up' notifications actually reach the operator. Diagnose with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "S10 latches after 3 unconfirmed writes or 3 failures on a zone/preset and stops trying; it then sends a Notification Manager (NM) message.",
+    "NM delivers by severity according to its channel config; rows that qualify for no channel are logged as audit rows."
+  ],
+  "fixtures": [
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/hvac.py", "hvac.py"], "symbol_any": ["_s10_latch", "_s10_notify"]},
+     "response": {"excerpt_summary": "_s10_latch(...) calls self._s10_notify(hazard_type=<'s10_restore_not_taking' | 's10_preset_range_call_failed' | 's10_preset_range_not_sticking'>, severity='MEDIUM', ...). _s10_notify(hazard_type, severity, message) (hvac.py:4451) forwards severity to NM async_notify. 's10_restore_pending' is sent at LOW. The latched flag is persisted so one NM per latch."},
+     "source": "card why/gate (hvac.py:4451, three latch NMs at MEDIUM); PARAPHRASE"},
+    {"tool": "read_config", "match": {"target_any": ["nm_config", "notification_manager", "ura_cm_options"]},
+     "response": {"recipients": [{"person": "person.oji_udezue", "delivery": "digest", "routing_matrix": null}], "channels": {"pushover": "CRITICAL", "imessage": "CRITICAL", "whatsapp": "CRITICAL", "companion_app": "HIGH", "lights": "disabled", "tts": "disabled"}},
+     "source": "VERBATIM facts from card why (live NM config)"},
+    {"tool": "ura_db_query", "match": {"table": "notification_log"},
+     "response": {"window": "14 days", "s10_rows": 0, "medium_hvac_rows": {"count": 24, "title": "HVAC Override", "channel": ""}, "note": "MEDIUM HVAC rows carry no channel"},
+     "source": "card gate: 0 s10_* rows in 14 days; 24 'HVAC Override' MEDIUM rows with empty channel"},
+    {"tool": "read_code", "match": {"path_any": ["database.py"], "symbol_any": ["get_pending_digest"]},
+     "response": {"excerpt_summary": "get_pending_digest (database.py:4572) selects rows written for a qualifying channel; rows whose channel field is empty are not selected."},
+     "source": "card why (database.py:4572); PARAPHRASE"},
+    {"tool": "kanban_search", "match": {"query_any": ["s10", "custom preset", "notification"]},
+     "response": {"cards": [{"id": "HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1", "title": "S10 writes a stale range right after a preset change", "status": "in_progress"}]},
+     "source": "board pre-fix (related, not the answer)"}
+  ],
+  "freeze_quality": "good: config and counts verbatim from the card; code paraphrased"
+}
