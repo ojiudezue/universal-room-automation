@@ -98,10 +98,11 @@ cards:
   why: "Applied 16:5x 10-21 (Bermuda options, calibration2): First BLE Proxy Foyer +3->0, Entry Way Panel 0->-3, Screek BP1_A +3->+6, Study A Panel 0->+3. Others unchanged (Master Screek +6, BedPresence +6, Jaya +12). Undo = set those four back. BP1_B is not plugged in (operator). Receiving Room spillover (0.1% precision) not addressed."
   next: "Me: after ~1 day of normal use, re-measure share of true Study A time where iphone_oji_area = Foyer (was 35%) and Study A pulling from Study B / Master Bedroom; then close or adjust; consider Receiving Room."
   adjacency: "NEW; swept BLE/Bermuda cards."
+  due_checks_2026_10_21: "DUE 10-22 19:10: re-measure Foyer share of true Study A time (was 35%) and Study B/Master pull."
 - id: EC-SOLAR-LIFETIME-COUNTER-FLAP-1
   title: "EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days"
   thread: energy
-  status: shipped_organic
+  status: "shipped_organic"
   shipped_version: v5.103.82
   tier: 1
   created: "2026-10-21 16:50"
@@ -111,6 +112,7 @@ cards:
   next: "Ship v5.103.82 (fix/ec-solar-ct-counter): derive default -> production_ct_energy_delivered, snapshot provenance re-seed, high-water-mark flap guard, rejected day = NULL solar + consumption and no learning. Live: next midnight row solar matches CT daily delta within 1%."
   residual_backfill: "Past solar rows are not repaired: scripts/backfill_energy_daily_from_counters.py only covers Emporia legs; a solar mode reading statistic 5654 is new scope."
   adjacency: "NEW; swept board for solar/lifetime_energy_production/energy_daily; related to the 10-20 Energy-prefs switch (no card) and RECORDER excludes runbook."
+  due_checks_2026_10_21: "SHIPPED v5.103.82 10-21. DUE 10-22 07:15: energy_daily 2026-10-21 row solar+consumption NULL (switch-over day). DUE 10-23 07:15: 2026-10-22 row solar = CT stat 5654 daily delta +-1%, consumption non-null -> close."
 - id: WALLPANEL-URA-NOTIFY-1
   title: "URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)"
   status: "in_progress"
@@ -27068,7 +27070,7 @@ cards:
   operator_answer_2026_10_20_b: "Operator: \"I would not alert. The routine change is enough. It should assert in its sensor and give more information.\" -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why (expected vs actual, who usually is where at this time, which signal made the room occupied, how long, learning status). Keep signal + anomaly_log row."
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
-  status: shipped_organic
+  status: "shipped_organic"
   shipped_version: v5.103.83
   operator_answer_2026_10_20: "Operator: \"Make the sensor work.\" -> B (wire evaluation), measure false-positive rate first (D0)."
   tier: 2
@@ -27082,6 +27084,7 @@ cards:
   operator_answer_2026_10_21: "Operator picked C (rebuild on a dwell model): \"Then write it\" ... \"It might need to be revised based on the audit. But lets get v1 on the board.\""
   d0_result_2026_10_21_overnight: "D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition counts), not where they stay: Oji's Study A, his second-longest-dwell room (20 h in 14 days), gets a 1.1% share and predicts 0.004. Its own accuracy table shows 57% of genuinely occupied samples already fall below the 0.10 'unusual' line. Replaying 14 days, the wired sensor would turn on ~14 times/day across the 9 enabled rooms (5.6/day even with a 15-min debounce), nearly all normal use. With no alert (your 10-20 ruling) that is harmless but meaningless: the sensor would say 'unusual' for most ordinary use. Wiring it as-is (old option B) is therefore not a real fix, and a real fix is a new producer (dwell-based model), which is Tier 2-DB and needs your go. Not acted on overnight."
   links: {"related": ["ROUTINE-CARE-DASHBOARD-1"], "context": "ROUTINE-CARE-DASHBOARD-1 is the existing 'unusual for this person' surface (sensor/dashboard only, no alert) - the same job the operator described on 10-20; if A is picked, it is the survivor."}
+  due_checks_2026_10_21: "SHIPPED v5.103.83 10-21 (live-validated: model built, Study A weekday 18:00 share 0.30). DUE 10-28 10:20: 7-day replay G1-G4 + operator judges each real fire; confirm a NULL-duration exit row exists -> close or tune."
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
   residual_2026_10_20_runtime_slice: "Runtime-leak slice built on test/order-indep-prodstubs a7f6d7c59 (file_scope + real_package_scope helpers in _d7_isolation.py; 38 runtime leakers fenced; 107-file probe leakers 36->5; perimeter_burst_demotion pinned to 02:00). MERGED to develop 2026-10-20 (46bc9fea5; review SHIP; name-diff CLEAN 0 new / 1 gone with URA_SOURCE_MUTATION=1). Fix-ups: OC pillar donors left unscoped on purpose (D7 drills depend on them); stale d3_unrecorded_key_dropped drill anchor repaired; v4511 import check runs in real_package_scope. OPEN: file_scope may evict a real module first-imported during a file (duplicate-module risk, reviewer LOW) - add an only-evict-stubs rule if it ever bites; suite_namediff.py looks for .venv-ha in the worktree (run from main checkout). DEFERRED: (a) test_hvac_vacancy_sweep_manual_on_guard installs MagicMock stubs at collection (breaks ec_outage_ledger + dpm_drift_guard, fails same on develop) -> needs import_scope; (b) develop-alone failures: test_v4623_humidity_fan_behavioral(5), test_optimization_coordinator(10), test_snap1_at_detection_snapshots(1), test_v47181_sleep_wake_deadlock (collection: no module .database); (c) importlib.reload sites test_room_covers_garage_guard, test_radar_tuning_phase_a; (d) grep-flagged files the probe did not catch, unverified."
   shipped_2026_10_14: "Merged to develop (test-only, no deploy): fix/suite-order-indep 707652bbe/df21ea450/5ffcadc34. pytest_collectstart hook backfills real production symbols into partial sys.modules stubs (setdefault, so deliberate partial stubs survive); test_v5172 run-alone fixed. Gate: quality/tools/collect_order_matrix.py seeds 1,2,3,11,22,33 + reverse = 0 errors, 0 drift (before: 1-10 errors, -17..-152 tests). Full-suite run name-diff vs 2c00f499a: 0 NEW, 0 GONE."
