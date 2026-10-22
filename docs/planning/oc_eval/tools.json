@@ -548,7 +548,7 @@
   {
    "name": "request_fix",
    "tier": "R2",
-   "description": "Execute a promotable R2 fix type through its owning coordinator path: P1 light off in a vacant room, P2 fan off after vacancy, P3 restore HVAC zone preset after an unreleased borrow, P4 one-step bounded knob retune, P5 re-apply radar settings after drift. Only operator-PROMOTED types may run alone, and never while the house sleeps; see the case's promoted_fix_types.",
+   "description": "Execute a promotable R2 fix type through its owning coordinator path: P1 light off in a vacant room, P2 fan off after vacancy, P3 restore HVAC zone preset after an unreleased borrow, P4 move one bounded knob one step, P5 re-apply radar settings after drift. Only operator-PROMOTED types may run alone, and never while the house sleeps; see the case's promoted_fix_types.",
    "input_schema": {
     "type": "object",
     "properties": {
