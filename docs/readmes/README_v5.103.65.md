@@ -1,4 +1,4 @@
-# URA v5.103.63: safety alerts re-page after acknowledgement; repeat schedule becomes a setting
+# URA v5.103.65: safety alerts re-page after acknowledgement; repeat schedule becomes a setting
 
 Card: SAFETY-NM-REFIRE-UNWIRED-1. Plan: `docs/planning/PLANNING_safety_nm_refire.md` Rev 4.3 (four plan-review rounds; D5 stop-on-clear withdrawn). Tier 2-DB, life-safety: reviews A (correctness) SHIP, B (lifecycle/integration) FIX-REQUIRED and fixed, C (per-site mutation, 33 sites) SHIP. Record: `docs/reviews/code-review/v5.103.63_safety_nm_refire.md`. Deploy risk: **MEDIUM** (notification behaviour of life-safety alerts). Deploy held until the operator is home (Sun 10-18).
 
