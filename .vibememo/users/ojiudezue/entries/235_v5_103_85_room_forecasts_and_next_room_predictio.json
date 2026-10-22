@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "235",
+  "author": "ojiudezue",
+  "session_id": "claude_20261022_115243_ship_v5_103_85",
+  "timestamp": "2026-10-22T11:52:43Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.85 shipped: Room forecasts and next-room predictions use the dwell model",
+  "summary": "Room forecasts and next-room predictions use the dwell model",
+  "why": "The 10-21 prediction audit found no room prediction both useful and correct: forecasts came from a Bayesian arrivals model (AUC 0.603) while the dwell model scores AUC 0.835 on the same live samples, and next-room ignored the current room. Prune covered one type, so 177k stale rows accumulated.",
+  "implications": "Shipped PREDICT-MODEL-DWELL-MIGRATION-1, PREDICT-SCORER-BASELINE-SKILL-1 at v5.103.85; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.85.md (Live criteria).",
+  "revisit_trigger": "After restart: dwell_share rows within 2h, skip_ratio_ok per resident, next_room rows older than 45 days = 0 after first nightly maintenance.",
+  "refs": {
+    "cards": [
+      "PREDICT-MODEL-DWELL-MIGRATION-1",
+      "PREDICT-SCORER-BASELINE-SKILL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.85.md"
+    ],
+    "release_notes": "Room forecast/pattern sensors read RoomDwellModel (kill switch FORECAST_DWELL_SOURCE_ENABLED); hourly dwell_share scoring; next-room predicts from current room with skip_ratio guard; prune covers all prediction types at 45 days (first night removes ~150k old next_room rows, operator-approved); skill-vs-baseline scorers on accuracy sensors. See docs/readmes/README_v5.103.85.md."
+  }
+}

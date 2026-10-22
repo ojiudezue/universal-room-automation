@@ -112,7 +112,8 @@ cards:
   rank: {"value": 6, "time_criticality": 4, "effort": 5}
   title: "Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room"
   thread: presence
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.85
   tier: 2
   created: "2026-10-21 17:10"
   origin: "Operator 2026-10-21 on the predictions audit: 'YES. Why postpone?' Audit docs/planning/AUDIT_predictions_room_zone_house_2026_10_21.md suggested card 3."
@@ -126,7 +127,8 @@ cards:
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
   title: "Prediction accuracy sensors report no skill over a trivial baseline ('94%' is the empty-room base rate)"
   thread: presence
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.85
   tier: 1
   created: "2026-10-21 17:10"
   origin: "Predictions audit 2026-10-21, suggested card 2; operator approved carding."
