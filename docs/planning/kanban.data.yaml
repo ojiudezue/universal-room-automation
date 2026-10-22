@@ -570,6 +570,7 @@ cards:
   adjacency_2026_10_16: 'ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.'
   next: 'Vision doc draft (with the agentic layer) for operator review: what OC is today (prior art: optimizer campaign, autonomy ladder, findings tiers), why it failed, goal/tool/loop model, first measurable slice.'
   rank: {value: 9, time_criticality: 3, effort: 8}
+  residual_2026_10_21_never_fires_restart_repeat: "From OC-STUCK-SENSOR-GENERALIZE-1 disposal: the (sensor_never_fires, eid) dedup is in memory and resets each HA restart, so the same silent sensor is re-reported ~18 min after every start. Belongs in the first slice (persistent problem dedup)."
 - id: OC-SHADOW-SAMPLES-EMPTY-1
   operator_instruction_2026_10_17: "inside the redesign (board, 2026-10-18T03:51:55.526Z)"
   triage_2026_10_17: "Default A taken: fold the shadow-validator fix into the first slice of OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1."
@@ -3969,7 +3970,7 @@ cards:
   thread: optimization
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.57
   created: '2026-09-14 02:20'
   refinement_status: "refined"
@@ -4028,6 +4029,7 @@ cards:
   - docs/BACKLOG.md
   next: "Me, on or after 2026-10-21 (the 7-day horizon cannot elapse earlier; every Store record's first_seen is 10-14): one read of the never-fires findings + .storage/optimization.sensor_never_fires_last_on_seen. Met = only genuinely silent sensors reported, each once, no false finding for a sensor that fired in the window -> done. Any false finding -> reopen to review with the sensor named."
   updated: "2026-10-15 02:05"
+  disposed_2026_10_21: "DONE (met with residual). 7 sensors reported never-fires; recorder confirms each truly silent (0 ON in 7 d); utility-closet sensor fired 21:23Z after its last finding and was not re-reported (correct discharge); 0 false findings among the other 74 store entries. Residual folded into OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: never-fires dedup key is in memory, so each sensor re-reports after every HA restart (4x in 10 h today)."
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
