@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.84
+# Universal Room Automation vv5.103.85
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3363,10 +3363,47 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         """Fetch prediction — Bayesian primary, frequency fallback."""
         self._cached_prediction = None
         self._prediction_source = "none"
+        # The room the prediction was made FROM (PatternLearner paths only);
+        # stamped into the scoring cache so the scorer can gate on it (I4).
+        predicted_from_room: str | None = None
+
+        # PREDICT-MODEL-DWELL-MIGRATION-1 D4: predict from the room the
+        # person is in now (first-order chain). Backtest P3: beats always-
+        # the-usual-room for every resident; the Bayesian arrival model does
+        # not. Falls through to the old chain when there is no current room
+        # or no learned transition from it.
+        from .const import NEXT_ROOM_CURRENT_ROOM_PRIMARY
+
+        if NEXT_ROOM_CURRENT_ROOM_PRIMARY:
+            try:
+                pattern_learner = self.hass.data.get(DOMAIN, {}).get("pattern_learner")
+                person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+                if pattern_learner and person_coordinator:
+                    current_room = person_coordinator.data.get(
+                        self._person_id, {}
+                    ).get("location")
+                    if current_room and current_room not in ("unknown", "away", "home"):
+                        pred = await pattern_learner.predict_next_room(
+                            self._person_id, current_room
+                        )
+                        if pred:
+                            self._cached_prediction = {
+                                **pred, "current_room": current_room,
+                            }
+                            self._prediction_source = "frequency"
+                            predicted_from_room = current_room
+            except Exception as e:
+                _LOGGER.debug(
+                    "Current-room next-room prediction failed for %s: %s",
+                    self._person_id, e,
+                )
 
         # v4.0.0-B2: Try Bayesian predictor first
         try:
-            bayesian = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+            bayesian = (
+                self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+                if self._cached_prediction is None else None
+            )
             if bayesian is not None:
                 pred = bayesian.predict_room_at_time(
                     self._person_id, dt_util.now()
@@ -3467,6 +3504,14 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                         )
                         if self._cached_prediction:
                             self._prediction_source = "frequency"
+                            if NEXT_ROOM_CURRENT_ROOM_PRIMARY:
+                                # Same from-room stamp as the primary path;
+                                # kill switch off keeps the old shape.
+                                self._cached_prediction = {
+                                    **self._cached_prediction,
+                                    "current_room": current_room,
+                                }
+                                predicted_from_room = current_room
             except Exception as e:
                 _LOGGER.error(
                     "Error updating PersonLikelyNextRoomSensor for %s: %s",
@@ -3500,6 +3545,8 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                     "confidence": self._cached_prediction.get("confidence") or 0.0,
                     "source": self._prediction_source,
                     "timestamp": dt_util.utcnow().isoformat(),
+                    # D4 / I4: None for the Bayesian and away paths.
+                    "current_room": predicted_from_room,
                 }
             except Exception as e:
                 _LOGGER.debug(
@@ -15076,9 +15123,28 @@ class BayesianOccupancyPatternSensor(UniversalRoomEntity, SensorEntity):
             "Bayesian Occupancy Pattern",
         )
 
+    def _dwell_model(self):
+        """The install's RoomDwellModel, or None (D2 helper)."""
+        from .room_dwell_model import HASS_DATA_KEY
+
+        runner = self.hass.data.get(DOMAIN, {}).get(HASS_DATA_KEY)
+        return getattr(runner, "model", None)
+
     @property
     def native_value(self) -> str | None:
         """Return the time bin name with highest occupancy."""
+        from .const import FORECAST_DWELL_SOURCE_ENABLED
+
+        if FORECAST_DWELL_SOURCE_ENABLED:
+            # PREDICT-MODEL-DWELL-MIGRATION-1 D2: the room's highest-share
+            # dwell cell, e.g. "weekday 14:00". Unknown before the model.
+            from .room_dwell_model import cell_label
+
+            model = self._dwell_model()
+            if model is None or not model.has_model:
+                return None
+            peak = model.peak_cell(self.coordinator.entry.entry_id)
+            return cell_label(peak[0]) if peak is not None else None
         predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
         if predictor is None:
             return None
@@ -15095,6 +15161,33 @@ class BayesianOccupancyPatternSensor(UniversalRoomEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return pattern details."""
+        from .const import FORECAST_DWELL_SOURCE_ENABLED, FORECAST_TOP_CELLS_COUNT
+
+        if FORECAST_DWELL_SOURCE_ENABLED:
+            from .room_dwell_model import STATUS_NEVER_REFRESHED, cell_label
+
+            room_name = self.coordinator.entry.data.get("room_name", "")
+            entry_id = self.coordinator.entry.entry_id
+            model = self._dwell_model()
+            attrs: dict[str, Any] = {
+                "room": room_name,
+                "model": "dwell",
+                "model_status": (
+                    model.status if model is not None else STATUS_NEVER_REFRESHED
+                ),
+                "peak_share": None,
+            }
+            if model is None or not model.has_model:
+                return attrs
+            peak = model.peak_cell(entry_id)
+            if peak is not None:
+                attrs["peak_share"] = round(peak[1], 4)
+            if FORECAST_TOP_CELLS_COUNT > 0:
+                attrs["top_cells"] = [
+                    {"cell": cell_label(c), "share": round(s, 4)}
+                    for c, s in model.top_cells(entry_id, FORECAST_TOP_CELLS_COUNT)
+                ]
+            return attrs
         predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
         if predictor is None:
             return {}
@@ -15216,9 +15309,28 @@ class BayesianOccupancyForecastSensor(UniversalRoomEntity, SensorEntity):
             "Bayesian Occupancy Forecast",
         )
 
+    def _dwell_runner(self):
+        """The install's RoomDwellModelRunner, or None (D2 helper)."""
+        from .room_dwell_model import HASS_DATA_KEY
+
+        return self.hass.data.get(DOMAIN, {}).get(HASS_DATA_KEY)
+
     @property
     def native_value(self) -> float | None:
         """Return current occupancy probability percentage."""
+        from .const import FORECAST_DWELL_SOURCE_ENABLED
+
+        if FORECAST_DWELL_SOURCE_ENABLED:
+            # PREDICT-MODEL-DWELL-MIGRATION-1 D2: the usual share of time
+            # this room is occupied at this local hour x day type (dwell),
+            # not the Bayesian arrival probability.
+            model = getattr(self._dwell_runner(), "model", None)
+            if model is None or not model.has_model:
+                return None
+            share, _n = model.lookup(
+                self.coordinator.entry.entry_id, dt_util.now(),
+            )
+            return round(share * 100, 1) if share is not None else None
         predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
         if predictor is None:
             return None
@@ -15232,6 +15344,61 @@ class BayesianOccupancyForecastSensor(UniversalRoomEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return forecast at now, +1h, +4h."""
+        from .const import (
+            FORECAST_DWELL_SOURCE_ENABLED,
+            FORECAST_PERSISTENCE_WEIGHT_1H,
+            FORECAST_PERSISTENCE_WEIGHT_4H,
+        )
+
+        if FORECAST_DWELL_SOURCE_ENABLED:
+            from .room_dwell_model import (
+                STATUS_NEVER_REFRESHED,
+                cell_label,
+                cell_of,
+            )
+
+            runner = self._dwell_runner()
+            model = getattr(runner, "model", None)
+            entry_id = self.coordinator.entry.entry_id
+            now = dt_util.now()
+            last = (
+                runner.last_hour_fraction(entry_id)
+                if runner is not None and hasattr(runner, "last_hour_fraction")
+                else None
+            )
+            dattrs: dict[str, Any] = {
+                "room": self.coordinator.entry.data.get("room_name", ""),
+                "model": "dwell",
+                "cell": cell_label(cell_of(now)),
+                "cell_days": None,
+                "last_hour_fraction": (
+                    round(last, 4) if last is not None else None
+                ),
+                "forecast_now": None,
+                "forecast_+1h": None,
+                "forecast_+4h": None,
+                "model_status": (
+                    model.status if model is not None else STATUS_NEVER_REFRESHED
+                ),
+                "model_refreshed_at": None,
+            }
+            if model is None or not model.has_model:
+                return dattrs
+            dattrs["model_refreshed_at"] = (
+                model.last_refresh_utc.isoformat()
+                if model.last_refresh_utc else None
+            )
+            dattrs["cell_days"] = model.cell_days(entry_id, now)
+            for label, horizon, weight in (
+                ("now", 0, 0.0),
+                ("+1h", 1, FORECAST_PERSISTENCE_WEIGHT_1H),
+                ("+4h", 4, FORECAST_PERSISTENCE_WEIGHT_4H),
+            ):
+                val = model.forecast(entry_id, now, horizon, last, weight)
+                dattrs[f"forecast_{label}"] = (
+                    round(val * 100, 1) if val is not None else None
+                )
+            return dattrs
         predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
         if predictor is None:
             return {}
@@ -15317,6 +15484,13 @@ class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
             "hit_rate_pct": self._cached_stats.get("hit_rate"),
             "total_predictions_7d": self._cached_stats.get("total_predictions"),
             "window_days": 7,
+            # PREDICT-SCORER-BASELINE-SKILL-1: the constant base rate on the
+            # same rows; skill > 0 means better than the constant.
+            "base_rate": self._cached_stats.get("base_rate"),
+            "base_rate_brier": self._cached_stats.get("base_rate_brier"),
+            "brier_skill": self._cached_stats.get("brier_skill"),
+            "baseline_hit_rate_pct": self._cached_stats.get("baseline_hit_rate"),
+            "hit_rate_skill_pct": self._cached_stats.get("hit_rate_skill_pct"),
         }
 
 # v4.6.0: D4 — per-person next-room accuracy sensor
@@ -15448,6 +15622,7 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
             top3_hits = 0
             brier_sum = 0.0
             most_recent_ts = None
+            skill_rows: list[tuple] = []
 
             for row in rows:
                 actual = row["actual_value"]
@@ -15468,6 +15643,10 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                 is_top1_hit = predicted_top is not None and predicted_top == actual
                 if is_top1_hit:
                     top1_hits += 1
+                skill_rows.append((
+                    self._person_id, predicted_top, actual,
+                    row["prediction_timestamp"],
+                ))
 
                 top3_rooms = {predicted_top} | set(alternatives)
                 if actual in top3_rooms:
@@ -15479,6 +15658,16 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                 if most_recent_ts is None and row["prediction_timestamp"]:
                     most_recent_ts = row["prediction_timestamp"]
 
+            # PREDICT-SCORER-BASELINE-SKILL-1: skill over always guessing
+            # this person's usual room, raw and with flapping rows dropped.
+            from .const import NEXT_ROOM_FLAP_DEDUPE_S
+            from .prediction_skill import dedupe_flaps, next_room_skill
+
+            ordered = list(reversed(skill_rows))  # query is newest-first
+            raw_skill = next_room_skill(ordered)
+            dd_skill = next_room_skill(
+                dedupe_flaps(ordered, NEXT_ROOM_FLAP_DEDUPE_S)
+            )
             self._cached_stats = {
                 "top1_hit_rate": round(top1_hits / total * 100, 1),
                 "top3_hit_rate": round(top3_hits / total * 100, 1),
@@ -15486,6 +15675,12 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                 "predictions_7d": total,
                 "predictions_24h": int(row24["cnt"]) if row24 else 0,
                 "most_recent_prediction_ts": most_recent_ts,
+                "baseline_top1_hit_rate": raw_skill["baseline_top1_pct"],
+                "skill_pct": raw_skill["skill_pct"],
+                "predictions_dedup": dd_skill["n"],
+                "top1_hit_rate_dedup": dd_skill["top1_pct"],
+                "baseline_top1_hit_rate_dedup": dd_skill["baseline_top1_pct"],
+                "skill_pct_dedup": dd_skill["skill_pct"],
             }
             _LOGGER.debug(
                 "PersonNextRoomAccuracySensor %s: %d predictions, top1=%.1f%%",
@@ -15509,7 +15704,9 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return accuracy breakdown attributes."""
-        return {
+        from .const import NEXT_ROOM_MAX_SKIP_RATIO
+
+        attrs = {
             "top3_hit_rate_pct": self._cached_stats.get("top3_hit_rate"),
             "brier_score": self._cached_stats.get("brier_score"),
             "predictions_7d": self._cached_stats.get("predictions_7d"),
@@ -15517,7 +15714,39 @@ class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
             "most_recent_prediction_ts": self._cached_stats.get(
                 "most_recent_prediction_ts"
             ),
+            # PREDICT-SCORER-BASELINE-SKILL-1
+            "baseline_top1_hit_rate_pct": self._cached_stats.get(
+                "baseline_top1_hit_rate"
+            ),
+            "skill_pct": self._cached_stats.get("skill_pct"),
+            "predictions_dedup": self._cached_stats.get("predictions_dedup"),
+            "top1_hit_rate_dedup_pct": self._cached_stats.get(
+                "top1_hit_rate_dedup"
+            ),
+            "baseline_top1_hit_rate_dedup_pct": self._cached_stats.get(
+                "baseline_top1_hit_rate_dedup"
+            ),
+            "skill_dedup_pct": self._cached_stats.get("skill_pct_dedup"),
         }
+        # PREDICT-MODEL-DWELL-MIGRATION-1 D4 (I4 / H2): the scorer's from-room
+        # gate counters, in memory since HA start (transitions.py).
+        stats = (
+            (self.hass.data.get(DOMAIN, {}) if self.hass else {})
+            .get("next_room_scoring_stats", {})
+            .get(self._person_id, {})
+        )
+        scored = int(stats.get("scored", 0))
+        skipped = int(stats.get("skipped_room_mismatch", 0))
+        ratio = (
+            round(skipped / (skipped + scored), 3) if (skipped + scored) else None
+        )
+        attrs["scored_since_start"] = scored
+        attrs["skipped_room_mismatch_since_start"] = skipped
+        attrs["skip_ratio"] = ratio
+        attrs["skip_ratio_ok"] = (
+            ratio <= NEXT_ROOM_MAX_SKIP_RATIO if ratio is not None else None
+        )
+        return attrs
 
 
 # v4.6.0: D5 — house-aggregate next-room accuracy sensor
@@ -15628,6 +15857,7 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
             person_hits: dict[str, int] = {}
             person_preds: dict[str, int] = {}
             oldest_ts: str | None = None
+            house_skill_rows: list[tuple] = []
 
             for row in rows:
                 pid = row["person_id"] or "unknown"
@@ -15641,6 +15871,9 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                     predicted_top = None
 
                 is_hit = predicted_top is not None and predicted_top == actual
+                house_skill_rows.append(
+                    (pid, predicted_top, actual, row["prediction_timestamp"]),
+                )
 
                 person_preds[pid] = person_preds.get(pid, 0) + 1
                 person_hits[pid] = person_hits.get(pid, 0) + (1 if is_hit else 0)
@@ -15671,6 +15904,15 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                 h = person_hits.get(pid, 0)
                 per_person[pid] = round(h / n * 100, 1) if n > 0 else None
 
+            # PREDICT-SCORER-BASELINE-SKILL-1: pooled skill over each
+            # person's usual room (same helper as the Optimization clause).
+            from .const import NEXT_ROOM_FLAP_DEDUPE_S
+            from .prediction_skill import dedupe_flaps, next_room_skill
+
+            raw_skill = next_room_skill(house_skill_rows)
+            dd_skill = next_room_skill(
+                dedupe_flaps(house_skill_rows, NEXT_ROOM_FLAP_DEDUPE_S)
+            )
             self._cached_stats = {
                 "top1_hit_rate": round(total_hits / total_predictions * 100, 1),
                 "per_person_accuracy": per_person,
@@ -15678,6 +15920,10 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
                 "total_predictions_24h": int(row24["cnt"]) if row24 else 0,
                 "brier_score": round(total_brier / total_predictions, 4),
                 "oldest_prediction_ts": oldest_ts,
+                "baseline_top1_hit_rate": raw_skill["baseline_top1_pct"],
+                "skill_pct": raw_skill["skill_pct"],
+                "predictions_dedup": dd_skill["n"],
+                "skill_pct_dedup": dd_skill["skill_pct"],
             }
             _LOGGER.info(
                 "HouseNextRoomAccuracySensor: %d predictions, top1=%.1f%%",
@@ -15703,6 +15949,12 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
             "total_predictions_24h": self._cached_stats.get("total_predictions_24h"),
             "brier_score": self._cached_stats.get("brier_score"),
             "oldest_prediction_ts": self._cached_stats.get("oldest_prediction_ts"),
+            "baseline_top1_hit_rate_pct": self._cached_stats.get(
+                "baseline_top1_hit_rate"
+            ),
+            "skill_pct": self._cached_stats.get("skill_pct"),
+            "predictions_dedup": self._cached_stats.get("predictions_dedup"),
+            "skill_dedup_pct": self._cached_stats.get("skill_pct_dedup"),
         }
 
 

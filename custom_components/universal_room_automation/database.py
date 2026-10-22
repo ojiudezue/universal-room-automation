@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.84
+# Universal Room Automation vv5.103.85
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -7920,6 +7920,11 @@ class UniversalRoomDatabase:
         Each row is a tuple of:
             (room_id, timestamp, prediction_type, predicted_value,
              confidence, actual_value, error_value)
+
+        For ``prediction_type='dwell_share'`` (PREDICT-MODEL-DWELL-MIGRATION-1
+        D3) ``confidence`` holds the dwell cell's SAMPLE COUNT (support for
+        the prediction), not a 0-1 probability; ``room_id`` is the room
+        entry_id and ``error_value`` is signed (expected - actual).
         """
         if not rows:
             return
@@ -7985,6 +7990,12 @@ class UniversalRoomDatabase:
 
         v4.2.8: Batched to avoid holding write queue for minutes on large tables.
         Each batch acquires _db(), deletes ≤batch_size rows, commits, releases.
+
+        PREDICT-MODEL-DWELL-MIGRATION-1 D5: every prediction_type ages out
+        (was ``bayesian_occupancy`` only, so ``next_room`` rows were never
+        pruned). Every writer stores ``isoformat()`` UTC strings (``T``
+        separator), the same format as this cutoff, so the string compare
+        is a time compare.
         """
         cutoff = (dt_util.utcnow() - timedelta(days=days)).isoformat()
         total_deleted = 0
@@ -8001,7 +8012,6 @@ class UniversalRoomDatabase:
                            WHERE rowid IN (
                                SELECT rowid FROM prediction_results
                                WHERE prediction_timestamp < ?
-                                 AND prediction_type = 'bayesian_occupancy'
                                LIMIT ?
                            )""",
                         (cutoff, batch_size),

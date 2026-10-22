@@ -20,6 +20,9 @@ from .const import PING_PONG_WINDOW_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
+# Sentinel: "no prediction snapshot passed, read the live cache".
+_UNSET = object()
+
 
 @dataclass
 class RoomTransition:
@@ -186,6 +189,12 @@ class TransitionDetector:
             _LOGGER.debug("Skipping: location unchanged")
             return
         
+        # PREDICT-MODEL-DWELL-MIGRATION-1 review B-L2: capture the next-room
+        # prediction BEFORE the first await, so a sensor poll that rewrites
+        # the cache (current_room = the new room) during the DB write cannot
+        # turn a scorable transition into a room-mismatch skip.
+        cache_snapshot = self._snapshot_prediction(person_id)
+
         # Detect and classify transition
         try:
             transition = await self._detect_transition(
@@ -210,7 +219,7 @@ class TransitionDetector:
             )
 
             # Log to database (always — even if suppressed)
-            await self._log_transition(transition)
+            await self._log_transition(transition, cache_snapshot)
 
             # v3.5.2: Validate transition via camera checkpoint data
             if self._transit_validator:
@@ -462,7 +471,20 @@ class TransitionDetector:
         except Exception:
             _LOGGER.debug("_emit_invalid_transition_anomaly failed (swallowed)", exc_info=True)
 
-    async def _log_transition(self, transition: RoomTransition) -> None:
+    def _snapshot_prediction(self, person_id: str):
+        """Copy of the person's cached next-room prediction (or None)."""
+        from .const import DOMAIN  # noqa: PLC0415
+
+        entry = (
+            self.hass.data.get(DOMAIN, {})
+            .get("next_room_predictions", {})
+            .get(person_id)
+        )
+        return dict(entry) if isinstance(entry, dict) else None
+
+    async def _log_transition(
+        self, transition: RoomTransition, cache_snapshot=_UNSET,
+    ) -> None:
         """Log transition to database."""
         try:
             await self.database.log_transition(
@@ -475,11 +497,17 @@ class TransitionDetector:
                 confidence=transition.confidence,
                 via_room=transition.via_room
             )
-            await self._score_prediction(transition.person_id, transition.to_room)
+            await self._score_prediction(
+                transition.person_id, transition.to_room, transition.from_room,
+                cache=cache_snapshot,
+            )
         except Exception as e:
             _LOGGER.error("Failed to log transition: %s", e)
 
-    async def _score_prediction(self, person_id: str, actual_room: str) -> None:
+    async def _score_prediction(
+        self, person_id: str, actual_room: str, from_room: str | None = None,
+        cache=_UNSET,
+    ) -> None:
         """Score the cached next-room prediction against the actual transition.
 
         Called immediately after every transition insert so the prediction
@@ -492,11 +520,12 @@ class TransitionDetector:
             from homeassistant.util import dt as dt_util  # noqa: PLC0415
             import json  # noqa: PLC0415
 
-            cache = (
-                self.hass.data.get(DOMAIN, {})
-                .get("next_room_predictions", {})
-                .get(person_id)
-            )
+            if cache is _UNSET:  # direct callers: read the live cache
+                cache = (
+                    self.hass.data.get(DOMAIN, {})
+                    .get("next_room_predictions", {})
+                    .get(person_id)
+                )
             if cache is None:
                 return
 
@@ -512,6 +541,41 @@ class TransitionDetector:
                     "Skipping stale next-room prediction for %s (age=%.0fs)",
                     person_id, age_seconds,
                 )
+                return
+
+            # PREDICT-MODEL-DWELL-MIGRATION-1 D4 (I4): a prediction made FROM
+            # room A is only scored on a transition that LEFT room A. Both
+            # strings come from person_coordinator's resolved room
+            # (``location`` read by the sensor; ``previous_location`` in the
+            # ura_person_location_change event, person_coordinator.py:545-548),
+            # so an exact compare is the right one (no normaliser exists or is
+            # needed). A cache without ``current_room`` (Bayesian / away
+            # paths, or written before this field) keeps the old behaviour.
+            # Every gated-out transition is counted visibly (H2).
+            stats = (
+                self.hass.data.setdefault(DOMAIN, {})
+                .setdefault("next_room_scoring_stats", {})
+                .setdefault(person_id, {"scored": 0, "skipped_room_mismatch": 0})
+            )
+            cached_from = cache.get("current_room")
+            if (
+                cached_from is not None
+                and from_room is not None
+                and cached_from != from_room
+            ):
+                stats["skipped_room_mismatch"] = stats.get("skipped_room_mismatch", 0) + 1
+                skipped = stats["skipped_room_mismatch"]
+                if skipped % 100 == 0:
+                    scored = stats.get("scored", 0)
+                    _LOGGER.info(
+                        "next-room scoring: %s skipped %d room-mismatched "
+                        "transitions (scored %d, skip ratio %.2f)",
+                        person_id, skipped, scored,
+                        skipped / (skipped + scored),
+                    )
+                from homeassistant.helpers.dispatcher import async_dispatcher_send  # noqa: PLC0415
+                from .domain_coordinators.signals import SIGNAL_NEXT_ROOM_PREDICTION_UPDATE  # noqa: PLC0415
+                async_dispatcher_send(self.hass, SIGNAL_NEXT_ROOM_PREDICTION_UPDATE, person_id)
                 return
 
             top1_hit = 1.0 if cache["top"] == actual_room else 0.0
@@ -533,6 +597,7 @@ class TransitionDetector:
                 error_value=brier,
                 prediction_timestamp=cache["timestamp"],
             )
+            stats["scored"] = stats.get("scored", 0) + 1
 
             _LOGGER.debug(
                 "Scored next-room prediction for %s: top1=%.0f top3=%.0f brier=%.4f",
