@@ -7,7 +7,7 @@
 
 ## In one paragraph
 
-Three changes and one fix. (1) The per-room `bayesian_occupancy_forecast` and `bayesian_occupancy_pattern` sensors read `RoomDwellModel` instead of the Bayesian arrival model. Their `+1h` / `+4h` values blend the usual share for the target hour with the room's occupied fraction over the last hour, because the probe shows that blend beats both inputs. (2) `sensor.<person>_likely_next_room` uses the existing `PatternLearner.predict_next_room(person, current_room)` (a first-order chain from the room the person is in now) as its primary source. That code already exists and today runs only as a fallback. The probe shows it beats the always-the-usual-room baseline for every resident, while the current Bayesian source does not. (3) A new hourly producer writes one `prediction_results` row per room per hour with `prediction_type='dwell_share'`: the expected share frozen at the start of the hour, against the occupied fraction actually measured. (4) The prune of `prediction_results` stops ignoring every type except `bayesian_occupancy`, so the new rows (and the 177k unpruned `next_room` rows) age out. Nothing new actuates, and the energy forecast's dormant read of the Bayesian model is left alone (operator decision §13).
+Three changes and one fix. (1) The per-room `bayesian_occupancy_forecast` and `bayesian_occupancy_pattern` sensors read `RoomDwellModel` instead of the Bayesian arrival model. Their `+1h` / `+4h` values blend the usual share for the target hour with the room's occupied fraction over the last hour, because the probe shows that blend beats both inputs. (2) `sensor.<person>_likely_next_room` uses the existing `PatternLearner.predict_next_room(person, current_room)` (a first-order chain from the room the person is in now) as its primary source. That code already exists and today runs only as a fallback. The probe shows it beats the always-the-usual-room baseline for every resident, while the current Bayesian source does not. (3) A new hourly producer writes one `prediction_results` row per room per hour with `prediction_type='dwell_share'`: the expected share frozen at the start of the hour, against the occupied fraction actually measured. (4) The prune of `prediction_results` stops ignoring every type except `bayesian_occupancy`, so the new rows (and the 177k unpruned `next_room` rows) age out. (5, added at plan review) The Optimization next-room accuracy finding, which D4 would otherwise flip near its fixed 35% floor, compares against baseline skill instead (D7, operator decision §13 Q5). Nothing new actuates, and the energy forecast's dormant read of the Bayesian model is left alone (operator decision §13).
 
 ---
 
@@ -57,6 +57,7 @@ ssh ha "grep -o '…(bayesian_occupancy_forecast|bayesian_occupancy_pattern|like
 - `sensor.<person>_likely_next_room` is on the ura_v8 dashboard (all four persons). Display.
 - `regime_detector.py:385-420` (D7 accuracy drop) compares `predicted_value = actual_value` on `next_room` rows, but `predicted_value` is JSON (`transitions.py:520-532`). Live: **0 matches in 3,109 rows (7 d)**, so that check can never see a drop. Pre-existing defect, not this card (side find, §10).
 - `optimization.py:3693-3760` reads `next_room` rows (display/advisory pillar); `optimization.py:3865-3876` reads `get_accuracy_stats` (`bayesian_occupancy`). Neither filter matches `dwell_share`, so the new type is invisible to them until a consumer opts in.
+- **Optimization accuracy thresholds (added after plan review H1).** `const.py:4269-4285`: `OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT = 35.0` (`:4272`), `_BRIER_CEILING = 0.30`, `_MIN_SAMPLES = 50`, `_WINDOW_DAYS = 7`. The floor is compared at `optimization.py:3914-3926` against `_read_next_room_accuracy` (`optimization.py:3705-3795`), which pools **all persons' `next_room` rows** in the window into one top-1 rate (`json top == actual_value`). This IS a consumer whose behaviour D4 changes (§5.4, E12, D7).
 
 ### 1.2 Prior-art scan: plans
 
@@ -95,7 +96,20 @@ AUC for "hour mostly occupied" (fraction ≥ 0.5): 0.901.
 | +1 h | 0.0273 | 0.0200 | **0.0165** | 0.0299 |
 | +4 h | 0.0273 | 0.0378 | **0.0240** | 0.0299 |
 
-So the cell share alone is a modest improvement over a per-room constant (about 9%). Adding the last hour's fraction gives the real gain: −40% error at +1 h, −12% at +4 h. Persistence alone loses at +4 h, so a blend is needed.
+So the cell share alone is a modest improvement over a per-room constant (about 9%). Adding the last hour's fraction gives the real gain. **But this table used the wrong alignment** (plan review M1): persistence was hour T−h predicting T, i.e. a lag of exactly h. The runtime cannot see that. Superseded by P1-R below; the −40% figure is withdrawn.
+
+**P1-R. Blend sweep on the runtime alignment** (re-run 2026-10-21, read-only, `predict_dwell_probe_runtime.py` in the session scratchpad, same 15,460 room-hours, same no-hindsight models). Alignment exactly as the runtime will have it: the forecast target is the cell of `now + h` (hour T); `now` is uniform within hour H = T − h; persistence is the last completed hour at `now`, i.e. H−1 when the minute ≥ `DWELL_SHARE_TICK_MINUTE` (2) and H−2 before it (weighted 58/60 and 2/60). Effective lag is h+1 hours (h+2 in the first two minutes). MSE:
+
+| Horizon | w = 0 (cell only) | 0.25 | 0.5 | 0.75 | 1 (persistence only) |
+|---|---|---|---|---|---|
+| +1 h, all 14 d | 0.0273 | 0.0220 | **0.0205** | 0.0229 | 0.0290 |
+| +1 h, first 7 d (selection) | 0.0280 | **0.0246** | 0.0252 | 0.0298 | 0.0383 |
+| +1 h, last 7 d (held out) | 0.0265 | 0.0195 | **0.0160** | 0.0162 | 0.0201 |
+| +4 h, all 14 d | 0.0273 | **0.0239** | 0.0251 | 0.0308 | 0.0410 |
+| +4 h, first 7 d (selection) | 0.0280 | **0.0274** | 0.0316 | 0.0406 | 0.0546 |
+| +4 h, last 7 d (held out) | 0.0265 | 0.0206 | **0.0189** | 0.0214 | 0.0280 |
+
+Chosen: **w(+1 h) = 0.5, w(+4 h) = 0.25** (§6). Honest gains on the runtime alignment: **−25% at +1 h** (0.0205 vs 0.0273), **−12% at +4 h** (0.0239 vs 0.0273). Held-out check (L2): selecting on the first week alone picks 0.25 at both horizons; on the held-out week that choice scores 0.0195 (+1 h, −26% vs cell) and 0.0206 (+4 h, −22%). So the gain survives out of sample; the exact w is weakly identified (0.25 and 0.5 are within ~0.003 of each other in every column), which is why it is a constant and not a learned value. The two weeks differ a lot (persistence alone: 0.0383 vs 0.0201 at +1 h), so the size of the gain varies by week; the sign does not. Persistence alone still loses at +4 h, so a blend is needed.
 
 **P2. Head-to-head on the live `bayesian_occupancy` samples** (same 2,950 room-instants, base rate 0.096):
 
@@ -116,11 +130,15 @@ The Bayesian number matches the audit (0.605). The dwell model has real skill on
 | Ezinne | 3,126 / 1,296 | 26.4/42.8 · 43.5/54.1 | 25.1/46.5 · 42.5/56.9 | **39.6/64.7 · 50.5/79.8** | 38.4/63.2 · 48.2/72.8 |
 | Ziri | 0 transitions in 14 d | – | – | – | – |
 
+Pooled projection for the Optimization finding (H1): the finding pools all persons. Weighting P3 raw top-1 by the live 7-day row mix (Oji 1,561, Jaya 1,410, Ezinne 138; live pooled top-1 today **15.1%**, read 2026-10-21) gives about **45%** after D4, not 34.8% (that is Oji alone). The reviewer's "sits on the floor" is too strong for the pooled rate, but the margin (~10 points) depends on the person mix and on how many rows the I4 gate drops, so H1's fix stands (§5.4).
+
 The time-bin arrival model (what the sensor uses today) is at or below the constant. Conditioning on the current room beats the constant for every resident, raw and deduplicated. Adding the time bin on top adds nothing (slightly worse everywhere). Ziri has no transitions in the window, which explains the audit's "Ziri 0 predictions": there is nothing to score, not a pipeline fault (not traced further).
 
 **P4. Volumes:** 47 room entries; `prediction_results`: `bayesian_occupancy` 6,195 rows (oldest 2026-09-21, pruned), `next_room` 177,291 rows (oldest **2026-05-13**, never pruned).
 
-**Go / no-go.** Go for D2 (dwell forecast with blend), D3 (dwell_share producer) and D4 (PatternLearner primary). **No-go for a time-conditioned next-room model** (P3 last column) and for persistence-only forecasts (P1 +4 h). The blend weights are set by the D0 sweep before build (the probe only tried 0.5).
+**Go / no-go.** Go for D2 (dwell forecast with blend), D3 (dwell_share producer) and D4 (PatternLearner primary). **No-go for a time-conditioned next-room model** (P3 last column) and for persistence-only forecasts (P1-R, w = 1 loses at both horizons). Blend weights are set from P1-R; D0 re-runs the sweep in the committed script and must reproduce P1-R.
+
+**What D0 cannot measure (plan review H2).** The backtest scores `room_transitions` against itself, so the prediction's room is the transition's `from_room` by construction. It gives an **upper bound** on live from-room agreement (100%), not the live skip rate. The live skip rate is measured only after deploy (D4 skip counter, Live criterion).
 
 ---
 
@@ -141,7 +159,9 @@ The time-bin arrival model (what the sensor uses today) is at or below the const
 
 > **I3 (no trust change).** No actuation or decision path reads a value this cycle changes. `energy_forecast` keeps calling `predict_room_occupancy`; with the energy switch in either state, its output is byte-identical before and after this cycle.
 
-> **I4 (next-room scoring is honest).** A `next_room` row is written only when the cached prediction was made from the room the transition left (`cache.current_room == transition.from_room`) or the cache predates this cycle's field (absent `current_room` → old behaviour), and when it is at most 1800 s old.
+> **I4 (next-room scoring is honest).** A `next_room` row is written only when the cached prediction was made from the room the transition left (`cache.current_room == transition.from_room`) or the cache predates this cycle's field (absent `current_room` → old behaviour), and when it is at most 1800 s old. **Every gated-out transition is counted visibly** (`skipped_room_mismatch`, D4), and the accuracy gain is accepted as evidence only while `skipped / (skipped + scored) ≤ NEXT_ROOM_MAX_SKIP_RATIO`. A gate that drops most rows silently would score only the easy cases and make the sensors look better for the wrong reason (plan review H2).
+
+> **I5 (no Optimization flap from this cycle).** With the default chosen in §13 Q5, the Optimization prediction-accuracy finding's next-room clause does not change state on consecutive evaluations because the pooled top-1 moved by less than `OPTIMIZER_PREDICTION_ACCURACY_TOP1_HYSTERESIS_PCT` across a fixed floor.
 
 How to break them: a `dwell_share` row with a timestamp in a day whose nightly refresh preceded the capture and included that day (in-sample leak, e.g. a restart-time refresh at 00:01 used to score hour 23 of the previous day); two rows for one (room, hour) after a restart inside the tick; a `dwell_share` row with sentinel values (all predicted 0.0 or all equal); an energy forecast value that changes with this branch while the switch is on; a `next_room` row whose `current_room` differs from the transition's `from_room`.
 
@@ -166,13 +186,20 @@ How to break them: a `dwell_share` row with a timestamp in a day whose nightly r
 - **Consumers:** the `dwell_share.actual_value` column (record); the in-memory `last_hour_fraction[room]` used by D2's blend (display). No other reader. OC is a future reader (vision slice 1); it must read with `prediction_type = 'dwell_share'`.
 
 ### 5.3 `dwell_share` row (new record)
-- **Shape:** `room_id = entry_id` (rename-stable, matches `environmental_data`; the other two types use room names, which is the mismatch the anomaly cycle had to fix), `prediction_timestamp = start of H, UTC ISO`, `prediction_type = 'dwell_share'`, `predicted_value = str(round(share, 4))`, `actual_value = str(round(fraction, 4))`, `error_value = round(share − fraction, 4)` (signed: positive = room was emptier than usual; square it for Brier), `confidence = cell sample count n` (support for the prediction), `person_id = NULL`.
+- **Shape:** `room_id = entry_id` (rename-stable, matches `environmental_data`; the other two types use room names, which is the mismatch the anomaly cycle had to fix), `prediction_timestamp = start of the UTC hour H as an aware ISO string with offset, e.g. "2026-10-21T15:00:00+00:00"` (M2: this is the format both existing writers use, `dt_util.utcnow().isoformat()` at `__init__.py:3231` for `bayesian_occupancy` and at `sensor.py:3502` for the `next_room` cache timestamp that `transitions.py:534` writes; the prune cutoff is the same `isoformat()`. Not the naive `"YYYY-MM-DD HH:MM:SS"` the dwell DAO uses for `environmental_data`. Side note, pre-existing and not changed here: `optimization.py:3723-3725` builds its cutoff as `"%Y-%m-%d %H:%M:%S"`; because `'T' > ' '`, every row on the cutoff date passes whatever its time, so its window is up to one day longer than 7 d. The D3 Live query uses the aware format), `prediction_type = 'dwell_share'`, `predicted_value = str(round(share, 4))`, `actual_value = str(round(fraction, 4))`, `error_value = round(share − fraction, 4)` (signed: positive = room was emptier than usual; square it for Brier), `confidence = cell sample count n` (support for the prediction), `person_id = NULL`. **L1 decision:** `confidence` holds a count for this type, not a 0-1 probability. Every reader filters by type, so nothing breaks, but a docstring on `save_prediction_results_batch` and a note in the presence state-of-play §1 row say "for `dwell_share`, `confidence` is the cell's sample count". `cell_days` was considered and rejected: the count is what a reader needs to weight rows.
 - **Consumers in code today:** none. Re-grep at plan review that no reader of `prediction_results` lacks a `prediction_type` filter: today every reader filters (`sensor.py:15416,15427,15609,15619`, `regime_detector.py:392,409`, `optimization.py:3740`, `database.py:7960`). If one is found without a filter, it is a finding.
 
 ### 5.4 `likely_next_room` (re-sourced value)
 - **Producer after D4:** if the person's `location` is a real room → `PatternLearner.predict_next_room` (from→to counts over 30 days, raw transitions, 1 h cache). Else the existing chain (Bayesian, then `away_typical`, unchanged). Dependencies: `room_transitions` writer (healthy: 435 rows in the last day); `person_coordinator` location (BLE; LOST/away handled by the existing exclusions). Ground truth: P3.
 - **Consumers:** the entity state (ura_v8 dashboard, display); the cache → `transitions._score_prediction` → `next_room` rows → `*_next_room_accuracy` sensors (display), Optimization pillar (advisory, read-only), `regime_detector` D7 (already inert, §1.1). Nothing actuates on it.
-- **Consumer-side effect to expect:** the accuracy sensors' top-1 rate rises (P3: Oji ~19 → ~35%, Jaya ~15 → ~57% raw). The Optimization pillar's next-room surface will read "better", which is true. No threshold in `optimization.py` is tuned for the old level (plan review to confirm by reading `OPTIMIZER_PREDICTION_*` constants).
+- **Consumer-side effect to expect:** the accuracy sensors' top-1 rate rises (P3: Oji ~13 → ~35%, Jaya ~15 → ~57% raw; live 7-day rates 13.4 / 15.4%).
+- **Consumer row (plan review H1): Optimization prediction-accuracy finding.**
+
+| Reader | file:line | Aggregation | Before | Expected after D4 | Trust or display |
+|---|---|---|---|---|---|
+| `_evaluate_prediction_accuracy_dimension` next-room clause | `optimization.py:3914-3926`, reading `_read_next_room_accuracy` `optimization.py:3705-3795` | all persons pooled, 7 days, ≥ 50 rows, `json top == actual_value` | 15.1% pooled → issue "below 35% floor" fires every evaluation | ~45% pooled (§2 projection), Oji alone ~35% | advisory finding (no actuation), but it is an operator-facing issue list, so a flapping finding is a real defect |
+
+The earlier claim "no threshold is tuned for the old level" was wrong: the 35% absolute floor was set when the model had no skill, and an absolute hit-rate floor is the wrong yardstick anyway (it rewards a household with one dominant room). **Default (operator decision §13 Q5):** D7 changes the clause to compare against the baseline-skill measure that PREDICT-SCORER-BASELINE-SKILL-1 adds in the same release: the finding fires when pooled top-1 skill over the always-the-usual-room baseline (same rows, same window) is ≤ `OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT` (default 0 points: no better than the constant). If the operator instead keeps an absolute floor, D7 adds hysteresis: fire below 35.0, clear only above 35.0 + `OPTIMIZER_PREDICTION_ACCURACY_TOP1_HYSTERESIS_PCT` (default 5.0).
 
 ### 5.5 `predict_room_occupancy` (old value, kept)
 - **Readers that stay:** `energy_forecast.py:445,499` (switch off), `__init__.py:3251` (the `bayesian_occupancy` writer), `get_top_time_bin_for_room` (only reader was the pattern sensor, which moves). After D2 the forecast sensors no longer call `predict_room_occupancy_at_time` (`sensor.py:15227,15244`); `predict_room_occupancy_at_time` has no other reader (KEEP + DOCUMENT, §9).
@@ -181,15 +208,19 @@ How to break them: a `dwell_share` row with a timestamp in a day whose nightly r
 
 ## 6. Knobs
 
-All rung 1 (module constants, reviewed code change). These are display/record mechanics on a diagnostic surface; the parsimony rule says not to put them on the options flow.
+All rung 1 (module constants, reviewed code change), including the three added after plan review (the Optimization constants sit with their siblings at `const.py:4269-4285`, which are rung 1 by design: "Module constants only"). These are display/record mechanics on a diagnostic surface; the parsimony rule says not to put them on the options flow.
 
 | Knob | Value | Why | Kill / edge |
 |---|---|---|---|
 | `FORECAST_DWELL_SOURCE_ENABLED` | `True` | Kill switch for D2 | `False`: both sensors read the Bayesian model exactly as before (byte-identical code path kept behind the flag) |
-| `FORECAST_PERSISTENCE_WEIGHT_1H` | from D0 sweep (probe: 0.5 beats 0 and 1) | weight of last-hour fraction at +1 h | `0.0` = cell share only; `1.0` = persistence only |
-| `FORECAST_PERSISTENCE_WEIGHT_4H` | from D0 sweep (probe: 0.5) | same at +4 h | same |
+| `FORECAST_PERSISTENCE_WEIGHT_1H` | `0.5` (P1-R) | weight of last-hour fraction at +1 h | `0.0` = cell share only; `1.0` = persistence only |
+| `FORECAST_PERSISTENCE_WEIGHT_4H` | `0.25` (P1-R) | same at +4 h | same |
+| `FORECAST_TOP_CELLS_COUNT` | `5` | number of cells in the pattern sensor's `top_cells` attribute (L5); 5 cells × (label, share) is ~150 bytes, far under the recorder's 16 KB attribute limit | `0` = attribute omitted |
 | `DWELL_SHARE_PRODUCER_ENABLED` | `True` | Kill switch for D3 | `False`: no tick registered, no read, no write; D2 blend falls back to weight 0 |
-| `DWELL_SHARE_TICK_MINUTE` | `2` | read the finished hour after its last 5-min sample is committed | must be 0-14 (I1 needs the capture inside H; validated at import) |
+| `DWELL_SHARE_TICK_MINUTE` | `2` | read the finished hour after its last 5-min sample is committed | valid range 0-14 (I1 needs the capture inside H). **L3:** an out-of-range value is clamped to 2 by the runner at registration with one WARNING; it never raises at import (an import error would break setup) |
+| `NEXT_ROOM_MAX_SKIP_RATIO` | `0.30` | H2: the share of transitions the I4 from-room gate may drop before the top-1 gain stops counting as evidence | **evidence bound only, not a behaviour gate**: it is read by the D4 Live check and the D4 sensor attribute `skip_ratio_ok`; it changes no scoring. `1.0` = never flags |
+| `OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT` | `0.0` | H1 default (§13 Q5): next-room finding fires when pooled top-1 minus the always-usual-room top-1 on the same rows is ≤ this many points | lives next to `OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT` in `const.py`; negative = never fires on skill |
+| `OPTIMIZER_PREDICTION_ACCURACY_TOP1_HYSTERESIS_PCT` | `5.0` | H1 fallback only (if Q5 keeps the absolute floor): clear threshold = floor + this | `0.0` = today's behaviour (no hysteresis) |
 | `DWELL_SHARE_MIN_ACTUAL_SAMPLES` | `6` | an hour with half its samples missing is not evidence | `0` = score any hour with ≥ 1 sample |
 | `NEXT_ROOM_CURRENT_ROOM_PRIMARY` | `True` | Kill switch for D4 order | `False`: old order (Bayesian → away_typical → frequency), byte-identical |
 | `PREDICTION_RESULTS_RETENTION_DAYS` | `45` | ≥ the 37-day `next_room` window `regime_detector` reads (`regime_detector.py` 30 + 7) | replaces the `days=30` literal at `nightly_maintenance.py:39` |
@@ -217,33 +248,35 @@ Promote the two blend weights to rung 3 only if the operator later wants to tune
 ### D0: Backtest script (committed, run before build; read-only)
 
 `scripts/probes/predict_dwell_backtest.py`, stdlib only, `ssh ha "python3 - [--days N] [--json]"`. Built from the §2 probe plus:
-1. A blend-weight sweep w ∈ {0, 0.25, 0.5, 0.75, 1} at +1 h and +4 h; the chosen weights go into §6 before build.
+1. The blend-weight sweep w ∈ {0, 0.25, 0.5, 0.75, 1} at +1 h and +4 h **on the runtime alignment of P1-R** (target = cell of `now + h`, `now` uniform in the hour, persistence = last completed hour at `now`, H−2 before the tick minute), reported for the full window, the first week (selection) and the second week (held out). It must reproduce P1-R; the §6 weights are already set from it.
 2. A producer-agreement check (§5.2): hourly fraction from `environmental_data` vs time-weighted recorder `binary_sensor.<room>_occupied` for 4 rooms × 1 day.
 3. An assertion that every model used for day D has `max(training timestamp) < D 00:00`.
-4. The P3 table, including the from-room-gated variant (scores only rows where the prediction's room equals `from_room`), to measure how much of the sample D4's gate drops.
+4. The P3 table. Its from-room agreement is 100% by construction and is labelled "**upper bound on agreement**; the live skip rate is measured by D4's counter, not here" (H2 d).
 
 **Acceptance criteria**
-- **Verify:** the script reproduces §2 within rounding on the same window.
-- **Verify:** the sweep table is in this plan's §2 (appended) and §6 carries the chosen weights.
+- **Verify:** the script reproduces §2 (P1-R, P2, P3) within rounding on the same window.
+- **Verify (discriminating, M1):** run with `--align probe` (lag h) and default runtime alignment; the +1 h w = 0.5 MSE differs (0.0165 vs 0.0205 on the §2 window). If both modes print the same number, the alignment switch is not wired.
 - **Verify (discriminating):** the no-hindsight assertion fails if the training end is moved past the day start (the script's own self-test flag `--leak-test` shows a lower, in-sample error and a failed assert).
 - **Live:** none (read-only).
 
 ### D1: `RoomDwellModel` small extensions
 
 - `trained_until_utc` (aware UTC of the training-window end), set in `apply` from the runner's `training_window` end. `None` before the first refresh.
-- `forecast(entry_id, now_local, horizon_h, last_hour_fraction, weight) -> float | None`: `w × last_hour_fraction + (1 − w) × lookup(now + horizon)`; returns the cell share alone when `last_hour_fraction` is None; None when the cell has no samples. Pure.
-- `peak_cell(entry_id) -> (Cell, share) | None` for the pattern sensor.
+- `forecast(entry_id, now_local, horizon_h, last_hour_fraction, weight) -> float | None`: `w × last_hour_fraction + (1 − w) × lookup(now + horizon)`; returns the cell share alone when `last_hour_fraction` is None; None when the cell has no samples. Pure. The target cell is looked up from the **local time of `now_utc + horizon`** (aware arithmetic in UTC, then converted), so a horizon across a DST change lands on the right local hour (M3).
+- `peak_cell(entry_id) -> (Cell, share) | None` and `top_cells(entry_id, k) -> list[(Cell, share)]` for the pattern sensor.
 
 **Acceptance criteria**
 - **Verify:** `trained_until_utc` equals the start of the local refresh day in UTC, across a DST boundary.
 - **Verify:** `forecast` with weight 0 equals `lookup`; with weight 1 equals the persistence input; None-safe.
-- **Test:** `test_room_dwell_model.py::test_trained_until_is_start_of_refresh_day`, `::test_trained_until_dst`, `::test_forecast_blend_bounds`, `::test_forecast_without_persistence`, `::test_peak_cell`.
+- **Test:** `test_room_dwell_model.py::test_trained_until_is_start_of_refresh_day`, `::test_trained_until_dst`, `::test_forecast_blend_bounds`, `::test_forecast_without_persistence`, `::test_forecast_horizon_across_dst`, `::test_peak_cell`, `::test_top_cells_count_knob`.
 - **Live:** covered by D2/D3.
 
 ### D2: Forecast and pattern sensors read the dwell model
 
 - `BayesianOccupancyForecastSensor`: with `FORECAST_DWELL_SOURCE_ENABLED`, state = `round(100 × lookup(entry_id, now), 1)` (the usual share for this hour). Attributes: `forecast_now`, `forecast_+1h`, `forecast_+4h` (blended via D1 with `runner.last_hour_fraction(entry_id)`), `model: "dwell"`, `cell`, `cell_days`, `last_hour_fraction`, `model_status`, `model_refreshed_at`. Keep `room`. Drop the Bayesian `learning_status` loop (`sensor.py:15247-15255`) in the new branch. There is no learning gate: the sensor publishes `cell_days` and leaves the judgement to the reader (`OCC_ANOMALY_MIN_CELL_DAYS` is not reused).
-- `BayesianOccupancyPatternSensor`: state = `cell_label(peak_cell)` (e.g. `"weekday 14:00"`), attributes `peak_share`, `top_cells` (the five highest-share cells with their shares), `model: "dwell"`. It does not call `usual_hours`, because that takes the anomaly threshold and would tie this display to an anomaly knob.
+- **After a restart (M5):** `last_hour_fraction` is in memory only, so until the first D3 tick after restart (minute 2 of the next hour) it is `None`. The sensor then publishes attribute `last_hour_fraction: null` and `forecast_+1h` / `forecast_+4h` equal the cell share of their target hours (blend weight effectively 0). When the tick fills it, the `+1h`/`+4h` values step to the blended value; that step is expected and is not a fault. Same when `DWELL_SHARE_PRODUCER_ENABLED` is False (permanently weight 0).
+- **Update cadence (M6):** both classes are `UniversalRoomEntity` → `CoordinatorEntity` (`entity.py:19`) and do not override polling, so they recompute on every room-coordinator refresh (`coordinator.py:685`, 30 s + jitter). `forecast_now` therefore changes cell within about 30 s of an hour boundary. The occupancy-anomaly binary sensor reads the same model on its own refresh; the two can disagree for up to one refresh across a boundary, so the D2 Live comparison is made "within the same cell" (both attributes report `cell`).
+- `BayesianOccupancyPatternSensor`: state = `cell_label(peak_cell)` (e.g. `"weekday 14:00"`), attributes `peak_share`, `top_cells` (the `FORECAST_TOP_CELLS_COUNT` highest-share cells with their shares), `model: "dwell"`. It does not call `usual_hours`, because that takes the anomaly threshold and would tie this display to an anomaly knob.
 - Before the first model refresh: state `None` (unknown), `model_status: never_refreshed`. Not 0.
 - unique_ids, names, device, category, disabled-by-default: unchanged.
 
@@ -251,14 +284,17 @@ Promote the two blend weights to rung 3 only if the operator later wants to tune
 - **Verify (discriminating):** a room whose cell share is 0.6 shows state 60.0. Under the Bayesian source the same fixture shows its arrival probability (the fixture's Study A cell: Bayesian ≈ 1%), so the test fails if the sensor still reads `predict_room_occupancy_at_time`.
 - **Verify:** `forecast_+1h` ≠ `forecast_now` when `last_hour_fraction` differs from the cell share and weight > 0; equal when weight = 0.
 - **Verify:** kill switch False → attribute set and value identical to the pre-change sensor on the same predictor fixture.
-- **Test:** `test_predict_dwell_sensors.py::test_forecast_state_is_dwell_share`, `::test_forecast_blend_uses_last_hour`, `::test_forecast_unknown_before_model`, `::test_forecast_kill_switch_byte_identical`, `::test_pattern_state_is_peak_cell`, `::test_pattern_kill_switch_byte_identical`.
-- **Live:** `sensor.study_a_bayesian_occupancy_forecast` (or the live entity_id of an enabled forecast sensor) on a weekday between 10:00 and 16:00 reads > 20 with `model: dwell` (the audit read ~1% under the Bayesian source for the same room). Within the same hour, its `forecast_now` equals the Study A occupancy-anomaly sensor's `expected_share` × 100 (same model, same cell).
+- **Verify (M5):** with `last_hour_fraction` None, `forecast_+1h` equals the +1 h cell share and the attribute is `null`, not 0.
+- **Test:** `test_predict_dwell_sensors.py::test_forecast_state_is_dwell_share`, `::test_forecast_blend_uses_last_hour`, `::test_forecast_after_restart_no_persistence`, `::test_forecast_unknown_before_model`, `::test_forecast_kill_switch_byte_identical`, `::test_pattern_state_is_peak_cell`, `::test_pattern_kill_switch_byte_identical`.
+- **Live:** `sensor.study_a_bayesian_occupancy_forecast` (or the live entity_id of an enabled forecast sensor) on a weekday between 10:00 and 16:00 reads > 20 with `model: dwell` (the audit read ~1% under the Bayesian source for the same room). When both report the same `cell`, its `forecast_now` equals the Study A occupancy-anomaly sensor's `expected_share` × 100 (same model, same cell). Read at least 2 minutes after an hour boundary.
 
 ### D3: Hourly `dwell_share` producer
 
 - On `RoomDwellModelRunner`: one `async_track_time_change(minute=DWELL_SHARE_TICK_MINUTE, second=0)` on its own unsub attribute, cancelled in `async_stop` (Bug Classes #19/#50). Registered only when the producer flag is on.
+- **Hour keys are UTC (M3).** H is the UTC hour start containing the tick (`dt_util.utcnow()` floored to the hour). `frozen` is keyed by that aware UTC datetime, and `prediction_timestamp` is its ISO string. The cell is looked up from the local time of that UTC start. At fall-back the two local 01:00 hours are two distinct UTC keys, so two distinct rows; at spring-forward there is no missing key in UTC.
+- **Same-hour guard (M4).** The runner records `_last_scored_utc_hour`. A tick whose H−1 equals it does nothing (no read, no write). This covers the reachable double-fire cases: the time-change callback firing twice in one minute after a clock adjustment, and a reload overlap in which a stopping runner's callback fires once more. `async_stop` cancels the tick before the new runner registers (the runner is created in parent setup and stopped by `entry.async_on_unload`, `__init__.py:4850-4853`).
 - Each tick, in this order:
-  1. **Score H−1.** If `frozen[H−1]` exists: one `get_room_occupied_share_by_hour(start(H−1), start(H))`; for each room in `frozen[H−1]` with ≥ `DWELL_SHARE_MIN_ACTUAL_SAMPLES` samples, build the §5.3 row; store `last_hour_fraction[room]`; one `save_prediction_results_batch`. Drop `frozen[H−1]` whether or not the write succeeded (no retry, no backfill).
+  1. **Score H−1.** If `frozen[H−1]` exists and H−1 ≠ `_last_scored_utc_hour`: one `get_room_occupied_share_by_hour(start(H−1), start(H))`; for each room in `frozen[H−1]` with ≥ `DWELL_SHARE_MIN_ACTUAL_SAMPLES` samples, build the §5.3 row; store `last_hour_fraction[room]`; one `save_prediction_results_batch`; set `_last_scored_utc_hour = H−1`. Drop `frozen[H−1]` whether or not the write succeeded (no retry, no backfill).
   2. **Freeze H.** If `model.has_model` and `model.trained_until_utc ≤ start(H)`: `frozen[H] = {entry_id: (share, n)}` for every room entry with a non-empty cell. Otherwise freeze nothing and increment `skipped_freeze` (a counter on the runner, logged at DEBUG; no entity).
 - Room set: the room config entries at freeze time (`entry_type == "room"`). A room removed during the hour is still scored (its env rows exist); a room added mid-hour starts at the next freeze.
 - The tick is async and awaits the read and the write; it never runs the write inside the model refresh. Exceptions are caught and logged at WARNING once per tick.
@@ -267,27 +303,35 @@ Promote the two blend weights to rung 3 only if the operator later wants to tune
 **Acceptance criteria**
 - **Verify (I1, discriminating):** with a model whose `trained_until_utc` is after `start(H)` (simulated restart refresh), no row is written for H. Under a broken check the row appears with an in-sample value.
 - **Verify (I1):** a freeze at H followed by a model refresh during H still writes the frozen value, not the new lookup.
-- **Verify (I2):** two ticks in the same hour (restart re-registers) write at most one row per room for H−1, because `frozen[H−1]` is consumed by the first. One `executemany` per tick.
+- **Verify (I2, M4):** the same tick callback invoked twice for the same H writes at most one row per room for H−1 (the second call hits `_last_scored_utc_hour`). One `executemany` per tick. (A real restart cannot reach this: `frozen` is empty after restart, so there is nothing to score.)
+- **Verify (I2, M4):** after `async_stop`, firing the old callback writes nothing, and a new runner's first tick writes once.
+- **Verify (M3):** on the fall-back day the two local-01:00 hours produce two rows with distinct UTC `prediction_timestamp`s; on the spring-forward day no tick raises and no hour key is skipped in UTC.
+- **Verify (M2):** `prediction_timestamp` matches `^\d{4}-\d\d-\d\dT\d\d:00:00\+00:00$`.
 - **Verify:** an hour with 5 samples is skipped at the default; 6 is scored.
 - **Verify:** row shape exactly §5.3; `error_value` signed.
 - **Verify:** flag False → no tick registered, zero writes, zero reads.
-- **Test:** `test_dwell_share_producer.py::test_scores_previous_hour_with_frozen_value`, `::test_no_row_when_model_trained_past_hour_start`, `::test_refresh_mid_hour_keeps_frozen`, `::test_one_row_per_room_hour_after_double_tick`, `::test_min_samples_gate`, `::test_row_shape`, `::test_flag_off_no_tick`, `::test_unsub_on_stop`, `::test_dao_against_production_schema` (DDL from `database.py`, real DAO + real batch writer, not hand-written INSERTs).
+- **Test:** `test_dwell_share_producer.py::test_scores_previous_hour_with_frozen_value`, `::test_no_row_when_model_trained_past_hour_start`, `::test_refresh_mid_hour_keeps_frozen`, `::test_same_tick_twice_one_row` (renamed from `test_one_row_per_room_hour_after_double_tick`), `::test_stopped_runner_callback_writes_nothing`, `::test_fall_back_hour_two_rows_distinct_utc`, `::test_spring_forward_no_gap_error`, `::test_tick_minute_out_of_range_clamped`, `::test_min_samples_gate`, `::test_row_shape` (asserts the M2 timestamp format and `confidence = n`), `::test_flag_off_no_tick`, `::test_unsub_on_stop`, `::test_dao_against_production_schema` (DDL from `database.py`, real DAO + real batch writer, not hand-written INSERTs).
 - **Live:** within 2 h of restart, `SELECT count(*), count(DISTINCT room_id), min(predicted_value), max(predicted_value) FROM prediction_results WHERE prediction_type='dwell_share' AND prediction_timestamp >= <restart hour>` returns ≥ 40 rows per scored hour, ≥ 40 distinct rooms, and predicted values that are not all equal (sentinel check). No hour has two rows for one room (`GROUP BY room_id, prediction_timestamp HAVING count(*) > 1` returns nothing).
-- **Live (disposition query, at the organic window, not a soak):** over the first 7 full days, `avg(error_value²)` for `dwell_share` is within ±30% of the backtest 0.0273 and below the per-room-constant MSE computed from the same rows. A value far below the backtest (< 0.015) indicates an in-sample leak, not a better model.
+- **Live (disposition query, at the organic window, not a soak):** over the first 7 full days, `avg(error_value²)` for `dwell_share` is within ±30% of the backtest 0.0273 (the D3 row scores the cell share at the start of H, i.e. w = 0, so the comparable backtest number is the cell-only one, not the blended one) and below the per-room-constant MSE computed from the same rows. A value far below the backtest (< 0.015) indicates an in-sample leak, not a better model.
 
 ### D4: Next room from the current room
 
 - `PersonLikelyNextRoomSensor.async_update` (`sensor.py:3362`): when `NEXT_ROOM_CURRENT_ROOM_PRIMARY` and the person's `location` is a real room (same exclusions as `sensor.py:3463`), call `pattern_learner.predict_next_room(person, current_room)` first; if it returns a prediction, skip the Bayesian and `away_typical` steps. Otherwise run the existing chain unchanged.
 - Cache entry (`sensor.py:3497-3503`) gains `current_room` (the room the prediction was made from; `None` for the Bayesian / away paths). The `current_room` attribute of the sensor carries the same value.
-- `transitions._score_prediction` (`transitions.py:482`): if the cache has a non-None `current_room` and it differs from the transition's `from_room`, do not write a row; increment `next_room_skipped_room_mismatch` (logged at DEBUG). Requires passing `from_room` into `_score_prediction` from `_log_transition` (`transitions.py:476`).
+- `transitions._score_prediction` (`transitions.py:482`): if the cache has a non-None `current_room` and it differs from the transition's `from_room`, do not write a row; increment a **per-person** counter `skipped_room_mismatch` held in `hass.data[DOMAIN]["next_room_scoring_stats"][person]` alongside `scored` (incremented when a row is written). Requires passing `from_room` into `_score_prediction` from `_log_transition` (`transitions.py:476`). Comparison is on the same naming the cache and the transition use; if they differ in form (display name vs slug), both are normalised with the existing room-name normaliser before comparing, and the builder must cite the normaliser it reuses (no new one).
+- **Visible skip counter (H2 a).** The existing per-person next-room accuracy sensor (`*_next_room_accuracy`) gains attributes `scored_since_start`, `skipped_room_mismatch_since_start`, `skip_ratio` (= skipped / (skipped + scored), `null` when both are 0) and `skip_ratio_ok` (`skip_ratio ≤ NEXT_ROOM_MAX_SKIP_RATIO`). In-memory since HA start, so the Live check reads them after a known uptime. Not DEBUG-only. The scorer also logs one INFO line per 100 skips per person with the running ratio, so the ratio survives in the journal across restarts.
+- **Discriminating rule (H2 c).** If `skip_ratio > NEXT_ROOM_MAX_SKIP_RATIO` for a person, that person's top-1 gain is **not accepted** as evidence for D4, whatever its value; the Live check reports FAIL-INCONCLUSIVE and a card is opened for the name/timing mismatch.
 - `source` stays `"frequency"` for this path (existing value; the accuracy sensors and OC read it as a label only).
 
 **Acceptance criteria**
 - **Verify (discriminating):** with Bayesian and PatternLearner both returning predictions, the sensor reports PatternLearner's room and `source: frequency`; with the flag False it reports the Bayesian room (old behaviour).
 - **Verify:** person `away` → existing `away_typical` path still wins (regression guard).
 - **Verify (I4):** a cached prediction from room A scored on a transition B → C writes no row; A → C writes one.
-- **Test:** `test_next_room_current_room.py::test_current_room_primary`, `::test_flag_off_bayesian_first`, `::test_away_keeps_away_typical`, `::test_cache_carries_current_room`, `::test_scorer_skips_room_mismatch`, `::test_scorer_legacy_cache_without_room`.
-- **Live:** `sensor.universal_room_automation_jaya_likely_next_room` attribute `current_room` equals Jaya's current room (`person_coordinator` location / `sensor.jaya_room`) at read time. After 3 days, the one-shot query of `next_room` rows since deploy shows Jaya's top-1 (`json_extract(predicted_value,'$.top') = actual_value`) ≥ 40% and above her always-the-usual-room rate on the same rows. Under the old source the same query gives ~15% (audit), so the observation discriminates.
+- **Verify (H2):** a mismatch increments `skipped_room_mismatch` and `skip_ratio` on the accuracy sensor; a match increments `scored`; a legacy cache (no `current_room`) increments `scored`, never `skipped`.
+- **Test:** `test_next_room_current_room.py::test_current_room_primary`, `::test_flag_off_bayesian_first`, `::test_away_keeps_away_typical`, `::test_cache_carries_current_room`, `::test_scorer_skips_room_mismatch`, `::test_scorer_legacy_cache_without_room`, `::test_skip_counter_exposed_on_accuracy_sensor`, `::test_skip_ratio_ok_uses_knob`, `::test_room_names_normalised_before_compare`.
+- **Live:** `sensor.universal_room_automation_jaya_likely_next_room` attribute `current_room` equals Jaya's current room (`person_coordinator` location / `sensor.jaya_room`) at read time.
+- **Live (H2 b, skip ratio, read first):** after ≥ 24 h uptime, each resident's accuracy sensor shows `skip_ratio ≤ 0.30` (`skip_ratio_ok: true`) with `scored_since_start + skipped_room_mismatch_since_start ≥ 50`. Under a name or timing mismatch the ratio is near 1 and the scored count is small; under a working gate it is low. If this fails, the next criterion is not evaluated.
+- **Live (accuracy):** after 3 days, the one-shot query of `next_room` rows since deploy shows Jaya's top-1 (`json_extract(predicted_value,'$.top') = actual_value`) ≥ 40% and above her always-the-usual-room rate on the same rows. Under the old source the same query gives 15.4% (live 7-day, read 2026-10-21), so the observation discriminates, provided the skip-ratio check passed.
 
 ### D5: Prune all prediction types
 
@@ -297,7 +341,20 @@ Promote the two blend weights to rung 3 only if the operator later wants to tune
 - **Verify:** a fixture with old rows of all three types → all three pruned; recent rows kept.
 - **Verify:** batching unchanged (1,000-row batches, 500-batch cap).
 - **Test:** `test_prediction_results_prune.py::test_prunes_all_types`, `::test_keeps_rows_inside_retention`.
-- **Live:** the morning after the first nightly maintenance, `min(prediction_timestamp)` for `next_room` is within 46 days of now (was 2026-05-13), and `anomaly_log`/HA log show no write-queue backlog warning that night.
+- **Live:** the morning after the first nightly maintenance, `min(prediction_timestamp)` for `next_room` is within 46 days of now (was 2026-05-13), and the HA journal for that night has no line matching `DB write queue peak:` (`database.py:410-413`, logged when the queue exceeds 10) and no `worker backlog` / `event-loop stall` wait-episode WARNING (`database.py:254-275`) (L4).
+
+### D7: Optimization next-room finding compares against baseline skill (H1)
+
+Default per §13 Q5; if the operator picks the fallback, D7 is the hysteresis variant below instead.
+- **Default (skill):** `_read_next_room_accuracy` (`optimization.py:3705-3795`) additionally computes, over the same rows, the top-1 rate of the always-the-usual-room baseline using the same definition PREDICT-SCORER-BASELINE-SKILL-1 ships (the builder reuses that card's helper; it does not write a second baseline). It returns `skill_pct = top1 − baseline_top1`. The clause at `optimization.py:3914-3926` fires when `skill_pct ≤ OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT`. The issue string and payload carry both rates and the skill. `OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT` stays defined (KEEP + DOCUMENT: no reader after D7, kept for the fallback).
+- **Fallback (absolute + hysteresis):** keep the floor; persist the last clause state on the coordinator; fire below `TOP1_FLOOR_PCT`, clear only above `TOP1_FLOOR_PCT + TOP1_HYSTERESIS_PCT`.
+- **Ordering:** D7 depends on PREDICT-SCORER-BASELINE-SKILL-1 landing in the same release. If that card slips, ship the fallback, not the skill variant.
+
+**Acceptance criteria**
+- **Verify (discriminating):** pooled top-1 45% with baseline 45% → fires (no skill); top-1 30% with baseline 15% → does not fire. Under the old absolute floor the outcomes are reversed (45% clears, 30% fires), so the test tells the two rules apart.
+- **Verify (fallback):** 34 → fire, 37 → still firing, 41 → clear, 37 → still clear.
+- **Test:** `test_optimization_prediction_accuracy.py::test_next_room_fires_on_no_skill`, `::test_next_room_quiet_with_skill_below_old_floor`, `::test_hysteresis_fallback_no_flap`, `::test_under_learned_gate_unchanged`.
+- **Live:** for the first 7 days, the prediction-accuracy dimension's issue list read once per day contains the next-room clause on a day if and only if that day's one-shot pooled query (same 7-day window, same rows) gives skill ≤ 0. Recorded per day in the README table; under the old code the clause would appear on every day with top-1 < 35% instead.
 
 ### D6: Docs
 
@@ -337,6 +394,8 @@ Zero DELETE items in this cycle (expected; deletion waits for live validation).
 | E9 | `__init__.py:3251` `bayesian_occupancy` writer | row | unchanged |
 | E10 | `energy_forecast.py:445,499` | energy | unchanged (I3) |
 | E11 | `binary_sensor.py:3432+` anomaly sensor | dwell lookup | unchanged |
+| E12 | `optimization.py:3914-3926` next-room accuracy clause (reads `optimization.py:3705-3795`) | Optimization issue list | D7 (skill comparison, or hysteresis fallback) |
+| E13 | per-person `*_next_room_accuracy` sensor attributes | skip counter / ratio | D4 (new attributes) |
 
 Side finds recorded, not fixed here: regime D7 JSON compare (above); Ziri has no transitions in 14 d (no fault traced).
 
@@ -347,7 +406,8 @@ Side finds recorded, not fixed here: regime D7 JSON compare (above); Ziri has no
 - No change to the energy forecast's occupancy read (I3), the Bayesian beliefs, `room_transitions`, or the `bayesian_occupancy` writer.
 - No zone- or house-level occupancy forecast. None exists and nothing would read one. Revival trigger: a consumer is proposed (for example HVAC pre-conditioning per zone) with a backtest showing a zone forecast beats per-room aggregation.
 - No pattern-detection sensor; PREDICT-PATTERN-DETECTED-ORPHANS-1 stays parked (its trigger is not fired: this plan re-sources the existing `bayesian_occupancy_pattern` entity, which has its own unique_id).
-- No skill-vs-baseline attribute on the accuracy sensors (that is PREDICT-SCORER-BASELINE-SKILL-1; see Q2).
+- No skill-vs-baseline attribute on the accuracy sensors (that is PREDICT-SCORER-BASELINE-SKILL-1; see Q2). D7 consumes that card's baseline; it does not build its own.
+- No change to the other `OPTIMIZER_PREDICTION_ACCURACY_*` thresholds (Brier ceiling, min samples, data-quality floor, window). Only the next-room clause changes (D7).
 - No flap dedupe in PatternLearner training (P3 shows the raw chain already beats the constant; revival trigger: live top-1 below the constant for any resident over 7 days).
 - No time-of-day conditioning of next room (P3), no learned blend (§3), no new options-flow fields, entities, tables or migrations.
 - No notifications.
@@ -365,6 +425,31 @@ Suggested framings: **A** model and arithmetic (blend, DST, empty cells, signed 
 ## 13. Decisions for the operator
 
 1. **Energy forecast read (Q1).** `energy_forecast` uses the Bayesian occupancy probability when `switch.ura_energy_coordinator_occupancy_weighted_prediction` is on. It is **off** today. Recommendation: leave it on the old model this cycle and card "re-source energy occupancy weighting onto the dwell model", triggered by you wanting the switch on. Re-sourcing now would put a cost-path consumer in this cycle and make it Tier 3.
-2. **Ship the scorer card with this one (Q2)?** After D4 the next-room accuracy sensors will jump (about 19 → 35% for Oji). Without PREDICT-SCORER-BASELINE-SKILL-1's "vs baseline" attribute nobody can tell that from noise on the dashboard. Recommendation: build it in the same release (Tier 1, small); this plan's Live checks use one-shot queries either way.
+2. **Ship the scorer card with this one (Q2)?** After D4 the next-room accuracy sensors will jump (about 13 → 35% for Oji). Without PREDICT-SCORER-BASELINE-SKILL-1's "vs baseline" attribute nobody can tell that from noise on the dashboard. Recommendation: build it in the same release (Tier 1, small). **This is now load-bearing:** D7's default depends on it; a "no" here forces the Q5 fallback.
 3. **Zone and house forecasts (Q3).** The card says room/zone/house; only room-level forecasts exist. Recommendation: room only, zone/house parked (§11). Say if you want them.
 4. **One-off prune (Q4).** D5 deletes about 150k `next_room` rows older than 45 days on the first night. Recommendation: yes. If you want them kept for analysis, export first or set the retention higher.
+5. **Optimization next-room finding (Q5, from plan review H1).** Today it fires every evaluation (pooled top-1 15.1% < 35% floor). After D4 the pooled rate is projected near 45%, with Oji alone near 35%; a person-mix shift or the I4 gate could move the pooled rate toward the floor. **Default: compare against baseline skill** (fire when pooled top-1 is no better than always guessing the usual room, `OPTIMIZER_PREDICTION_ACCURACY_MIN_SKILL_PCT = 0`), using PREDICT-SCORER-BASELINE-SKILL-1's baseline from the same release. Alternative: keep the absolute 35% floor with 5-point hysteresis (`OPTIMIZER_PREDICTION_ACCURACY_TOP1_HYSTERESIS_PCT`). Not recommended: leave it alone and accept a display-only flap.
+
+---
+
+## 14. Plan review disposition
+
+Review: `docs/planning/REVIEW_plan_predict_dwell_migration.md` (FIX-PLAN-FIRST, 2 HIGH, 6 MEDIUM, 5 LOW). Each finding was checked against code before acting. None rejected; one partly corrected.
+
+| ID | Verified against | Disposition | Where |
+|---|---|---|---|
+| H1 | `const.py:4272`; `optimization.py:3705-3795, 3914-3926` | **Accepted, with a correction.** The floor is a real consumer and the plan's "no threshold is tuned" claim was wrong. Correction: the clause pools all persons, so the projected post-D4 rate is ~45% (live mix weighting), not Oji's 34.8%; flap risk is lower than stated but real. Default: skill-vs-baseline (D7), hysteresis fallback; operator decision Q5. | §1.1, §2 P3 note, §4 I5, §5.4, §6, D7, E12, §11, §13 Q5 |
+| H2 | `sensor.py:3460-3463` (BLE location), `transitions.py:476-482` | **Accepted.** Per-person visible counters + `skip_ratio` attributes, INFO log every 100 skips, `NEXT_ROOM_MAX_SKIP_RATIO = 0.30` (rung 1, evidence bound), Live skip-ratio criterion that gates the accuracy criterion, D0 item 4 reworded to "upper bound". Added name normalisation before compare. | §2 note, §4 I4, §6, D0, D4, E13 |
+| M1 | probe source (persistence = hour T−h) | **Accepted; sweep re-run on runtime alignment.** +1 h gain drops from −40% to −25%; +4 h stays −12%. Weights 0.5 / 0.25. | §2 P1-R, §6, D0 |
+| M2 | `__init__.py:3231`, `sensor.py:3502`, `transitions.py:534` (all `utcnow().isoformat()`) | **Accepted.** Aware ISO with `+00:00`, asserted in `test_row_shape`. | §5.3, D3 |
+| M3 | — (design) | **Accepted.** UTC hour keys, local cell lookup, two DST tests, D1 horizon-across-DST test. | D1, D3 |
+| M4 | `__init__.py:4850-4853` | **Accepted.** Test reworded; `_last_scored_utc_hour` guard; stopped-runner test. | D3 |
+| M5 | — (design) | **Accepted.** `last_hour_fraction: null` → weight 0 until first tick; test added. | D2 |
+| M6 | `entity.py:19` (`CoordinatorEntity`), `coordinator.py:685` (30 s + jitter) | **Accepted.** Cadence stated; Live check made "same cell, ≥ 2 min after boundary". | D2 |
+| L1 | `database.py:7917-7938` | **Accepted.** Keep `n`; docstring + state-of-play note. | §5.3 |
+| L2 | — | **Accepted.** First-week selection / second-week held-out columns reported. | §2 P1-R, D0 |
+| L3 | — | **Accepted.** Clamp + WARNING at registration, never raise at import. | §6, D3 test |
+| L4 | `database.py:254-275, 410-413` | **Accepted.** Log strings named. | D5 |
+| L5 | — | **Accepted.** `FORECAST_TOP_CELLS_COUNT = 5` (rung 1), size stated. | §6, D1, D2 |
+
+Scope after fixes: D7 is new (one clause + one constant pair, gated on the sibling card). Under the ~20% split threshold; kept in this plan because it is the consumer side of D4's value change.
