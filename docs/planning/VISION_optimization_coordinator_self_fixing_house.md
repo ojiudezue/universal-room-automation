@@ -219,7 +219,8 @@ Operator: "We need to answer the minimum model it can use ... see if it can use 
 - **Open source (rev 5, operator: "Check on Qwen and GLM and Deepseek"):**
   - Local, already pulled on the workstation: `qwen3.5:27b` (Q4_K_M, tools+thinking), `qwen3.5-27b-ud`, `qwen3.5-27b-claude-distilled` (IQ3_M), `qwen3.5:9b`, `qwen3:4b-instruct`, `hermes3:8b`. `gemma3:27b` has no tool capability, so it is out.
   - GLM and DeepSeek flagship models are far too large for this box. Eval them through their hosted APIs (prices read at slice 0, not assumed), plus any small/distilled variant that fits in Ollama.
-  - Slice-0 open-source set: qwen3.5:27b, qwen3.5:9b, one GLM, one DeepSeek.
+  - Pulled 2026-10-21 (operator: "You can pull models"): `glm4:9b` (tools) and `deepseek-r1:14b` (tools+thinking).
+  - Slice-0 set: Haiku 5.5 and Sonnet 5.5 (both tested; operator: the cost question stays flexible), qwen3.5:27b, qwen3.5:9b, glm4:9b, deepseek-r1:14b, plus hosted GLM/DeepSeek flagships.
 - **Hardware, measured 2026-10-21 evening:** Ollama 0.40.8 is back on MadroneWinWorkstation (192.168.13.62). Loading qwen3:4b put 13.06 GB in VRAM (of a 43 GB footprint at 262k context) and generated ~22 tokens/s, so there is a discrete GPU with roughly 16 GB. A 27B Q4 (~17 GB) needs partial CPU offload or a shorter context. Two probe calls to the 9B and 27B models returned empty responses; cause not yet known.
 - **Earlier record (superseded by the measurement above):**
   - An Ollama server ran on 192.168.13.62. It was stopped 2026-09-13 because of its RAM use (OLLAMA-CONSUMER-AUDIT-1). It ran qwen3-vl:8b at about 75 s per call with no GPU.
@@ -335,4 +336,4 @@ Event-triggered runs (deploy, restart, HIGH anomaly) add per-run cost on top.
 | 10 | Open source | Workstation Ollama is back with a ~16 GB GPU; local Qwen in the eval |
 | 11 | Budget cap | **$25/month**, hard stop |
 
-**Still open for the operator:** approve the R2 promotable types P1-P5 (§2a) and the exclusion list (§3).
+P1-P5 (§2a) and the exclusion list (§3): **approved for now**.
