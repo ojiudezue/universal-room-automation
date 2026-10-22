@@ -83,41 +83,26 @@ async def test_score_prediction_method_exists(_real):
     save.assert_awaited_once()
 
 
-def test_score_prediction_called_from_log_transition(transitions_src: str):
-    """_score_prediction must be awaited inside _log_transition."""
-    log_start = transitions_src.find("async def _log_transition(self, transition: RoomTransition)")
-    assert log_start >= 0
-    # Find the next method definition after _log_transition
-    next_method = transitions_src.find("\n    async def ", log_start + 100)
-    assert next_method > log_start
-    log_body = transitions_src[log_start:next_method]
-    assert "await self._score_prediction(" in log_body, (
-        "D2: _log_transition must call await self._score_prediction(...)"
-    )
+@pytest.mark.asyncio
+async def test_score_prediction_called_from_log_transition(_real):
+    """_log_transition awaits the scorer (behavioural; was a source grep)."""
+    save = AsyncMock()
+    det = _detector(_real, save)
+    with patch.object(_real.dispatcher, "async_dispatcher_send", MagicMock()):
+        await det._log_transition(_transition(_real))
+    save.assert_awaited_once()
 
 
-def test_score_prediction_inside_try_block(transitions_src: str):
-    """Review fix B2 / A#4: scoring must run INSIDE the _log_transition
-    try-block so a failed log_transition() short-circuits via the except
-    branch and we never write a prediction_results row referencing a
-    transition that didn't land in room_transitions.
-    """
-    log_start = transitions_src.find("async def _log_transition(self, transition: RoomTransition)")
-    next_method = transitions_src.find("\n    async def ", log_start + 100)
-    log_body = transitions_src[log_start:next_method]
-
-    try_idx = log_body.find("try:")
-    except_idx = log_body.find("except Exception")
-    score_idx = log_body.find("await self._score_prediction(")
-    assert try_idx >= 0 and except_idx > try_idx, (
-        "D2: _log_transition must wrap log + score in a try/except block"
-    )
-    assert try_idx < score_idx < except_idx, (
-        "D2 / review fix B2: score call must live INSIDE the try block, "
-        "BEFORE the `except Exception` clause. Otherwise a failed "
-        "log_transition() insert still produces an accuracy row "
-        "referencing a transition that never persisted (phantom-row pollution)."
-    )
+@pytest.mark.asyncio
+async def test_score_prediction_inside_try_block(_real):
+    """Review fix B2 / A#4 (behavioural): a failed room_transitions insert
+    short-circuits, so no prediction_results row references a transition
+    that never persisted."""
+    save = AsyncMock()
+    det = _detector(_real, save)
+    det.database.log_transition = AsyncMock(side_effect=RuntimeError("insert"))
+    await det._log_transition(_transition(_real))
+    save.assert_not_awaited()
 
 
 @pytest.mark.asyncio

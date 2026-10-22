@@ -366,6 +366,81 @@ async def test_room_set_is_room_entries_only():
 
 
 @pytest.mark.asyncio
+async def test_real_refresh_then_tick_writes_row():
+    """Review C-HIGH: the REAL runner refresh must stamp trained_until_utc,
+    otherwise no hour is ever frozen and the producer writes nothing."""
+    from types import SimpleNamespace as NS
+
+    class _TrainDB(_DB):
+        async def get_room_occupied_share_by_hour(self, since, until):
+            if (since, until) in self.actual:
+                return await super().get_room_occupied_share_by_hour(since, until)
+            return [("E1", "2026-10-14T10", 3, 12)]          # training read
+
+        async def get_closed_person_visits(self, *_a):
+            return []
+
+    async def _inline(func, *args):
+        return func(*args)
+
+    db = _TrainDB({_W10: [("E1", "2026-10-21T10", 9, 12)]})
+    hass = _hass(db, [_entry("E1")])
+    hass.async_add_executor_job = _inline
+    r = rdm.RoomDwellModelRunner(hass)
+    at = datetime(2026, 10, 21, 3, 40, tzinfo=UTC)
+    with patch.object(dt_util, "now", return_value=at), \
+            patch.object(dt_util, "utcnow", return_value=at):
+        assert await r.async_refresh() is True
+    await _tick(r, _at(10))
+    await _tick(r, _at(11))
+    assert [row[:4] for row in db.rows] == [
+        ("E1", "2026-10-21T10:00:00+00:00", "dwell_share", "0.25")]
+
+
+@pytest.mark.asyncio
+async def test_last_hour_fraction_cleared_when_nothing_scored():
+    """Review B-L1: a tick that scores nothing drops the old fraction."""
+    db = _DB({_W10: [("E1", "2026-10-21T10", 9, 12)]})
+    r = _runner(db, _model([("E1", "2026-10-14T10", 3, 12)], _TRAINED),
+                [_entry("E1")])
+    await _tick(r, _at(10))
+    await _tick(r, _at(11))                 # scores 10:00; no 11:00 cell
+    assert r.last_hour_fraction("E1") == pytest.approx(0.75)
+    await _tick(r, _at(12))                 # nothing frozen for 11:00
+    assert r.last_hour_fraction("E1") is None
+
+
+@pytest.mark.asyncio
+async def test_last_hour_fraction_cleared_without_database():
+    db = _DB({_W10: [("E1", "2026-10-21T10", 9, 12)]})
+    r = _runner(db, _model(_CELLS, _TRAINED), [_entry("E1")])
+    await _tick(r, _at(10))
+    await _tick(r, _at(11))
+    assert r.last_hour_fraction("E1") is not None
+    r.hass.data[DOMAIN].pop("database")
+    await _tick(r, _at(12))
+    assert r.last_hour_fraction("E1") is None
+
+
+@pytest.mark.asyncio
+async def test_stale_frozen_hours_pruned():
+    r = _runner(_DB(), _model(_CELLS, _TRAINED), [_entry("E1")])
+    await _tick(r, _at(10))
+    r.hass.data[DOMAIN].pop("database")
+    await _tick(r, _at(13))                 # 10:00 is older than 12:00
+    assert list(r._frozen) == []
+
+
+def test_top_cells_negative_k_and_tie_break():
+    m = _model([("E1", "2026-10-14T10", 6, 12), ("E1", "2026-10-14T09", 6, 12),
+                ("E1", "2026-10-17T08", 6, 12)], _TRAINED)
+    assert m.top_cells("E1", -1) == []
+    # equal shares: weekday before weekend, then by hour
+    assert [c for c, _ in m.top_cells("E1", 3)] == [
+        (9, "weekday"), (10, "weekday"), (8, "weekend")]
+
+
+@pytest.mark.asyncio
 async def test_dao_against_production_schema(tmp_path):
     """Real DB (database.py DDL), real DAO read, real batch writer."""
     db = make_real_db(tmp_path)

@@ -226,6 +226,45 @@ async def test_scorer_without_from_room_is_legacy():
 
 
 @pytest.mark.asyncio
+async def test_frequency_fallback_stamps_from_room():
+    """Review C-MED: when the primary call fails and the old frequency
+    fallback produces the prediction, the cache still carries the from-room
+    so the I4 gate applies."""
+    ent, hass, pl = _sensor()
+    pl.predict_next_room.side_effect = [RuntimeError("boom"), _pl_pred()]
+    await ent.async_update()
+    assert ent.native_value == "Kitchen"
+    assert hass.data[DOMAIN]["next_room_predictions"]["Oji"]["current_room"] == "Study A"
+
+
+@pytest.mark.asyncio
+async def test_skip_dispatches_update_signal(_no_dispatch):
+    det, db, hass = _detector(_cache("A"))
+    await det._log_transition(_tr("B", "C"))
+    assert _no_dispatch.call_args.args[1:] == (
+        "ura_next_room_prediction_update", "Oji")
+
+
+@pytest.mark.asyncio
+async def test_cache_captured_before_first_await():
+    """Review B-L2: a sensor poll rewriting the cache (current_room = the new
+    room) during the DB write must not turn the transition into a skip."""
+    det, db, hass = _detector(_cache("A"))
+
+    async def _rewrite(**_kw):
+        hass.data[DOMAIN]["next_room_predictions"]["Oji"] = _cache("C")
+
+    db.log_transition.side_effect = _rewrite
+    det._detect_transition = AsyncMock(return_value=_tr("A", "C"))
+    event = SimpleNamespace(data={"person_id": "Oji", "previous_location": "A",
+                                  "current_location": "C",
+                                  "timestamp": datetime.now(UTC)})
+    await det._on_location_change(event)
+    db.save_next_room_prediction_result.assert_awaited_once()
+    assert _stats(hass) == {"scored": 1, "skipped_room_mismatch": 0}
+
+
+@pytest.mark.asyncio
 async def test_room_names_same_producer_exact_compare():
     """Both names come from person_coordinator's resolved room (sensor reads
     ``location``; the transition carries the event's ``previous_location``),

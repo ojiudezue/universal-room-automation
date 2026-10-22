@@ -461,9 +461,13 @@ class RoomDwellModelRunner:
         frozen_prev = self._frozen.pop(prev, None)
         for key in [k for k in self._frozen if k < prev]:
             self._frozen.pop(key, None)
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if frozen_prev is None or prev == self._last_scored_utc_hour or db is None:
+            # Nothing scored this tick: drop the older fraction rather than
+            # let D2 blend a 2+ hour old value as "last hour" (review B-L1).
+            self._last_hour_fraction = {}
         if frozen_prev is not None and prev != self._last_scored_utc_hour:
             self._last_scored_utc_hour = prev
-            db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None:
                 since = prev.replace(tzinfo=None).isoformat()
                 until = hour.replace(tzinfo=None).isoformat()

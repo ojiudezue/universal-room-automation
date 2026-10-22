@@ -4051,6 +4051,21 @@ async def test_under_learned_gate_unchanged():
 
 
 @pytest.mark.asyncio
+async def test_next_room_sample_gate_independent_of_occupancy_volume():
+    """Review C-MED: occupancy volume lifts the house out of under-learned,
+    but 49 next-room rows (literal) still cannot raise the next-room clause."""
+    occ = {"brier_score": 0.1, "total_predictions": 120}
+    under = _make_pred_coord(_fake_predictor(occ=occ), {
+        "top1_hit_rate": 10.0, "total_predictions": 49,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": -30.0})
+    at = _make_pred_coord(_fake_predictor(occ=occ), {
+        "top1_hit_rate": 10.0, "total_predictions": 50,
+        "baseline_top1_hit_rate": 40.0, "skill_pct": -30.0})
+    assert _pa(await under._evaluate_prediction_accuracy_dimension()) == []
+    assert len(_pa(await at._evaluate_prediction_accuracy_dimension())) == 1
+
+
+@pytest.mark.asyncio
 async def test_optimizer_prediction_accuracy_skips_under_learned():
     """Terrible hit-rate but < min-samples → warming up, NO false drift alarm."""
     from custom_components.universal_room_automation.domain_coordinators.optimization import (

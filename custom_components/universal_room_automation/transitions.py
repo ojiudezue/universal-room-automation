@@ -20,6 +20,9 @@ from .const import PING_PONG_WINDOW_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
+# Sentinel: "no prediction snapshot passed, read the live cache".
+_UNSET = object()
+
 
 @dataclass
 class RoomTransition:
@@ -186,6 +189,12 @@ class TransitionDetector:
             _LOGGER.debug("Skipping: location unchanged")
             return
         
+        # PREDICT-MODEL-DWELL-MIGRATION-1 review B-L2: capture the next-room
+        # prediction BEFORE the first await, so a sensor poll that rewrites
+        # the cache (current_room = the new room) during the DB write cannot
+        # turn a scorable transition into a room-mismatch skip.
+        cache_snapshot = self._snapshot_prediction(person_id)
+
         # Detect and classify transition
         try:
             transition = await self._detect_transition(
@@ -210,7 +219,7 @@ class TransitionDetector:
             )
 
             # Log to database (always — even if suppressed)
-            await self._log_transition(transition)
+            await self._log_transition(transition, cache_snapshot)
 
             # v3.5.2: Validate transition via camera checkpoint data
             if self._transit_validator:
@@ -462,7 +471,20 @@ class TransitionDetector:
         except Exception:
             _LOGGER.debug("_emit_invalid_transition_anomaly failed (swallowed)", exc_info=True)
 
-    async def _log_transition(self, transition: RoomTransition) -> None:
+    def _snapshot_prediction(self, person_id: str):
+        """Copy of the person's cached next-room prediction (or None)."""
+        from .const import DOMAIN  # noqa: PLC0415
+
+        entry = (
+            self.hass.data.get(DOMAIN, {})
+            .get("next_room_predictions", {})
+            .get(person_id)
+        )
+        return dict(entry) if isinstance(entry, dict) else None
+
+    async def _log_transition(
+        self, transition: RoomTransition, cache_snapshot=_UNSET,
+    ) -> None:
         """Log transition to database."""
         try:
             await self.database.log_transition(
@@ -477,12 +499,14 @@ class TransitionDetector:
             )
             await self._score_prediction(
                 transition.person_id, transition.to_room, transition.from_room,
+                cache=cache_snapshot,
             )
         except Exception as e:
             _LOGGER.error("Failed to log transition: %s", e)
 
     async def _score_prediction(
         self, person_id: str, actual_room: str, from_room: str | None = None,
+        cache=_UNSET,
     ) -> None:
         """Score the cached next-room prediction against the actual transition.
 
@@ -496,11 +520,12 @@ class TransitionDetector:
             from homeassistant.util import dt as dt_util  # noqa: PLC0415
             import json  # noqa: PLC0415
 
-            cache = (
-                self.hass.data.get(DOMAIN, {})
-                .get("next_room_predictions", {})
-                .get(person_id)
-            )
+            if cache is _UNSET:  # direct callers: read the live cache
+                cache = (
+                    self.hass.data.get(DOMAIN, {})
+                    .get("next_room_predictions", {})
+                    .get(person_id)
+                )
             if cache is None:
                 return
 
