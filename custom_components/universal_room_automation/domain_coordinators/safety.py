@@ -3043,6 +3043,14 @@ class SafetyCoordinator(BaseCoordinator):
         # async_notify), but with NO response actions, no signal, and no
         # _active_hazards entry. A dedicated deduplicator is used so a test
         # page can never suppress a real page for the same type:location.
+        # Review A1: NM has ONE active alert slot. A test page while a real
+        # alert is ALERTING/REPEATING would overwrite it, and acking the test
+        # would stop the real repeat. Refuse the test outright.
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        nm = getattr(manager, "_notification_manager", None)
+        if nm is not None and getattr(nm, "active_alert", False) is True:
+            _LOGGER.warning("test hazard refused: a live alert is active")
+            return
         if not self._test_deduplicator.should_alert(hazard):
             _LOGGER.info(
                 "Test safety hazard suppressed by test dedup window: %s in %s",
@@ -3058,7 +3066,6 @@ class SafetyCoordinator(BaseCoordinator):
             sev.name,
             action.channels,
         )
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             _LOGGER.warning("Test safety hazard: coordinator manager unavailable, not sent")
             return

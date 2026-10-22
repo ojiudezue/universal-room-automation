@@ -35,6 +35,8 @@ class _CapturingNM:
 
     def __init__(self):
         self.calls = []
+        self.active_alert = False
+        self.alert_state = "idle"
         self._sig = inspect.signature(NotificationManager.async_notify)
 
     async def async_notify(self, *args, **kwargs):
@@ -110,6 +112,19 @@ async def test_test_hazard_does_not_suppress_real_page():
         threshold="on", detected_at=None, message="smoke",
     )
     assert coord._deduplicator.should_alert(real) is True
+
+
+@pytest.mark.asyncio
+async def test_test_hazard_refused_while_live_alert_active():
+    """Review A1: a live alert holds NM's single slot -> test is refused."""
+    for sev in ("critical", "high", "medium", "low"):
+        hass, coord, nm = _setup()
+        nm.active_alert = True
+        nm.alert_state = "repeating"
+        await coord.handle_test_hazard("smoke", "Kitchen", sev)
+        assert nm.calls == []
+        assert nm.active_alert is True
+        assert nm.alert_state == "repeating"
 
 
 @pytest.mark.asyncio
