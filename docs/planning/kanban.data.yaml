@@ -32725,7 +32725,7 @@ cards:
 - id: QREVO-OFFLINE-1
   title: "Roborock Qrevo S is offline / has no area; one of its two device rows has 0 entities"
   thread: devices
-  status: "waiting_operator"
+  status: "parked"
   tier: 1
   created: "2026-10-20"
   origin: "Device registry sweep 10-19."
@@ -32735,6 +32735,7 @@ cards:
   problem_solution: ["Problem: the main robot vacuum (Roborock Qrevo S) has no room assigned in Home Assistant, it drops offline for a day or more every few days (always right after it reports an error mid-clean), and a second, empty copy of it sits in the device list. Solution: you assign it an area and delete the empty duplicate device in the HA UI (one minute); the error-then-offline drops are a robot/cloud matter, not URA, and are recorded here so nobody re-investigates them."]
   measured_2026_10_21_overnight: "CARD-WAS-WRONG (partly). The robot is NOT offline: vacuum.roborock_qrevo_s = cleaning at 02:00 CDT 10-21 (started 01:32), config entry 01JR1M9J0W2XGSDJYP0V5Q140R loaded. 7-day recorder history shows nightly cleans (~01:30) plus two long drop-outs, each right after an error: error 10-16 06:58 -> idle -> unavailable 19:10 until 10-19 00:53 (~54 h); error 10-19 01:52 -> idle -> unavailable 14:04 until 10-20 14:41 (~25 h). Device registry (.storage/core.device_registry, read-only): live device be51ada42c75 (43 entities, no area) and a SECOND row 34f29818bbd5 with the SAME roborock identifier 3zFvTWZPWVMAVF4AgUtESn, a mac connection, 0 entities, last modified 2026-06-19 = stale duplicate. Dock device has area 'Dock'. Not a URA defect (no URA config references found needed)."
   rank: {"value": 2, "time_criticality": 1, "effort": 1}
+  parked_2026_10_21: "Operator: 'Drop 5. Not needed.' Router-RSSI investigation dropped; pending registry fixes (area, orphan row 34f29818) not applied. Revive only if the operator raises the Qrevo again."
 - id: FAN-PHANTOM-RETRO-EPISODES-1
   title: "Memory records repeated phantom_retro episodes in Jaya Bedroom (fan-release correlated, holds up to ~2 h) - check rate and whether the paused-room change altered it"
   thread: presence
