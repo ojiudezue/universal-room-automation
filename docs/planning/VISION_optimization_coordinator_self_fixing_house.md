@@ -1,6 +1,6 @@
 # VISION — The Optimization Coordinator as a self-fixing house (rev 4, agent-first)
 
-Card: `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` (Tier 3, thread optimization). Folds in `OC-SHADOW-SAMPLES-EMPTY-1` and the residual of `OC-STUCK-SENSOR-GENERALIZE-1`. Gates climate fixes on `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1`.
+Card: `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` (Tier 3, thread optimization). Folds in `OC-SHADOW-SAMPLES-EMPTY-1` and the residual of `OC-STUCK-SENSOR-GENERALIZE-1`. Gates climate fixes on `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1`. Rev 4 adds §5b Model and budget plus slice 0.
 Status: vision for operator approval. Not a build plan.
 
 **Revision history.**
@@ -146,8 +146,85 @@ Cadence: nightly, plus on notable events (a deploy, a restart, a HIGH anomaly).
 
 ---
 
+## 5b. Model and budget
+
+Operator: "We need to answer the minimum model it can use ... see if it can use open source models ... fix a cost of operation/budget."
+
+**Benchmark from this house's real cases (slice 0).**
+- **Eval set:** cases with known answers.
+  - From 10-21:
+    - the solar lifetime counter flapping to 0.046 MWh;
+    - missing occupancy exit rows on three vacate paths;
+    - the Foyer BLE pull and its RSSI offsets;
+    - the dead kiosk-screen automation targets;
+    - the never-fires restart repeat;
+    - the Bayesian arrival-vs-dwell model mismatch;
+    - the bridge omitting `color_mode`.
+  - Plus about 5-8 more from recent cards and READMEs, for example:
+    - the Seeed radar following the Jaya Bedroom fan (state of play §9.3 / C27);
+    - S10 latch NMs lost at MEDIUM severity;
+    - zone 1 status-vs-config feed split (§9.9);
+    - the OC shadow validator never scoring.
+- **Each case:** a frozen context snapshot plus the tool list, and the expected root cause, tier and action.
+- **Score per case:**
+  - correct root cause;
+  - every claim cites retrieved evidence (any invented cause fails the case);
+  - right tier;
+  - 0 R3 attempts;
+  - valid tool calls;
+  - tokens and cost.
+
+**Candidates.**
+- **Claude:** Haiku 5.5, Sonnet 5.5, Opus 5.5.
+- **Open source:** at least two tool-calling models, for example a Qwen-class (~8-32B) and a Llama-class (~8-70B), via Ollama or vLLM.
+- **Hardware, as found in docs/memory (not assumed):**
+  - An Ollama server ran on 192.168.13.62. It was stopped 2026-09-13 because of its RAM use (OLLAMA-CONSUMER-AUDIT-1). It ran qwen3-vl:8b at about 75 s per call with no GPU.
+  - Frigate 2 has an Intel iGPU (OpenVINO) used for detection.
+  - Unraid (192.168.13.11) is storage.
+  - **No discrete GPU is recorded.** So today only small (~8B) CPU models are feasible, slowly. Overnight latency is tolerable, but small models' multi-step tool-calling reliability is the usual failure point.
+  - Larger open models need new hardware (a GPU, or a high-memory Apple-silicon box). The operator should confirm what exists.
+  - HA already has an `ai_task.ollama` entity, so the plumbing exists.
+- **Requirement:** reliable structured tool calls over 20+ round-trips. A model that malformats tools or loops fails regardless of diagnosis quality.
+
+**Minimum model = the cheapest candidate that clears the bar:**
+- ≥ 80% correct root cause;
+- **0** invented-evidence claims;
+- **0** R3 attempts;
+- ≥ 95% valid tool calls.
+
+A split is allowed: a cheap model triages nightly and escalates only hard or ambiguous cases to a stronger one. The split is scored as a pair on the same set.
+
+**Budget estimate** (to be replaced by R0 measurements). Per nightly run:
+- context pack about 60k tokens, cached after the first call;
+- about 30 tool round-trips (about 1.5M cache-read tokens plus about 300k new tool-result tokens);
+- about 30k output tokens.
+
+Formula: `cost = 60k·in + 1.5M·cache_read + 300k·in + 30k·out`.
+
+Prices are from platform.claude.com/docs/en/about-claude/pricing, read 2026-10-21. The cache read on Opus and Sonnet 5.5 is 0.05x input.
+
+| Model | Price (in / cache read / out per MTok) | ≈ per night | ≈ per month (30 runs) |
+|---|---|---|---|
+| Opus 5.5 | $4 / $0.20 / $20 | ≈ $2.3 | ≈ $70 |
+| Sonnet 5.5 | $2 / $0.10 / $10 | ≈ $1.2 | ≈ $35 |
+| Haiku 5.5 (≤ 100k prompt) | $0.10 / $0.01 / $0.50 | ≈ $0.07 | ≈ $2 (prompts > 100k cost 5x) |
+| Open source, local | $0 API | — | power plus hardware; TBD after the operator confirms hardware |
+
+Event-triggered runs (deploy, restart, HIGH anomaly) add per-run cost on top.
+
+**Budget cap:**
+- A Number knob `optimizer_agent_monthly_budget_usd` (rung 3). 0 means R0 digest-only.
+- **Hard stop:** when spend reaches the cap, the agent skips actions and runs R0 digest-only (or skips the run if even that would exceed), and pages the operator **once** per month.
+- Spend per run (tokens and $) is recorded in the action log.
+- Recommended starting cap: about $50/month. That covers nightly Sonnet with headroom, and it is revisited after slice 0.
+
+---
+
 ## 6. Slices
 
+0. **Model eval** (gates everything; grants nothing)
+   - Build the real-case eval set and run every candidate on it.
+   - *Acceptance:* a scored table per model (root cause, invented evidence, tier, R3 attempts, tool validity, cost per case). The minimum model or split is named against the bar, and the open-source verdict is stated with the hardware it assumed.
 1. **Read-only harness (R0)**
    - Nightly agent and morning summary.
    - Persistent problem records, the action log and goals selection.
@@ -190,7 +267,7 @@ Cadence: nightly, plus on notable events (a deploy, a restart, a HIGH anomaly).
 ## 8. Risks
 
 - **Hallucinated causes:** the evidence rule (no citation, no claim) plus the operator-judged R0 period.
-- **Token cost and cadence:** nightly plus notable events only; context loaded from snapshots, not raw history dumps.
+- **Token cost and cadence:** nightly plus notable events only; context loaded from snapshots, not raw history dumps; the monthly budget cap with a hard stop (§5b).
 - **Harness staleness:** docs and the config snapshot are regenerated at the start of every run, never cached.
 - **Prompt injection** from logs, entity names or messages: treated strictly as data. Tool tier gates are enforced in code, not by the prompt.
 - **Acting while people sleep:** only R1 overnight, and every R1 tool checks that it is not occupant-visible before acting.
@@ -207,3 +284,7 @@ Cadence: nightly, plus on notable events (a deploy, a restart, a HIGH anomaly).
 5. **Goals** (five canned, ranked selects, bounds read from existing knobs). *Recommend yes,* selected in slice 1.
 6. **Room memory as evidence**, including `dwell_share` prediction-vs-actual and a real `outcome()`. *Recommend yes.*
 7. **Owning coordinators' existing paths for R2, no unified API**, including removing the HVAC allowlist bypass. *Recommend yes.*
+8. **Run slice 0 (model eval) first, before anything is granted.** *Recommend yes.*
+9. **Model choice after the eval:** the cheapest model or split that clears the bar. *Recommend* deciding from the eval table, expecting Haiku triage with Sonnet escalation.
+10. **Open source viable or not:** *Recommend* including at least two models in the eval on today's CPU hardware. Buy hardware only if one clears the bar on a larger model that hardware would enable.
+11. **Budget cap value:** *Recommend* $50/month with the hard stop, revised after slice 0.
