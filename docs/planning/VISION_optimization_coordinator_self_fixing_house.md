@@ -1,8 +1,8 @@
-# VISION — The Optimization Coordinator as a self-fixing house (rev 2)
+# VISION — The Optimization Coordinator as a self-fixing house (rev 3)
 
 Card: `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` (Tier 3, thread optimization). Folds in `OC-SHADOW-SAMPLES-EMPTY-1` (operator 10-17: first slice) and the residual of `OC-STUCK-SENSOR-GENERALIZE-1`. Gates on `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1`.
 Status: vision for operator approval. Not a build plan; each slice gets its own plan and plan review.
-Rev 1 2026-10-21. Rev 2 2026-10-21 adds operator input: goals (§3), room memory (§2 part F, §5), and honest request contracts (§7). Evidence for rev 2 is `docs/planning/AUDIT_room_memory_and_coordinator_request_apis_2026_10_21.md`.
+Rev 1 2026-10-21. Rev 2 2026-10-21 adds operator input: goals (§3), room memory (§2 part F, §5), and honest request contracts (§7). Rev 3 2026-10-21 (operator: "use the Coordinators' paths vs request"): §7 replaced by "use the owning coordinator's existing path"; no unified request API. Evidence for rev 2 is `docs/planning/AUDIT_room_memory_and_coordinator_request_apis_2026_10_21.md`.
 I read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` in full before writing §7, and nothing here re-asserts a claim from its §10 ledger.
 
 **Operator framing (binding).** "Optimization coordinator is meant to diagnose the house and self fix it. It's supposed to reason over issues in the house." Correction 10-16: the OC never acted *by operator choice*, because the operator sensed the noise. Shadow mode was a deliberate trust withhold. So the failure is signal quality, and the right to act has to be earned by measured precision the operator can see. Rev 2: "To make OC reason better, it needs goals."
@@ -91,12 +91,12 @@ Ordered by reversibility. The "Route" column says whose code performs the fix (s
 | # | Fix type | Real instance | Route | Automate? |
 |---|---|---|---|---|
 | 1 | **Open or update a problem / card** | never-fires sensors; zone_1 manual strands | OC-owned | **First.** |
-| 2 | **Page the operator with one deduped, evidenced ask** | dead AV Closet relay; S10 latch NMs lost at MEDIUM | NM `async_notify` (`notification_manager.py:1334`) — an existing request API | **First**, at a severity that reaches a channel (companion = HIGH+). |
+| 2 | **Page the operator with one deduped, evidenced ask** | dead AV Closet relay; S10 latch NMs lost at MEDIUM | NM `async_notify` (`notification_manager.py:1334`) — existing path | **First**, at a severity that reaches a channel (companion = HIGH+). |
 | 3 | **Flag a dead actuator** | room lights/fans `unavailable`, invisible to `<room>_unavailable_entities` | OC-owned (read-only) | **First.** |
 | 4 | **Reload one stuck config entry** | Shelly / cloud entries back on WiFi | HA integration level (`homeassistant.reload_config_entry` on a non-URA entry); no coordinator owns it | **Slice 4**, shadow first. 1 per entry per day; verifier = entities available. **Never** the URA parent entry (watchdog hazard). |
-| 5 | **Re-seed a flapping counter / poisoned baseline** | Envoy production counter flap; poisoned energy_daily predictions (10-02..10-04) | **Inside the EC's domain**: the in-memory high-water mark (`energy.py:910`) and `reseed_cycle` (`energy_billing.py:576`) are EC-internal, with no external hook | **Needs an EC request hook first** (§7). Not slice 4. |
+| 5 | **Re-seed a flapping counter / poisoned baseline** | Envoy production counter flap; poisoned energy_daily predictions (10-02..10-04) | **Inside the EC's domain**: the in-memory high-water mark (`energy.py:910`) and `reseed_cycle` (`energy_billing.py:576`) are EC-internal, with no external hook | **Needs one thin EC hook first** (§7). Not slice 4. |
 | 6 | **Retune a threshold within bounds** | Jaya Bedroom night vacancy hold; the 4 h stuck-sensor literal (`coordinator.py:364`) | config write through the options/Number path, clamped | **Later** (propose + veto). |
-| 7 | **Actuate a device** (setpoints, presets, fans, EVSE) | comfort misses | only through a built request contract (§7) | **Last**, and per domain only once that contract exists. |
+| 7 | **Actuate a device** (setpoints, presets, fans, EVSE) | comfort misses | only through the owning coordinator's existing path (§7), never a raw service call | **Last**; climate only after the HVAC routing is built. |
 | — | **Never automate** | battery reserve/grid charge (hard-denied :4514), safety/security (Security already vetoes `lock.*` / `alarm_control_panel.*`, `security.py:1880`), URA parent reload, HA restart, deletion, `.storage` edits, physical fixes | — | Operator-only. The OC may diagnose and page. |
 
 ---
@@ -151,42 +151,51 @@ Slices 1-3 do not write to the house; each is Tier 2-DB (new DAO and changed wri
 **Slice 3: fixes that write nothing to the house (fix types 1-3)**
 - *Acceptance:* every page reached a channel. Operator-rated precision ≥ 80% over 2 weeks, or the kind is demoted to digest.
 
-**Gate G: coordinator request contracts** (§7). Built per domain, only when a promoted fix type needs that domain. Not needed by slices 1-4.
+**Owner paths** (§7): no unified API. The HVAC routing and the EC re-seed hook are built only when a fix type that needs them is about to be promoted. Not needed by slices 1-4.
 
 **Slice 4: reversible OC-owned / integration-level fixes, with verify-and-rollback**
 - Fix type 4 (config-entry reload), plus OC episodes and `outcome()`.
 - *Acceptance:* ≥ 20 shadow decisions at ≥ 90% precision before the promote button enables. Every applied fix has a verifier verdict and a memory episode. A failed verifier reverts and pages within its deadline.
 
-**Slice 5: bounded config retunes and EC re-seed** (re-seed needs the EC hook from Gate G). **Slice 6: device actuation**, per domain, behind that domain's contract.
+**Slice 5: bounded config retunes and EC re-seed** (re-seed needs the thin EC hook, §7). **Slice 6: device actuation** through owner paths; climate needs the HVAC routing first.
 - *Acceptance:* same precision gate. Every write lands in the owning coordinator's ledger (for climate, a `climate_write` row with an OC site id).
 
 ---
 
-## 7. Precondition: "request, don't write" is a contract to BUILD, per coordinator
+## 7. Precondition: use the owning coordinator's existing path
 
-**Rule.** The OC never calls a device service in a domain that a coordinator owns. It sends a typed request; the owner accepts, defers or refuses it under its own precedence, and logs it in its own ledger.
+**Rule (rev 3, operator 10-21: "use the Coordinators' paths vs request ... it has to have good cost/benefit").** Where a fix touches a coordinator's domain, the OC calls that coordinator's **existing internal entry point, in process**. It never makes a raw `hass.services.async_call` into that domain. **No unified request API is built.** A thin new entry point is added only where none exists **and** a promoted fix type needs it.
 
-**Honest status** (audit Q2): that contract does **not** exist today outside the NM.
+| Domain | Existing path the OC uses | New code needed |
+|---|---|---|
+| NM | `async_notify` (`notification_manager.py:1334`) | none |
+| HVAC | the same path HVAC's own sites use: `strategy_for(hass, entity)` (`hvac_strategy.py:2172`) → adapter verb → `emit_set_*` funnel (`hvac_setpoint.py:436-1040`, writes the `climate_write` row), wrapped in the arrester `suppress()` (`hvac_override.py:3409`) as HVAC's sites do. Before writing, the OC reads the existing gates: `manual_guard_verdict` (`hvac_preset.py:259`, the §9e person-protection/arrester gates) and `is_borrow_active` (`hvac_excursion.py:597`, gate (e)). Climate fixes are **preset verbs only** (`pin_preset` / `hold_preset`); no raw setpoint writes | **remove `optimization.py` from `DYNAMIC_DOMAIN_ALLOWLIST` (`hvac_const.py:1546`)** so the funnel lint covers it; route the OC's climate branch through the path above; give it its own `site` id. This is `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` |
+| Fans / lights | `FanPolicyOracle.actuate` (`fan_policy_oracle.py:588`) / `LightPolicyOracle`, which already arbitrate Fan Mode owner, manual holds and safety | a call site, no new API |
+| Energy knobs | the existing setters (`set_peak_buffer_target`, `set_arbitrage_target`, …, `energy.py:11268-11647`), clamped by `_clamp_numeric_to_band` | none. Battery mode and reserve stay hard-denied |
+| EC counter re-seed (the one known gap) | none: the production high-water mark (`energy.py:910`) is private; billing has `reseed_cycle` (`energy_billing.py:576`) | **one thin hook**, e.g. `EnergyCoordinator.reseed_production_baseline(reason)`: snapshots the old value, resets the high-water mark, logs one row. Billing re-seed reuses `reseed_cycle`. Built only when the re-seed fix type is promoted |
+| EVSE | owner registry is EC-private (`energy_pool_owners.py`) | **out of scope** until a fix type needs EV charging |
+| Security, Safety, Presence | never targets (vetoes in code, `security.py:1880`, `presence.py:8340`) | none, ever |
 
-| Domain | What exists | What the contract needs | Distance |
-|---|---|---|---|
-| NM | `async_notify` — a real request API | nothing | done |
-| HVAC | Write funnels `emit_set_*` (`hvac_setpoint.py:436-1040`) with a `climate_write` ledger. But the **caller** must do the arrester `suppress()` handshake, HVAC does not join the OC veto, and `optimization.py` is **allowlisted to bypass** the funnels (`hvac_const.py:1546`) | `request(zone, intent, reason, requester=OC)` → accepted / deferred / refused. Inside HVAC: §9e gates, live borrows, arrester, adapter, then the funnel. **Remove the allowlist entry.** = `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` | closest |
-| Fans / lights | `FanPolicyOracle` / `LightPolicyOracle` `actuate` — real arbitration, in-process only | an OC entry point onto the oracle | near |
-| Energy / battery | knob setters only; decisions emit through `_result` (`energy_battery.py:7068`); reserve hard-denied to the OC | a request hook for re-seed / bounded knob proposals; battery mode stays never | far |
-| EVSE | no external API; the owner registry (`energy_pool_owners.py`) is EC-private | an OC owner declaration plus an entry point | furthest |
-| Security, Safety, Presence | intentionally not targets (vetoes already in code) | none, ever | n/a |
+**Cost/benefit.**
+- **Cost, using existing paths (rough):**
+  - HVAC: one Tier-3 cycle, small LoC (allowlist removal, one routed branch, two gate reads).
+  - Fans/lights: a call site each.
+  - Energy knobs and NM: none.
+  - EC re-seed: one ~30-line hook with a snapshot.
+  - About one Tier-3 plus one Tier-2 cycle in total, spread over the slices that need them.
+- **Cost of a unified request API (rough):** a new request/reply type, queueing, and an accept/defer/refuse precedence written into every coordinator (HVAC, EC, EVSE, fans, lights). That is about six coordinators of shared-primitive work, each Tier 3, for a caller (the OC) that today has 0 promoted fix types.
 
-**Why HVAC first, and why it matters** (state of play):
-- An OC raw call (`optimization.py:4677`, `:4826`) writes no `climate_write` row (§4.3). That is the gap behind the wrong exoneration in §10 C1.
-- A raw Carrier `set_temperature` creates a manual hold (`ha_carrier climate.py:467-537`). Under W1-B's §9e rule, S1 reclaims it on the next tick, or the arrester books the echo as a human override past the 15 s / 120 s suppression windows (§2, §7). The result is churn and false overrides, the C23 echo class again.
-- It also skips Custom Preset Ranges and the S10 settle gate (zone 3 live), the ecobee adapter, live borrows (gate (e)) and the D13/D48-D52 precedence rulings.
+**Why the existing paths are enough for the §7 failure modes** (state of play):
+- **Manual holds:** a raw Carrier `set_temperature` creates a manual hold (`ha_carrier climate.py:467-537`). The rule "preset verbs only, through the adapter" never creates one.
+- **Arrester misattribution:** the arrester books URA's own echo as a human override past the 15 s / 120 s windows (§2, §7, C23). The OC's write is wrapped in the same `suppress()` HVAC uses for its own writes.
+- **Precedence bypass:** the OC reads the §9e gates and gate (e) before writing, so it defers to person-protected holds, arrester episodes and live borrows (D13, D48-D52). The adapter applies Custom Preset Ranges and ecobee semantics. The funnel adds the `climate_write` row, closing the C1 invisibility gap.
+- **Residual (accepted, stated):** the OC is a caller that obeys HVAC's rules, not a participant HVAC arbitrates. S1 may later move the zone to its own target. That is correct: HVAC's precedence wins. The OC's verifier then scores the fix as "did not hold", which is honest evidence, not a fight.
 
 **Sequencing.**
-- Slices 1-3 need no contract: their writes are the OC's own tables plus NM.
-- Slice 4's first fix type (non-URA config-entry reload) is integration-level and touches no coordinator's domain.
-- Re-seeding an EC counter **does** touch the EC's domain, so it waits for an EC hook.
-- Contracts are built incrementally, HVAC first, and only for domains a promoted fix type actually needs.
+- Slices 1-3 need none of this: their writes are the OC's own tables plus NM.
+- Slice 4's first fix type (non-URA config-entry reload) is integration-level.
+- EC re-seed waits for its hook (slice 5).
+- HVAC routing must be built before any climate fix type is promoted (slice 6).
 
 ---
 
@@ -198,7 +207,7 @@ Slices 1-3 do not write to the house; each is Tier 2-DB (new DAO and changed wri
 - No memory reads in safety, security, occupancy or reserve decisions.
 - No new optimizer engine (MILP/emhass stays rejected).
 - No room agents (`ROADMAP-STALE-AGENTIC-LAYER-1` stays separate).
-- No request contract for a domain no promoted fix needs.
+- No unified request API; no new entry point for a domain no promoted fix needs (EVSE out of scope).
 - Never touch battery reserve, safety or security.
 
 **Risks.**
@@ -213,7 +222,7 @@ Slices 1-3 do not write to the house; each is Tier 2-DB (new DAO and changed wri
 1. **Approve the vision and slice order.** *Recommend yes.* Slices 1-3 carry no house risk and produce the precision numbers trust needs.
 2. **Goals:** the five canned goals, ranked via selects (rung 3), with bounds read from existing knobs and only the bill cap new; selection and display in slice 1, ranking in slice 2. *Recommend yes.*
 3. **Memory as an evidence source:** the OC becomes memory's first automated consumer for diagnosis and verification only, inside the ineligible boundary. Add `dwell_share` prediction-vs-actual (slice 2) and OC episodes plus `outcome()` (slice 4). *Recommend yes.*
-4. **Per-coordinator request contracts (Gate G):** built incrementally, HVAC first (including removing the `optimization.py` allowlist), then fans/lights, then EC/EVSE, and only when a promoted fix needs that domain. *Recommend yes.*
+4. **Use owning coordinators' existing paths, no unified request API:** the OC calls each coordinator's in-process entry point (HVAC adapter + `emit_set_*` + arrester `suppress`, preset verbs only, after reading the §9e and borrow gates; energy setters; fan/light oracles; NM). It never makes raw service calls into an owned domain. Remove the `optimization.py` HVAC allowlist. Add a thin hook only where a promoted fix needs one (EC re-seed now; EVSE out of scope). *Recommend yes:* about one Tier-3 plus one Tier-2 cycle, against about six Tier-3 cycles for a unified API, and it closes the manual-hold, misattribution and precedence failure modes.
 5. **Score by fix type, not dimension.** *Recommend yes.*
 6. **Promotion is always an operator tap; demotion is automatic.** *Recommend yes.*
 7. **Precision bars:** ≥ 80% for paging and ≥ 90% over ≥ 20 decisions for any house write, as Number knobs (rung 3). *Recommend yes.*
