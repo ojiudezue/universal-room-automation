@@ -1,4 +1,4 @@
-# VISION — The Optimization Coordinator as a self-fixing house (rev 4, agent-first)
+# VISION — The Optimization Coordinator as a self-fixing house (rev 5, agent-first, approved 2026-10-21)
 
 Card: `OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1` (Tier 3, thread optimization). Folds in `OC-SHADOW-SAMPLES-EMPTY-1` and the residual of `OC-STUCK-SENSOR-GENERALIZE-1`. Gates climate fixes on `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1`. Rev 4 adds §5b Model and budget plus slice 0.
 Status: vision for operator approval. Not a build plan.
@@ -59,7 +59,7 @@ A fix type is the unit of promotion. Each type is a fixed verb plus a fixed targ
 
 | # | Fix type | Path (owning coordinator) | Check-back |
 |---|---|---|---|
-| P1 | Turn off a light left on in a room that has been vacant for ≥ its configured timeout | room light path via `fan_policy_oracle`/room actuation | light off and room still vacant 10 min later |
+| P1 | Turn off a light left on in a room that has been vacant for ≥ its configured timeout | the room's own vacancy-off path (exact call site named in the slice-3 plan) | light off and room still vacant 10 min later |
 | P2 | Turn off a fan stuck on after vacancy (humidity normal) | fan policy oracle | fan off, no humidity rise in 30 min |
 | P3 | Restore an HVAC zone preset after an unreleased borrow/excursion | HVAC `strategy_for` → `emit_set_*` (after `manual_guard_verdict`, `is_borrow_active`) | preset matches the schedule 15 min later, no manual-hold flag |
 | P4 | Retune one bounded numeric knob by one step inside its documented range | the knob's existing setter, clamped | the target metric moves the right way over the next 3 days; else revert |
@@ -216,8 +216,12 @@ Operator: "We need to answer the minimum model it can use ... see if it can use 
 
 **Candidates.**
 - **Claude:** Haiku 5.5, Sonnet 5.5, Opus 5.5.
-- **Open source:** at least two tool-calling models, for example a Qwen-class (~8-32B) and a Llama-class (~8-70B), via Ollama or vLLM.
-- **Hardware, as found in docs/memory (not assumed):**
+- **Open source (rev 5, operator: "Check on Qwen and GLM and Deepseek"):**
+  - Local, already pulled on the workstation: `qwen3.5:27b` (Q4_K_M, tools+thinking), `qwen3.5-27b-ud`, `qwen3.5-27b-claude-distilled` (IQ3_M), `qwen3.5:9b`, `qwen3:4b-instruct`, `hermes3:8b`. `gemma3:27b` has no tool capability, so it is out.
+  - GLM and DeepSeek flagship models are far too large for this box. Eval them through their hosted APIs (prices read at slice 0, not assumed), plus any small/distilled variant that fits in Ollama.
+  - Slice-0 open-source set: qwen3.5:27b, qwen3.5:9b, one GLM, one DeepSeek.
+- **Hardware, measured 2026-10-21 evening:** Ollama 0.40.8 is back on MadroneWinWorkstation (192.168.13.62). Loading qwen3:4b put 13.06 GB in VRAM (of a 43 GB footprint at 262k context) and generated ~22 tokens/s, so there is a discrete GPU with roughly 16 GB. A 27B Q4 (~17 GB) needs partial CPU offload or a shorter context. Two probe calls to the 9B and 27B models returned empty responses; cause not yet known.
+- **Earlier record (superseded by the measurement above):**
   - An Ollama server ran on 192.168.13.62. It was stopped 2026-09-13 because of its RAM use (OLLAMA-CONSUMER-AUDIT-1). It ran qwen3-vl:8b at about 75 s per call with no GPU.
   - Frigate 2 has an Intel iGPU (OpenVINO) used for detection.
   - Unraid (192.168.13.11) is storage.
@@ -256,7 +260,7 @@ Event-triggered runs (deploy, restart, HIGH anomaly) add per-run cost on top.
 - A Number knob `optimizer_agent_monthly_budget_usd` (rung 3). 0 means R0 digest-only.
 - **Hard stop:** when spend reaches the cap, the agent skips actions and runs R0 digest-only (or skips the run if even that would exceed), and pages the operator **once** per month.
 - Spend per run (tokens and $) is recorded in the action log.
-- Recommended starting cap: about $50/month. That covers nightly Sonnet with headroom, and it is revisited after slice 0.
+- **Cap set by the operator: $25/month.** That rules out nightly Sonnet-only (~$35) and Opus. It fits Haiku nightly with Sonnet escalation, or a local model with paid escalation. Revisited after slice 0.
 
 ---
 
@@ -268,11 +272,11 @@ Event-triggered runs (deploy, restart, HIGH anomaly) add per-run cost on top.
 1. **Read-only harness (R0)**
    - Nightly agent and morning summary.
    - Persistent problem records, the action log and goals selection.
-   - The operator judges its diagnoses for about 2 weeks.
+   - The operator judges its diagnoses for 1 week (operator, rev 5).
    - *Acceptance:*
      - each fact is one problem record, and restarts add none;
      - every claim cites evidence;
-     - the operator rates ≥ 80% of diagnoses correct over 2 weeks;
+     - the operator rates ≥ 80% of diagnoses correct over 1 week;
      - precision is shown per problem kind.
 2. **R1 actions** behind the tier gate, with next-day verification; expose the missing URA services (fan recheck request, stuck-latch clear, counter re-seed hook, device re-sync).
    - *Acceptance:*
@@ -315,16 +319,20 @@ Event-triggered runs (deploy, restart, HIGH anomaly) add per-run cost on top.
 
 ---
 
-## 9. Decisions for the operator
+## 9. Decisions (operator, 2026-10-21)
 
-1. **Approve the agent-first vision.** *Recommend yes:* it automates the loop that already works by hand.
-2. **Tier definitions, with R1 = config-entry reload, fan-recheck request, stuck-latch clear, counter re-seed, device re-sync.** *Recommend yes,* with device re-sync defined per integration before it is used.
-3. **Outside HA first.** *Recommend yes:* proven tools, no build needed to start.
-4. **About 2 weeks of R0 judging before any R1.** *Recommend yes,* with the 80% bar.
-5. **Goals** (five canned, ranked selects, bounds read from existing knobs). *Recommend yes,* selected in slice 1.
-6. **Room memory as evidence**, including `dwell_share` prediction-vs-actual and a real `outcome()`. *Recommend yes.*
-7. **Owning coordinators' existing paths for R2, no unified API**, including removing the HVAC allowlist bypass. *Recommend yes.*
-8. **Run slice 0 (model eval) first, before anything is granted.** *Recommend yes.*
-9. **Model choice after the eval:** the cheapest model or split that clears the bar. *Recommend* deciding from the eval table, expecting Haiku triage with Sonnet escalation.
-10. **Open source viable or not:** *Recommend* including at least two models in the eval on today's CPU hardware. Buy hardware only if one clears the bar on a larger model that hardware would enable.
-11. **Budget cap value:** *Recommend* $50/month with the hard stop, revised after slice 0.
+| # | Decision | Answer |
+|---|---|---|
+| 1 | Agent-first vision | **Approved**; more revisions expected |
+| 2 | Tier definitions | **Yes**; device re-sync defined per integration before use |
+| 3 | Outside HA first | **Yes** |
+| 4 | R0 judging before R1 | **1 week**, 80% bar |
+| 5 | Goals | **Yes** |
+| 6 | Memory as evidence | **Yes, rooms plus bounded HA data** (§3b bound) |
+| 7 | Owning paths for R2 | **Yes for now**; thin dispatcher considered (§3) |
+| 8 | Slice 0 first | **Yes** |
+| 9 | Model choice | From the eval table; include Qwen, GLM, DeepSeek |
+| 10 | Open source | Workstation Ollama is back with a ~16 GB GPU; local Qwen in the eval |
+| 11 | Budget cap | **$25/month**, hard stop |
+
+**Still open for the operator:** approve the R2 promotable types P1-P5 (§2a) and the exclusion list (§3).
