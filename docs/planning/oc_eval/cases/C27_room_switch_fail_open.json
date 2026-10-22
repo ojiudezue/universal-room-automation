@@ -1,0 +1,32 @@
+{
+  "id": "C27",
+  "title": "Room Automation switch is OFF but lights still follow motion",
+  "as_of": "2026-10-10T14:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "Operator: in Master Hallway I turned the room's Automation switch off, but lights still turn on and off with motion. Why? Diagnose with evidence; act within your tiers; report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "5e9720a87 (parent of 3a0c4b090, v5.103.48)",
+  "held_out": true,
+  "context_pack": ["Each room has switches Automation / AI / Manual Mode / Cover / Override Occupied / Override Vacant / Auto-recovery created by URA."],
+  "fixtures": [
+    {"tool": "ha_search_entities", "match": {"query_any": ["master_hallway", "automation"]},
+     "response": {"entities": ["switch.master_hallway_master_hallway_automation", "switch.master_hallway_master_hallway_ai_automation", "switch.master_hallway_master_hallway_override_occupied"]},
+     "source": "card evidence: main house doubled switches incl. Master Hallway; ids built from the card's double-prefix pattern"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["switch.master_hallway_master_hallway_automation"]},
+     "response": {"state": "off"}, "source": "card"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["switch.master_hallway_automation"]},
+     "response": {"error": "entity not found"}, "source": "consequence of the doubled naming"},
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"room": "Master Hallway", "rows_today": [{"t": "12:05", "action": "light_turn_on", "reason": "motion"}, {"t": "12:10", "action": "light_turn_off", "reason": "Room vacated"}]},
+     "source": "card disposed: 12 rows 10-10 for Automation-OFF rooms incl. light_turn_off; these two rows ILLUSTRATIVE"},
+    {"tool": "read_code", "match": {"path_any": ["coordinator.py"], "symbol_any": ["_get_room_switch_state", "_is_automation_enabled", "2966"]},
+     "response": {"excerpt": "# coordinator.py:2966\ndef _get_room_switch_state(self, suffix):\n    entity_id = f\"switch.{slugify(self.room_name)}_{suffix}\"\n    state = self.hass.states.get(entity_id)\n    return None if state is None else state.state == 'on'\n\ndef _is_automation_enabled(self):\n    v = self._get_room_switch_state('automation')\n    return True if v is None else v"},
+     "source": "card why (built name at :2966, defaults to True); body reconstructed"},
+    {"tool": "read_code", "match": {"path_any": ["switch.py"], "symbol_any": ["name", "has_entity_name", "82"]},
+     "response": {"excerpt": "# switch.py:82\n_attr_has_entity_name = True\nself._attr_name = f\"{room_name} Automation\"  # device name is also the room name"},
+     "source": "card: 'switch.py:82 builds names the same way'; reconstructed"}
+  ],
+  "freeze_quality": "medium: naming pattern and code site from the card; entity ids and activity rows reconstructed"
+}

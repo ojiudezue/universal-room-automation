@@ -1,0 +1,37 @@
+{
+  "id": "C10",
+  "title": "Zone 1 thermostat flips home/away every few minutes",
+  "pre_fix_commit": "88a6ced46 (parent of 852e57379, which recorded the zone 1 feed-split finding)",
+  "held_out": false,
+  "as_of": "2026-09-26T13:45:00-05:00",
+  "house_state": "away",
+  "promoted_fix_types": [],
+  "trigger": "anomaly_event",
+  "task": "Event run. climate.thermostat_bryant_wifi_studyb_zone_1 has flipped between home and away about 46 times since 08:54. Find out who is writing what and whether the thermostat is really changing. Act within tiers and submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Zone 1 is a Bryant/Carrier Infinity zone via ha_carrier (cloud + websocket). ha_carrier exposes preset_mode (from the STATUS feed) and hold_activity (from the CONFIG feed).",
+    "URA's S1 site writes the zone's target preset each 5-min tick when the zone does not read its target."
+  ],
+  "fixtures": [
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["climate.thermostat_bryant_wifi_studyb_zone_1"]},
+     "response": {"window": "08:54-13:40", "preset_mode": "alternates: 'away' for ~5-8 min after each URA write, then 'home' (setpoints 70-76)", "hold_activity": "away continuously", "flips": 46, "hvac_action": "cooling on every row", "blower_rpm": "0 from 08:57 for 4 h", "current_temperature": "76 -> 80 F"},
+     "source": "VERBATIM facts from HVAC SoP §9.9 (2026-09-26)"},
+    {"tool": "ura_db_query", "match": {"table_any": ["decision_log", "ura_activity_log"]},
+     "response": {"rows_summary": "only URA S1 preset_change 'away' writes on zone_1 (reason vacant_past_grace / house away), one on roughly every second tick; no other writer", "approx_writes_per_day": 57},
+     "source": "§9.9: decision_log shows only URA away writes; ~57 writes/day"},
+    {"tool": "list_changes_since", "match": {},
+     "response": {"changes": [{"t": "2026-09-26T13:20:02", "kind": "integration_reload", "what": "ha_carrier config entry reloaded by the operator"}], "after_reload": "13:20:03 preset_mode=home 70-76, hold_activity=away; away 13:23, home 13:29, away 13:32, home 13:39"},
+     "source": "VERBATIM §9.9 reload paragraph"},
+    {"tool": "read_config", "match": {"target_any": ["integration:ha_carrier", "ha_carrier"]},
+     "response": {"options": {"infinite_holds": true}, "entry_id": "carrier_entry_1"},
+     "source": "§1/§8 infinite_holds True; entry id placeholder"},
+    {"tool": "read_doc", "match": {"name_any": ["HVAC_ARCHITECTURE_STATE_OF_PLAY"], "section_any": ["5", "4.4"]},
+     "response": {"text": "preset_mode = the STATUS feed's current activity; the status feed's setpoints go stale and are refreshed only by the periodic full poll. hold_activity = the CONFIG feed, updated promptly on writes. Everything else - lockout, arrester, S1 - trusts preset_mode, which is the lagging field."},
+     "source": "§4.4 / §5 wording that pre-dates §9.9"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.ura_hvac_coordinator_zone_1_status"]},
+     "response": {"state": "away", "attributes": {"any_room_hvac_occupied": false}},
+     "source": "consistent with house away; RECONSTRUCTED"}
+  ],
+  "freeze_quality": "good: all core facts verbatim from §9.9; one state reconstructed"
+}

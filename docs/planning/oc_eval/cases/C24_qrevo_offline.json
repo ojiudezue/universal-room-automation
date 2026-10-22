@@ -1,0 +1,31 @@
+{
+  "id": "C24",
+  "title": "Robot vacuum reported offline and missing an area",
+  "as_of": "2026-10-21T02:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "A registry sweep flagged the Roborock Qrevo S as offline with no area, and one of its two device rows has 0 entities. Diagnose with evidence; act within your tiers (house asleep); report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "643a0f4fa (repo HEAD before 10-21 02:00; non-URA device, no code fix)",
+  "held_out": true,
+  "context_pack": [],
+  "fixtures": [
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["vacuum.roborock_qrevo_s"]},
+     "response": {"state": "cleaning", "last_changed": "2026-10-21T01:32:00-05:00"},
+     "source": "card measured_2026_10_21 verbatim"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["vacuum.roborock_qrevo_s"]},
+     "response": {"window": "7 d", "pattern": "nightly cleans ~01:30", "episodes": ["10-16 06:58 error -> idle -> unavailable 19:10 .. 10-19 00:53 (~54 h)", "10-19 01:52 error -> idle -> unavailable 14:04 .. 10-20 14:41 (~25 h)"]},
+     "source": "card verbatim"},
+    {"tool": "read_config", "match": {"target_any": ["integration:roborock", "roborock"]},
+     "response": {"entry_id": "01JR1M9J0W2XGSDJYP0V5Q140R", "state": "loaded"},
+     "source": "card verbatim"},
+    {"tool": "read_config", "match": {"target_any": ["device:Roborock Qrevo S", "device_registry", "qrevo"]},
+     "response": {"devices": [{"id": "be51ada42c75", "name": "Roborock Qrevo S", "entities": 43, "area": null}, {"id": "34f29818bbd5", "name": "Roborock Qrevo S", "identifier": "roborock:3zFvTWZPWVMAVF4AgUtESn", "connections": ["mac"], "entities": 0, "modified_at": "2026-06-19"}, {"name": "Roborock Qrevo S Dock", "area": "Dock"}], "note": "be51ada42c75 has the same roborock identifier 3zFvTWZPWVMAVF4AgUtESn"},
+     "source": "card verbatim"},
+    {"tool": "ha_search_entities", "match": {"query_any": ["roborock", "vacuum"]},
+     "response": {"entities": ["vacuum.roborock_qrevo_s", "sensor.roborock_qrevo_s_status", "..."]},
+     "source": "illustrative"}
+  ],
+  "freeze_quality": "good: all values verbatim from the card"
+}

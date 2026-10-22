@@ -1,0 +1,37 @@
+{
+  "id": "C14",
+  "title": "EV toggle alarm: garage charger off/on three times in an hour",
+  "pre_fix_commit": "387a66832^ (parent of v5.103.63 'EV fill-priority re-pause buffer')",
+  "held_out": true,
+  "as_of": "2026-10-12T02:00:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "anomaly_event",
+  "task": "Event run. The EV toggle trip-wire fired on garage_a on 10-11 (3 toggles in an hour). Find which rule flipped the charger and why. Act within tiers and submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Several EV pause owners exist: fill_priority (daytime: fill the home battery to a target SOC first), arbitrage, drain-precedence, grid-charge breaker.",
+    "Battery SOC source is the Envoy (sensor.envoy_482543015950_battery). EVSE writes are R3 for the agent."
+  ],
+  "fixtures": [
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"rows": [{"t": "2026-10-11T19:16:21Z", "action": "charger_on", "charger": "garage_a", "pause_owners": "none"}, {"t": "2026-10-11T19:21:46Z", "action": "charger_off", "charger": "garage_a", "power_w": 11755, "pause_owners": "fill_priority"}, {"t": "2026-10-11T19:26:45Z", "action": "charger_on", "charger": "garage_a"}, {"t": "2026-10-09T19:19:57Z", "action": "charger_off", "charger": "garage_a+b", "pause_owners": "fill_priority"}, {"t": "2026-10-09T19:29:29Z", "action": "charger_on"}, {"t": "2026-10-09T19:35:54Z", "action": "charger_off", "pause_owners": "fill_priority"}, {"t": "2026-10-09T19:40:02Z", "action": "charger_on"}]},
+     "source": "VERBATIM from card why"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.envoy_482543015950_battery"]},
+     "response": {"rows": [{"t": "2026-10-11T19:14:27Z", "v": 80}, {"t": "2026-10-11T19:21:44Z", "v": 79}, {"t": "2026-10-11T19:25:58Z", "v": 81}]},
+     "source": "VERBATIM"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.ura_energy_coordinator_battery_strategy"]},
+     "response": {"state": "self_consumption", "attributes": {"arbitrage_phase": "n/a"}},
+     "source": "card: strategy self_consumption, arbitrage n/a in that window"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/energy_pool.py", "energy_pool.py"], "symbol_any": ["determine_fill_priority_actions", "fill_priority"]},
+     "response": {"excerpt_summary": "determine_fill_priority_actions (energy_pool.py:~2675): pause chargers when soc < soc_threshold; resume when soc >= soc_threshold. soc_threshold = energy_fill_priority_soc."},
+     "source": "card (same number both ways); PARAPHRASE"},
+    {"tool": "read_config", "match": {"target_any": ["ura_energy_options", "energy", "number.energy_fill_priority_soc"]},
+     "response": {"energy_fill_priority_soc": 80},
+     "source": "card: only knob energy_fill_priority_soc (energy_const.py:1077-1079)"},
+    {"tool": "kanban_search", "match": {"query_any": ["ev", "fill", "oscillation", "toggle"]},
+     "response": {"cards": [{"id": "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1", "why": "EV flip loop at night between arbitrage rung-1 and WAIT"}, {"id": "EC-EV-TOGGLE-TRIPWIRE-1", "why": "alarm when a charger toggles >= 3 times in an hour"}]},
+     "source": "board pre-fix; the arbitrage card is a distractor"}
+  ],
+  "freeze_quality": "good: rows and SOC verbatim; code paraphrased"
+}

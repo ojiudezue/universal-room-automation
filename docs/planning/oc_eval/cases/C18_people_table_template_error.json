@@ -1,0 +1,34 @@
+{
+  "id": "C18",
+  "title": "Template errors overnight from the v8 dashboard People table",
+  "as_of": "2026-10-19T02:15:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. The HA log shows template errors overnight. Find the source and cause with evidence, act within your tiers (the house is asleep), and report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "e00454adc (repo HEAD before 2026-10-19 02:00; the fix is HA dashboard config, not URA code)",
+  "held_out": false,
+  "context_pack": ["Dashboards live in HA .storage (lovelace.<name>); URA code does not render them."],
+  "fixtures": [
+    {"tool": "ha_get_logs", "match": {"query_any": ["template", "TemplateError", "helpers.event", "error", "first"]},
+     "response": {"lines": [
+       "2026-10-19 00:21:07 ERROR (MainThread) [homeassistant.helpers.event] Error while processing template: Template<template=({%- for p in persons -%} ... {%- set trk = state_attr(p, 'device_trackers') -%}{%- set bt = trk | select('search','bermuda') | first -%} ...)> UndefinedError: No first item, sequence was empty",
+       "2026-10-19 00:25:40 ERROR ... same template ... No first item, sequence was empty",
+       "2026-10-19 00:29:12 ERROR ... same template ... No first item, sequence was empty"]},
+     "source": "card DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1 origin (3 errors 00:21-00:29, message verbatim); seconds and template text abbreviated/reconstructed from the card's fix field"},
+    {"tool": "read_config", "match": {"target_any": ["lovelace.ura_v8", "dashboard", "ura_v8"]},
+     "response": {"view": "People", "card": "markdown table 'Who / Person / GPS tracker / BLE tracker / BLE seen / Agree'", "template_excerpt": "{%- set trk = state_attr(p, 'device_trackers') -%}\n{%- set bt = trk | select('search','bermuda') | first -%}\n{%- if bt -%} ... {%- else -%} - {%- endif -%}"},
+     "source": "card fix field (template line verbatim)"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["person.ziri"]},
+     "response": {"state": "home", "attributes": {"device_trackers": ["device_tracker.ziri_ipad"]}},
+     "source": "card: person.ziri has trackers with no bermuda tracker; the tracker id is ILLUSTRATIVE"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["person.oji_udezue"]},
+     "response": {"state": "home", "attributes": {"device_trackers": ["device_tracker.iphone_oji", "device_tracker.private_ble_device_oji", "device_tracker.oji_bermuda_tracker"]}},
+     "source": "ILLUSTRATIVE ids consistent with presence state-of-play (phone GPS + IRK + bermuda tracker)"},
+    {"tool": "kanban_search", "match": {"query_any": ["people table", "dashboard", "v8"]},
+     "response": {"cards": [{"id": "DASHBOARD-V8-FIX-BATCH-1", "status": "done", "title": "v8 dashboard fix batch (built the People tab)"}]},
+     "source": "card adjacency"}
+  ],
+  "freeze_quality": "good: error text and template verbatim from the card; tracker ids illustrative"
+}

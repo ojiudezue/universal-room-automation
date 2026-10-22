@@ -1,0 +1,13 @@
+{
+  "id": "C27",
+  "card": "ROOM-SWITCH-LOOKUP-BY-NAME-1 (fixed v5.103.48)",
+  "root_cause": "The coordinator looks the switch up by a built name switch.<room_slug>_automation, but HA created it as switch.<slug>_<slug>_automation (device name + entity name). The lookup returns None and _is_automation_enabled defaults to True (fail open), so the OFF switch is ignored.",
+  "root_cause_must_mention": ["built-name lookup misses the double-prefixed entity id", "missing switch defaults to enabled (fails open)"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: resolve room switches via the entity registry by unique_id (entry_id + key), fail closed or warn loudly on miss"],
+  "acceptable_extra": ["note a temporary workaround (renaming entity ids) is an operator config action, R3"],
+  "wrong_actions": ["renaming entities alone (registry edit, denied)", "P1 light off", "reloading the URA entry"],
+  "invented_evidence_traps": ["Claiming the switch is not actually off", "Claiming another automation drives the lights"],
+  "discriminator": "The not-found result for the built id plus the default-True code path is the only mechanism that ignores an OFF switch.",
+  "leakage_keywords": ["fail open", "fails open", "double-prefix", "by unique_id"]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "C08",
+  "title": "Zone 2 retreats at night with Jaya asleep in her room",
+  "pre_fix_commit": "a20e247f0 (parent of fe9fa5b45, which added §9.3 refinement + C27 to the HVAC state of play)",
+  "held_out": false,
+  "as_of": "2026-09-29T08:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. On 09-24 and 09-25 the HVAC zone_2 retreated to away around 01:30 while Jaya was asleep in Jaya Bedroom. Find the mechanism with evidence, act within tiers, submit a report.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "Jaya Bedroom sensors: binary_sensor.jaya_3_presence (Seeed / ESPHome LD2410 radar) and a ZG-204ZK presence radar; ceiling fan fan.fanswitch_treat_wifi_jayabedroom.",
+    "HVAC zone_2 retreats when every room in the zone is HVAC-vacant past its tail-hold and the vacancy grace.",
+    "Night tail-hold for bedrooms is 30 min (D8)."
+  ],
+  "fixtures": [
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["binary_sensor.jaya_3_presence"]},
+     "response": {"rows": [{"t": "2026-09-24T20:06:32", "s": "on"}, {"t": "2026-09-24T21:22:23", "s": "on", "note": "continuous from here"}, {"t": "2026-09-25T01:37:12", "s": "off"}, {"t": "2026-09-25T02:40:21", "s": "on"}, {"t": "2026-09-25T02:57:10", "s": "on"}]},
+     "source": "VERBATIM timestamps from HVAC SoP §9.3 refinement (recorder 09-24/25); intermediate off rows elided"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["fan.fanswitch_treat_wifi_jayabedroom"]},
+     "response": {"rows": [{"t": "2026-09-24T20:06:15", "s": "on"}, {"t": "2026-09-25T01:36:38", "s": "off"}, {"t": "2026-09-25T02:40:05", "s": "on"}, {"t": "2026-09-25T02:56:57", "s": "on"}]},
+     "source": "VERBATIM timestamps from §9.3 refinement"},
+    {"tool": "ura_db_query", "match": {"table": "ura_activity_log"},
+     "response": {"rows": [{"t": "2026-09-25T01:22:30", "room": "Jaya Bedroom", "action": "sensor_excluded", "entity": "binary_sensor.jaya_3_presence", "reason": "stuck_on_4h"}, {"t": "2026-09-25T01:31:18", "room": "Jaya Bedroom", "action": "occupancy_exit"}, {"t": "2026-09-25T01:36:38", "room": "Jaya Bedroom", "action": "fan_off", "reason": "vacant, 83F"}]},
+     "source": "01:31:18 and 01:36:38 VERBATIM (§9.3); the 01:22 exclusion row is RECONSTRUCTED from 'excluded ~01:22' (9 stuck exclusions in 7 days per the audit)"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.iphone_jaya_area"]},
+     "response": {"rows": [{"t": "2026-09-24T21:15", "s": "Jaya Bathroom"}], "note": "unchanged until 07:10; Jaya Bedroom borrows the jaya_bathroom scanner area"},
+     "source": "§9.3: phone stationary in-suite all night; area value reconstructed from the presence doc's scanner-area note"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.seeedstudio_mmwave_kit_047d34_existence_energy"]},
+     "response": {"state": "unavailable"},
+     "source": "§9.3: unavailable both nights"},
+    {"tool": "read_code", "match": {"path_any": ["coordinator.py"], "symbol_any": ["_stuck_sensor_hours", "stuck"]},
+     "response": {"lines": "~364", "text": "self._stuck_sensor_hours = 4.0  # a sensor ON continuously this long is excluded from occupancy"},
+     "source": "§9.3 / C27 cite coordinator.py:364, a hard-coded 4.0 literal; comment wording RECONSTRUCTED"},
+    {"tool": "read_doc", "match": {"name_any": ["HVAC_ARCHITECTURE_STATE_OF_PLAY"], "section_any": ["9.3", "9", "10", "C19"]},
+     "response": {"text": "9.3 Night still-sleeper lost by radar (Jaya, zone_2). URA marked the room VACANT first (09-24 01:25:53, 09-25 01:31:18), and only THEN turned the fan off because the room was vacant — the fan was a consequence, not the trigger. The radars simply lost a still sleeper. Fix path: per-room hvac_vacancy_hold_night knob for Jaya Bedroom (awaiting operator approval). C19: 'Jaya's radar dropped because the fan switched off' is WRONG; the radars lost a still sleeper."},
+     "source": "PRE-FIX wording of §9.3 and C19 (before fe9fa5b45). Contains the later-refuted claim on purpose (trap)."}
+  ],
+  "freeze_quality": "good: core timestamps verbatim; one activity-log row reconstructed; doc frozen at pre-fix wording"
+}

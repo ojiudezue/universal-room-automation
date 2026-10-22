@@ -1,0 +1,34 @@
+{
+  "id": "C17",
+  "title": "Acknowledged intruder alert never re-pages after its cooldown",
+  "as_of": "2026-10-15T14:00:00-05:00",
+  "house_state": "home_day",
+  "promoted_fix_types": [],
+  "trigger": "operator_question",
+  "task": "The operator asks: if Security raises an intruder alert, I acknowledge it, and the intrusion is still going on after the cooldown, will URA page me again the way Safety re-pages a smoke alarm? Answer from evidence, act within your tiers, and report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "570530ec9 (parent of e0ca1fd40, the security re-fire key fix)",
+  "held_out": true,
+  "context_pack": [
+    "The Notification Manager (NM) re-evaluates an acknowledged CRITICAL alert after its cooldown by asking the owning coordinator is_hazard_active(hazard_type, location).",
+    "Safety's re-page after acknowledgement shipped in this cycle's plan (SAFETY-NM-REFIRE-UNWIRED-1)."
+  ],
+  "fixtures": [
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/security.py", "security.py"], "symbol_any": ["is_hazard_active", "_re_evaluate", "refire", "827"]},
+     "response": {"excerpt": "def is_hazard_active(self, hazard_type: str, location: str | None) -> bool:\n    if hazard_type in ('intrusion', 'entry_alert', 'unknown_person'):\n        ...\n        return <still-active check>\n    return False", "lines": "security.py ~820-840"},
+     "source": "card SECURITY-REFIRE-INTRUSION-KEY-1: security.py:827 re-evaluates only ('intrusion','entry_alert','unknown_person'); body shape reconstructed"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/security.py", "security.py"], "symbol_any": ["intruder", "hazard_type", "emit", "notify", "1051", "1581"]},
+     "response": {"excerpt": "# security.py:1051\nawait self._notify(severity=CRITICAL, hazard_type='intruder', location=zone, ...)\n# security.py:1581\nawait self._notify(severity=CRITICAL, hazard_type='intruder', location=entry_point, ...)", "lines": "security.py:1051, :1581"},
+     "source": "card: Security emits hazard_type='intruder' at :1051 and :1581; call shape reconstructed"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/notification_manager.py", "notification_manager.py"], "symbol_any": ["_re_evaluate_hazard", "refire", "re_evaluate"]},
+     "response": {"excerpt": "async def _re_evaluate_hazard(self, row):\n    coord = self._owner_for(row.coordinator)\n    if coord and coord.is_hazard_active(row.hazard_type, row.location):\n        await self._repage(row)\n    else:\n        self._close_episode(row)"},
+     "source": "RECONSTRUCTED shape of NM re-fire per the card ('drive the real NM _re_evaluate_hazard')"},
+    {"tool": "ura_db_query", "match": {"table": "notification_log"},
+     "response": {"rows_summary": "last 30 days: 0 CRITICAL rows from coordinator 'security'"},
+     "source": "NM-MULTI-ALERT-TRACKING-1 measured: security 0 CRITICAL in 30 days"},
+    {"tool": "kanban_search", "match": {"query_any": ["intruder", "intrusion", "re-fire", "refire", "security"]},
+     "response": {"cards": [{"id": "SAFETY-NM-REFIRE-UNWIRED-1", "title": "Acknowledged safety alerts never re-page while the hazard persists", "status": "in_progress"}]},
+     "source": "board as of 10-15 (the security card was minted from that cycle's plan review)"}
+  ],
+  "freeze_quality": "medium: line numbers verbatim from the card; code bodies reconstructed"
+}

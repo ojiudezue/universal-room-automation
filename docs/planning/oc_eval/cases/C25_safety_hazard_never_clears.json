@@ -1,0 +1,28 @@
+{
+  "id": "C25",
+  "title": "Safety alert has been 'warning' since last night over a humidity reading",
+  "as_of": "2026-09-27T02:30:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. The house safety alert is on and safety status reads 'warning'. Find out why and whether it is still justified, with evidence; act within your tiers (house asleep); report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "b9b77a9cd (parent of 03659a4f2, v5.103.61 safety hazards clear on recovery)",
+  "held_out": false,
+  "context_pack": ["Safety hazards are kept in the Safety coordinator's _active_hazards and exposed as sensor.ura_safety_coordinator_safety_active_hazards."],
+  "fixtures": [
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["binary_sensor.ura_safety_coordinator_safety_alert"]},
+     "response": {"state": "on", "last_changed": "2026-09-26T23:35:24-05:00"}, "source": "card live_evidence_2026_09_27 verbatim"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.ura_safety_coordinator_safety_status"]},
+     "response": {"state": "warning", "last_changed": "2026-09-26T23:35:24-05:00"}, "source": "card verbatim"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["sensor.ura_safety_coordinator_safety_active_hazards"]},
+     "response": {"state": "1", "attributes": {"hazards": [{"type": "low_humidity", "location": "Study A", "value": 0.0, "sensor": "sensor.invisoutlet_b7d0_humidity", "since": "2026-09-26T23:35:24-05:00"}]}}, "source": "card verbatim (attribute layout reconstructed)"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["sensor.invisoutlet_b7d0_humidity"]},
+     "response": {"rows": [{"t": "2026-09-26T23:35:20", "v": "unavailable"}, {"t": "2026-09-26T23:35:24", "v": 0.0}, {"t": "2026-09-26T23:36:10", "v": 47.0}], "since_then": "46-49 % continuously"}, "source": "card: junk reconnect reading 0.0 then 46-49%; exact timestamps after 23:35:24 illustrative"},
+    {"tool": "read_code", "match": {"path_any": ["domain_coordinators/safety.py", "safety.py"], "symbol_any": ["_handle_humidity", "_active_hazards", "clear", "pop"]},
+     "response": {"excerpt": "# safety.py ~2076-2292 _handle_humidity: computes low/high humidity hazards and adds to self._active_hazards; no branch removes an entry.\n# Removals exist only in: binary handler (~1757), CO2 log-only rung (~1888), _handle_numeric_hazard (~1930), clear_hazard / clear_all_hazards (no production callers)."},
+     "source": "card code_2026_09_27 (reviewers' line hints, 'to be re-verified'); paraphrase"},
+    {"tool": "list_changes_since", "match": {}, "response": {"changes": [{"t": "2026-09-26T23:35", "kind": "device", "what": "invisoutlet_b7d0 reconnected"}]}, "source": "consistent with 'junk reconnect reading'"}
+  ],
+  "freeze_quality": "good: states verbatim; code is a paraphrase of the card"
+}

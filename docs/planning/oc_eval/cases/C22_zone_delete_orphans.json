@@ -1,0 +1,28 @@
+{
+  "id": "C22",
+  "title": "Orphaned HVAC zone sensors left in the entity registry",
+  "as_of": "2026-10-17T23:30:00-05:00",
+  "house_state": "home_night",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Registry sweep: some URA HVAC sensors keep showing up as orphaned after test zones were deleted. Find which and why, with evidence; act within your tiers; report.",
+  "allowed_tools": "all",
+  "pre_fix_commit": "f1b889027 (parent of 3e27887c8, the zone-delete sweep fix)",
+  "held_out": false,
+  "context_pack": ["Deleting a zone through the URA options flow removes that zone's entities by unique_id prefix."],
+  "fixtures": [
+    {"tool": "read_code", "match": {"path_any": ["sensor.py"], "symbol_any": ["hvac_ac_reset", "ac_ramp_durability", "18658", "unique_id"]},
+     "response": {"excerpt": "# sensor.py:18658 unique_id = f\"hvac_ac_reset_day_count_{zone_id}\"\n# :18690 f\"hvac_ac_reset_night_count_{zone_id}\"\n# :18721 f\"hvac_ac_reset_last_outcome_{zone_id}\"\n# :18760 f\"hvac_ac_ramp_durability_rate_{zone_id}\""},
+     "source": "card ZONE-DELETE-ORPHAN-HVAC-SENSORS-1 (lines and names verbatim; f-string form reconstructed)"},
+    {"tool": "read_code", "match": {"path_any": ["config_flow.py"], "symbol_any": ["delete", "prefix", "cleanup", "11657"]},
+     "response": {"excerpt": "# config_flow.py:11657\nZONE_ENTITY_PREFIXES = [\n  'zone_{zid}_status', 'hvac_zone_{zid}_', 'hvac_preset_{zid}', ...  # 14 id-keyed families\n]\n...\nif uid.startswith(prefix.format(zid=zone_id)): remove(uid)"},
+     "source": "card: cleanup prefix list at :11657 omits the four; bare startswith; list contents abbreviated/reconstructed"},
+    {"tool": "ha_search_entities", "match": {"query_any": ["ac_reset", "durability", "orphan"]},
+     "response": {"entities": ["sensor.hvac_ac_reset_day_count_zone_1", "sensor.hvac_ac_reset_night_count_zone_1", "sensor.hvac_ac_reset_last_outcome_zone_1", "sensor.hvac_ac_ramp_durability_rate_zone_1", "... same four for zone_2 and zone_3 (12 total)"]},
+     "source": "card: live registry has 12 (4 per zone_1..3); entity ids reconstructed"},
+    {"tool": "kanban_search", "match": {"query_any": ["orphan", "zone delete"]},
+     "response": {"cards": [{"id": "SENSCAP-ORPHAN-1", "title": "sensor-capability orphan entities", "status": "done"}]},
+     "source": "card adjacency (different surface)"}
+  ],
+  "freeze_quality": "medium: code lines verbatim from card; list body reconstructed; the 12 live entities are for existing zones, the orphan claim comes from the code gap"
+}

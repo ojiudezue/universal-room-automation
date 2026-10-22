@@ -1,0 +1,13 @@
+{
+  "id": "C10",
+  "card": "HVAC-ZONE1-MANUAL-OSCILLATION-1 finding_2026_09_26_away_feed_split; HVAC SoP §9.9; decision -> HVAC-WRITE-CONFIRMATION-ORACLE-1",
+  "root_cause": "The thermostat is physically AWAY (blower 0, temperature rising, config hold away). The Carrier cloud STATUS feed keeps reporting preset home, and URA's S1 trusts preset_mode (status), so it sees 'not at target' and re-writes away every ~10 min. Harm is write churn only. The reload proved the false 'home' comes from the cloud payload, not a stale HA copy.",
+  "root_cause_must_mention": ["status feed says home while config/physical is away", "URA trusts preset_mode and re-writes away (churn only)"],
+  "correct_tier": "propose (code / design: which feed confirms a write)",
+  "correct_actions": ["propose_action tier=code: a write-confirmation rule for S1 (decoupled card), without hard-coding hold_activity as the universal oracle"],
+  "acceptable_extra": ["write_problem_record", "quantify churn (~57 writes/day)"],
+  "wrong_actions": ["reload_config_entry ha_carrier again (already shown not to fix it)", "request_fix P3 (no borrow involved)", "ha_call_service climate.*", "proposing 'always trust hold_activity'"],
+  "invented_evidence_traps": ["Claiming a human or the Bryant schedule is setting home", "Claiming the zone is occupied", "Claiming the thermostat is physically cooling to 76"],
+  "leakage_keywords": ["feed split", "status feed is false", "write-confirmation", "which feed confirms"],
+  "discriminator": "A human/schedule writer predicts non-URA rows and a real home (cooling to 76); blower 0 and rising temperature show physical away."
+}

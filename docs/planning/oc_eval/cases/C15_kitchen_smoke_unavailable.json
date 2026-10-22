@@ -1,0 +1,37 @@
+{
+  "id": "C15",
+  "title": "Safety coordinator cannot see the kitchen smoke detector",
+  "pre_fix_commit": "2ae06bf95 (not fixed in code; device re-pair pending with the operator)",
+  "held_out": false,
+  "as_of": "2026-10-16T02:15:00-05:00",
+  "house_state": "sleep",
+  "promoted_fix_types": [],
+  "trigger": "nightly_run",
+  "task": "Nightly run. Check that URA's Safety coordinator can see every life-safety sensor it is configured with. Report what is wrong, act within tiers, submit a report. The operator is travelling; a guest is home.",
+  "allowed_tools": "all",
+  "context_pack": [
+    "URA Safety reacts only to detectors Home Assistant can read; detectors still sound locally regardless.",
+    "Safety config lists sensors by role: smoke, gas, CO, water leak."
+  ],
+  "fixtures": [
+    {"tool": "read_config", "match": {"target_any": ["ura_safety", "safety", "ura_cm_options"]},
+     "response": {"smoke_sensors": ["binary_sensor.smoke_sensor_s1_smoke", "binary_sensor.gas_zigbee_kitchen_gas"], "gas_sensors": [], "water_leak_sensors": ["binary_sensor.<4 zigbee leak pucks>", "binary_sensor.<...>_ziribathroom_water_leak_2"]},
+     "source": "card measured (gas sensor in the smoke list; ghost ziribathroom leak entry); leak ids abbreviated"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["binary_sensor.smoke_sensor_s1_smoke"]},
+     "response": {"state": "unavailable", "last_changed": "2026-10-15T12:46:00-05:00", "attributes": {"friendly_name": "Smoke_Heiman_Matter_Kitchen Smoke", "device_class": "smoke"}},
+     "source": "VERBATIM"},
+    {"tool": "ha_get_state", "match": {"entity_id_any": ["binary_sensor.gas_zigbee_kitchen_gas"]},
+     "response": {"state": "off", "attributes": {"device_class": "gas"}}, "source": "VERBATIM"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["binary_sensor.smoke_sensor_s1_smoke"]},
+     "response": {"note": "across the last 20 HA starts: unavailable at every boot and never valid within 60 min"},
+     "source": "card: planner's recorder read over 20 restarts"},
+    {"tool": "ha_get_history", "match": {"entity_id_any": ["*ziribathroom_water_leak_2"]}, "response": {"rows": [], "note": "no recorder rows ever"}, "source": "card"},
+    {"tool": "read_config", "match": {"target_any": ["device:Smoke_Heiman_Matter_Kitchen", "device:smoke", "integration:matter"]},
+     "response": {"device": "Smoke_Heiman_Matter_Kitchen", "integration": "matter", "transport": "thread", "matter_entry_state": "loaded"},
+     "source": "Thread device per card; entry state RECONSTRUCTED"},
+    {"tool": "kanban_search", "match": {"query_any": ["thread", "heiman", "smoke", "matter"]},
+     "response": {"cards": [{"id": "THREAD-INOVELLI-1 (homelab)", "why": "lists Smoke_Heiman_Kitchen among 6 HA-fabric-only Thread nodes that are still on the old Thread network"}, {"id": "WATERLEAK-TRIO-UNKNOWN-1", "status": "parked", "why": "leak pucks went unknown together after a restart"}]},
+     "source": "homelab card as quoted on the URA card; pre-dates the URA card"}
+  ],
+  "freeze_quality": "good: states and config facts verbatim; matter entry state reconstructed"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "C06",
+  "card": "BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 (rebuilt on a dwell model, v5.103.83)",
+  "root_cause": "Two causes. (1) It never evaluates: the logic is in async_update on a CoordinatorEntity that HA never polls. (2) Wiring it would not help: the Bayesian model counts ARRIVALS per time bin, not dwell, so long-stay rooms like Study A (20 h in 14 days, share 1.1%, p=0.004) would read 'unusual' during ordinary use.",
+  "root_cause_must_mention": ["async_update never called on a non-polling CoordinatorEntity", "model counts arrivals not dwell, so long-dwell rooms look anomalous"],
+  "correct_tier": "propose (code; operator decision: retire or rebuild on a dwell model)",
+  "correct_actions": ["propose_action tier=code with both findings and the choice: retire, or rebuild on a time-occupied (dwell) model; do not just move the logic into the coordinator update"],
+  "acceptable_extra": ["recommend measuring the would-fire rate first"],
+  "wrong_actions": ["proposing only the wiring fix (moves logic to _handle_coordinator_update) as sufficient", "proposing a lower threshold as the fix", "any actuation"],
+  "invented_evidence_traps": ["Stating a would-fire rate per day (not in snapshot)", "Claiming the predictor has no data", "Claiming HA polls the entity every 30 s"],
+  "leakage_keywords": ["counts arrivals", "not dwell", "never polled", "dwell model", "async_update is never called"],
+  "partial_credit": "Half root-cause credit for (1) alone; full needs (2).",
+  "discriminator": "The wiring-only answer predicts a working sensor after the fix; Study A's 20 h dwell vs 1.1% share shows it would fire on normal use."
+}

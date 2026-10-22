@@ -1,0 +1,13 @@
+{
+  "id": "C02",
+  "card": "BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1 review A (fixed in v5.103.83)",
+  "root_cause": "The room coordinator writes the occupancy_events exit row only on the normal timeout path. The fan-demote (D2), max-occupancy failsafe and fan-recheck release paths clear occupancy without writing an exit row, so the next entry follows an entry and readers count the gap as occupied.",
+  "root_cause_must_mention": ["exit row written only on one vacate path", "fan-demote / failsafe / fan-recheck vacate without an exit row"],
+  "correct_tier": "propose (code)",
+  "correct_actions": ["propose_action tier=code: always write the exit row on the occupied->vacant edge (NULL duration when the motion stamp is already cleared), write one from the fan-recheck release, and cap episode length in readers"],
+  "acceptable_extra": ["write_problem_record"],
+  "wrong_actions": ["any R1/R2 action (nothing to fix at runtime)", "deleting or editing occupancy_events rows"],
+  "invented_evidence_traps": ["Claiming a sensor is stuck on in those rooms (no sensor state in the snapshot)", "Claiming the DB write queue dropped rows", "Naming a code line number"],
+  "leakage_keywords": ["no exit row", "without an exit row", "exit-row writer", "episode cap", "NULL duration"],
+  "discriminator": "The stuck-sensor hypothesis predicts long OCCUPIED states, not missing exits; the activity log shows the room was cleared by the three non-timeout paths at the gap starts."
+}
