@@ -4374,6 +4374,15 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # so a change should require code review. Kill switch: set to 0 to
 # restore per-cycle persistence (every cycle re-persists).
 OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
+# OC-REEMIT-DEDUP (vision rev 6 D1) — dimensions whose findings persist to
+# optimization_findings only when the description CHANGES (the cycle_ok META
+# sentinel and the per-cycle prediction_accuracy fact were ~78% of rows).
+# Rung 1 (module const): row-volume policy, change by review. Empty tuple =
+# kill switch (per-cycle persistence restored).
+OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS: Final = (
+    OPTIMIZER_DIMENSION_META,
+    OPTIMIZER_DIMENSION_PREDICTION_ACCURACY,
+)
 
 # CAMERA-STUCK-SENSOR-TRIPWIRE-1 (2026-09-14) — exterior camera person
 # detectors stuck ON.
