@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-23T02:09:08-05:00_ - _Data commit: `a79576aa28d8`_ - _last_reconciled: 2026-10-23_
+_Generated: 2026-10-23T02:42:59-05:00_ - _Data commit: `8b18f6d92f40`_ - _last_reconciled: 2026-10-23_
 
 
 ## Columns
@@ -17,9 +17,9 @@ _Generated: 2026-10-23T02:09:08-05:00_ - _Data commit: `a79576aa28d8`_ - _last_r
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 22 |
+| 🚀 Shipped (organic open) | 21 |
 | 🅿️ Parked | 101 |
-| ✅ Done | 365 |
+| ✅ Done | 366 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1140,25 +1140,10 @@ _created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🚀 Shipped (organic open) (22)
+## 🚀 Shipped (organic open) (21)
 _live, awaiting proof_
 
-### `EC-SOLAR-LIFETIME-COUNTER-FLAP-1` - EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days — _#1 · WSJF 15.0 · v6 tc7 u2 /e1_
-thread: **energy** - status: **shipped_organic**
-_created 2026-10-21 16:50 · updated 2026-10-21 22:05_
-- **Why:** Prober 10-21: envoy lifetime_energy_production flaps between true (~17-20.7 MWh) and 0.046 (32 drops in 686 hourly samples since 09-20; other lifetime legs 0). EC uses it as a cumulative counter with day-start snapshot + delta, so of the...
-- **Next:** Me (shipped v5.103.82 10-21): DUE 10-22 07:15 read energy_daily 2026-10-21 (expect solar+consumption NULL on the switch-over day); DUE 10-23 07:15 read 2026-10-22 row: solar within 1% of the production-CT daily delta -> done, else reopen.
-- **Forensic keys (8):**
-  - `links_added_2026_10_21`: related+EC-FORECAST-TRUTH-GAPS-1,ENERGY-CONSUMPTION-FORECAST-POISONED-1: Same Envoy lifetime-counter flap poisons the forecast truth rows (EC-FORECAST-TRUTH-GAPS-1) and the consumption forecast (ENERGY-CONSUMPTION-FORECAST-POISONED-1); t...
-  - `rerank_2026_10_21`: unscored -> v6 t7 e1: dated checks due 10-22 and 10-23 07:15; feeds the forecast truth data
-  - `lane_fix_2026_10_21`: next field was stale ("Ship v5.103.82..."); it shipped 10-21, next rewritten to the dated checks
-  - `tier`: 1
-  - `residual_backfill`: Past solar rows are not repaired: scripts/backfill_energy_daily_from_counters.py only covers Emporia legs; a solar mode reading statistic 5654 is new scope.
-  - `adjacency`: NEW; swept board for solar/lifetime_energy_production/energy_daily; related to the 10-20 Energy-prefs switch (no card) and RECORDER excludes runbook.
-  - `check_2026_10_22_switchover`: PASS: energy_daily 2026-10-21 solar NULL, consumption NULL, no prediction/adjustment learning. Side finding: that row's import_kwh = 0.99 (billing_source counter_gap) vs 87.95 on 10-20, so restart-day import looks under-counted; check on...
-  - `due_checks_2026_10_21`: SHIPPED v5.103.82 10-21. DONE 10-22 (PASS). DUE 10-22 07:15: energy_daily 2026-10-21 row solar+consumption NULL (switch-over day). DUE 10-23 07:15: 2026-10-22 row solar = CT stat 5654 daily delta +-1%, consumption non-null -> close.
-
-### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _#2 · WSJF 10.0 · v5 tc1 u4 /e1_
+### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _#1 · WSJF 10.0 · v5 tc1 u4 /e1_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-20 19:30 · updated 2026-10-21 22:05 · refined_
 - **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
@@ -1174,7 +1159,7 @@ _created 2026-10-20 19:30 · updated 2026-10-21 22:05 · refined_
   - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
   - `due_checks_2026_10_21`: SHIPPED v5.103.83 10-21 (live-validated: model built, Study A weekday 18:00 share 0.30). DUE 10-28 10:20: 7-day replay G1-G4 + operator judges each real fire; confirm a NULL-duration exit row exists -> close or tune.
 
-### `SAFETY-TEST-HAZARD-SENDS-NOTHING-1` - test_safety_hazard service sends no notification: handler only logs (safety.py:2997-3045), so the safety pipeline and v5.103.65 re-page cannot be tested on demand — _#3 · WSJF 7.0 · v7 tc5 u2 /e2_
+### `SAFETY-TEST-HAZARD-SENDS-NOTHING-1` - test_safety_hazard service sends no notification: handler only logs (safety.py:2997-3045), so the safety pipeline and v5.103.65 re-page cannot be tested on demand — _#2 · WSJF 7.0 · v7 tc5 u2 /e2_
 thread: **safety** - status: **shipped_organic**
 _created 2026-10-21 · updated 2026-10-21 22:05_
 - **Why:** The only on-demand way to prove life-safety paging works is a no-op. Re-page/ladder criteria of v5.103.65 stay unevaluable until fixed.
@@ -1185,7 +1170,7 @@ _created 2026-10-21 · updated 2026-10-21 22:05_
   - `tier`: 1
   - `related`: OC-REQUEST-FIX-DISPATCHER-1
 
-### `PREDICT-SCORER-BASELINE-SKILL-1` - Prediction accuracy sensors report no skill over a trivial baseline ('94%' is the empty-room base rate) — _#4 · WSJF 5.5 · v5 tc4 u2 /e2_
+### `PREDICT-SCORER-BASELINE-SKILL-1` - Prediction accuracy sensors report no skill over a trivial baseline ('94%' is the empty-room base rate) — _#3 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-21 17:10 · updated 2026-10-22 02:02_
 - **Why:** Next-room and occupancy accuracy sensors score hit rate only; 91% of samples are empty rooms so a no-skill model reads ~94%. No consumer can tell a useful prediction from a constant.
@@ -1196,7 +1181,7 @@ _created 2026-10-21 17:10 · updated 2026-10-22 02:02_
   - `tier`: 1
   - `adjacency`: NEW; same audit.
 
-### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#5 · WSJF 5.0 · v4 tc4 u2 /e2_
+### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#4 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-09-29 04:20 · updated 2026-10-19 02:03 · refined_
 - **Problem / Solution:**
@@ -1234,7 +1219,7 @@ _created 2026-09-29 04:20 · updated 2026-10-19 02:03 · refined_
   - `groomed_2026_10_19_overnight`: Plan written + plan-reviewed 2026-10-18: docs/planning/PLANNING_paused_room_occupancy_lights_fans.md (verdict FIX-PLAN, Tier 2 with build review elevated to 3 framings - presence<->HVAC ripple). The reviewer requires YOUR one-line confir...
   - `paged_2026_10_19_overnight`: Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
 
-### `EC-RESERVE-WRITE-GOVERNOR-1` - Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes — _#6 · WSJF 3.3 · v8 tc4 u8 /e6_
+### `EC-RESERVE-WRITE-GOVERNOR-1` - Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes — _#5 · WSJF 3.3 · v8 tc4 u8 /e6_
 thread: **energy** - status: **shipped_organic**
 - **Why:** _result (energy_battery.py:6278) is already the single emit point (holds the CFG cloud-withhold chokepoint); commanded ledger restored on boot (energy.py:1966-1968); EVSE overlay folds reserve after (energy.py:5440-5480). But every floor...
 - **Next:** Prior-art scan (HVAC write governance, presence, EVSE overlay, drain-precedence ledger) then Tier-3 plan; decide sequencing vs EC-INCLEMENT-HARDENING-1 D-blind (governor first makes D-blind a one-line floor registration).
@@ -1246,7 +1231,7 @@ thread: **energy** - status: **shipped_organic**
   - `tier`: 3
   - `related`: EC-INCLEMENT-HARDENING-1
 
-### `EC-STORM-PREONSET-TIMING-1` - Pre-onset storm floor starts up to 12 h before the alert onset: holds the battery high for hours that do not matter instead of 3-4 h before the forecast-confirmed hazard time — _#7 · WSJF 3.2 · v6 tc5 u2 /e4_
+### `EC-STORM-PREONSET-TIMING-1` - Pre-onset storm floor starts up to 12 h before the alert onset: holds the battery high for hours that do not matter instead of 3-4 h before the forecast-confirmed hazard time — _#6 · WSJF 3.2 · v6 tc5 u2 /e4_
 thread: **energy** - status: **shipped_organic** - approval: **approved**
 _created 2026-10-17 15:10 · initial_
 - **Origin:** 2026-10-17 - Operator review of the v5.103.69 release summary (D-B6 INCLEMENT_PREONSET_LEAD_H = 12).
@@ -1259,7 +1244,7 @@ _created 2026-10-17 15:10 · initial_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `operator_2026_10_17`: "We didnt talk about good hold onset time. Holding for 12 hours is wasteful. We should hold when it counts ie 3-4 hours to expected event time intersect forecast confirmed time. Vs alert time."
 
-### `EC-INCLEMENT-HARDENING-1` - Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input — _#8 · WSJF 2.8 · v7 tc5 u2 /e5_
+### `EC-INCLEMENT-HARDENING-1` - Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input — _#7 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **energy** - status: **shipped_organic**
 - **Why:** Audit 10-15: (1) energy_battery.py:5578-5580 blind gate returns before _inclement_decision (:5787) -> Envoy down + Tornado Warning = no hold (live state 10-15 17:38+). (2) "Wind Advisory" not a substring of any inclement_power_threat_eve...
 - **Next:** Plan (Tier 3, touches reserve/state machine): wart 1 first (inclement must evaluate when blind, using cloud/LKG SOC or a SOC-free floor), then 3, 2 (config + severity), 4 as marginal-benefit decision.
@@ -1280,7 +1265,7 @@ thread: **energy** - status: **shipped_organic**
   - `adjacency_2026_10_15`: Swept board for INCLEMENT: no card. ADJACENT to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 (same Envoy-blind gate, wart 1) -> linked, not merged (different problem statement). Prior art: v5.5.0 inclement hold, v5.5.3 WAIT floor (closed).
   - `related`: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
 
-### `EC-STORM-PRODUCT-SELECTION-EXTERNAL-1` - Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table — _#9 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `EC-STORM-PRODUCT-SELECTION-EXTERNAL-1` - Storm alert types are fixed in code: the operator cannot choose which alert types hold or buy, and another location cannot adapt the table — _#8 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **energy** - status: **shipped_organic** - approval: **approved**
 _created 2026-10-17 15:10 · initial_
 - **Origin:** 2026-10-17 - Operator after v5.103.69 asked whether Stage B reused the EC config-flow alert list (it did not: D-B5 retired it for INCLEMENT_PRODUCT_TABLE).
@@ -1292,7 +1277,7 @@ _created 2026-10-17 15:10 · initial_
   - `arc`: ARC_energy_coordinator_resilience.md (opened 2026-10-16; prosecute to the end)
   - `operator_2026_10_17`: "I think an externalization is interesting. The data backed version is good but annotate could Extend it. It also helps with diff locations who which will have different data and the operator can add or remove things that can hold, or bu...
 
-### `PREDICT-MODEL-DWELL-MIGRATION-1` - Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room — _#10 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `PREDICT-MODEL-DWELL-MIGRATION-1` - Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room — _#9 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-21 17:10 · updated 2026-10-22 02:02_
 - **Why:** Audit: next-room top-1 hit rate equals always-guess-usual-room (Jaya worse); room occupancy forecast AUC 0.605, Brier no better than constant; +1h/+4h ~ now. Root cause: bayesian_predictor counts arrivals not dwell and ignores the curren...
@@ -1304,7 +1289,7 @@ _created 2026-10-21 17:10 · updated 2026-10-22 02:02_
   - `tier`: 2
   - `adjacency`: Swept board for predict/bayesian/next_room/forecast: sibling of the anomaly card (same model); NEW work.
 
-### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#11 · WSJF 2.3 · v3 tc2 u2 /e3_
+### `HVAC-S10-STALE-RANGE-AFTER-PRESET-CHANGE-1` - Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range — _#10 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-10-14 02:35 · updated 2026-10-19 02:16 · initial_
 - **Problem / Solution:**
@@ -1322,7 +1307,7 @@ _created 2026-10-14 02:35 · updated 2026-10-19 02:16 · initial_
   - `evidence_2026_10_14`: zone 3: S1 set preset sleep->away at 05:43:52Z (00:43:52 CDT). Recorder: target_temp_low/high stayed 70/77 (the sleep/home range) until 00:50:54 CDT, then 62/80. S10 ran at 00:48:52 CDT, read away=70/77, and issued set_activity_setpoint ...
   - `organic_check_2026_10_19_overnight`: PARTIAL (live, 02:2x CDT; HA running v5.103.72, so .62 is loaded). sensor.ura_hvac_coordinator_active_preset_overrides preset_range_by_zone.zone_3: away 62-80 skipped_already_correct, sleep 70-77 skipped_already_correct, home 70-77 statu...
 
-### `WS-SUBSCRIBE-SEND-OFF-LOOP-1` - URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WS-SUBSCRIBE-SEND-OFF-LOOP-1` - URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **shipped_organic**
 _created 2026-10-18 01:00_
 - **Why:** websocket_api.py _send_on_loop is not @callback, so hass.add_job runs it in an executor and connection.send_message is called off-loop - the exact hazard the B-H1 fix meant to close. Confirmed against HA core add_job / get_hassjob_callab...
@@ -1330,7 +1315,7 @@ _created 2026-10-18 01:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `WS-SUBSCRIBE-SCHEMA-REALHA-1` - websocket_api.py import fails on harness HA 2026.2.3 (bare BASE_COMMAND_MESSAGE_SCHEMA.extend passed to websocket_command) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WS-SUBSCRIBE-SCHEMA-REALHA-1` - websocket_api.py import fails on harness HA 2026.2.3 (bare BASE_COMMAND_MESSAGE_SCHEMA.extend passed to websocket_command) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **shipped_organic**
 _created 2026-10-18 01:00_
 - **Why:** HA core wraps it in vol.All on the harness version; live 2026.9 shows no registration-failed warning, so it may be harness drift. Unverified against live HA source.
@@ -1338,7 +1323,7 @@ _created 2026-10-18 01:00_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `DEPLOY-DUALPUSH-SIGINT-TRAP-1` - Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DEPLOY-DUALPUSH-SIGINT-TRAP-1` - Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **test-strategy** - status: **shipped_organic**
 _created 2026-10-17 23:40_
 - **Why:** test_deploy_scripts SIGINT-trap test fails whenever gtimeout is on PATH; likely gtimeout wrapper in dual-push.sh delays the trap until the sleep child exits (not traced).
@@ -1346,7 +1331,7 @@ _created 2026-10-17 23:40_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `PERSON-GPS-ANY-HOME-WINS-1` - Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERSON-GPS-ANY-HOME-WINS-1` - Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers) — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-18 · refined_
 - **Next:** Plan: freshest-GPS-wins (not any-home-wins, which lets a left-at-home iPad hold a person home forever); verify against Wigton's 6-tracker person; Tier 2 reviews.
@@ -1354,7 +1339,7 @@ _created 2026-10-18 · refined_
   - `arc_cut_v5_103_72`: separate producer fix in person_coordinator, own cycle
   - `tier`: 2
 
-### `ZONE-TRACKER-PER-SENSOR-WIPE-1` - Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ZONE-TRACKER-PER-SENSOR-WIPE-1` - Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-18 · refined_
 - **Next:** Two Tier-3 plan reviews on Rev 3 -> delta build on the reviewed branch -> 4 build reviews -> operator checkpoint -> one awake-window deploy.
@@ -1363,7 +1348,7 @@ _created 2026-10-18 · refined_
   - `operator_instruction_2026_10_18`: Go with A. Be careful. (fix the tracker properly, ship together with the sleep-mask cycle)
   - `folded_into`: PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 3 D4 (af238dc53); one Tier-3 cycle with the reviewed branch dad3bf6e7.
 
-### `HM-V22-NEXT-SLICE-1` - Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations) — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HM-V22-NEXT-SLICE-1` - Health Monitor next slice — finish v2.1 (GC hourly counters, missing Zigbee bridge rows) + v2.2 core (flap rate, AP retries, Z-Wave stats, broken automations) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **health-monitor** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-14 03:43 · updated 2026-10-15 02:17 · refined ×2_
 - **Problem / Solution:**
@@ -1379,7 +1364,7 @@ _created 2026-10-14 03:43 · updated 2026-10-15 02:17 · refined ×2_
   - `stale_2026_10_15`: Audit: v2.2 slice already built+installed+validated (README_v2.2.0 Validated 2026-10-15, branch v2.2-slice bce74ed). Next: v2.3-stalls build dispatched 10-15 (freeze-pause 1h-max exclusion + stall culprit attribution + OTBR row + shelly ...
   - `verified_2026_10_15_overnight`: CARD-WAS-WRONG (said 'planned, dispatch a builder'). The slice was built (A1 9c4fa6d gc minute buckets, A2 0443a19 Z2M per-bridge rows, C1 shares, B1 flaps, B2 AP retries, B3 Z-Wave stats, B4 automations, B5 device signals), reviewed thr...
 
-### `HOUSE-STATE-SENSOR-ATTR-CHURN-1` - The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HOUSE-STATE-SENSOR-ATTR-CHURN-1` - The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic**
 _created 2026-10-18 · updated 2026-10-19 02:15 · initial_
 - **Next:** Attended deploy: merge fix/house-state-attr-unrecorded to develop, run the full-suite name-diff (owed), deploy with the next batch (Tier 1, LOW risk), then the 1-2 h one-shot recorder check -> Validated table.
@@ -1390,7 +1375,7 @@ _created 2026-10-18 · updated 2026-10-19 02:15 · initial_
   - `measured_2026_10_19_overnight`: Recorder, last 24 h: sensor.ura_presence_coordinator_presence_house_state wrote 2,870 rows with 2,869 DISTINCT attribute blobs (avg 3,324 bytes each, ~9.5 MB/day of attribute JSON) for only 13 state changes. Changes per attribute: dwell_...
   - `built_2026_10_19_overnight`: BUILT TO REVIEW (not deployed). Branch fix/house-state-attr-unrecorded (pushed): d1bcf0750 build, 057005a62 review LOWs, c20f9ee35 review record. PresenceHouseStateSensor._unrecorded_attributes (sensor.py ~5567) += dwell_seconds, zones, ...
 
-### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1` - EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence) — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic**
 _created 2026-10-18 · updated 2026-10-19 02:41 · refined_
 - **Next:** Attended deploy: merge the branch, full-suite name-diff, deploy (Tier 2, LOW-MED risk: display-only attributes + a background refresh). Then set the two SmartHub statistic ids in EC options (no reload now) and do Step 1 (clear energy_uti...
@@ -1408,7 +1393,7 @@ _created 2026-10-18 · updated 2026-10-19 02:41 · refined_
   - `built_2026_10_19_overnight`: BUILT (not merged/deployed): branch feature/ec-bill-divergence-smarthub-stats @ 9056660c2 (pushed), tag pre-review-ec-bill-divergence. Refresh is a tracked background task (never awaited by the decision cycle), hourly, single-flight, can...
   - `reviewed_2026_10_19_overnight`: BUILT + REVIEWED TO REVIEW LANE (not merged, not deployed). Branch feature/ec-bill-divergence-smarthub-stats @ 1dd44edd3 (pushed). Reviews (3 framing-disjoint): A correctness SHIP (M1 empty EC side published +-100 -> fixed; M2 service ch...
 
-### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1` - Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic**
 _created 2026-10-20 19:55_
 - **Why:** database.py:579 fast-fails writes once the worker is done and hass.is_stopping (SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1, intended). EC's stop-time persist of ~20 energy_state keys lands after that, so anything changed since the last periodic s...
@@ -1420,7 +1405,7 @@ _created 2026-10-20 19:55_
   - `tier`: 2
   - `adjacency`: ADJACENT to SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (done; same guard, intended); NEW problem: EC stop ordering.
 
-### `NM-NOTIFY-SIGNATURE-MISMATCH-1` - Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-NOTIFY-SIGNATURE-MISMATCH-1` - Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **shipped_organic**
 _created 2026-10-20 20:10_
 - **Why:** presence wake-backstop, binary_sensor occupancy-anomaly, perimeter route_reason legs + test button, optimizer dead kwargs+TypeError retry. Fixed on fix/nm-notify-signature-mismatch 1e7a1ad21; reviews A+B SHIP; name-diff CLEAN.
@@ -1429,7 +1414,7 @@ _created 2026-10-20 20:10_
   - `tier`: 1
   - `adjacency`: NEW; sibling BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1.
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#22 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#21 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-29 20:05 · updated 2026-10-18 02:16 · refined_
 - **Problem / Solution:**
@@ -2835,7 +2820,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (365)
+## ✅ Done (366)
 _closed, evidence in refs_
 
 ### `ZONE-DELETE-ORPHAN-HVAC-SENSORS-1` - Deleting a zone leaves 4 HVAC AC-reset/ramp sensors orphaned (and the delete preview undercounts) — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -3015,6 +3000,22 @@ _created 2026-10-21 17:10 · updated 2026-10-21 22:05_
   - `tier`: 1
   - `adjacency`: NEW; swept BLE/Bermuda cards.
   - `due_checks_2026_10_21`: DUE 10-22 19:10: re-measure Foyer share of true Study A time (was 35%) and Study B/Master pull.
+
+### `EC-SOLAR-LIFETIME-COUNTER-FLAP-1` - EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days — _WSJF 15.0 · v6 tc7 u2 /e1_
+thread: **energy** - status: **done**
+_created 2026-10-21 16:50 · updated 2026-10-21 22:05_
+- **Why:** Prober 10-21: envoy lifetime_energy_production flaps between true (~17-20.7 MWh) and 0.046 (32 drops in 686 hourly samples since 09-20; other lifetime legs 0). EC uses it as a cumulative counter with day-start snapshot + delta, so of the...
+- **Next:** Me (shipped v5.103.82 10-21): DUE 10-22 07:15 read energy_daily 2026-10-21 (expect solar+consumption NULL on the switch-over day); DUE 10-23 07:15 read 2026-10-22 row: solar within 1% of the production-CT daily delta -> done, else reopen.
+- **Forensic keys (9):**
+  - `links_added_2026_10_21`: related+EC-FORECAST-TRUTH-GAPS-1,ENERGY-CONSUMPTION-FORECAST-POISONED-1: Same Envoy lifetime-counter flap poisons the forecast truth rows (EC-FORECAST-TRUTH-GAPS-1) and the consumption forecast (ENERGY-CONSUMPTION-FORECAST-POISONED-1); t...
+  - `rerank_2026_10_21`: unscored -> v6 t7 e1: dated checks due 10-22 and 10-23 07:15; feeds the forecast truth data
+  - `lane_fix_2026_10_21`: next field was stale ("Ship v5.103.82..."); it shipped 10-21, next rewritten to the dated checks
+  - `validated_2026_10_23`: PASS: energy_daily 2026-10-22 solar 97.252 kWh = CT stat 5654 local-midnight delta 20.917821-20.820569 MWh = 97.252 kWh (0.000%); consumption 103.303 non-null; billing_source counters. 10-21 low import (0.99) was restart-day only: 10-22 ...
+  - `tier`: 1
+  - `residual_backfill`: Past solar rows are not repaired: scripts/backfill_energy_daily_from_counters.py only covers Emporia legs; a solar mode reading statistic 5654 is new scope.
+  - `adjacency`: NEW; swept board for solar/lifetime_energy_production/energy_daily; related to the 10-20 Energy-prefs switch (no card) and RECORDER excludes runbook.
+  - `check_2026_10_22_switchover`: PASS: energy_daily 2026-10-21 solar NULL, consumption NULL, no prediction/adjustment learning. Side finding: that row's import_kwh = 0.99 (billing_source counter_gap) vs 87.95 on 10-20, so restart-day import looks under-counted; check on...
+  - `due_checks_2026_10_21`: SHIPPED v5.103.82 10-21. DONE 10-22 (PASS). DUE 10-22 07:15: energy_daily 2026-10-21 row solar+consumption NULL (switch-over day). DUE 10-23 07:15: 2026-10-22 row solar = CT stat 5654 daily delta +-1%, consumption non-null -> close.
 
 ### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **energy** - status: **done** - approval: **blocked**

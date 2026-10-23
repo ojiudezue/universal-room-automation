@@ -5,6 +5,7 @@ Opus 5.5 at temperature 0 via the anthropic SDK (ANTHROPIC_API_KEY from env).
 Writes <input>.judged.jsonl: each run line plus a "judge" block and final metrics.
 
   judge.py scripts/oc_eval/runs/eval_<stamp>.jsonl
+  judge.py scripts/oc_eval/runs/eval_<stamp>.jsonl --batch [model]   # Batches API, half price
 """
 from __future__ import annotations
 
@@ -84,11 +85,81 @@ def metrics(run: dict, j: dict) -> dict:
             "M7": m7, "pass": case_pass, "needs_human_spotcheck": invented}
 
 
+def _payload(run: dict, case: dict, ans: dict) -> str:
+    return json.dumps({"answer_key": ans, "case_as_seen_by_agent": project(case),
+                       "transcript": transcript(run), "final_report": run["final_report"],
+                       "end_reason": run["end_reason"]}, default=str)
+
+
+def _parse(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").split("\n", 1)[1].rsplit("```", 1)[0]
+    try:
+        return json.loads(text)
+    except ValueError:
+        return {"parse_error": text[:2000]}
+
+
+def main_batch(src: Path, model: str):
+    """Message Batches API (50% price): one request per run that submitted a report.
+    Runs with no final report score M1=0 without a judge call."""
+    import time
+    import anthropic
+    client = anthropic.Anthropic()
+    jc = CONFIG["judge"]
+    by_id = {c["id"]: (c, a) for c, a in load_cases()}
+    lines = [json.loads(l) for l in src.open()]
+    runs = {f"r{i}": r for i, r in enumerate(lines) if not r.get("_header")}
+    reqs = [{"custom_id": k, "params": {
+                "model": model, "max_tokens": jc["max_output_tokens"],
+                "system": [{"type": "text", "text": JUDGE_INSTRUCTIONS, "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user", "content": _payload(r, *by_id[r["case_id"]])}]}}
+            for k, r in runs.items() if r["final_report"] is not None]
+    results = {}
+    if reqs:
+        b = client.messages.batches.create(requests=reqs)
+        print(f"batch {b.id}: {len(reqs)} requests ({len(runs) - len(reqs)} runs with no report skipped)", flush=True)
+        while b.processing_status != "ended":
+            time.sleep(60)
+            b = client.messages.batches.retrieve(b.id)
+            print(f"  {b.request_counts}", flush=True)
+        for item in client.messages.batches.results(b.id):
+            res = item.result
+            if res.type != "succeeded":
+                results[item.custom_id] = {"parse_error": f"batch result {res.type}"}
+                continue
+            msg = res.message
+            out = _parse("".join(x.text for x in msg.content if x.type == "text"))
+            u = msg.usage
+            tok = {"input": u.input_tokens or 0, "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+                   "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0, "output": u.output_tokens or 0}
+            cost = compute_cost("anthropic", model, tok)
+            out.update({"_model_version_string": msg.model, "_tokens": tok, "_batch": True,
+                        "_cost_usd": (cost / 2) if isinstance(cost, (int, float)) else cost})
+            results[item.custom_id] = out
+    dst = src.with_suffix(".judged.jsonl")
+    with dst.open("w") as fo:
+        for i, run in enumerate(lines):
+            if run.get("_header"):
+                run["judge_model"] = model
+                run["judge_mode"] = "batch"
+            else:
+                j = results.get(f"r{i}", {"skipped": "no final report"})
+                run["judge"] = j
+                run["metrics"] = metrics(run, j)
+            fo.write(json.dumps(run, default=str) + "\n")
+    print(f"judged: {dst}")
+
+
 def main():
-    if len(sys.argv) != 2:
-        sys.exit(__doc__)
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY is not set")
+    if len(sys.argv) >= 3 and sys.argv[2] == "--batch":
+        model = sys.argv[3] if len(sys.argv) > 3 else CONFIG["judge"]["model"]
+        return main_batch(Path(sys.argv[1]), model)
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
     import anthropic
     client = anthropic.Anthropic()
     src = Path(sys.argv[1])

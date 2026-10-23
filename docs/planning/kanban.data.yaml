@@ -243,7 +243,8 @@ cards:
   next: "Me (shipped v5.103.82 10-21): DUE 10-22 07:15 read energy_daily 2026-10-21 (expect solar+consumption NULL on the switch-over day); DUE 10-23 07:15 read 2026-10-22 row: solar within 1% of the production-CT daily delta -> done, else reopen."
   title: "EC daily solar reads the Envoy lifetime production counter, which flaps to 0.046 MWh, so energy_daily solar is 0.0 or NULL on most days"
   thread: energy
-  status: "shipped_organic"
+  status: "done"
+  validated_2026_10_23: "PASS: energy_daily 2026-10-22 solar 97.252 kWh = CT stat 5654 local-midnight delta 20.917821-20.820569 MWh = 97.252 kWh (0.000%); consumption 103.303 non-null; billing_source counters. 10-21 low import (0.99) was restart-day only: 10-22 import 27.35 normal. Residual unchanged: past solar rows not backfilled (residual_backfill)."
   shipped_version: v5.103.82
   tier: 1
   created: "2026-10-21 16:50"
