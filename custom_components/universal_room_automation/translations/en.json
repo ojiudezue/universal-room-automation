@@ -2326,6 +2326,10 @@
     }
   },
   "issues": {
+    "restart_pending_version_mismatch": {
+      "title": "Restart pending to load URA {installed}",
+      "description": "Universal Room Automation {installed} is installed on disk, but the running code is still {loaded}. Restart Home Assistant to load the installed version. This is normal right after a deploy (restarts are deferred, e.g. while the house sleeps); this issue clears itself after the restart."
+    },
     "inclement_legacy_threat_list_retired": {
       "title": "Inclement threat list is retired",
       "description": "Your stored inclement power-threat event list differs from the shipped default, but URA no longer reads that list. Nothing was changed in your options. To choose which weather alerts hold the battery or may buy grid power, use 'Alerts that hold the battery' and 'Of those, alerts that may buy grid power' in the Energy Coordinator options."

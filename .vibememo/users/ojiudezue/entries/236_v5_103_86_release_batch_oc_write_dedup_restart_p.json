@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "236",
+  "author": "ojiudezue",
+  "session_id": "claude_20261023_235947_ship_v5_103_86",
+  "timestamp": "2026-10-23T23:59:47Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.86 shipped: Release batch: OC write dedup, restart-pending repair, coverage uses total consumption",
+  "summary": "Release batch: OC write dedup, restart-pending repair, coverage uses total consumption",
+  "why": "Two built cards had sat in review past the WIP cap and the OC restart-repeat dedup (residual folded into OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1) was reviewed twice and fixed; merged batch suite showed 0 new failures vs the 10-23 develop baseline, so shipping drains the review lane before new builds.",
+  "implications": "Shipped EC-LOADED-VS-INSTALLED-VERSION-1, COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 at v5.103.86; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.86.md (Live criteria).",
+  "revisit_trigger": "After the next restart: cycle_ok rows stop landing every 5 min; coverage delta stops climbing past whole-house in the evening; restart-pending repair appears on the following deploy before its restart.",
+  "refs": {
+    "cards": [
+      "EC-LOADED-VS-INSTALLED-VERSION-1",
+      "COVERAGE-EVENING-ATTRIBUTION-DRIFT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.86.md"
+    ],
+    "release_notes": "OC stops re-writing unchanged findings (24h re-assert, stamp after successful write); Repairs flags loaded != installed URA; energy coverage audit compares against total house consumption, not net import."
+  }
+}

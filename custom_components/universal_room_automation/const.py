@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.85
+# Universal Room Automation vv5.103.86
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,13 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.85"
+VERSION: Final = "v5.103.86"
+
+# EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
+# to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
+# a protocol cadence, not operator policy; hourly is cheap (one small file read
+# in the executor) and a pending restart is informational, not urgent.
+VERSION_CHECK_INTERVAL_S: Final = 3600
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -4374,6 +4380,15 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # so a change should require code review. Kill switch: set to 0 to
 # restore per-cycle persistence (every cycle re-persists).
 OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
+# OC-REEMIT-DEDUP (vision rev 6 D1) — dimensions whose findings persist to
+# optimization_findings only when the description CHANGES (the cycle_ok META
+# sentinel and the per-cycle prediction_accuracy fact were ~78% of rows).
+# Rung 1 (module const): row-volume policy, change by review. Empty tuple =
+# kill switch (per-cycle persistence restored).
+OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS: Final = (
+    OPTIMIZER_DIMENSION_META,
+    OPTIMIZER_DIMENSION_PREDICTION_ACCURACY,
+)
 
 # CAMERA-STUCK-SENSOR-TRIPWIRE-1 (2026-09-14) — exterior camera person
 # detectors stuck ON.

@@ -102,6 +102,7 @@ from ..const import (
     OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_NOTIFY_DEDUP_CYCLES,
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
+    OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS,
     CAMERA_STUCK_ON_THRESHOLD_S,
     CAMERA_STUCK_ON_OVERRIDES_S,
     SENSOR_NEVER_FIRES_HORIZON_S,
@@ -641,10 +642,18 @@ class OptimizationCoordinator(BaseCoordinator):
         self._camera_input_dark_boot_ref: datetime = dt_util.utcnow()
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
-        # RAM-only by design: a restart re-persists once per stuck sensor,
-        # which is the correct post-restart behaviour (the fact is re-stated
-        # for the new boot) and bounded at one row per sensor.
+        # RAM-only for room sensor_health (a restart re-persists once per
+        # stuck sensor). EXCEPTION (OC-REEMIT-DEDUP, vision rev 6 D1): the
+        # never_fires keys are mirrored into the never-fires Store record
+        # (`last_persisted`) and re-seeded on load, because those 7d
+        # findings re-reported 4x in 10h across restarts.
         self._sensor_health_last_persisted: dict[tuple, datetime] = {}
+        # OC-REEMIT-DEDUP — last persisted description per
+        # (dimension, dedup_key) for `_filter_unchanged_repeats`.
+        # Value = (description, last successful write ts); an unchanged
+        # row re-persists once older than
+        # OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S (fix-up A1/B2).
+        self._persist_on_change_last: dict[tuple, tuple[str, datetime]] = {}
         # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) — sensor_never_fires:
         #   persistent dict (via HA Store) `_never_fires_state[eid]` =
         #     {first_seen, last_on_seen, unavailable_s}
@@ -1148,6 +1157,11 @@ class OptimizationCoordinator(BaseCoordinator):
         # emits more rows than the sane cap, truncate (highest-severity
         # first) before persistence so the write queue can't be flooded.
         findings = self._cap_findings(findings)
+        # OC-REEMIT-DEDUP fix-up A2 — an on-change finding that CLEARED
+        # this cycle drops its cache entry so an identical recurrence
+        # re-persists. Run on the full evaluated list (not a persist
+        # batch: the skip-path / LLM batches are partial by design).
+        self._prune_persist_on_change(findings)
 
         # Score + (optionally) gate-and-apply each finding. Persistence
         # + signal dispatch are batched to ONE write + ONE signal per
@@ -1178,11 +1192,14 @@ class OptimizationCoordinator(BaseCoordinator):
         if skip_persist:
             _LOGGER.info(
                 "Optimizer cycle: persistence skipped — %s "
-                "(findings=%d held back; META sentinel will still persist)",
+                "(findings=%d held back; META sentinel offered for persist)",
                 skip_reason, len(findings),
             )
-            # Still persist the META sentinel(s) so the cycle's
-            # liveness signal lands in the table.
+            # Offer the META sentinel(s) for persistence. Since
+            # OC-REEMIT-DEDUP the sentinel is persist-on-change: it lands
+            # on the first successful write of a boot and then at most
+            # once per OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S, NOT
+            # every cycle (`_filter_unchanged_repeats` drops repeats).
             meta_only = [f for f in findings
                          if f.dimension == OptimizationDimension.META]
             await self._persist_findings_batch(meta_only)
@@ -2134,7 +2151,14 @@ class OptimizationCoordinator(BaseCoordinator):
                     "last_on_seen": rec.get("last_on_seen"),
                     "unavailable_s": int(rec.get("unavailable_s") or 0),
                     "unavail_since": rec.get("unavail_since"),
+                    "last_persisted": rec.get("last_persisted"),
                 }
+                # OC-REEMIT-DEDUP (vision rev 6 D1 fix 1) — re-seed the
+                # 24h repeat-suppressor key so a restart does NOT
+                # re-persist an unchanged never_fires row.
+                self._never_fires_seed_persisted_key(
+                    eid, rec.get("last_persisted"),
+                )
                 # Review B B2-R — restore the open-outage stamp into
                 # the in-memory map so a sensor that was unavailable
                 # when HA stopped keeps its outage clock. HA-down time
@@ -2188,9 +2212,33 @@ class OptimizationCoordinator(BaseCoordinator):
                 # Review B B2-R — persist the open-outage stamp so a
                 # restart mid-outage doesn't lose the pre-restart time.
                 "unavail_since": rec.get("unavail_since"),
+                # OC-REEMIT-DEDUP — restart-safe 24h repeat-suppressor.
+                "last_persisted": rec.get("last_persisted"),
             }
             for eid, rec in self._never_fires_state.items()
         }
+
+    @staticmethod
+    def _never_fires_persisted_key(eid: str) -> tuple:
+        """The `_sensor_health_last_persisted` key for a never_fires row
+        (must match `_filter_repeat_sensor_health`'s keying)."""
+        return (str(("sensor_never_fires", eid)), "never_fires")
+
+    def _never_fires_seed_persisted_key(self, eid: str, iso) -> None:
+        """OC-REEMIT-DEDUP — restore a persisted last-row stamp into the
+        RAM repeat-suppressor. Bad/missing stamp = no seed (fail-open:
+        the row re-persists once, the pre-fix behaviour)."""
+        if not isinstance(iso, str) or not iso:
+            return
+        try:
+            parsed = dt_util.parse_datetime(iso)
+        except Exception:  # noqa: BLE001
+            parsed = None
+        if parsed is None:
+            return
+        self._sensor_health_last_persisted[
+            self._never_fires_persisted_key(eid)
+        ] = parsed
 
     def _never_fires_schedule_save(self) -> None:
         """Rev 3 F4 — whole-blob `async_delay_save`, 120s debounce.
@@ -2306,6 +2354,8 @@ class OptimizationCoordinator(BaseCoordinator):
                     if isinstance(k, tuple) and k and k[0] == prefix
                 ]:
                     self._sensor_health_last_persisted.pop(pk, None)
+                # OC-REEMIT-DEDUP — and the restart-safe copy.
+                rec["last_persisted"] = None
             # Review B B3 — mark dirty; the evaluator (every 5 min)
             # schedules the delay-save. Previously each listener
             # transition scheduled a 120s trailing debounce, so under
@@ -5075,6 +5125,7 @@ class OptimizationCoordinator(BaseCoordinator):
 
     def _filter_repeat_sensor_health(
         self, findings: list[OptimizationFinding],
+        stamps: list | None = None,
     ) -> list[OptimizationFinding]:
         """Drop sensor_health rows that repeat an UNCHANGED stuck state.
 
@@ -5124,7 +5175,13 @@ class OptimizationCoordinator(BaseCoordinator):
             if last is not None and (now - last).total_seconds() < interval:
                 suppressed += 1
                 continue
-            self._sensor_health_last_persisted[key] = now
+            nf_eid = (payload.get("entity_id")
+                      if payload.get("stuck_state") == "never_fires" else None)
+            stamp = ("sensor_health", key, now, nf_eid)
+            if stamps is None:
+                self._commit_persist_stamps([stamp])  # direct (non-DB) use
+            else:
+                stamps.append(stamp)  # committed after a successful write
             kept.append(f)
         if suppressed:
             _LOGGER.debug(
@@ -5134,6 +5191,99 @@ class OptimizationCoordinator(BaseCoordinator):
                 suppressed, interval,
             )
         return kept
+
+    def _filter_unchanged_repeats(
+        self, findings: list[OptimizationFinding],
+        stamps: list | None = None,
+    ) -> list[OptimizationFinding]:
+        """OC-REEMIT-DEDUP (vision rev 6 D1 fix 2) — drop rows of the
+        dimensions in ``OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS`` whose
+        description is identical to the last row PERSISTED for the same
+        (dimension, dedup_key). Measured: the `cycle_ok` META sentinel
+        (41%) and the unchanged prediction_accuracy fact (37%) were ~78%
+        of all optimization_findings rows.
+
+        Persistence layer only, same rationale as
+        `_filter_repeat_sensor_health`: scoreboard / notify / LLM corpus /
+        `_last_findings` still see every cycle's finding. RAM-only: the
+        first cycle after a restart persists one META row (boot liveness)
+        and one prediction row if still degraded. Empty tuple = kill
+        switch (per-cycle persistence restored).
+
+        Fix-up (reviews A1/B2): an UNCHANGED row still re-persists once
+        its last write is older than
+        ``OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S`` (24h, reused — same
+        semantics: re-assert an unchanged fact well inside the 7d
+        low/medium prune horizon, database.py prune). Interval <= 0 =
+        per-cycle persistence. Stamps are committed only after a
+        successful batch write (A3/B1) via ``stamps``.
+        """
+        dims = OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS
+        if not dims:
+            return findings
+        last = getattr(self, "_persist_on_change_last", None)
+        if last is None:
+            last = self._persist_on_change_last = {}
+        interval = OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S
+        now = dt_util.utcnow()
+        kept: list[OptimizationFinding] = []
+        for f in findings:
+            dim = str(getattr(f, "dimension", ""))
+            if dim not in dims:
+                kept.append(f)
+                continue
+            key = (dim, str(getattr(f, "dedup_key", None)))
+            fp = str(getattr(f, "description", ""))
+            prev = last.get(key)
+            if (prev is not None and prev[0] == fp
+                    and (now - prev[1]).total_seconds() < interval):
+                continue
+            stamp = ("on_change", key, now, fp)
+            if stamps is None:
+                self._commit_persist_stamps([stamp])  # direct (non-DB) use
+            else:
+                stamps.append(stamp)
+            kept.append(f)
+        return kept
+
+    def _prune_persist_on_change(
+        self, findings: list[OptimizationFinding],
+    ) -> None:
+        """Fix-up A2 — drop cached on-change entries whose
+        (dimension, dedup_key) is absent from this cycle's FULL evaluated
+        findings, so a cleared-then-recurring fact with identical text
+        re-persists. Fail-open: a spurious drop costs one extra row."""
+        last = getattr(self, "_persist_on_change_last", None)
+        if not last:
+            return
+        present = {
+            (str(getattr(f, "dimension", "")),
+             str(getattr(f, "dedup_key", None)))
+            for f in findings
+        }
+        for key in [k for k in last if k not in present]:
+            last.pop(key, None)
+
+    def _commit_persist_stamps(self, stamps: list) -> None:
+        """Fix-up A3/B1 — apply the repeat-suppressor stamps for rows that
+        were ACTUALLY written. Called by `_persist_findings_batch` only
+        after `log_findings_batch` returned; a tripwire drop, missing DB
+        or write exception leaves no stamp, so the next cycle retries.
+        The never_fires mirror into the Store record lives here too: it
+        survives restart, so a false stamp would outlive the process."""
+        for kind, key, ts, extra in stamps:
+            if kind == "sensor_health":
+                self._sensor_health_last_persisted[key] = ts
+                if extra is not None:
+                    rec = self._never_fires_state.get(extra)
+                    if rec is not None:
+                        rec["last_persisted"] = ts.isoformat()
+                        self._never_fires_dirty = True
+            elif kind == "on_change":
+                last = getattr(self, "_persist_on_change_last", None)
+                if last is None:
+                    last = self._persist_on_change_last = {}
+                last[key] = (extra, ts)
 
     async def _persist_findings_batch(
         self, findings: list[OptimizationFinding],
@@ -5154,7 +5304,13 @@ class OptimizationCoordinator(BaseCoordinator):
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 (2026-09-13): drop unchanged
         # repeat sensor_health rows. Applied HERE (persistence) and not in
         # the evaluator ON PURPOSE — see `_filter_repeat_sensor_health`.
-        findings = self._filter_repeat_sensor_health(findings)
+        # Stamps are collected, NOT applied, until the write succeeds
+        # (OC-REEMIT-DEDUP fix-up A3/B1 — stamp-after-commit).
+        stamps: list = []
+        findings = self._filter_repeat_sensor_health(findings, stamps)
+        # OC-REEMIT-DEDUP (vision rev 6 D1 fix 2) — cycle_ok sentinel and
+        # the prediction_accuracy fact persist on CHANGE only.
+        findings = self._filter_unchanged_repeats(findings, stamps)
         if not findings:
             return
         if self._check_write_volume_tripwire():
@@ -5169,6 +5325,10 @@ class OptimizationCoordinator(BaseCoordinator):
             return
         try:
             written = await database.log_findings_batch(findings)
+            # The DAO swallows insert failures and returns 0, so a falsy
+            # count (not only an exception) means "not written": no stamp.
+            if written:
+                self._commit_persist_stamps(stamps)
             # v5.11.0 D9 — one DAO call = one OC-attributed DB write.
             self._record_db_write()
             if written:

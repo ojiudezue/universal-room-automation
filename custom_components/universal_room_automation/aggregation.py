@@ -3184,6 +3184,12 @@ class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
         }
 
 
+# COVERAGE-EVENING-ATTRIBUTION-DRIFT-1: values of the coverage sensor's
+# ``whole_house_source`` attribute (protocol strings, not knobs).
+WHOLE_HOUSE_SOURCE_EC_TOTAL = "ec_total"
+WHOLE_HOUSE_SOURCE_CONFIGURED = "whole_house_energy_sensors"
+
+
 class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
     """Sensor: Delta between whole house energy and sum of room sensors.
 
@@ -3234,6 +3240,10 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         # "unknown". Updated only when the tier produced any valid read
         # (B-M1 / C-L2: dead cycles retain the previous classification).
         self._whole_house_scope: str = "unknown"
+        # Which source fed the whole-house tier (see
+        # _resolve_whole_house_sources): "ec_total" |
+        # "whole_house_energy_sensors" | "unknown" (not read yet).
+        self._whole_house_source: str = "unknown"
         # scope_mismatch_warning: empty string when clean; "<tier>:mixed"
         # when the named tier produced mixed today_native + today_derived
         # classifications on this cycle. Retained on dead cycles.
@@ -3463,6 +3473,8 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 "house_devices_total": house_devices_total,
                 "coverage_rating": "No data",
                 "whole_house_scope": self._whole_house_scope,
+                "whole_house_source": getattr(
+                    self, "_whole_house_source", "unknown"),
                 "scope_mismatch_warning": self._scope_mismatch_warning,
                 "post_restart_window": self._post_restart_window,
                 "midnight_reanchor_window": _in_mid,
@@ -3497,6 +3509,8 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 midnight_reanchor_window=in_midnight_window,
             ),
             "whole_house_scope": self._whole_house_scope,
+            "whole_house_source": getattr(
+                self, "_whole_house_source", "unknown"),
             "scope_mismatch_warning": self._scope_mismatch_warning,
             "post_restart_window": self._post_restart_window,
             # Exposed so live validation can DISCRIMINATE a suppressed
@@ -3528,6 +3542,39 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
             self._scope_mismatch_warning = ""
         return False
 
+    def _resolve_whole_house_sources(self) -> tuple[list[str], str]:
+        """Pick the whole-house TOTAL-consumption source for coverage.
+
+        COVERAGE-EVENING-ATTRIBUTION-DRIFT-1: coverage needs TOTAL house
+        consumption (unattributed = whole - rooms). The shared
+        CONF_WHOLE_HOUSE_ENERGY_SENSORS field is live-configured to the
+        Envoy NET sensor (grid import net of self-consumed solar), which
+        the cost sensor legitimately wants, so it is NOT changed. Instead
+        coverage prefers the Energy Coordinator's already-resolved total
+        entity (CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY, explicit config
+        or serial-derived default -- resolved once in __init__.py and held
+        on ``EnergyCoordinator._entity_lifetime_consumption``).
+
+        Falls back to the shared field when EC is absent, has no total
+        entity, or the entity does not exist in the state machine. An
+        EXISTING-but-unavailable entity is kept (no-data path) rather than
+        silently swapped to NET, so quantities never mix mid-day.
+        Returns ``(sensor_ids, source)``.
+        """
+        ec = _get_energy_coordinator(self.hass)
+        total_eid = getattr(ec, "_entity_lifetime_consumption", None) if ec else None
+        if (
+            isinstance(total_eid, str)
+            and total_eid
+            and self.hass.states.get(total_eid) is not None
+        ):
+            return [total_eid], WHOLE_HOUSE_SOURCE_EC_TOTAL
+        return (
+            self._get_sensor_list(
+                CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR),
+            WHOLE_HOUSE_SOURCE_CONFIGURED,
+        )
+
     def _get_whole_house_energy(self) -> float | None:
         """Get whole house energy (sum of all configured whole-house sensors).
 
@@ -3536,8 +3583,28 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         Mixed scopes flag ``scope_mismatch_warning`` AND skip the tier's
         contribution this cycle (B-H1).
         """
-        sensors = self._get_sensor_list(
-            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
+        sensors, source = self._resolve_whole_house_sources()
+        # Source-switch guard (Bug Class #7, boot/reload variant): NET and
+        # TOTAL are different quantities, so the cycle on which the
+        # resolved source flips (e.g. EC absent during boot or a CM reload)
+        # publishes no data instead of a value from the other quantity.
+        # The first-ever resolution (from "unknown") reads normally.
+        # _whole_house_source deliberately tracks the RESOLVED source every
+        # cycle (unlike _whole_house_scope, which retains on dead cycles):
+        # the guard compares against the previous pick, so a switch that
+        # happens during a dead cycle is still caught on that cycle.
+        previous = getattr(self, "_whole_house_source", "unknown")
+        self._whole_house_source = source
+        if previous != "unknown" and previous != source:
+            _LOGGER.debug(
+                "Energy coverage whole-house source switched %s -> %s; "
+                "publishing no data for this cycle", previous, source,
+            )
+            # Read-and-discard so the new source's today-delta baseline
+            # anchors at the switch moment (the next cycle reads cleanly).
+            if sensors:
+                self._classify_and_accumulate(sensors, "__whole_house__")
+            return None
         if not sensors:
             return None
 

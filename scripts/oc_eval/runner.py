@@ -397,7 +397,7 @@ class AnthropicClient:
     def turn(self, timeout: float) -> dict:
         d = CONFIG["defaults"]
         r = self.client.messages.create(
-            model=self.model, max_tokens=d["max_output_tokens"], temperature=d["temperature"],
+            model=self.model, max_tokens=d["max_output_tokens"],  # temperature is rejected by Claude 5.5 models (400 "deprecated")
             system=[{"type": "text", "text": SYSTEM_PROMPT}], tools=self.tools,
             tool_choice={"type": "auto"}, messages=self.messages, timeout=timeout)
         self.version_string = r.model
