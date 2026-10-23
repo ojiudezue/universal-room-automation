@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "EC-PREDICTOR-SOLCAST-UNWIRED-1@2026-10-23T02:09", "card_id": "EC-PREDICTOR-SOLCAST-UNWIRED-1", "at": "2026-10-23T02:09:00", "outcome": "measured", "headline": "New find: the solar forecast has been blank since 10-13. The forecast model is never given the (correctly configured) Solcast sensor; this regressed in v5.103.55. Tier 1 (2 lines + test), queued behind the review cap. Display-only impact.", "acknowledged": false}
+  - {"fid": "EC-FORECAST-TRUTH-GAPS-1@2026-10-23T02:09", "card_id": "EC-FORECAST-TRUTH-GAPS-1", "at": "2026-10-23T02:09:00", "outcome": "escalated", "headline": "Forecast truth gaps: 2 of 3 were wrong or already fixed (apparent-high is back; daily rows fill again since v5.103.82). APPROVE or park the historical backfill of the blank days.", "acknowledged": false}
+  - {"fid": "WALLPANEL-TOUCH-WITNESS-1@2026-10-23T02:09", "card_id": "WALLPANEL-TOUCH-WITNESS-1", "at": "2026-10-23T02:09:00", "outcome": "escalated", "headline": "Wall panels: about 2 touches/day each, too sparse to use for presence (parked). The useful part: all 7 are BLE proxies in the right rooms but probably not Bermuda scanners. APPROVE an attended Bermuda config check.", "acknowledged": false}
   - {"fid": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-23T02:05", "card_id": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1", "at": "2026-10-23T02:05:00", "outcome": "escalated", "headline": "New find: the AC kWh-avoided 'total' and $ 'lifetime' sensors are 30-day windows that drop every midnight and read 0 for about a minute after each restart. HA's long-term sum is about 212,000 kWh of junk. PICK A (Tier 1 relabel + restart guard, default) or B (true running total). Not built: review lane at cap.", "acknowledged": false}
   - {"fid": "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1@2026-10-23T02:05", "card_id": "HOUSE-STATE-AWAY-FLAP-UNTRACKED-OCCUPANT-1", "at": "2026-10-23T02:05:00", "outcome": "done", "headline": "AWAY flap fix holds: AWAY entries/day 11-42 before v5.103.72, 0-3 after. Two one-off blips noted on the card, not carded.", "acknowledged": false}
   - {"fid": "SECURITY-REFIRE-INTRUSION-KEY-1@2026-10-23T02:05", "card_id": "SECURITY-REFIRE-INTRUSION-KEY-1", "at": "2026-10-23T02:05:00", "outcome": "done", "headline": "Soak exit: v5.103.71 trio (security re-fire key, zone-delete orphans, setup task tracking) closed: merged, loaded, proven in the suite, rare paths.", "acknowledged": false}
@@ -57,6 +60,25 @@ meta:
   - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
   - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
+- id: EC-PREDICTOR-SOLCAST-UNWIRED-1
+  title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
+  thread: "energy"
+  status: "planned"
+  tier: 1
+  created: "2026-10-23 02:09"
+  updated: "2026-10-23 02:09"
+  refinement_status: "initial"
+  approval: "implied"
+  tags: ["found-during-probe", "no-fabrication-verify", "regression"]
+  problem_solution: ["Problem: since v5.103.55 (10-13) removed this house's entity names from the code defaults, the energy forecast model gets no Solcast sensor at all. The Solcast sensor is set correctly in the Coordinator Manager settings, but the code that builds the forecast model never passes it in. So the expected solar for today is blank, and the 'forecast today', 'predicted grid import' and 'battery full time' displays read unknown. Solution: pass the two configured Solcast settings (today and remaining-today) into the forecast model, the same way the battery strategy already reads them, and add a test that builds the model from a real config entry."]
+  origin: {"date": "2026-10-23", "gist": "overnight probe of EC-FORECAST-TRUTH-GAPS-1 gap (a)"}
+  measured_2026_10_23_overnight: "Verified in source by the orchestrator (not just the prober): energy.py:731-749 constructs DailyEnergyPredictor with battery_soc / weather / battery_capacity / bayesian / profiles / room_ids / occupancy / battery_power, but NO solcast_today_entity / solcast_remaining_entity. energy_forecast.py:81-82 then fall back to DEFAULT_SOLCAST_TODAY_ENTITY / DEFAULT_SOLCAST_REMAINING_ENTITY, both None since commit 36b08ba78 (EC-HOUSE-ENTITY-DEFAULTS-1 Rev 5, 10-13, energy_const.py:246). Live (prober, recorder + core.config_entries): CM entry has energy_solcast_today_entity = sensor.solcast_pv_forecast_forecast_today (111.28 kWh at 10-23 00:00, healthy). sensor.ura_energy_coordinator_energy_forecast_today = unknown. COMPLETENESS SWEEP (orchestrator, every DEFAULT_*=None/[] in energy_const/energy_pool/energy_circuits): every other site resolves through a config-aware lookup (_get_entity / _cfg / cm_config.get) - energy_battery.py:2271-2285 reads solcast_today/remaining/tomorrow correctly. The predictor constructor is the ONLY bare-default site. CONSUMERS: display only - sensor.py:12124 predicted_import_kwh, :12137 forecast attrs, energy.py:12350 battery_full_time (display + hold cache). No battery/arbitrage decision reads predicted_production. Side effect: generate_prediction (energy_forecast.py:187) re-predicts on every call while production stays None (harmless churn)."
+  parsimony: {"problem": "The forecast model reads a None Solcast entity because the configured one is never passed to its constructor", "verdict": "BUILD", "note": "Two keyword arguments plus a test. Display-only consumers, no decision path."}
+  knobs: ["none new: reuses CONF_ENERGY_SOLCAST_TODAY_ENTITY / CONF_ENERGY_SOLCAST_REMAINING_ENTITY (energy_const.py:299-300)"]
+  links: {"parent": "EC-FORECAST-TRUTH-GAPS-1", "related": ["EC-HOUSE-ENTITY-DEFAULTS-1"], "context": "EC-FORECAST-TRUTH-GAPS-1 is the scoring/training-truth card whose gap (a) this is. EC-HOUSE-ENTITY-DEFAULTS-1 (v5.103.55, done) introduced the regression by nulling the defaults; its pin migration covered the config entry but this constructor never read it."}
+  rank: {"value": 6, "time_criticality": 5, "effort": 2}
+  next: "Me: Tier 1 build (energy.py:731 pass solcast_today_entity=ec.get(CONF_ENERGY_SOLCAST_TODAY_ENTITY), solcast_remaining_entity=ec.get(CONF_ENERGY_SOLCAST_REMAINING_ENTITY); test builds the EC from a config entry and asserts the predictor reads the configured id; mutation-drill removing one kwarg) as soon as the review lane is under its 3-card cap. Live check after deploy: sensor.ura_energy_coordinator_energy_forecast_today numeric within one decision cycle; battery_full_time attrs no longer missing_input=solcast."
+  refs: ["custom_components/universal_room_automation/domain_coordinators/energy.py:731-749", "custom_components/universal_room_automation/domain_coordinators/energy_forecast.py:81-82,187,245,546", "custom_components/universal_room_automation/domain_coordinators/energy_const.py:246,299-300", "commit 36b08ba78"]
 - id: HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1
   title: "The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh"
   thread: "hvac"
@@ -178,19 +200,20 @@ cards:
   adjacency: "NEW."
   verified_2026_10_21: "Not wrong data: the class OccupancyPatternDetectedSensor was a stub that always returned 'No Pattern Detected' (TODO), removed in v3.20.2 (13b992fd4, 2026-03-31) with 14 other stub entities. 27 registry rows remain (disabled-by-default diagnostic); const STATE_OCCUPANCY_PATTERN still defined, unused. Removing the rows changes nothing now; keeping them costs nothing; a future sensor with the same unique_id would reattach to them."
 - id: EC-FORECAST-TRUTH-GAPS-1
-  updated: "2026-10-21 22:05"
+  measured_2026_10_23_overnight: "Investigation run (ura-prober, read-only; key claim re-verified in source by the orchestrator). CARD-WAS-WRONG on two of three gaps. (a) There is NO predicted_production_kwh column in energy_daily (schema read); the value lives only in the predictor's memory. It is blank because the predictor is never given the Solcast entity: split out as [[EC-PREDICTOR-SOLCAST-UNWIRED-1]] (Tier 1 regression from v5.103.55). (b) weather_apparent_forecast_high is AVAILABLE now (84.0 at 01:29 10-23); the 10-21 'unavailable' was most likely an empty cache right after a restart (not verified). Not a defect today. (c) Missing/NULL rows are FIXED GOING FORWARD by v5.103.82: 10-22 row (source counters) has consumption 103.3, solar 97.25, predicted 114.0. Still all-NULL: 10-01, 10-05..10-17, 10-21; 10-18 has prediction only. Also seen, not investigated: solar_production_kwh = 0.0 (not NULL) on 10-02..04. Backfill: scripts/backfill_energy_daily_from_counters.py has NO solar mode (args lines 395-407; docstring line 36 says it never touches consumption/solar/prediction). So the residual work on this card is the historical backfill only."
+  updated: '2026-10-23 02:09'
   links_added_2026_10_21: "related+ENERGY-CONSUMPTION-FORECAST-POISONED-1,PREDICT-SCORER-BASELINE-SKILL-1: Poisoned consumption days are one of the truth gaps; PREDICT-SCORER-BASELINE-SKILL-1 is the same skill-over-baseline scoring question for room predictions."
   links: {"related": ["EC-SOLAR-LIFETIME-COUNTER-FLAP-1", "ENERGY-CONSUMPTION-FORECAST-POISONED-1", "PREDICT-SCORER-BASELINE-SKILL-1"], "context": "Poisoned consumption days are one of the truth gaps; PREDICT-SCORER-BASELINE-SKILL-1 is the same skill-over-baseline scoring question for room predictions."}
   rerank_2026_10_21: "unscored -> v6 t4 e5: forecast scoring/training blocked on missing truth rows; same counter family the v5.103.82 fix just repaired"
   rank: {"value": 6, "time_criticality": 4, "effort": 5}
   title: "Energy forecasts cannot be scored or trained: energy_daily has missing days, predicted production is null, apparent forecast high is unavailable"
   thread: energy
-  status: "planned"
+  status: waiting_operator
   tier: 2
   created: "2026-10-21 17:10"
   origin: "Predictions audit 2026-10-21, suggested card 4; folds the solar backfill residual of EC-SOLAR-LIFETIME-COUNTER-FLAP-1."
   why: "energy_daily consumption/prediction rows missing 10-05..10-17 entirely; predicted_production_kwh null (solar input null so forecast_today/forecasted_import read unknown); weather_apparent_forecast_high unavailable; EC consumption forecast self-scored 'poor' (10-19: 211-224 kWh forecast vs 107.9 actual); persistence beats it. Past solar rows are not repaired by scripts/backfill_energy_daily_from_counters.py (Emporia legs only)."
-  next: "Investigate null predicted production + apparent-forecast-high; then a backfill mode reading CT statistic 5654 (solar) and recomputing consumption for 09-13..10-21, dry-run first, operator APPROVE before --apply."
+  next: "APPROVE (scope check): the remaining work here is only the historical backfill of the NULL days (10-01, 10-05..10-17, 10-18 actuals, 10-21) from the solar/consumption counters, as a new dry-run-first mode in the backfill script (Tier 2; you approve before --apply). The live gaps are fixed or split out. -> On APPROVE I plan it with one plan review. Default if no answer: park it until the forecast-scoring work needs history older than 10-22."
   adjacency: "NEW; adjacent to the solar card (same table)."
 - id: BLE-FOYER-STUDYA-RETUNE-1
   updated: "2026-10-21 22:05"
@@ -254,20 +277,22 @@ cards:
 
   resolved_2026_10_21_bridge_colour: "Follow-up (d) DONE: HomeLab bridge 1.7.0 on all 7 panels publishes color_mode/color/effect after each command and on reconnect (root cause: state omitted color_mode so HA dropped the colour; effect never published; repeated commands dropped). Verified via Halo: Kitchen and 5-panel fleet blink read rgb [0,0,255] effect blink, release -> off."
 - id: WALLPANEL-TOUCH-WITNESS-1
-  updated: "2026-10-21 22:05"
+  measured_2026_10_23_overnight: "Measurement run (ura-prober, recorder read-only; panel entities only exist from ~10-19/20, so 3-4 days). TOUCH: about 2 real touches a day per panel (max 4/day; media_room 0), after excluding 50-106 reconnect republishes per panel (rows within 2 min of an app_uptime change). Too sparse to matter as a presence witness: PARK this leg. NOISE: 6-53 samples/h, not 1/min. Only kitchen and entry_way track activity (day median 20-40 dB above night); the other five sit near the -96 dBFS floor: PARK. BLE: all 7 panels (master, study_a, study_b, media_room, up_hallway, kitchen, entry_way=foyer) are Bluetooth-proxy devices with the right area_id in the device registry. Bermuda's stored scanners list shows only the host adapter, and the recorder has NO 'distance_to' sensor for any panel (orchestrator query on states_meta). So the panels are probably NOT used as Bermuda room scanners yet. Not proven: runtime use was not checked. That BLE leg is the only one with value, and it is a config question, not code."
+  refinement: ["measure-first (10-23) -> touch and noise are too sparse to be presence inputs; the value is the panels as room BLE scanners, which is Bermuda configuration, not URA code"]
+  updated: '2026-10-23 02:09'
   links_added_2026_10_21: "related+WALLPANEL-URA-NOTIFY-1,TABLET-FLEET-1: Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work."
   links: {"related": ["WALLPANEL-URA-NOTIFY-1", "TABLET-FLEET-1"], "context": "Same Halo panel fleet; touch/BLE inputs follow the S1b/S2 output work."}
   rerank_2026_10_21: "unscored -> v4 t2 e5: follows Halo S1b/S2; useful presence witness but not urgent"
   rank: {"value": 4, "time_criticality": 2, "effort": 5}
   title: "Wall-panel sensors as URA inputs (touch witness, BLE proxy scanners, ambient noise; temp/lux low value)"
-  status: "pre_planning"
+  status: waiting_operator
   tier: 2
   thread: "presence"
   created: "2026-10-20 08:30"
   origin: {"date": "2026-10-20", "gist": "HomeLab accepted idea 3 (ffa7d06)."}
   why: "A touch within <=120 s may veto a 'vacated' verdict (fan recheck) or 'nobody home'; never infer absence from no touch; ignore last_interaction changes within ~2 min of sensor.<p>_app_uptime changing (republish on reconnect). Needs presence state-of-play read + measure touch rate first."
   panel_sensor_facts_2026_10_20: "HomeLab withdrew the not-presence framing (operator asked). Temp +3.6-3.8F high vs room sensors, varies with brightness/CPU; humidity within 1-3 pts; lux screen-biased; ambient_noise dBFS ~1/min (activity); last_interaction touch; motion/face need camera (off, CPU cost); proximity ~5 cm; each panel is a BLE proxy (Master sees ~88). Ranking by marginal value: BLE proxy as Bermuda scanner > touch witness > noise activity >> temp/lux (rooms already have better sensors)."
-  next: "Check whether panels are already Bermuda scanners mapped to their rooms; measure touch + noise rates; then plan."
+  next: "APPROVE (BLE config is tuned, so not overnight): let me open Bermuda's scanner settings in an attended session and, if the 7 panel proxies are not active scanners, enable them with their rooms (the Foyer one is exactly the Foyer scanner BLE-PROXY-PLACEMENT-1 wants). -> I then re-measure room-level BLE accuracy for Foyer/Study B/Media Room. Touch-witness and noise legs are parked (measured too sparse)."
 - id: PAUSED-ROOM-FLEET-ALERT-1
   title: "Fleet-wide 'rooms paused too long' alert sensor for the wall-panel chip"
   status: "done"
@@ -31905,6 +31930,7 @@ cards:
   next: "None. Wigton: its 10-04 notes (homelab CONFIGS.md) already record that http settings live in .storage/http there; if a YAML http: block exists on Wigton, remove it during WIGTON-URA-REENABLE-1."
   updated: "2026-10-15 02:11"
 - id: BLE-PROXY-PLACEMENT-1
+  INSTANCE_2026_10_23_wallpanels: "Found while measuring WALLPANEL-TOUCH-WITNESS-1: the 7 wall panels are already Bluetooth proxies with rooms assigned, including entry_way = Foyer. Bermuda probably does not use them as scanners yet (no panel distance sensors). If enabled, the Foyer panel may cover the first placement on this card without new hardware. See [[WALLPANEL-TOUCH-WITNESS-1]]."
   verify_2026_10_23: "Overnight re-check 02:01: BP1_B still offline (distance sensor unavailable since 10-21 18:28). Still waiting on power-up."
   verify_2026_10_22: "Overnight re-check 02:0x: BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b = unavailable since the 10-21 restart). Still waiting on the power-up."
   reverified_2026_10_20_overnight: "STILL-REAL 02:05 CDT: update.screek_bp1_b_firmware unavailable (BP1_B still offline)."
@@ -31927,7 +31953,7 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
-  updated: '2026-10-23 02:05'
+  updated: '2026-10-23 02:09'
   reverified_2026_10_18_overnight: "STILL-REAL: BP1_B still offline (sensor.*_distance_to_screek_bp1_b = unavailable for both tracked iPhones; bp1_a reads unknown). Your DO stands."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable)."
 - id: EV-TRIPWIRE-TESTS-ORDER-DEPENDENT-1
