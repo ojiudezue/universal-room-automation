@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-23T02:04:18-05:00_ - _Data commit: `8d2da47a80ba`_ - _last_reconciled: 2026-10-23_
+_Generated: 2026-10-23T02:09:08-05:00_ - _Data commit: `a79576aa28d8`_ - _last_reconciled: 2026-10-23_
 
 
 ## Columns
@@ -514,12 +514,13 @@ _created 2026-10-21 20:10 · updated 2026-10-21 22:05_
 
 ### `EC-LOADED-VS-INSTALLED-VERSION-1` - Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature — _#2 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **platform** - status: **review** - approval: **unreviewed**
-_created 2026-10-17 16:30 · updated 2026-10-22 02:04 · refined_
+_created 2026-10-17 16:30 · updated 2026-10-23 02:43 · refined_
 - **Origin:** 2026-10-17 - EC-OUTAGE-LEDGER-NWS-ROWS-DEAD-1 investigation: the ledger looked broken because the deploy was installed (HACS) but HA was not restarted until the next day (restart holds: no restart while the house sleeps, <=1/day while op...
 - **Why:** Install and restart are decoupled by policy (feedback_no_restart_during_sleep, travel restart budget), so installed != running is a normal state that must be visible. A misread costs investigation time and can make live validation record...
 - **Next:** Me, next attended session: merge fix/loaded-vs-installed-version to develop (rename its README to the release version), ship with the next batch; live check = repair issue absent when loaded == installed, present after a HACS install bef...
 - **Parsimony:** [BUILD (Tier 1, small; reuse sw_version)] After a deploy is installed but HA has not restarted, nothing shows that the running URA is older than the installed one, so live checks silently read old code.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `merge_prep_2026_10_23`: MERGE-PREP 2026-10-23 overnight (read/test only, nothing merged to develop): both review branches (fix/loaded-vs-installed-version, fix/coverage-total-consumption) are 80 commits behind develop; code auto-merges cleanly, the ONLY conflic...
   - `review_2026_10_22`: Overnight Tier-1 review (framing A) = SHIP, no CRITICAL/HIGH. 18 tests pass; 3 single-site mutations each went RED (force-equal, v-prefix strip off, delete_issue -> pass); git status clean after. Two LOWs accepted: an unreadable manifest...
   - `rerank_2026_10_21`: v4 t3 e2 -> v5 t4 e2: already built; a stale-loaded URA misled live validation for ~23 h, and merging is near-free
   - `lane_fix_2026_10_21`: in_progress -> review: built on fix/loaded-vs-installed-version (b3636161a, 10-20), not merged to develop; awaiting review + merge, not in progress
@@ -529,7 +530,7 @@ _created 2026-10-17 16:30 · updated 2026-10-22 02:04 · refined_
 
 ### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#3 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **review** - approval: **unreviewed**
-_created 2026-09-23 03:10 · updated 2026-10-22 02:08 · refined_
+_created 2026-09-23 03:10 · updated 2026-10-23 02:43 · refined_
 - **Problem / Solution:**
   - Problem: URA checks its own energy bookkeeping by adding up everything it attributed to individual rooms and comparing that against the meter for the whole house. On several evenings the room total has crept PAST the whole-house figure a...
 - **Origin:** 2026-09-23 - fell out of the 10-day recorder measurement run to size the midnight window on COVERAGE-RATING-FALSE-ANOMALOUS-1; the ANOMALOUS samples split into two populations and only one of them was the artifact that card describes
@@ -538,7 +539,8 @@ _created 2026-09-23 03:10 · updated 2026-10-22 02:08 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first
 - **Parsimony:** [BUILD] On at least three of the last five evenings, attributed room energy exceeded whole-house energy by a growing margin for 6-10 consecutive hours, which is physically impossible and therefore means one of the two inputs is wrong.
 - **Refs:** commit c5ea7dfc7 — the sibling fix, whose measurement produced this finding; docs/planning/PLANNING_energy_unit_normalization_and_attribution.md — prior art on the unit-mismatch story the classifier used to assert
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `merge_prep_2026_10_23`: MERGE-PREP 2026-10-23 overnight (read/test only, nothing merged to develop): both review branches (fix/loaded-vs-installed-version, fix/coverage-total-consumption) are 80 commits behind develop; code auto-merges cleanly, the ONLY conflic...
   - `review_b_2026_10_22`: Overnight review B (consumers + lifecycle + per-site mutation) = SHIP, no code changes. All 7 load-bearing sites went RED under single-site mutation (122-test baseline, __pycache__ cleared, tree restored clean). No consumer outside aggre...
   - `lane_fix_2026_10_21`: in_progress -> review: built on fix/coverage-total-consumption (4472a6ff4 + review-A fix-up 6945e1228, 10-21), not merged; awaiting second review + merge
   - `triage_2026_10_17`: Default B taken: reuse the existing lifetime-consumption entity.
