@@ -16,10 +16,10 @@ _Generated: 2026-10-22T16:36:50-05:00_ - _Data commit: `2c25d29fa581`_ - _last_r
 | 🔨 In progress | 1 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 28 |
-| ⏳ Waiting on me (Claude) | 2 |
+| ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 27 |
 | 🅿️ Parked | 101 |
-| ✅ Done | 359 |
+| ✅ Done | 360 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1075,22 +1075,10 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (2)
+## ⏳ Waiting on me (Claude) (1)
 _I owe something_
 
-### `BLE-FOYER-STUDYA-RETUNE-1` - Oji's phone reads Foyer ~35% of true Study A time (shared wall, new Foyer scanners); Bermuda offsets retuned 10-21 — _#1 · WSJF 13.0 · v4 tc7 u2 /e1_
-thread: **presence** - status: **waiting_me**
-_created 2026-10-21 17:10 · updated 2026-10-21 22:05_
-- **Why:** Applied 16:5x 10-21 (Bermuda options, calibration2): First BLE Proxy Foyer +3->0, Entry Way Panel 0->-3, Screek BP1_A +3->+6, Study A Panel 0->+3. Others unchanged (Master Screek +6, BedPresence +6, Jaya +12). Undo = set those four back....
-- **Next:** Me: after ~1 day of normal use, re-measure share of true Study A time where iphone_oji_area = Foyer (was 35%) and Study A pulling from Study B / Master Bedroom; then close or adjust; consider Receiving Room.
-- **Forensic keys (5):**
-  - `links_added_2026_10_21`: related+STUDYA-ZK-EMPTY-HOLD-1,BLE-PROXY-PLACEMENT-1: Same Study A room-attribution thread (radar hold vs BLE misplacement); BLE-PROXY-PLACEMENT-1 owns where scanners go.
-  - `rerank_2026_10_21`: unscored -> v4 t7 e1: dated re-measure due 10-22 19:10 after the 10-21 Bermuda offset change
-  - `tier`: 1
-  - `adjacency`: NEW; swept BLE/Bermuda cards.
-  - `due_checks_2026_10_21`: DUE 10-22 19:10: re-measure Foyer share of true Study A time (was 35%) and Study B/Master pull.
-
-### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#2 · WSJF 6.5 · v7 tc4 u2 /e2_
+### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
 thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
 _created 2026-10-14 02:50 · updated 2026-10-21 22:05 · refined_
 - **Problem / Solution:**
@@ -2890,7 +2878,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (359)
+## ✅ Done (360)
 _closed, evidence in refs_
 
 ### `EC-SELFHEAL-UNEXPLAINED-RESENDS-1` - Reserve write checker uses a frozen local reading (stuck at 10% since Aug) -> false "write stuck" re-sends + CRITICAL pages 1-5/day (was: unexplained 10-14 re-sends of 90; cloud stuck at 6 while URA sent 10 x49) — _WSJF 2.8 · v7 tc5 u2 /e5_
@@ -2969,6 +2957,19 @@ _created 2026-10-20 · updated 2026-10-22 02:04_
   - `rerank_2026_10_21`: unscored -> v3 t3 e1: one-shot re-run of an existing script; closes a physical-change question
   - `tier`: 1
   - `revisit_if`: 5+ normal days with the family home and outdoor > 80 F since 10-18
+
+### `BLE-FOYER-STUDYA-RETUNE-1` - Oji's phone reads Foyer ~35% of true Study A time (shared wall, new Foyer scanners); Bermuda offsets retuned 10-21 — _WSJF 13.0 · v4 tc7 u2 /e1_
+thread: **presence** - status: **done**
+_created 2026-10-21 17:10 · updated 2026-10-21 22:05_
+- **Why:** Applied 16:5x 10-21 (Bermuda options, calibration2): First BLE Proxy Foyer +3->0, Entry Way Panel 0->-3, Screek BP1_A +3->+6, Study A Panel 0->+3. Others unchanged (Master Screek +6, BedPresence +6, Jaya +12). Undo = set those four back....
+- **Next:** Me: after ~1 day of normal use, re-measure share of true Study A time where iphone_oji_area = Foyer (was 35%) and Study A pulling from Study B / Master Bedroom; then close or adjust; consider Receiving Room.
+- **Forensic keys (6):**
+  - `links_added_2026_10_21`: related+STUDYA-ZK-EMPTY-HOLD-1,BLE-PROXY-PLACEMENT-1: Same Study A room-attribution thread (radar hold vs BLE misplacement); BLE-PROXY-PLACEMENT-1 owns where scanners go.
+  - `rerank_2026_10_21`: unscored -> v4 t7 e1: dated re-measure due 10-22 19:10 after the 10-21 Bermuda offset change
+  - `validated_2026_10_22`: Recorder re-measure, 30 s samples, true Study A = study_a_occupied on AND foyer_foyer_occupied off. BEFORE (7 d to 10-21 16:58, 24.5 h true Study A): Oji phone Study A 47.2%, Foyer 31.5%. AFTER (26.3 h, 10.0 h true Study A): Study A 81.3...
+  - `tier`: 1
+  - `adjacency`: NEW; swept BLE/Bermuda cards.
+  - `due_checks_2026_10_21`: DUE 10-22 19:10: re-measure Foyer share of true Study A time (was 35%) and Study B/Master pull.
 
 ### `EV-FILL-PRIORITY-SOC-CHATTER-1` - The car charger switches off and back on when the battery sits right at the 80% "fill the battery first" line — _WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **energy** - status: **done** - approval: **blocked**

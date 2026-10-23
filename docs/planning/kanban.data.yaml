@@ -174,7 +174,8 @@ cards:
   rank: {"value": 4, "time_criticality": 7, "effort": 1}
   title: "Oji's phone reads Foyer ~35% of true Study A time (shared wall, new Foyer scanners); Bermuda offsets retuned 10-21"
   thread: presence
-  status: "waiting_me"
+  status: "done"
+  validated_2026_10_22: "Recorder re-measure, 30 s samples, true Study A = study_a_occupied on AND foyer_foyer_occupied off. BEFORE (7 d to 10-21 16:58, 24.5 h true Study A): Oji phone Study A 47.2%, Foyer 31.5%. AFTER (26.3 h, 10.0 h true Study A): Study A 81.3%, Foyer 3.4% (Kitchen 3.6, unknown 3.5, Master Bedroom 2.3). No new pull: phone samples reading Study A while Study B / Master Bedroom occupied and Study A empty 0.0% / 0.02% (before 0.0% / 0.01%); Study B occupied time is thin (0.9 phone-h). Keep the four offsets. Receiving Room spillover not re-measured; not reopened (0.1% precision, no complaint)."
   tier: 1
   created: "2026-10-21 17:10"
   origin: "Operator 2026-10-21: 'retune foyer and study A based on history'; approved the four-offset change."
