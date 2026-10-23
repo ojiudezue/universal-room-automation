@@ -463,7 +463,8 @@ cards:
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
   next: "Me, next attended session: merge fix/loaded-vs-installed-version to develop (rename its README to the release version), ship with the next batch; live check = repair issue absent when loaded == installed, present after a HACS install before restart."
   lane_fix_2026_10_21: "in_progress -> review: built on fix/loaded-vs-installed-version (b3636161a, 10-20), not merged to develop; awaiting review + merge, not in progress"
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.86
   title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
   thread: platform
   tier: 1
@@ -29768,7 +29769,8 @@ cards:
   next: "Me, next attended session: merge fix/coverage-total-consumption to develop (renumber its README), ship in the next batch; live check = the coverage delta stops climbing past the whole-house figure on the first evening after restart."
   updated: '2026-10-23 02:43'
   lane_fix_2026_10_21: "in_progress -> review: built on fix/coverage-total-consumption (4472a6ff4 + review-A fix-up 6945e1228, 10-21), not merged; awaiting second review + merge"
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.86
   triage_2026_10_17: "Default B taken: reuse the existing lifetime-consumption entity."
   gate_2026_09_28_prior_art: 'BUILD GATE, overnight 2026-09-28. STOPPED AT STEP 2 (prior art), because the scan changes the plan. (1) VALIDITY: still real. The live integration entry still has whole_house_energy_sensors = [sensor.envoy_482543015950_lifetime_net_energy_consumption] (read from /config/.storage/core.config_entries tonight). (1b) CONFIG-FIRST: not solvable by config alone, because cost wants NET (see escalation_2026_09_23). (2) PRIOR ART, the finding: the Energy coordinator ALREADY has a total-consumption entity setting, CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY (energy_const.py:751). Its serial-derived default is exactly the entity this card wants, sensor.envoy_{serial}_lifetime_energy_consumption (energy_const.py:1109), and it is read at energy.py:193. It is not set explicitly in the CM options, so the default applies. The plans "add a NEW whole-house TOTAL-consumption options field" therefore duplicates an existing setting. The REUSE alternative is for the coverage sensor (aggregation.py EnergyCoverageDeltaSensor) to read the EC-configured total entity. That adds no new config surface, but it creates a new cross-entry read (the integration entry reading CM/EC config), which is a design choice, not a mechanical build. SIDE NOTE (LOW, doc drift): the energy.py:774 and :2745 comments say "with a net-consumption CT, lifetime_energy_consumption = net grid import only". The 09-23 identity measurement (total 28.64 vs net 12.93 MWh; total minus net = production minus export to 5 decimals) shows it is TOTAL on this Envoy. That is harmless, because EC derives daily consumption from 5 independent lifetime sensors and not from that entity (energy.py:2767-2790), but the comment is stale. Also: every Envoy entity was unavailable at 02:50 CDT (ENVOY-FLAKINESS-181243-1), so coverage shows No data during dropouts either way.'
   disposition_2026_09_26_groom: 'CALL MADE: option (A) SPLIT THE FIELD — coverage reads a new whole-house TOTAL-consumption setting, cost keeps reading NET; correct for both readers. (B) would inflate reported cost ~55%; (C) teaches the audit a subtraction that duplicates what the total sensor already measures. Adjacent to COVERAGE-RATING-FALSE-ANOMALOUS-1 (shipped v5.103.15).'
