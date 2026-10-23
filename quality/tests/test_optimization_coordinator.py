@@ -5951,3 +5951,132 @@ async def test_ocr_other_dimensions_untouched_and_kill_switch(monkeypatch):
     for _ in range(3):
         await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
     assert len(_ocr_rows(db)) == 6
+
+
+# ----------------------------------------------------------------------
+# OC-REEMIT-DEDUP fix-up (reviews A1/B2, A2, A3/B1)
+# ----------------------------------------------------------------------
+
+_OCR_PRED_KEY = ("prediction_accuracy", "house")
+_OCR_PRED_A = "Prediction quality degraded: data_quality_pct 42.0% < floor 60.0%"
+
+
+def _ocr_plain_coord(monkeypatch, at):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass, _ = _make_hass()
+    coord = opt_mod.OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+    clock = {"now": at}
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: clock["now"])
+    return coord, db, clock, opt_mod.OptimizationDimension
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_unchanged_meta_repersists_after_interval(monkeypatch):
+    """A1/B2 — an unchanged cycle_ok must re-persist once its last write is
+    older than 24h (86400 s literal), else the 7d low-severity prune leaves
+    zero liveness rows. 86399 s: suppressed; 86401 s: persisted."""
+    coord, db, clock, D = _ocr_plain_coord(monkeypatch, _OCR_T0)
+    meta = lambda: [_ocr_finding(D.META, "cycle_ok")]  # noqa: E731
+    await coord._persist_findings_batch(meta())
+    assert len(_ocr_rows(db)) == 1
+    clock["now"] = _OCR_T0 + _ocr_td(seconds=86399)
+    await coord._persist_findings_batch(meta())
+    assert len(_ocr_rows(db)) == 1, "re-persisted before the interval"
+    clock["now"] = _OCR_T0 + _ocr_td(seconds=86401)
+    await coord._persist_findings_batch(meta())
+    assert len(_ocr_rows(db)) == 2, "unchanged row never re-asserted"
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_cleared_then_recur_same_text_repersists(monkeypatch):
+    """A2 — the prediction fact clears (absent from the cycle's findings)
+    then recurs with IDENTICAL text an hour later: the recurrence is a new
+    episode and must persist."""
+    coord, db, clock, D = _ocr_plain_coord(monkeypatch, _OCR_T0)
+    pred = _ocr_finding(D.PREDICTION_ACCURACY, _OCR_PRED_A, _OCR_PRED_KEY)
+    meta = _ocr_finding(D.META, "cycle_ok")
+    coord._prune_persist_on_change([pred, meta])
+    await coord._persist_findings_batch([pred, meta])
+    clock["now"] = _OCR_T0 + _ocr_td(minutes=5)
+    coord._prune_persist_on_change([meta])  # cleared this cycle
+    await coord._persist_findings_batch([meta])
+    clock["now"] = _OCR_T0 + _ocr_td(hours=1)
+    coord._prune_persist_on_change([pred, meta])  # recurs, same text
+    await coord._persist_findings_batch([pred, meta])
+    descs = [f.description for f in _ocr_rows(db)]
+    assert descs.count(_OCR_PRED_A) == 2, descs
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_cycle_body_prunes_cleared_on_change_entry(monkeypatch):
+    """A2 wire-in anchor — `_run_cycle_body` (the enclosing method) drops
+    the cached prediction entry when the evaluator emits nothing, and keeps
+    the META entry (present every cycle)."""
+    coord, _db, _clock, D = _ocr_plain_coord(monkeypatch, _OCR_T0)
+    pk = (str(D.PREDICTION_ACCURACY), str(_OCR_PRED_KEY))
+    mk = (str(D.META), "None")
+    coord._persist_on_change_last[pk] = (_OCR_PRED_A, _OCR_T0)
+    coord._persist_on_change_last[mk] = ("cycle_ok", _OCR_T0)
+    coord._evaluate_prediction_accuracy_dimension = lambda: []
+    coord._update_scoreboard = lambda *_a, **_k: None
+    coord._run_llm_meta_pass = AsyncMock(return_value=[])
+    coord._persist_findings_batch = AsyncMock(return_value=None)
+    coord._dispatch_actions = AsyncMock(return_value=None)
+    coord._notify_if_severe = AsyncMock(return_value=None)
+    await coord._run_cycle_body()
+    assert pk not in coord._persist_on_change_last
+    assert mk in coord._persist_on_change_last
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_failed_write_leaves_no_stamp(monkeypatch):
+    """A3/B1 — the DAO swallows insert errors and returns 0; it may also
+    raise. Neither may stamp: the next cycle must write the row."""
+    coord, db, clock, D = _ocr_plain_coord(monkeypatch, _OCR_T0)
+    db.log_findings_batch = AsyncMock(return_value=0)
+    await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    db.log_findings_batch = AsyncMock(side_effect=RuntimeError("db"))
+    await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    db.log_findings_batch = AsyncMock(return_value=1)
+    await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    assert len(_ocr_rows(db)) == 1, "row suppressed by a stamp from a failed write"
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_tripwire_drop_leaves_no_stamp(monkeypatch):
+    """A3/B1 — a tripwire-dropped batch is not persisted, so it is not
+    stamped; once the tripwire clears the row is written."""
+    coord, db, clock, D = _ocr_plain_coord(monkeypatch, _OCR_T0)
+    coord._check_write_volume_tripwire = lambda: True
+    await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    assert _ocr_rows(db) == []
+    coord._check_write_volume_tripwire = lambda: False
+    await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    assert len(_ocr_rows(db)) == 1
+
+
+@pytest.mark.asyncio
+async def test_ocr_fixup_never_fires_stamp_not_set_on_failed_write(monkeypatch):
+    """A3/B1 — never_fires `last_persisted` is Store-persisted, so a false
+    stamp would survive restart. A failed write must leave it None and the
+    RAM suppressor empty; the next successful write stamps it."""
+    at = _OCR_T0 + _ocr_td(days=7, seconds=1)
+    coord, db = _ocr_coord(monkeypatch, at)
+    _nf_prime(coord)
+    coord._never_fires_state[_OCR_EID] = _nf_record(_OCR_T0.isoformat())
+    db.log_findings_batch = AsyncMock(return_value=0)
+    await coord._persist_findings_batch(
+        coord._evaluate_sensor_never_fires_dimension())
+    assert coord._never_fires_payload_provider()[_OCR_EID]["last_persisted"] is None
+    assert coord._never_fires_persisted_key(_OCR_EID) not in (
+        coord._sensor_health_last_persisted)
+    db.log_findings_batch = AsyncMock(return_value=1)
+    await coord._persist_findings_batch(
+        coord._evaluate_sensor_never_fires_dimension())
+    assert len(_ocr_rows(db)) == 1
+    assert (coord._never_fires_payload_provider()[_OCR_EID]["last_persisted"]
+            == at.isoformat())
