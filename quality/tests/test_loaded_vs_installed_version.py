@@ -209,12 +209,27 @@ def test_integration_setup_entry_calls_version_check():
     import sys
 
     pkg = "custom_components.universal_room_automation"
-    with patch.dict(sys.modules):
-        for key in [k for k in sys.modules if k == pkg or k.startswith(pkg + ".")]:
-            del sys.modules[key]
-        live_ura = importlib.import_module(pkg)
-        live_vc = importlib.import_module(pkg + ".version_check")
-        _run_setup_with_fake_start(live_ura, live_vc, fake_start, hass, entry, _noop)
+    # patch.dict restores sys.modules but NOT the parent package attribute:
+    # the fresh import rebinds custom_components.universal_room_automation to
+    # the throwaway package, and later `import a.b.c as x` resolves through
+    # that attribute (suite-order red on test_night_light_off_path D3b,
+    # bisected 2026-10-23). Restore it explicitly.
+    parent = sys.modules.get("custom_components")
+    _missing = object()
+    orig_attr = getattr(parent, "universal_room_automation", _missing)
+    try:
+        with patch.dict(sys.modules):
+            for key in [k for k in sys.modules if k == pkg or k.startswith(pkg + ".")]:
+                del sys.modules[key]
+            live_ura = importlib.import_module(pkg)
+            live_vc = importlib.import_module(pkg + ".version_check")
+            _run_setup_with_fake_start(live_ura, live_vc, fake_start, hass, entry, _noop)
+    finally:
+        if parent is not None:
+            if orig_attr is _missing:
+                parent.__dict__.pop("universal_room_automation", None)
+            else:
+                parent.universal_room_automation = orig_attr
     assert seen == [(hass, entry)]
 
 
