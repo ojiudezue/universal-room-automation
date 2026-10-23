@@ -50,7 +50,7 @@ def judge_run(client, run: dict, case: dict, ans: dict) -> tuple[dict, dict]:
                "transcript": transcript(run), "final_report": run["final_report"],
                "end_reason": run["end_reason"]}
     r = client.messages.create(
-        model=jc["model"], max_tokens=jc["max_output_tokens"], temperature=jc["temperature"],
+        model=jc["model"], max_tokens=jc["max_output_tokens"],  # temperature is rejected by Claude 5.5 models (400 "deprecated")
         system=JUDGE_INSTRUCTIONS,
         messages=[{"role": "user", "content": json.dumps(payload, default=str)}])
     text = "".join(b.text for b in r.content if b.type == "text").strip()
