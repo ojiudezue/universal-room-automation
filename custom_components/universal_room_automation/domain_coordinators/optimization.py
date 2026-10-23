@@ -102,6 +102,7 @@ from ..const import (
     OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_NOTIFY_DEDUP_CYCLES,
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
+    OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS,
     CAMERA_STUCK_ON_THRESHOLD_S,
     CAMERA_STUCK_ON_OVERRIDES_S,
     SENSOR_NEVER_FIRES_HORIZON_S,
@@ -641,10 +642,15 @@ class OptimizationCoordinator(BaseCoordinator):
         self._camera_input_dark_boot_ref: datetime = dt_util.utcnow()
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
-        # RAM-only by design: a restart re-persists once per stuck sensor,
-        # which is the correct post-restart behaviour (the fact is re-stated
-        # for the new boot) and bounded at one row per sensor.
+        # RAM-only for room sensor_health (a restart re-persists once per
+        # stuck sensor). EXCEPTION (OC-REEMIT-DEDUP, vision rev 6 D1): the
+        # never_fires keys are mirrored into the never-fires Store record
+        # (`last_persisted`) and re-seeded on load, because those 7d
+        # findings re-reported 4x in 10h across restarts.
         self._sensor_health_last_persisted: dict[tuple, datetime] = {}
+        # OC-REEMIT-DEDUP — last persisted description per
+        # (dimension, dedup_key) for `_filter_unchanged_repeats`.
+        self._persist_on_change_last: dict[tuple, str] = {}
         # OC-STUCK-SENSOR-GENERALIZE-1 Rev 3 (review A fix-up) — sensor_never_fires:
         #   persistent dict (via HA Store) `_never_fires_state[eid]` =
         #     {first_seen, last_on_seen, unavailable_s}
@@ -2134,7 +2140,14 @@ class OptimizationCoordinator(BaseCoordinator):
                     "last_on_seen": rec.get("last_on_seen"),
                     "unavailable_s": int(rec.get("unavailable_s") or 0),
                     "unavail_since": rec.get("unavail_since"),
+                    "last_persisted": rec.get("last_persisted"),
                 }
+                # OC-REEMIT-DEDUP (vision rev 6 D1 fix 1) — re-seed the
+                # 24h repeat-suppressor key so a restart does NOT
+                # re-persist an unchanged never_fires row.
+                self._never_fires_seed_persisted_key(
+                    eid, rec.get("last_persisted"),
+                )
                 # Review B B2-R — restore the open-outage stamp into
                 # the in-memory map so a sensor that was unavailable
                 # when HA stopped keeps its outage clock. HA-down time
@@ -2188,9 +2201,33 @@ class OptimizationCoordinator(BaseCoordinator):
                 # Review B B2-R — persist the open-outage stamp so a
                 # restart mid-outage doesn't lose the pre-restart time.
                 "unavail_since": rec.get("unavail_since"),
+                # OC-REEMIT-DEDUP — restart-safe 24h repeat-suppressor.
+                "last_persisted": rec.get("last_persisted"),
             }
             for eid, rec in self._never_fires_state.items()
         }
+
+    @staticmethod
+    def _never_fires_persisted_key(eid: str) -> tuple:
+        """The `_sensor_health_last_persisted` key for a never_fires row
+        (must match `_filter_repeat_sensor_health`'s keying)."""
+        return (str(("sensor_never_fires", eid)), "never_fires")
+
+    def _never_fires_seed_persisted_key(self, eid: str, iso) -> None:
+        """OC-REEMIT-DEDUP — restore a persisted last-row stamp into the
+        RAM repeat-suppressor. Bad/missing stamp = no seed (fail-open:
+        the row re-persists once, the pre-fix behaviour)."""
+        if not isinstance(iso, str) or not iso:
+            return
+        try:
+            parsed = dt_util.parse_datetime(iso)
+        except Exception:  # noqa: BLE001
+            parsed = None
+        if parsed is None:
+            return
+        self._sensor_health_last_persisted[
+            self._never_fires_persisted_key(eid)
+        ] = parsed
 
     def _never_fires_schedule_save(self) -> None:
         """Rev 3 F4 — whole-blob `async_delay_save`, 120s debounce.
@@ -2306,6 +2343,8 @@ class OptimizationCoordinator(BaseCoordinator):
                     if isinstance(k, tuple) and k and k[0] == prefix
                 ]:
                     self._sensor_health_last_persisted.pop(pk, None)
+                # OC-REEMIT-DEDUP — and the restart-safe copy.
+                rec["last_persisted"] = None
             # Review B B3 — mark dirty; the evaluator (every 5 min)
             # schedules the delay-save. Previously each listener
             # transition scheduled a 120s trailing debounce, so under
@@ -5096,6 +5135,13 @@ class OptimizationCoordinator(BaseCoordinator):
                 suppressed += 1
                 continue
             self._sensor_health_last_persisted[key] = now
+            # OC-REEMIT-DEDUP (vision rev 6 D1 fix 1) — mirror the stamp
+            # into the never-fires Store record so it survives restart.
+            if payload.get("stuck_state") == "never_fires":
+                rec = self._never_fires_state.get(payload.get("entity_id"))
+                if rec is not None:
+                    rec["last_persisted"] = now.isoformat()
+                    self._never_fires_dirty = True
             kept.append(f)
         if suppressed:
             _LOGGER.debug(
@@ -5104,6 +5150,43 @@ class OptimizationCoordinator(BaseCoordinator):
                 "in-cycle scoreboard/notify/corpus are unaffected",
                 suppressed, interval,
             )
+        return kept
+
+    def _filter_unchanged_repeats(
+        self, findings: list[OptimizationFinding],
+    ) -> list[OptimizationFinding]:
+        """OC-REEMIT-DEDUP (vision rev 6 D1 fix 2) — drop rows of the
+        dimensions in ``OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS`` whose
+        description is identical to the last row PERSISTED for the same
+        (dimension, dedup_key). Measured: the `cycle_ok` META sentinel
+        (41%) and the unchanged prediction_accuracy fact (37%) were ~78%
+        of all optimization_findings rows.
+
+        Persistence layer only, same rationale as
+        `_filter_repeat_sensor_health`: scoreboard / notify / LLM corpus /
+        `_last_findings` still see every cycle's finding. RAM-only: the
+        first cycle after a restart persists one META row (boot liveness)
+        and one prediction row if still degraded. Empty tuple = kill
+        switch (per-cycle persistence restored).
+        """
+        dims = OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS
+        if not dims:
+            return findings
+        last = getattr(self, "_persist_on_change_last", None)
+        if last is None:
+            last = self._persist_on_change_last = {}
+        kept: list[OptimizationFinding] = []
+        for f in findings:
+            dim = str(getattr(f, "dimension", ""))
+            if dim not in dims:
+                kept.append(f)
+                continue
+            key = (dim, str(getattr(f, "dedup_key", None)))
+            fp = str(getattr(f, "description", ""))
+            if last.get(key) == fp:
+                continue
+            last[key] = fp
+            kept.append(f)
         return kept
 
     async def _persist_findings_batch(
@@ -5126,6 +5209,9 @@ class OptimizationCoordinator(BaseCoordinator):
         # repeat sensor_health rows. Applied HERE (persistence) and not in
         # the evaluator ON PURPOSE — see `_filter_repeat_sensor_health`.
         findings = self._filter_repeat_sensor_health(findings)
+        # OC-REEMIT-DEDUP (vision rev 6 D1 fix 2) — cycle_ok sentinel and
+        # the prediction_accuracy fact persist on CHANGE only.
+        findings = self._filter_unchanged_repeats(findings)
         if not findings:
             return
         if self._check_write_volume_tripwire():

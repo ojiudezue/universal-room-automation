@@ -5752,3 +5752,202 @@ def test_async_setup_loads_store_before_cycle_timer(monkeypatch):
         loop.close()
     assert "load" in order and "timer" in order, order
     assert order.index("load") < order.index("timer"), order
+
+
+# ======================================================================
+# OC-REEMIT-DEDUP (OC vision rev 6, decision D1) — static fixes
+#   fix 1: never_fires 24h repeat-suppressor survives restart
+#   fix 2: cycle_ok META + prediction_accuracy persist on change only
+# ======================================================================
+
+from datetime import timedelta as _ocr_td, timezone as _ocr_tz
+
+_OCR_EID = "binary_sensor.ocr_m1"
+_OCR_T0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=_ocr_tz.utc)
+_OCR_WATCH = {
+    _OCR_EID: {"device_class": "motion", "source": "room_input", "room": "A"},
+}
+
+
+class _OcrStore:
+    def __init__(self, data):
+        self.data = data
+
+    async def async_load(self):
+        return self.data
+
+    def async_delay_save(self, provider, debounce):
+        pass
+
+    async def async_save(self, data):
+        self.data = data
+
+
+def _ocr_coord(monkeypatch, at):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass = _nf_hass([])
+    coord = _nf_coord(hass, monkeypatch)
+    _nf_watched(coord, _OCR_WATCH)
+    monkeypatch.setattr(opt_mod.dt_util, "utcnow", lambda: at)
+    hass.states.set(_OCR_EID, "off")
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+    return coord, db
+
+
+def _ocr_rows(db):
+    return [f for c in db.log_findings_batch.await_args_list for f in c.args[0]]
+
+
+async def _ocr_restart(monkeypatch, persisted, at):
+    """New coordinator instance that loads `persisted` from the Store."""
+    import homeassistant.helpers.storage as _storage
+    coord, db = _ocr_coord(monkeypatch, at)
+    monkeypatch.setattr(_storage, "Store", lambda *a, **k: _OcrStore(persisted))
+    await coord._never_fires_async_load()
+    return coord, db
+
+
+async def _ocr_first_boot(monkeypatch):
+    """Instance 1: silent sensor 7d+1s past first_seen -> one row persisted."""
+    at = _OCR_T0 + _ocr_td(days=7, seconds=1)
+    coord, db = _ocr_coord(monkeypatch, at)
+    _nf_prime(coord)
+    coord._never_fires_state[_OCR_EID] = _nf_record(_OCR_T0.isoformat())
+    out = coord._evaluate_sensor_never_fires_dimension()
+    assert len(out) == 1, out
+    await coord._persist_findings_batch(out)
+    assert len(_ocr_rows(db)) == 1
+    return coord, coord._never_fires_payload_provider()
+
+
+@pytest.mark.asyncio
+async def test_ocr_never_fires_row_not_repersisted_after_restart(monkeypatch):
+    """Fix 1 — measured live: 7 silent sensors re-reported 4x in 10h, one
+    per restart, because the repeat-suppressor key was RAM-only. After a
+    restart 2h later the unchanged finding must NOT reach the DB."""
+    _, persisted = await _ocr_first_boot(monkeypatch)
+    assert persisted[_OCR_EID]["last_persisted"] is not None
+
+    later = _OCR_T0 + _ocr_td(days=7, hours=2)
+    coord2, db2 = await _ocr_restart(monkeypatch, persisted, later)
+    out = coord2._evaluate_sensor_never_fires_dimension()
+    assert len(out) == 1, "evaluator still emits (scoreboard/digest see it)"
+    await coord2._persist_findings_batch(out)
+    assert _ocr_rows(db2) == [], (
+        "unchanged never_fires row re-persisted after restart"
+    )
+    # A second restart must still be suppressed: the restored stamp is
+    # carried into the next Store save, not dropped on load.
+    assert (coord2._never_fires_payload_provider()[_OCR_EID]["last_persisted"]
+            == persisted[_OCR_EID]["last_persisted"])
+
+
+@pytest.mark.asyncio
+async def test_ocr_never_fires_repersists_after_24h_across_restart(monkeypatch):
+    """Boundary: the restored stamp keeps the 24h cadence, not a permanent
+    mute — 24h+1s after the first row a restarted instance persists again;
+    24h-1s it does not."""
+    _, persisted = await _ocr_first_boot(monkeypatch)
+    first = _OCR_T0 + _ocr_td(days=7, seconds=1)
+    coord2, db2 = await _ocr_restart(
+        monkeypatch, persisted, first + _ocr_td(seconds=86399))
+    await coord2._persist_findings_batch(
+        coord2._evaluate_sensor_never_fires_dimension())
+    assert _ocr_rows(db2) == []
+    coord3, db3 = await _ocr_restart(
+        monkeypatch, persisted, first + _ocr_td(seconds=86401))
+    await coord3._persist_findings_batch(
+        coord3._evaluate_sensor_never_fires_dimension())
+    assert len(_ocr_rows(db3)) == 1
+
+
+@pytest.mark.asyncio
+async def test_ocr_never_fires_genuine_fire_clears_persisted_stamp(monkeypatch):
+    """An off->on firing re-arms persistence in the restart-safe copy too,
+    so a re-silence after a restart persists rather than being muted."""
+    coord1, _ = await _ocr_first_boot(monkeypatch)
+    coord1._on_never_fires_state_change(types.SimpleNamespace(data={
+        "entity_id": _OCR_EID,
+        "new_state": types.SimpleNamespace(state="on"),
+        "old_state": types.SimpleNamespace(state="off"),
+    }))
+    persisted = coord1._never_fires_payload_provider()
+    assert persisted[_OCR_EID]["last_persisted"] is None
+    later = _OCR_T0 + _ocr_td(days=7, hours=2)
+    coord2, db2 = await _ocr_restart(monkeypatch, persisted, later)
+    coord2._never_fires_state[_OCR_EID]["last_on_seen"] = None
+    await coord2._persist_findings_batch(
+        coord2._evaluate_sensor_never_fires_dimension())
+    assert len(_ocr_rows(db2)) == 1
+
+
+def _ocr_finding(dim, desc, dedup_key=None):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationFinding,
+    )
+    return OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(), level="house",
+        target_id="house", dimension=dim, severity="low", confidence=1.0,
+        score=100.0, description=desc, dedup_key=dedup_key,
+    )
+
+
+@pytest.mark.asyncio
+async def test_ocr_cycle_ok_persists_once_not_every_cycle():
+    """Fix 2 — the cycle_ok META sentinel was 41% of rows (one per 5-min
+    cycle). Ten unchanged cycles -> exactly one DB row."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationDimension,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+    for _ in range(10):
+        await coord._persist_findings_batch(
+            [_ocr_finding(OptimizationDimension.META, "cycle_ok")])
+    assert len(_ocr_rows(db)) == 1
+
+
+@pytest.mark.asyncio
+async def test_ocr_prediction_accuracy_persists_on_change_only():
+    """Fix 2 — the unchanged prediction_accuracy fact (37% of rows) persists
+    once; a CHANGED description is new information and persists."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationDimension,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+    key = ("prediction_accuracy", "house")
+    a = "Prediction quality degraded: data_quality_pct 40.0% < floor 60.0%"
+    b = "Prediction quality degraded: data_quality_pct 35.0% < floor 60.0%"
+    for desc in (a, a, a, b, b, a):
+        await coord._persist_findings_batch(
+            [_ocr_finding(OptimizationDimension.PREDICTION_ACCURACY, desc, key)])
+    assert [f.description for f in _ocr_rows(db)] == [a, b, a]
+
+
+@pytest.mark.asyncio
+async def test_ocr_other_dimensions_untouched_and_kill_switch(monkeypatch):
+    """Comfort rows still persist every cycle; empty tuple = kill switch."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    D = opt_mod.OptimizationDimension
+    hass, _ = _make_hass()
+    coord = opt_mod.OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+    for _ in range(3):
+        await coord._persist_findings_batch(
+            [_ocr_finding(D.COMFORT, "too warm", ("comfort", "K", "t"))])
+    assert len(_ocr_rows(db)) == 3
+    monkeypatch.setattr(opt_mod, "OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS", ())
+    for _ in range(3):
+        await coord._persist_findings_batch([_ocr_finding(D.META, "cycle_ok")])
+    assert len(_ocr_rows(db)) == 6
