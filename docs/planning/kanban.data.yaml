@@ -233,6 +233,21 @@ cards:
   next: "Me: after ~1 day of normal use, re-measure share of true Study A time where iphone_oji_area = Foyer (was 35%) and Study A pulling from Study B / Master Bedroom; then close or adjust; consider Receiving Room."
   adjacency: "NEW; swept BLE/Bermuda cards."
   due_checks_2026_10_21: "DUE 10-22 19:10: re-measure Foyer share of true Study A time (was 35%) and Study B/Master pull."
+- id: NIGHT-LIGHTS-HOUSE-SLEEP-ALL-ROOMS-1
+  title: "In house sleep, motion in a room with night lights turns on only its night lights, even without per-room sleep protection"
+  status: "parked"
+  parked_2026_10_23: "Plan review FIX-PLAN-FIRST: house Sleep starts 22:00 by clock while people are up, so common rooms would go night-lights-only (Living Room mains could switch OFF on re-entry); 3 of the 10 rooms have no separate mains; neither report needed it. Operator chose per-room config instead (Q 10-23). Revival trigger: house Sleep entry becomes bedtime-driven (not clock), or another full-light-at-night report in a room with night lights. Plan: docs/planning/PLANNING_night_lights_house_sleep_all_rooms.md."
+  config_applied_2026_10_23b: "Operator 10-23: Powder lights_on_entry [] (toilet mains no longer on motion) + night_lights_by_day true (night lights on motion day and night); sleep protection ON Master Closet, Receiving Room, Butler Pantry; Living Room/Study B/Staircase/Stair Closet unchanged. Residual: Dining Room light is light.*jayabath_2 (likely mis-pick)."
+  tier: 2
+  thread: lighting
+  created: "2026-10-23"
+  updated: "2026-10-23"
+  rank: {"value": 8, "time_criticality": 7, "effort": 3}
+  origin: "Operator 2026-10-23: 'Powder/guest toilet lights all coming on at night... Ezinne also reported full lights in master bath at 1am'; then 'I like the fix. Do it' (option 2: decouple night lighting from the per-room sleep protection bundle)."
+  why: "is_sleep_lighting_active (automation.py:1251) returns False under house sleep when sleep_protection_enabled is off (27 of 47 rooms), so entry falls to the normal path at full brightness. Sleep protection also bundles cover blocking, fan sleep policy and the bedroom fan hold, so rooms can't opt into night lighting alone. Prober 10-23: Powder 03:37 all four lights at full in house sleep; Oji Vanity 00:56 (shared Master Bath switch_1)."
+  config_applied_2026_10_23: "Powder sleep_protection_enabled -> true; Oji Vanity lights: removed shared switch.shelly2pmg3_34cdb07765dc_switch_1 (kept in Master Bathroom). Undo: set back in options flow. Oji Vanity still lights full at night (no night lights, plain switches) until this card or an operator choice."
+  next: "Parked; see revival trigger."
+  adjacency: "NEW; swept lighting/sleep cards; related to v5.103.42 _house_state_is_sleep narrow helper (automation.py:1268) which this widens for the main-light decision only."
 - id: EC-SOLAR-LIFETIME-COUNTER-FLAP-1
   updated: "2026-10-21 22:05"
   links_added_2026_10_21: "related+EC-FORECAST-TRUTH-GAPS-1,ENERGY-CONSUMPTION-FORECAST-POISONED-1: Same Envoy lifetime-counter flap poisons the forecast truth rows (EC-FORECAST-TRUTH-GAPS-1) and the consumption forecast (ENERGY-CONSUMPTION-FORECAST-POISONED-1); this card fixed the solar side at the producer."
