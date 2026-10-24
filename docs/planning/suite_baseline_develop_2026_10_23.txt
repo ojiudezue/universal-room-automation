@@ -1,0 +1,40 @@
+# URA full-suite baseline, develop
+# commit: 57d4d3dc4 (HEAD of develop, main checkout)
+# command: PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly
+# counts: passed=18086 failed=12 errors=0 skipped=121 (xfailed=2, deselected=206)
+# duration: 437.55s (0:07:17)
+
+## Failing / erroring node names (sorted)
+quality/tests/test_census_device_switches.py::test_d0_allowlist_contains_new_keys
+quality/tests/test_census_device_switches.py::test_d0_signal_table_has_face_recog_only
+quality/tests/test_census_device_switches.py::test_d2_transit_validator_flips_cached_flag_on_signal_without_reload
+quality/tests/test_census_device_switches.py::test_d2_transit_validator_teardown_clears_face_recog_unsub
+quality/tests/test_census_device_switches.py::test_d4_presence_initial_read_returns_true_on_empty_options
+quality/tests/test_census_device_switches.py::test_d4_transit_validator_reads_true_on_empty_options
+quality/tests/test_deploy_scripts.py::test_v4710_trap_restores_clean_url_on_sigint
+quality/tests/test_v4623_humidity_fan_behavioral.py::test_hysteresis_no_chatter_at_threshold_boundary
+quality/tests/test_v4623_humidity_fan_behavioral.py::test_max_runtime_cap_fires_after_full_window
+quality/tests/test_v4623_humidity_fan_behavioral.py::test_max_runtime_suppression_blocks_immediate_retrigger
+quality/tests/test_v4623_humidity_fan_behavioral.py::test_max_runtime_suppression_clears_when_humidity_drops_below_off
+quality/tests/test_v4623_humidity_fan_behavioral.py::test_reload_seeds_humidity_on_since
+
+## Isolation classification (each failing file rerun ALONE)
+# ORDER-DEPENDENT = passes alone; REAL = fails alone
+
+### quality/tests/test_census_device_switches.py  (alone: 6 failed, 15 passed)
+REAL  test_d0_allowlist_contains_new_keys  (alone: NameError CONF_CENSUS_CROSS_VALIDATION)
+REAL  test_d0_signal_table_has_face_recog_only  (alone: NameError CONF_CENSUS_CROSS_VALIDATION)
+REAL  test_d2_transit_validator_flips_cached_flag_on_signal_without_reload  (alone: _FakeHass has no attribute loop)
+REAL  test_d2_transit_validator_teardown_clears_face_recog_unsub  (alone: _FakeHass has no attribute loop)
+REAL  test_d4_presence_initial_read_returns_true_on_empty_options  (alone: fails)
+REAL  test_d4_transit_validator_reads_true_on_empty_options  (alone: fails)
+
+### quality/tests/test_deploy_scripts.py  (alone: 12 passed)
+ORDER-DEPENDENT  test_v4710_trap_restores_clean_url_on_sigint
+
+### quality/tests/test_v4623_humidity_fan_behavioral.py  (alone: 5 failed, 1 passed)
+REAL  test_hysteresis_no_chatter_at_threshold_boundary  (alone: fails)
+REAL  test_max_runtime_cap_fires_after_full_window  (alone: fails)
+REAL  test_max_runtime_suppression_blocks_immediate_retrigger  (alone: fails)
+REAL  test_max_runtime_suppression_clears_when_humidity_drops_below_off  (alone: fails)
+REAL  test_reload_seeds_humidity_on_since  (alone: AssertionError anchor None, _humidity_on_since)
