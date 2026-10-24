@@ -53,6 +53,8 @@ class FakeServices:
         self.unavailable: set[str] = set()
         self.gate: asyncio.Event | None = None  # block halo calls until set
         self.gate_service: str | None = None
+        self.sleeping: set[str] = set()  # Halo held the lease, panel asleep
+        self.indicate_returns_none = False  # Halo answered with no dict
 
     def has_service(self, domain, service):
         self.has_service_calls.append((domain, service))
@@ -72,9 +74,13 @@ class FakeServices:
         ):
             await self.gate.wait()
         if service == "indicate":
+            if self.indicate_returns_none:
+                return None
             out = {}
             for a in data["area_id"]:
-                if a in self.unavailable:
+                if a in self.sleeping:
+                    out[a] = "suppressed_sleep"
+                elif a in self.unavailable:
                     out[a] = "unavailable"
                 elif a in self.surfaces:
                     out[a] = "accepted"
@@ -1129,3 +1135,315 @@ async def test_panel_health_isolated_and_degrades(rig, monkeypatch):
     h = rig.nm.channel_status["panels"]
     assert h["status"] == "ok" and h["failures"] == 0
     assert (rig.nm._send_attempts, rig.nm._send_successes) == (attempts, successes)
+
+
+# ---------------------------------------------------------------------------
+# Review C (mutation) fix-up: per-site anchors for sites that stayed GREEN.
+# ---------------------------------------------------------------------------
+
+class _RaisingCoordinators:
+    """cm whose ``coordinators`` attribute raises on access (M100)."""
+
+    house_state = "home_day"
+
+    @property
+    def coordinators(self):
+        raise RuntimeError("coordinators boom")
+
+
+class _RaisingAreaRoom(FakeRoom):
+    def _get_room_area(self):
+        raise RuntimeError("area boom")
+
+
+class _NonMappingData:
+    """Has .get() like a Mapping but is not one (M76b)."""
+
+    def get(self, key, default=None):
+        return {"entry_type": "room", "room_name": "Fake"}.get(key, default)
+
+
+@pytest.mark.asyncio
+async def test_gating_exception_never_reaches_async_notify(rig, monkeypatch):
+    """M14: an exception inside gating is swallowed; other channels still go."""
+    await rig.enable()
+
+    def _boom():
+        raise RuntimeError("house_state boom")
+    monkeypatch.setattr(rig.nm, "_panel_house_state", _boom)
+    assert rig.nm._schedule_panel_delivery(
+        "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen") is False
+    await rig.notify()  # must not raise
+    assert rig.indicates() == []
+    assert any(c[0] == "notify" for c in rig.hass.services.calls)
+
+
+@pytest.mark.asyncio
+async def test_room_area_exception_skips_only_that_room(monkeypatch, clock):
+    """M79: one room's _get_room_area raising drops that room, not the send."""
+    rooms = standard_rooms(Kitchen=True) + [_RaisingAreaRoom("Attic", "attic", True)]
+    r = PanelRig(monkeypatch, clock, rooms=rooms,
+                 presence=dict(adjacency={}, zones={}))
+    await r.enable()
+    assert r.nm._schedule_panel_delivery(
+        "security", Severity.HIGH, "I", "m", "intruder", None, log_row=False)
+    await settle(r.hass)
+    assert [d["area_id"] for d in r.indicates()] == [["kitchen"]]
+
+
+@pytest.mark.asyncio
+async def test_coordinators_exception_falls_back_to_own_room(monkeypatch, clock):
+    """M100: cm.coordinators raising -> presence None -> T1 only, still sent."""
+    r = PanelRig(monkeypatch, clock)
+    r.hass.data[DOMAIN]["coordinator_manager"] = _RaisingCoordinators()
+    await r.enable()
+    assert r.nm._schedule_panel_delivery(
+        "security", Severity.HIGH, "I", "m", "intruder", None, log_row=False)
+    await settle(r.hass)
+    assert [d["area_id"] for d in r.indicates()] == [["kitchen"]]
+
+
+@pytest.mark.asyncio
+async def test_queued_delivery_and_reassert_recheck_suppression(rig):
+    """M69: _panel_live() re-checks _messaging_suppressed under the lock."""
+    await rig.enable()
+    await rig.notify()  # ledger holds a lease for re-assert
+    rig.hass.services.calls.clear()
+    await rig.nm._panel_lock.acquire()
+    try:
+        assert rig.nm._schedule_panel_delivery(
+            "safety", Severity.CRITICAL, "Leak", "m", "h2", "Kitchen")
+        rig.hass.bus.fire("halo_ready", {})
+        await asyncio.sleep(0)
+        rig.nm._messaging_suppressed = True  # kill-switch flag, no release yet
+    finally:
+        rig.nm._panel_lock.release()
+    await settle(rig.hass)
+    assert rig.indicates() == []
+
+
+@pytest.mark.asyncio
+async def test_teardown_cancels_and_clears_panel_tasks(rig):
+    """M111 / M112: in-flight panel tasks are cancelled and forgotten."""
+    await rig.enable()
+    rig.hass.services.gate = asyncio.Event()  # indicate hangs
+    assert rig.nm._schedule_panel_delivery(
+        "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen")
+    await asyncio.sleep(0)
+    pending = list(rig.nm._panel_tasks)
+    assert len(pending) == 1 and not pending[0].done()
+    await rig.nm.async_teardown()
+    assert rig.nm._panel_tasks == set()
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert pending[0].cancelled()
+    rig.hass.services.gate.set()
+
+
+def test_lease_id_contract_literals():
+    """M70 / M71 / M73: ", " split, sorted slugs, 'none' placeholder."""
+    lid = nm_mod.NotificationManager._panel_lease_id
+    # Only ", " separates rooms: a bare comma stays inside one token.
+    assert lid("safety", "h", "Kitchen,Master") == "ura:safety:h:kitchen_master"
+    assert lid("safety", "h", "Kitchen, Master") == "ura:safety:h:kitchen+master"
+    # Sorted regardless of input order (6 rooms: chance order is 1/720).
+    rooms = ["Zeta", "Alpha", "Mid", "Beta", "Omega", "Gamma"]
+    expected = "ura:safety:h:alpha+beta+gamma+mid+omega+zeta"
+    assert lid("safety", "h", ", ".join(rooms)) == expected
+    assert lid("safety", "h", ", ".join(reversed(rooms))) == expected
+    assert lid("safety", None, "Kitchen") == "ura:safety:none:kitchen"
+
+
+@pytest.mark.asyncio
+async def test_rooms_filter_guards(monkeypatch, clock):
+    """M76 / M76b / M78 / M80: only room entries with Mapping data count;
+    occupied must be exactly True; an empty area becomes None."""
+    zone_entry = FakeRoom("Zone Thing", "zonearea", True)
+    zone_entry.entry.data = MappingProxyType({"entry_type": "zone", "room_name": "Z"})
+    odd = FakeRoom("Odd", "oddarea", True)
+    odd.entry.data = _NonMappingData()
+    truthy = FakeRoom("Truthy", "truthyarea", False)
+    truthy.data = {"occupied": "on"}  # truthy but not True
+    blank = FakeRoom("Blank", "", True)
+    r = PanelRig(monkeypatch, clock, rooms=standard_rooms() + [
+        zone_entry, odd, truthy, blank], presence=dict(adjacency={}, zones={}))
+    rooms = {x["key"]: x for x in r.nm._panel_rooms()}
+    assert "Z" not in rooms and "Zone Thing" not in rooms
+    assert "Fake" not in rooms and "Odd" not in rooms
+    assert rooms["Truthy"]["occupied"] is False
+    assert rooms["Blank"]["area"] is None
+    assert areas(r, coordinator_id="security", hazard_type="intruder") == []
+
+
+@pytest.mark.asyncio
+async def test_unzoned_rooms_never_share_a_zone(monkeypatch, clock):
+    """M87 / M88 / M89: a None zone never matches another None zone."""
+    r = PanelRig(monkeypatch, clock, rooms=standard_rooms(Media=True),
+                 presence=dict(adjacency={}, zones={"Kitchen": "A"}))
+    # Media (unzoned) occupied: Breakfast Nook / Master (unzoned) stay dark.
+    assert areas(r, coordinator_id="security", hazard_type="intruder") == ["media"]
+
+
+@pytest.mark.asyncio
+async def test_source_room_matches_title_not_only_key(monkeypatch, clock):
+    """M98: T4 matches the room's names (room_name OR title), not just key."""
+    den = FakeRoom("Den (Office)", "den", False, room_name="Den")
+    r = PanelRig(monkeypatch, clock, rooms=[den],
+                 presence=dict(adjacency={}, zones={}))
+    assert areas(r, coordinator_id="safety", location="Den (Office)") == ["den"]
+
+
+@pytest.mark.asyncio
+async def test_housewide_hazard_case_insensitive(monkeypatch, clock):
+    """M82: an upper-case house-wide hazard still lights every panel."""
+    r = PanelRig(monkeypatch, clock, rooms=standard_rooms())  # nobody home
+    assert areas(r, hazard_type="SMOKE") == [
+        "breakfast_nook", "kitchen", "master", "media"]
+
+
+@pytest.mark.asyncio
+async def test_presence_without_getters_or_none_adjacency(monkeypatch, clock):
+    """M86 / M94 / M95: hasattr guards and a None adjacency list."""
+    class NoZone:
+        def get_adjacent_rooms(self, room):
+            return None  # M95: None, not a list
+
+    class NoAdj:
+        def get_room_zone(self, room):
+            return None
+
+    for pres in (NoZone(), NoAdj(), SimpleNamespace()):
+        r = PanelRig(monkeypatch, clock, rooms=standard_rooms(Kitchen=True))
+        r.cm.coordinators["presence"] = pres
+        assert areas(r, coordinator_id="security", hazard_type="intruder") == [
+            "kitchen"], pres
+
+
+@pytest.mark.asyncio
+async def test_dry_run_log_row_false_writes_no_row(rig):
+    """M11: the repeat/rebuild path (log_row=False) writes no dry-run row."""
+    await rig.enable()
+    rig.nm._dry_run_active = True
+    assert rig.nm._schedule_panel_delivery(
+        "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen",
+        log_row=False) is False
+    await settle(rig.hass)
+    assert not [c for c in rig.db.log_notification.await_args_list
+                if c.kwargs.get("channel") == "panels"]
+
+
+@pytest.mark.asyncio
+async def test_suppressed_sleep_counts_as_shown(rig):
+    """M49 / M50: suppressed_sleep = held -> health ok, delivered=1."""
+    rig.hass.services.surfaces = set()
+    rig.hass.services.sleeping = {"kitchen", "breakfast_nook", "media"}
+    await rig.enable()
+    await rig.notify()
+    assert rig.nm.channel_status["panels"]["status"] == "ok"
+    (args, kw), = rig.panel_rows()
+    assert args[8] == 1
+
+
+@pytest.mark.asyncio
+async def test_non_dict_response_coerced(rig):
+    """M53: a non-dict Halo response is treated as {} (no surface), not None."""
+    await rig.enable()
+    rig.hass.services.indicate_returns_none = True
+    await rig.notify()
+    assert rig.nm.channel_status["panels"]["status"] == "no_surface"
+    (args, kw), = rig.panel_rows()
+    assert args[8] == 0
+
+
+@pytest.mark.asyncio
+async def test_reassert_ttl_floor_and_health(rig):
+    """M41: remaining 5 s re-asserts at Halo's 10 s floor. M47: the
+    re-assert response updates health."""
+    await rig.enable()
+    await rig.notify()
+    rig.nm._set_panel_health("error", "x")
+    rig.clock.advance(1795)  # 5 s of the 1800 s lease left
+    rig.hass.services.calls.clear()
+    rig.hass.bus.fire("halo_ready", {})
+    await settle(rig.hass)
+    assert [d["ttl_s"] for d in rig.indicates()] == [10]
+    assert rig.nm.channel_status["panels"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_spawn_tracks_and_discards_tasks(rig, monkeypatch):
+    """M66 / M67: tracked while running, discarded when done. M68: a
+    non-Task return (HA test harness) is tolerated."""
+    await rig.enable()
+    rig.hass.services.gate = asyncio.Event()
+    rig.nm._schedule_panel_delivery(
+        "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen")
+    await asyncio.sleep(0)
+    assert len(rig.nm._panel_tasks) == 1
+    rig.hass.services.gate.set()
+    await settle(rig.hass)
+    assert rig.nm._panel_tasks == set()
+
+    def _none_task(coro, name, eager_start=True):
+        coro.close()
+        return None
+    monkeypatch.setattr(rig.hass, "async_create_background_task", _none_task)
+
+    async def _noop():
+        return None
+    rig.nm._spawn_panel_task(_noop(), "ura_nm_panel_x")  # must not raise
+    assert rig.nm._panel_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_enable_disable_idempotent_and_disable_clears_ledger(rig):
+    """M58: repeated enable/disable is a no-op. M64: disable clears the
+    ledger synchronously."""
+    await rig.enable()
+    await rig.nm.async_set_panel_channel_enabled(True)
+    await settle(rig.hass)
+    assert len(rig.hass.bus.listeners["halo_ready"]) == 1
+    await rig.notify()
+    assert rig.nm._panel_leases
+    rig.hass.services.calls.clear()
+    await rig.nm.async_set_panel_channel_enabled(False)
+    assert rig.nm._panel_leases == {}  # before the release task runs
+    await rig.nm.async_set_panel_channel_enabled(False)
+    await settle(rig.hass)
+    assert rig.releases() == [{"owner": "ura"}]
+
+
+@pytest.mark.asyncio
+async def test_release_sites_pop_ledger_synchronously(rig):
+    """M35 / M37: the caller-side pop/clear happens before the release task
+    runs (the task re-pops under the lock too — belt and braces)."""
+    await rig.enable()
+    await rig.notify()
+    await rig.notify(coordinator_id="security", severity=Severity.HIGH,
+                     hazard_type="door_ajar", location=None, title="Door")
+    rig.nm._panel_release_id("ura:safety:water_leak:kitchen")
+    assert set(rig.nm._panel_leases) == {"ura:security:door_ajar:house"}
+    rig.nm._panel_release_owner_wide()
+    assert rig.nm._panel_leases == {}
+    await settle(rig.hass)
+    assert rig.releases()[-2:] == [
+        {"owner": "ura", "id": "ura:safety:water_leak:kitchen"}, {"owner": "ura"}]
+
+
+@pytest.mark.asyncio
+async def test_preempt_release_requires_live_episode(rig):
+    """M108: stale _active_alert_data outside ALERTING/REPEATING is not a
+    live episode -> a newcomer does not release its lease."""
+    await rig.enable()
+    await rig.notify(coordinator_id="security", severity=Severity.HIGH,
+                     hazard_type="door_forced", location=None, title="Door")
+    assert "ura:security:door_forced:house" in rig.nm._panel_leases
+    rig.nm._alert_state = AlertState.IDLE
+    rig.nm._active_alert_data = {
+        "coordinator_id": "security", "hazard_type": "door_forced",
+        "location": None, "title": "Door", "message": "m",
+    }
+    rig.hass.services.calls.clear()
+    await rig.notify()
+    assert {"owner": "ura", "id": "ura:security:door_forced:house"} not in rig.releases()
+    assert "ura:security:door_forced:house" in rig.nm._panel_leases

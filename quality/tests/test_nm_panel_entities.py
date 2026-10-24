@@ -61,6 +61,8 @@ _SCRIPT = textwrap.dedent(r'''
             assert sw.is_on is True and nm.enabled_calls == [True], nm.enabled_calls
             await sw.async_turn_off()
             assert sw.is_on is False and nm.enabled_calls == [True, False]
+            await sw.async_turn_on()
+            assert sw.is_on is True and nm.enabled_calls == [True, False, True]
             nm2 = NM(); sw2 = make(m.NMPanelChannelSwitch, nm2, None)
             await sw2.async_added_to_hass()
             assert sw2.is_on is False and nm2.enabled_calls == [False]
@@ -76,8 +78,37 @@ _SCRIPT = textwrap.dedent(r'''
                 nmb = NM(); nb = make(m.NMPanelLeaseTtlNumber, nmb, bad)
                 await nb.async_added_to_hass()
                 assert nb.native_value == 30.0 and nmb.ttl_calls == [30.0], (bad, nmb.ttl_calls)
+        elif case == "mixin":
+            # Bounded NM retry: 18 schedules at 10 s, the 19th miss gives up.
+            sched = []
+            unsubbed = []
+            def _later(_h, delay, cb):
+                tok = object()
+                sched.append((delay, cb, tok))
+                return lambda: unsubbed.append(tok)
+            m.async_call_later = _later
+            nm = NM(); sw = make(m.NMPanelChannelSwitch, None, None)
+            await sw._sync_to_nm()
+            assert [d for d, _c, _t in sched] == [10], sched
+            assert sw._sync_unsub is not None and sw._sync_retries == 1
+            # Removal cancels the pending retry and forgets it.
+            await sw.async_will_remove_from_hass()
+            assert unsubbed == [sched[0][2]] and sw._sync_unsub is None
+            for _ in range(18):
+                await sw._sync_to_nm()
+            assert len(sched) == 18 and sw._sync_retries == 19, (len(sched), sw._sync_retries)
+            # NM appears; the deferred callback runs: retries reset, unsub
+            # forgotten, value pushed.
+            sw.hass.data["universal_room_automation"]["notification_manager"] = nm
+            await sched[-1][1]()
+            assert sw._sync_retries == 0
+            assert sw._sync_unsub is None
+            assert nm.enabled_calls == [False]
+            unsubbed.clear()
+            await sw.async_will_remove_from_hass()
+            assert unsubbed == []
         elif case == "zone":
-            p = SimpleNamespace(_room_to_zone={"Kitchen": "Downstairs"})
+            p = SimpleNamespace(_room_to_zone={"Kitchen": "Downstairs", "": "Ghost"})
             assert PresenceCoordinator.get_room_zone(p, "Kitchen") == "Downstairs"
             assert PresenceCoordinator.get_room_zone(p, "Master") is None
             assert PresenceCoordinator.get_room_zone(p, "") is None
@@ -105,6 +136,12 @@ def test_panel_switch_restores(case):
 @pytest.mark.parametrize("case", ["number"])
 def test_panel_ttl_number_restores(case):
     res = _run(case)
+    assert res.returncode == 0 and res.stdout.strip().endswith("OK"), res.stderr[-3000:]
+
+
+def test_nm_sync_mixin_retry_contract():
+    """E14-E18: retry cap, schedule, unsub on removal, reset, deferred unsub."""
+    res = _run("mixin")
     assert res.returncode == 0 and res.stdout.strip().endswith("OK"), res.stderr[-3000:]
 
 
