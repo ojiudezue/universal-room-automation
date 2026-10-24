@@ -3142,6 +3142,16 @@ class NotificationManager:
                 )
             else:
                 await database.acknowledge_notification()
+            # NM-ACK-CLEARS-ALL: one operator ack clears EVERY unacked
+            # CRITICAL (all coordinators/channels), not just the slot alert,
+            # and releases each acked episode's panel lease.
+            bulk = getattr(database, "acknowledge_all_criticals", None)
+            if bulk is not None:
+                for ep in await bulk() or []:
+                    self._panel_release_id(self._panel_lease_id(
+                        ep.get("coordinator_id"), ep.get("hazard_type"),
+                        ep.get("location"),
+                    ))
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against

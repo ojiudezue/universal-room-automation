@@ -371,6 +371,57 @@ async def test_ack_clears_all_channel_rows_and_recovery_restores_nothing(
     assert rig2.nm.alert_state != AlertState.REPEATING
 
 
+@pytest.mark.asyncio
+async def test_one_ack_clears_every_unacked_critical_across_coordinators(
+    monkeypatch, clock, tmp_path
+):
+    """NM-ACK-CLEARS-ALL: smoke (life-safety, in slot) + energy envoy
+    CRITICAL + perimeter CRITICAL, all unacked -> ONE ack -> zero unacked
+    CRITICAL rows, and restart recovery finds nothing to re-raise."""
+    from test_imsg_audit_fix_1 import _drain
+    db = await _real_db(tmp_path)
+    for coord, hz, loc in (
+        ("energy", "envoy_write_verification", None),
+        ("perimeter", "exterior_person", "Side Gate"),
+        ("perimeter", "exterior_person", "Driveway"),
+    ):
+        await db.log_notification(
+            coord, "CRITICAL", hz, f"{hz} msg", hz, loc, None, "pushover", 1,
+        )
+    await db._write_queue.join()
+    rig = Rig(monkeypatch, clock)
+    rig.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    released = []
+    monkeypatch.setattr(rig.nm, "_panel_release_id", released.append)
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await db.log_notification(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage",
+        None, "tts", 1,
+    )
+    await db._write_queue.join()
+    assert sum(1 for r in _rows(db) if r["acknowledged"] == 0) == 4
+
+    await rig.nm.async_acknowledge()
+    await db._write_queue.join()
+    assert [r for r in _rows(db) if r["acknowledged"] == 0] == []
+    assert await db.get_active_criticals() == []
+    # Every acked episode's panel lease released (slot + 3 backlog episodes).
+    assert set(released) >= {
+        "ura:energy:envoy_write_verification:house",
+        "ura:perimeter:exterior_person:side_gate",
+        "ura:perimeter:exterior_person:driveway",
+    }
+
+    rig2 = Rig(monkeypatch, clock)
+    rig2.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    await rig2.nm._recover_state_from_db()
+    await _drain(db)
+    assert rig2.nm.alert_state != AlertState.REPEATING
+    assert rig2.nm.alert_state != AlertState.ALERTING
+
+
 def test_helper_holds_in_alerting_state(monkeypatch, clock):
     nm = Rig(monkeypatch, clock).nm
     nm._alert_state = AlertState.ALERTING
