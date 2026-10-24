@@ -309,6 +309,38 @@ async def test_db_targeted_ack_discriminates_hazard_same_coordinator(tmp_path):
     assert acked[leak_id] == 0
 
 
+@pytest.mark.asyncio
+async def test_ack_clears_all_channel_rows_and_recovery_restores_nothing(
+    monkeypatch, clock, tmp_path
+):
+    from test_imsg_audit_fix_1 import _drain
+    db = await _real_db(tmp_path)
+    for ch in ("tts", "pushover", "whatsapp"):
+        await db.log_notification(
+            "safety", "CRITICAL", "Smoke", "smoke in garage",
+            "smoke", "Garage", None, ch, 1,
+        )
+    await db._write_queue.join()
+    rig = Rig(monkeypatch, clock)
+    rig.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await rig.nm.async_acknowledge()
+    await db._write_queue.join()
+    rows = _rows(db)
+    assert len(rows) == 3
+    assert all(r["acknowledged"] == 1 for r in rows)
+    assert sum(1 for r in rows if r["cooldown_expires"]) == 1
+
+    # Restart: a fresh NM must not resurrect the smoke alert as REPEATING.
+    rig2 = Rig(monkeypatch, clock)
+    rig2.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    await rig2.nm._recover_state_from_db()
+    await _drain(db)
+    assert rig2.nm.alert_state != AlertState.REPEATING
+
+
 def test_helper_holds_in_alerting_state(monkeypatch, clock):
     nm = Rig(monkeypatch, clock).nm
     nm._alert_state = AlertState.ALERTING

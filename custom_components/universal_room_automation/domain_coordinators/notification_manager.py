@@ -3020,6 +3020,13 @@ class NotificationManager:
                     coordinator_id=_snap.get("coordinator_id"),
                     hazard_type=_snap.get("hazard_type"),
                 )
+                # NM writes one row per channel: ack every sibling row of the
+                # slot alert so none resurrects on restart.
+                await database.acknowledge_matching_notifications(
+                    _snap.get("coordinator_id"),
+                    _snap.get("hazard_type"),
+                    _snap.get("location"),
+                )
                 # Consumed by _start_cooldown (same ack) to stamp THIS row.
                 self._last_acked_row_id = (
                     acked_id if isinstance(acked_id, int) else None
