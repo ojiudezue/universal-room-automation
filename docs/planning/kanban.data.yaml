@@ -31236,6 +31236,7 @@ cards:
     gist: 'operator asked to review the v8 Lovelace dashboard and recommend updates, paying attention to aesthetics and layout'
   why: 'Full audit in docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md (955 refs checked; snippets test-rendered live). BUGS: Net Energy -73.7 (see ENERGY-CONSUMPTION-FORECAST-POISONED-1); Cost Today shows $0.11 from a still-learning prediction (real accrued $3.71); Solar Forecast is the whole-day Solcast total, ~20% above the Envoy over 7 days; House Draw falls to 0 on Envoy dropouts (switch it to the SPAN sum); security "all closed" reads two renamed door ids while Garage A is open, and 20 of 26 window sensors are not reporting; 27 dead _current_occupants refs (real: _identified_people); "Occupied Now" double-counts HVAC-occupied sensors; the AV Closet switch was replaced by switch.av_closet_shelly1pmminig4_avcloset (the CLAUDE.md troubleshooting example is stale too); 183 disabled entities in room pop-ups. ADDITIONS: Climate zone timers and arrester card, Energy rate/cost/sync-mismatch cards, People presence cards. LAYOUT: Now tab status row first with 3 heroes in one row, music moved out, duplicates removed, one switch style, rename table.'
   next: "none: closed (countdowns already live on the v8 Climate view)."
+  minted_2026_10_24: 'The five README_v5.103.25 follow-ups were swept and minted as 3 cards: HVAC-COMFORT-DEVIATION-PRODUCER-1, ANOMALY-METRIC-DISPOSITION-1 (merges 3), DASH-ANOMALY-COVERAGE-BADGE-1. Partial-filter patch verified applied live 10-24.'
   links:
     related: [LOVELACE-V8-STALE-ENTITY-REFS-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1]
   rank: {value: 6, time_criticality: 4, effort: 3}
@@ -33079,6 +33080,45 @@ cards:
   origin: "Operator 10-20: vent moved Thu/Fri last week to supply colder air. Audit: docs/planning/AUDIT_jaya_evening_temp_shift_2026_10_20.md (scripts .claude/scratch/jaya_vent.py, jaya_cool.py)."
   revisit_if: "5+ normal days with the family home and outdoor > 80 F since 10-18"
   next: "Me: one-shot re-run of jaya_cool.py: end-of-cooling-run Jaya-minus-controls gap vs the 4.2-4.5 F pre-move baseline -> close done (helped / didn't) with the number."
+- id: HVAC-COMFORT-DEVIATION-PRODUCER-1
+  title: 'HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire'
+  thread: hvac
+  status: planned
+  created: '2026-10-24 08:00'
+  updated: '2026-10-24 08:00'
+  tags: [anomaly, hvac, trip-wire]
+  origin: {date: '2026-10-24', gist: 'operator asked what HVAC anomaly partial means; README_v5.103.25 s5 named this card but it was never minted'}
+  why: 'Spec in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:167 (input = zone temp vs setpoint exists; reuse the short_cycle_rate daily per-zone emit + rollover-save pattern, which answers the rare-event objection from RESTART-SAFETY-DOCTRINE-1). Live 10-24: sensor.ura_hvac_coordinator_hvac_anomaly partial, 3/5, comfort_deviation_hours not_wired. Tier 2. Read HVAC_ARCHITECTURE_STATE_OF_PLAY first.'
+  swept_2026_10_24: 'NEW. Swept board (HVAC-ANOMALY-BLIND-1 done, HVAC-BASELINE-MAXSAMPLES-1 parked, RESTART-SAFETY-DOCTRINE-1 planned = adjacent), BACKLOG, PLANNING_anomaly_detector_blind_metrics/hvac_short_cycle_producer. No existing card.'
+  next: 'Plan (Tier 2, one plan review): producer site, per-zone daily metric, minimum_samples, removal from HVAC_UNWIRED_METRICS.'
+  links: {related: [HVAC-ANOMALY-BLIND-1, RESTART-SAFETY-DOCTRINE-1, ANOMALY-METRIC-DISPOSITION-1]}
+  rank: {value: 4, time_criticality: 2, effort: 3}
+- id: ANOMALY-METRIC-DISPOSITION-1
+  title: 'Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count'
+  thread: diagnostics
+  status: planned
+  created: '2026-10-24 08:00'
+  updated: '2026-10-24 08:00'
+  tags: [anomaly, security, safety, hvac]
+  origin: {date: '2026-10-24', gist: 'grooming of the five unminted README_v5.103.25 s5 follow-ups'}
+  why: 'Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; Security then reads nominal + constant annotation. (c) alert_trigger_frequency: ordinal per-event score, variance 0 in a quiet house, so first non-LOW verdict is z>=10 CRITICAL -> reshape to e.g. a daily count of non-LOW verdicts. (d) active_hazard_count: recorded only on hazard response, gate 720, 42 samples -> sample on the periodic check (safety.py ~2645) so it takes 0..N, or retire.'
+  swept_2026_10_24: 'DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this metric have a valid input shape). Adjacent: RESTART-SAFETY-DOCTRINE-1 (names the event-driven unreachable class). None existed on the board or BACKLOG.'
+  next: 'Plan as one Tier 2 cycle; (a)+(b) are near-trivial undeclares, (c)/(d) need a producer-shape decision each.'
+  links: {related: [RESTART-SAFETY-DOCTRINE-1, HVAC-COMFORT-DEVIATION-PRODUCER-1]}
+  rank: {value: 3, time_criticality: 2, effort: 3}
+- id: DASH-ANOMALY-COVERAGE-BADGE-1
+  title: 'PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes'
+  thread: dashboarding
+  status: planned
+  created: '2026-10-24 08:00'
+  updated: '2026-10-24 08:00'
+  tags: [pwa, anomaly, display]
+  origin: {date: '2026-10-24', gist: 'grooming of README_v5.103.25 s5 follow-ups'}
+  why: 'PWA Diagnostics.tsx:81-90, Home.tsx:570-575, statusColors.ts:22-52 read status_per_coordinator[*].status (severity, manager.py:779). Coverage is already published (coverage, metrics_active_ratio). Lovelace v8 already shows a partial segment (verified 10-24); the PWA does not. Tier 1, display-only.'
+  swept_2026_10_24: 'NEW. Lovelace side already done under DASHBOARD-V8-FIX-BATCH-1; no PWA card exists.'
+  next: 'Tier 1 build in the PWA repo: secondary coverage chip next to severity.'
+  links: {related: [DASHBOARD-V8-FIX-BATCH-1]}
+  rank: {value: 2, time_criticality: 1, effort: 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
