@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-23T18:59:47-05:00_ - _Data commit: `09dd677bb839`_ - _last_reconciled: 2026-10-23_
+_Generated: 2026-10-23T19:13:50-05:00_ - _Data commit: `c1ecfb8ec37f`_ - _last_reconciled: 2026-10-23_
 
 
 ## Columns
@@ -11,9 +11,9 @@ _Generated: 2026-10-23T18:59:47-05:00_ - _Data commit: `09dd677bb839`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 13 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 _(none)_
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (13)
 _idea being decomposed_
 
 ### `EC-BLIND-DEESCALATE-TOP-RATE-1` - TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21) — _#1 · WSJF 6.0 · v6 tc4 u2 /e2_
@@ -177,28 +177,7 @@ _updated 2026-10-21 22:05_
   - `adjacency_2026_10_16`: ADJACENT to ROADMAP-STALE-AGENTIC-LAYER-1 (rooms as agents): same vision surface (goals, tools, memory, loops). One vision doc covers both; separate cards for the OC redesign vs room agents.
   - `residual_2026_10_21_never_fires_restart_repeat`: From OC-STUCK-SENSOR-GENERALIZE-1 disposal: the (sensor_never_fires, eid) dedup is in memory and resets each HA restart, so the same silent sensor is re-reported ~18 min after every start. Belongs in the first slice (persistent problem d...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **pre_planning** - approval: **explicit**
-_created 2026-10-04 01:00 · updated 2026-10-22 02:08_
-- **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
-- **Next:** Me: write the phase-2 Tier-3 plan (retire local write-failover; read Enphase control_change_pending; long-outage handling) -> it then needs your APPROVE before any build (Tier 3).
-- **Forensic keys (14):**
-  - `INSTANCE_2026_10_22_stale_cloud_false_critical`: From the EC-SELFHEAL-UNEXPLAINED-RESENDS-1 soak exit (overnight 10-22). The write verifier still pages CRITICAL off a STALLED cloud reading after the dead-local-witness fix (v5.103.74). At 10-22 01:21 CDT it sent 'Envoy write not applied...
-  - `recount_2026_10_17`: Interim recount (governor shipped; Ethernet + GC freeze in place): short blips fell 6.8/day -> ~1.7/day, but DOWNTIME did not fall (923 min pre vs 1,304 min post) because of long outages 586 min (10-15/16) and 714 min (10-16), and anothe...
-  - `operator_instruction_2026_10_17`: The governor is done. So finish the recount (board, 2026-10-18T03:47:24.313Z)
-  - `correction_2026_10_17_overnight`: CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_leve...
-  - `relevance_check_2026_10_16_overnight`: Operator asked 'Check for relevance then approve'. STILL-RELEVANT, narrowed. Checked 02:0x CDT against develop: (1) the dormant local write-failover still exists (energy_battery.py:551 _write_failover_by_surface, read at :831 and energy_...
-  - `operator_instruction_2026_10_15_2`: Check for relevance then approve
-  - `INSTANCE_2026_10_14_reserve_pending_episode`: From EC-RESERVE-CLOUD-DIVERGENCE-1 (closed 10-14): a reserve write sat pending at Enphase for about 2 days (10-11 to 10-13 11:40 CDT; control_change_pending on writes). The battery obeyed the cloud value, and the local gateway number sho...
-  - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (problem known, solution being shaped; gated). PARTIALLY-DONE already, on the unshipped EC p1 branch: 7f60f137e EC resilience bundle B1-B5 covers part of item (2) (write-failure capture + battery write-churn trip-wi...
-  - `INSTANCE_2026_10_04_overnight`: Two reserve-write STAND-DOWNS in the last 12 h, each paged CRITICAL on companion + iMessage + Pushover + WhatsApp (URA notification_log): 10-03 15:04 CDT 'URA commanded reserve_soc=80 but hardware reports 10.0 after 3602s' -> 3/3 attempt...
-  - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
-  - `operator_2026_10_15b`: Operator: "Envoy is ethernet connected now not wifi." Another confound for the 10-15 dropout fall (alongside GC freeze + SPAN); likely the dominant one. Re-count at 10-18 stands.
-  - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
-  - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
-  - `recount_2026_10_19_overnight`: RECOUNT DONE (per your 10-17 instruction). Recorder, sensor.envoy_482543015950_current_battery_discharge unavailable episodes by local day: 10-11 9 drops/266 min down, 10-12 4/297, 10-13 4/145, 10-14 13/109, 10-15 1/586, 10-16 1/714, 10-...
-
-### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `OC-SHADOW-SAMPLES-EMPTY-1` - Optimization Coordinator shadow track record never accumulates: optimizer_shadow_samples has 0 rows while OC logged 6,822 findings in 14 days (~90% tier-1 noise), so the v2 promotion gate can never be met — _#11 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-10-16 · updated 2026-10-21 22:05 · refined_
 - **Problem / Solution:**
@@ -212,7 +191,7 @@ _created 2026-10-16 · updated 2026-10-21 22:05 · refined_
   - `paged_2026_10_16_overnight`: Paged 2026-10-16 02:21 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody).
   - `measured_2026_10_16_overnight`: CONFIRMED, with mechanism (read-only, live URA DB ~02:10 CDT + code trace; orchestrator re-read the key lines). optimizer_shadow_samples: 0 rows ever. optimization_findings: 6,886 rows 09-18..10-16, ~550-576 house + 160-500 room per day;...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -223,7 +202,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#14 · WSJF 0.6 · v2 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#13 · WSJF 0.6 · v2 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-10-21 22:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -475,7 +454,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#1 · WSJF 2.8 · v6 tc6 u2 /e5_
@@ -496,6 +475,28 @@ _created 2026-10-20 08:30 · updated 2026-10-21 22:05_
   - `shipped_2026_10_21_halo_s1a`: Operator picked A (separate integration, named Halo, repo ojiudezue/halo-panels, public; Gitea Okosisi/halo-panels). S1a built and installed: lease arbiter, sleep floor, snapshot/restore, kill switch. 7 panel subentries live incl. Study ...
   - `residual_halo_followups_2026_10_21`: (a) Start-up delay also fires on a subentry add/reload, suppressing non-critical indications for 180 s house-wide: apply it only on a real HA start. (b) Move HomeLab's panel screen automations (wallpanel_fleet_wake / _sleep_after_grace /...
   - `resolved_2026_10_21_bridge_colour`: Follow-up (d) DONE: HomeLab bridge 1.7.0 on all 7 panels publishes color_mode/color/effect after each command and on reconnect (root cause: state omitted color_mode so HA dropped the colour; effect never published; repeated commands drop...
+
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **in_progress** - approval: **explicit**
+_created 2026-10-04 01:00 · updated 2026-10-22 02:08_
+- **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
+- **Next:** Me: ura-planner writing the phase-2 Tier-3 plan (reserve oracle: local primary + cloud corroborator, release deadband, stale-cloud CRITICAL gate, same-value-drop bypass, plus original phase-2 scope) -> 2 plan reviews -> build -> 4 review...
+- **Forensic keys (15):**
+  - `INSTANCE_2026_10_23_reserve_stuck_98`: Operator APPROVED planning 10-23 (Tier 3: 2 plan reviews, 4 build reviews, pre-deploy checkpoint). EVSE hold wrote reserve 98 via cloud 19:35Z; gateway enforced 98 in 16 s; cloud number stuck at 10.0; release to 10 deadbanded against the...
+  - `INSTANCE_2026_10_22_stale_cloud_false_critical`: From the EC-SELFHEAL-UNEXPLAINED-RESENDS-1 soak exit (overnight 10-22). The write verifier still pages CRITICAL off a STALLED cloud reading after the dead-local-witness fix (v5.103.74). At 10-22 01:21 CDT it sent 'Envoy write not applied...
+  - `recount_2026_10_17`: Interim recount (governor shipped; Ethernet + GC freeze in place): short blips fell 6.8/day -> ~1.7/day, but DOWNTIME did not fall (923 min pre vs 1,304 min post) because of long outages 586 min (10-15/16) and 714 min (10-16), and anothe...
+  - `operator_instruction_2026_10_17`: The governor is done. So finish the recount (board, 2026-10-18T03:47:24.313Z)
+  - `correction_2026_10_17_overnight`: CARD-WAS-WRONG on one piece of evidence: the 10-03 'STAND-DOWN ... hardware reports 10.0' pages in INSTANCE_2026_10_04_overnight were NOT cloud-write-path health. The 'hardware' reading is number.enpower_482348004678_reserve_battery_leve...
+  - `relevance_check_2026_10_16_overnight`: Operator asked 'Check for relevance then approve'. STILL-RELEVANT, narrowed. Checked 02:0x CDT against develop: (1) the dormant local write-failover still exists (energy_battery.py:551 _write_failover_by_surface, read at :831 and energy_...
+  - `operator_instruction_2026_10_15_2`: Check for relevance then approve
+  - `INSTANCE_2026_10_14_reserve_pending_episode`: From EC-RESERVE-CLOUD-DIVERGENCE-1 (closed 10-14): a reserve write sat pending at Enphase for about 2 days (10-11 to 10-13 11:40 CDT; control_change_pending on writes). The battery obeyed the cloud value, and the local gateway number sho...
+  - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (problem known, solution being shaped; gated). PARTIALLY-DONE already, on the unshipped EC p1 branch: 7f60f137e EC resilience bundle B1-B5 covers part of item (2) (write-failure capture + battery write-churn trip-wi...
+  - `INSTANCE_2026_10_04_overnight`: Two reserve-write STAND-DOWNS in the last 12 h, each paged CRITICAL on companion + iMessage + Pushover + WhatsApp (URA notification_log): 10-03 15:04 CDT 'URA commanded reserve_soc=80 but hardware reports 10.0 after 3602s' -> 3/3 attempt...
+  - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
+  - `operator_2026_10_15b`: Operator: "Envoy is ethernet connected now not wifi." Another confound for the 10-15 dropout fall (alongside GC freeze + SPAN); likely the dominant one. Re-count at 10-18 stands.
+  - `update_2026_10_15`: Operator 2026-10-15: "drops have fallen. Wonder if related to stalls. Measure first." Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within...
+  - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
+  - `recount_2026_10_19_overnight`: RECOUNT DONE (per your 10-17 instruction). Recorder, sensor.envoy_482543015950_current_battery_discharge unavailable episodes by local day: 10-11 9 drops/266 min down, 10-12 4/297, 10-13 4/145, 10-14 13/109, 10-15 1/586, 10-16 1/714, 10-...
 
 ## 🔍 Review (1)
 _under review_
