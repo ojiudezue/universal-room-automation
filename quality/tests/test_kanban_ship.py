@@ -253,8 +253,12 @@ def test_real_board_idempotent_reship(board_copy: Path) -> None:
     """Re-shipping the same card must NOT duplicate shipped_version."""
     original = board_copy.read_text(encoding="utf-8")
     board = kanban_ship.load_board(board_copy)
+    # A card that already carries shipped_version would make the first ship an
+    # in-place replace (delta 0), so pick one without it.
+    unshipped = {c["id"] for c in yaml.safe_load(original)["cards"]
+                 if "shipped_version" not in c}
     target = next(cid for cid in kanban_ship.all_card_ids(board)
-                  if _card_has_status(board_copy, cid))
+                  if cid in unshipped and _card_has_status(board_copy, cid))
     once, _ = kanban_ship.mark_shipped_text(original, [target], "5.99.0", "2026-08-09")
     twice, _ = kanban_ship.mark_shipped_text(once, [target], "5.99.1", "2026-08-09")
     # Two ships = one insert (first time) + one in-place replace (second time);
