@@ -386,7 +386,9 @@ def test_v4710_trap_restores_clean_url_on_sigint(
             printf '%s\\n' "$*" >> "{log_path}"
             # When asked to push to gitea, sleep so the parent can SIGINT us.
             if [[ "$1" == "push" && "$2" == "gitea" ]]; then
-              sleep 5
+              # Long enough that SIGINT always lands mid-push even on a loaded
+              # host; the trap kills this child, so the length costs nothing.
+              sleep 30
               exit 0
             fi
             if [[ "$1" == "push" ]]; then
@@ -425,24 +427,52 @@ def test_v4710_trap_restores_clean_url_on_sigint(
     import signal
     import time
 
-    deadline = time.time() + 5
+    # Baseline 2026-10-23 saw this fail once in a full-suite run and never
+    # again (36 stressed parallel runs + 4 orderings green). The old loop fell
+    # through SILENTLY after 5 s and sent SIGINT anyway, so a slow host could
+    # signal before the push (not the scenario under test) and fail with no
+    # clue why. Now: wait longer, and fail loudly if the push never started.
+    deadline = time.time() + 30
+    push_started = False
     while time.time() < deadline:
+        if proc.poll() is not None:
+            break
         if log_path.exists() and "push gitea" in log_path.read_text():
+            push_started = True
             break
         time.sleep(0.05)
+    if not push_started:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = proc.communicate(timeout=5)
+        pytest.fail(
+            "dual-push.sh never reached `git push gitea` (rc="
+            f"{proc.returncode}); stdout={out!r} stderr={err!r} "
+            f"git-log={log_path.read_text() if log_path.exists() else ''!r}"
+        )
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGINT)
     except ProcessLookupError:
         pass
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=15)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.wait(timeout=2)
-        pytest.fail("script did not exit after SIGINT to process group")
+        out, err = proc.communicate(timeout=5)
+        pytest.fail(
+            "script did not exit after SIGINT to process group; "
+            f"stdout={out!r} stderr={err!r}"
+        )
+    # The trap's contract exit code for INT (scripts/dual-push.sh:97).
+    assert proc.returncode == 130, (
+        f"expected rc=130 from the INT trap, got {proc.returncode}; "
+        f"stderr={proc.stderr.read()!r}"
+    )
     # Verify the trap restored a clean URL.
     result = subprocess.run(
         ["git", "config", "--get", "remote.gitea.url"],

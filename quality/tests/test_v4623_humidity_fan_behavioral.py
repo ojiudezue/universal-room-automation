@@ -240,10 +240,6 @@ def _make_automation(
 
     hass.states.get = _get_state
 
-    coordinator = MagicMock()
-    coordinator.entry = MagicMock()
-    coordinator.entry.options = {}
-
     config = {
         CONF_HUMIDITY_FANS: [FAN_ENTITY],
         CONF_HUMIDITY_FAN_THRESHOLD: threshold,
@@ -253,6 +249,16 @@ def _make_automation(
         "sleep_protection_enabled": False,
         "room_name": "Bathroom",
     }
+
+    # The room config lives on the room config entry, as in production.
+    # handle_humidity_based_fan_control calls _refresh_config() first
+    # (53cef2ac6, ROOM-RELOAD-SUPPRESS A-H1), which rebuilds self.config as
+    # {**entry.data, **entry.options}. A bare MagicMock entry.data made that
+    # collapse to {} -> no humidity fans -> early return (fixture rot).
+    coordinator = MagicMock()
+    coordinator.entry = MagicMock()
+    coordinator.entry.data = dict(config)
+    coordinator.entry.options = {}
 
     automation = RoomAutomation(hass=hass, config=config, coordinator=coordinator)
 
@@ -436,8 +442,12 @@ def test_hysteresis_no_chatter_at_threshold_boundary():
     _set_now(t0)
     _run(auto.handle_humidity_based_fan_control(70.0))  # turn on
 
-    for tick in range(1, 4):
-        _set_now(t0 + timedelta(seconds=tick * 5))
+    # Ticks are PAST the 60 s min-runtime (timeout) and BEFORE the 300 s cap,
+    # so the OFF branch is reachable and only hysteresis keeps the fan on.
+    # (The old 5/10/15 s ticks sat inside the min-runtime window, so a broken
+    # off_threshold could never be observed — hollow anchor, Bug Class #62.)
+    for seconds in (61, 120, 180):
+        _set_now(t0 + timedelta(seconds=seconds))
         _run(auto.handle_humidity_based_fan_control(60.0))  # above off_threshold=55, hold
 
     turn_ons = [s for _, s, _ in log if s == "turn_on"]
