@@ -544,6 +544,59 @@ DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H: Final = 12
 # Rolling window for the churn count (s). Rung 1 (protocol window).
 BATTERY_WRITE_CHURN_WINDOW_S: Final = 3600
 
+# --- EC reserve oracle phase 2 (PLANNING_ec_reserve_oracle_phase2.md) ---
+# All rung 1 (operator Q1, 2026-10-24): trust-hierarchy / invariant numbers
+# whose change must go through review. Read at call time via the module
+# (`_ec.NAME`) so a kill switch flip is one edit.
+#
+# Send/skip deadband between the reserve reference and the target (the
+# former inline `>= 2` in `_reserve_action`; operator "keep ±2" ruling).
+# Shared by D1 (send), D3 (`_local_confirms`, strict `<`) and D4 (dwell).
+RESERVE_DISPATCH_DEADBAND_PCT: Final = 2
+# Kill switch: False = the local Envoy reserve sensor is never trusted
+# (rule T off, D3 cloud-stale classification off, D4 sees no witness).
+RESERVE_LOCAL_WITNESS_ENABLED: Final = True
+# Kill switch: False = rule L (landed-request send term) off.
+RESERVE_LEDGER_SEND_ENABLED: Final = True
+# Kill switch: False = always emit the plain target (the integration's
+# same-value early return can then drop the write, the 10-23 shape).
+RESERVE_SAME_VALUE_NUDGE_ENABLED: Final = True
+# Kill switch: False = pre-cycle attain-bypass base order (cloud `_hw`
+# first). True = URA intent (desire if <= floor or landed, else floor).
+RESERVE_ATTAIN_BASE_INTENT_ENABLED: Final = True
+# Nudge step: the smallest value the integration treats as different.
+# 0 would disable the nudge; use the switch above instead.
+RESERVE_SAME_VALUE_NUDGE_STEP_PCT: Final = 1
+# Reserve is integral: |a - b| < 0.5 means "same integer".
+RESERVE_SAME_VALUE_TOLERANCE_PCT: Final = 0.5
+# Low-SOC ratchet guard, lower edge (D0-P1). The guard compares SOC to the
+# NOMINAL target URA sent, so it uses the D0 nominal-commanded figure 5
+# (observed max SOC - nominal commanded inside a wobble = 4; 3 would only
+# hold against the gateway's effective value, which URA cannot read).
+# 0 = guard only when SOC <= target.
+RESERVE_LOCAL_LOW_SOC_MARGIN_PCT: Final = 5
+# Low-SOC ratchet guard, upper edge (D0-P1: max local - SOC in a wobble = 5;
+# audit 10-17 saw 17). A local reading above SOC + span is a stuck reserve,
+# not a ratchet, and stays trusted. 100 = unbounded (rev-1) guard.
+RESERVE_LOCAL_RATCHET_SPAN_PCT: Final = 20
+# Rule G: minimum spacing (s) between two dispatches of the same desire
+# (target or its nudge) caused by the local / landed terms. >= Enphase
+# CONFIRMATION_WINDOW_S 600 and >= measured apply-lag p90 (69 s, D0-P4).
+# Pinned equal to CONF_PENDING_ATTEMPT_1_AGE_S by a test. <= 0 disables.
+RESERVE_RESEND_MIN_GAP_S: Final = 900
+# INV-R1 bound term: >= measured apply-lag p99 (177 s, D0-P4).
+RESERVE_APPLY_LAG_ALLOWANCE_S: Final = 900
+# INV-R1 convergence bound (derived; invariant/test constant, not a knob).
+RESERVE_CONVERGENCE_BOUND_S: Final = (
+    2 * DEFAULT_DECISION_INTERVAL_MINUTES * 60
+    + RESERVE_RESEND_MIN_GAP_S
+    + RESERVE_APPLY_LAG_ALLOWANCE_S
+)
+# D4 trip-wire: trusted local >= deadband away from the effective desire
+# for longer than this → one anomaly + one HIGH NM (NM once per day).
+# Bound + one tick, so it fires only past INV-R1 (operator Q5). <= 0 = off.
+RESERVE_ENFORCED_DIVERGENCE_TRIPWIRE_S: Final = 2700
+
 # EC-EV-TOGGLE-TRIPWIRE-1 — strategy EV charger flip-flop detector.
 # When URA's battery/EV strategy toggles a single EVSE switch
 # (switch.turn_on + switch.turn_off count equally) MORE than this many

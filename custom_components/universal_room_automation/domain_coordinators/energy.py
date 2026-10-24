@@ -9703,6 +9703,23 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             battery = getattr(self, "_battery", None)
             value_i = int(max(0, min(100, int(value))))
+            # EC reserve oracle phase 2 (4.5, RG-M1): the attempt / landed
+            # stamps are written HERE, at the top, BEFORE the change gate
+            # and the no-database return, so every dispatch at all four
+            # points stamps them. Attempt: every status. Landed: APPLIED
+            # only (a raise or the CM path's unseen DEFERRED never lands).
+            # RAM-only (restart = None). Own guard: never poisons the row.
+            if battery is not None:
+                try:
+                    from homeassistant.util import dt as _dtu  # noqa: PLC0415
+                    _stamp_now = _dtu.utcnow()
+                    battery._reserve_last_attempt_value = value_i
+                    battery._reserve_last_attempt_at = _stamp_now
+                    if status is WriteStatus.APPLIED:
+                        battery._reserve_last_ok_value = value_i
+                        battery._reserve_last_ok_at = _stamp_now
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("reserve stamps failed", exc_info=True)
             desire = getattr(battery, "_last_reserve_level_desired", None)
             hold_owner: str | None = None
             verifier = getattr(self, "_write_verifier", None)
@@ -9783,6 +9800,11 @@ class EnergyCoordinator(BaseCoordinator):
                 "preonset_event": preonset_event,
                 "pre_state": pre_state,
                 "reason": reason,
+                # EC reserve oracle phase 2 D1.3 (additive): which reference
+                # the decision-side send/skip used on the last tick.
+                "reserve_reference_source": getattr(
+                    battery, "_reserve_reference_source", None,
+                ),
             }
             from .energy_const import RESERVE_WRITE_LOG_IMPORTANCE
             _coro = db.log_activity(
@@ -9807,7 +9829,12 @@ class EnergyCoordinator(BaseCoordinator):
             # holding it, e.g. the EVSE overlay's per-tick append) would be
             # gated and the ledger's last word would stay "failed". Only
             # APPLIED/DEFERRED rows update the memo.
-            if status is not WriteStatus.FAILED:
+            # EC reserve oracle phase 2 D5: a timer-path DEFERRED row is a
+            # raised (`control_change_pending`) write — treat it like FAILED
+            # for the memo (D-4: the recovered re-send must log).
+            if status is not WriteStatus.FAILED and not (
+                status is WriteStatus.DEFERRED and path == "timer"
+            ):
                 self._last_reserve_row_key = key
         except Exception:  # noqa: BLE001 — defensive; the row never poisons dispatch
             _LOGGER.debug(
@@ -9892,12 +9919,20 @@ class EnergyCoordinator(BaseCoordinator):
             # entity is configured AND is this action's target (G-6) — the
             # tap's own filter above is left untouched.
             if reserve_eid and target == reserve_eid and value is not None:
+                # EC reserve oracle phase 2 D5: a `control_change_pending`
+                # raise is DEFERRED (outcome unknown, not a failure); any
+                # other raise stays FAILED. Neither stamps the landed stamp.
+                if dispatch_result is not None and not dispatch_result.ok:
+                    _row_status = (
+                        WriteStatus.DEFERRED
+                        if dispatch_result.translation_key
+                        == "control_change_pending"
+                        else WriteStatus.FAILED
+                    )
+                else:
+                    _row_status = WriteStatus.APPLIED
                 self._record_reserve_dispatch(
-                    status=(
-                        WriteStatus.FAILED
-                        if dispatch_result is not None and not dispatch_result.ok
-                        else WriteStatus.APPLIED
-                    ),
+                    status=_row_status,
                     path="timer", target=target, value=value,
                     reason=decision.get("reason") if decision else None,
                     pre_state=pre_state,
@@ -9989,6 +10024,11 @@ class EnergyCoordinator(BaseCoordinator):
         (legacy stub / nothing dispatched) = not failed."""
         await verifier.note_dispatch(surface, now)
         if dispatch_result is None or dispatch_result.ok:
+            # EC reserve oracle phase 2 D5: a dispatch that did not raise
+            # closes the surface's `control_change_pending` episode.
+            _ok_hook = getattr(verifier, "note_dispatch_succeeded", None)
+            if _ok_hook is not None:
+                await _ok_hook(surface)
             return False
         await verifier.record_dispatch_failed(
             surface, commanded, service,
