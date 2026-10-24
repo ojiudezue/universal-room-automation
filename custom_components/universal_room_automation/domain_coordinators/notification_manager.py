@@ -3073,6 +3073,9 @@ class NotificationManager:
         """
         if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
             _LOGGER.debug("No active alert to acknowledge")
+            # NM-ACK-CLEARS-ALL: still clear any leftover unacked CRITICAL
+            # backlog (no slot/state change) so restart can't re-raise it.
+            await self._ack_all_criticals_and_release()
             return
 
         _LOGGER.info(
@@ -3143,15 +3146,8 @@ class NotificationManager:
             else:
                 await database.acknowledge_notification()
             # NM-ACK-CLEARS-ALL: one operator ack clears EVERY unacked
-            # CRITICAL (all coordinators/channels), not just the slot alert,
-            # and releases each acked episode's panel lease.
-            bulk = getattr(database, "acknowledge_all_criticals", None)
-            if bulk is not None:
-                for ep in await bulk() or []:
-                    self._panel_release_id(self._panel_lease_id(
-                        ep.get("coordinator_id"), ep.get("hazard_type"),
-                        ep.get("location"),
-                    ))
+            # CRITICAL (all coordinators/channels), not just the slot alert.
+            await self._ack_all_criticals_and_release()
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against
@@ -3205,6 +3201,19 @@ class NotificationManager:
 
         # Start cooldown
         await self._start_cooldown()
+
+    async def _ack_all_criticals_and_release(self) -> None:
+        """NM-ACK-CLEARS-ALL: ack every unacked CRITICAL row and release each
+        acked episode's panel lease. Touches no slot/alert state."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        bulk = getattr(database, "acknowledge_all_criticals", None)
+        if bulk is None:
+            return
+        for ep in await bulk() or []:
+            self._panel_release_id(self._panel_lease_id(
+                ep.get("coordinator_id"), ep.get("hazard_type"),
+                ep.get("location"),
+            ))
 
     async def _start_cooldown(self) -> None:
         """Start the post-ack cooldown period."""

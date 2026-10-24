@@ -422,6 +422,41 @@ async def test_one_ack_clears_every_unacked_critical_across_coordinators(
     assert rig2.nm.alert_state != AlertState.ALERTING
 
 
+@pytest.mark.asyncio
+async def test_idle_ack_clears_leftover_criticals_without_touching_slot(
+    monkeypatch, clock, tmp_path
+):
+    """NM idle + 2 leftover unacked CRITICALs -> ack -> zero unacked, leases
+    released, state stays IDLE (no slot re-entry)."""
+    db = await _real_db(tmp_path)
+    for coord, hz, loc in (
+        ("energy", "envoy_write_verification", None),
+        ("perimeter", "exterior_person", "Side Gate"),
+    ):
+        await db.log_notification(
+            coord, "CRITICAL", hz, f"{hz} msg", hz, loc, None, "pushover", 1,
+        )
+    await db._write_queue.join()
+    rig = Rig(monkeypatch, clock)
+    rig.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    released = []
+    monkeypatch.setattr(rig.nm, "_panel_release_id", released.append)
+    assert rig.nm.alert_state == AlertState.IDLE
+
+    await rig.nm.async_acknowledge(acked_by_channel="button")
+    await db._write_queue.join()
+    assert [r for r in _rows(db) if r["acknowledged"] == 0] == []
+    assert sorted(released) == [
+        "ura:energy:envoy_write_verification:house",
+        "ura:perimeter:exterior_person:side_gate",
+    ]
+    assert rig.nm.alert_state == AlertState.IDLE
+    assert not rig.nm._active_alert_data
+    assert not any(r["cooldown_expires"] for r in _rows(db))
+    from test_imsg_audit_fix_1 import _drain
+    await _drain(db)
+
+
 def test_helper_holds_in_alerting_state(monkeypatch, clock):
     nm = Rig(monkeypatch, clock).nm
     nm._alert_state = AlertState.ALERTING
