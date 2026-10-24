@@ -319,6 +319,10 @@ _NM_SAFEWORD_WINDOW_RE = re.compile(
 # unacked CRITICAL row). Requires review to change (safety-adjacent).
 NM_RECOVERY_MAX_AGE_H = 24.0
 
+# Halo level order (halo/const.py LEVEL_RANK) — used to never downgrade a
+# held panel lease (Halo S1b review A2).
+_PANEL_LEVEL_RANK = {"info": 1, "warn": 2, "alert": 3, "critical": 4}
+
 
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
@@ -1141,8 +1145,16 @@ class NotificationManager:
                         exc_info=True,
                     )
                 self._repeat_unsub = None
+            # Halo S1b (review B LOW): release the acked episode's panel lease
+            # (no-op while the panel channel is off, e.g. early boot).
+            _boot_data = self._active_alert_data or {}
+            _boot_id = self._panel_lease_id(
+                _boot_data.get("coordinator_id"), _boot_data.get("hazard_type"),
+                _boot_data.get("location"),
+            )
             self._alert_state = AlertState.IDLE
             self._active_alert_data = None
+            self._panel_release_id(_boot_id)
 
     @property
     def safe_word_configured(self) -> bool:
@@ -5681,6 +5693,10 @@ class NotificationManager:
             ttl_s = self._panel_ttl_s()
             old = self._panel_leases.get(lease_id)
             dropped = sorted(set(old["areas"]) - set(areas)) if old else []
+            # Review A2: the id carries no severity; while the lease is held
+            # (until release), a lower-severity re-notify never downgrades it.
+            if old and _PANEL_LEVEL_RANK.get(old["level"], 0) > _PANEL_LEVEL_RANK.get(level, 0):
+                level = old["level"]
             # Ledger first, then the await (R2-2 / S1b.4).
             self._panel_leases[lease_id] = {
                 "areas": list(areas),
@@ -5748,6 +5764,13 @@ class NotificationManager:
         if lease_id is not None:
             data["id"] = lease_id
         async with self._panel_lock:
+            # Review B MED: a delivery queued ahead of this release (FIFO
+            # lock) may have re-written the ledger after the caller's pop;
+            # pop again under the lock so re-assert cannot resurrect it.
+            if lease_id is None:
+                self._panel_leases.clear()
+            else:
+                self._panel_leases.pop(lease_id, None)
             await self._panel_call("release", data)
 
     @callback
@@ -5803,17 +5826,24 @@ class NotificationManager:
     def _set_panel_health(self, status: str, detail: str | None = None) -> None:
         """Non-boolean status setter for the panels channel (M1).
 
-        ``ok`` counts as a success through ``_update_channel_health``;
-        ``error`` as a failure; ``absent`` / ``no_surface`` / ``unavailable``
-        / ``enabled`` / ``off`` are states, not send outcomes.
+        Review A4: does NOT feed the global ``_send_attempts`` /
+        ``delivery_rate`` counters (a panel lease is not a message). ``ok``
+        resets failures; ``error`` counts one and becomes ``degraded`` at 3
+        consecutive failures (same threshold/semantics as
+        ``_update_channel_health``, so the channel-status sensor surfaces it);
+        ``absent`` / ``no_surface`` / ``unavailable`` / ``enabled`` / ``off``
+        are states, not send outcomes.
         """
-        if status == "ok":
-            self._update_channel_health("panels", True)
-        elif status == "error":
-            self._update_channel_health("panels", False)
         health = self._channel_health.get("panels")
         if health is None:
             return
+        if status == "ok":
+            health["last_success"] = dt_util.utcnow().isoformat()
+            health["failures"] = 0
+        elif status == "error":
+            health["failures"] = health.get("failures", 0) + 1
+            if health["failures"] >= 3:
+                status = "degraded"
         health["status"] = status
         health["detail"] = detail
         health["status_at"] = dt_util.utcnow().isoformat()

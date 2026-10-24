@@ -1022,3 +1022,110 @@ async def test_panels_row_never_active_critical(monkeypatch, clock, tmp_path):
         assert rows == [(1,)]
     finally:
         await _drain(db)
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up (pre-review-halo-s1b): B MED ledger resurrection, B LOW boot
+# cancel, A2 no downgrade, A4 health isolation.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ack_during_slow_indicate_does_not_resurrect(rig):
+    """B MED: slow indicate, two repeat renews queued, ack, Halo released.
+    The queued renews re-write the ledger after ack's pop; the release task
+    must pop again under the lock, or the next halo_ready re-lights an acked
+    alert."""
+    await rig.enable()
+    rig.hass.services.gate = asyncio.Event()
+    rig.hass.services.gate_service = "indicate"
+    await rig.nm.async_notify(
+        coordinator_id="safety", severity=Severity.CRITICAL, title="Leak",
+        message="m", hazard_type="water_leak", location="Kitchen",
+    )
+    await asyncio.sleep(0)
+    await rig.nm._repeat_alert()
+    await rig.nm._repeat_alert()
+    await rig.nm.async_acknowledge()
+    rig.hass.services.gate.set()
+    await settle(rig.hass)
+    assert rig.nm._panel_leases == {}
+    assert rig.hass.services.halo()[-1] == (
+        "release", {"owner": "ura", "id": "ura:safety:water_leak:kitchen"})
+    rig.hass.services.calls.clear()
+    rig.hass.services.gate = None
+    rig.hass.bus.fire("halo_ready", {})
+    await settle(rig.hass)
+    assert rig.indicates() == []
+
+
+@pytest.mark.asyncio
+async def test_switch_off_on_with_queued_delivery_ledger_cleared(rig):
+    await rig.enable()
+    await rig.nm._panel_lock.acquire()
+    try:
+        assert rig.nm._schedule_panel_delivery(
+            "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen")
+        await rig.nm.async_set_panel_channel_enabled(False)
+        await rig.nm.async_set_panel_channel_enabled(True)
+    finally:
+        rig.nm._panel_lock.release()
+    await settle(rig.hass)
+    # Queued delivery ran (channel live again), then the owed owner-wide
+    # release: Halo holds nothing, so neither may the ledger.
+    assert rig.nm._panel_leases == {}
+    rig.hass.services.calls.clear()
+    rig.hass.bus.fire("halo_ready", {})
+    await settle(rig.hass)
+    assert rig.indicates() == []
+
+
+@pytest.mark.asyncio
+async def test_boot_cancel_of_acked_episode_releases_lease(rig):
+    await rig.enable()
+    rig.nm._active_alert_data = {
+        "coordinator_id": "safety", "title": "Leak", "message": "m",
+        "hazard_type": "water_leak", "location": "Kitchen",
+    }
+    rig.nm._active_episode_id = "E1"
+    rig.nm._ack_registry["E1"] = {"acked_at": "x", "safe_word_verified": False}
+    rig.nm.restore_persistence_state({"alert_state": "repeating"})
+    await settle(rig.hass)
+    assert rig.nm.alert_state == AlertState.IDLE
+    assert rig.releases() == [{"owner": "ura", "id": "ura:safety:water_leak:kitchen"}]
+
+
+@pytest.mark.asyncio
+async def test_lower_severity_renotify_does_not_downgrade(rig):
+    await rig.enable()
+    await rig.notify(severity=Severity.CRITICAL)
+    await rig.notify(severity=Severity.HIGH)  # same id, would map to alert
+    assert [d["level"] for d in rig.indicates()] == ["critical", "critical"]
+    # After release, a HIGH starts fresh at its own level.
+    await rig.nm.async_acknowledge()
+    await settle(rig.hass)
+    rig.clock.advance(120)
+    await rig.notify(severity=Severity.HIGH)
+    assert rig.indicates()[-1]["level"] == "alert"
+
+
+@pytest.mark.asyncio
+async def test_panel_health_isolated_and_degrades(rig, monkeypatch):
+    monkeypatch.setattr(nm_mod, "NM_PANEL_CALL_TIMEOUT_S", 0.01)
+    await rig.enable()
+    attempts = rig.nm._send_attempts
+    successes = rig.nm._send_successes
+    rig.hass.services.gate = asyncio.Event()  # never set -> timeouts
+    for i in range(3):
+        rig.nm._schedule_panel_delivery(
+            "security", Severity.HIGH, "D", "m", f"h{i}", None, log_row=False)
+        await asyncio.sleep(0.05)
+        await settle(rig.hass)
+        assert rig.nm.channel_status["panels"]["status"] == (
+            "error" if i < 2 else "degraded")
+    rig.hass.services.gate = None
+    rig.nm._schedule_panel_delivery(
+        "security", Severity.HIGH, "D", "m", "h9", None, log_row=False)
+    await settle(rig.hass)
+    h = rig.nm.channel_status["panels"]
+    assert h["status"] == "ok" and h["failures"] == 0
+    assert (rig.nm._send_attempts, rig.nm._send_successes) == (attempts, successes)
