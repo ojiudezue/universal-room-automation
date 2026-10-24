@@ -64,10 +64,10 @@ cards:
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
   thread: "energy"
-  status: "planned"
+  status: in_progress
   tier: 1
   created: "2026-10-23 02:09"
-  updated: "2026-10-23 02:09"
+  updated: '2026-10-24 02:01'
   refinement_status: "initial"
   approval: "implied"
   tags: ["found-during-probe", "no-fabrication-verify", "regression"]
@@ -80,6 +80,7 @@ cards:
   rank: {"value": 6, "time_criticality": 5, "effort": 2}
   next: "Me: Tier 1 build (energy.py:731 pass solcast_today_entity=ec.get(CONF_ENERGY_SOLCAST_TODAY_ENTITY), solcast_remaining_entity=ec.get(CONF_ENERGY_SOLCAST_REMAINING_ENTITY); test builds the EC from a config entry and asserts the predictor reads the configured id; mutation-drill removing one kwarg) as soon as the review lane is under its 3-card cap. Live check after deploy: sensor.ura_energy_coordinator_energy_forecast_today numeric within one decision cycle; battery_full_time attrs no longer missing_input=solcast."
   refs: ["custom_components/universal_room_automation/domain_coordinators/energy.py:731-749", "custom_components/universal_room_automation/domain_coordinators/energy_forecast.py:81-82,187,245,546", "custom_components/universal_room_automation/domain_coordinators/energy_const.py:246,299-300", "commit 36b08ba78"]
+  verify_2026_10_24: 'STILL-REAL (2026-10-24 02:01, orchestrator): energy.py:731-749 still constructs DailyEnergyPredictor without solcast_today_entity / solcast_remaining_entity. Review lane 1 (< cap 3), so dispatched to ura-builder in a worktree overnight; build-to-review only, no deploy.'
 - id: HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1
   title: "The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh"
   thread: "hvac"
@@ -104,10 +105,10 @@ cards:
   verify_2026_10_22: "STILL-REAL. The dwell migration (d75313bec) did not touch regime_detector.py (last change 09-14). The check still compares predicted_value = actual_value (regime_detector.py:388-389, :405-406), and next_room rows still store a JSON payload with a 'top' key (sensor.py:3543). So the fold-into-migration option is gone: this is a standalone Tier 1 fix. Not built overnight: the review lane holds 4 built cards (WIP cap is 3), so the overnight pass drains reviews before starting builds."
   title: "Regime detector's next-room 'accuracy drop' check compares a JSON prediction to a room name, so it never matches (0 of 3,109 rows) and can never fire"
   thread: predictions
-  status: planned
+  status: in_progress
   tier: 1
   created: "2026-10-21 22:15"
-  updated: "2026-10-22 02:02"
+  updated: '2026-10-24 02:01'
   refinement_status: initial
   approval: unreviewed
   problem_solution: ["Problem: one of the routine-change checks looks for a drop in how often the next-room guess was right, but it compares the stored guess (a small JSON record) to the plain room name, so it never counts a single hit (0 matches in 3,109 rows over 7 days) and the check is blind. Solution: compare the guess's top room field to the actual room (json_extract of $.top), with a test on real row shapes; fold the decision into the dwell-model prediction migration if that changes what the guess looks like."]
@@ -118,6 +119,7 @@ cards:
   links: {related: [PREDICT-MODEL-DWELL-MIGRATION-1, PREDICT-SCORER-BASELINE-SKILL-1, REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1], context: "PREDICT-MODEL-DWELL-MIGRATION-1 changes the next-room prediction source and found this; PREDICT-SCORER-BASELINE-SKILL-1 is the same stored-prediction scoring surface; REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 is another defect in this detector."}
   next: "Me: Tier 1 build (json_extract(predicted_value,'$.top') = actual_value, test on the real row shape) once the review lane is back under 3."
   rank: {value: 4, time_criticality: 3, effort: 2}
+  verify_2026_10_24: 'STILL-REAL (2026-10-24 02:01, orchestrator): regime_detector.py:388-389/405-406 still compare predicted_value = actual_value. Live DB: all 179,272 next_room rows are valid JSON with a top key; json_extract($.top)=actual_value gives 1,135 hits of 4,845 rows in the last 7 days (23%), vs 0 with the current compare. Dispatched to ura-builder in a worktree; build-to-review only.'
 - id: WORKLOG-APPEND-AT-SHIP-1
   groom_2026_10_22: "Groomed overnight. Validity: STILL-REAL (grep -i worklog scripts/deploy.sh = no hits; the only worklog is docs/planning/WORKLOG_2026-10_session.md, written by hand). Prior art: REUSE the deploy.sh step-4b post-push hook that already calls kanban_ship.py mark-shipped. Add one append next to it, never failing the deploy post-push (same safety rule). Parsimony: BUILD (Tier 1, ~15 lines of shell). Not built tonight because the review lane is over the WIP cap of 3."
   title: "The session work log lapsed for a week (10-14 to 10-21); append one index line per ship batch automatically instead of by memory"
