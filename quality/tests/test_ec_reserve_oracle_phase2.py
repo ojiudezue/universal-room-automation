@@ -416,6 +416,7 @@ async def test_rule_l_raise_exemption_without_witness(sh, clock):
     s._reserve_last_ok_value = 40
     s._reserve_last_attempt_value = 50
     s._reserve_last_attempt_at = clock.t
+    s._reserve_last_attempt_failed = True   # the earlier raise raised
     assert decide(s, 50) == 50              # raise (50 > 40): ungated
     s._reserve_last_ok_value = 60
     assert decide(s, 50) is None            # lowering, same value in gap
@@ -1321,3 +1322,349 @@ def test_blind_path_keeps_pre_cycle_cloud_compare(clock, reg):
     d2 = stage_a_tick(clock, s, OCT_04, "off_peak", seed=("partial_hold", 50))
     assert d2["reason"].startswith("Blind hold — ")
     assert writes(d2) == []
+
+
+# ===========================================================================
+# Review fix-up (pre-review-ec-reserve-oracle-p2)
+# ===========================================================================
+def _warmup_ticks(clock, *, hw, local, ledger=40, floor=50, n=3, desire=None,
+                  last_ok=None, attempt=None):
+    from test_ec_stage_a_floor_and_blind import (  # noqa: PLC0415
+        OCT_03, OCT_04, OCT_05, _hold_current_shell, tick as stage_a_tick,
+        writes,
+    )
+    c, s = _hold_current_shell(clock, hw=hw)
+    s._last_reserve_level = ledger
+    s._last_reserve_level_desired = desire
+    s._reserve_last_ok_value = last_ok
+    if attempt is not None:
+        s._reserve_last_attempt_value = attempt
+        s._reserve_last_attempt_failed = False
+    out = []
+    for t in (OCT_03, OCT_04, OCT_05)[:n]:
+        _st(c.hass, LOCAL_EID, str(local), unit="%", lu=t)
+        d = stage_a_tick(clock, s, t, "off_peak", seed=("partial_hold", floor))
+        out.append(writes(d))
+    return out, s
+
+
+def test_fixup_high1_reboot_warmup_never_lowers_inflight(clock, reg):
+    """HIGH-1: post-reboot HOLD CURRENT, partial_hold floor 50, hw/local 80,
+    ledger 40, no landed stamp: tick 1 adopts 80 as desire; ticks 2-3 must
+    never send anything below 80 (the bug sent 50 at tick 2)."""
+    out, s = _warmup_ticks(clock, hw="80", local=80)
+    assert all(v >= 80 for w in out for v in w), out
+    assert s._last_reserve_level_desired == 80
+
+
+def test_fixup_high1_cm_deferred_raise_not_lowered(clock, reg):
+    """HIGH-1 (CM route): desire 80 sent via the CM path (DEFERRED: attempt
+    80, never landed), cloud stale 10, local 80 → kept (trusted local
+    confirms it), no lowering to 50."""
+    out, _ = _warmup_ticks(clock, hw="10", local=80, desire=80, attempt=80, n=2)
+    assert out == [[], []], out
+
+
+def test_fixup_attain_last_ok_deadband_boundary(clock, reg):
+    """last_ok exactly 2 from desire = unconfirmed (hw 10 → base 10 → 50);
+    1 away = confirmed (desire 80 kept as the level)."""
+    out, _ = _warmup_ticks(clock, hw="10", local=10, desire=80, last_ok=78, n=1)
+    assert out == [[50]]
+    out, s = _warmup_ticks(clock, hw="10", local=10, desire=80, last_ok=79, n=1)
+    assert s._last_reserve_level_desired == 80, out
+
+
+def test_fixup_attain_desire_at_and_below_floor(clock, reg):
+    """desired == floor and desired < floor both resolve to the floor and
+    are released against the trusted local (98 → 50)."""
+    for desire in (50, 30):
+        out, s = _warmup_ticks(clock, hw="98", local=98, desire=desire, n=1)
+        assert out == [[50]], (desire, out)
+
+
+def test_fixup_attain_unconfirmed_no_hw_resolves_to_floor_not_ledger(clock, reg):
+    """Unconfirmed desire 80, write leg AND local unavailable, ledger 90 →
+    base = floor (50), never the ledger (the stamp shows the level)."""
+    out, s = _warmup_ticks(clock, hw="unavailable", local="unavailable",
+                           desire=80, last_ok=None, ledger=90, n=1)
+    assert s._last_reserve_level_desired == 50
+
+
+def test_fixup_med_a_attain_unreadable_cloud_uses_trusted_local(clock, reg):
+    """MED-A: write leg unreadable, trusted local 98 (stuck), desire 50 =
+    floor → D1 decides against local → release 50 (the old compare_to=_base
+    deadbanded 50 vs 50 and sent nothing)."""
+    out, s = _warmup_ticks(clock, hw="unavailable", local=98, desire=50, n=1)
+    assert out == [[50]], out
+
+
+def _ladder_shell(sh, clock, cloud):
+    c, s = sh(soc=98, cloud=cloud, local=98)
+    s._last_reserve_level = 11            # nudged command for desire 10
+    s._last_reserve_level_at = c.t0
+    s._last_reserve_level_desired = 10
+    return c, s
+
+
+async def _watchdog_at(c, s, clock, at):
+    clock.t = c.t0 + timedelta(seconds=at)
+    refresh(c, clock)
+    s._desired_stamped_at = clock.t
+    await c._write_verifier._pending_watchdog_reserve(s)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cloud", [10, 50])
+async def test_fixup_high2_ladder_survives_nudged_command(sh, clock, cloud):
+    """HIGH-2: commanded = nudge(desire) = 11, hardware 98. The ladder runs:
+    attempt 1, attempt 2, then HARD STAND-DOWN; the stand-down covers the
+    target 10 in `_reserve_action`. cloud 50 makes force_redispatch alternate
+    10/11 — the ledger anchor must not move on that pair."""
+    c, s = _ladder_shell(sh, clock, cloud)
+    wv = c._write_verifier
+    await _watchdog_at(c, s, clock, 900)
+    assert wv._pending_attempts_fired.get(SURFACE) == 1
+    await _watchdog_at(c, s, clock, 1800)
+    assert wv._pending_attempts_fired.get(SURFACE) == 2
+    await _watchdog_at(c, s, clock, 3600)
+    assert wv._pending_standdown_at.get(SURFACE) is not None
+    assert s._last_reserve_level_at == c.t0
+    assert decide(s, 10) is None
+
+
+def test_fixup_high2_conduct_exception_not_triggered_by_nudge(sh, clock):
+    """HIGH-2 consumer: the conduct exception (d) 'explicit drain' must not
+    fire just because the command is the nudge (11) of desire 10."""
+    c, s = sh(soc=98, cloud=10, local=98)
+    s._last_reserve_level_desired = 10
+    s._desired_stamped_at = clock.t
+    wv = c._write_verifier
+    r = wv._legal_conduct_exception(s, 11, clock.t - timedelta(hours=1), clock.t)
+    assert r != "explicit_drain_desire_lower"
+    r = wv._legal_conduct_exception(s, 12, clock.t - timedelta(hours=1), clock.t)
+    assert r == "explicit_drain_desire_lower"
+
+
+@pytest.mark.asyncio
+async def test_fixup_high2_tap_ledger_anchor_kept_on_nudge_pair(sh, clock):
+    """Timer tap: plain 10 at T then nudge 11 at T+900 → `_at` stays T; a
+    genuine desire change re-anchors."""
+    c, s = sh(soc=98, cloud=50, local=98)
+    assert await tick(c, s, clock, 10, at=0) == 10
+    t0 = s._last_reserve_level_at
+    assert await tick(c, s, clock, 10, at=900) == 11
+    assert s._last_reserve_level == 11
+    assert s._last_reserve_level_at == t0
+    assert await tick(c, s, clock, 20, at=1200) == 20
+    assert s._last_reserve_level_at == clock.t
+
+
+@pytest.mark.asyncio
+async def test_fixup_med1_raise_nudges_once_per_gap(sh, clock):
+    """D-MED-1: a silently dropped raise 10 → 50 (local stays 10, cloud 10)
+    retries every tick (raise exemption) but nudges at most once per 900 s:
+    one hour = 12 writes, nudges only at 300/1200/2100/3000."""
+    c, s = sh(soc=60, cloud=10, local=10)
+    sent = []
+    for at in range(0, 3600, 300):
+        v = await tick(c, s, clock, 50, at=at)
+        sent.append((at, v))
+    assert len([v for _, v in sent if v is not None]) == 12
+    assert [at for at, v in sent if v == 51] == [300, 1200, 2100, 3000], sent
+
+
+@pytest.mark.asyncio
+async def test_fixup_med2_cm_first_send_then_nudge_converges(sh, clock):
+    """D-MED-2: the first send goes out on the CM path (DEFERRED, landed stamp
+    not written); the integration drops plain 10 (selected 10). At the gap
+    the timer path nudges 11 (trigger b'), converging within 2400 s."""
+    c, s = sh(soc=98, cloud=50, local=98)
+    c._tou = SimpleNamespace(
+        get_current_period=lambda *a: "mid_peak", get_season=lambda *a: "summer",
+    )
+    _, a = s._reserve_action(10)
+    assert a["data"]["value"] == 10
+    s.determine_mode = lambda *x, **k: {
+        "reason": "cm", "charge_from_grid": False, "soc": 98.0, "actions": [a],
+    }
+    await c._evaluate_battery()
+    await _settle()
+    assert s._reserve_last_ok_value is None and s._reserve_last_attempt_value == 10
+    selected = 10
+
+    async def _svc(domain, svc, data, blocking=False, **kw):
+        nonlocal selected
+        c.calls.append([domain, svc, dict(data)])
+        if data["value"] != selected:
+            selected = data["value"]
+            c.local_value = data["value"]
+    c.hass.services = SimpleNamespace(async_call=_svc)
+    conv = None
+    for at in range(300, 2401, 300):
+        await tick(c, s, clock, 10, at=at)
+        if conv is None and abs(c.local_value - 10) < 2:
+            conv = at
+    assert conv is not None and conv <= 2400
+    assert set_values(c)[0] == 11
+
+
+@pytest.mark.asyncio
+async def test_fixup_force_redispatch_success_closes_deferred_episode(sh, clock):
+    c, s = sh(soc=60, cloud=10, local=80)
+    wv = c._write_verifier
+    wv._deferred_episode_open.add(SURFACE)
+    _redispatch_ready(s, clock)
+    await s.force_redispatch(SURFACE)
+    assert SURFACE not in wv._deferred_episode_open
+
+
+def test_fixup_reference_source_on_compare_and_blind_paths(sh):
+    c, s = sh(soc=98, cloud=10, local=98)
+    s._reserve_action(10, compare_to=30)
+    assert s._reserve_reference_source == "compare_to"
+    s._reserve_action(10, witness_reference=False)
+    assert s._reserve_reference_source == "blind_cloud"
+
+
+@pytest.mark.asyncio
+async def test_fixup_landed_stamp_readable(sh, clock):
+    c, s = sh(soc=98, cloud=50, local=98)
+    await tick(c, s, clock, 10, at=0)
+    st = s.get_status()
+    assert st["reserve_last_landed"] == 10
+    assert st["reserve_last_landed_at"] == clock.t.isoformat()
+
+
+def test_fixup_fail_closed(sh):
+    c, s = sh(soc=98, cloud=10, local=98)
+    wv = c._write_verifier
+
+    def _boom(b):
+        raise RuntimeError("x")
+    wv._envoy_reserve_sensor_eid = _boom
+    assert wv.trusted_local_reserve(s, 10, 98) == (None, "error")
+    assert wv._local_confirms(s, 98) is False
+    c2, s2 = sh(soc=98, cloud=10, local=98)
+    assert c2._write_verifier._local_confirms(s2, None) is False
+    assert c2._write_verifier._local_confirms(None, 98) is False
+    assert c2._write_verifier._local_confirms(s2, 98) is True
+
+
+def decide_cmp(s, target, cmp):
+    _, a = s._reserve_action(target, compare_to=cmp)
+    return a["data"]["value"] if a is not None else None
+
+
+def test_fixup_reserve_action_compare_boundaries(sh, clock):
+    """compare_to path: exactly 2 sends, 1.5 does not; unreadable current
+    (blind, cloud unavailable) sends; stand-down skips the target AND a
+    stand-down pinned on the nudge value skips the target."""
+    c, s = sh(soc=98, cloud=10, local=98)
+    assert decide_cmp(s, 50, 48) == 50
+    assert decide_cmp(s, 50, 48.5) is None
+    set_cloud(c, clock, "unavailable")
+    _, a = s._reserve_action(50, witness_reference=False)
+    assert a is not None
+    set_cloud(c, clock, 50)
+    wv = c._write_verifier
+    wv._pending_standdown_at[SURFACE] = clock.t
+    wv._pending_standdown_value[SURFACE] = 10
+    assert decide(s, 10) is None
+    wv._pending_standdown_value[SURFACE] = 11
+    assert decide(s, 10) is None
+    wv._pending_standdown_value[SURFACE] = 12
+    assert decide(s, 10) is not None
+
+
+def test_fixup_rule_t_and_tolerance_boundaries(sh, clock):
+    """Rule T: |local - target| = 2 sends, 1 does not. Nudge tolerance:
+    cloud 10.4 nudges, 10.5 does not."""
+    c, s = sh(soc=98, cloud=50, local=12)
+    assert decide(s, 10) == 10
+    set_local(c, clock, 11)
+    assert decide(s, 10) is None
+    set_local(c, clock, 98)
+    set_cloud(c, clock, 10.4)
+    assert decide(s, 10) == 11
+    set_cloud(c, clock, 10.5)
+    assert decide(s, 10) == 10
+
+
+@pytest.mark.asyncio
+async def test_fixup_check_stale_branch_resets_counters(sh, clock):
+    c, s = sh(soc=60, cloud=10, local=15)
+    _ready_check(c, s, clock, 15)
+    wv = c._write_verifier
+    wv._self_heal_consecutive[SURFACE] = 2
+    wv._unavailable_consecutive[SURFACE] = 2
+    wv._unavailable_backoff_ticks[SURFACE] = 3
+    await wv._check(SURFACE, 15, clock.t - timedelta(minutes=20))
+    assert (wv._self_heal_consecutive[SURFACE],
+            wv._unavailable_consecutive[SURFACE],
+            wv._unavailable_backoff_ticks[SURFACE]) == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_fixup_non_reserve_surfaces_never_suppressed(sh, clock, monkeypatch):
+    """The reserve witness never masks charge_from_grid / storage_mode:
+    _check mismatch, sweep reverted and self-heal starvation still page."""
+    c, s = sh(soc=60, cloud=10, local=10)
+    wv = c._write_verifier
+    s._last_charge_from_grid_command = True
+    s._last_charge_from_grid_command_at = clock.t - timedelta(minutes=20)
+    s._last_charge_from_grid_desired = True
+    s._desired_stamped_at = clock.t
+    await wv._check("charge_from_grid", True, clock.t - timedelta(minutes=20))
+    assert any("charge_from_grid" in n["title"] for n in _criticals(c))
+    c.nm.clear()
+    wv._nm_trip_date_by_surface.clear()
+    wv._records["charge_from_grid"].status = ewv.STATUS_OK
+    await wv._sweep_surface(s, "charge_from_grid")
+    assert any("reverted" in n["title"] for n in _criticals(c))
+    c.nm.clear()
+    wv._nm_trip_date_by_surface.clear()
+    monkeypatch.setattr(
+        sys.modules[type(wv).__module__], "async_call_later",
+        lambda *a, **k: (lambda: None),
+    )
+    for _ in range(4):
+        await type(wv).schedule(wv, "charge_from_grid", True, clock.t)
+    assert any("self-heal" in n["title"] for n in _criticals(c))
+
+
+@pytest.mark.asyncio
+async def test_fixup_payload_fields(sh, clock):
+    """D3 / D4 / D5 anomaly + NM payload fields."""
+    c, s = sh(soc=98, cloud=10, local=98)
+    s._last_reserve_level_desired = 10
+    s._last_reserve_level = 11
+    s._reserve_last_ok_value = 11
+    for at in (0, 2701):
+        await _dwell(c, s, clock, at)
+    blob = json.dumps(_div(c)[0])
+    for k in ('local', 'effective_desire', 'ledger', 'last_ok', 'dwell_s',
+              'reserve_reference_source', 'last_attempt'):
+        assert k in blob, (k, blob)
+    assert "2701" in blob and "98" in blob
+    nm = _highs(c)[0]
+    assert nm["severity"] == "high"
+    assert "98%" in nm["message"] and "10%" in nm["message"]
+    c2, s2 = sh(soc=60, cloud=10, local=15)
+    _ready_check(c2, s2, clock, 15)
+    await c2._write_verifier._check(SURFACE, 15, clock.t - timedelta(minutes=20))
+    blob = json.dumps(anomalies(c2, "reserve_cloud_oracle_stale")[0])
+    for k in ('site', 'check', 'commanded', 'effective_desire'):
+        assert k in blob, (k, blob)
+    c3, s3 = sh(soc=98, cloud=50, local=98)
+    raising_bus(c3, "control_change_pending")
+    await tick(c3, s3, clock, 10, at=0)
+    blob = json.dumps(anomalies(c3, "battery_write_deferred")[0])
+    assert "control_change_pending" in blob and "commanded" in blob
+
+
+def test_fixup_attain_unconfirmed_desire_keeps_higher_hardware(clock, reg):
+    """Unconfirmed desire 60 (nothing landed, local unavailable), write leg
+    90 → base = hardware 90 (pre-cycle read), never the floor: no write."""
+    out, s = _warmup_ticks(clock, hw="90", local="unavailable", desire=60, n=1)
+    assert out == [[]], out
+    assert s._last_reserve_level_desired == 90

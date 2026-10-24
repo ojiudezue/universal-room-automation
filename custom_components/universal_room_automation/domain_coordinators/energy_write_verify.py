@@ -84,6 +84,15 @@ STATUS_DISPATCH_DEFERRED = "dispatch_deferred"
 CONTROL_CHANGE_PENDING_KEY = "control_change_pending"
 
 
+def _matches_desire(commanded: int, desire: int) -> bool:
+    """EC reserve oracle phase 2 fix-up HIGH-2: True iff ``commanded`` is
+    ``desire`` or its D2 same-value-drop nudge (`_nudge_value(desire)`)."""
+    from .energy_battery import _nudge_value  # noqa: PLC0415 — lazy, no cycle
+    return int(commanded) == int(desire) or int(commanded) == _nudge_value(
+        int(desire)
+    )
+
+
 def _normalize_percent(
     raw: Any, unit: Optional[str]
 ) -> tuple[Optional[float], bool]:
@@ -557,8 +566,9 @@ class WriteVerifier:
                 return None, "low_soc_guard"
             return local, "local"
         except Exception:  # noqa: BLE001
+            # Fail CLOSED (fix-up T11): an error never yields a trusted value.
             _LOGGER.debug("trusted_local_reserve raised", exc_info=True)
-            return None, "unavailable"
+            return None, "error"
 
     def _local_confirms(self, battery: Any, commanded: Any) -> bool:
         """D3: True iff the trusted local witness is STRICTLY within the
@@ -2157,7 +2167,9 @@ class WriteVerifier:
         if sv is None:
             return False
         try:
-            return int(sv) == int(value)
+            # Fix-up HIGH-2: a stand-down pinned on the nudged value
+            # (`_nudge_value(target)`) covers the target too.
+            return _matches_desire(int(sv), int(value))
         except (TypeError, ValueError):
             return sv == value
 
@@ -2293,7 +2305,12 @@ class WriteVerifier:
         # pre-overlay < commanded_floor is trivially true and the battery
         # could drain into the car unalarmed.
         effective = self._effective_reserve_desired(battery)
-        if effective is not None and effective < int(commanded_floor):
+        if (
+            effective is not None
+            and effective < int(commanded_floor)
+            # Fix-up HIGH-2: a nudged command (target + 1) is not a drain.
+            and not _matches_desire(int(commanded_floor), effective)
+        ):
             return "explicit_drain_desire_lower"
         # (e) inclement partial_hold is a legit lower floor — but only
         # WHILE SOC is at or above (inclement_reserve_floor - deadband).
@@ -2605,7 +2622,9 @@ class WriteVerifier:
             _cmd_int = int(commanded)
         except (TypeError, ValueError):
             _cmd_int = None
-        if _cmd_int is None or effective != _cmd_int:
+        # EC reserve oracle phase 2 fix-up HIGH-2: a D2 nudge commands
+        # `_nudge_value(effective)`; that is the SAME desire, not a move.
+        if _cmd_int is None or not _matches_desire(_cmd_int, effective):
             _LOGGER.info(
                 "WriteVerifier: %s pending watchdog — effective desire "
                 "moved (commanded=%s, effective=%s); ladder CANCELLED",

@@ -148,6 +148,21 @@ class ServiceDispatchResult(NamedTuple):
     translation_key: str | None
 
 
+def _same_desire_pair(old: Any, new: Any, desire: Any) -> bool:
+    """EC reserve oracle phase 2 fix-up HIGH-2: True iff ``old`` and ``new``
+    are both in {desire, _nudge_value(desire)} (the plain/nudge alternation
+    of ONE desire). The commanded-ledger `_at` anchor does not move on that
+    alternation (same contract as a same-value retry)."""
+    if old is None or new is None or desire is None:
+        return False
+    try:
+        from .energy_battery import _nudge_value  # noqa: PLC0415
+        pair = {int(desire), _nudge_value(int(desire))}
+        return int(old) in pair and int(new) in pair
+    except (TypeError, ValueError):
+        return False
+
+
 def _latch_tou_period(battery: Any, now: Any) -> str | None:
     """Review B HIGH: TOU period for the arbitrage-latch identity, read from
     the battery's own TOU engine. None when unavailable (never raises)."""
@@ -9715,6 +9730,10 @@ class EnergyCoordinator(BaseCoordinator):
                     _stamp_now = _dtu.utcnow()
                     battery._reserve_last_attempt_value = value_i
                     battery._reserve_last_attempt_at = _stamp_now
+                    battery._reserve_last_attempt_failed = (
+                        status is WriteStatus.FAILED
+                        or (status is WriteStatus.DEFERRED and path != "evaluate")
+                    )
                     if status is WriteStatus.APPLIED:
                         battery._reserve_last_ok_value = value_i
                         battery._reserve_last_ok_at = _stamp_now
@@ -9909,7 +9928,15 @@ class EnergyCoordinator(BaseCoordinator):
             if battery is not None and value is not None:
                 try:
                     _new = int(max(0, min(100, int(value))))
-                    if battery._last_reserve_level != _new:  # noqa: SLF001
+                    if battery._last_reserve_level != _new and not (  # noqa: SLF001
+                        # Fix-up HIGH-2: target <-> its D2 nudge is the same
+                        # desire — a same-value retry, not a new episode.
+                        _same_desire_pair(
+                            battery._last_reserve_level,  # noqa: SLF001
+                            _new,
+                            getattr(battery, "_last_reserve_level_desired", None),
+                        )
+                    ):
                         battery._last_reserve_level_at = _now  # noqa: SLF001
                     battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError):
