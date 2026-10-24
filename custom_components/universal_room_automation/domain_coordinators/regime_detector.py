@@ -35,6 +35,17 @@ _MIN_OBS_CRITICAL = 20
 _ACCURACY_DROP_THRESHOLD = 0.30
 _MIN_PREDICTIONS = 5
 
+# next_room rows store predicted_value as JSON ({"top": ..., "alternatives":
+# [...], "source": ...}; written in sensor.py). A top-1 hit compares the
+# "top" field to actual_value. json_valid() guards legacy plain-string rows
+# so they compare verbatim instead of raising "malformed JSON".
+# (REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1)
+_NEXT_ROOM_TOP_SQL = (
+    "CASE WHEN json_valid(predicted_value) "
+    "THEN json_extract(predicted_value, '$.top') "
+    "ELSE predicted_value END"
+)
+
 # Persistence guard — emit only after this many consecutive runs above threshold
 _CONSECUTIVE_REQUIRED = 2
 
@@ -386,7 +397,7 @@ class RegimeDetector:
                 cursor = await db.execute(
                     f"""SELECT
                             COUNT(*) as total,
-                            SUM(CASE WHEN predicted_value = actual_value
+                            SUM(CASE WHEN {_NEXT_ROOM_TOP_SQL} = actual_value
                                      AND actual_value IS NOT NULL THEN 1 ELSE 0 END) as hits
                         FROM prediction_results
                         WHERE prediction_type = 'next_room'
@@ -403,7 +414,7 @@ class RegimeDetector:
                 cursor = await db.execute(
                     f"""SELECT
                             COUNT(*) as total,
-                            SUM(CASE WHEN predicted_value = actual_value
+                            SUM(CASE WHEN {_NEXT_ROOM_TOP_SQL} = actual_value
                                      AND actual_value IS NOT NULL THEN 1 ELSE 0 END) as hits
                         FROM prediction_results
                         WHERE prediction_type = 'next_room'
