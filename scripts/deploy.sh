@@ -385,8 +385,10 @@ if [[ -n "$CARDS" ]]; then
     vibememo_rc=$?
     # WORKLOG-APPEND-AT-SHIP-1: one release-index line in the month's work log.
     # Warn-only like the other post-push writers; staged with the reconcile commit.
+    # Path computed ONCE so the write and the git add can't straddle a month boundary.
+    worklog_file="$REPO_DIR/docs/planning/WORKLOG_$(date +%Y-%m)_session.md"
     python3 "$SCRIPT_DIR/worklog_ship.py" --version "$VERSION" --summary "$SUMMARY" \
-      --cards "$CARDS" --repo-root "$REPO_DIR"
+      --cards "$CARDS" --repo-root "$REPO_DIR" --file "$worklog_file"
     worklog_rc=$?
     if [ "$worklog_rc" -ne 0 ]; then
       echo "  [warn] [WORKLOG-APPEND-AT-SHIP-1] worklog append FAILED (rc=$worklog_rc) — add the v$VERSION line by hand" >&2
@@ -404,7 +406,7 @@ if [[ -n "$CARDS" ]]; then
         "$KANBAN_YAML" \
         "$REPO_DIR/.vibememo/users/"
       if [ "$worklog_rc" -eq 0 ]; then
-        git -C "$REPO_DIR" add "$REPO_DIR/docs/planning/WORKLOG_$(date +%Y-%m)_session.md" \
+        git -C "$REPO_DIR" add "$worklog_file" \
           || echo "  [warn] [WORKLOG-APPEND-AT-SHIP-1] worklog not staged" >&2
       fi
       staged="$(git -C "$REPO_DIR" diff --cached --name-only)"
