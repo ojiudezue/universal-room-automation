@@ -4714,7 +4714,7 @@ class UniversalRoomDatabase:
         self,
         coordinator_id: str | None = None,
         hazard_type: str | None = None,
-    ) -> None:
+    ) -> int | None:
         """Acknowledge the most recent unacknowledged CRITICAL notification.
 
         NM-MULTI-ALERT-TRACKING-1: when ``coordinator_id`` is given, the
@@ -4739,21 +4739,82 @@ class UniversalRoomDatabase:
                 " AND COALESCE(hazard_type, '') = ?"
             )
             params = params + (str(coordinator_id), str(hazard_type or ""))
+        # NM-MULTI-ALERT-TRACKING-1 fix-up: returns the acked row id (or
+        # None) so the caller can stamp the cooldown on the SAME row.
         try:
             async with self._db() as db:
-                await db.execute(f"""
-                    UPDATE notification_log
-                    SET acknowledged = 1, ack_time = ?
-                    WHERE id = (
-                        SELECT id FROM notification_log
-                        WHERE acknowledged = 0 AND severity = 'CRITICAL'
-                          AND message != '[audit]'{extra_sql}
-                        ORDER BY timestamp DESC LIMIT 1
-                    )
-                """, params)
+                cursor = await db.execute(f"""
+                    SELECT id FROM notification_log
+                    WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                      AND message != '[audit]'{extra_sql}
+                    ORDER BY timestamp DESC LIMIT 1
+                """, params[1:])
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                row_id = row[0]
+                await db.execute(
+                    "UPDATE notification_log SET acknowledged = 1, ack_time = ? "
+                    "WHERE id = ?",
+                    (params[0], row_id),
+                )
                 await db.commit()
+                return row_id
         except Exception as e:
             _LOGGER.error("Error acknowledging notification: %s", e)
+            return None
+
+    async def acknowledge_matching_notifications(
+        self,
+        coordinator_id: str,
+        hazard_type: str | None,
+        location: str | None,
+    ) -> None:
+        """Mark EVERY unacked CRITICAL row of (coordinator, hazard, location)
+        acknowledged — NM-MULTI-ALERT-TRACKING-1: a newcomer that a held
+        life-safety slot kept out is delivered-only and must never be
+        resurrected as the active alert on restart."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """
+                    UPDATE notification_log
+                    SET acknowledged = 1, ack_time = ?
+                    WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                      AND message != '[audit]'
+                      AND coordinator_id = ?
+                      AND COALESCE(hazard_type, '') = ?
+                      AND COALESCE(location, '') = ?
+                    """,
+                    (
+                        dt_util.utcnow().isoformat(),
+                        str(coordinator_id),
+                        str(hazard_type or ""),
+                        str(location or ""),
+                    ),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error acknowledging matching notifications: %s", e)
+
+    async def get_active_criticals(self, limit: int = 50) -> list[dict]:
+        """Unacked non-audit CRITICAL rows, newest first (bounded)."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM notification_log
+                    WHERE severity = 'CRITICAL' AND acknowledged = 0
+                      AND message != '[audit]'
+                    ORDER BY timestamp DESC LIMIT ?
+                    """,
+                    (int(limit),),
+                )
+                return [dict(r) for r in await cursor.fetchall()]
+        except Exception as e:
+            _LOGGER.error("Error fetching active criticals: %s", e)
+            return []
 
     async def get_active_critical(self) -> dict | None:
         """Get the most recent unacknowledged CRITICAL notification.
