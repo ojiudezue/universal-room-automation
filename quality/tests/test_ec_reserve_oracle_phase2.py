@@ -674,6 +674,7 @@ def test_nudge_when_landed_equals_target_and_cloud_differs(sh, clock):
     s._reserve_last_ok_value = 10
     s._reserve_last_attempt_value = 10
     s._reserve_last_attempt_at = clock.t - timedelta(seconds=1000)
+    s._reserve_last_attempt_failed = True   # isolate trigger (b) from (b')
     assert decide(s, 10) == 11
 
 
@@ -1432,7 +1433,10 @@ async def test_fixup_high2_ladder_survives_nudged_command(sh, clock, cloud):
     await _watchdog_at(c, s, clock, 3600)
     assert wv._pending_standdown_at.get(SURFACE) is not None
     assert s._last_reserve_level_at == c.t0
-    assert decide(s, 10) is None
+    clock.t = c.t0 + timedelta(seconds=3600 + 1000)   # past rule G's gap
+    refresh(c, clock)
+    assert decide(s, 10) is None            # stand-down (pinned on desire 10)
+    assert wv._pending_standdown_value[SURFACE] == 10
 
 
 def test_fixup_high2_conduct_exception_not_triggered_by_nudge(sh, clock):
