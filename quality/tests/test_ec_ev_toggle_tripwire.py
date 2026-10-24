@@ -165,6 +165,46 @@ def _run(coro):
         loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _notify_enabled_for_nm_tests(request, monkeypatch):
+    """Pre-existing tests exercise the NM path, which is now OFF by
+    default (operator 2026-10-24). Patch it ON for them; tests named
+    ``*default_no_page*`` run against the shipped default."""
+    if "default_no_page" not in request.node.name:
+        monkeypatch.setattr(
+            _live_ec(), "EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED", True,
+        )
+
+
+def test_default_no_page_anomaly_recorded_nm_not_sent():
+    """Shipped default: trip records the anomaly row but sends NO NM."""
+    db = _StubDatabase()
+    hass = _Hass(database=db)
+    nm: list = []
+    v = _bind_verifier(hass, nm)
+    t0 = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    for i in range(5):
+        _run(v.note_ev_toggle("evse_a", "charger_on", ["arbitrage"],
+                              now=t0 + timedelta(seconds=i * 300)))
+    assert len(db.events) == 1
+    assert db.events[0].type == "ev_toggle_tripwire"
+    assert nm == [], "EV trip-wire must not page by default"
+
+
+def test_notify_enabled_patched_true_sends_nm(monkeypatch):
+    monkeypatch.setattr(_live_ec(), "EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED", True)
+    db = _StubDatabase()
+    hass = _Hass(database=db)
+    nm: list = []
+    v = _bind_verifier(hass, nm)
+    t0 = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+    for i in range(3):
+        _run(v.note_ev_toggle("evse_a", "charger_on", None,
+                              now=t0 + timedelta(seconds=i * 300)))
+    assert len(db.events) == 1
+    assert len(nm) == 1 and nm[0]["hazard_type"] == "ev_toggle_tripwire"
+
+
 # ----- (a) exactly one alert on third toggle in window --------------------
 
 def test_a_three_toggles_in_window_one_alert():
