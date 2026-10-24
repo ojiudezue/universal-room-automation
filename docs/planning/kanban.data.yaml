@@ -32827,7 +32827,8 @@ cards:
   research_2026_10_14: "04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but no profiler log lines in the last 2000-line window and no automation calls it -> not running). So the ~1.8 s gen-2 pauses ~1/min are AUTOMATIC collections: something promotes enough long-lived objects to trip the gen-2 threshold every minute. Next measurement: what object types grow between collections."
   title: "Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap)"
   thread: health_monitor
-  status: waiting_me
+  status: shipped_organic
+  applied_2026_10_24: "Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h."
   created: '2026-10-14 02:50'
   refinement_status: "refined"
   approval: "explicit"

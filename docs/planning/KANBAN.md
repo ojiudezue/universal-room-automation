@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T16:53:29-05:00_ - _Data commit: `8bfc1a7dadfc`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T16:58:32-05:00_ - _Data commit: `cc7a29872b0e`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
@@ -16,8 +16,8 @@ _Generated: 2026-10-24T16:53:29-05:00_ - _Data commit: `8bfc1a7dadfc`_ - _last_r
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 31 |
-| ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 3 |
+| ⏳ Waiting on me (Claude) | 0 |
+| 🚀 Shipped (organic open) | 4 |
 | 🅿️ Parked | 104 |
 | ✅ Done | 390 |
 
@@ -1019,11 +1019,16 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (1)
+## ⏳ Waiting on me (Claude) (0)
 _I owe something_
 
+_(none)_
+
+## 🚀 Shipped (organic open) (4)
+_live, awaiting proof_
+
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
-thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
+thread: **health_monitor** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
 - **Problem / Solution:**
   - Problem: about once a minute the whole of Home Assistant stops for ~1.8 seconds while Python does a full memory clean-up. Everything waits: lights, sensors, URA's decisions. The clean-up is slow because the heap holds a very large number...
@@ -1032,7 +1037,7 @@ _created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
 - **Next:** Me, next ATTENDED session (default taken 10-17; it is an HA config write so not overnight): set Health Monitor option gc_refreeze_h 0 -> 4 h, then re-read gc_gen2_1h / loop_stalls 8-12 h later; close if pauses stay <5/h, else lower to 2 h.
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `verify_2026_10_23`: Overnight read 02:00 (HA MCP, read-only): sensor.hahm_loop_lag_p95 = 81.6 ms, gc_frozen true, gc_gen2_1h 108, gc_gen2_max_ms_1h 902 ms; loop_stalls 50. Still far above the <5/h close target, so the gc_refreeze_h 0 -> 4 h change is still ...
   - `links_added_2026_10_21`: related+HM-V22-NEXT-SLICE-1: HM v2.2 shipped the GC counters and the gc_refreeze option this card turns.
   - `rerank_2026_10_21`: v7 t4 e5 -> v7 t4 e2: next step is one Health Monitor option change + one re-read, not a build
@@ -1043,12 +1048,10 @@ _created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
   - `root_cause_2026_10_14`: ROOT CAUSE 04:57: house runs Python 3.14.6; Python 3.14.5 REVERTED 3.14's incremental GC (whose point was cutting max pauses 10x+ on large heaps) back to the 3.13 generational GC (docs.python.org/3.14/whatsnew/3.14.html). Profiler object...
   - `correction_2026_10_14`: CORRECTION (operator challenged 'how did you confirm this'): the 3.14.5 incremental-GC revert is REAL but CONTEXT ONLY - the two collectors were never compared on this house, and a widespread regression would show in forum chatter. Confi...
   - `research_2026_10_14`: 04:24: no code on the house calls the collector explicitly — grep of /config/custom_components (incl. URA) finds no gc.collect/freeze/set_threshold; HA core's only gc.collect is profiler start_log_object_sources (profiler installed, but ...
+  - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🚀 Shipped (organic open) (3)
-_live, awaiting proof_
-
-### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
+### `NM-MULTI-ALERT-TRACKING-1` - Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress — _#2 · WSJF 4.3 · v7 tc4 u2 /e3_
 status: **shipped_organic** - approval: **explicit**
 _updated 2026-10-18 02:02 · refined_
 - **Why:** NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, r...
@@ -1060,7 +1063,7 @@ _updated 2026-10-18 02:02 · refined_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `unblocked_2026_10_18_overnight`: Dependency cleared: SAFETY-NM-REFIRE-UNWIRED-1 merged and shipped (feature/safety-nm-refire 0 ahead of develop; in v5.103.69).
 
-### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#2 · WSJF 2.8 · v6 tc6 u2 /e5_
+### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#3 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **shipped_organic** - approval: **pending**
 _created 2026-10-20 08:30 · updated 2026-10-21 22:05_
 - **Origin:** 2026-10-20 - Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel spli...
@@ -1079,7 +1082,7 @@ _created 2026-10-20 08:30 · updated 2026-10-21 22:05_
   - `residual_halo_followups_2026_10_21`: (a) Start-up delay also fires on a subentry add/reload, suppressing non-critical indications for 180 s house-wide: apply it only on a real HA start. (b) Move HomeLab's panel screen automations (wallpanel_fleet_wake / _sleep_after_grace /...
   - `resolved_2026_10_21_bridge_colour`: Follow-up (d) DONE: HomeLab bridge 1.7.0 on all 7 panels publishes color_mode/color/effect after each command and on reconnect (root cause: state omitted color_mode so HA dropped the colour; effect never published; repeated commands drop...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-04 01:00 · updated 2026-10-22 02:08_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
