@@ -409,6 +409,35 @@ async def test_number_platform_registers_inclement_preonset_floor(smoke_hass):
     assert len(found) == 1
     assert found[0].native_value == 80
 
+
+@pytest.mark.asyncio
+async def test_platforms_register_nm_panel_entities(smoke_hass):
+    """Halo S1b D-S1b-4 wire-in: the CM switch platform registers exactly one
+    NMPanelChannelSwitch (default OFF) and the number platform exactly one
+    NMPanelLeaseTtlNumber (default 30 min)."""
+    from custom_components.universal_room_automation import number as number_mod
+    from custom_components.universal_room_automation import switch as switch_mod
+    from custom_components.universal_room_automation.nm_panel_entities import (
+        NMPanelChannelSwitch,
+        NMPanelLeaseTtlNumber,
+    )
+
+    cm_entry = next(
+        e for e in smoke_hass.config_entries.async_entries()
+        if e.title == "coordinator_manager_entry"
+    )
+    added: list = []
+    await switch_mod.async_setup_entry(
+        smoke_hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+    )
+    await number_mod.async_setup_entry(
+        smoke_hass, cm_entry, lambda ents, _u=False: added.extend(ents),
+    )
+    switches = [e for e in added if type(e) is NMPanelChannelSwitch]
+    numbers = [e for e in added if type(e) is NMPanelLeaseTtlNumber]
+    assert len(switches) == 1 and switches[0].is_on is False
+    assert len(numbers) == 1 and numbers[0].native_value == 30
+
 def test_zz_d4b_real_ha_clean_interpreter():
     """Runs LAST in this file. If any real-HA test was skipped because the
     in-process HA was poisoned, re-run this whole file in a clean interpreter

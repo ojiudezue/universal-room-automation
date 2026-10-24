@@ -821,6 +821,19 @@ async def test_preempted_episode_lease_released(rig):
 
 
 @pytest.mark.asyncio
+async def test_same_episode_renotify_does_not_release(rig):
+    await rig.enable()
+    await rig.notify()
+    rig.hass.services.calls.clear()
+    rig.clock.advance(120)  # past the 60 s CRITICAL dedup -> _enter_alerting runs
+    episode = rig.nm._active_episode_id
+    await rig.notify()  # same leak re-notified -> same id -> renew only
+    assert rig.nm._active_episode_id != episode  # slot was re-entered
+    assert rig.releases() == []
+    assert [d["id"] for d in rig.indicates()] == ["ura:safety:water_leak:kitchen"]
+
+
+@pytest.mark.asyncio
 async def test_held_slot_newcomer_does_not_release_holder(rig):
     await rig.enable()
     await rig.notify()  # leak holds the slot (life-safety)

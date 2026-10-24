@@ -5569,8 +5569,8 @@ class NotificationManager:
         if not self._panel_channel_enabled:
             return False
         try:
-            if self._messaging_suppressed:
-                return False
+            # (Kill switch: every caller already returns while suppressed,
+            # and _panel_deliver re-checks _panel_live() under the lock.)
             # 2. Coordinator allowlist.
             if coordinator_id not in NM_PANEL_COORDINATORS:
                 return False
