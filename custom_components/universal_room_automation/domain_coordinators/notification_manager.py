@@ -449,6 +449,9 @@ class NotificationManager:
         # cadence (not per-tick — DB write-flood safe).
         self._ack_registry: dict[str, dict[str, Any]] = {}
         self._active_episode_id: str | None = None
+        # NM-MULTI-ALERT-TRACKING-1: row id the last ack hit; consumed once
+        # by _start_cooldown.
+        self._last_acked_row_id: int | None = None
         # B3: per-channel token buckets. Continuous-refill; life-safety
         # bypasses. Capacity + refill rate default from module const, live-
         # overridable via Number entities calling `set_bucket_capacity` /
@@ -2520,6 +2523,27 @@ class NotificationManager:
         snapshot_path: str | None = None,
     ) -> None:
         """Enter ALERTING state for a CRITICAL notification."""
+        # NM-MULTI-ALERT-TRACKING-1 (SIMPLIFY): an unacknowledged LIFE-SAFETY
+        # alert keeps the single active slot against a NON-life-safety
+        # newcomer (e.g. a perimeter CRITICAL). The newcomer was already
+        # delivered on its channels by async_notify; it just does not take
+        # over the repeat cadence or the ack target. Life-safety newcomers,
+        # and any newcomer over a non-life-safety slot, preempt as before.
+        if self._life_safety_slot_holds_against(hazard_type):
+            _LOGGER.info(
+                "NM: active life-safety alert %r retains slot; %r (%s) "
+                "delivered without taking the repeat/ack slot",
+                (self._active_alert_data or {}).get("hazard_type"),
+                title, hazard_type,
+            )
+            # The newcomer is delivered-only: ack its rows so a restart can
+            # never resurrect it as the active alert.
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database:
+                await database.acknowledge_matching_notifications(
+                    coordinator_id, hazard_type, location,
+                )
+            return
         # Cancel any existing cooldown/countdown from a previous alert
         if self._cooldown_unsub:
             self._cooldown_unsub()
@@ -2560,6 +2584,20 @@ class NotificationManager:
         # Start repeat timer
         self._alert_state = AlertState.REPEATING
         self._schedule_repeat()
+
+    def _life_safety_slot_holds_against(self, new_hazard_type: str | None) -> bool:
+        """True iff the active slot holds an unacked life-safety alert and the
+        newcomer is NOT life-safety. Classification reuses
+        ``is_life_safety_hazard`` (base set + operator extras)."""
+        if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
+            return False
+        if not self._active_alert_data:
+            return False
+        if not is_life_safety_hazard(
+            self.hass, self._active_alert_data.get("hazard_type")
+        ):
+            return False
+        return not is_life_safety_hazard(self.hass, new_hazard_type)
 
     def _schedule_repeat(self) -> None:
         """Schedule the next repeat notification.
@@ -2973,7 +3011,28 @@ class NotificationManager:
         # Mark acknowledged in DB
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
-            await database.acknowledge_notification()
+            # NM-MULTI-ALERT-TRACKING-1: target the alert in the slot, not
+            # merely the latest unacked CRITICAL row (a later non-life-safety
+            # CRITICAL may have been logged while a life-safety alert kept
+            # the slot).
+            if _snap:
+                acked_id = await database.acknowledge_notification(
+                    coordinator_id=_snap.get("coordinator_id"),
+                    hazard_type=_snap.get("hazard_type"),
+                )
+                # NM writes one row per channel: ack every sibling row of the
+                # slot alert so none resurrects on restart.
+                await database.acknowledge_matching_notifications(
+                    _snap.get("coordinator_id"),
+                    _snap.get("hazard_type"),
+                    _snap.get("location"),
+                )
+                # Consumed by _start_cooldown (same ack) to stamp THIS row.
+                self._last_acked_row_id = (
+                    acked_id if isinstance(acked_id, int) else None
+                )
+            else:
+                await database.acknowledge_notification()
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against
@@ -3051,13 +3110,20 @@ class NotificationManager:
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
             expires = (dt_util.utcnow() + timedelta(seconds=cooldown_secs)).isoformat()
-            active = await database.get_active_critical()
-            # Use the most recent critical — it was just acknowledged
-            active_cd = await database.get_active_cooldown()
-            if active:
-                await database.set_cooldown(active["id"], expires)
-            elif active_cd:
-                await database.set_cooldown(active_cd["id"], expires)
+            acked_id = self._last_acked_row_id
+            self._last_acked_row_id = None
+            if isinstance(acked_id, int):
+                # NM-MULTI-ALERT-TRACKING-1: stamp the row the ack hit, not
+                # whatever is now the newest unacked CRITICAL.
+                await database.set_cooldown(acked_id, expires)
+            else:
+                active = await database.get_active_critical()
+                # Use the most recent critical — it was just acknowledged
+                active_cd = await database.get_active_cooldown()
+                if active:
+                    await database.set_cooldown(active["id"], expires)
+                elif active_cd:
+                    await database.set_cooldown(active_cd["id"], expires)
 
         async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
@@ -3757,9 +3823,7 @@ class NotificationManager:
         """Log inbound to DB, send reply, and update sensors."""
         alert_id = None
         if self._active_alert_data and database:
-            active = await database.get_active_critical()
-            if active:
-                alert_id = active.get("id")
+            alert_id = await self._slot_row_id(database)
 
         if database:
             await database.log_inbound(
@@ -4900,6 +4964,63 @@ class NotificationManager:
     # Recovery from DB
     # =========================================================================
 
+    async def _newest_unacked_life_safety_row(self, database) -> dict | None:
+        """Newest unacked non-audit CRITICAL row whose hazard is life-safety."""
+        getter = getattr(database, "get_active_criticals", None)
+        if getter is None:
+            return None
+        rows = await getter()
+        if not isinstance(rows, list):
+            return None
+        for row in rows:
+            if (
+                isinstance(row, dict)
+                and is_life_safety_hazard(self.hass, row.get("hazard_type"))
+                and not self._recovery_row_is_stale(row)
+            ):
+                return row
+        return None
+
+    @staticmethod
+    def _recovery_row_is_stale(row: dict) -> bool:
+        """Same freshness bound as recovery (NM_RECOVERY_MAX_AGE_H; 0 = off;
+        unparseable/missing timestamp = fresh), so the life-safety swap can
+        never pick a row recovery would then drop."""
+        if NM_RECOVERY_MAX_AGE_H <= 0:
+            return False
+        ts_str = row.get("timestamp") or ""
+        if not ts_str:
+            return False
+        try:
+            ts = datetime.fromisoformat(ts_str)
+        except (ValueError, TypeError):
+            return False
+        now = dt_util.utcnow()
+        if ts.tzinfo is None and now.tzinfo is not None:
+            ts = ts.replace(tzinfo=now.tzinfo)
+        elif ts.tzinfo is not None and now.tzinfo is None:
+            ts = ts.replace(tzinfo=None)
+        return (now - ts).total_seconds() / 3600.0 > NM_RECOVERY_MAX_AGE_H
+
+    async def _slot_row_id(self, database) -> int | None:
+        """Row id of the alert in the active slot (newest matching unacked
+        row), falling back to the newest unacked CRITICAL."""
+        data = self._active_alert_data or {}
+        getter = getattr(database, "get_active_criticals", None)
+        if getter is not None:
+            rows = await getter()
+            if isinstance(rows, list):
+                for row in rows:
+                    if (
+                        isinstance(row, dict)
+                        and row.get("coordinator_id") == data.get("coordinator_id")
+                        and (row.get("hazard_type") or "")
+                        == (data.get("hazard_type") or "")
+                    ):
+                        return row.get("id")
+        active = await database.get_active_critical()
+        return active.get("id") if active else None
+
     async def _recover_state_from_db(self) -> None:
         """Recover NM state from database after restart."""
         database = self.hass.data.get(DOMAIN, {}).get("database")
@@ -4925,6 +5046,12 @@ class NotificationManager:
 
         # Check for unacked CRITICAL — resume repeating
         active = await database.get_active_critical()
+        # NM-MULTI-ALERT-TRACKING-1: an unacked life-safety row outranks a
+        # newer non-life-safety one (mirrors the live slot guard).
+        if active and not is_life_safety_hazard(self.hass, active.get("hazard_type")):
+            ls_row = await self._newest_unacked_life_safety_row(database)
+            if ls_row is not None:
+                active = ls_row
         if active:
             # NM-RECOVERY-AGEBOUND-1 (2026-08-14): freshness bound.
             # `get_active_critical` returns newest-first regardless of
