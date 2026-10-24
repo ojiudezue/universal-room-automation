@@ -529,3 +529,244 @@ def test_compute_rows_scales_wh_to_kwh(tz):
     assert by["2026-07-02"].import_kwh == 20.0  # 20_000 Wh → 20 kWh
     assert by["2026-07-01"].export_kwh == 1.0   # already kWh
     assert by["2026-07-02"].export_kwh == 2.0
+
+
+# ===========================================================================
+# Mode 2: --fill-null-actuals (EC-FORECAST-TRUTH-GAPS-1)
+# ===========================================================================
+import re as _re
+
+SERIAL = "123456"
+_ENV = f"sensor.envoy_{SERIAL}_"
+LEG_ENTITIES = {
+    # Hand-written from energy_const.derive_envoy_config; the script resolves
+    # ids through the real function, so a drift there leaves these statistics
+    # unmatched and the fill tests go red.
+    "production": _ENV + "production_ct_energy_delivered",
+    "net_import": _ENV + "lifetime_net_energy_consumption",
+    "net_export": _ENV + "lifetime_net_energy_production",
+    "battery_charged": _ENV + "lifetime_battery_energy_charged",
+    "battery_discharged": _ENV + "lifetime_battery_energy_discharged",
+}
+
+
+def _energy_daily_ddl_from_production() -> list[str]:
+    """CREATE TABLE + additive ALTERs for energy_daily, extracted from
+    database.py (fixture authority: never hand-copied)."""
+    repo = pathlib.Path(__file__).resolve().parent.parent.parent
+    src = (repo / "custom_components" / "universal_room_automation"
+           / "database.py").read_text()
+    m = _re.search(r'"""(CREATE TABLE IF NOT EXISTS energy_daily \(.*?\))"""',
+                   src, _re.S)
+    assert m, "energy_daily CREATE not found in database.py"
+    stmts = [m.group(1)]
+    mig = _re.search(
+        r'PRAGMA table_info\(energy_daily\)".*?for col, col_type in \[(.*?)\]:',
+        src, _re.S)
+    assert mig, "energy_daily migration column list not found"
+    for col, typ in _re.findall(r'\("(\w+)", "(\w+)"\)', mig.group(1)):
+        stmts.append(f"ALTER TABLE energy_daily ADD COLUMN {col} {typ}")
+    return stmts
+
+
+D1, D2, D3, D4 = (_dt.date(2026, 10, d) for d in (5, 6, 7, 8))
+CT = "America/Chicago"
+
+
+def _build_recorder_file(path, daily=None):
+    tzinfo = mod._coerce_tz(CT)
+    conn = sqlite3.connect(path)
+    for stmt in RECORDER_DDL.strip().split(";"):
+        if stmt.strip():
+            conn.execute(stmt)
+    # Per-day deltas in kWh (hand oracle). Counters are MWh.
+    #   D1: prod 100, imp 40, exp 30, chg 20, dis 15 -> cons 40+100-30+15-20 = 105
+    #   D2: production counter FLAPS (state drops to 0.05, HA sum adds 0.05)
+    #   D3: prod 90 (consumption cell already set in URA)
+    #   D4: valid, but no energy_daily row exists
+    daily = daily or {
+        "production": [100, None, 90, 100],
+        "net_import": [40, 41, 50, 40],
+        "net_export": [30, 31, 10, 30],
+        "battery_charged": [20, 21, 25, 20],
+        "battery_discharged": [15, 16, 20, 15],
+    }
+    for mid, (leg, ent) in enumerate(LEG_ENTITIES.items(), start=1):
+        conn.execute(
+            "INSERT INTO statistics_meta (id, statistic_id, source, "
+            "unit_of_measurement, has_sum, mean_type) "
+            "VALUES (?, ?, 'recorder', 'MWh', 1, 0)",
+            (mid, ent),
+        )
+        state = summ = 10.0
+        days = [D1, D2, D3, D4, D4 + _dt.timedelta(days=1)]
+        for i, d in enumerate(days):
+            ts = _dt.datetime.combine(d, _dt.time.min, tzinfo=tzinfo).timestamp()
+            conn.execute(
+                "INSERT INTO statistics (metadata_id, start_ts, state, sum) "
+                "VALUES (?, ?, ?, ?)",
+                (mid, ts, state, summ),
+            )
+            if i == len(days) - 1:
+                break
+            kwh = daily[leg][i]
+            if kwh is None:
+                state, summ = 0.05, summ + 0.05
+            else:
+                state += kwh / 1000.0
+                summ += kwh / 1000.0
+    conn.commit()
+    conn.close()
+
+
+def _build_ura_file(path):
+    conn = sqlite3.connect(path)
+    for stmt in _energy_daily_ddl_from_production():
+        conn.execute(stmt)
+    ins = ("INSERT INTO energy_daily (date, import_kwh, export_kwh, consumption_kwh, "
+           "solar_production_kwh, predicted_consumption_kwh, billing_source) "
+           "VALUES (?, ?, ?, ?, ?, ?, ?)")
+    conn.execute(ins, (D1.isoformat(), 71.9, 8.7, None, None, None, "recorder_backfill"))
+    conn.execute(ins, (D2.isoformat(), 67.9, 32.6, None, None, None, "recorder_backfill"))
+    conn.execute(ins, (D3.isoformat(), 53.7, 18.6, 77.0, None, 121.9, "counters"))
+    conn.commit()
+    conn.close()
+
+
+def _dump(path):
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT * FROM energy_daily ORDER BY date").fetchall()
+    finally:
+        conn.close()
+
+
+def _row(path, date):
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = conn.execute("SELECT * FROM energy_daily WHERE date = ?",
+                         (date.isoformat(),)).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def dbs(tmp_path):
+    rec, ura = tmp_path / "rec.db", tmp_path / "ura.db"
+    _build_recorder_file(str(rec))
+    _build_ura_file(str(ura))
+    return str(rec), str(ura)
+
+
+def _argv(rec, ura, *extra):
+    return ["--fill-null-actuals", "--ura-db", ura, "--recorder-db", rec,
+            "--envoy-serial", SERIAL, "--tz", CT,
+            "--from", D1.isoformat(), "--to", D4.isoformat(), *extra]
+
+
+def test_fill_null_actuals_dry_run_writes_nothing(dbs, capsys):
+    rec, ura = dbs
+    before = _dump(ura)
+    assert mod.main(_argv(rec, ura)) == 0
+    assert _dump(ura) == before
+    out = capsys.readouterr().out
+    # D1 consumption + D1 solar + D3 solar.
+    assert "3 cell(s) would be written" in out
+    assert "recorder:production_ct" in out
+
+
+def test_fill_null_actuals_apply_fills_only_nulls(dbs):
+    rec, ura = dbs
+    assert mod.main(_argv(rec, ura, "--apply")) == 0
+    r1, r2, r3 = (_row(ura, d) for d in (D1, D2, D3))
+    assert r1["solar_production_kwh"] == pytest.approx(100.0, abs=1e-6)
+    assert r1["consumption_kwh"] == pytest.approx(105.0, abs=1e-6)
+    # D2: production flapped -> no trustworthy source -> stays NULL.
+    assert r2["solar_production_kwh"] is None
+    assert r2["consumption_kwh"] is None
+    # D3: existing consumption untouched; NULL solar filled.
+    assert r3["consumption_kwh"] == 77.0
+    assert r3["solar_production_kwh"] == pytest.approx(90.0, abs=1e-6)
+    # D4: no row -> never inserted.
+    assert _row(ura, D4) is None
+    # Other columns untouched.
+    assert (r1["import_kwh"], r1["export_kwh"], r1["billing_source"]) == (
+        71.9, 8.7, "recorder_backfill")
+    assert r3["predicted_consumption_kwh"] == 121.9
+    assert r3["billing_source"] == "counters"
+    assert r1["predicted_consumption_kwh"] is None
+
+
+def test_fill_null_actuals_idempotent(dbs, capsys):
+    rec, ura = dbs
+    assert mod.main(_argv(rec, ura, "--apply")) == 0
+    after_first = _dump(ura)
+    capsys.readouterr()
+    assert mod.main(_argv(rec, ura, "--apply")) == 0
+    assert _dump(ura) == after_first
+    assert "Applied 0 cell(s)." in capsys.readouterr().out
+
+
+def test_apply_fill_never_overwrites_value_set_after_plan(dbs):
+    rec, ura = dbs
+    rc = sqlite3.connect(rec)
+    days = mod.compute_actuals(rc, LEG_ENTITIES, D1, D1, tz=CT)
+    rc.close()
+    conn = sqlite3.connect(ura)
+    writes, _ = mod.plan_fill(conn, days)
+    assert {w[1] for w in writes} == {"consumption_kwh", "solar_production_kwh"}
+    # Live producer writes between plan and apply.
+    conn.execute("UPDATE energy_daily SET consumption_kwh = 99.0 WHERE date = ?",
+                 (D1.isoformat(),))
+    conn.commit()
+    assert mod.apply_fill(conn, writes) == 1  # only solar
+    conn.close()
+    assert _row(ura, D1)["consumption_kwh"] == 99.0
+
+
+def test_leg_delta_agreement_tolerance_boundary():
+    ok, why = mod._leg_delta_kwh((0.0, 0.0, "exact"), (10.0, 10.4, "exact"), 1.0)
+    assert ok == pytest.approx(10.4) and why == "ok"
+    bad, why = mod._leg_delta_kwh((0.0, 0.0, "exact"), (10.0, 10.6, "exact"), 1.0)
+    assert bad is None and why.startswith("flap")
+
+
+def test_leg_delta_missing_boundary():
+    assert mod._leg_delta_kwh(
+        (None, None, "missing"), (1.0, 1.0, "exact"), 1.0) == (None, "boundary_missing")
+
+
+def test_compute_actuals_reports_flap_reason(dbs):
+    rec, _ = dbs
+    rc = sqlite3.connect(rec)
+    (d2,) = mod.compute_actuals(rc, LEG_ENTITIES, D2, D2, tz=CT)
+    rc.close()
+    assert d2.solar_kwh is None and d2.consumption_kwh is None
+    assert d2.reasons["production"].startswith("flap")
+    assert d2.reasons["net_import"] == "ok"
+
+
+def test_compute_actuals_non_positive_consumption_left_null(tmp_path):
+    # D1: imp 0 + prod 10 - exp 10 + dis 0 - chg 5 = -5 -> refused (live
+    # producer guard); solar alone is still trustworthy.
+    rec = str(tmp_path / "rec_np.db")
+    _build_recorder_file(rec, daily={
+        "production": [10, 10, 10, 10], "net_import": [0, 0, 0, 0],
+        "net_export": [10, 10, 10, 10], "battery_charged": [5, 5, 5, 5],
+        "battery_discharged": [0, 0, 0, 0],
+    })
+    rc = sqlite3.connect(rec)
+    (d1,) = mod.compute_actuals(rc, LEG_ENTITIES, D1, D1, tz=CT)
+    rc.close()
+    assert d1.consumption_kwh is None
+    assert d1.reasons["consumption"].startswith("non_positive")
+    assert d1.solar_kwh == pytest.approx(10.0, abs=1e-6)
+
+
+def test_mode1_still_requires_entities(dbs):
+    rec, ura = dbs
+    with pytest.raises(SystemExit):
+        mod.main(["--ura-db", ura, "--recorder-db", rec,
+                  "--from", "2026-10-01", "--to", "2026-10-02"])
