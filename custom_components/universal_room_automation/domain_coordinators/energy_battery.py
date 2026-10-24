@@ -6253,8 +6253,10 @@ class BatteryStrategy:
                     else int(self.reserve_soc)
                 )
             if _rule is not None and not self._blind_operator_override:
+                # EC reserve oracle phase 2 N11: the blind path keeps the
+                # pre-cycle cloud compare even when a witness is healthy.
                 _folded, _act = self._reserve_action(
-                    _target, compare_to=_compare_to,
+                    _target, compare_to=_compare_to, witness_reference=False,
                 )
                 if _act is not None:
                     de_escalate_actions.append(_act)
@@ -7057,6 +7059,7 @@ class BatteryStrategy:
         reserve_level: int | None,
         *,
         compare_to: float | None = None,
+        witness_reference: bool = True,
     ) -> tuple[int | None, dict[str, Any] | None]:
         """EC storm/blind Stage A D-A2 — the ONE decision-side reserve writer.
 
@@ -7131,10 +7134,14 @@ class BatteryStrategy:
         from . import energy_const as _ec  # noqa: PLC0415
         _db = float(_ec.RESERVE_DISPATCH_DEADBAND_PCT)
         _emit_value = target_reserve
-        if compare_to is not None:
-            # Blind / attain no-witness branch: pre-cycle compare, unchanged
-            # (D1.2; no trust rule, no gap, no nudge).
-            _send = abs(current_reserve - target_reserve) >= _db
+        if compare_to is not None or not witness_reference:
+            # `compare_to` (blind unreadable leg / attain no-witness) and the
+            # blind de-escalation path (`witness_reference=False`, plan N11):
+            # pre-cycle compare, unchanged (no trust rule, no gap, no nudge).
+            _send = (
+                current_reserve is None
+                or abs(current_reserve - target_reserve) >= _db
+            )
         else:
             _send, _emit_value = self._reserve_reference_decision(
                 target_reserve, current_reserve, _wv,

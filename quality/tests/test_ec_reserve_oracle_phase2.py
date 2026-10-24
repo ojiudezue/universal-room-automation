@@ -1301,3 +1301,23 @@ def test_rule_l_skips_landed_nudge_at_step_two(sh, monkeypatch):
     assert decide(s, 10) is None
     s._reserve_last_ok_value = 13
     assert decide(s, 10) == 10
+
+
+def test_blind_path_keeps_pre_cycle_cloud_compare(clock, reg):
+    """Plan N11 / §4.2: a blind de-escalation tick keeps the pre-cycle cloud
+    compare even with a healthy witness. Blind partial hold 50: tick 1 writes
+    50; then cloud 50, local 10 (trusted: SOC unknown, local <= target) →
+    no write (rule T would raise to 50)."""
+    from test_ec_stage_a_floor_and_blind import (  # noqa: PLC0415
+        OCT_03, OCT_04, set_hw, shell as blind_shell, tick as stage_a_tick,
+        writes,
+    )
+    c, s = blind_shell(clock, blind=True, hw="20", reserve_soc=20)
+    _st(c.hass, LOCAL_EID, "10", unit="%", lu=OCT_03)
+    d1 = stage_a_tick(clock, s, OCT_03, "off_peak", seed=("partial_hold", 50))
+    assert writes(d1) == [50]
+    set_hw(c, "50")
+    _st(c.hass, LOCAL_EID, "10", unit="%", lu=OCT_04)
+    d2 = stage_a_tick(clock, s, OCT_04, "off_peak", seed=("partial_hold", 50))
+    assert d2["reason"].startswith("Blind hold — ")
+    assert writes(d2) == []
