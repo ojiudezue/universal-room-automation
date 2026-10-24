@@ -27,6 +27,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import pytest_asyncio
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +50,18 @@ def _load_const_module() -> types.ModuleType:
 
 
 CONST = _load_const_module()
+
+
+def _real_const_ns() -> dict:
+    """Namespace of every UPPER_CASE name in the REAL const.py.
+
+    The AST slices below reference whatever CONF_*/SIGNAL_* names production
+    uses; a hand-written subset rotted every time a key was added to the
+    allowlist (INTEGRATION-RELOAD-COMPREHENSIVE added CONF_CENSUS_CROSS_VALIDATION
+    et al. -> NameError). Values come from production, not hand copies.
+    """
+    return {k: getattr(CONST, k) for k in dir(CONST) if k.isupper()}
+
 
 
 # ---------------------------------------------------------------------------
@@ -105,16 +118,7 @@ def test_d0_allowlist_contains_new_keys():
                "_INTEGRATION_KEY_SIGNAL_TABLE"},
         funcs=set(),
     )
-    ns = {
-        "frozenset": frozenset,
-        "dict": dict,
-        "tuple": tuple,
-        "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
-        "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
-        "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
-        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
-        "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
-    }
+    ns = _real_const_ns()
     exec(compile(mod, str(PKG / "__init__.py"), "exec"), ns)
     allow = ns["INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS"]
     assert "face_recognition_enabled" in allow
@@ -129,14 +133,7 @@ def test_d0_signal_table_has_face_recog_only():
                "_INTEGRATION_KEY_SIGNAL_TABLE"},
         funcs=set(),
     )
-    ns = {
-        "frozenset": frozenset,
-        "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
-        "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
-        "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
-        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
-        "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
-    }
+    ns = _real_const_ns()
     exec(compile(mod, str(PKG / "__init__.py"), "exec"), ns)
     table = ns["_INTEGRATION_KEY_SIGNAL_TABLE"]
     assert table["face_recognition_enabled"] == ("ura_face_recognition_changed",)
@@ -521,93 +518,147 @@ def _hass_with_integration_entry(options):
     return hass, entry
 
 
-def test_d2_transit_validator_flips_cached_flag_on_signal_without_reload():
-    """BEHAVIORAL (HIGH-3 fix): construct a real TransitValidator, run
-    the real async_init, capture the REAL callback the production code
-    registers with async_dispatcher_connect(SIGNAL_URA_FACE_RECOGNITION_CHANGED, ...),
+@pytest_asyncio.fixture
+async def hass():
+    """REAL Home Assistant core (phcc factory) for the TransitValidator tests.
+
+    phcc's own ``hass`` fixture only resolves under asyncio_mode=auto; the
+    suite runs strict, so wrap the same factory (pattern:
+    test_runtime_smoke.py). load_registries=False: registries are not under
+    test, and an earlier file may have replaced entity_registry.async_get on
+    the real module (pattern: test_ec_outage_ledger.py).
+    """
+    from pytest_homeassistant_custom_component.common import (
+        async_test_home_assistant,
+    )
+
+    async with async_test_home_assistant(load_registries=False) as real_hass:
+        yield real_hass
+        await real_hass.async_block_till_done()
+        await real_hass.async_stop(force=True)
+
+
+def _add_real_integration_entry(hass, options):
+    """Register a real phcc MockConfigEntry for the URA integration entry.
+
+    The TransitValidator tests used a hand-built _FakeHass; once the module
+    resolved the REAL homeassistant.helpers.event.async_track_time_interval
+    (which needs hass.loop) that fake rotted ("no attribute 'loop'"). Drive the
+    real HA core instead.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=CONST.DOMAIN,
+        entry_id="int_1",
+        title="URA",
+        data={CONST.CONF_ENTRY_TYPE: CONST.ENTRY_TYPE_INTEGRATION},
+        options=dict(options),
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.mark.asyncio
+async def test_d2_transit_validator_flips_cached_flag_on_signal_without_reload(
+    hass, monkeypatch,
+):
+    """BEHAVIORAL (HIGH-3 fix): construct a real TransitValidator on a real
+    hass, run the real async_init, capture the REAL callback the production
+    code registers with async_dispatcher_connect(SIGNAL_URA_FACE_RECOGNITION_CHANGED, ...),
     flip the entry option to False, invoke the captured callback, and
     assert the cached _face_recognition_enabled flipped WITHOUT a reload.
 
     If the `async_dispatcher_connect` block for the face-recognition
     signal is deleted from transit_validator.py, `captured` will be
-    empty and this test fails at the first `assert captured`.
+    empty and this test fails at the first `assert face_cbs`.
     """
     tv_mod = _load_transit_validator_module()
-    hass, entry = _hass_with_integration_entry({"face_recognition_enabled": True})
+    entry = _add_real_integration_entry(hass, {"face_recognition_enabled": True})
 
-    # Spy on the real dispatcher module used by tv_mod. It calls
-    # `async_dispatcher_connect` via a function-local import — same
-    # module object we stub here.
+    reload_calls: list = []
+
+    async def _no_reload(entry_id):
+        reload_calls.append(entry_id)
+        return True
+
+    # tv_mod calls `async_dispatcher_connect` via a function-local import of
+    # homeassistant.helpers.dispatcher — spy on that module attribute.
     disp = sys.modules["homeassistant.helpers.dispatcher"]
     captured: list[tuple] = []
-    original_connect = disp.async_dispatcher_connect
 
     def _spy_connect(_hass, sig, cb):
         captured.append((sig, cb))
         return lambda: None
 
-    disp.async_dispatcher_connect = _spy_connect
+    monkeypatch.setattr(disp, "async_dispatcher_connect", _spy_connect)
+    tv = tv_mod.TransitValidator(hass)
+    # _build_and_subscribe touches camera subscriptions we don't
+    # need to exercise here; short-circuit it.
+    tv._build_and_subscribe = lambda: None
+    await tv.async_init()
+    monkeypatch.undo()
+    monkeypatch.setattr(hass.config_entries, "async_reload", _no_reload)
+
     try:
-        tv = tv_mod.TransitValidator(hass)
-        # _build_and_subscribe touches camera subscriptions we don't
-        # need to exercise here; short-circuit it.
-        tv._build_and_subscribe = lambda: None
-        _run(tv.async_init())
+        # Real production wiring must have registered SIGNAL_URA_FACE_RECOGNITION_CHANGED.
+        face_cbs = [cb for sig, cb in captured
+                    if sig == "ura_face_recognition_changed"]
+        assert face_cbs, (
+            "TransitValidator.async_init failed to register the face-recognition "
+            "signal handler — the wire-in has been neutered (Bug Class #62 "
+            "trip-wire)."
+        )
+
+        # Initial cached flag reads True (options + new default).
+        assert tv._face_recognition_enabled is True
+
+        # Flip the entry option to False and fire the REAL captured handler.
+        hass.config_entries.async_update_entry(
+            entry, options={"face_recognition_enabled": False},
+        )
+        face_cbs[0](entry.entry_id, "face_recognition_enabled")
+
+        assert tv._face_recognition_enabled is False, (
+            "cached _face_recognition_enabled did not flip on the signal — "
+            "the production handler is broken"
+        )
+        assert reload_calls == [], (
+            "signal refresh must NOT cascade a parent-entry reload"
+        )
     finally:
-        disp.async_dispatcher_connect = original_connect
-
-    # Real production wiring must have registered SIGNAL_URA_FACE_RECOGNITION_CHANGED.
-    face_cbs = [cb for sig, cb in captured
-                if sig == "ura_face_recognition_changed"]
-    assert face_cbs, (
-        "TransitValidator.async_init failed to register the face-recognition "
-        "signal handler — the wire-in has been neutered (Bug Class #62 "
-        "trip-wire)."
-    )
-
-    # Initial cached flag reads True (options + new default).
-    assert tv._face_recognition_enabled is True
-
-    # Flip the entry option to False and fire the REAL captured handler.
-    entry.options["face_recognition_enabled"] = False
-    face_cbs[0](entry.entry_id, "face_recognition_enabled")
-
-    assert tv._face_recognition_enabled is False, (
-        "cached _face_recognition_enabled did not flip on the signal — "
-        "the production handler is broken"
-    )
-    assert hass.config_entries.reload_calls == [], (
-        "signal refresh must NOT cascade a parent-entry reload"
-    )
+        await tv.async_teardown()
 
 
-def test_d2_transit_validator_teardown_clears_face_recog_unsub():
-    """Bug Class #38 — listener leak. `async_teardown` (or the equivalent
-    teardown method) must clear self._face_recog_signal_unsub."""
+@pytest.mark.asyncio
+async def test_d2_transit_validator_teardown_clears_face_recog_unsub(
+    hass, monkeypatch,
+):
+    """Bug Class #38 — listener leak. `async_teardown` must call the
+    face-recog signal unsub and clear self._face_recog_signal_unsub."""
     tv_mod = _load_transit_validator_module()
-    hass, _ = _hass_with_integration_entry({})
+    _add_real_integration_entry(hass, {})
 
     disp = sys.modules["homeassistant.helpers.dispatcher"]
-    orig = disp.async_dispatcher_connect
-    unsub_calls = {"count": 0}
+    face_unsub_calls = {"count": 0}
 
-    def _unsub():
-        unsub_calls["count"] += 1
+    def _face_unsub():
+        face_unsub_calls["count"] += 1
 
-    disp.async_dispatcher_connect = lambda _h, _s, _c: _unsub
-    try:
-        tv = tv_mod.TransitValidator(hass)
-        tv._build_and_subscribe = lambda: None
-        _run(tv.async_init())
-        # Find the teardown method — name is async_teardown per repo convention.
-        teardown = getattr(tv, "async_teardown", None) or getattr(tv, "async_unload", None)
-        assert teardown is not None, "TransitValidator must expose a teardown method"
-        _run(teardown())
-    finally:
-        disp.async_dispatcher_connect = orig
-    assert unsub_calls["count"] >= 1, (
-        "teardown must call at least one unsub — the face-recog signal "
-        "unsub is expected to be one of them"
+    def _connect(_h, sig, _c):
+        if sig == "ura_face_recognition_changed":
+            return _face_unsub
+        return lambda: None
+
+    monkeypatch.setattr(disp, "async_dispatcher_connect", _connect)
+    tv = tv_mod.TransitValidator(hass)
+    tv._build_and_subscribe = lambda: None
+    await tv.async_init()
+    monkeypatch.undo()
+    assert tv._face_recog_signal_unsub is _face_unsub
+    await tv.async_teardown()
+    assert face_unsub_calls["count"] == 1, (
+        "teardown must call the face-recog signal unsub exactly once"
     )
     assert tv._face_recog_signal_unsub is None
 
@@ -820,20 +871,24 @@ def test_d4_config_flow_face_recognition_default_resolves_true_on_empty_options(
     assert hit, "config_flow.py no longer calls _get_current for face-recog"
 
 
-def test_d4_transit_validator_reads_true_on_empty_options():
-    """BEHAVIORAL: construct a real TransitValidator, call the REAL
-    async_init against an integration entry with EMPTY options, and
-    assert `_face_recognition_enabled is True` — proves the read at
-    line 266-269 uses DEFAULT_FACE_RECOGNITION_ENABLED (True), not
-    False. Reverting the default to False in const.py or replacing
-    the constant with `False` at the read site would fail this test.
+@pytest.mark.asyncio
+async def test_d4_transit_validator_reads_true_on_empty_options(hass):
+    """BEHAVIORAL: construct a real TransitValidator on a real hass, call the
+    REAL async_init against an integration entry with EMPTY options, and
+    assert `_face_recognition_enabled is True` — proves the async_init read
+    uses DEFAULT_FACE_RECOGNITION_ENABLED (True), not the constructor default
+    False. Reverting the default to False in const.py, replacing the constant
+    with `False` at the read site, or dropping the read would fail this test.
     """
     tv_mod = _load_transit_validator_module()
-    hass, _ = _hass_with_integration_entry({})  # EMPTY options
+    _add_real_integration_entry(hass, {})  # EMPTY options
     tv = tv_mod.TransitValidator(hass)
     tv._build_and_subscribe = lambda: None
-    _run(tv.async_init())
-    assert tv._face_recognition_enabled is True
+    await tv.async_init()
+    try:
+        assert tv._face_recognition_enabled is True
+    finally:
+        await tv.async_teardown()
 
 
 def test_d4_presence_initial_read_returns_true_on_empty_options():
@@ -866,7 +921,11 @@ def test_d4_presence_initial_read_returns_true_on_empty_options():
     stub.hass = hass
     stub._face_recognition_enabled = None  # Sentinel; must land True.
 
+    # presence.py uses the MODULE-level CONF_ENTRY_TYPE here since
+    # SHADOW-IMPORT-AUDIT-1 (2ebf81876) dropped the function-local import;
+    # the slice therefore needs the real module-level constants.
     ns = {
+        **_real_const_ns(),
         "self": stub,
         "DOMAIN": "universal_room_automation",
         "_LOGGER": MagicMock(),

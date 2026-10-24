@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "237",
+  "author": "ojiudezue",
+  "session_id": "claude_20261024_120443_ship_v5_103_87",
+  "timestamp": "2026-10-24T12:04:43Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.87 shipped: Daily solar forecast restored, regime next-room check made real, work log at ship",
+  "summary": "Daily solar forecast restored, regime next-room check made real, work log at ship",
+  "why": "Three reviewed Tier-1 branches sat in review; WIP rule says drain review before new builds. Solcast wiring restores a forecast that has been blank 11 days; the regime fix makes a dead check real; the worklog hook stops the log lapsing again.",
+  "implications": "Shipped EC-PREDICTOR-SOLCAST-UNWIRED-1, REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1, WORKLOG-APPEND-AT-SHIP-1 at v5.103.87; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.87.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_energy_coordinator_energy_forecast_today numeric and battery_full_time without missing_input=solcast after restart; WORKLOG_2026-10 has a v5.103.87 release-index line",
+  "refs": {
+    "cards": [
+      "EC-PREDICTOR-SOLCAST-UNWIRED-1",
+      "REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1",
+      "WORKLOG-APPEND-AT-SHIP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.87.md"
+    ],
+    "release_notes": "Wires configured Solcast entities into the daily energy predictor (blank since 10-13); regime accuracy-drop compares the next_room JSON top field; deploy.sh appends a release line to the monthly work log."
+  }
+}
