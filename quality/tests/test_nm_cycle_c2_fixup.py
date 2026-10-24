@@ -386,15 +386,16 @@ def test_helper_call_count_at_all_eight_sites():
     NM-MULTI-ALERT-TRACKING-1 (2026-10-24): bumped 10→12 for the slot-guard
     newcomer check and the restart-recovery life-safety preference — both
     consume the union helper and are behaviourally anchored in
-    test_nm_life_safety_slot_precedence.py.
+    test_nm_life_safety_slot_precedence.py. Re-review D fix-up: 12→13
+    (recovery life-safety row picker now on one line).
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[2]
            / "custom_components/universal_room_automation/domain_coordinators"
            / "notification_manager.py").read_text()
     calls = src.count("is_life_safety_hazard(self.hass,")
-    assert calls == 12, (
-        f"Expected 12 helper call sites, found {calls}. A grep-evading "
+    assert calls == 13, (
+        f"Expected 13 helper call sites, found {calls}. A grep-evading "
         "inline-literal bypass has likely been introduced at one of the "
         "sites (I-C2-LS invariant regression)."
     )
