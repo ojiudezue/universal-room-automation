@@ -9,15 +9,28 @@ DB are faked. Oracles are independently stated plan facts (acceptance
 criteria / D0 numbers), never re-derived from the code under test; boundary
 times are hardcoded literals, never the imported constants.
 
-Falsifiable invariants (plan §2) — each has a test that would go RED:
-  INV-R1 convergence while trusted   → test_inv_r1_* , episode tests
-  INV-R2 no false "not applied"      → test_check_* / test_sweep_* / episode E
-  INV-R3 witnesses only tighten      → test_inv_r3_* , kill-switch golden
-  INV-R4 bounded writes              → test_pending_episode_bounded_writes
+Falsifiable invariants (plan §2) and the tests that falsify a violation:
+  INV-R1 (trusted local never >= 2 from the effective desire for > 2400 s):
+         test_episode_d_stuck_98_released_within_bound (+ pre-cycle
+         discriminator), test_reserve_reference_no_resend_inside_spacing,
+         D4 trip-wire tests (the in-code falsifier).
+  INV-R2 (no "not applied/reverted/self-heal" page while |local - cmd| < 2):
+         test_check_cloud_stale_local_confirms_no_critical,
+         test_sweep_cloud_stale_no_reverted_nm,
+         test_self_heal_starvation_suppressed_when_local_confirms,
+         test_episode_e_cloud_stuck_no_churn_no_false_critical; boundary at
+         exactly 2 still pages: test_check_local_confirms_boundary_at_deadband.
+  INV-R3 (no witness → pre-cycle; only additive sends; raises never later):
+         test_reserve_reference_kill_switch_byte_identical,
+         test_resend_gap_never_gates_cloud_term, test_resend_gap_never_gates_raise,
+         test_check_local_unavailable_falls_back_critical.
+  INV-R4 (same lowering desire: new paths <= 1 dispatch / 900 s):
+         test_pending_episode_bounded_writes.
 """
 from __future__ import annotations
 
 import json
+import sys
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -85,6 +98,25 @@ def _registry(with_sensor=True):
     if with_sensor:
         r.add(LOCAL_EID, "enphase_envoy", f"{SERIAL}_reserve_soc")
     return r
+
+
+_EC_KEY = "custom_components.universal_room_automation.domain_coordinators.energy_const"
+
+
+def setk(monkeypatch, name, value):
+    """Patch an energy_const knob on EVERY live copy of the module (a sibling
+    test file may re-import the package; production resolves `energy_const`
+    at call time through its own package)."""
+    mods = {id(ec): ec}
+    m = sys.modules.get(_EC_KEY)
+    if m is not None:
+        mods[id(m)] = m
+    pkg = sys.modules.get(_EC_KEY.rsplit(".", 1)[0])
+    pm = getattr(pkg, "energy_const", None) if pkg is not None else None
+    if pm is not None:
+        mods[id(pm)] = pm
+    for mod in mods.values():
+        monkeypatch.setattr(mod, name, value)
 
 
 @pytest.fixture
@@ -204,7 +236,7 @@ def test_trust_rule_reasons_pinned(sh, reg, clock):
 
 def test_trust_rule_kill_switch(sh, monkeypatch):
     c, s = sh(soc=50, local=40)
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_WITNESS_ENABLED", False)
+    setk(monkeypatch, "RESERVE_LOCAL_WITNESS_ENABLED", False)
     assert c._write_verifier.trusted_local_reserve(s, 40, 50) == (None, "disabled")
 
 
@@ -240,7 +272,7 @@ def test_reserve_reference_local_primary_releases_stuck_hold(sh, monkeypatch):
     c, s = sh(soc=98, cloud=10, local=98)
     assert decide(s, 10) == 11
     assert s._reserve_reference_source == "local"
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_WITNESS_ENABLED", False)
+    setk(monkeypatch, "RESERVE_LOCAL_WITNESS_ENABLED", False)
     assert decide(s, 10) is None
 
 
@@ -251,7 +283,7 @@ def test_reserve_reference_suppresses_stale_cloud_churn(sh, monkeypatch):
     s._reserve_last_ok_value = 10
     assert decide(s, 10) is None
     assert s._reserve_reference_source == "local"
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_WITNESS_ENABLED", False)
+    setk(monkeypatch, "RESERVE_LOCAL_WITNESS_ENABLED", False)
     assert decide(s, 10) == 10
 
 
@@ -262,7 +294,7 @@ def test_reserve_reference_ledger_term_when_local_unavailable(sh, monkeypatch):
     s._reserve_last_ok_value = 98
     assert decide(s, 10) is not None
     assert s._reserve_reference_source == "ledger"
-    monkeypatch.setattr(ec, "RESERVE_LEDGER_SEND_ENABLED", False)
+    setk(monkeypatch, "RESERVE_LEDGER_SEND_ENABLED", False)
     assert decide(s, 10) is None
 
 
@@ -392,7 +424,7 @@ async def test_rule_l_raise_exemption_without_witness(sh, clock):
 
 @pytest.mark.asyncio
 async def test_rule_g_disabled_at_zero(sh, clock, monkeypatch):
-    monkeypatch.setattr(ec, "RESERVE_RESEND_MIN_GAP_S", 0)
+    setk(monkeypatch, "RESERVE_RESEND_MIN_GAP_S", 0)
     c, s = sh(soc=98, cloud=50, local=98)
     assert await tick(c, s, clock, 10, at=0) == 10
     assert await tick(c, s, clock, 10, at=300) == 11
@@ -453,7 +485,7 @@ def test_attain_floor_bypass_does_not_lower_inflight_with_stale_cloud(
     """Desire 80 landed, cloud stale 10, local 80, floor 50 → no lowering
     write. Pre-cycle (kill switch) sends 50."""
     assert _attain(clock, reg, hw="10", local=80, desire=80, last_ok=80) == []
-    monkeypatch.setattr(ec, "RESERVE_ATTAIN_BASE_INTENT_ENABLED", False)
+    setk(monkeypatch, "RESERVE_ATTAIN_BASE_INTENT_ENABLED", False)
     assert _attain(clock, reg, hw="10", local=80, desire=80, last_ok=80) == [50]
 
 
@@ -501,7 +533,7 @@ async def test_hold_active_local_primary_dispatches_same_value(
         for name in ("RESERVE_LOCAL_WITNESS_ENABLED",
                      "RESERVE_SAME_VALUE_NUDGE_ENABLED",
                      "RESERVE_LEDGER_SEND_ENABLED"):
-            monkeypatch.setattr(ec, name, on)
+            setk(monkeypatch, name, on)
         c, s = sh(soc=98, cloud=cloud, local=98)
         _, a = s._reserve_action(10)
         d = {"actions": [a] if a else [], "reason": "t",
@@ -656,7 +688,7 @@ def test_no_nudge_when_cloud_differs(sh):
 
 
 def test_nudge_kill_switch(sh, monkeypatch):
-    monkeypatch.setattr(ec, "RESERVE_SAME_VALUE_NUDGE_ENABLED", False)
+    setk(monkeypatch, "RESERVE_SAME_VALUE_NUDGE_ENABLED", False)
     c, s = sh(soc=98, cloud=10, local=98)
     assert decide(s, 10) == 10
 
@@ -771,7 +803,7 @@ async def test_check_local_unavailable_falls_back_critical(sh, clock):
 
 @pytest.mark.asyncio
 async def test_check_kill_switch_restores_critical(sh, clock, monkeypatch):
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_WITNESS_ENABLED", False)
+    setk(monkeypatch, "RESERVE_LOCAL_WITNESS_ENABLED", False)
     c, s = sh(soc=60, cloud=10, local=15)
     _ready_check(c, s, clock, 15)
     await c._write_verifier._check(SURFACE, 15, clock.t - timedelta(minutes=20))
@@ -856,12 +888,15 @@ async def test_self_heal_starvation_suppressed_when_local_confirms(
 ):
     """Three same-value self-heals: local matching → no starvation NM;
     local not matching → existing NM."""
-    monkeypatch.setattr(ewv, "async_call_later", lambda *a, **k: (lambda: None))
     c, s = sh(soc=60, cloud=10, local=local)
+    monkeypatch.setattr(
+        sys.modules[type(c._write_verifier).__module__], "async_call_later",
+        lambda *a, **k: (lambda: None),
+    )
     _ready_check(c, s, clock, 15)
     wv = c._write_verifier
     for _ in range(4):
-        await ewv.WriteVerifier.schedule(wv, SURFACE, 15, clock.t)
+        await type(wv).schedule(wv, SURFACE, 15, clock.t)
     starv = [p for p in anomalies(c, "write_verification_failed")
              if "self_heal_starvation" in str(p)]
     assert bool(_criticals(c)) is expect_nm
@@ -961,7 +996,7 @@ async def test_enforced_divergence_uses_effective_desire_under_evse_hold(sh, clo
 
 @pytest.mark.asyncio
 async def test_enforced_divergence_kill_switch(sh, clock, monkeypatch):
-    monkeypatch.setattr(ec, "RESERVE_ENFORCED_DIVERGENCE_TRIPWIRE_S", 0)
+    setk(monkeypatch, "RESERVE_ENFORCED_DIVERGENCE_TRIPWIRE_S", 0)
     c, s = sh(soc=98, cloud=10, local=98)
     s._last_reserve_level_desired = 10
     for at in range(0, 7201, 300):
@@ -1120,7 +1155,7 @@ async def test_episode_d_pre_cycle_never_releases(sh, clock, monkeypatch):
     (cloud 10 = target), local stays 98."""
     for name in ("RESERVE_LOCAL_WITNESS_ENABLED", "RESERVE_LEDGER_SEND_ENABLED",
                  "RESERVE_SAME_VALUE_NUDGE_ENABLED"):
-        monkeypatch.setattr(ec, name, False)
+        setk(monkeypatch, name, False)
     c, s = sh(soc=98, cloud=10, local=98)
     for at in range(0, 2401, 300):
         await tick(c, s, clock, 10, at=at)
@@ -1161,7 +1196,7 @@ async def test_episode_e_pre_cycle_churns(sh, clock, monkeypatch):
     """Discriminator: kill switches off → re-send every tick (the 66)."""
     for name in ("RESERVE_LOCAL_WITNESS_ENABLED", "RESERVE_LEDGER_SEND_ENABLED",
                  "RESERVE_SAME_VALUE_NUDGE_ENABLED"):
-        monkeypatch.setattr(ec, name, False)
+        setk(monkeypatch, name, False)
     c, s = sh(soc=80, cloud=12, local=12)
     for at in range(7200, 13800, 300):
         await tick(c, s, clock, 15, at=at)
@@ -1193,7 +1228,7 @@ def test_reserve_reference_kill_switch_byte_identical(clock, reg, monkeypatch):
     """All four switches off + a live witness (local 98) + a landed stamp
     98 → every golden case reproduces exactly."""
     for name in _SWITCHES:
-        monkeypatch.setattr(ec, name, False)
+        setk(monkeypatch, name, False)
     g = _golden_with_live_witness(monkeypatch, reg, 98)
     golden = json.loads(g.GOLDEN.read_text())
     for case in g.CASES:
@@ -1245,8 +1280,8 @@ def test_config_extremes_trust_guard(sh, monkeypatch, margin, span):
     (b) Ratchet shape (SOC 6, local 16, target 10) always guarded (SOC <=
         target even at margin 0; local - SOC = 10 <= span).
     (c) Stuck-high at SOC 11 (local 98): trusted iff span < 87."""
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_LOW_SOC_MARGIN_PCT", margin)
-    monkeypatch.setattr(ec, "RESERVE_LOCAL_RATCHET_SPAN_PCT", span)
+    setk(monkeypatch, "RESERVE_LOCAL_LOW_SOC_MARGIN_PCT", margin)
+    setk(monkeypatch, "RESERVE_LOCAL_RATCHET_SPAN_PCT", span)
     c, s = sh(soc=98, cloud=10, local=98)
     assert decide(s, 10) == 11
     c2, s2 = sh(soc=6, cloud=10, local=16)
@@ -1255,3 +1290,14 @@ def test_config_extremes_trust_guard(sh, monkeypatch, margin, span):
     c3, s3 = sh(soc=11, cloud=10, local=98)
     src = c3._write_verifier.trusted_local_reserve(s3, 10, 11)[1]
     assert src == ("local" if (span == 20 or margin == 0) else "low_soc_guard")
+
+
+def test_rule_l_skips_landed_nudge_at_step_two(sh, monkeypatch):
+    """The `last_ok != nudge(target)` conjunct only matters when the nudge is
+    >= the deadband away (step 2): landed 12 = nudge(10) → no rule L."""
+    setk(monkeypatch, "RESERVE_SAME_VALUE_NUDGE_STEP_PCT", 2)
+    c, s = sh(soc=60, cloud=50, local=10)
+    s._reserve_last_ok_value = 12
+    assert decide(s, 10) is None
+    s._reserve_last_ok_value = 13
+    assert decide(s, 10) == 10
