@@ -5752,9 +5752,10 @@ class NotificationManager:
 
     @callback
     def _handle_halo_ready(self, _event: Event) -> None:
-        """Halo entry (re)started: re-assert URA leases."""
-        if not self._panel_channel_enabled:
-            return
+        """Halo entry (re)started: re-assert URA leases.
+
+        Subscribed only while the channel is on; _panel_reassert re-checks
+        _panel_live() under the lock."""
         self._spawn_panel_task(self._panel_reassert(), "ura_nm_panel_reassert")
 
     async def _panel_reassert(self) -> None:

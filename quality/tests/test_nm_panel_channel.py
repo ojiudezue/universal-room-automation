@@ -403,6 +403,54 @@ async def test_panel_channel_off_is_noop(rig):
     chans = {c.args[7] for c in rig.db.log_notification.await_args_list
              if len(c.args) > 7}
     assert chans == {"pushover"}
+    # No panel task was even spawned, and dry-run (which short-circuits
+    # before targeting) writes no panels row while the switch is off.
+    assert not [t for t in rig.hass.tasks if t.get_name().startswith("ura_nm_panel")]
+    rig.nm._dry_run_active = True
+    await rig.notify(hazard_type="h2")
+    assert not [c for c in rig.db.log_notification.await_args_list
+                if c.kwargs.get("channel") == "panels"]
+    # Release sites are silent too while off: ack, re-eval, kill switch.
+    await rig.nm.async_acknowledge()
+    rig.hazard_active = False
+    await rig.nm._re_evaluate_hazard()
+    await rig.nm.async_suppress_messaging()
+    await settle(rig.hass)
+    assert rig.hass.services.halo() == []
+    assert not [t for t in rig.hass.tasks if t.get_name().startswith("ura_nm_panel")]
+
+
+@pytest.mark.asyncio
+async def test_switch_off_while_delivery_queued_sends_nothing(rig):
+    await rig.enable()
+    await rig.nm._panel_lock.acquire()  # a delivery is "in front"
+    try:
+        assert rig.nm._schedule_panel_delivery(
+            "safety", Severity.CRITICAL, "Leak", "m", "water_leak", "Kitchen")
+        rig.hass.bus.fire("halo_ready", {})  # a queued re-assert too
+        await asyncio.sleep(0)
+        rig.nm._panel_channel_enabled = False
+    finally:
+        rig.nm._panel_lock.release()
+    await settle(rig.hass)
+    assert rig.indicates() == []
+    assert rig.nm._panel_leases == {}
+
+
+@pytest.mark.asyncio
+async def test_halo_ready_queued_then_switch_off_sends_nothing(rig):
+    await rig.enable()
+    await rig.notify()  # ledger holds the leak lease; NM REPEATING
+    rig.hass.services.calls.clear()
+    await rig.nm._panel_lock.acquire()
+    try:
+        rig.hass.bus.fire("halo_ready", {})
+        await asyncio.sleep(0)
+        rig.nm._panel_channel_enabled = False
+    finally:
+        rig.nm._panel_lock.release()
+    await settle(rig.hass)
+    assert rig.indicates() == []
 
 
 @pytest.mark.asyncio
@@ -453,13 +501,22 @@ async def test_night_gate_sleep_state_and_safety_coordinator(monkeypatch, clock)
 
 
 @pytest.mark.asyncio
-async def test_coordinator_allowlist(rig):
+async def test_coordinator_allowlist(rig, monkeypatch):
     await rig.enable()
     for coord in ("hvac", "perimeter", "perimeter_alert", "energy", "optimization"):
         for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM):
             await rig.notify(coordinator_id=coord, severity=sev,
                              hazard_type="intruder", location="Kitchen")
     assert rig.indicates() == []
+    # The allowlist gates on its own: even with a level mapped for hvac, an
+    # hvac notify never reaches a panel.
+    monkeypatch.setattr(nm_mod, "NM_PANEL_LEVEL_MAP", {
+        **nm_mod.NM_PANEL_LEVEL_MAP, "hvac": {"CRITICAL": "critical"}})
+    await rig.notify(coordinator_id="hvac", hazard_type="intruder", location="Kitchen")
+    assert rig.indicates() == []
+    # ...while a listed coordinator still does (the map patch is live).
+    await rig.notify(coordinator_id="safety", hazard_type="h1", location="Kitchen")
+    assert [d["id"] for d in rig.indicates()] == ["ura:safety:h1:kitchen"]
 
 
 @pytest.mark.asyncio
