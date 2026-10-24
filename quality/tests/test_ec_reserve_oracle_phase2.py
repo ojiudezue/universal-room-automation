@@ -1825,6 +1825,7 @@ async def test_round3_ladder_runs_for_new_desire_after_standdown_drop(sh, clock)
     for at in (900, 1800, 3600):
         await _watchdog_at(c, s, clock, at)
     assert wv._pending_standdown_value.get(SURFACE) == 50
+    s._last_reserve_level = 50   # ledger on the plain stuck value (no nudge)
     assert await tick(c, s, clock, 49, at=3900) is not None
     assert s._last_reserve_level == 49
     assert s._last_reserve_level_at == clock.t
