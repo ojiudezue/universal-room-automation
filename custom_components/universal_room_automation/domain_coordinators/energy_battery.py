@@ -5386,10 +5386,11 @@ class BatteryStrategy:
             if _ec.RESERVE_ATTAIN_BASE_INTENT_ENABLED:
                 # EC reserve oracle phase 2 D1.4 (R2-H3 / RG-M2, fix-up
                 # HIGH-1): the base is URA intent. The prior desire is kept
-                # when it is <= the floor or CONFIRMED (landed request, the
-                # write leg, or the trusted local within the deadband of
-                # it). An unconfirmed raise is not re-asserted: the base
-                # falls back to the pre-cycle hardware read, else the floor
+                # when it is <= the floor or CONFIRMED (landed request or
+                # the trusted local within the deadband of it). Otherwise
+                # it is not re-asserted: the base falls back to the
+                # pre-cycle hardware read (which also keeps a desire adopted
+                # from hardware after a reboot), else the floor
                 # (never the KV ledger). No desire (post-reboot) → pre-cycle
                 # order. Level is always >= floor.
                 _last_ok = self._reserve_last_ok_value
@@ -5401,7 +5402,6 @@ class BatteryStrategy:
                     if (
                         _desired <= _floor
                         or _near(_last_ok)
-                        or _near(_hw)
                         or _near(_local)
                     ):
                         _base = _desired

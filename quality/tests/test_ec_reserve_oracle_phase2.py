@@ -1352,9 +1352,10 @@ def test_fixup_high1_reboot_warmup_never_lowers_inflight(clock, reg):
     """HIGH-1: post-reboot HOLD CURRENT, partial_hold floor 50, hw/local 80,
     ledger 40, no landed stamp: tick 1 adopts 80 as desire; ticks 2-3 must
     never send anything below 80 (the bug sent 50 at tick 2)."""
-    out, s = _warmup_ticks(clock, hw="80", local=80)
-    assert all(v >= 80 for w in out for v in w), out
-    assert s._last_reserve_level_desired == 80
+    for local in (80, "unavailable"):       # hardware alone must confirm
+        out, s = _warmup_ticks(clock, hw="80", local=local)
+        assert all(v >= 80 for w in out for v in w), (local, out)
+        assert s._last_reserve_level_desired == 80
 
 
 def test_fixup_high1_cm_deferred_raise_not_lowered(clock, reg):
