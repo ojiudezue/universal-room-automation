@@ -72,7 +72,8 @@ cards:
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
   thread: "energy"
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.87
   tier: 1
   created: "2026-10-23 02:09"
@@ -117,7 +118,8 @@ cards:
   verify_2026_10_22: "STILL-REAL. The dwell migration (d75313bec) did not touch regime_detector.py (last change 09-14). The check still compares predicted_value = actual_value (regime_detector.py:388-389, :405-406), and next_room rows still store a JSON payload with a 'top' key (sensor.py:3543). So the fold-into-migration option is gone: this is a standalone Tier 1 fix. Not built overnight: the review lane holds 4 built cards (WIP cap is 3), so the overnight pass drains reviews before starting builds."
   title: "Regime detector's next-room 'accuracy drop' check compares a JSON prediction to a room name, so it never matches (0 of 3,109 rows) and can never fire"
   thread: predictions
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.87
   tier: 1
   created: "2026-10-21 22:15"
@@ -140,7 +142,8 @@ cards:
   groom_2026_10_22: "Groomed overnight. Validity: STILL-REAL (grep -i worklog scripts/deploy.sh = no hits; the only worklog is docs/planning/WORKLOG_2026-10_session.md, written by hand). Prior art: REUSE the deploy.sh step-4b post-push hook that already calls kanban_ship.py mark-shipped. Add one append next to it, never failing the deploy post-push (same safety rule). Parsimony: BUILD (Tier 1, ~15 lines of shell). Not built tonight because the review lane is over the WIP cap of 3."
   title: "The session work log lapsed for a week (10-14 to 10-21); append one index line per ship batch automatically instead of by memory"
   thread: board
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.87
   tier: 1
   created: "2026-10-21 22:05"
@@ -182,7 +185,8 @@ cards:
   rank: {"value": 6, "time_criticality": 4, "effort": 5}
   title: "Room forecast and next-room predictions are no better than a constant; move them onto RoomDwellModel and condition next-room on the current room"
   thread: presence
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.85
   tier: 2
   created: "2026-10-21 17:10"
@@ -197,7 +201,8 @@ cards:
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
   title: "Prediction accuracy sensors report no skill over a trivial baseline ('94%' is the empty-room base rate)"
   thread: presence
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.85
   tier: 1
   created: "2026-10-21 17:10"
@@ -381,7 +386,8 @@ cards:
   done_2026_10_24: 'Applied to lovelace ura-v8 views[4].sections[7].cards[6] via ha_config_set_dashboard (hash 2b75d42b -> 8af12483); backup docs/dashboard-prototypes/ura-v8-backups/20261024T115700Z_pre_ziri_people_fix.json. ha_eval_template of the new lookup: oji/ezinne/jaya=home, ziri=dash, no error.'
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.71
   tier: 1
   thread: platform
@@ -392,7 +398,8 @@ cards:
   links: {parent: TEST-STRATEGY-REARCH-1}
 - id: WS-SUBSCRIBE-SCHEMA-REALHA-1
   title: "websocket_api.py import fails on harness HA 2026.2.3 (bare BASE_COMMAND_MESSAGE_SCHEMA.extend passed to websocket_command)"
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.71
   tier: 1
   thread: platform
@@ -436,7 +443,8 @@ cards:
   reviewed_2026_10_18_overnight: "Tier-1 review (ura-reviewer, framing A): SHIP, no CRITICAL/HIGH; LOWs accepted. Record: docs/reviews/code-review/overnight_2026-10-18_tier1_batch.md. Branch pushed to origin."
 - id: DEPLOY-DUALPUSH-SIGINT-TRAP-1
   title: "Ctrl-C during the deploy mirror push may leave the token-bearing remote URL in place until the push ends"
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.71
   tier: 1
   thread: test-strategy
@@ -486,7 +494,8 @@ cards:
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
   next: "Me, next attended session: merge fix/loaded-vs-installed-version to develop (rename its README to the release version), ship with the next batch; live check = repair issue absent when loaded == installed, present after a HACS install before restart."
   lane_fix_2026_10_21: "in_progress -> review: built on fix/loaded-vs-installed-version (b3636161a, 10-20), not merged to develop; awaiting review + merge, not in progress"
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: loaded=installed=5.103.89, no repair; residual: restart_pending=true path never seen live (in-suite only) per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.86
   title: "Nothing flags when HA is running an older URA than is installed: v5.103.67/.68 sat installed-but-not-loaded for ~23 h and looked like a dead feature"
   thread: platform
@@ -819,7 +828,8 @@ cards:
   created: "2026-10-21"
   title: 'test_safety_hazard service sends no notification: handler only logs (safety.py:2997-3045), so the safety pipeline and v5.103.65 re-page cannot be tested on demand'
   thread: safety
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: 10-24 21:42Z test delivered on 4 channels, ack cleared. Residual: no re-page row in 5m34s before ack, repeat cadence unproven; folded to SAFETY-NM-REFIRE-UNWIRED-1 per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.84
   tier: 1
   origin: 'Operator approved a CRITICAL test smoke alert 2026-10-21 to close README_v5.103.65 re-page criteria; call succeeded, 0 notification_log rows. Code read: handle_test_hazard builds a Hazard, checks the deduplicator, logs "Test safety hazard..." and returns; services.yaml says it "only sends notifications".'
@@ -950,7 +960,8 @@ cards:
   plan_2026_10_16: 'PLANNING_reserve_write_governor.md Rev 3.1 READY after 3 plan reviews (R1 FIX 3C/7H, R2 FIX 1C/5H, R3 narrow 1H text). next: APPROVE Tier-3 build -> dispatch builder (fable if tokens, else super-builder) + 4 reviews + operator checkpoint before deploy.'
   title: 'Battery reserve has ~25 decision branches each applying floors themselves; govern the reserve at one chokepoint (floor clamp, write history, restart resilience) like HVAC/presence writes'
   thread: energy
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.66
   tier: 3
   origin: 'operator 2026-10-15: "Should we have a reserve write unified function, much like HVAC writes and presence? 25 places is mad. This way we can force them through a governed slice with history and restart resilience? This is not about alerts at all"'
@@ -986,7 +997,8 @@ cards:
   operator_instruction_2026_10_15: "(1) Blind pause: I understand being unable to command but why stop reasoning when you clearly can? (2) Fix the matching. Reason from first principles: is it above medium? What would we act on for inclement weather? We built this so we don't react to things that don't matter that come over alerts, for our GPS coord. (3) Forecast never consulted seems dumb; peering into the future is an advantage. Check the original plan: mistake, or what was the reasoning (which can be improved)."
   title: 'Storm hold never sees tonight-type storms: Envoy-blind gate skips inclement entirely; Wind Advisory gated out; Onset ignored (alert expires at its start); no forecast/probability/wind input'
   thread: energy
-  status: shipped_organic
+  status: parked
+  disposition_2026_10_24: "parked: observable criteria passed 10-17; revival trigger = first real NWS storm alert, check inclement evaluation when blind per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.69
   tier: 3
   origin: 'operator 2026-10-15 ~22:40: "why is the storm hold not tripped and is that reasonable. Check code. We may find warts. Its worth inspecting and hardening. Enphase can do its own storm hold. They like to override my settings."'
@@ -1244,6 +1256,7 @@ cards:
   refs: [docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md, custom_components/universal_room_automation/domain_coordinators/presence.py]
   updated: '2026-10-23 02:05'
 - id: SAFETY-NM-REFIRE-UNWIRED-1
+  residual_2026_10_24: "Test smoke CRITICAL 10-24 21:42Z delivered on 4 channels but no re-page row was logged in the 5m34s before ack (life-safety repeat should be ~30 s). Check whether repeats write notification_log rows or did not fire."
   revisit_trigger: "The first real smoke, CO or flood hazard that is acknowledged and stays active past its cooldown. Then check notification_log for the re-page at the scheduled step (Standard ladder) and close done, or reopen with the row evidence."
   disposed_2026_10_22_overnight: "SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger, not left organic. It shipped in v5.103.69 (built and reviewed as v5.103.65, Tier 2-DB); README_v5.103.69 validated it live 10-17 as 'proven in-suite only'. URA notification_log since the 10-17 13:23 restart has no smoke, CO or flood hazard notifications at all (only 4 LOW humidity notices). The kitchen smoke detector is still unavailable tonight (SAFETY-SENSOR-FLEET-HEALTH-1), so the main case cannot fire. The card's old 'next' (fold into the clear-on-recovery plan) is obsolete: it shipped."
   verified_2026_10_15_overnight: "STILL-REAL. safety.py:2413-2420 builds NotificationAction with coordinator_id/severity/confidence/description/message/channels and no hazard_type or location; notification_manager.py:3030-3039 reads hazard_type/location from _active_alert_data (empty) and calls is_hazard_active('', ''), so the cooldown re-fire never happens. Moved inbox -> pre_planning, blocked on SAFETY-HAZARD-NEVER-CLEARS-1: the 10-14 constraint (NM cooldown 2 min < the new 300 s clear hold) means the wiring must follow that plan, and safety-alert behaviour always needs your explicit go."
@@ -27330,7 +27343,8 @@ cards:
 - id: EC-SHUTDOWN-SAVE-AFTER-WRITER-CLOSED-1
   title: "Energy coordinator's shutdown saves run after URA's DB writer has closed, so its final state (EVSE pause flags, battery LKG, ledgers, drain precedence) is skipped"
   thread: energy
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.81
   residual_2026_10_20_review: "Focused review of 9c38ed0a2 SHIP. LOW-1: SolarFollowController._stopped never reset (unreachable: HA stop never re-sets-up the same instance) - add a reset in _register_stop_save_job next time EC is touched. LOW-2: safety-hazard emergency load-shed listener (energy.py:1250/1471) is deliberately NOT gated by _ec_stopping - document as intentional."
   restart_owed_2026_10_20: "v5.103.81 deployed + HACS-installed 21:20 CDT; restart HELD (house home_night). Owed at next morning restart: load check; then at the restart AFTER that, validate the new stop job (0 EC write-worker-closed ERRORs; evse/registry energy_state rows updated at stop)."
@@ -27345,7 +27359,8 @@ cards:
 - id: NM-NOTIFY-SIGNATURE-MISMATCH-1
   title: "Four async_notify call sites never matched NM's signature, so those alerts raised TypeError and never delivered"
   thread: notifications
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.80
   tier: 1
   created: "2026-10-20 20:10"
@@ -27363,7 +27378,8 @@ cards:
   operator_answer_2026_10_20_b: "Operator: \"I would not alert. The routine change is enough. It should assert in its sensor and give more information.\" -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why (expected vs actual, who usually is where at this time, which signal made the room occupied, how long, learning status). Keep signal + anomaly_log row."
   title: "Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires"
   thread: presence
-  status: "shipped_organic"
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.83
   operator_answer_2026_10_20: "Operator: \"Make the sensor work.\" -> B (wire evaluation), measure false-positive rate first (D0)."
   tier: 2
@@ -29803,7 +29819,8 @@ cards:
   next: "Me, next attended session: merge fix/coverage-total-consumption to develop (renumber its README), ship in the next batch; live check = the coverage delta stops climbing past the whole-house figure on the first evening after restart."
   updated: '2026-10-23 02:43'
   lane_fix_2026_10_21: "in_progress -> review: built on fix/coverage-total-consumption (4472a6ff4 + review-A fix-up 6945e1228, 10-21), not merged; awaiting second review + merge"
-  status: shipped_organic
+  status: parked
+  disposition_2026_10_24: "parked: ec_total live only since 10-24 restart; revival trigger = 10-25 evening query in audit doc; reopen if whole_house walks negative per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.86
   triage_2026_10_17: "Default B taken: reuse the existing lifetime-consumption entity."
   gate_2026_09_28_prior_art: 'BUILD GATE, overnight 2026-09-28. STOPPED AT STEP 2 (prior art), because the scan changes the plan. (1) VALIDITY: still real. The live integration entry still has whole_house_energy_sensors = [sensor.envoy_482543015950_lifetime_net_energy_consumption] (read from /config/.storage/core.config_entries tonight). (1b) CONFIG-FIRST: not solvable by config alone, because cost wants NET (see escalation_2026_09_23). (2) PRIOR ART, the finding: the Energy coordinator ALREADY has a total-consumption entity setting, CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY (energy_const.py:751). Its serial-derived default is exactly the entity this card wants, sensor.envoy_{serial}_lifetime_energy_consumption (energy_const.py:1109), and it is read at energy.py:193. It is not set explicitly in the CM options, so the default applies. The plans "add a NEW whole-house TOTAL-consumption options field" therefore duplicates an existing setting. The REUSE alternative is for the coverage sensor (aggregation.py EnergyCoverageDeltaSensor) to read the EC-configured total entity. That adds no new config surface, but it creates a new cross-entry read (the integration entry reading CM/EC config), which is a design choice, not a mechanical build. SIDE NOTE (LOW, doc drift): the energy.py:774 and :2745 comments say "with a net-consumption CT, lifetime_energy_consumption = net grid import only". The 09-23 identity measurement (total 28.64 vs net 12.93 MWh; total minus net = production minus export to 5 decimals) shows it is TOTAL on this Envoy. That is harmless, because EC derives daily consumption from 5 independent lifetime sensors and not from that entity (energy.py:2767-2790), but the comment is stale. Also: every Envoy entity was unavailable at 02:50 CDT (ENVOY-FLAKINESS-181243-1), so coverage shows No data during dropouts either way.'
@@ -31357,7 +31374,8 @@ cards:
   groomed_2026_10_16_overnight: "Lane fix: the card sat in review with a pre-build next although v5.103.62 is deployed. Verified 2026-10-16 02:07 CDT: HA has the v5.103.64 files installed (manifest), but the last HA start was 2026-10-15 12:45 CDT (recorder_runs), before the 19:15 install, so v5.103.62-64 are installed and NOT running yet. Moved to shipped_organic; the README_v5.103.62 live criteria (lines 23-26) are evaluated after the next daytime restart."
   title: "Custom Preset Ranges re-writes a preset it already set, because it reads the thermostat right after a preset change while the cloud still shows the old preset range"
   thread: hvac
-  status: "shipped_organic"
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_2026_10_15: "v5.103.62 deployed (PR #633) + HACS-installed 19:15 CDT; NOT active until the next restart (one daytime restart 10-16, today already used at 12:44). Full-suite name-diff CLEAN. Live validation per README after restart."
   shipped_version: v5.103.62
   update_2026_10_15: "CONFIRMED from code (operator: read code first, update the doc). preset_range_original (hvac_strategy.py:666-680) reads lagging status-feed setpoints; _s10_write_one step 9 (hvac.py:4536-4544) snapshots the stale range, so one redundant set_activity_setpoint per preset change per zone. Fix = REUSE _zone_last_s1_write (hvac.py:631, 3929-3933) + new rung-1 S10_POST_PRESET_CHANGE_COOLDOWN_S (=120 s, SUPPRESS_TTL_SECONDS_PRESET) skip step. Tier 2. Plan docs/planning/PLANNING_hvac_s10_stale_range.md. State-of-play doc corrected (C37: CPR is LIVE on zone_3, not dormant; \u00a78 row; \u00a79.9 renumber; S10 row residual). Next: one plan review, then build."
@@ -32923,7 +32941,8 @@ cards:
   arc_cut_v5_103_72: "separate producer fix in person_coordinator, own cycle"
   title: "Per-person GPS axis is last-tracker-wins (person_coordinator.py:207-229): a second GPS device that never reads home overwrites the phone's GPS (iPad case 2026-10-18; Wigton person.omonele has 6 trackers)"
   thread: presence
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done at Madrone (no-op). Residual: Wigton verification, trigger = URA install at Wigton per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.76
   tier: 2
   created: "2026-10-18"
@@ -32935,7 +32954,8 @@ cards:
   arc_cut_v5_103_72: "recorder hygiene, independent of the inference fix, next small cycle"
   title: "The presence house-state sensor records churny per-tick attributes every 30 s poll (no _unrecorded_attributes), bloating the recorder"
   thread: presence
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.76
   tier: 1
   created: "2026-10-18"
@@ -32951,7 +32971,8 @@ cards:
   arc_cut_v5_103_74: "separate SmartHub bill work, greenlit and next in queue"
   title: "EC's bill check compares against a SmartHub monthly sensor that reads 0 since 2026-06-02 (false 100% divergence); rebuild it from SmartHub's hourly statistics priced by the TOU engine over the real 23rd-start cycle (kWh + $ divergence)"
   thread: energy
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: utility_source=statistics, no error. Residual: cycle scoring check at 11-24 bill close per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.79
   tier: 2
   created: "2026-10-18"
@@ -32973,7 +32994,8 @@ cards:
 - id: ZONE-TRACKER-PER-SENSOR-WIPE-1
   title: "Zone tracker clears a whole room when any one sensor turns off (and same-kind sensors overwrite each other in the substrate), so zones read empty while a sensor is still on"
   thread: presence
-  status: shipped_organic
+  status: done
+  disposition_2026_10_24: "done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md"
   shipped_version: v5.103.72
   tier: 3
   created: "2026-10-18"
