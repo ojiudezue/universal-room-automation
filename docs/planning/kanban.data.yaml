@@ -372,7 +372,8 @@ cards:
   adjacency: "Swept: DASHBOARD-V8-FIX-BATCH-1 (done, parent batch that built the People tab) -> ADJACENT, new card linked; no open dashboard card covers it; BACKLOG/plans not relevant."
   fix: "In lovelace.ura_v8 People table template: `{%- set bt = (trk | select('search','bermuda') | list + [none]) | first -%}` (rest of the row already guards `if bt`). Apply via ha_config_set_dashboard in an attended session; check the card renders 4 rows."
   parsimony: {"problem": "One person without a BLE tracker breaks the whole People table template.", "verdict": "BUILD (one-line, config-only)"}
-  next: "Me, attended session: apply the one-line template fix to lovelace.ura_v8 (not done overnight - live dashboard write)."
+  next: 'none: closed 2026-10-24 (applied live).'
+  done_2026_10_24: 'Applied to lovelace ura-v8 views[4].sections[7].cards[6] via ha_config_set_dashboard (hash 2b75d42b -> 8af12483); backup docs/dashboard-prototypes/ura-v8-backups/20261024T115700Z_pre_ziri_people_fix.json. ha_eval_template of the new lookup: oji/ezinne/jaya=home, ziri=dash, no error.'
 - id: WS-SUBSCRIBE-SEND-OFF-LOOP-1
   title: "URA websocket subscribe sends messages off the event loop (_send_on_loop missing @callback)"
   status: shipped_organic
