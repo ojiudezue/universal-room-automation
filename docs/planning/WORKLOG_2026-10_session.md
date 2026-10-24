@@ -228,3 +228,7 @@ this session's own work. Per-release detail lives in each `README_v5.103.N.md`; 
 | README_v5.103.65 title says v5.103.63 | me | one-line fix |
 | Timed checks 10-22 07:17, 10-22 19:13, 10-23 07:19, 10-28 10:23 | me | session crons + on cards |
 | Worklog lapsed 10-14→10-21 | me | keep appending at each ship batch |
+
+## Release index (auto-appended at deploy)
+
+- 2026-10-24 07:04 **v5.103.87** — v5.103.87: daily solar forecast restored, regime next-room check made real, work log at ship (cards: EC-PREDICTOR-SOLCAST-UNWIRED-1,REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1,WORKLOG-APPEND-AT-SHIP-1)

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-23'
+  last_reconciled: '2026-10-24'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -72,7 +72,8 @@ cards:
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
   thread: "energy"
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.87
   tier: 1
   created: "2026-10-23 02:09"
   updated: '2026-10-24 02:07'
@@ -116,7 +117,8 @@ cards:
   verify_2026_10_22: "STILL-REAL. The dwell migration (d75313bec) did not touch regime_detector.py (last change 09-14). The check still compares predicted_value = actual_value (regime_detector.py:388-389, :405-406), and next_room rows still store a JSON payload with a 'top' key (sensor.py:3543). So the fold-into-migration option is gone: this is a standalone Tier 1 fix. Not built overnight: the review lane holds 4 built cards (WIP cap is 3), so the overnight pass drains reviews before starting builds."
   title: "Regime detector's next-room 'accuracy drop' check compares a JSON prediction to a room name, so it never matches (0 of 3,109 rows) and can never fire"
   thread: predictions
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.87
   tier: 1
   created: "2026-10-21 22:15"
   updated: '2026-10-24 02:07'
@@ -138,7 +140,8 @@ cards:
   groom_2026_10_22: "Groomed overnight. Validity: STILL-REAL (grep -i worklog scripts/deploy.sh = no hits; the only worklog is docs/planning/WORKLOG_2026-10_session.md, written by hand). Prior art: REUSE the deploy.sh step-4b post-push hook that already calls kanban_ship.py mark-shipped. Add one append next to it, never failing the deploy post-push (same safety rule). Parsimony: BUILD (Tier 1, ~15 lines of shell). Not built tonight because the review lane is over the WIP cap of 3."
   title: "The session work log lapsed for a week (10-14 to 10-21); append one index line per ship batch automatically instead of by memory"
   thread: board
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.87
   tier: 1
   created: "2026-10-21 22:05"
   updated: '2026-10-24 02:07'
@@ -218,6 +221,7 @@ cards:
   adjacency: "NEW."
   verified_2026_10_21: "Not wrong data: the class OccupancyPatternDetectedSensor was a stub that always returned 'No Pattern Detected' (TODO), removed in v3.20.2 (13b992fd4, 2026-03-31) with 14 other stub entities. 27 registry rows remain (disabled-by-default diagnostic); const STATE_OCCUPANCY_PATTERN still defined, unused. Removing the rows changes nothing now; keeping them costs nothing; a future sensor with the same unique_id would reattach to them."
 - id: EC-FORECAST-TRUTH-GAPS-1
+  arc_cut_v5_103_87: "waiting on operator decision"
   measured_2026_10_23_overnight: "Investigation run (ura-prober, read-only; key claim re-verified in source by the orchestrator). CARD-WAS-WRONG on two of three gaps. (a) There is NO predicted_production_kwh column in energy_daily (schema read); the value lives only in the predictor's memory. It is blank because the predictor is never given the Solcast entity: split out as [[EC-PREDICTOR-SOLCAST-UNWIRED-1]] (Tier 1 regression from v5.103.55). (b) weather_apparent_forecast_high is AVAILABLE now (84.0 at 01:29 10-23); the 10-21 'unavailable' was most likely an empty cache right after a restart (not verified). Not a defect today. (c) Missing/NULL rows are FIXED GOING FORWARD by v5.103.82: 10-22 row (source counters) has consumption 103.3, solar 97.25, predicted 114.0. Still all-NULL: 10-01, 10-05..10-17, 10-21; 10-18 has prediction only. Also seen, not investigated: solar_production_kwh = 0.0 (not NULL) on 10-02..04. Backfill: scripts/backfill_energy_daily_from_counters.py has NO solar mode (args lines 395-407; docstring line 36 says it never touches consumption/solar/prediction). So the residual work on this card is the historical backfill only."
   updated: '2026-10-23 02:09'
   links_added_2026_10_21: "related+ENERGY-CONSUMPTION-FORECAST-POISONED-1,PREDICT-SCORER-BASELINE-SKILL-1: Poisoned consumption days are one of the truth gaps; PREDICT-SCORER-BASELINE-SKILL-1 is the same skill-over-baseline scoring question for room predictions."
