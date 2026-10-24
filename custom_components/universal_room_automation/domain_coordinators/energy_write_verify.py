@@ -2169,7 +2169,9 @@ class WriteVerifier:
         try:
             # Fix-up HIGH-2: a stand-down pinned on the nudged value
             # (`_nudge_value(target)`) covers the target too.
-            return _matches_desire(int(sv), int(value))
+            # Round-2 LOW: a pin on v covers v and its own nudge only.
+            from .energy_battery import _nudge_value  # noqa: PLC0415
+            return int(value) in (int(sv), _nudge_value(int(sv)))
         except (TypeError, ValueError):
             return sv == value
 
@@ -2696,7 +2698,9 @@ class WriteVerifier:
             self._pending_standdown_at[surface] = now
             # Root 2 — capture the non-compliant value so the normal
             # dispatch leg can gate same-value re-dispatch.
-            self._pending_standdown_value[surface] = commanded
+            # Round-2 HIGH-2: pin the de-nudged desire (commanded is the
+            # desire or its nudge — checked above), so the pin covers both.
+            self._pending_standdown_value[surface] = effective
             _LOGGER.warning(
                 "WriteVerifier: %s pending watchdog — HARD STAND-DOWN "
                 "after %d attempts; surface marked non-compliant. "

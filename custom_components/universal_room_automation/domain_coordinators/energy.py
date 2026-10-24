@@ -5647,7 +5647,9 @@ class EnergyCoordinator(BaseCoordinator):
                     if int(effective) != int(existing_val):
                         from homeassistant.util import dt as dt_util
                         _new = int(max(0, min(100, int(effective))))
-                        if self._battery._last_reserve_level != _new:  # noqa: SLF001
+                        if self._ledger_anchor_moves(  # round-2 HIGH-2
+                            self._battery._last_reserve_level, _new,  # noqa: SLF001
+                        ):
                             self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
                         self._battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError, AttributeError):
@@ -5736,7 +5738,9 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             from homeassistant.util import dt as dt_util
             _new = int(max(0, min(100, int(hold_reserve))))
-            if self._battery._last_reserve_level != _new:  # noqa: SLF001
+            if self._ledger_anchor_moves(  # round-2 HIGH-2
+                self._battery._last_reserve_level, _new,  # noqa: SLF001
+            ):
                 self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
             self._battery._last_reserve_level = _new  # noqa: SLF001
         except (TypeError, ValueError, AttributeError):
@@ -9668,6 +9672,26 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("grid buy notify tick failed", exc_info=True)
 
+    def _ledger_anchor_moves(self, old: Any, new: Any) -> bool:
+        """EC reserve oracle phase 2 (fix-up HIGH-2, round 2): does a ledger
+        stamp ``old -> new`` move `_last_reserve_level_at`? Not when the two
+        are the plain/nudge pair of ONE desire — keyed on the POST-overlay
+        effective desire (an EVSE hold of 98 alternates 98/99) and on the
+        pre-overlay desire. Same contract as a same-value retry: the pending
+        watchdog episode is not re-anchored. Used by the timer tap and both
+        EVSE overlay stamps."""
+        if old == new:
+            return False
+        battery = getattr(self, "_battery", None)
+        keys = [getattr(battery, "_last_reserve_level_desired", None)]
+        wv = getattr(self, "_write_verifier", None)
+        if wv is not None and battery is not None:
+            try:
+                keys.append(wv._effective_reserve_desired(battery))  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                pass
+        return not any(_same_desire_pair(old, new, k) for k in keys)
+
     def _record_reserve_dispatch(
         self,
         *,
@@ -9928,14 +9952,8 @@ class EnergyCoordinator(BaseCoordinator):
             if battery is not None and value is not None:
                 try:
                     _new = int(max(0, min(100, int(value))))
-                    if battery._last_reserve_level != _new and not (  # noqa: SLF001
-                        # Fix-up HIGH-2: target <-> its D2 nudge is the same
-                        # desire — a same-value retry, not a new episode.
-                        _same_desire_pair(
-                            battery._last_reserve_level,  # noqa: SLF001
-                            _new,
-                            getattr(battery, "_last_reserve_level_desired", None),
-                        )
+                    if self._ledger_anchor_moves(
+                        battery._last_reserve_level, _new,  # noqa: SLF001
                     ):
                         battery._last_reserve_level_at = _now  # noqa: SLF001
                     battery._last_reserve_level = _new  # noqa: SLF001

@@ -1383,12 +1383,14 @@ def test_fixup_attain_desire_at_and_below_floor(clock, reg):
         assert out == [[50]], (desire, out)
 
 
-def test_fixup_attain_unconfirmed_no_hw_resolves_to_floor_not_ledger(clock, reg):
-    """Unconfirmed desire 80, write leg AND local unavailable, ledger 90 →
-    base = floor (50), never the ledger (the stamp shows the level)."""
+def test_fixup_attain_unconfirmed_no_hw_keeps_prior_desire(clock, reg):
+    """Round 2: unconfirmed desire 80, write leg AND local unavailable,
+    ledger 90 → base = the prior desire 80 (pre-cycle order): never the
+    ledger, never an evidence-free floor; no write."""
     out, s = _warmup_ticks(clock, hw="unavailable", local="unavailable",
                            desire=80, last_ok=None, ledger=90, n=1)
-    assert s._last_reserve_level_desired == 50
+    assert out == [[]], out
+    assert s._last_reserve_level_desired == 80
 
 
 def test_fixup_med_a_attain_unreadable_cloud_uses_trusted_local(clock, reg):
@@ -1570,9 +1572,11 @@ def test_fixup_reserve_action_compare_boundaries(sh, clock):
     wv = c._write_verifier
     wv._pending_standdown_at[SURFACE] = clock.t
     wv._pending_standdown_value[SURFACE] = 10
-    assert decide(s, 10) is None
+    assert decide(s, 10) is None           # pinned target
+    assert c._write_verifier.is_standdown_active_for_value(SURFACE, 11)
+    assert decide(s, 9) is not None        # round-2 LOW: v - 1 resumes
     wv._pending_standdown_value[SURFACE] = 11
-    assert decide(s, 10) is None
+    assert decide(s, 10) is not None       # pin on 11 does not cover 10
     wv._pending_standdown_value[SURFACE] = 12
     assert decide(s, 10) is not None
 
@@ -1669,3 +1673,112 @@ def test_fixup_attain_unconfirmed_desire_keeps_higher_hardware(clock, reg):
     out, s = _warmup_ticks(clock, hw="90", local="unavailable", desire=60, n=1)
     assert out == [[]], out
     assert s._last_reserve_level_desired == 90
+
+
+# ===========================================================================
+# Round-2 fix-up
+# ===========================================================================
+def _blip_ticks(clock, legs, *, ledger=80, floor=50):
+    """Post-reboot HOLD CURRENT; `legs` = [(cloud, local), ...] per tick."""
+    from test_ec_stage_a_floor_and_blind import (  # noqa: PLC0415
+        OCT_03, OCT_04, OCT_05, _hold_current_shell, set_hw,
+        tick as stage_a_tick, writes,
+    )
+    c, s = _hold_current_shell(clock, hw=str(legs[0][0]))
+    s._last_reserve_level = ledger
+    out = []
+    for t, (cloud, local) in zip((OCT_03, OCT_04, OCT_05), legs):
+        set_hw(c, str(cloud))
+        _st(c.hass, LOCAL_EID, str(local), unit="%", lu=t)
+        d = stage_a_tick(clock, s, t, "off_peak", seed=("partial_hold", floor))
+        out.append(writes(d))
+    return out
+
+
+def test_round2_high1_unavailable_blip_never_lowers(clock, reg):
+    """Repro: ticks (cloud, local) = (80,80), (unavail,unavail), (80,80),
+    floor 50, ledger 80, nothing landed → no send below 80 (the bug sent 50
+    at tick 3)."""
+    out = _blip_ticks(clock, [(80, 80), ("unavailable", "unavailable"), (80, 80)])
+    assert all(v >= 80 for w in out for v in w), out
+
+
+def test_round2_high1_boot_unavailable_then_80(clock, reg):
+    """Boot variant: both legs unavailable ticks 1-2, then 80 → no send
+    below 80."""
+    out = _blip_ticks(clock, [("unavailable", "unavailable"),
+                              ("unavailable", "unavailable"), (80, 80)])
+    assert all(v >= 80 for w in out for v in w), out
+
+
+async def _evse_hour(sh, clock, monkeypatch, *, pre_cycle):
+    if pre_cycle:
+        for name in ("RESERVE_LOCAL_WITNESS_ENABLED",
+                     "RESERVE_SAME_VALUE_NUDGE_ENABLED",
+                     "RESERVE_LEDGER_SEND_ENABLED"):
+            setk(monkeypatch, name, False)
+    c, s = sh(soc=98, cloud=98, local=60)
+    c._evse_hold_soc = 98
+    c._evse_battery_hold_active = True
+    wv = c._write_verifier
+    c.write_log = []
+    per_hour = [0, 0]
+    stood_down_at = None
+    for at in range(0, 7200, 300):
+        clock.t = c.t0 + timedelta(seconds=at)
+        refresh(c, clock)
+        n0 = len(set_values(c))
+        _, a = s._reserve_action(10)
+        s._desired_stamped_at = clock.t
+        d = {"actions": [a] if a else [], "reason": "t",
+             "charge_from_grid": False, "soc": 98}
+        d = c._apply_evse_battery_hold(d)
+        await c._execute_breaker_safe_dispatch(d, "mid_peak")
+        await _settle()
+        await wv._pending_watchdog_reserve(s)
+        await _settle()
+        per_hour[at // 3600] += len(set_values(c)) - n0
+        if len(set_values(c)) - n0:
+            c.write_log.append((at, set_values(c)[n0:]))
+        if stood_down_at is None and wv._pending_standdown_at.get(SURFACE):
+            stood_down_at = at
+    return per_hour, stood_down_at, c.write_log
+
+
+@pytest.mark.asyncio
+async def test_round2_high2_ladder_reaches_standdown_under_evse_hold(
+    sh, clock, monkeypatch,
+):
+    """Repro: EVSE hold 98, strategy 10, cloud 98, local stuck 60. The
+    ladder reaches HARD STAND-DOWN at the same tick as pre-cycle (3600 s)
+    and writes stop after it; total writes <= pre-cycle (13 ticks + 3
+    ladder retries, of which two are nudges)."""
+    new, sd_new, log_new = await _evse_hour(sh, clock, monkeypatch, pre_cycle=False)
+    pre, sd_pre, log_pre = await _evse_hour(sh, clock, monkeypatch, pre_cycle=True)
+    assert sd_new == 3600 and sd_pre == 3600, (sd_new, sd_pre)
+    assert [at for at, _ in log_new if at > sd_new] == [], log_new
+    assert [at for at, _ in log_pre if at > sd_pre] == [], log_pre
+    assert sum(new) <= sum(pre), (new, pre)
+    assert len(log_new) <= 13, log_new      # one dispatch tick per 300 s
+
+
+def test_round2_high2_overlay_append_stamp_keeps_anchor_on_nudge_pair(sh, clock):
+    """EVSE overlay APPEND path (no strategy reserve action): ledger holds
+    the ladder nudge 99 of hold 98; the append stamps 98 → `_at` unchanged.
+    A genuinely different value re-anchors."""
+    c, s = sh(soc=98, cloud=98, local=60)
+    c._evse_hold_soc = 98
+    c._evse_battery_hold_active = True
+    s._last_reserve_level_desired = 10
+    s._last_reserve_level = 99
+    t0 = clock.t - timedelta(minutes=30)
+    s._last_reserve_level_at = t0
+    d = c._apply_evse_battery_hold(
+        {"actions": [], "reason": "t", "charge_from_grid": False, "soc": 98})
+    assert [a["data"]["value"] for a in d["actions"]] == [98]
+    assert s._last_reserve_level == 98
+    assert s._last_reserve_level_at == t0
+    s._last_reserve_level = 70
+    c._apply_evse_battery_hold(
+        {"actions": [], "reason": "t", "charge_from_grid": False, "soc": 98})
+    assert s._last_reserve_level_at == clock.t

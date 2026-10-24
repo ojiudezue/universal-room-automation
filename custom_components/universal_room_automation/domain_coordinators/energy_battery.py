@@ -5390,7 +5390,7 @@ class BatteryStrategy:
                 # the trusted local within the deadband of it). Otherwise
                 # it is not re-asserted: the base falls back to the
                 # pre-cycle hardware read (which also keeps a desire adopted
-                # from hardware after a reboot), else the floor
+                # from hardware after a reboot), else the prior desire
                 # (never the KV ledger). No desire (post-reboot) → pre-cycle
                 # order. Level is always >= floor.
                 _last_ok = self._reserve_last_ok_value
@@ -5408,7 +5408,12 @@ class BatteryStrategy:
                     elif _hw is not None:
                         _base = _hw
                     else:
-                        _base = _floor
+                        # Round-2 HIGH-1: no evidence either way (write leg
+                        # and local unreadable) → keep the prior desire
+                        # (pre-cycle order). An evidence-free floor here
+                        # would be re-stamped as the desire and then count
+                        # as "<= floor", lowering an in-flight reserve.
+                        _base = _desired
                 elif _hw is not None:
                     _base = _hw
                 else:
