@@ -5647,9 +5647,17 @@ class EnergyCoordinator(BaseCoordinator):
                     if int(effective) != int(existing_val):
                         from homeassistant.util import dt as dt_util
                         _new = int(max(0, min(100, int(effective))))
-                        if _anchor_moves(  # round-2 HIGH-2
-                            self, self._battery._last_reserve_level, _new,  # noqa: SLF001
-                        ):
+                        # Round-2 HIGH-2: anchor rule via getattr, self-
+                        # contained (this method is exec-extracted by tests);
+                        # any failure degrades to `old != new`, never skips
+                        # the value stamp below.
+                        _old = self._battery._last_reserve_level  # noqa: SLF001
+                        _am = getattr(self, "_ledger_anchor_moves", None)
+                        try:
+                            _mv = bool(_am(_old, _new)) if _am else _old != _new
+                        except Exception:  # noqa: BLE001
+                            _mv = _old != _new
+                        if _mv:
                             self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
                         self._battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError, AttributeError):
@@ -5738,9 +5746,14 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             from homeassistant.util import dt as dt_util
             _new = int(max(0, min(100, int(hold_reserve))))
-            if _anchor_moves(  # round-2 HIGH-2
-                self, self._battery._last_reserve_level, _new,  # noqa: SLF001
-            ):
+            # Round-2 HIGH-2: self-contained anchor rule (see in-place leg).
+            _old = self._battery._last_reserve_level  # noqa: SLF001
+            _am = getattr(self, "_ledger_anchor_moves", None)
+            try:
+                _mv = bool(_am(_old, _new)) if _am else _old != _new
+            except Exception:  # noqa: BLE001
+                _mv = _old != _new
+            if _mv:
                 self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
             self._battery._last_reserve_level = _new  # noqa: SLF001
         except (TypeError, ValueError, AttributeError):
