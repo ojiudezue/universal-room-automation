@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T14:01:15-05:00_ - _Data commit: `75a5933320ac`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T16:53:06-05:00_ - _Data commit: `21aff6e94d18`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
@@ -1438,7 +1438,7 @@ _created 2026-10-14 19:30 · updated 2026-10-22 02:08 · initial_
 - **Why:** Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active('', ''), always False, so the NM re-fire for an active hazard never happens. ...
 - **Next:** Parked until the revival trigger. Nothing to do now. The test path is in-suite; re-pairing the kitchen smoke detector (SAFETY-SENSOR-FLEET-HEALTH-1) is what makes the real case possible.
 - **Forensic keys (6):**
-  - `residual_2026_10_24`: Test smoke CRITICAL 10-24 21:42Z delivered on 4 channels but no re-page row was logged in the 5m34s before ack (life-safety repeat should be ~30 s). Check whether repeats write notification_log rows or did not fire.
+  - `residual_2026_10_24`: Test smoke CRITICAL 10-24 21:42Z delivered on 4 channels but no re-page row was logged in the 5m34s before ack (life-safety repeat should be ~30 s). Code: _repeat_alert sends with log_row=False (notification_manager.py:~2874), so a missi...
   - `revisit_trigger`: The first real smoke, CO or flood hazard that is acknowledged and stays active past its cooldown. Then check notification_log for the re-page at the scheduled step (Standard ladder) and close done, or reopen with the row evidence.
   - `disposed_2026_10_22_overnight`: SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger, not left organic. It shipped in v5.103.69 (built and reviewed as v5.103.65, Tier 2-DB); README_v5.103.69 validated it live 10-17 as 'proven in-suite on...
   - `verified_2026_10_15_overnight`: STILL-REAL. safety.py:2413-2420 builds NotificationAction with coordinator_id/severity/confidence/description/message/channels and no hazard_type or location; notification_manager.py:3030-3039 reads hazard_type/location from _active_aler...
