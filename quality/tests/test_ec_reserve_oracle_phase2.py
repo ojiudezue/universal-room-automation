@@ -207,11 +207,31 @@ def raising_bus(c, key):
     c.hass.services = SimpleNamespace(async_call=_svc)
 
 
+def _pin_module_clocks(monkeypatch, clock, objs):
+    """Order-robustness: production modules hold their OWN `dt_util` global
+    (bound at import). A sibling test file that swaps
+    `sys.modules["homeassistant.util.dt"]` leaves those globals pointing at
+    a different object than the one the `clock` fixture patched, so the
+    verifier would read real time. Patch utcnow/now on the exact `dt_util`
+    each production module uses (restored by monkeypatch)."""
+    seen = set()
+    for obj in objs:
+        mod = sys.modules.get(type(obj).__module__)
+        dtm = getattr(mod, "dt_util", None) if mod is not None else None
+        if dtm is None or id(dtm) in seen:
+            continue
+        seen.add(id(dtm))
+        monkeypatch.setattr(dtm, "utcnow", lambda: clock.t, raising=False)
+        monkeypatch.setattr(dtm, "now", lambda *a: clock.t.astimezone(_CDT),
+                            raising=False)
+
+
 @pytest.fixture
-def sh(clock, reg):
+def sh(clock, reg, monkeypatch):
     def _make(**kw):
         c, s = shell(clock, **kw)
         c.t0 = clock.t
+        _pin_module_clocks(monkeypatch, clock, (c._write_verifier, s, c))
         return c, s
     return _make
 

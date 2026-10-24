@@ -148,6 +148,21 @@ class ServiceDispatchResult(NamedTuple):
     translation_key: str | None
 
 
+def _anchor_moves(coord: Any, old: Any, new: Any) -> bool:
+    """EC reserve oracle phase 2: does a commanded-ledger stamp ``old ->
+    new`` move `_last_reserve_level_at`? Module-level and never raises, so
+    the VALUE stamp beside it can never be skipped (an object bound to the
+    overlay without `_ledger_anchor_moves`, e.g. a shim, or any error,
+    degrades to the pre-cycle rule `old != new`)."""
+    try:
+        fn = getattr(coord, "_ledger_anchor_moves", None)
+        if fn is not None:
+            return bool(fn(old, new))
+    except Exception:  # noqa: BLE001
+        pass
+    return old != new
+
+
 def _latch_tou_period(battery: Any, now: Any) -> str | None:
     """Review B HIGH: TOU period for the arbitrage-latch identity, read from
     the battery's own TOU engine. None when unavailable (never raises)."""
@@ -5632,8 +5647,8 @@ class EnergyCoordinator(BaseCoordinator):
                     if int(effective) != int(existing_val):
                         from homeassistant.util import dt as dt_util
                         _new = int(max(0, min(100, int(effective))))
-                        if self._ledger_anchor_moves(  # round-2 HIGH-2
-                            self._battery._last_reserve_level, _new,  # noqa: SLF001
+                        if _anchor_moves(  # round-2 HIGH-2
+                            self, self._battery._last_reserve_level, _new,  # noqa: SLF001
                         ):
                             self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
                         self._battery._last_reserve_level = _new  # noqa: SLF001
@@ -5723,8 +5738,8 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             from homeassistant.util import dt as dt_util
             _new = int(max(0, min(100, int(hold_reserve))))
-            if self._ledger_anchor_moves(  # round-2 HIGH-2
-                self._battery._last_reserve_level, _new,  # noqa: SLF001
+            if _anchor_moves(  # round-2 HIGH-2
+                self, self._battery._last_reserve_level, _new,  # noqa: SLF001
             ):
                 self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
             self._battery._last_reserve_level = _new  # noqa: SLF001
@@ -9945,8 +9960,8 @@ class EnergyCoordinator(BaseCoordinator):
             if battery is not None and value is not None:
                 try:
                     _new = int(max(0, min(100, int(value))))
-                    if self._ledger_anchor_moves(
-                        battery._last_reserve_level, _new,  # noqa: SLF001
+                    if _anchor_moves(
+                        self, battery._last_reserve_level, _new,  # noqa: SLF001
                     ):
                         battery._last_reserve_level_at = _now  # noqa: SLF001
                     battery._last_reserve_level = _new  # noqa: SLF001
