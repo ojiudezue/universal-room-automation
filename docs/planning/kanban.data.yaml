@@ -670,7 +670,8 @@ cards:
   approval: explicit
   approved_by: 'operator 2026-10-15 (board approve button)'
   title: "Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress"
-  status: "planned"
+  status: shipped_organic
+  shipped_version: v5.103.88
   tier: 2
   origin: "Safety re-page plan rev 3 re-review (N1/N2) and rev 4 (D5 withdrawn), 2026-10-15. Swept board + BACKLOG: no existing card."
   why: "NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, re-fire/ack logic acts on the wrong alert."

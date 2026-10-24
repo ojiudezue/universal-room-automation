@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "238",
+  "author": "ojiudezue",
+  "session_id": "claude_20261024_124423_ship_v5_103_88",
+  "timestamp": "2026-10-24T12:44:23Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.88 shipped: A life-safety alert keeps the notification slot",
+  "summary": "A life-safety alert keeps the notification slot",
+  "why": "Perimeter CRITICALs (~23/day) overwrite NM's single slot; a concurrent smoke alert would drop from a 30 s to a 300 s repeat and lose its ack. Reviews found the restart path broke the same guarantee three ways; all fixed with drilled tests.",
+  "implications": "Shipped NM-MULTI-ALERT-TRACKING-1 at v5.103.88; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.88.md (Live criteria).",
+  "revisit_trigger": "first post-deploy NM ack: all notification_log rows of that alert (same coordinator/hazard/location) acknowledged=1; no NM errors after restart",
+  "refs": {
+    "cards": [
+      "NM-MULTI-ALERT-TRACKING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.88.md"
+    ],
+    "release_notes": "An unacknowledged smoke/CO/leak alert keeps NM's repeat cadence and ack target when a perimeter/energy CRITICAL arrives; ack clears all of an alert's channel rows; restart recovery prefers a fresh life-safety alert."
+  }
+}
