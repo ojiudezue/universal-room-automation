@@ -1407,6 +1407,7 @@ def _ladder_shell(sh, clock, cloud):
     s._last_reserve_level = 11            # nudged command for desire 10
     s._last_reserve_level_at = c.t0
     s._last_reserve_level_desired = 10
+    s._ledger_anchor_desires = (10, 10)   # anchor set under desire 10
     return c, s
 
 
@@ -1775,6 +1776,7 @@ def test_round2_high2_overlay_append_stamp_keeps_anchor_on_nudge_pair(sh, clock)
     c._evse_battery_hold_active = True
     s._last_reserve_level_desired = 10
     s._last_reserve_level = 99
+    s._ledger_anchor_desires = (10, 98)    # anchor set under this hold
     t0 = clock.t - timedelta(minutes=30)
     s._last_reserve_level_at = t0
     d = c._apply_evse_battery_hold(
@@ -1786,3 +1788,46 @@ def test_round2_high2_overlay_append_stamp_keeps_anchor_on_nudge_pair(sh, clock)
     c._apply_evse_battery_hold(
         {"actions": [], "reason": "t", "charge_from_grid": False, "soc": 98})
     assert s._last_reserve_level_at == clock.t
+
+
+# ===========================================================================
+# Round-3 fix-up: anchor hides only the alternation of the SAME desire
+# ===========================================================================
+@pytest.mark.parametrize("old,new,desire,anchored,moves", [
+    (50, 49, 49, 50, True),    # real 1-point drop
+    (99, 100, 100, 99, True),  # real 1-point raise to 100 (nudge 99)
+    (51, 50, 50, 50, False),   # plain/nudge alternation, same desire
+    (50, 51, 50, 50, False),
+    (11, 10, 10, 10, False),
+])
+def test_round3_anchor_moves_only_on_real_desire_change(
+    sh, old, new, desire, anchored, moves,
+):
+    c, s = sh(soc=98, cloud=50, local=30)
+    s._last_reserve_level_desired = desire
+    s._ledger_anchor_desires = (anchored, anchored)
+    assert c._ledger_anchor_moves(old, new) is moves
+    if moves:
+        assert s._ledger_anchor_desires == (desire, desire)
+
+
+@pytest.mark.asyncio
+async def test_round3_ladder_runs_for_new_desire_after_standdown_drop(sh, clock):
+    """Desire 50, hardware stuck 30 → ladder → stand-down pinned on 50; the
+    floor drops 1 → desire 49 is dispatched, the anchor moves and the
+    watchdog runs a fresh ladder for 49 (attempt 1 at +900 s)."""
+    c, s = sh(soc=98, cloud=50, local=30)
+    s._last_reserve_level = 50
+    s._last_reserve_level_at = c.t0
+    s._last_reserve_level_desired = 50
+    s._ledger_anchor_desires = (50, 50)
+    wv = c._write_verifier
+    for at in (900, 1800, 3600):
+        await _watchdog_at(c, s, clock, at)
+    assert wv._pending_standdown_value.get(SURFACE) == 50
+    assert await tick(c, s, clock, 49, at=3900) is not None
+    assert s._last_reserve_level == 49
+    assert s._last_reserve_level_at == clock.t
+    await _watchdog_at(c, s, clock, 3900 + 900)
+    assert wv._pending_standdown_at.get(SURFACE) is None
+    assert wv._pending_attempts_fired.get(SURFACE) == 1

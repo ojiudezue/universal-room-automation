@@ -148,21 +148,6 @@ class ServiceDispatchResult(NamedTuple):
     translation_key: str | None
 
 
-def _same_desire_pair(old: Any, new: Any, desire: Any) -> bool:
-    """EC reserve oracle phase 2 fix-up HIGH-2: True iff ``old`` and ``new``
-    are both in {desire, _nudge_value(desire)} (the plain/nudge alternation
-    of ONE desire). The commanded-ledger `_at` anchor does not move on that
-    alternation (same contract as a same-value retry)."""
-    if old is None or new is None or desire is None:
-        return False
-    try:
-        from .energy_battery import _nudge_value  # noqa: PLC0415
-        pair = {int(desire), _nudge_value(int(desire))}
-        return int(old) in pair and int(new) in pair
-    except (TypeError, ValueError):
-        return False
-
-
 def _latch_tou_period(battery: Any, now: Any) -> str | None:
     """Review B HIGH: TOU period for the arbitrage-latch identity, read from
     the battery's own TOU engine. None when unavailable (never raises)."""
@@ -9683,14 +9668,22 @@ class EnergyCoordinator(BaseCoordinator):
         if old == new:
             return False
         battery = getattr(self, "_battery", None)
-        keys = [getattr(battery, "_last_reserve_level_desired", None)]
+        if battery is None:
+            return True
+        from .energy_battery import ledger_anchor_moves  # noqa: PLC0415
+        return ledger_anchor_moves(battery, old, new, self._ledger_anchor_keys())
+
+    def _ledger_anchor_keys(self) -> tuple:
+        """(pre-overlay strategy desire, post-overlay effective desire)."""
+        battery = getattr(self, "_battery", None)
+        eff = None
         wv = getattr(self, "_write_verifier", None)
         if wv is not None and battery is not None:
             try:
-                keys.append(wv._effective_reserve_desired(battery))  # noqa: SLF001
+                eff = wv._effective_reserve_desired(battery)  # noqa: SLF001
             except Exception:  # noqa: BLE001
-                pass
-        return not any(_same_desire_pair(old, new, k) for k in keys)
+                eff = None
+        return (getattr(battery, "_last_reserve_level_desired", None), eff)
 
     def _record_reserve_dispatch(
         self,

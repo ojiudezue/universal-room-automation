@@ -345,6 +345,41 @@ def _nudge_value(target: int) -> int:
     return max(0, min(100, t + step if t < 100 else t - step))
 
 
+def ledger_anchor_moves(battery: Any, old: Any, new: Any, keys: tuple) -> bool:
+    """EC reserve oracle phase 2 (HIGH-2 rounds 2-3) — the ONE rule for
+    whether a commanded-ledger stamp ``old -> new`` moves
+    `_last_reserve_level_at` (the pending-watchdog episode anchor).
+
+    Hidden (no move) only for the plain/nudge alternation of ONE desire:
+    ``old`` and ``new`` are both in {d, _nudge_value(d)} for a key d AND the
+    desires in force when the anchor was last set (`_ledger_anchor_desires`)
+    equal the current ``keys``. A real 1-point desire move (50 -> 49 with
+    desire 49, 99 -> 100 with desire 100) therefore re-anchors. When the
+    anchor moves, the current keys are recorded (RAM-only; None after a
+    restart = no hiding until the next anchor)."""
+    if old == new:
+        return False
+    keys = tuple(keys)
+    hidden = False
+    if getattr(battery, "_ledger_anchor_desires", None) == keys:
+        for d in keys:
+            if d is None:
+                continue
+            try:
+                pair = {int(d), _nudge_value(int(d))}
+                if int(old) in pair and int(new) in pair:
+                    hidden = True
+                    break
+            except (TypeError, ValueError):
+                continue
+    if not hidden:
+        try:
+            battery._ledger_anchor_desires = keys
+        except Exception:  # noqa: BLE001
+            pass
+    return not hidden
+
+
 def _reserve_emit_value(battery: Any, target: Any, cloud: float | None) -> Any:
     """EC reserve oracle phase 2 D2 — the value to emit for a send of
     ``target`` (shared by `_reserve_action` rules T/L and
@@ -505,6 +540,9 @@ class BatteryStrategy:
         self._reserve_last_attempt_at: Any = None
         self._reserve_last_ok_value: int | None = None
         self._reserve_last_ok_at: Any = None
+        # Round 3: the (strategy, effective) desires in force when the
+        # ledger anchor `_last_reserve_level_at` was last set.
+        self._ledger_anchor_desires: tuple | None = None
         # Fix-up D-MED-2: the last attempt raised (FAILED / timer DEFERRED).
         self._reserve_last_attempt_failed: bool = False
         # Fix-up D-MED-1: decision time of the last emitted nudge (a raise
@@ -7876,9 +7914,16 @@ class BatteryStrategy:
             _now = dt_util.utcnow()
             # Fix-up HIGH-2: the plain/nudge pair of one desire does not
             # re-anchor the episode (same-value retry contract).
-            _pair = {_desire_pre_nudge, _nudge_value(_desire_pre_nudge)}
-            if self._last_reserve_level != live_desire and not (
-                self._last_reserve_level in _pair and live_desire in _pair
+            _keys_fn = getattr(
+                getattr(self, "_coord", None), "_ledger_anchor_keys", None,
+            )
+            _keys = (
+                _keys_fn() if _keys_fn is not None
+                else (getattr(self, "_last_reserve_level_desired", None),
+                      _desire_pre_nudge)
+            )
+            if ledger_anchor_moves(
+                self, self._last_reserve_level, live_desire, _keys,
             ):
                 self._last_reserve_level_at = _now
             self._last_reserve_level = live_desire
