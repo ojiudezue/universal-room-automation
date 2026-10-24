@@ -148,6 +148,21 @@ class ServiceDispatchResult(NamedTuple):
     translation_key: str | None
 
 
+def _anchor_moves(coord: Any, old: Any, new: Any) -> bool:
+    """EC reserve oracle phase 2: does a commanded-ledger stamp ``old ->
+    new`` move `_last_reserve_level_at`? Module-level and never raises, so
+    the VALUE stamp beside it can never be skipped (an object bound to the
+    overlay without `_ledger_anchor_moves`, e.g. a shim, or any error,
+    degrades to the pre-cycle rule `old != new`)."""
+    try:
+        fn = getattr(coord, "_ledger_anchor_moves", None)
+        if fn is not None:
+            return bool(fn(old, new))
+    except Exception:  # noqa: BLE001
+        pass
+    return old != new
+
+
 def _latch_tou_period(battery: Any, now: Any) -> str | None:
     """Review B HIGH: TOU period for the arbitrage-latch identity, read from
     the battery's own TOU engine. None when unavailable (never raises)."""
@@ -5632,7 +5647,17 @@ class EnergyCoordinator(BaseCoordinator):
                     if int(effective) != int(existing_val):
                         from homeassistant.util import dt as dt_util
                         _new = int(max(0, min(100, int(effective))))
-                        if self._battery._last_reserve_level != _new:  # noqa: SLF001
+                        # Round-2 HIGH-2: anchor rule via getattr, self-
+                        # contained (this method is exec-extracted by tests);
+                        # any failure degrades to `old != new`, never skips
+                        # the value stamp below.
+                        _old = self._battery._last_reserve_level  # noqa: SLF001
+                        _am = getattr(self, "_ledger_anchor_moves", None)
+                        try:
+                            _mv = bool(_am(_old, _new)) if _am else _old != _new
+                        except Exception:  # noqa: BLE001
+                            _mv = _old != _new
+                        if _mv:
                             self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
                         self._battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError, AttributeError):
@@ -5721,7 +5746,14 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             from homeassistant.util import dt as dt_util
             _new = int(max(0, min(100, int(hold_reserve))))
-            if self._battery._last_reserve_level != _new:  # noqa: SLF001
+            # Round-2 HIGH-2: self-contained anchor rule (see in-place leg).
+            _old = self._battery._last_reserve_level  # noqa: SLF001
+            _am = getattr(self, "_ledger_anchor_moves", None)
+            try:
+                _mv = bool(_am(_old, _new)) if _am else _old != _new
+            except Exception:  # noqa: BLE001
+                _mv = _old != _new
+            if _mv:
                 self._battery._last_reserve_level_at = dt_util.utcnow()  # noqa: SLF001
             self._battery._last_reserve_level = _new  # noqa: SLF001
         except (TypeError, ValueError, AttributeError):
@@ -9653,6 +9685,34 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("grid buy notify tick failed", exc_info=True)
 
+    def _ledger_anchor_moves(self, old: Any, new: Any) -> bool:
+        """EC reserve oracle phase 2 (fix-up HIGH-2, round 2): does a ledger
+        stamp ``old -> new`` move `_last_reserve_level_at`? Not when the two
+        are the plain/nudge pair of ONE desire — keyed on the POST-overlay
+        effective desire (an EVSE hold of 98 alternates 98/99) and on the
+        pre-overlay desire. Same contract as a same-value retry: the pending
+        watchdog episode is not re-anchored. Used by the timer tap and both
+        EVSE overlay stamps."""
+        if old == new:
+            return False
+        battery = getattr(self, "_battery", None)
+        if battery is None:
+            return True
+        from .energy_battery import ledger_anchor_moves  # noqa: PLC0415
+        return ledger_anchor_moves(battery, old, new, self._ledger_anchor_keys())
+
+    def _ledger_anchor_keys(self) -> tuple:
+        """(pre-overlay strategy desire, post-overlay effective desire)."""
+        battery = getattr(self, "_battery", None)
+        eff = None
+        wv = getattr(self, "_write_verifier", None)
+        if wv is not None and battery is not None:
+            try:
+                eff = wv._effective_reserve_desired(battery)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                eff = None
+        return (getattr(battery, "_last_reserve_level_desired", None), eff)
+
     def _record_reserve_dispatch(
         self,
         *,
@@ -9703,6 +9763,27 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             battery = getattr(self, "_battery", None)
             value_i = int(max(0, min(100, int(value))))
+            # EC reserve oracle phase 2 (4.5, RG-M1): the attempt / landed
+            # stamps are written HERE, at the top, BEFORE the change gate
+            # and the no-database return, so every dispatch at all four
+            # points stamps them. Attempt: every status. Landed: APPLIED
+            # only (a raise or the CM path's unseen DEFERRED never lands).
+            # RAM-only (restart = None). Own guard: never poisons the row.
+            if battery is not None:
+                try:
+                    from homeassistant.util import dt as _dtu  # noqa: PLC0415
+                    _stamp_now = _dtu.utcnow()
+                    battery._reserve_last_attempt_value = value_i
+                    battery._reserve_last_attempt_at = _stamp_now
+                    battery._reserve_last_attempt_failed = (
+                        status is WriteStatus.FAILED
+                        or (status is WriteStatus.DEFERRED and path != "evaluate")
+                    )
+                    if status is WriteStatus.APPLIED:
+                        battery._reserve_last_ok_value = value_i
+                        battery._reserve_last_ok_at = _stamp_now
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("reserve stamps failed", exc_info=True)
             desire = getattr(battery, "_last_reserve_level_desired", None)
             hold_owner: str | None = None
             verifier = getattr(self, "_write_verifier", None)
@@ -9783,6 +9864,11 @@ class EnergyCoordinator(BaseCoordinator):
                 "preonset_event": preonset_event,
                 "pre_state": pre_state,
                 "reason": reason,
+                # EC reserve oracle phase 2 D1.3 (additive): which reference
+                # the decision-side send/skip used on the last tick.
+                "reserve_reference_source": getattr(
+                    battery, "_reserve_reference_source", None,
+                ),
             }
             from .energy_const import RESERVE_WRITE_LOG_IMPORTANCE
             _coro = db.log_activity(
@@ -9807,7 +9893,12 @@ class EnergyCoordinator(BaseCoordinator):
             # holding it, e.g. the EVSE overlay's per-tick append) would be
             # gated and the ledger's last word would stay "failed". Only
             # APPLIED/DEFERRED rows update the memo.
-            if status is not WriteStatus.FAILED:
+            # EC reserve oracle phase 2 D5: a timer-path DEFERRED row is a
+            # raised (`control_change_pending`) write — treat it like FAILED
+            # for the memo (D-4: the recovered re-send must log).
+            if status is not WriteStatus.FAILED and not (
+                status is WriteStatus.DEFERRED and path == "timer"
+            ):
                 self._last_reserve_row_key = key
         except Exception:  # noqa: BLE001 — defensive; the row never poisons dispatch
             _LOGGER.debug(
@@ -9882,7 +9973,9 @@ class EnergyCoordinator(BaseCoordinator):
             if battery is not None and value is not None:
                 try:
                     _new = int(max(0, min(100, int(value))))
-                    if battery._last_reserve_level != _new:  # noqa: SLF001
+                    if _anchor_moves(
+                        self, battery._last_reserve_level, _new,  # noqa: SLF001
+                    ):
                         battery._last_reserve_level_at = _now  # noqa: SLF001
                     battery._last_reserve_level = _new  # noqa: SLF001
                 except (TypeError, ValueError):
@@ -9892,12 +9985,20 @@ class EnergyCoordinator(BaseCoordinator):
             # entity is configured AND is this action's target (G-6) — the
             # tap's own filter above is left untouched.
             if reserve_eid and target == reserve_eid and value is not None:
+                # EC reserve oracle phase 2 D5: a `control_change_pending`
+                # raise is DEFERRED (outcome unknown, not a failure); any
+                # other raise stays FAILED. Neither stamps the landed stamp.
+                if dispatch_result is not None and not dispatch_result.ok:
+                    _row_status = (
+                        WriteStatus.DEFERRED
+                        if dispatch_result.translation_key
+                        == "control_change_pending"
+                        else WriteStatus.FAILED
+                    )
+                else:
+                    _row_status = WriteStatus.APPLIED
                 self._record_reserve_dispatch(
-                    status=(
-                        WriteStatus.FAILED
-                        if dispatch_result is not None and not dispatch_result.ok
-                        else WriteStatus.APPLIED
-                    ),
+                    status=_row_status,
                     path="timer", target=target, value=value,
                     reason=decision.get("reason") if decision else None,
                     pre_state=pre_state,
@@ -9989,6 +10090,11 @@ class EnergyCoordinator(BaseCoordinator):
         (legacy stub / nothing dispatched) = not failed."""
         await verifier.note_dispatch(surface, now)
         if dispatch_result is None or dispatch_result.ok:
+            # EC reserve oracle phase 2 D5: a dispatch that did not raise
+            # closes the surface's `control_change_pending` episode.
+            _ok_hook = getattr(verifier, "note_dispatch_succeeded", None)
+            if _ok_hook is not None:
+                await _ok_hook(surface)
             return False
         await verifier.record_dispatch_failed(
             surface, commanded, service,

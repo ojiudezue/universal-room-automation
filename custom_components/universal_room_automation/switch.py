@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.88
+# Universal Room Automation vv5.103.89
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -64,6 +64,7 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
+from .nm_panel_entities import NMPanelChannelSwitch
 # EVSE-CHARGE-ONSET-NOT-HELD-1 C-LOW-1 / A-LOW / B-LOW: import the CONF
 # key rather than hardcoding the string literal in the write-back sites.
 # A rename would otherwise move the coord seed (energy.py:481-483) but
@@ -332,6 +333,8 @@ async def async_setup_entry(
             # `notification_log` dry-run row. Enables safe live exercise
             # of CRITICAL machinery without real outbound sends.
             NMDryRunSwitch(hass, entry),
+            # Halo S1b: NM wall-panel channel opt-in (default OFF).
+            NMPanelChannelSwitch(hass, entry),
             # v3.6.37: Security → NM light delegation toggle
             SecurityDelegateLightsSwitch(hass),
             # v3.7.6: Energy Observation Mode toggle

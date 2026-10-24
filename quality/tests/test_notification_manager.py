@@ -696,11 +696,15 @@ class TestChannelHealth:
     """Test channel health tracking."""
 
     def test_initial_health_ok(self):
-        """All channels start ok."""
+        """All delivery channels start ok; the opt-in panels channel (Halo
+        S1b, default switch OFF) starts "off"."""
         hass = _make_hass()
         nm = NotificationManager(hass, _make_config())
-        for health in nm.channel_status.values():
-            assert health["status"] == "ok"
+        status = {ch: h["status"] for ch, h in nm.channel_status.items()}
+        assert status == {
+            "pushover": "ok", "companion": "ok", "whatsapp": "ok",
+            "imessage": "ok", "tts": "ok", "lights": "ok", "panels": "off",
+        }
 
     def test_three_failures_degrade(self):
         """3 failures degrade a channel."""

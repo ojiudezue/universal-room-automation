@@ -16,6 +16,7 @@ import logging
 import os
 import re
 from collections import defaultdict, deque
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 # functools.partial used for digest scheduling. HA's
 # get_hassjob_callable_job_type() explicitly unwraps partials before
@@ -149,12 +150,35 @@ from ..const import (
     DEFAULT_NM_MUTE_DEFAULT_DURATION_MINUTES,
     SERVICE_NM_MUTE_PERSON_CHANNEL,
     NM_CHANNELS_KNOWN,
+    # Halo S1b: NM panel channel.
+    CONF_ENTRY_TYPE,
+    CONF_ROOM_NAME,
+    ENTRY_TYPE_ROOM,
+    STATE_OCCUPIED,
+    EVENT_HALO_READY,
+    HALO_DOMAIN,
+    NM_PANEL_CALL_TIMEOUT_S,
+    NM_PANEL_COORDINATORS,
+    NM_PANEL_HOUSEWIDE_HAZARDS,
+    NM_PANEL_LEASE_TTL_MIN_DEFAULT,
+    NM_PANEL_LEVEL_MAP,
+    NM_PANEL_NIGHT_STATES,
+    NM_PANEL_OWNER,
+    NM_PANEL_TARGET_ADJACENT_ENABLED,
+    NM_PANEL_TARGET_SOURCE_ROOM_ENABLED,
+    NM_PANEL_TARGET_ZONE_ENABLED,
+    NM_PANEL_TTL_S_MAX,
+    NM_PANEL_TTL_S_MIN,
 )
 from .base import Severity
 from ._nm_cycle_a import is_life_safety_hazard
 from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
 
 _LOGGER = logging.getLogger(__name__)
+
+# NM-ACK-CLEARS-ALL: bulk-ack authority levels for async_acknowledge.
+BULK_ACK_TRUSTED = "trusted"
+BULK_ACK_NON_SECURITY = "non_security"
 
 
 class AlertState(StrEnum):
@@ -299,6 +323,10 @@ _NM_SAFEWORD_WINDOW_RE = re.compile(
 # unacked CRITICAL row). Requires review to change (safety-adjacent).
 NM_RECOVERY_MAX_AGE_H = 24.0
 
+# Halo level order (halo/const.py LEVEL_RANK) — used to never downgrade a
+# held panel lease (Halo S1b review A2).
+_PANEL_LEVEL_RANK = {"info": 1, "warn": 2, "alert": 3, "critical": 4}
+
 
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
@@ -353,7 +381,20 @@ class NotificationManager:
             "imessage": {"status": "ok", "last_success": None, "failures": 0},
             "tts": {"status": "ok", "last_success": None, "failures": 0},
             "lights": {"status": "ok", "last_success": None, "failures": 0},
+            # Halo S1b (M1): seeded so _update_channel_health / the panel
+            # status setter are not silently dropped for an unseeded key.
+            "panels": {"status": "off", "last_success": None, "failures": 0},
         }
+        # Halo S1b: panel channel state. Ledger is in memory only (leases are
+        # TTL-bounded on the Halo side); keyed by lease id ->
+        # {"areas": [area_id...], "level": str, "expires_at": utc ts}.
+        self._panel_channel_enabled: bool = False
+        self._panel_lease_ttl_min: float = float(NM_PANEL_LEASE_TTL_MIN_DEFAULT)
+        self._panel_leases: dict[str, dict[str, Any]] = {}
+        # M3: one lock serialises every panel delivery / release / re-assert.
+        self._panel_lock = asyncio.Lock()
+        self._panel_ready_unsub: CALLBACK_TYPE | None = None
+        self._panel_tasks: set[asyncio.Task] = set()
         self._light_original_states: dict[str, dict[str, Any]] = {}
         self._light_pattern_task: asyncio.Task | None = None
 
@@ -540,8 +581,13 @@ class NotificationManager:
         title: str = "",
         hazard_type: str | None = None,
         location: str | None = None,
+        acknowledged: int = 0,
     ) -> None:
         """Write a minimal dry-run row to `notification_log`.
+
+        ``acknowledged`` (Halo S1b, H2): the panels channel passes 1 so a
+        delivery-record row written from a background task can never be
+        resurrected by ``get_active_critical``. Default 0 = prior behaviour.
 
         Safety-first: writes ONE row per short-circuited send call. Any
         DB failure is swallowed (never propagates into the emit path).
@@ -565,6 +611,7 @@ class NotificationManager:
                 channel=channel,
                 delivered=0,
                 dry_run=1,
+                **({"acknowledged": 1} if acknowledged else {}),
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("dry-run log failed (swallowed)", exc_info=True)
@@ -725,6 +772,10 @@ class NotificationManager:
             self._light_pattern_task.cancel()
             self._light_pattern_task = None
         await self._restore_alert_lights()
+
+        # Halo S1b: kill switch releases every URA panel lease (owner-wide,
+        # never release_all — that also clears non-URA owners).
+        self._panel_release_owner_wide()
 
         # Reset alert state to IDLE regardless of current state
         if self._alert_state != AlertState.IDLE:
@@ -1098,8 +1149,16 @@ class NotificationManager:
                         exc_info=True,
                     )
                 self._repeat_unsub = None
+            # Halo S1b (review B LOW): release the acked episode's panel lease
+            # (no-op while the panel channel is off, e.g. early boot).
+            _boot_data = self._active_alert_data or {}
+            _boot_id = self._panel_lease_id(
+                _boot_data.get("coordinator_id"), _boot_data.get("hazard_type"),
+                _boot_data.get("location"),
+            )
             self._alert_state = AlertState.IDLE
             self._active_alert_data = None
+            self._panel_release_id(_boot_id)
 
     @property
     def safe_word_configured(self) -> bool:
@@ -1328,6 +1387,16 @@ class NotificationManager:
         # Restore lights if active
         await self._restore_alert_lights()
 
+        # Halo S1b: stop listening for halo_ready and cancel in-flight panel
+        # tasks. NO release (R2 decision): leases are TTL-bounded on Halo.
+        if self._panel_ready_unsub:
+            self._panel_ready_unsub()
+            self._panel_ready_unsub = None
+        for _task in list(self._panel_tasks):
+            if not _task.done():
+                _task.cancel()
+        self._panel_tasks.clear()
+
         _LOGGER.info("Notification Manager stopped")
 
     # =========================================================================
@@ -1376,6 +1445,15 @@ class NotificationManager:
         # v3.15.3: Live severity re-check — re-read config from config entry
         # so OptionsFlow changes take effect without restart
         self._refresh_config()
+
+        # Halo S1b: wall-panel channel. Placed BEFORE quiet hours (panels have
+        # their own night gate) and before every other channel; gating is
+        # synchronous, the halo.* call runs as a tracked background task so a
+        # slow Halo never delays TTS/push. Off switch = no-op.
+        self._schedule_panel_delivery(
+            coordinator_id, severity, title, message, hazard_type, location,
+            log_row=True,
+        )
 
         # NM-IMAGE-1 (rev-2): pre-computed force-immediate predicate for the
         # security-image class. Consumed at BOTH suppression sites below —
@@ -2544,6 +2622,23 @@ class NotificationManager:
                     coordinator_id, hazard_type, location,
                 )
             return
+        # Halo S1b (M2): a newcomer that takes the slot from a different
+        # active episode releases that episode's panel lease now — after the
+        # swap, ack can no longer reach the old id. Same id = same lease
+        # (renewed by this notify), so nothing is released.
+        if (
+            self._alert_state in (AlertState.ALERTING, AlertState.REPEATING)
+            and self._active_alert_data
+        ):
+            _old = self._active_alert_data
+            _old_id = self._panel_lease_id(
+                _old.get("coordinator_id"), _old.get("hazard_type"),
+                _old.get("location"),
+            )
+            if _old_id != self._panel_lease_id(
+                coordinator_id, hazard_type, location,
+            ):
+                self._panel_release_id(_old_id)
         # Cancel any existing cooldown/countdown from a previous alert
         if self._cooldown_unsub:
             self._cooldown_unsub()
@@ -2769,6 +2864,16 @@ class NotificationManager:
         data = self._active_alert_data
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
 
+        # Halo S1b (H1): repeats bypass async_notify, so this is the renewal
+        # (and retarget) site for an unacked episode's panel lease. No DB row
+        # per repeat (the original notify already logged one).
+        self._schedule_panel_delivery(
+            data.get("coordinator_id", "unknown"), Severity.CRITICAL,
+            data.get("title", ""), data.get("message", ""),
+            data.get("hazard_type"), data.get("location"),
+            log_row=False,
+        )
+
         # NM-REPAGE-IMG-1: reuse the original snapshot on every re-page so
         # image-bearing CRITICALs (perimeter/security) keep carrying the
         # photo. Graceful fallback: if the local file no longer exists at
@@ -2962,16 +3067,29 @@ class NotificationManager:
         acked_by_channel: str | None = None,
         safe_word_source: str | None = None,
         authority_reason: str | None = None,
+        bulk_authority: str | None = None,
     ) -> None:
         """Acknowledge the active alert — stops repeating, starts cooldown.
+
+        NM-ACK-CLEARS-ALL: ``bulk_authority`` decides whether the ack also
+        sweeps the whole unacked CRITICAL backlog. ``None`` (default,
+        conservative) = slot alert only; ``BULK_ACK_NON_SECURITY`` = sweep
+        all but NM_SECURITY_ACK_HAZARDS rows; ``BULK_ACK_TRUSTED`` = sweep
+        everything (button / service / companion / authorized safe word).
 
         NM Cycle B B2: on ack, write the current episode into
         ``_ack_registry`` so a mid-episode HA restart won't re-fire the
         same alert. Registry entry cadence = once per acked episode
         (bounded by hazard cadence, not per tick — write-flood safe).
         """
+        # Captured before any await: the bulk sweep never reaches a CRITICAL
+        # logged after the operator acked.
+        ack_cutoff = dt_util.utcnow().isoformat()
         if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
             _LOGGER.debug("No active alert to acknowledge")
+            # NM-ACK-CLEARS-ALL: still clear any leftover unacked CRITICAL
+            # backlog (no slot/state change) so restart can't re-raise it.
+            await self._ack_all_criticals_and_release(bulk_authority, ack_cutoff)
             return
 
         _LOGGER.info(
@@ -3008,6 +3126,14 @@ class NotificationManager:
             self._light_pattern_task = None
         await self._restore_alert_lights()
 
+        # Halo S1b: release the acked episode's panel lease (id from the
+        # snapshot captured above, before any teardown clears the slot).
+        if _snap:
+            self._panel_release_id(self._panel_lease_id(
+                _snap.get("coordinator_id"), _snap.get("hazard_type"),
+                _snap.get("location"),
+            ))
+
         # Mark acknowledged in DB
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
@@ -3033,6 +3159,9 @@ class NotificationManager:
                 )
             else:
                 await database.acknowledge_notification()
+            # NM-ACK-CLEARS-ALL: one operator ack clears EVERY unacked
+            # CRITICAL (all coordinators/channels), not just the slot alert.
+            await self._ack_all_criticals_and_release(bulk_authority, ack_cutoff)
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against
@@ -3086,6 +3215,36 @@ class NotificationManager:
 
         # Start cooldown
         await self._start_cooldown()
+
+    async def _ack_all_criticals_and_release(
+        self, bulk_authority: str | None, cutoff: str,
+    ) -> None:
+        """NM-ACK-CLEARS-ALL: ack every unacked CRITICAL row (up to
+        ``cutoff``) the ack's authority covers and release each acked
+        episode's panel lease. Touches no slot/alert state."""
+        if bulk_authority not in (BULK_ACK_TRUSTED, BULK_ACK_NON_SECURITY):
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        bulk = getattr(database, "acknowledge_all_criticals", None)
+        if bulk is None:
+            return
+        exclude = (
+            () if bulk_authority == BULK_ACK_TRUSTED
+            else tuple(NM_SECURITY_ACK_HAZARDS)
+        )
+        for ep in await bulk(cutoff, exclude) or []:
+            self._panel_release_id(self._panel_lease_id(
+                ep.get("coordinator_id"), ep.get("hazard_type"),
+                ep.get("location"),
+            ))
+
+    @staticmethod
+    def _safe_word_bulk_authority(authority_reason: str | None) -> str:
+        """Verified safe word sweeps the backlog; security-family rows only
+        when the sender carries security authority."""
+        if authority_reason in ("authorized_security", "companion_trusted"):
+            return BULK_ACK_TRUSTED
+        return BULK_ACK_NON_SECURITY
 
     async def _start_cooldown(self) -> None:
         """Start the post-ack cooldown period."""
@@ -3196,8 +3355,13 @@ class NotificationManager:
             )
         else:
             _LOGGER.info("Hazard cleared after cooldown — returning to idle")
+            # Halo S1b (R2-11): capture the lease id before the slot clears.
+            _cleared_id = self._panel_lease_id(
+                coordinator_id, hazard_type, location,
+            )
             self._alert_state = AlertState.IDLE
             self._active_alert_data = None
+            self._panel_release_id(_cleared_id)
             async_dispatcher_send(self.hass, SIGNAL_NM_ALERT_STATE_CHANGED)
             async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
@@ -3217,6 +3381,7 @@ class NotificationManager:
                     acked_by_person="companion_user",
                     acked_by_channel="companion",
                     authority_reason="companion_trusted",
+                    bulk_authority=BULK_ACK_TRUSTED,
                 )
             )
         elif action == "STATUS_URA":
@@ -3560,6 +3725,7 @@ class NotificationManager:
                     acked_by_channel=channel,
                     safe_word_source=_sw_source or None,
                     authority_reason=auth_reason,
+                    bulk_authority=self._safe_word_bulk_authority(auth_reason),
                 )
                 await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
@@ -3573,6 +3739,7 @@ class NotificationManager:
                     acked_by_channel=channel,
                     safe_word_source=_sw_source or None,
                     authority_reason=auth_reason,
+                    bulk_authority=self._safe_word_bulk_authority(auth_reason),
                 )
                 response = "Alert acknowledged."
             else:
@@ -5220,6 +5387,519 @@ class NotificationManager:
                 hazard_type=None,
                 location=None,
             )
+
+    # =========================================================================
+    # Halo S1b — wall-panel channel (PLANNING_wallpanel_integration.md §S1b)
+    # =========================================================================
+    # One emission site (async_notify) + one renew site (_repeat_alert); the
+    # release sites are ack, re-eval cleared, kill switch, panel switch off
+    # and slot preemption; re-assert on halo_ready / channel enable. Every
+    # halo.* call carries owner="ura" and an id minted by _panel_lease_id;
+    # URA never calls halo.release_all.
+
+    @property
+    def panel_channel_enabled(self) -> bool:
+        """Return whether the wall-panel channel is on."""
+        return self._panel_channel_enabled
+
+    def set_panel_lease_ttl_min(self, minutes: float) -> None:
+        """Live setter from ``number.ura_nm_panel_lease_ttl_min``."""
+        self._panel_lease_ttl_min = float(minutes)
+
+    def _panel_ttl_s(self) -> int:
+        """Lease TTL in seconds, clamped to Halo's accepted range."""
+        return int(max(
+            NM_PANEL_TTL_S_MIN,
+            min(NM_PANEL_TTL_S_MAX, round(self._panel_lease_ttl_min * 60)),
+        ))
+
+    async def async_set_panel_channel_enabled(self, enabled: bool) -> None:
+        """Live toggle from ``switch.ura_nm_panel_channel``. Never raises.
+
+        On: subscribe ``halo_ready`` and, if Halo's service exists, run one
+        re-assert (rebuilds the restored ALERTING episode after a restart).
+        Off: unsubscribe, then one owner-wide release (the channel's last
+        call). While off nothing is subscribed and nothing is called (I1).
+        """
+        enabled = bool(enabled)
+        if enabled == self._panel_channel_enabled:
+            return
+        self._panel_channel_enabled = enabled
+        if enabled:
+            self._set_panel_health("enabled")
+            try:
+                self._panel_ready_unsub = self.hass.bus.async_listen(
+                    EVENT_HALO_READY, self._handle_halo_ready,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("NM panels: halo_ready subscribe failed", exc_info=True)
+            try:
+                halo_present = bool(self.hass.services.has_service(
+                    HALO_DOMAIN, "indicate",
+                ))
+            except Exception:  # noqa: BLE001
+                halo_present = False
+            if halo_present:
+                self._spawn_panel_task(self._panel_reassert(), "ura_nm_panel_reassert")
+            else:
+                self._set_panel_health("absent")
+            return
+        if self._panel_ready_unsub:
+            self._panel_ready_unsub()
+            self._panel_ready_unsub = None
+        # Release runs with the switch already off; it bypasses the enabled
+        # check on purpose (it is the clean-up, not a delivery).
+        self._panel_leases.clear()
+        self._spawn_panel_task(
+            self._panel_release_task(None), "ura_nm_panel_release_owner",
+        )
+        self._set_panel_health("off")
+
+    def _spawn_panel_task(self, coro: Any, name: str) -> None:
+        """Run a panel coroutine as a tracked background task (R2-9)."""
+        task = self.hass.async_create_background_task(coro, name)
+        if isinstance(task, asyncio.Task):
+            self._panel_tasks.add(task)
+            task.add_done_callback(self._panel_tasks.discard)
+
+    def _panel_live(self) -> bool:
+        """Channel on AND messaging not suppressed (re-checked under lock)."""
+        return self._panel_channel_enabled and not self._messaging_suppressed
+
+    @staticmethod
+    def _panel_location_tokens(location: str | None) -> list[str]:
+        """S0 rule: a location is one room title or a ", "-joined list."""
+        if not location:
+            return []
+        return [t.strip() for t in str(location).split(", ") if t.strip()]
+
+    @classmethod
+    def _panel_lease_id(
+        cls,
+        coordinator_id: str | None,
+        hazard_type: str | None,
+        location: str | None,
+    ) -> str:
+        """``ura:<coord>:<hazard|none>:<sorted room slugs joined by +|house>``.
+
+        Same notification -> same id -> Halo renews (R2-8).
+        """
+        slugs = sorted({
+            re.sub(r"[^a-z0-9]+", "_", tok.lower()).strip("_")
+            for tok in cls._panel_location_tokens(location)
+        } - {""})
+        loc_key = "+".join(slugs) if slugs else "house"
+        return (
+            f"{NM_PANEL_OWNER}:{coordinator_id or 'unknown'}:"
+            f"{hazard_type or 'none'}:{loc_key}"
+        )
+
+    def _panel_house_state(self) -> str:
+        """House state, same coercion as ``_is_quiet_hours`` (L5)."""
+        cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if cm is None:
+            return ""
+        return str(getattr(cm, "house_state", "")).lower()
+
+    def _panel_rooms(self) -> list[dict[str, Any]]:
+        """Room coordinators as ``{key, entry_id, names, area, occupied}``.
+
+        Iterates ``hass.data[DOMAIN]`` like
+        ``aggregation._get_room_coordinators`` but duck-typed on
+        ``_get_room_area`` so NM does not import coordinator.py. Key =
+        ``data[room_name] or title``, the expression the adjacency cache uses
+        (presence.py ``_rebuild_adjacency_cache``). Occupied is the room
+        coordinator's ``STATE_OCCUPIED`` (``data["occupied"] is True``); the
+        zone tracker's lossy per-room view is never read (ledger #19).
+        """
+        rooms: list[dict[str, Any]] = []
+        for obj in list(self.hass.data.get(DOMAIN, {}).values()):
+            get_area = getattr(obj, "_get_room_area", None)
+            entry = getattr(obj, "entry", None)
+            if not callable(get_area) or entry is None:
+                continue
+            try:
+                edata = getattr(entry, "data", None)
+                # Same room filter as presence._rebuild_adjacency_cache.
+                # (entry.data is a MappingProxyType in HA — not a dict.)
+                if not isinstance(edata, Mapping) or (
+                    edata.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM
+                ):
+                    continue
+                title = getattr(entry, "title", "") or ""
+                room_name = edata.get(CONF_ROOM_NAME, "") or ""
+                key = room_name or title
+                if not key:
+                    continue
+                area = get_area()
+                cdata = getattr(obj, "data", None) or {}
+                occupied = cdata.get(STATE_OCCUPIED) is True
+            except Exception:  # noqa: BLE001
+                continue
+            rooms.append({
+                "key": key,
+                "entry_id": getattr(entry, "entry_id", None),
+                "names": {n for n in (room_name, title) if n},
+                "area": area or None,
+                "occupied": occupied,
+            })
+        return rooms
+
+    def _panel_target_areas(
+        self,
+        coordinator_id: str,
+        hazard_type: str | None,
+        location: str | None,
+    ) -> list[str]:
+        """Audience-based targeting (S1b.2). Sorted, de-duplicated area ids.
+
+        T1 own room occupied; T2 a room of the same house zone occupied;
+        T3 adjacent to an occupied room in EITHER direction; T4 (safety only)
+        the hazard's own room. House-wide hazards ignore occupancy. Empty
+        audience -> [] (caller sends nothing).
+        """
+        rooms = self._panel_rooms()
+        if str(hazard_type or "").lower() in NM_PANEL_HOUSEWIDE_HAZARDS:
+            return sorted({r["area"] for r in rooms if r["area"]})
+
+        cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = None
+        if cm is not None:
+            try:
+                presence = cm.coordinators.get("presence")
+            except Exception:  # noqa: BLE001
+                presence = None
+
+        def _zone(room: dict[str, Any]) -> str | None:
+            # L3: zone membership resolves data[room_name] with a raw
+            # entry_id fallback (presence.py zone discovery): try both.
+            if presence is None or not hasattr(presence, "get_room_zone"):
+                return None
+            z = presence.get_room_zone(room["key"])
+            if z is None and room["entry_id"]:
+                z = presence.get_room_zone(room["entry_id"])
+            return z
+
+        def _adj(room: dict[str, Any]) -> set[str]:
+            if presence is None or not hasattr(presence, "get_adjacent_rooms"):
+                return set()
+            return set(presence.get_adjacent_rooms(room["key"]) or [])
+
+        occ = [r for r in rooms if r["occupied"]]
+        occ_keys = {r["key"] for r in occ}
+        targets: set[str] = set(occ_keys)  # T1
+
+        if NM_PANEL_TARGET_ZONE_ENABLED and occ:
+            occ_zones = {z for z in (_zone(r) for r in occ) if z is not None}
+            for r in rooms:
+                z = _zone(r)
+                if z is not None and z in occ_zones:
+                    targets.add(r["key"])
+
+        if NM_PANEL_TARGET_ADJACENT_ENABLED and occ:
+            adj = {r["key"]: _adj(r) for r in rooms}
+            for r in rooms:
+                if adj.get(r["key"], set()) & occ_keys:  # R lists an occupied O
+                    targets.add(r["key"])
+            for o in occ:  # an occupied O lists R
+                targets.update(adj.get(o["key"], set()))
+
+        if NM_PANEL_TARGET_SOURCE_ROOM_ENABLED and coordinator_id == "safety":
+            tokens = set(self._panel_location_tokens(location))
+            for r in rooms:
+                if r["names"] & tokens:
+                    targets.add(r["key"])
+
+        return sorted({
+            r["area"] for r in rooms if r["key"] in targets and r["area"]
+        })
+
+    def _schedule_panel_delivery(
+        self,
+        coordinator_id: str,
+        severity: Severity,
+        title: str,
+        message: str,
+        hazard_type: str | None,
+        location: str | None,
+        log_row: bool = True,
+    ) -> bool:
+        """Synchronous gating + targeting, then one tracked delivery task.
+
+        Gate order (S1b.3): switch off; coordinator allowlist; level map;
+        operator silence (M4); night gate; dry-run; targeting. Returns True
+        when a delivery task was scheduled. Never raises into the caller.
+        """
+        # 1. Off = byte-identical no-op: no has_service, no listener, no row.
+        if not self._panel_channel_enabled:
+            return False
+        try:
+            # (Kill switch: every caller already returns while suppressed,
+            # and _panel_deliver re-checks _panel_live() under the lock.)
+            # 2. Coordinator allowlist.
+            if coordinator_id not in NM_PANEL_COORDINATORS:
+                return False
+            # 3. Level map.
+            sev_name = getattr(severity, "name", str(severity))
+            level = NM_PANEL_LEVEL_MAP.get(coordinator_id, {}).get(sev_name)
+            if level is None:
+                return False
+            # 3a. Operator silence (M4) — same predicate as async_notify.
+            if (
+                severity != Severity.CRITICAL
+                and self._silence_until
+                and dt_util.utcnow() < self._silence_until
+            ):
+                return False
+            # 4. Night gate (L1: the union predicate, base + extras).
+            if self._panel_house_state() in NM_PANEL_NIGHT_STATES and not (
+                coordinator_id == "safety"
+                or is_life_safety_hazard(self.hass, hazard_type)
+            ):
+                return False
+            lease_id = self._panel_lease_id(coordinator_id, hazard_type, location)
+            # 5. Dry-run: one dry_run row (acknowledged=1, H2), no call.
+            if self._dry_run_active:
+                if log_row:
+                    self._spawn_panel_task(
+                        self._log_dry_run(
+                            channel="panels", target=lease_id,
+                            coordinator_id=coordinator_id, severity_str=sev_name,
+                            title=title, hazard_type=hazard_type,
+                            location=location, acknowledged=1,
+                        ),
+                        "ura_nm_panel_dry_run",
+                    )
+                return False
+            # 6. Targeting.
+            areas = self._panel_target_areas(coordinator_id, hazard_type, location)
+            if not areas:
+                _LOGGER.debug(
+                    "NM panels: empty audience for %s — nothing sent", lease_id,
+                )
+                return False
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("NM panels: gating failed (swallowed)", exc_info=True)
+            return False
+        self._spawn_panel_task(
+            self._panel_deliver(
+                lease_id, areas, level,
+                coordinator_id, sev_name, title, message, hazard_type, location,
+                log_row,
+            ),
+            "ura_nm_panel_deliver",
+        )
+        return True
+
+    async def _panel_call(
+        self, service: str, data: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """One halo.* call (R2-9). Returns the response, or None on failure.
+
+        Exceptions never propagate; health records the failure.
+        """
+        try:
+            async with asyncio.timeout(NM_PANEL_CALL_TIMEOUT_S):
+                resp = await self.hass.services.async_call(
+                    HALO_DOMAIN, service, data,
+                    blocking=True, return_response=True,
+                )
+        except TimeoutError:
+            self._set_panel_health("error", f"{service}: timeout")
+            return None
+        except Exception as err:  # noqa: BLE001
+            if type(err).__name__ == "ServiceNotFound":
+                self._set_panel_health("absent")
+            else:
+                self._set_panel_health("error", f"{service}: {err!r}")
+            return None
+        return resp if isinstance(resp, dict) else {}
+
+    def _panel_health_from_response(self, resp: dict[str, Any]) -> bool:
+        """Map a halo.indicate response to channel health. True = shown/held."""
+        results = set(resp.values())
+        if "unavailable" in results:
+            self._set_panel_health("unavailable")
+        elif results & {"accepted", "suppressed_sleep"}:
+            self._set_panel_health("ok")
+        else:
+            self._set_panel_health("no_surface")
+        return bool(results & {"accepted", "suppressed_sleep"})
+
+    async def _panel_deliver(
+        self,
+        lease_id: str,
+        areas: list[str],
+        level: str,
+        coordinator_id: str,
+        severity_str: str,
+        title: str,
+        message: str,
+        hazard_type: str | None,
+        location: str | None,
+        log_row: bool,
+    ) -> None:
+        """indicate (+ retarget release) under the panel lock (M3)."""
+        async with self._panel_lock:
+            if not self._panel_live():
+                return
+            ttl_s = self._panel_ttl_s()
+            old = self._panel_leases.get(lease_id)
+            dropped = sorted(set(old["areas"]) - set(areas)) if old else []
+            # Review A2: the id carries no severity; while the lease is held
+            # (until release), a lower-severity re-notify never downgrades it.
+            if old and _PANEL_LEVEL_RANK.get(old["level"], 0) > _PANEL_LEVEL_RANK.get(level, 0):
+                level = old["level"]
+            # Ledger first, then the await (R2-2 / S1b.4).
+            self._panel_leases[lease_id] = {
+                "areas": list(areas),
+                "level": level,
+                "expires_at": dt_util.utcnow().timestamp() + ttl_s,
+            }
+            resp = await self._panel_call("indicate", {
+                "area_id": list(areas),
+                "owner": NM_PANEL_OWNER,
+                "id": lease_id,
+                "level": level,
+                "ttl_s": ttl_s,
+            })
+            if not self._panel_live():
+                # Switch off / kill switch flipped during the await: take
+                # back what was just shown (M3).
+                self._panel_leases.pop(lease_id, None)
+                await self._panel_call(
+                    "release", {"owner": NM_PANEL_OWNER, "id": lease_id},
+                )
+                return
+            if dropped:
+                # Halo indicate only adds: retarget needs an explicit release.
+                await self._panel_call("release", {
+                    "owner": NM_PANEL_OWNER, "id": lease_id, "area_id": dropped,
+                })
+            if resp is None:
+                return
+            shown = self._panel_health_from_response(resp)
+            if not log_row:
+                return
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            try:
+                # H2: a delivery record, never an ack target.
+                await database.log_notification(
+                    coordinator_id, severity_str, title, message,
+                    hazard_type, location, None, "panels", 1 if shown else 0,
+                    acknowledged=1,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("NM panels: log row failed (swallowed)", exc_info=True)
+
+    def _panel_release_id(self, lease_id: str) -> None:
+        """Release one URA lease: ledger pop now, halo.release in a task."""
+        if not self._panel_channel_enabled:
+            return
+        self._panel_leases.pop(lease_id, None)
+        self._spawn_panel_task(
+            self._panel_release_task(lease_id), "ura_nm_panel_release",
+        )
+
+    def _panel_release_owner_wide(self) -> None:
+        """Release every URA lease (kill switch). Never release_all."""
+        if not self._panel_channel_enabled:
+            return
+        self._panel_leases.clear()
+        self._spawn_panel_task(
+            self._panel_release_task(None), "ura_nm_panel_release_owner",
+        )
+
+    async def _panel_release_task(self, lease_id: str | None) -> None:
+        data: dict[str, Any] = {"owner": NM_PANEL_OWNER}
+        if lease_id is not None:
+            data["id"] = lease_id
+        async with self._panel_lock:
+            # Review B MED: a delivery queued ahead of this release (FIFO
+            # lock) may have re-written the ledger after the caller's pop;
+            # pop again under the lock so re-assert cannot resurrect it.
+            if lease_id is None:
+                self._panel_leases.clear()
+            else:
+                self._panel_leases.pop(lease_id, None)
+            await self._panel_call("release", data)
+
+    @callback
+    def _handle_halo_ready(self, _event: Event) -> None:
+        """Halo entry (re)started: re-assert URA leases.
+
+        Subscribed only while the channel is on; _panel_reassert re-checks
+        _panel_live() under the lock."""
+        self._spawn_panel_task(self._panel_reassert(), "ura_nm_panel_reassert")
+
+    async def _panel_reassert(self) -> None:
+        """Re-send unexpired ledger entries with their REMAINING ttl (R2-2),
+        then rebuild the restored ALERTING episode if the ledger lacks it
+        (R2-1(a): after an HA restart the ledger is empty)."""
+        async with self._panel_lock:
+            if not self._panel_live():
+                return
+            now = dt_util.utcnow().timestamp()
+            for lease_id, entry in list(self._panel_leases.items()):
+                remaining = entry["expires_at"] - now
+                if remaining <= 0:
+                    self._panel_leases.pop(lease_id, None)
+                    continue
+                resp = await self._panel_call("indicate", {
+                    "area_id": list(entry["areas"]),
+                    "owner": NM_PANEL_OWNER,
+                    "id": lease_id,
+                    "level": entry["level"],
+                    "ttl_s": int(max(NM_PANEL_TTL_S_MIN, min(
+                        NM_PANEL_TTL_S_MAX, round(remaining),
+                    ))),
+                })
+                if resp is not None:
+                    self._panel_health_from_response(resp)
+            data = self._active_alert_data
+            rebuild = (
+                self._alert_state in (AlertState.ALERTING, AlertState.REPEATING)
+                and bool(data)
+                and self._panel_lease_id(
+                    data.get("coordinator_id"), data.get("hazard_type"),
+                    data.get("location"),
+                ) not in self._panel_leases
+            )
+        if rebuild:
+            # Targeting recomputed now; same gates as any delivery.
+            self._schedule_panel_delivery(
+                data.get("coordinator_id", "unknown"), Severity.CRITICAL,
+                data.get("title", ""), data.get("message", ""),
+                data.get("hazard_type"), data.get("location"),
+                log_row=False,
+            )
+
+    def _set_panel_health(self, status: str, detail: str | None = None) -> None:
+        """Non-boolean status setter for the panels channel (M1).
+
+        Review A4: does NOT feed the global ``_send_attempts`` /
+        ``delivery_rate`` counters (a panel lease is not a message). ``ok``
+        resets failures; ``error`` counts one and becomes ``degraded`` at 3
+        consecutive failures (same threshold/semantics as
+        ``_update_channel_health``, so the channel-status sensor surfaces it);
+        ``absent`` / ``no_surface`` / ``unavailable`` / ``enabled`` / ``off``
+        are states, not send outcomes.
+        """
+        health = self._channel_health.get("panels")
+        if health is None:
+            return
+        if status == "ok":
+            health["last_success"] = dt_util.utcnow().isoformat()
+            health["failures"] = 0
+        elif status == "error":
+            health["failures"] = health.get("failures", 0) + 1
+            if health["failures"] >= 3:
+                status = "degraded"
+        health["status"] = status
+        health["detail"] = detail
+        health["status_at"] = dt_util.utcnow().isoformat()
 
     def _update_channel_health(self, channel: str, success: bool) -> None:
         """Update channel health tracking."""

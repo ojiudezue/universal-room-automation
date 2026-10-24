@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "239",
+  "author": "ojiudezue",
+  "session_id": "claude_20261024_190115_ship_v5_103_89",
+  "timestamp": "2026-10-24T19:01:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.89 shipped: EC reserve oracle phase 2 + Halo NM panel channel (off) + one ack clears all CRITICALs",
+  "summary": "EC reserve oracle phase 2 + Halo NM panel channel (off) + one ack clears all CRITICALs",
+  "why": "Envoy: enphase_ev cloud reserve goes stale for hours and silently drops same-value writes (upstream #960), so URA trusted a wrong oracle: 15/15 CRITICAL pages false, 102/66 identical re-sends, 4.5h stuck 98% reserve importing 6kW. Chose native Envoy reserve as trusted witness (stream tier NO-GO by D0 probe) over waiting for upstream. Tier 3: D re-reviews caught 4 HIGH (post-restart 80->50 lowering twice; nudge/EVSE-overlay breaking the watchdog ladder) \u2014 fixed with anchored tests; orchestrator re-mutated both sites. Full suite caught a test-shim AttributeError silently skipping a ledger stamp. Halo ships dark (switch off); review C found 47 untested sites, now anchored. NM ack: operator flagged that slot-only ack (v5.103.88) left old CRITICALs needing repeated acks; one ack now clears all, but review caught that a plain 'ack' text would clear security alerts without authority, and a late cutoff could swallow a concurrent smoke alert \u2014 both gated/fixed.",
+  "implications": "Shipped EC-ENPHASE-CONNECTIVITY-RESILIENCE-1, WALLPANEL-URA-NOTIFY-1, NM-MULTI-ALERT-TRACKING-1 at v5.103.89; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.89.md (Live criteria).",
+  "revisit_trigger": "7-day notification_log: zero energy envoy_write_verification CRITICAL rows while native reserve sensor matched desire; reserve_write rows show no identical value re-sent inside 900s; after first button ack, zero unacked CRITICAL rows",
+  "refs": {
+    "cards": [
+      "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1",
+      "WALLPANEL-URA-NOTIFY-1",
+      "NM-MULTI-ALERT-TRACKING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.89.md"
+    ],
+    "release_notes": "Envoy: trusted local reserve witness, resend gap, nudge for silently-dropped writes, CLOUD_STALE instead of false CRITICAL, 45-min enforced-mismatch HIGH. Halo S1b: switch.ura_nm_panel_channel (default off) + lease TTL number. NM: one authorized ack clears every outstanding CRITICAL. See docs/readmes/README_v5.103.89.md"
+  }
+}

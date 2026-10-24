@@ -187,7 +187,9 @@ def test_staleness_number_registered_in_cm_setup():
     Use a generous window so this test isn't fragile to follow-up cycles.
     """
     src = _number_src()
-    idx = src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
+    # Anchor on the setup branch itself, not the import list (Halo S1b
+    # added imports that pushed the list past a fixed window).
+    idx = src.find("== ENTRY_TYPE_COORDINATOR_MANAGER")
     assert idx >= 0
     block = src[idx:idx + 5000]
     assert "BayesianCellStalenessNumber" in block, (

@@ -233,3 +233,4 @@ this session's own work. Per-release detail lives in each `README_v5.103.N.md`; 
 
 - 2026-10-24 07:04 **v5.103.87** — v5.103.87: daily solar forecast restored, regime next-room check made real, work log at ship (cards: EC-PREDICTOR-SOLCAST-UNWIRED-1,REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1,WORKLOG-APPEND-AT-SHIP-1)
 - 2026-10-24 07:44 **v5.103.88** — v5.103.88: a life-safety alert keeps the notification slot (cards: NM-MULTI-ALERT-TRACKING-1)
+- 2026-10-24 14:01 **v5.103.89** — v5.103.89: Envoy reserve oracle phase 2 + Halo panel channel (off by default) (cards: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1,WALLPANEL-URA-NOTIFY-1,NM-MULTI-ALERT-TRACKING-1)

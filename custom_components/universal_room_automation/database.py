@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.88
+# Universal Room Automation vv5.103.89
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4796,6 +4796,59 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error acknowledging matching notifications: %s", e)
+
+    async def acknowledge_all_criticals(
+        self,
+        cutoff: str | None = None,
+        exclude_hazards: tuple[str, ...] | frozenset | set = (),
+    ) -> list[dict]:
+        """Mark EVERY unacked non-audit CRITICAL row acknowledged (all
+        coordinators, all channels) up to now — NM-ACK-CLEARS-ALL: one
+        operator ack clears the whole backlog so restart recovery has
+        nothing left to re-raise. Returns the distinct
+        (coordinator_id, hazard_type, location) episodes acked, so the
+        caller can release their panel leases.
+
+        ``cutoff`` (ISO UTC, captured by the caller at ack time) bounds the
+        sweep so a CRITICAL logged after the ack is never swept;
+        ``exclude_hazards`` (lower-case tokens) leaves those rows unacked
+        (security-family rows when the ack lacks security authority)."""
+        now_iso = dt_util.utcnow().isoformat()
+        cut = cutoff or now_iso
+        excl = sorted({str(h).lower() for h in exclude_hazards})
+        excl_sql = ""
+        if excl:
+            excl_sql = (
+                " AND LOWER(COALESCE(hazard_type, '')) NOT IN ("
+                + ",".join("?" * len(excl)) + ")"
+            )
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT DISTINCT coordinator_id, hazard_type, location
+                    FROM notification_log
+                    WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                      AND message != '[audit]' AND timestamp <= ?""" + excl_sql,
+                    (cut, *excl),
+                )
+                episodes = [
+                    {"coordinator_id": r[0], "hazard_type": r[1], "location": r[2]}
+                    for r in await cursor.fetchall()
+                ]
+                await db.execute(
+                    """
+                    UPDATE notification_log
+                    SET acknowledged = 1, ack_time = ?
+                    WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                      AND message != '[audit]' AND timestamp <= ?""" + excl_sql,
+                    (now_iso, cut, *excl),
+                )
+                await db.commit()
+                return episodes
+        except Exception as e:
+            _LOGGER.error("Error acknowledging all criticals: %s", e)
+            return []
 
     async def get_active_criticals(self, limit: int = 50) -> list[dict]:
         """Unacked non-audit CRITICAL rows, newest first (bounded)."""

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.88
+# Universal Room Automation vv5.103.89
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.88"
+VERSION: Final = "v5.103.89"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3623,6 +3623,44 @@ NM_LIFE_SAFETY_HAZARDS: Final = frozenset({
     "water_leak", "flooding", "intruder", "freeze_risk",
 })
 
+# =========================================================================
+# Halo S1b (WALLPANEL-URA-NOTIFY-1, plan PLANNING_wallpanel_integration.md
+# §S1b): NM "panels" channel -> halo.indicate / halo.release leases.
+# Rung 1 (module consts) unless noted: safety signalling, review to change.
+# =========================================================================
+HALO_DOMAIN: Final = "halo"
+# Halo fires this at the end of every entry start (halo/runtime.py); it is the
+# re-assert trigger (services live in async_setup, never re-registered).
+EVENT_HALO_READY: Final = "halo_ready"
+NM_PANEL_OWNER: Final = "ura"
+# Which coordinators may light panels. Widening needs review (perimeter volume).
+NM_PANEL_COORDINATORS: Final = frozenset({"safety", "security"})
+# severity name -> Halo level, per coordinator. Missing key = never sent.
+# Security CRITICAL -> alert (never wakes a bedroom panel; operator Q3).
+NM_PANEL_LEVEL_MAP: Final = {
+    "safety": {"CRITICAL": "critical", "HIGH": "alert", "MEDIUM": "alert"},
+    "security": {"CRITICAL": "alert", "HIGH": "alert", "MEDIUM": "warn"},
+}
+# Life-safety that ignores occupancy (every room with an area). Empty set =
+# no house-wide override.
+NM_PANEL_HOUSEWIDE_HAZARDS: Final = frozenset({"smoke", "fire", "carbon_monoxide"})
+# URA night gate: in these house states only safety / life-safety pass.
+# Matches _is_quiet_hours' house-state set. Empty = no URA night gate.
+NM_PANEL_NIGHT_STATES: Final = frozenset({"sleep", "home_night"})
+# Targeting terms (S1b.2). False drops the term.
+NM_PANEL_TARGET_ZONE_ENABLED: Final = True        # T2 occupied house zone
+NM_PANEL_TARGET_ADJACENT_ENABLED: Final = True    # T3 adjacent (both directions)
+NM_PANEL_TARGET_SOURCE_ROOM_ENABLED: Final = True  # T4 hazard's room (safety only)
+# Protocol bound on one halo.* service call (seconds).
+NM_PANEL_CALL_TIMEOUT_S: Final = 5
+# Halo's accepted ttl_s range (services.yaml); URA clamps before the call.
+NM_PANEL_TTL_S_MIN: Final = 10
+NM_PANEL_TTL_S_MAX: Final = 86400
+# Rung 3 (number.ura_nm_panel_lease_ttl_min): bounds a lost release.
+NM_PANEL_LEASE_TTL_MIN_DEFAULT: Final = 30
+NM_PANEL_LEASE_TTL_MIN_MIN: Final = 1
+NM_PANEL_LEASE_TTL_MIN_MAX: Final = 240
+
 # B3: per-channel token-bucket defaults (rung 3 defaults; Number entities
 # override). Capacity = burst budget; refill = tokens/minute.
 NM_BUCKET_CAPACITY_DEFAULT: Final = 10
@@ -3763,6 +3801,8 @@ SERVICE_NM_MUTE_PERSON_CHANNEL: Final = "nm_mute_person_channel"
 # Known transport-channel names — used by the mute service for input
 # validation AND the combinatorial fixtures. Central definition prevents
 # drift with `_channel_health` init (verified alignment 2026-07-20).
+# Halo S1b: `_channel_health` also seeds "panels" — deliberately NOT here,
+# because panels are house-level (no per-person mute applies to them).
 NM_CHANNELS_KNOWN: Final = frozenset(
     {"pushover", "companion", "whatsapp", "imessage", "tts", "lights"}
 )

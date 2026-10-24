@@ -298,7 +298,8 @@ cards:
   rerank_2026_10_21: "unscored -> v6 t6 e5: operator named Halo S1b as next (10-21); in flight, Tier 2-DB plan"
   rank: {"value": 6, "time_criticality": 6, "effort": 5}
   title: "URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface)"
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.89
   tier: 2
   thread: "notifications"
   created: "2026-10-20 08:30"
@@ -671,7 +672,7 @@ cards:
   approved_by: 'operator 2026-10-15 (board approve button)'
   title: "Notification manager tracks only one active alert, so a newer CRITICAL replaces an older one still in progress"
   status: shipped_organic
-  shipped_version: v5.103.88
+  shipped_version: v5.103.89
   tier: 2
   origin: "Safety re-page plan rev 3 re-review (N1/N2) and rev 4 (D5 withdrawn), 2026-10-15. Swept board + BACKLOG: no existing card."
   why: "NM holds a single active alert slot; a later CRITICAL overwrites the earlier one (plan review N2), and acknowledge_notification acks the latest unacked CRITICAL row rather than a specific alert. With two concurrent life-safety hazards, re-fire/ack logic acts on the wrong alert."
@@ -1013,7 +1014,8 @@ cards:
   operator_guidance_2026_10_04: 'Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map design). Mandatory prior-art scan with file:line; every phase-2 piece EXTENDS it. The stream must make commanding STRONGER (independent outcome witness: battery power/SOC confirms reserve/CFG landed), never weaker. Evaluate CONSOLIDATION vs today''s 3 integrations (core enphase_envoy + MQTT stream add-on + barneyonline enphase_ev): score on REDUNDANCY (independent read/command paths, shared failure modes) and ACCURACY (vs SPAN pair + battery physics), plus supply-chain risk (# third-party deps, maintenance, Envoy connections). Candidate: ha-enphase-realtime for local reads+stream and as an independent locally-verified second command path; decide on a measured trial, not its README.'
   title: Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits)
   thread: energy
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.89
   operator_2026_10_15b: "Operator: \"Envoy is ethernet connected now not wifi.\" Another confound for the 10-15 dropout fall (alongside GC freeze + SPAN); likely the dominant one. Re-count at 10-18 stands."
   update_2026_10_15: "Operator 2026-10-15: \"drops have fallen. Wonder if related to stalls. Measure first.\" Measured: daily dropouts 10-08..10-14 = 6,7,4,10,4,4,13; 10-15 = 0 (to 16:51). Stall data only from 10-13 11:34. 9/17 dropouts had a >=1 s stall within 60 s vs 27.8% base rate (weak, n=17). Stalls >=1 s fell 593/378 -> 9 on 10-15 after the GC freeze. Verdict INCONCLUSIVE; confounded by Wi-Fi (10-13), GC freeze and SPAN (10-14). Re-measure one-shot after 3 clean days (10-18) before planning phase 2; if dropouts stay ~0 the resilience scope shrinks. Script scratchpad p.py."
   created: '2026-10-04 01:00'

@@ -39,7 +39,31 @@ Safety contract (unchanged)
 * A row with live `consumption_kwh` or `solar_production_kwh` is
   `SKIP(live>backfill)` unless `--force-overwrite`.
 
-Usage:
+Mode 2 — `--fill-null-actuals` (EC-FORECAST-TRUTH-GAPS-1)
+---------------------------------------------------------
+Fills ONLY NULL `consumption_kwh` / `solar_production_kwh` cells on
+EXISTING `energy_daily` rows, from the same Envoy lifetime counters the
+live producer uses (`energy.py` `_check_midnight_reset` derived path):
+
+    solar       = d(production_ct_energy_delivered)
+    consumption = d(net_import) + solar - d(net_export)
+                  + d(battery_discharged) - d(battery_charged)
+
+Entity ids come from `energy_const.derive_envoy_config(serial)` (loaded by
+path, so the script and the integration cannot disagree). Each leg's
+daily delta is the statistics `sum` delta at local midnights (same
+boundary lookup as mode 1) AND must agree with the `state` delta — a
+counter flap/reset makes them diverge, and that day is left NULL rather
+than trusted. A non-NULL cell is never overwritten, a missing row is
+never inserted, and the prediction columns are never touched (model
+state, no historical source). Dry-run by default; `--apply` writes.
+Idempotent: a re-run finds no NULL cells left to fill.
+
+    python3 scripts/backfill_energy_daily_from_counters.py --fill-null-actuals \
+        --ura-db <path> --recorder-db <path> --envoy-serial 482543015950 \
+        --from 2026-10-01 --to 2026-10-21
+
+Usage (mode 1):
     python3 scripts/backfill_energy_daily_from_counters.py \
         --ura-db <path> --recorder-db <path> \
         --import-entity sensor.mains_vue_3_mainsfromgrid_energy_today \
@@ -50,6 +74,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import importlib.util
+import pathlib
 import sqlite3
 import sys
 from dataclasses import dataclass
@@ -391,12 +417,223 @@ def _print_table(rows: list[DayRow], existing: dict[str, dict],
         )
 
 
+# ---------------------------------------------------------------------------
+# Mode 2: --fill-null-actuals (EC-FORECAST-TRUTH-GAPS-1)
+# ---------------------------------------------------------------------------
+
+# Max |sum-delta - state-delta| (kWh) for a leg's day to be trusted. A
+# healthy counter gives identical deltas; a flap or reset diverges by
+# thousands of kWh. Module constant (reviewed change only): a data-trust
+# bound, not operator policy.
+LEG_AGREEMENT_TOL_KWH = 0.5
+
+_LEGS = ("production", "net_import", "net_export",
+         "battery_charged", "battery_discharged")
+_CONF_KEY_BY_LEG = {
+    "production": "energy_lifetime_production_entity",
+    "net_import": "energy_lifetime_net_import_entity",
+    "net_export": "energy_lifetime_net_export_entity",
+    "battery_charged": "energy_lifetime_battery_charged_entity",
+    "battery_discharged": "energy_lifetime_battery_discharged_entity",
+}
+FILL_COLUMNS = ("consumption_kwh", "solar_production_kwh")
+_UNIT_SCALE = {"mwh": 1000.0, "kwh": 1.0, "wh": 0.001}
+
+_DEFAULT_ENERGY_CONST = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "custom_components" / "universal_room_automation"
+    / "domain_coordinators" / "energy_const.py"
+)
+
+
+def load_envoy_entities(serial: str, energy_const_path=None) -> dict[str, str]:
+    """Leg -> entity_id via the integration's own derive_envoy_config."""
+    path = str(energy_const_path or _DEFAULT_ENERGY_CONST)
+    spec = importlib.util.spec_from_file_location("_ura_energy_const", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cfg = mod.derive_envoy_config(serial)
+    return {leg: cfg[key] for leg, key in _CONF_KEY_BY_LEG.items()}
+
+
+def _statistics_row_at_boundary(conn, metadata_id, boundary):
+    """(state, sum, kind) at `boundary`; same exact-then-prior-window rule
+    as `_statistics_sum_at_boundary`."""
+    bts = boundary.timestamp()
+    row = conn.execute(
+        "SELECT state, sum FROM statistics WHERE metadata_id = ? AND start_ts = ? "
+        "AND sum IS NOT NULL AND state IS NOT NULL",
+        (metadata_id, bts),
+    ).fetchone()
+    if row is not None:
+        return (float(row[0]), float(row[1]), "exact")
+    row = conn.execute(
+        "SELECT state, sum FROM statistics WHERE metadata_id = ? "
+        "AND start_ts <= ? AND start_ts >= ? AND sum IS NOT NULL "
+        "AND state IS NOT NULL ORDER BY start_ts DESC LIMIT 1",
+        (metadata_id, bts, bts - BOUNDARY_WINDOW_S),
+    ).fetchone()
+    if row is not None:
+        return (float(row[0]), float(row[1]), "fallback")
+    return (None, None, "missing")
+
+
+def _leg_delta_kwh(a, b, scale):
+    """(trusted daily kWh, "ok") for one leg, or (None, reason)."""
+    if a[0] is None or b[0] is None:
+        return None, "boundary_missing"
+    st = (b[0] - a[0]) * scale
+    sm = (b[1] - a[1]) * scale
+    if abs(st - sm) > LEG_AGREEMENT_TOL_KWH:
+        return None, f"flap(state={st:.1f},sum={sm:.1f})"
+    if sm < -0.1:
+        return None, f"negative({sm:.1f})"
+    return max(0.0, sm), "ok"
+
+
+def _meta_and_scale(conn, entity_id):
+    """(metadata_id, scale_to_kwh) or None (missing / unknown unit)."""
+    row = conn.execute(
+        "SELECT id, unit_of_measurement FROM statistics_meta WHERE statistic_id = ?",
+        (entity_id,),
+    ).fetchone()
+    if not row:
+        return None
+    scale = _UNIT_SCALE.get((row[1] or "").strip().lower())
+    return None if scale is None else (int(row[0]), scale)
+
+
+@dataclass
+class ActualsDay:
+    date: str
+    solar_kwh: float | None
+    consumption_kwh: float | None
+    reasons: dict  # leg -> "ok" | reason
+
+
+def compute_actuals(recorder_conn, entities, start, end, tz=None):
+    """Per-day solar/consumption from the five lifetime legs."""
+    tz = _coerce_tz(tz)
+    meta = {leg: _meta_and_scale(recorder_conn, entities[leg]) for leg in _LEGS}
+    out: list[ActualsDay] = []
+    for d in _iter_dates(start, end):
+        b0 = _dt.datetime.combine(d, _dt.time.min, tzinfo=tz)
+        b1 = _dt.datetime.combine(d + _dt.timedelta(days=1), _dt.time.min, tzinfo=tz)
+        deltas, reasons = {}, {}
+        for leg in _LEGS:
+            m = meta[leg]
+            if m is None:
+                deltas[leg], reasons[leg] = None, "no_statistics_meta"
+                continue
+            a = _statistics_row_at_boundary(recorder_conn, m[0], b0)
+            b = _statistics_row_at_boundary(recorder_conn, m[0], b1)
+            deltas[leg], reasons[leg] = _leg_delta_kwh(a, b, m[1])
+        solar = deltas["production"]
+        cons = None
+        if all(deltas[leg] is not None for leg in _LEGS):
+            cons = (deltas["net_import"] + solar - deltas["net_export"]
+                    + deltas["battery_discharged"] - deltas["battery_charged"])
+            if cons <= 0:  # same guard as the live producer
+                reasons["consumption"] = f"non_positive({cons:.1f})"
+                cons = None
+        out.append(ActualsDay(d.isoformat(), solar, cons, reasons))
+    return out
+
+
+def plan_fill(ura_conn, days):
+    """Return (writes, skipped): writes = [(date, column, value, source)]
+    for NULL cells on existing rows; skipped = [(date, column, why)]."""
+    writes, skipped = [], []
+    for day in days:
+        row = ura_conn.execute(
+            "SELECT consumption_kwh, solar_production_kwh FROM energy_daily "
+            "WHERE date = ?", (day.date,),
+        ).fetchone()
+        if row is None:
+            skipped.append((day.date, "*", "no_row (never inserted)"))
+            continue
+        live = {"consumption_kwh": row[0], "solar_production_kwh": row[1]}
+        new = {"consumption_kwh": day.consumption_kwh,
+               "solar_production_kwh": day.solar_kwh}
+        bad = {k: v for k, v in day.reasons.items() if v != "ok"}
+        for col in FILL_COLUMNS:
+            if live[col] is not None:
+                continue  # never overwrite
+            if new[col] is None:
+                why = ",".join(f"{k}:{v}" for k, v in bad.items()) or "no_value"
+                skipped.append((day.date, col, why))
+                continue
+            src = ("recorder:production_ct" if col == "solar_production_kwh"
+                   else "recorder:net_import+solar-net_export+dis-chg")
+            writes.append((day.date, col, new[col], src))
+    return writes, skipped
+
+
+def apply_fill(ura_conn, writes) -> int:
+    """UPDATE one NULL cell at a time; the `IS NULL` guard means a stale
+    plan or a concurrent producer write can never be overwritten."""
+    n = 0
+    for date, col, val, _src in writes:
+        if col not in FILL_COLUMNS:
+            raise ValueError(col)
+        cur = ura_conn.execute(
+            f"UPDATE energy_daily SET {col} = ? WHERE date = ? AND {col} IS NULL",
+            (val, date),
+        )
+        n += cur.rowcount
+    ura_conn.commit()
+    return n
+
+
+def run_fill_null_actuals(args) -> int:
+    start = _dt.date.fromisoformat(args.dfrom)
+    end = _dt.date.fromisoformat(args.dto)
+    if end < start:
+        print("ERROR: --to is before --from", file=sys.stderr)
+        return 2
+    entities = load_envoy_entities(args.envoy_serial, args.energy_const)
+    for leg, ent in entities.items():
+        print(f"  leg {leg:<20} {ent}")
+    rec = sqlite3.connect(f"file:{args.recorder_db}?mode=ro", uri=True)
+    try:
+        days = compute_actuals(rec, entities, start, end, tz=args.tz)
+    finally:
+        rec.close()
+    # Dry-run opens the URA DB read-only, so it physically cannot write.
+    ura = (sqlite3.connect(args.ura_db) if args.apply
+           else sqlite3.connect(f"file:{args.ura_db}?mode=ro", uri=True))
+    try:
+        writes, skipped = plan_fill(ura, days)
+        print(f"\n{'date':<12}{'column':<22}{'value':>12}  source")
+        for date, col, val, src in writes:
+            print(f"{date:<12}{col:<22}{_fmt_num(val)}  {src}")
+        print("\nLeft NULL (no trustworthy source):")
+        for date, col, why in skipped:
+            print(f"  {date:<12}{col:<22}{why}")
+        print("  (all dates) predicted_consumption_kwh / prediction_error_pct / "
+              "adjustment_factor: model state, no historical source; never filled")
+        if args.apply:
+            n = apply_fill(ura, writes)
+            print(f"\nApplied {n} cell(s).")
+        else:
+            print(f"\nDry-run — {len(writes)} cell(s) would be written. "
+                  "Rerun with --apply to commit.")
+    finally:
+        ura.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ura-db", required=True)
     p.add_argument("--recorder-db", required=True)
-    p.add_argument("--import-entity", required=True)
-    p.add_argument("--export-entity", required=True)
+    p.add_argument("--import-entity")
+    p.add_argument("--export-entity")
+    p.add_argument("--fill-null-actuals", action="store_true", default=False,
+                   help="Mode 2: fill NULL consumption/solar from Envoy lifetime counters.")
+    p.add_argument("--envoy-serial", help="Envoy serial (mode 2).")
+    p.add_argument("--energy-const", default=None,
+                   help="Path to energy_const.py (mode 2; default: repo copy).")
     p.add_argument("--from", dest="dfrom", required=True)
     p.add_argument("--to", dest="dto", required=True)
     p.add_argument("--apply", action="store_true", default=False)
@@ -407,6 +644,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--show-boundary-kinds", action="store_true", default=False,
                    help="Print per-boundary match kind (exact|fallback|missing).")
     args = p.parse_args(argv)
+
+    if args.fill_null_actuals:
+        if not args.envoy_serial:
+            p.error("--fill-null-actuals requires --envoy-serial")
+        return run_fill_null_actuals(args)
+    if not (args.import_entity and args.export_entity):
+        p.error("--import-entity and --export-entity are required (mode 1)")
 
     start = _dt.date.fromisoformat(args.dfrom)
     end = _dt.date.fromisoformat(args.dto)

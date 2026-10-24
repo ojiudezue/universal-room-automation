@@ -71,6 +71,26 @@ STATUS_STALE = "stale"
 # Retry-After backoff, auth). Not STATUS_OK, so `is_reserve_verifiable`
 # reads False with no code change there.
 STATUS_DISPATCH_FAILED = "dispatch_failed"
+# EC reserve oracle phase 2 D3 — the cloud oracle disagrees with the
+# command but the TRUSTED local Envoy reserve sensor is strictly within the
+# dispatch deadband of it: the gateway applied the write and the cloud read
+# is stale. Never paged. Not STATUS_OK (is_reserve_verifiable stays False).
+STATUS_CLOUD_STALE = "cloud_stale"
+# EC reserve oracle phase 2 D5 — the service call raised enphase_ev
+# `control_change_pending` (a second change inside its confirmation
+# window). Deferred, not failed: no page; retried by the D1 rules.
+STATUS_DISPATCH_DEFERRED = "dispatch_deferred"
+# enphase_ev translation key for the deferred raise (control_updates.py).
+CONTROL_CHANGE_PENDING_KEY = "control_change_pending"
+
+
+def _matches_desire(commanded: int, desire: int) -> bool:
+    """EC reserve oracle phase 2 fix-up HIGH-2: True iff ``commanded`` is
+    ``desire`` or its D2 same-value-drop nudge (`_nudge_value(desire)`)."""
+    from .energy_battery import _nudge_value  # noqa: PLC0415 — lazy, no cycle
+    return int(commanded) == int(desire) or int(commanded) == _nudge_value(
+        int(desire)
+    )
 
 
 def _normalize_percent(
@@ -233,6 +253,20 @@ class WriteVerifier:
         # EC-SELFHEAL-UNEXPLAINED-RESENDS-1: one INFO line per instance
         # when the Envoy reserve sensor cannot be resolved as the witness.
         self._reserve_witness_unresolved_logged: bool = False
+        # EC reserve oracle phase 2 D3 — per-site cloud-stale anomaly
+        # latches, keyed on the effective desire (None = clear). One
+        # `reserve_cloud_oracle_stale` anomaly per (site, desire) episode;
+        # cleared when the cloud matches the command.
+        self._cloud_stale_check_latch: Optional[tuple] = None
+        self._cloud_stale_sweep_latch: Optional[tuple] = None
+        # D4 — enforced-vs-effective-desire dwell (RAM only; restart = 0).
+        self._enforced_divergence_since: Optional[datetime] = None
+        self._enforced_divergence_s: float = 0.0
+        self._enforced_divergence_fired: bool = False
+        # D5 — surfaces with an open `control_change_pending` episode
+        # (one coalesced anomaly per episode; closed by the next
+        # successful dispatch on that surface).
+        self._deferred_episode_open: set[str] = set()
 
     # ------------------------------------------------------------------
     # Blind-window guard predicate (see PLANNING_ec_blind_window_evse_guard.md)
@@ -480,6 +514,106 @@ class WriteVerifier:
         return None
 
     # ------------------------------------------------------------------
+    # EC reserve oracle phase 2 D1.1 — the ONE trust rule for the local
+    # reserve witness (consumers: `_reserve_action`, D3 `_local_confirms`,
+    # D4 dwell). Stream tier dropped (D0-P5 NO-GO, rev 2.2).
+    # ------------------------------------------------------------------
+    def trusted_local_reserve(
+        self, battery: Any, target: Any, soc: Any,
+    ) -> tuple[Optional[float], str]:
+        """Return ``(local, "local")`` when the native Envoy reserve sensor
+        is trusted for ``target``, else ``(None, <untrusted reason>)``.
+
+        Trusted iff: the kill switch is on; the witness resolves through
+        `_envoy_reserve_sensor_eid` (never the Enpower-number fallback of
+        `_local_entity_for`); its state is numeric; and it is not inside
+        the low-SOC ratchet regime (``soc <= target + margin and
+        target < local <= soc + span``). SOC unknown: trusted only when
+        ``local <= target``. Never raises.
+        """
+        try:
+            from . import energy_const as _ec  # noqa: PLC0415
+            if not _ec.RESERVE_LOCAL_WITNESS_ENABLED:
+                return None, "disabled"
+            eid = self._envoy_reserve_sensor_eid(battery)
+            if not eid:
+                fb = None
+                try:
+                    fb = battery._get_entity(  # noqa: SLF001
+                        "reserve_soc_number", _ec.DEFAULT_RESERVE_SOC_ENTITY,
+                        role="read",
+                    )
+                except Exception:  # noqa: BLE001
+                    fb = None
+                return None, ("fallback_only" if fb else "unresolved")
+            st = self.hass.states.get(eid)
+            if st is None or st.state in ("unavailable", "unknown", None):
+                return None, "unavailable"
+            try:
+                local = float(st.state)
+            except (TypeError, ValueError):
+                return None, "unavailable"
+            tgt = float(target)
+            if soc is None:
+                if local <= tgt:
+                    return local, "local"
+                return None, "soc_unknown_high"
+            soc_f = float(soc)
+            if (
+                soc_f <= tgt + float(_ec.RESERVE_LOCAL_LOW_SOC_MARGIN_PCT)
+                and tgt < local <= soc_f + float(_ec.RESERVE_LOCAL_RATCHET_SPAN_PCT)
+            ):
+                return None, "low_soc_guard"
+            return local, "local"
+        except Exception:  # noqa: BLE001
+            # Fail CLOSED (fix-up T11): an error never yields a trusted value.
+            _LOGGER.debug("trusted_local_reserve raised", exc_info=True)
+            return None, "error"
+
+    def _local_confirms(self, battery: Any, commanded: Any) -> bool:
+        """D3: True iff the trusted local witness is STRICTLY within the
+        dispatch deadband of ``commanded`` (at exactly the deadband the
+        existing CRITICAL path runs — R2-M4). Never raises."""
+        try:
+            if battery is None or commanded is None:
+                return False
+            from . import energy_const as _ec  # noqa: PLC0415
+            soc = self._read_soc_via_resolver(battery)
+            local, _src = self.trusted_local_reserve(battery, commanded, soc)
+            if local is None:
+                return False
+            return abs(local - float(commanded)) < float(
+                _ec.RESERVE_DISPATCH_DEADBAND_PCT
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _note_cloud_stale(
+        self, site: str, battery: Any, commanded: Any, oracle_raw: Any,
+    ) -> None:
+        """D3: one `reserve_cloud_oracle_stale` anomaly per (site,
+        effective desire) episode. Never NM, never pages."""
+        desire = self._effective_reserve_desired(battery)
+        key = ("set", desire)
+        attr = (
+            "_cloud_stale_check_latch" if site == "check"
+            else "_cloud_stale_sweep_latch"
+        )
+        if getattr(self, attr) == key:
+            return
+        setattr(self, attr, key)
+        await self._emit_anomaly(
+            WRITE_VERIFY_SURFACE_RESERVE,
+            "reserve_cloud_oracle_stale",
+            {
+                "site": site,
+                "commanded": commanded,
+                "oracle_seen": oracle_raw,
+                "effective_desire": desire,
+            },
+        )
+
+    # ------------------------------------------------------------------
     # Schedule (called from dispatch tap in energy.py)
     # ------------------------------------------------------------------
     async def schedule(
@@ -597,6 +731,21 @@ class WriteVerifier:
                     _LOGGER.debug(
                         "WriteVerifier: %s self_heal_starvation "
                         "suppressed (pending episode active)",
+                        surface,
+                    )
+                elif (
+                    surface == WRITE_VERIFY_SURFACE_RESERVE
+                    and self._local_confirms(
+                        getattr(self._coord, "_battery", None),
+                        commanded_value,
+                    )
+                ):
+                    # EC reserve oracle phase 2 D3 — the trusted local
+                    # witness confirms the command: the loop is a stale
+                    # cloud oracle, not a rejected write. No anomaly/NM.
+                    _LOGGER.debug(
+                        "WriteVerifier: %s self_heal_starvation "
+                        "suppressed (local witness confirms)",
                         surface,
                     )
                 else:
@@ -760,11 +909,29 @@ class WriteVerifier:
             self._self_heal_consecutive[surface] = 0
             self._unavailable_consecutive[surface] = 0
             self._unavailable_backoff_ticks[surface] = 0
+            if surface == WRITE_VERIFY_SURFACE_RESERVE:
+                self._cloud_stale_check_latch = None
             _LOGGER.info(
                 "WriteVerifier: %s OK (commanded=%s, oracle=%s)",
                 surface, commanded_value, oracle_raw,
             )
             return
+
+        # EC reserve oracle phase 2 D3 — before any MISMATCH anomaly/NM:
+        # the trusted local witness confirms the command → the cloud read
+        # is stale. CLOUD_STALE, counters reset as for OK, one anomaly per
+        # (desire) episode, never paged (INV-R2).
+        if surface == WRITE_VERIFY_SURFACE_RESERVE:
+            _bat = getattr(self._coord, "_battery", None)
+            if self._local_confirms(_bat, commanded_value):
+                rec.status = STATUS_CLOUD_STALE
+                self._self_heal_consecutive[surface] = 0
+                self._unavailable_consecutive[surface] = 0
+                self._unavailable_backoff_ticks[surface] = 0
+                await self._note_cloud_stale(
+                    "check", _bat, commanded_value, oracle_raw,
+                )
+                return
 
         # MISMATCH
         self._mismatch_counts.increment(surface)
@@ -833,6 +1000,15 @@ class WriteVerifier:
                 _LOGGER.debug(
                     "pending watchdog raised (swallowed)", exc_info=True,
                 )
+            # EC reserve oracle phase 2 D4 — enforced-vs-desired dwell
+            # trip-wire (alert only; INV-R1 falsifier in code, no soak).
+            try:
+                await self._enforced_divergence_tick(battery)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "enforced divergence tick raised (swallowed)",
+                    exc_info=True,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("reversion_sweep raised (swallowed)", exc_info=True)
 
@@ -889,6 +1065,8 @@ class WriteVerifier:
         if status == STATUS_UNMAPPED or matched:
             # Successful verified — reset coalesce so a future flip re-fires.
             self._last_reversion_at_by_surface.pop(surface, None)
+            if surface == WRITE_VERIFY_SURFACE_RESERVE:
+                self._cloud_stale_sweep_latch = None
             # H1 (2026-07-13) — SECONDARY WITNESS. Under cloud-first
             # writes, cloud is the primary write leg + oracle. The LOCAL
             # entity is now an independent witness: if cloud shows APPLIED
@@ -1005,6 +1183,19 @@ class WriteVerifier:
                 "WriteVerifier: %s still REVERTED (coalesced, no re-emit)",
                 surface,
             )
+            return
+        # EC reserve oracle phase 2 D3 — AFTER the B-MED-2 coalesce, and
+        # deferring to the pending-episode suppression (R1-M7: an armed
+        # pending episode keeps the existing path and is never touched
+        # here). Local confirms → CLOUD_STALE, one anomaly per (desire)
+        # episode, no `write_reverted`, no NM.
+        if (
+            surface == WRITE_VERIFY_SURFACE_RESERVE
+            and not self.is_pending_episode_active(surface)
+            and self._local_confirms(battery, commanded)
+        ):
+            rec.status = STATUS_CLOUD_STALE
+            await self._note_cloud_stale("sweep", battery, commanded, oracle_raw)
             return
         self._mismatch_counts.increment(surface)
         # D2-LOW-1 (review D re-pass): while a pending episode is armed
@@ -1294,7 +1485,13 @@ class WriteVerifier:
         """I-R1: a battery-surface service call RAISED. Record status
         ``dispatch_failed``, emit one ``battery_write_failed`` anomaly per
         failure, and page once per surface per day (severity high).
-        Never raises; never actuates (W-6)."""
+        Never raises; never actuates (W-6).
+
+        EC reserve oracle phase 2 D5: ``translation_key ==
+        "control_change_pending"`` is DEFERRED, not a failure: status
+        ``dispatch_deferred``, ONE coalesced ``battery_write_deferred``
+        anomaly per surface per episode (closed by the next successful
+        dispatch, `note_dispatch_succeeded`), no NM. Surface-agnostic."""
         try:
             rec = self._records.get(surface)
             if rec is None:
@@ -1303,8 +1500,24 @@ class WriteVerifier:
             rec.commanded = commanded_value
             rec.oracle_seen = None
             rec.verified_at = dt_util.utcnow().isoformat()
-            rec.status = STATUS_DISPATCH_FAILED
             rec.restored = False
+            if translation_key == CONTROL_CHANGE_PENDING_KEY:
+                rec.status = STATUS_DISPATCH_DEFERRED
+                if surface in self._deferred_episode_open:
+                    return
+                self._deferred_episode_open.add(surface)
+                await self._emit_anomaly(
+                    surface,
+                    "battery_write_deferred",
+                    {
+                        "commanded": commanded_value,
+                        "service": service,
+                        "exception": exc_type,
+                        "translation_key": translation_key,
+                    },
+                )
+                return
+            rec.status = STATUS_DISPATCH_FAILED
             await self._emit_anomaly(
                 surface,
                 "battery_write_failed",
@@ -1331,6 +1544,11 @@ class WriteVerifier:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("record_dispatch_failed raised (swallowed)", exc_info=True)
+
+    async def note_dispatch_succeeded(self, surface: str) -> None:
+        """D5: a dispatch on ``surface`` did not raise → close any open
+        `control_change_pending` episode (the next one re-emits)."""
+        self._deferred_episode_open.discard(surface)
 
     async def note_dispatch(
         self, surface: str, now: Optional[datetime] = None,
@@ -1784,6 +2002,88 @@ class WriteVerifier:
         except Exception:  # noqa: BLE001
             return None
 
+    def _reset_enforced_divergence(self) -> None:
+        self._enforced_divergence_since = None
+        self._enforced_divergence_s = 0.0
+        self._enforced_divergence_fired = False
+
+    async def _enforced_divergence_tick(self, battery: Any) -> None:
+        """D4: track how long the TRUSTED local reserve has been >= the
+        dispatch deadband away from the post-overlay effective desire.
+        Past `RESERVE_ENFORCED_DIVERGENCE_TRIPWIRE_S`: one
+        `reserve_enforced_divergence` anomaly per episode + one HIGH NM
+        per day. Excluded ticks reset the dwell: trip-wire off,
+        observation mode, effective desire None, stand-down pinned on it,
+        untrusted witness (incl. the low-SOC guard), within deadband.
+        RAM-only (restart resets, accepted R2-L1)."""
+        from . import energy_const as _ec  # noqa: PLC0415
+        tw = float(_ec.RESERVE_ENFORCED_DIVERGENCE_TRIPWIRE_S)
+        if tw <= 0 or getattr(self._coord, "_observation_mode", False):
+            self._reset_enforced_divergence()
+            return
+        eff = self._effective_reserve_desired(battery)
+        if eff is None or self.is_standdown_active_for_value(
+            WRITE_VERIFY_SURFACE_RESERVE, eff,
+        ):
+            self._reset_enforced_divergence()
+            return
+        soc = self._read_soc_via_resolver(battery)
+        local, src = self.trusted_local_reserve(battery, eff, soc)
+        if local is None or abs(local - eff) < float(
+            _ec.RESERVE_DISPATCH_DEADBAND_PCT
+        ):
+            self._reset_enforced_divergence()
+            return
+        now = dt_util.utcnow()
+        if self._enforced_divergence_since is None:
+            self._enforced_divergence_since = now
+        dwell = (now - self._enforced_divergence_since).total_seconds()
+        self._enforced_divergence_s = dwell
+        if dwell <= tw or self._enforced_divergence_fired:
+            return
+        self._enforced_divergence_fired = True
+        cloud = None
+        try:
+            cloud = battery._get_state_float(  # noqa: SLF001
+                battery._get_entity(  # noqa: SLF001
+                    "reserve_soc_number", _ec.DEFAULT_RESERVE_SOC_ENTITY,
+                    role="write",
+                )
+            )
+        except Exception:  # noqa: BLE001
+            cloud = None
+        _la = getattr(battery, "_reserve_last_attempt_at", None)
+        payload = {
+            "local": local,
+            "source": src,
+            "cloud": cloud,
+            "effective_desire": eff,
+            "desire": getattr(battery, "_last_reserve_level_desired", None),
+            "ledger": getattr(battery, "_last_reserve_level", None),
+            "last_ok": getattr(battery, "_reserve_last_ok_value", None),
+            "last_attempt": getattr(battery, "_reserve_last_attempt_value", None),
+            "last_attempt_at": _la.isoformat() if _la is not None else None,
+            "reserve_reference_source": getattr(
+                battery, "_reserve_reference_source", None,
+            ),
+            "dwell_s": round(dwell),
+            "severity_class": "HIGH",
+        }
+        await self._emit_anomaly(
+            WRITE_VERIFY_SURFACE_RESERVE, "reserve_enforced_divergence", payload,
+        )
+        await self._maybe_fire_nm(
+            WRITE_VERIFY_SURFACE_RESERVE,
+            title="Battery reserve not following URA",
+            message=(
+                f"The gateway has enforced a reserve of {local:.0f}% for "
+                f"{dwell / 60:.0f} min while URA wants {eff}% "
+                f"(cloud reads {cloud!r}). URA's writes are not landing."
+            ),
+            alert_type="reserve_enforced_divergence",
+            severity="high",
+        )
+
     def _effective_reserve_desired(self, battery: Any) -> Optional[int]:
         """Post-overlay effective reserve — value the system wants on
         hardware right now. Returns None if strategy desire is unstamped.
@@ -1867,6 +2167,12 @@ class WriteVerifier:
         if sv is None:
             return False
         try:
+            # Fix-up HIGH-2: a stand-down pinned on the nudged value
+            # (`_nudge_value(target)`) covers the target too.
+            # Round-2: the pin holds the DE-NUDGED desire (watchdog pins
+            # `effective`) and every caller passes a de-nudged desire
+            # (`_reserve_action` target, overlay effective) → exact match.
+            # v - 1 and v + 1 both resume (stage-A contract C-3).
             return int(sv) == int(value)
         except (TypeError, ValueError):
             return sv == value
@@ -2003,7 +2309,12 @@ class WriteVerifier:
         # pre-overlay < commanded_floor is trivially true and the battery
         # could drain into the car unalarmed.
         effective = self._effective_reserve_desired(battery)
-        if effective is not None and effective < int(commanded_floor):
+        if (
+            effective is not None
+            and effective < int(commanded_floor)
+            # Fix-up HIGH-2: a nudged command (target + 1) is not a drain.
+            and not _matches_desire(int(commanded_floor), effective)
+        ):
             return "explicit_drain_desire_lower"
         # (e) inclement partial_hold is a legit lower floor — but only
         # WHILE SOC is at or above (inclement_reserve_floor - deadband).
@@ -2315,7 +2626,9 @@ class WriteVerifier:
             _cmd_int = int(commanded)
         except (TypeError, ValueError):
             _cmd_int = None
-        if _cmd_int is None or effective != _cmd_int:
+        # EC reserve oracle phase 2 fix-up HIGH-2: a D2 nudge commands
+        # `_nudge_value(effective)`; that is the SAME desire, not a move.
+        if _cmd_int is None or not _matches_desire(_cmd_int, effective):
             _LOGGER.info(
                 "WriteVerifier: %s pending watchdog — effective desire "
                 "moved (commanded=%s, effective=%s); ladder CANCELLED",
@@ -2387,7 +2700,9 @@ class WriteVerifier:
             self._pending_standdown_at[surface] = now
             # Root 2 — capture the non-compliant value so the normal
             # dispatch leg can gate same-value re-dispatch.
-            self._pending_standdown_value[surface] = commanded
+            # Round-2 HIGH-2: pin the de-nudged desire (commanded is the
+            # desire or its nudge — checked above), so the pin covers both.
+            self._pending_standdown_value[surface] = effective
             _LOGGER.warning(
                 "WriteVerifier: %s pending watchdog — HARD STAND-DOWN "
                 "after %d attempts; surface marked non-compliant. "
@@ -2454,6 +2769,10 @@ class WriteVerifier:
     # ------------------------------------------------------------------
     def get_status_attrs(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
+        # EC reserve oracle phase 2 D4.
+        out["reserve_enforced_divergence_s"] = round(
+            float(self._enforced_divergence_s or 0.0)
+        )
         # H1 (2026-07-13): expose write_route per surface so the operator
         # can SEE which leg (cloud|local) URA is writing to right now.
         # Surface names in `_write_failover_by_surface` (energy_battery

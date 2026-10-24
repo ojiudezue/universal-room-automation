@@ -334,6 +334,82 @@ def _coerce_int_or_default(value: Any, default: int) -> int:
         return int(default)
 
 
+def _nudge_value(target: int) -> int:
+    """EC reserve oracle phase 2 D2 — the same-value-drop bypass value.
+
+    ``target + step`` below 100, ``target - step`` at 100 (C9: rests at 99,
+    operator Q2). Pure; emits nothing."""
+    from . import energy_const as _ec  # noqa: PLC0415
+    step = int(_ec.RESERVE_SAME_VALUE_NUDGE_STEP_PCT)
+    t = int(target)
+    return max(0, min(100, t + step if t < 100 else t - step))
+
+
+def ledger_anchor_moves(battery: Any, old: Any, new: Any, keys: tuple) -> bool:
+    """EC reserve oracle phase 2 (HIGH-2 rounds 2-3) — the ONE rule for
+    whether a commanded-ledger stamp ``old -> new`` moves
+    `_last_reserve_level_at` (the pending-watchdog episode anchor).
+
+    Hidden (no move) only for the plain/nudge alternation of ONE desire:
+    ``old`` and ``new`` are both in {d, _nudge_value(d)} for a key d AND the
+    desires in force when the anchor was last set (`_ledger_anchor_desires`)
+    equal the current ``keys``. A real 1-point desire move (50 -> 49 with
+    desire 49, 99 -> 100 with desire 100) therefore re-anchors. When the
+    anchor moves, the current keys are recorded (RAM-only; None after a
+    restart = no hiding until the next anchor)."""
+    if old == new:
+        return False
+    keys = tuple(keys)
+    hidden = False
+    if getattr(battery, "_ledger_anchor_desires", None) == keys:
+        for d in keys:
+            if d is None:
+                continue
+            try:
+                pair = {int(d), _nudge_value(int(d))}
+                if int(old) in pair and int(new) in pair:
+                    hidden = True
+                    break
+            except (TypeError, ValueError):
+                continue
+    if not hidden:
+        try:
+            battery._ledger_anchor_desires = keys
+        except Exception:  # noqa: BLE001
+            pass
+    return not hidden
+
+
+def _reserve_emit_value(battery: Any, target: Any, cloud: float | None) -> Any:
+    """EC reserve oracle phase 2 D2 — the value to emit for a send of
+    ``target`` (shared by `_reserve_action` rules T/L and
+    `force_redispatch`).
+
+    ``_nudge_value(target)`` iff the switch is on and either (a) the cloud
+    state already shows ``target`` or (b) the last LANDED request already
+    equals ``target`` — in both cases `enphase_ev`'s same-value early
+    return would drop a plain write. Otherwise ``target`` unchanged."""
+    from . import energy_const as _ec  # noqa: PLC0415
+    if not _ec.RESERVE_SAME_VALUE_NUDGE_ENABLED:
+        return target
+    tol = float(_ec.RESERVE_SAME_VALUE_TOLERANCE_PCT)
+    last_ok = getattr(battery, "_reserve_last_ok_value", None)
+    # Fix-up D-MED-2 (trigger b'): the last ATTEMPT was this target and it
+    # did not raise — e.g. the CM path's DEFERRED (outcome unseen) send,
+    # which never stamps the landed stamp.
+    att = getattr(battery, "_reserve_last_attempt_value", None)
+    att_ok = att is not None and not getattr(
+        battery, "_reserve_last_attempt_failed", False,
+    )
+    if (
+        (cloud is not None and abs(cloud - target) < tol)
+        or (last_ok is not None and abs(last_ok - target) < tol)
+        or (att_ok and abs(att - target) < tol)
+    ):
+        return _nudge_value(target)
+    return target
+
+
 def compose_release_floor(battery, tou_period):
     """Compose the (release_floor, is_offpeak) tuple for a battery-drain call.
 
@@ -453,6 +529,28 @@ class BatteryStrategy:
         # RESET at the top of `determine_mode`; folded by `_reserve_action`
         # (the sole stamper of `_last_reserve_level_desired`).
         self._tick_reserve_floor: int | None = None
+        # EC reserve oracle phase 2 (4.5) — RAM-only dispatch stamps, written
+        # ONLY by `EnergyCoordinator._record_reserve_dispatch` (the single
+        # choke point of all four reserve dispatch points). Attempt = every
+        # dispatch (any status; rule G). Landed = APPLIED only, i.e. the
+        # service call did not raise (rule L, D2 trigger b, D1.4). Restart =
+        # None: rule G ungated once, rule L silent until the first landed
+        # dispatch (C13, known limit).
+        self._reserve_last_attempt_value: int | None = None
+        self._reserve_last_attempt_at: Any = None
+        self._reserve_last_ok_value: int | None = None
+        self._reserve_last_ok_at: Any = None
+        # Round 3: the (strategy, effective) desires in force when the
+        # ledger anchor `_last_reserve_level_at` was last set.
+        self._ledger_anchor_desires: tuple | None = None
+        # Fix-up D-MED-2: the last attempt raised (FAILED / timer DEFERRED).
+        self._reserve_last_attempt_failed: bool = False
+        # Fix-up D-MED-1: decision time of the last emitted nudge (a raise
+        # nudges at most once per RESERVE_RESEND_MIN_GAP_S).
+        self._reserve_last_nudge_at: Any = None
+        # D1.3 — which reference the last sighted `_reserve_action` used
+        # (exposed as `reserve_reference_source`).
+        self._reserve_reference_source: str | None = None
         # D-A3 blind-episode flags (RAM-only; reset on every sighted tick).
         self._blind_raised: bool = False
         self._blind_pre_raise: int | None = None
@@ -5304,19 +5402,75 @@ class BatteryStrategy:
                 "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
                 role="write",
             ))
-            # Review D re-pass D-MED-1: unreadable write leg → fall back to
-            # the stamp, then the KV-restored ledger, and deadband against
-            # that base (mirrors the blind branch) so an in-flight charge
-            # reserve is never lowered and nothing re-sends per tick.
-            if _hw is not None:
+            # Review D re-pass D-MED-1 (pre-cycle): unreadable write leg →
+            # fall back to the stamp, then the KV-restored ledger, and
+            # deadband against that base so an in-flight charge reserve is
+            # never lowered and nothing re-sends per tick.
+            from . import energy_const as _ec  # noqa: PLC0415
+            _desired = self._last_reserve_level_desired
+            _db = _ec.RESERVE_DISPATCH_DEADBAND_PCT
+            # Trusted local witness (evidence only — never the target).
+            _local = None
+            _wv = getattr(self, "_write_verifier", None)
+            if _wv is not None:
+                try:
+                    _local, _ = _wv.trusted_local_reserve(
+                        self,
+                        _desired if _desired is not None else _floor,
+                        _wv._read_soc_via_resolver(self),  # noqa: SLF001
+                    )
+                except Exception:  # noqa: BLE001
+                    _local = None
+            if _ec.RESERVE_ATTAIN_BASE_INTENT_ENABLED:
+                # EC reserve oracle phase 2 D1.4 (R2-H3 / RG-M2, fix-up
+                # HIGH-1): the base is URA intent. The prior desire is kept
+                # when it is <= the floor or CONFIRMED (landed request or
+                # the trusted local within the deadband of it). Otherwise
+                # it is not re-asserted: the base falls back to the
+                # pre-cycle hardware read (which also keeps a desire adopted
+                # from hardware after a reboot), else the prior desire
+                # (never the KV ledger). No desire (post-reboot) → pre-cycle
+                # order. Level is always >= floor.
+                _last_ok = self._reserve_last_ok_value
+
+                def _near(v):
+                    return v is not None and abs(v - _desired) < _db
+
+                if _desired is not None:
+                    if (
+                        _desired <= _floor
+                        or _near(_last_ok)
+                        or _near(_local)
+                    ):
+                        _base = _desired
+                    elif _hw is not None:
+                        _base = _hw
+                    else:
+                        # Round-2 HIGH-1: no evidence either way (write leg
+                        # and local unreadable) → keep the prior desire
+                        # (pre-cycle order). An evidence-free floor here
+                        # would be re-stamped as the desire and then count
+                        # as "<= floor", lowering an in-flight reserve.
+                        _base = _desired
+                elif _hw is not None:
+                    _base = _hw
+                else:
+                    _base = self._last_reserve_level
+            elif _hw is not None:
                 _base = _hw
-            elif self._last_reserve_level_desired is not None:
-                _base = self._last_reserve_level_desired
+            elif _desired is not None:
+                _base = _desired
             else:
                 _base = self._last_reserve_level
             _level = int(max(_floor, _base)) if _base is not None else _floor
+            # Fix-up MED-A: a readable write leg OR a trusted local witness
+            # → D1.3 decides (deadband against local); neither → pre-cycle
+            # deadband against the base (nothing re-sends per tick).
+            _readable = _hw is not None or (
+                _local is not None and _ec.RESERVE_ATTAIN_BASE_INTENT_ENABLED
+            )
             _, _act = self._reserve_action(
-                _level, compare_to=_base if _hw is None else None,
+                _level, compare_to=None if _readable else _base,
             )
             if _act is not None:
                 _actions.append(_act)
@@ -6181,8 +6335,10 @@ class BatteryStrategy:
                     else int(self.reserve_soc)
                 )
             if _rule is not None and not self._blind_operator_override:
+                # EC reserve oracle phase 2 N11: the blind path keeps the
+                # pre-cycle cloud compare even when a witness is healthy.
                 _folded, _act = self._reserve_action(
-                    _target, compare_to=_compare_to,
+                    _target, compare_to=_compare_to, witness_reference=False,
                 )
                 if _act is not None:
                     de_escalate_actions.append(_act)
@@ -6985,6 +7141,7 @@ class BatteryStrategy:
         reserve_level: int | None,
         *,
         compare_to: float | None = None,
+        witness_reference: bool = True,
     ) -> tuple[int | None, dict[str, Any] | None]:
         """EC storm/blind Stage A D-A2 — the ONE decision-side reserve writer.
 
@@ -7054,16 +7211,127 @@ class BatteryStrategy:
                     )
             except Exception:  # noqa: BLE001
                 _standdown_skip = False
-        if _reserve_target and not _standdown_skip and (
-            current_reserve is None
-            or abs(current_reserve - target_reserve) >= 2
-        ):
+        if not _reserve_target or _standdown_skip:
+            return _folded_int, None
+        from . import energy_const as _ec  # noqa: PLC0415
+        _db = float(_ec.RESERVE_DISPATCH_DEADBAND_PCT)
+        _emit_value = target_reserve
+        if compare_to is not None or not witness_reference:
+            # `compare_to` (blind unreadable leg / attain no-witness) and the
+            # blind de-escalation path (`witness_reference=False`, plan N11):
+            # pre-cycle compare, unchanged (no trust rule, no gap, no nudge).
+            _send = (
+                current_reserve is None
+                or abs(current_reserve - target_reserve) >= _db
+            )
+            # Fix-up LOW: name the reference these paths used.
+            self._reserve_reference_source = (
+                "compare_to" if compare_to is not None else "blind_cloud"
+            )
+        else:
+            _send, _emit_value = self._reserve_reference_decision(
+                target_reserve, current_reserve, _wv,
+            )
+        if _send:
             return _folded_int, {
                 "service": "number.set_value",
                 "target": _reserve_target,
-                "data": {"value": target_reserve},
+                "data": {"value": _emit_value},
             }
         return _folded_int, None
+
+    def _reserve_reference_decision(
+        self, target: int, cloud: float | None, wv: Any,
+    ) -> tuple[bool, int]:
+        """EC reserve oracle phase 2 D1.3 — sighted send/skip decision.
+
+        Returns ``(send, emitted_value)``. Order (first match wins, the
+        stand-down skip has already run):
+          C  no trusted witness → pre-cycle cloud compare (never gap-gated).
+          T  trusted local → candidate iff |local - target| >= deadband
+             (the cloud term is ignored: episode-B churn).
+          L  landed request far from target (and not its nudge) → candidate;
+             overrides T's within-deadband skip (R1-M1).
+          G  a T/L candidate is suppressed while the same desire (target or
+             its nudge) was dispatched within RESERVE_RESEND_MIN_GAP_S —
+             never a raise (RG-H1), never a rule-C send.
+        A surviving send picks its value through D2.
+        """
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
+        from . import energy_const as _ec  # noqa: PLC0415
+        db = float(_ec.RESERVE_DISPATCH_DEADBAND_PCT)
+        nudge_t = _nudge_value(target)
+        if wv is None:
+            local, src = None, "no_verifier"
+        else:
+            try:
+                soc = wv._read_soc_via_resolver(self)  # noqa: SLF001
+                local, src = wv.trusted_local_reserve(self, target, soc)
+            except Exception:  # noqa: BLE001
+                local, src = None, "unavailable"
+        last_ok = (
+            self._reserve_last_ok_value
+            if _ec.RESERVE_LEDGER_SEND_ENABLED else None
+        )
+        rule_l = (
+            last_ok is not None
+            and abs(last_ok - target) >= db
+            and last_ok != nudge_t
+        )
+        if local is None:
+            # Rule C (pre-cycle, byte-identical; INV-R3): plain target, no
+            # gap, no nudge. (A D2 nudge here would change the emitted value
+            # of a pre-cycle send — not one of INV-R3's two exceptions.)
+            if cloud is None or abs(cloud - target) >= db:
+                self._reserve_reference_source = (
+                    "cloud_low_soc_guard" if src == "low_soc_guard" else "cloud"
+                )
+                return True, target
+            if not rule_l:
+                self._reserve_reference_source = (
+                    "cloud_low_soc_guard" if src == "low_soc_guard" else "cloud"
+                )
+                return False, target
+            source = "ledger"
+            is_raise = target > last_ok
+        else:
+            rule_t = abs(local - target) >= db
+            if not rule_t and not rule_l:
+                self._reserve_reference_source = src
+                return False, target
+            source = src if rule_t else "ledger"
+            is_raise = target >= local + db
+        # Rule G (gates T/L only; never a raise).
+        gap = float(_ec.RESERVE_RESEND_MIN_GAP_S)
+        att_at = self._reserve_last_attempt_at
+        if gap > 0 and att_at is not None and not is_raise:
+            try:
+                age = (dt_util.utcnow() - att_at).total_seconds()
+            except Exception:  # noqa: BLE001
+                age = None
+            if (
+                age is not None
+                and age < gap
+                and self._reserve_last_attempt_value in (target, nudge_t)
+            ):
+                self._reserve_reference_source = "in_flight"
+                return False, target
+        self._reserve_reference_source = source
+        emit = _reserve_emit_value(self, target, cloud)
+        if emit != target:
+            # Fix-up D-MED-1: a raise (exempt from rule G, so it retries every
+            # tick) nudges at most once per gap; otherwise the plain/nudge
+            # alternation doubles the real writes of a stuck raise.
+            _nat = self._reserve_last_nudge_at
+            if is_raise and gap > 0 and _nat is not None:
+                try:
+                    _nage = (dt_util.utcnow() - _nat).total_seconds()
+                except Exception:  # noqa: BLE001
+                    _nage = None
+                if _nage is not None and _nage < gap:
+                    return True, target
+            self._reserve_last_nudge_at = dt_util.utcnow()
+        return True, emit
 
     def _result(
         self,
@@ -7572,6 +7840,14 @@ class BatteryStrategy:
                 "force_redispatch(%s): no write target resolved", surface,
             )
             return
+        # EC reserve oracle phase 2 D2 (R2-M2): same-value-drop bypass. The
+        # chosen value feeds ALL FOUR sinks below (service value, failure
+        # record, step-5 ledger stamp, both governor rows).
+        _gsf = getattr(self, "_get_state_float", None)
+        _desire_pre_nudge = live_desire
+        live_desire = _reserve_emit_value(
+            self, live_desire, _gsf(target) if _gsf is not None else None,
+        )
         # (4) dispatch through the HA service bus. Best-effort — a raise
         # here MUST NOT crash the sweep.
         try:
@@ -7614,7 +7890,14 @@ class BatteryStrategy:
                 )
                 if _rec is not None:
                     _rec(
-                        status=WriteStatus.FAILED, path="redispatch",
+                        # D5: `control_change_pending` is DEFERRED.
+                        status=(
+                            WriteStatus.DEFERRED
+                            if getattr(exc, "translation_key", None)
+                            == "control_change_pending"
+                            else WriteStatus.FAILED
+                        ),
+                        path="redispatch",
                         target=target, value=live_desire,
                         reason="force_redispatch (pending watchdog retry)",
                     )
@@ -7629,7 +7912,19 @@ class BatteryStrategy:
         # in _tap_write_verifier (energy.py:5236-5245).
         try:
             _now = dt_util.utcnow()
-            if self._last_reserve_level != live_desire:
+            # Fix-up HIGH-2: the plain/nudge pair of one desire does not
+            # re-anchor the episode (same-value retry contract).
+            _keys_fn = getattr(
+                getattr(self, "_coord", None), "_ledger_anchor_keys", None,
+            )
+            _keys = (
+                _keys_fn() if _keys_fn is not None
+                else (getattr(self, "_last_reserve_level_desired", None),
+                      _desire_pre_nudge)
+            )
+            if ledger_anchor_moves(
+                self, self._last_reserve_level, live_desire, _keys,
+            ):
                 self._last_reserve_level_at = _now
             self._last_reserve_level = live_desire
         except Exception:  # noqa: BLE001
@@ -7657,6 +7952,14 @@ class BatteryStrategy:
                 "force_redispatch: reserve_write row failed (applied)",
                 exc_info=True,
             )
+        # Fix-up LOW (D5): a re-dispatch that did not raise closes the
+        # surface's `control_change_pending` episode, like the timer path.
+        _ok_hook = getattr(wv, "note_dispatch_succeeded", None)
+        if _ok_hook is not None:
+            try:
+                await _ok_hook(surface)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("force_redispatch: ok hook failed", exc_info=True)
 
     def get_status(self) -> dict[str, Any]:
         """Return current battery strategy status for sensor.
@@ -7906,6 +8209,14 @@ class BatteryStrategy:
             "next_action_estimate": self._next_action_estimate(soc, now),
             # v5.15.x diagnostics
             "soc_source": self._soc_source_last,
+            # EC reserve oracle phase 2 D1.3.
+            "reserve_reference_source": self._reserve_reference_source,
+            # Fix-up LOW (E05): landed-request stamp, readable.
+            "reserve_last_landed": self._reserve_last_ok_value,
+            "reserve_last_landed_at": (
+                self._reserve_last_ok_at.isoformat()
+                if self._reserve_last_ok_at is not None else None
+            ),
             # EC-DEGRADED-DATA-POLICY-1 D5 (attributes only). Tier trust is
             # derived from the per-tick capture, NOT `_soc_source_last`
             # (R2-7: HVAC/DP reads of battery_soc re-stamp it).

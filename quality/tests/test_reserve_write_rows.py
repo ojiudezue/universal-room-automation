@@ -597,7 +597,10 @@ async def test_reserve_row_redispatch_bypasses_gate(clock):
     assert len(c.calls) == 2
     rs = rows(c)
     assert [r["path"] for r in rs] == ["redispatch", "redispatch"]
-    assert [r["value"] for r in rs] == [42, 42]
+    # EC reserve oracle phase 2 D2: the cloud already reads the desire 42,
+    # so `force_redispatch` emits the same-value-drop nudge 43 (both times:
+    # the cloud stays 42). The gate-bypass property is unchanged.
+    assert [r["value"] for r in rs] == [43, 43]
 
 
 @pytest.mark.asyncio
