@@ -500,7 +500,78 @@ Process:
 | N2 outage recovery | parked | parent card phase 3 |
 
 ## 13. D0 report
-(appended after the probe runs)
+
+**Run 2026-10-24 10:27 CDT (15:27 UTC), read-only** (`ssh ha "sudo -n python3 -"`, both DBs opened `mode=ro`). Prober: `ura-prober`. Scripts (scratchpad, not committed): `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/{s0,s1,s2,dump,s8}.py` (extraction), `{p1b,sim,p3}.py` (analysis). Sources: recorder `/config/home-assistant_v2.db` (`states`, `state_attributes`), URA DB `ura_activity_log action='reserve_write'` (226 rows, 10-16 23:42Z to 10-24 07:05Z), `anomaly_log`, `notification_log`.
+
+### 13.0 Data limits (read first)
+- **Recorder window is 10-17 09:12 UTC to now (7.3 days), not 10-16.** `purge_keep_days: 7` (`/config/configuration.yaml:13`). Retained local series starts 10-17 12:47Z, cloud 10-17 13:43Z. The 10-16/early 10-17 data cited in the plan (e.g. "local 10-26 at SOC 4-9") is purged; `reserve_write` rows exist from 10-16 23:42Z.
+- The recorder is change-only. Series used: `sensor.envoy_482543015950_reserve_battery_level` (local, 70 states), `number.iq_battery_hacs_battery_reserve` (cloud, 74), `sensor.envoy_482543015950_battery` (SOC, 1,417), `sensor.iq_gateway_hacs_system_profile_status` (896 incl. attributes), `sensor.envoy_stream_backup_reserve` (18).
+- Hold windows (EVSE hold on/off) are not logged on release (a deadbanded release writes no row). They were reconstructed from `sensor.span_panel_garage_{a,b}_evse_power` > 500 W (+4 min). Row cadence agrees with this proxy (rows stop when EV power drops). Stated as an approximation.
+
+### 13.1 P1 low-SOC regime: **GO** (constants hold; one recommendation)
+Method: 10,123 minutes with local, SOC and last-commanded value all known; "settled disagreement" = |local - commanded| >= 2 more than 600 s after the last `reserve_write` row; episodes A-D windows excluded for the bin table.
+
+| SOC - commanded (bin) | minutes | settled |local-cmd|>=2 | max(local-cmd) | max(local-SOC) | min(local-SOC) |
+|---|---|---|---|---|---|
+| -4 .. -2 | 970 | 6 | 0 | 2 | -85 (episode edge) |
+| 0 .. 1 | 1,370 | 6 | 5 | 5 | -2 |
+| 2 .. 3 | 186 | 24 | 2 | 0 | -4 |
+| 4 .. 5 | 144 | 5 | 2 | -2 | -6 |
+| 6 .. 29 | 1,300+ | **0** | 0 | <= -6 | |
+| >= 30 | 3,202 | **0** | 0 | | |
+
+- Wobble (local above commanded with no new write) exists only for SOC - commanded <= 5, all on 10-17 12:58 to 13:42Z (commanded 3, local 5 to 8, SOC 3 to 7). The commanded 3 was **rejected** (`battery_write_failed`, `out_of_range`, 10-17 12:47:23 and 13:17:23, `anomaly_log`), so the gateway enforced 5; relative to the effective 5 the largest SOC - commanded in a wobble minute is **2**; relative to the nominal 3 it is **4**.
+- Upper edge: the largest (local - SOC) in any wobble minute is **5**. The audit's 10-26 at SOC 4-9 (17 above SOC) is outside the retained window and **not re-verifiable**; it is still under 20.
+- Gate test ("wobble with SOC above commanded + 5, or local above SOC + 30"): **not triggered** (max 4 and 5). D1.1 is not redesigned.
+- Episodes C legs 2 and 3 (SOC 13, local 13, target 10) sit inside the guard at margin 3 (13 <= 10 + 3). The guard makes local untrusted there; rule L (last landed 13 vs target 10) releases them anyway (13.2). Without rule L the guard would mask them (cost about 3 points). Margin 0, 3, 5, 8 and span 20 / 30 give identical release outcomes in the replay.
+- **Recommendation:** keep `RESERVE_LOCAL_LOW_SOC_MARGIN_PCT` = 3 (valid against the effective commanded value) but set it to **5** if the builder compares to the *nominal* commanded value (covers the observed 4). Keep `RESERVE_LOCAL_RATCHET_SPAN_PCT` = 20. Observation for the builder (not a D0 gate): target below 5 is rejected by the integration (`out_of_range` at 3); the nudge of a target of 4 would be rejected too.
+
+### 13.2 P2 replay: **GO**
+Method: tick-by-tick (300 s) closed-loop replay of D1 rules C/T/L/G, the nudge triggers and the INV-R1 dwell, margin 3 / span 20, over 10-17 13:00Z to now. Inputs are recorded SOC, cloud, local and the last `reserve_write` desire/value; the gateway is modelled as recorded local until a simulated send, then local = sent value after the apply lag (30 s, and 461 s as a pessimistic run), dropped silently when the value equals the last selected value; the override ends at the next recorded numeric local change. The **pre-cycle** variant (rule C only) is run on the same inputs as a validation: it reproduces **102 re-sends in episode B's window, exactly the 102 actual rows**.
+**Limitations:** target = last row's `desire` carried forward (a desire change with no row is invisible); cloud is the recorded cloud (a simulated send does not change it); hold windows are the EVSE-power proxy; ticks are not aligned to the real tick phase; recorded cloud is empty before 10-17 13:43Z (see the artifact below); the pending-episode shape is not exercised (as the plan stated) and stays on the synthetic test.
+
+| Episode | Pre-cycle (actual) | New rules (replay) | Released within 2400 s? |
+|---|---|---|---|
+| A, 10-19 (hold 79/98; cloud 9) | hold ended 18:31Z (EV off); local stuck 79 vs desire 10 until the next hold at 19:26Z, about 55 min | 18:47Z rule T sends 10 (plain) | **Yes**, 16 min after the EV session ended |
+| B, 10-19 21:37Z to 10-20 06:07Z (cloud 98, local 10 = desire) | 102 identical re-sends, 12/h for 8 h, churn NM, 5 false CRITICAL pages | 0 re-sends (rule T ignores the cloud term) | n/a (local already = desire); churn removed |
+| C, 10-22 06:10Z to 10-23 10:00Z (holds 15, 13, 13; cloud 10; local 15/13) | unreleased 27.8 h | 06:17Z rule T sends **11** (nudge, trigger a: cloud = target); 10-22 08:17Z and 10-23 08:17Z rule L sends 11 (SOC 13 inside the guard, last landed 13) | **Yes** on all three legs, 7 min after each hold ended |
+| D, 10-23 19:40Z to 10-24 00:23Z (hold 98; cloud 10; local 98) | unreleased 4 h 43 min, ended by the operator write 12 | 19:47Z rule T sends **11** (nudge) | **Yes**, 7 min after the hold ended |
+| E (extra, not in the plan), 10-24 00:25Z to 06:06Z (cloud stuck 12; local 10, then 15) | 66 re-sends, churn NM 01:30Z, false CRITICAL 02:15Z / 02:20Z | 00:27Z sends 10 (operator had written 12, legitimate); then 0, except 04:07-04:17Z (local unavailable, rule C = pre-cycle, 3 sends) | n/a |
+
+- **INV-R1:** pre-cycle violates it 3 times (10-22 06:17Z, 10-22 14:32Z, 10-23 19:47Z); new rules: **0 violations** at lag 30 s and at lag 461 s. Every minute left unreleased in the new run: none.
+- **D4 would have fired under pre-cycle code:** yes, in episodes C (10-22 07:07Z, 15:22Z) and D (10-23 20:37Z), as expected (NM latched once per day: 10-22 and 10-23). Under the new rule: **none**. Episode A's pre-cycle dwell is about 45 min (< 2700 s), no fire.
+- **INV-R4:** pre-cycle: 195 non-hold sends, max **12/h**, 16 hours above 4. New: 18 sends (22 at lag 461): rule T 4 to 5, rule L 2, rule G suppressed 1, rule C 10 to 15. New-path (T and L) sends: **max 1 per hour**, none within 900 s of the same value. Max total in any hour is 6 (9 at lag 461), all in 10-17 13:00Z and all **rule C** with `cloud = None`: an artifact (recorded cloud history starts 13:43Z, so rule C sees "cloud unreadable" and sends every tick, which is pre-cycle behaviour, INV-R3). Excluding that hour, no hour exceeds 3 and every send is either a new-path send or a rule C send in the daily 04:06-04:20Z local-unavailable window (pre-cycle behaviour).
+- **Notes for the builder:** (1) the nudge alternation 16, 16, 15 at 10-24 04:07-04:17Z shows D2 triggers apply to rule C sends too (the plan text says "when D1 decides to send"); consistent, but test it. (2) The C-leg releases depend on rule L when SOC is within margin of target, so `_reserve_last_ok_value` being None after a restart (RAM-only) means a restart inside such a window is not released until the first landed dispatch (C13 stands).
+- Pre-cycle false pages in the window (D3 value): 15 distinct CRITICAL "Envoy write not applied / reverted / self-heal loop: reserve_soc" events (`notification_log`, 10-19 18:42Z to 10-24 02:20Z), **all 15 with the local sensor within 0 of the commanded value** (INV-R2 falsifier: 0 of 15 were true failures).
+
+### 13.3 P3 pending attribute: **D6 stays PARKED**
+`sensor.iq_gateway_hacs_system_profile_status` stores `pending`, `requested_reserve_percentage`, `selected_reserve_percentage`, `effective_reserve_percentage`, `pending_requested_at` in recorder attributes (pending key present in 895 of 896 states; true in 253).
+- 20 `pending: true` intervals. **15 cleared in 51 to 204 s** (p50 76 s). **5 never cleared on their own: 3,981 s, 30,674 s, 99,268 s, 17,217 s, 20,185 s**, i.e. exactly episodes A, B, C, D and E; in each, local had matched the request within 8 to 46 s of `pending` turning true and `pending` stayed true for the whole stale-cloud episode.
+- Share clearing within 5 min: **75%** (15 of 20) against the revival bar of 95%. Not met. `pending` stuck true is the same fault as the stale cloud, not an independent oracle. D6 remains parked.
+
+### 13.4 P4 apply lag and write collision: **GO**
+- Method: for every `reserve_write` row (applied, timer path) whose value differs from the local reading 120 s earlier, time to the first local reading within 1 of the written value. n = 21 landed rows with local data in the window (8 more rows 10-16/10-17 predate the retained local series; excluded).
+- **Local apply lag (s): p50 7.8, p90 69, p99 177, max 177** (signed min -23 s: local moves before the log row, the timestamp artifact the audit noted). Slowest: 10-20 07:11Z (177 s), 10-17 13:52Z (101 s), 10-17 13:42Z (69 s).
+- Named cases: operator write 12: `pending_requested_at` 00:23:40Z, local 12 at 00:23:45Z (**5 s**), cloud 12 at 00:25:09Z (89 s). URA write 10: requested 00:30:05Z, local 10 at 00:30:13Z (**8 s**), cloud **never** updated (stale 12 until 06:06Z).
+- `RESERVE_RESEND_MIN_GAP_S` = 900 >= 600 (Enphase window) and >= p90 69 s: **PASS**. `RESERVE_APPLY_LAG_ALLOWANCE_S` = 900 >= p99 177 s: **PASS** (the plan's 461 s p90 came from the July B0 probe; this window is much faster, so 900 is conservative).
+- `control_change_pending` raises in the window: **0**. `anomaly_log` `battery_write_failed` = 3 rows, all `out_of_range` (commanded 3, 10-17). 11 pairs of different-value writes less than 600 s apart (e.g. 10-23 09:54:59Z then 10:00:13Z; 10-24 06:10:03Z then 06:15:17Z) were all accepted, none raised. Caveat: n = 21, healthy-gateway lags only; the stuck-pending shape (07-16 67-minute case, 10-12..14) is outside the retained window, so D5's classification stays covered by the synthetic test only.
+
+### 13.5 P5 stream witness: **NO-GO** (tier 2 ships `RESERVE_STREAM_WITNESS_ENABLED = False`, PARKED)
+- The entity exists and is enabled: entity registry `sensor.envoy_stream_backup_reserve`, platform `mqtt`, unique_id `envoy_stream_backup_reserve`, `disabled_by: null` (`/config/.storage/core.entity_registry`); YAML `/config/packages/envoy_mqtt.yaml:97-104` has `expire_after: 60`.
+- **It has never been numeric in the retained window.** Recorder: 18 states 10-17 18:24Z to 10-24 15:10Z, **all `unavailable`**; same for all 23 `*_stream_*` entities (18 rows each, 18 unavailable), including `binary_sensor.envoy_stream_publishing`. `core.restore_state` (last_seen 15:13Z) = `unavailable`. No agreement/lead-lag/episode A-E tracking can be computed because there is no numeric sample. (These rows are the restart/MQTT-reconnect unavailable writes; they are not excluded by the recorder config: only `*_stream_data_timestamp/_age` are, `configuration.yaml:314-315`.)
+- Cause (from the board, not re-read live): the add-on `13e68335_envoy_to_mqtt_json` was **stopped and set to boot=manual 2026-10-05** after the 48 h A/B went NO-GO (peak battery cutouts 30 to 138 per 48 h with the stream running; `kanban.data.yaml` readout_2026_10_05 line 1099, disposition line 1090). `kanban.data.yaml:19960` already records `sensor.envoy_stream_grid_power` dead for 4+ days. The Sept 3.7 PASS (10/10) therefore describes a feed that is intentionally off. I could not read the add-on state live (`ha addons` returned unauthorized).
+- **After today's HA restart** (unavailable rows at 15:10:18Z): the stream did **not** recover (still `unavailable` in the 15:13Z restore state), which is expected. For comparison, local `sensor.envoy_482543015950_reserve_battery_level` recovered (15 at 15:10:31Z) and the cloud number recovered (15.0 at 15:11:41Z); profile status reads `pending: false`, `selected_reserve_percentage: 15`.
+- Consequence: C4 residual stands at the full local-down share (local unavailable 7.4% of the window, plus the daily 04:06-04:20Z outage). Recommend the builder **does not build the tier-2 resolver at all** (marginal-benefit rule: the enabled flag would be dead code on a retired feed); park it with revival trigger "stream add-on re-enabled AND a 3.7-style reserve-change match measured". Plan edit needed in D1.1, 1.4, 7 and the two resolver tests if so.
+
+### 13.6 Gate summary
+| Gate | Verdict | Basis |
+|---|---|---|
+| P1 bounds for `RESERVE_LOCAL_LOW_SOC_MARGIN_PCT` / `RESERVE_LOCAL_RATCHET_SPAN_PCT` | **GO** (3 / 20; consider 5 if nominal commanded is used) | max SOC-cmd in wobble 4 (2 effective), max local-SOC 5, redesign thresholds 5 / 30 not hit; upper edge from audit not re-verifiable |
+| P2 replay (INV-R1, INV-R4, episodes A-D) | **GO** | A, C (3 legs), D released in 16, 7, 7 min; B churn 102 to 0; INV-R1 0 violations; new-path max 1/h; pre-cycle D4 would fire in C and D, new rule none |
+| P4 apply lag vs `RESERVE_RESEND_MIN_GAP_S` / `RESERVE_APPLY_LAG_ALLOWANCE_S` | **GO** | p50 7.8 / p90 69 / p99 177 s (n = 21) vs 900 / 900; 0 `control_change_pending` raises |
+| P5 stream witness | **NO-GO** | never numeric; add-on retired 10-05; tier 2 off and parked |
+| P3 / D6 | **stays PARKED** | 75% clear within 5 min (bar 95%); the 5 that never clear are the stale-cloud episodes |
+| Gate rule (P1, P2, P4 in bounds) | **Build may be dispatched** | operator checkpoint rules unchanged |
 
 ### Rev 2 disposition (all findings of both plan reviews)
 
