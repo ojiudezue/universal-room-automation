@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T16:58:32-05:00_ - _Data commit: `cc7a29872b0e`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T16:59:49-05:00_ - _Data commit: `ed1e714bcde0`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
@@ -646,7 +646,8 @@ _created 2026-10-21 · updated 2026-10-22 02:05 · refined_
 - **Why:** A tripwire firing three times in four days means the EVSE is toggling; if it is a peak-boundary flip-flop it wastes contactor cycles and may charge on peak.
 - **Next:** PICK: A (recommended, Tier 1, reversible, alarm-only): the tripwire stops counting a pause that is reversed by the excess-solar claim within a few seconds, so routine evenings stop paging HIGH while real flapping still trips it; or B (Ti...
 - **Parsimony:** [SIMPLIFY (A: tripwire exemption, Tier 1); B parked unless the contactor cycle matters] The 17:00 TOU pause is reversed by the excess-solar claim within 2 s, and the later conditions-lost off makes a third toggle, so the tripwire pages HIGH on routine behaviour most evenings.
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `INSTANCE_2026_10_24`: Fired 20:23:36Z on BOTH chargers after the 19:02Z v5.103.89 restart: 19:03 off (boot, Paused for Battery Fill), 19:28 on (owner none), 20:08 off (owner arbitrage), 20:23 on. Power 0 W at every toggle (no car charging; zero cost). Not cau...
   - `paged_2026_10_22_overnight`: Paged 2026-10-22 02:09 CDT in one quiet notification (notify.madronehapushover, priority -1, wakes nobody) with the A/B/C pick.
   - `residual_2026_10_22_1019`: 10-19 13:36 fire is a DIFFERENT event (off-peak). 13:21:36 on (off-peak ensure-on), 13:31:36 off (fill_priority + dp pause after battery fell 80 -> 78% and evse_battery_hold reserve write at 13:27), 13:36:36 on while _paused_by_dp was st...
   - `measured_2026_10_22`: MECHANISM FOUND (overnight read-only probe; URA DB ura_activity_log + anomaly_log, recorder Solcast history; code re-read by the orchestrator). Tripwire: more than 2 toggles in 3600 s per charger, latched once per day (energy_write_verif...
