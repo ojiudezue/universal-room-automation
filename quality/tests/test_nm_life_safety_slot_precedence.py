@@ -403,7 +403,7 @@ async def test_one_ack_clears_every_unacked_critical_across_coordinators(
     await db._write_queue.join()
     assert sum(1 for r in _rows(db) if r["acknowledged"] == 0) == 4
 
-    await rig.nm.async_acknowledge()
+    await rig.nm.async_acknowledge(bulk_authority="trusted")
     await db._write_queue.join()
     assert [r for r in _rows(db) if r["acknowledged"] == 0] == []
     assert await db.get_active_criticals() == []
@@ -443,7 +443,9 @@ async def test_idle_ack_clears_leftover_criticals_without_touching_slot(
     monkeypatch.setattr(rig.nm, "_panel_release_id", released.append)
     assert rig.nm.alert_state == AlertState.IDLE
 
-    await rig.nm.async_acknowledge(acked_by_channel="button")
+    await rig.nm.async_acknowledge(
+        acked_by_channel="button", bulk_authority="trusted",
+    )
     await db._write_queue.join()
     assert [r for r in _rows(db) if r["acknowledged"] == 0] == []
     assert sorted(released) == [
@@ -454,6 +456,175 @@ async def test_idle_ack_clears_leftover_criticals_without_touching_slot(
     assert not rig.nm._active_alert_data
     assert not any(r["cooldown_expires"] for r in _rows(db))
     from test_imsg_audit_fix_1 import _drain
+    await _drain(db)
+
+
+async def _log_crit(db, coord, hz, loc=None, ch="pushover"):
+    return await db.log_notification(
+        coord, "CRITICAL", hz, f"{hz} msg", hz, loc, None, ch, 1,
+    )
+
+
+def _unacked(db):
+    return sorted(r["hazard_type"] for r in _rows(db) if r["acknowledged"] == 0)
+
+
+async def _rig_with_db(monkeypatch, clock, tmp_path):
+    db = await _real_db(tmp_path)
+    rig = Rig(monkeypatch, clock)
+    rig.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    monkeypatch.setattr(rig.nm, "_panel_release_id", lambda _id: None)
+    return rig, db
+
+
+@pytest.mark.asyncio
+async def test_plain_ack_on_high_slot_leaves_backlog_criticals(
+    monkeypatch, clock, tmp_path
+):
+    """A plain "ack" text (no safe word) on a non-critical slot acks the slot
+    only — security and smoke CRITICALs stay unacked."""
+    from test_imsg_audit_fix_1 import _drain
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    await _log_crit(db, "perimeter", "exterior_person", "Side Gate")
+    await _log_crit(db, "safety", "smoke", "Garage")
+    await db._write_queue.join()
+    rig.nm._alert_state = AlertState.ALERTING
+    rig.nm._active_alert_data = {
+        "coordinator_id": "energy", "severity": "HIGH",
+        "hazard_type": "reserve_soc", "location": None, "title": "Reserve",
+    }
+    await rig.nm._process_inbound_reply("person.guest", "pushover", "ack")
+    await db._write_queue.join()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert _unacked(db) == ["exterior_person", "smoke"]
+    await _drain(db)
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_safe_word_clears_smoke_not_security(
+    monkeypatch, clock, tmp_path
+):
+    """Safe word from a person WITHOUT security authority on a smoke slot:
+    smoke (and other non-security) rows cleared, exterior_person +
+    envoy_write_verification stay unacked."""
+    from test_imsg_audit_fix_1 import _drain
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    monkeypatch.setattr(rig.nm, "_refresh_config", lambda: None)
+    rig.nm._config["nm_safe_word"] = "dukeword"
+    rig.nm._config["nm_security_ack_persons"] = ["person.operator"]
+    await _log_crit(db, "perimeter", "exterior_person", "Side Gate")
+    await _log_crit(db, "energy", "envoy_write_verification")
+    await _log_crit(db, "energy", "reserve_soc")
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await _log_crit(db, "safety", "smoke", "Garage", ch="tts")
+    await db._write_queue.join()
+    await rig.nm._process_inbound_reply("person.guest", "pushover", "dukeword")
+    await db._write_queue.join()
+    assert rig.nm.alert_state == AlertState.COOLDOWN
+    assert _unacked(db) == ["envoy_write_verification", "exterior_person"]
+    await _drain(db)
+
+
+@pytest.mark.asyncio
+async def test_bulk_ack_leaves_audit_rows_untouched(monkeypatch, clock, tmp_path):
+    from test_imsg_audit_fix_1 import _drain
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    await _log_crit(db, "energy", "reserve_soc")
+    await db.log_notification(
+        "energy", "CRITICAL", "audit twin", "[audit]", "reserve_soc", None,
+        None, "pushover", 1,
+    )
+    await db._write_queue.join()
+    await rig.nm.async_acknowledge(
+        acked_by_channel="button", bulk_authority="trusted",
+    )
+    await db._write_queue.join()
+    conn = sqlite3.connect(db.db_file)
+    audit = list(conn.execute(
+        "SELECT acknowledged FROM notification_log WHERE message = '[audit]'"
+    ))
+    conn.close()
+    assert audit == [(0,)]
+    assert _unacked(db) == []
+    await _drain(db)
+
+
+@pytest.mark.asyncio
+async def test_critical_logged_after_ack_cutoff_is_not_swept(
+    monkeypatch, clock, tmp_path
+):
+    """A CRITICAL that lands mid-ack (after the operator pressed ack, during
+    the ack's awaits) must stay unacked: the cutoff is captured up front."""
+    from test_imsg_audit_fix_1 import _drain
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    await _log_crit(db, "energy", "reserve_soc")
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await _log_crit(db, "safety", "smoke", "Garage", ch="tts")
+    await db._write_queue.join()
+
+    async def _late_arrival():
+        clock.advance(2)
+        await _log_crit(db, "perimeter", "intruder", "Back Door")
+        await db._write_queue.join()
+
+    monkeypatch.setattr(rig.nm, "_restore_alert_lights", _late_arrival)
+    await rig.nm.async_acknowledge(
+        acked_by_channel="button", bulk_authority="trusted",
+    )
+    await db._write_queue.join()
+    assert _unacked(db) == ["intruder"]
+    await _drain(db)
+
+
+@pytest.mark.asyncio
+async def test_button_press_clears_all_including_security(
+    monkeypatch, clock, tmp_path
+):
+    from test_imsg_audit_fix_1 import _drain
+    from unittest.mock import MagicMock
+    from custom_components.universal_room_automation import button as btn_mod
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    await _log_crit(db, "perimeter", "exterior_person", "Side Gate")
+    await _log_crit(db, "energy", "envoy_write_verification")
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await _log_crit(db, "safety", "smoke", "Garage", ch="tts")
+    await db._write_queue.join()
+    rig.nm.hass.data[nm_mod.DOMAIN]["notification_manager"] = rig.nm
+    btn = btn_mod.NMAcknowledgeButton(rig.nm.hass, MagicMock())
+    await btn.async_press()
+    await db._write_queue.join()
+    assert _unacked(db) == []
+    await _drain(db)
+
+
+@pytest.mark.asyncio
+async def test_companion_action_ack_clears_all_including_security(
+    monkeypatch, clock, tmp_path
+):
+    from test_imsg_audit_fix_1 import _drain
+    from types import SimpleNamespace
+    rig, db = await _rig_with_db(monkeypatch, clock, tmp_path)
+    await _log_crit(db, "perimeter", "exterior_person", "Side Gate")
+    await rig.nm._enter_alerting(
+        "safety", "CRITICAL", "Smoke", "smoke in garage", "smoke", "Garage"
+    )
+    await _log_crit(db, "safety", "smoke", "Garage", ch="tts")
+    await db._write_queue.join()
+    tasks = []
+    rig.nm.hass.async_create_task = lambda coro, *a, **k: tasks.append(coro)
+    rig.nm._handle_companion_action(
+        SimpleNamespace(data={"action": "ACKNOWLEDGE_URA"})
+    )
+    assert len(tasks) == 1
+    await tasks[0]
+    await db._write_queue.join()
+    assert _unacked(db) == []
     await _drain(db)
 
 

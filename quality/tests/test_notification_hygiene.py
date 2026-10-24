@@ -220,12 +220,34 @@ def test_fix4_ack_audit_row_uses_emit_audit_row_with_ack_reason():
 
 
 def test_fix4_callers_thread_channel_label():
-    # Service handler labels as "service".
-    assert 'nm.async_acknowledge(acked_by_channel="service")' in INIT_SRC
-    # Button labels as "button".
-    assert 'nm.async_acknowledge(acked_by_channel="button")' in BUTTON_SRC
-    # Companion action labels as "companion".
-    assert 'acked_by_channel="companion"' in NM_SRC
+    """The ack button labels its ack and carries operator-grade bulk
+    authority (NM-ACK-CLEARS-ALL) — behavioural (was a source grep).
+    Companion route is driven in test_nm_life_safety_slot_precedence.py.
+    The service handler is a closure inside
+    ``_async_register_notification_services`` and the package module is
+    stubbed in this process, so it stays a text pin (updated, not widened)."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from custom_components.universal_room_automation import button as btn_mod
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    assert (
+        'nm.async_acknowledge(\n'
+        '                acked_by_channel="service", bulk_authority="trusted",'
+    ) in INIT_SRC
+
+    nm = MagicMock()
+    nm.async_acknowledge = AsyncMock()
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"notification_manager": nm}}
+
+    async def _drive():
+        await btn_mod.NMAcknowledgeButton(hass, MagicMock()).async_press()
+
+    asyncio.run(_drive())
+    assert nm.async_acknowledge.await_args.kwargs == {
+        "acked_by_channel": "button", "bulk_authority": "trusted",
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -176,6 +176,10 @@ from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
 
 _LOGGER = logging.getLogger(__name__)
 
+# NM-ACK-CLEARS-ALL: bulk-ack authority levels for async_acknowledge.
+BULK_ACK_TRUSTED = "trusted"
+BULK_ACK_NON_SECURITY = "non_security"
+
 
 class AlertState(StrEnum):
     """Notification Manager alert state machine states."""
@@ -3063,19 +3067,29 @@ class NotificationManager:
         acked_by_channel: str | None = None,
         safe_word_source: str | None = None,
         authority_reason: str | None = None,
+        bulk_authority: str | None = None,
     ) -> None:
         """Acknowledge the active alert — stops repeating, starts cooldown.
+
+        NM-ACK-CLEARS-ALL: ``bulk_authority`` decides whether the ack also
+        sweeps the whole unacked CRITICAL backlog. ``None`` (default,
+        conservative) = slot alert only; ``BULK_ACK_NON_SECURITY`` = sweep
+        all but NM_SECURITY_ACK_HAZARDS rows; ``BULK_ACK_TRUSTED`` = sweep
+        everything (button / service / companion / authorized safe word).
 
         NM Cycle B B2: on ack, write the current episode into
         ``_ack_registry`` so a mid-episode HA restart won't re-fire the
         same alert. Registry entry cadence = once per acked episode
         (bounded by hazard cadence, not per tick — write-flood safe).
         """
+        # Captured before any await: the bulk sweep never reaches a CRITICAL
+        # logged after the operator acked.
+        ack_cutoff = dt_util.utcnow().isoformat()
         if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
             _LOGGER.debug("No active alert to acknowledge")
             # NM-ACK-CLEARS-ALL: still clear any leftover unacked CRITICAL
             # backlog (no slot/state change) so restart can't re-raise it.
-            await self._ack_all_criticals_and_release()
+            await self._ack_all_criticals_and_release(bulk_authority, ack_cutoff)
             return
 
         _LOGGER.info(
@@ -3147,7 +3161,7 @@ class NotificationManager:
                 await database.acknowledge_notification()
             # NM-ACK-CLEARS-ALL: one operator ack clears EVERY unacked
             # CRITICAL (all coordinators/channels), not just the slot alert.
-            await self._ack_all_criticals_and_release()
+            await self._ack_all_criticals_and_release(bulk_authority, ack_cutoff)
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against
@@ -3202,18 +3216,35 @@ class NotificationManager:
         # Start cooldown
         await self._start_cooldown()
 
-    async def _ack_all_criticals_and_release(self) -> None:
-        """NM-ACK-CLEARS-ALL: ack every unacked CRITICAL row and release each
-        acked episode's panel lease. Touches no slot/alert state."""
+    async def _ack_all_criticals_and_release(
+        self, bulk_authority: str | None, cutoff: str,
+    ) -> None:
+        """NM-ACK-CLEARS-ALL: ack every unacked CRITICAL row (up to
+        ``cutoff``) the ack's authority covers and release each acked
+        episode's panel lease. Touches no slot/alert state."""
+        if bulk_authority not in (BULK_ACK_TRUSTED, BULK_ACK_NON_SECURITY):
+            return
         database = self.hass.data.get(DOMAIN, {}).get("database")
         bulk = getattr(database, "acknowledge_all_criticals", None)
         if bulk is None:
             return
-        for ep in await bulk() or []:
+        exclude = (
+            () if bulk_authority == BULK_ACK_TRUSTED
+            else tuple(NM_SECURITY_ACK_HAZARDS)
+        )
+        for ep in await bulk(cutoff, exclude) or []:
             self._panel_release_id(self._panel_lease_id(
                 ep.get("coordinator_id"), ep.get("hazard_type"),
                 ep.get("location"),
             ))
+
+    @staticmethod
+    def _safe_word_bulk_authority(authority_reason: str | None) -> str:
+        """Verified safe word sweeps the backlog; security-family rows only
+        when the sender carries security authority."""
+        if authority_reason in ("authorized_security", "companion_trusted"):
+            return BULK_ACK_TRUSTED
+        return BULK_ACK_NON_SECURITY
 
     async def _start_cooldown(self) -> None:
         """Start the post-ack cooldown period."""
@@ -3350,6 +3381,7 @@ class NotificationManager:
                     acked_by_person="companion_user",
                     acked_by_channel="companion",
                     authority_reason="companion_trusted",
+                    bulk_authority=BULK_ACK_TRUSTED,
                 )
             )
         elif action == "STATUS_URA":
@@ -3693,6 +3725,7 @@ class NotificationManager:
                     acked_by_channel=channel,
                     safe_word_source=_sw_source or None,
                     authority_reason=auth_reason,
+                    bulk_authority=self._safe_word_bulk_authority(auth_reason),
                 )
                 await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
@@ -3706,6 +3739,7 @@ class NotificationManager:
                     acked_by_channel=channel,
                     safe_word_source=_sw_source or None,
                     authority_reason=auth_reason,
+                    bulk_authority=self._safe_word_bulk_authority(auth_reason),
                 )
                 response = "Alert acknowledged."
             else:

@@ -6597,7 +6597,9 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
         if nm:
             # FIX 4: label service-triggered acks so the audit row can
             # distinguish them from inbound-channel + button acks.
-            await nm.async_acknowledge(acked_by_channel="service")
+            await nm.async_acknowledge(
+                acked_by_channel="service", bulk_authority="trusted",
+            )
         else:
             _LOGGER.warning("Notification Manager not available for acknowledge")
 
