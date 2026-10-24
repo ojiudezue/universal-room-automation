@@ -574,7 +574,9 @@ class NMAcknowledgeButton(ButtonEntity):
         """Handle button press — acknowledge the active alert."""
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm:
-            await nm.async_acknowledge(acked_by_channel="button")
+            await nm.async_acknowledge(
+                acked_by_channel="button", bulk_authority="trusted",
+            )
             _LOGGER.info("Alert acknowledged via dashboard button")
         else:
             _LOGGER.warning("Notification Manager not available")
