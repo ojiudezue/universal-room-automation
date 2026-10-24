@@ -501,7 +501,7 @@ Process:
 
 ## 13. D0 report
 
-**Run 2026-10-24 10:27 CDT (15:27 UTC), read-only** (`ssh ha "sudo -n python3 -"`, both DBs opened `mode=ro`). Prober: `ura-prober`. Scripts (scratchpad, not committed): `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/{s0,s1,s2,dump,s8}.py` (extraction), `{p1b,sim,p3}.py` (analysis). Sources: recorder `/config/home-assistant_v2.db` (`states`, `state_attributes`), URA DB `ura_activity_log action='reserve_write'` (226 rows, 10-16 23:42Z to 10-24 07:05Z), `anomaly_log`, `notification_log`.
+**Run 2026-10-24 10:27 CDT (15:27 UTC), read-only** (`ssh ha "sudo -n python3 -"`, both DBs opened `mode=ro`). Prober: `ura-prober`. Scripts: `scripts/probes/ec_reserve_d0/{s0,s1,s2,dump,s8}.py` (extraction), `{p1b,sim,p3}.py` (analysis). Sources: recorder `/config/home-assistant_v2.db` (`states`, `state_attributes`), URA DB `ura_activity_log action='reserve_write'` (226 rows, 10-16 23:42Z to 10-24 07:05Z), `anomaly_log`, `notification_log`.
 
 ### 13.0 Data limits (read first)
 - **Recorder window is 10-17 09:12 UTC to now (7.3 days), not 10-16.** `purge_keep_days: 7` (`/config/configuration.yaml:13`). Retained local series starts 10-17 12:47Z, cloud 10-17 13:43Z. The 10-16/early 10-17 data cited in the plan (e.g. "local 10-26 at SOC 4-9") is purged; `reserve_write` rows exist from 10-16 23:42Z.
