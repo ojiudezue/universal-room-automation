@@ -355,6 +355,14 @@ if [[ -n "$CARDS" ]]; then
     else
       echo "  [dry-run] [warn] rehearsal FAILED — vibememo writer errored" >&2
     fi
+    # WORKLOG-APPEND-AT-SHIP-1: rehearse the release-index append on a copy.
+    wl_live="$REPO_DIR/docs/planning/WORKLOG_$(date +%Y-%m)_session.md"
+    wl_copy="$rehearsal_dir/worklog.md"
+    [ -f "$wl_live" ] && cp "$wl_live" "$wl_copy"
+    python3 "$SCRIPT_DIR/worklog_ship.py" --version "$VERSION" --summary "$SUMMARY" \
+      --cards "$CARDS" --repo-root "$REPO_DIR" --file "$wl_copy" \
+      | sed 's/^/  [dry-run] /' \
+      || echo "  [dry-run] [warn] worklog rehearsal FAILED" >&2
     echo "  [dry-run] git add + commit + push (kanban reconcile) — NOT executed"
     rm -rf "$rehearsal_dir"; trap - EXIT
   else
@@ -375,6 +383,14 @@ if [[ -n "$CARDS" ]]; then
          --revisit-trigger "$REVISIT" \
       --cards "$CARDS"
     vibememo_rc=$?
+    # WORKLOG-APPEND-AT-SHIP-1: one release-index line in the month's work log.
+    # Warn-only like the other post-push writers; staged with the reconcile commit.
+    python3 "$SCRIPT_DIR/worklog_ship.py" --version "$VERSION" --summary "$SUMMARY" \
+      --cards "$CARDS" --repo-root "$REPO_DIR"
+    worklog_rc=$?
+    if [ "$worklog_rc" -ne 0 ]; then
+      echo "  [warn] [WORKLOG-APPEND-AT-SHIP-1] worklog append FAILED (rc=$worklog_rc) — add the v$VERSION line by hand" >&2
+    fi
     if [ "$kanban_rc" -ne 0 ]; then
       echo "  [warn] [BOARD-CURRENCY-1] kanban write FAILED (rc=$kanban_rc) — board is now stale for $CARDS; catch up manually" >&2
     fi
@@ -387,6 +403,10 @@ if [[ -n "$CARDS" ]]; then
       git -C "$REPO_DIR" add \
         "$KANBAN_YAML" \
         "$REPO_DIR/.vibememo/users/"
+      if [ "$worklog_rc" -eq 0 ]; then
+        git -C "$REPO_DIR" add "$REPO_DIR/docs/planning/WORKLOG_$(date +%Y-%m)_session.md" \
+          || echo "  [warn] [WORKLOG-APPEND-AT-SHIP-1] worklog not staged" >&2
+      fi
       staged="$(git -C "$REPO_DIR" diff --cached --name-only)"
       if [ -z "$staged" ]; then
         echo "  [warn] [BOARD-CURRENCY-1] git add produced no staged files — nothing to reconcile?" >&2
