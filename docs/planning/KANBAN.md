@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T17:00:27-05:00_ - _Data commit: `2aa338ca84e6`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T18:31:51-05:00_ - _Data commit: `a9729ce8ffae`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
@@ -50,9 +50,10 @@ thread: **presence** - status: **pre_planning**
 _created 2026-10-24_
 - **Why:** GPS is optional per user (location off, iOS permission denied, privacy) and can freeze; BLE with fleet liveness is the house's own evidence. Away-mode and house-state decisions consume this.
 - **Next:** Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY + SENSOR_FLEET_CLASSES first. Plan: when BLE is silent with liveness proof, GPS home only counts if fresh (knob, rung 3) and otherwise BLE-silent away wins; GPS missing must never block away. Deci...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
   - `measured_2026_10_24`: person.oji_udezue home, source = phone GPS tracker last_updated 14:03 local (just after the 14:02 restart; no update since). Both BLE trackers not_home. URA sensor.universal_room_automation_oji_udezue_location = Home, reason home_ble_sil...
+  - `measured_2026_10_24_away_path`: Prober (code + recorder 10-17..10-24): URA forces a person ACTIVE+home whenever HA person.state==home (person_coordinator.py:725-770), regardless of BLE; the matrix row stamps are not the decision. No timeout on a stale GPS home -> house...
 
 ### `EC-TOU-TRANSITION-DOUBLE-CONSUME-1` - Manager and timer both consume the TOU-period change; if the manager wins, the arbitrage chunk reset and transition-into-peak check are skipped for that boundary — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **pre_planning**
