@@ -2520,6 +2520,20 @@ class NotificationManager:
         snapshot_path: str | None = None,
     ) -> None:
         """Enter ALERTING state for a CRITICAL notification."""
+        # NM-MULTI-ALERT-TRACKING-1 (SIMPLIFY): an unacknowledged LIFE-SAFETY
+        # alert keeps the single active slot against a NON-life-safety
+        # newcomer (e.g. a perimeter CRITICAL). The newcomer was already
+        # delivered on its channels by async_notify; it just does not take
+        # over the repeat cadence or the ack target. Life-safety newcomers,
+        # and any newcomer over a non-life-safety slot, preempt as before.
+        if self._life_safety_slot_holds_against(hazard_type):
+            _LOGGER.info(
+                "NM: active life-safety alert %r retains slot; %r (%s) "
+                "delivered without taking the repeat/ack slot",
+                (self._active_alert_data or {}).get("hazard_type"),
+                title, hazard_type,
+            )
+            return
         # Cancel any existing cooldown/countdown from a previous alert
         if self._cooldown_unsub:
             self._cooldown_unsub()
@@ -2560,6 +2574,20 @@ class NotificationManager:
         # Start repeat timer
         self._alert_state = AlertState.REPEATING
         self._schedule_repeat()
+
+    def _life_safety_slot_holds_against(self, new_hazard_type: str | None) -> bool:
+        """True iff the active slot holds an unacked life-safety alert and the
+        newcomer is NOT life-safety. Classification reuses
+        ``is_life_safety_hazard`` (base set + operator extras)."""
+        if self._alert_state not in (AlertState.ALERTING, AlertState.REPEATING):
+            return False
+        if not self._active_alert_data:
+            return False
+        if not is_life_safety_hazard(
+            self.hass, self._active_alert_data.get("hazard_type")
+        ):
+            return False
+        return not is_life_safety_hazard(self.hass, new_hazard_type)
 
     def _schedule_repeat(self) -> None:
         """Schedule the next repeat notification.
@@ -2973,7 +3001,17 @@ class NotificationManager:
         # Mark acknowledged in DB
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
-            await database.acknowledge_notification()
+            # NM-MULTI-ALERT-TRACKING-1: target the alert in the slot, not
+            # merely the latest unacked CRITICAL row (a later non-life-safety
+            # CRITICAL may have been logged while a life-safety alert kept
+            # the slot).
+            if _snap:
+                await database.acknowledge_notification(
+                    coordinator_id=_snap.get("coordinator_id"),
+                    hazard_type=_snap.get("hazard_type"),
+                )
+            else:
+                await database.acknowledge_notification()
 
         # Notification Hygiene FIX 4 + FIX 5(c): write an audit row for
         # the ack itself (who acked, via which channel, when, against

@@ -4710,8 +4710,17 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error marking digest delivered: %s", e)
 
-    async def acknowledge_notification(self) -> None:
+    async def acknowledge_notification(
+        self,
+        coordinator_id: str | None = None,
+        hazard_type: str | None = None,
+    ) -> None:
         """Acknowledge the most recent unacknowledged CRITICAL notification.
+
+        NM-MULTI-ALERT-TRACKING-1: when ``coordinator_id`` is given, the
+        target is narrowed to that coordinator's rows with the same
+        ``hazard_type`` (NULL-safe) — i.e. the alert actually in NM's slot.
+        With no arguments the legacy latest-row behaviour is unchanged.
 
         IMSG-IMAGE-FAIL-1 fix-up HIGH-1 (2026-08-14): excludes the
         ``message='[audit]'`` sentinel from the inner SELECT — same
@@ -4722,18 +4731,26 @@ class UniversalRoomDatabase:
         the REAL row stays acknowledged=0 and quietly resurrects at
         the next restart under its real title.
         """
+        extra_sql = ""
+        params: tuple = (dt_util.utcnow().isoformat(),)
+        if coordinator_id is not None:
+            extra_sql = (
+                " AND coordinator_id = ?"
+                " AND COALESCE(hazard_type, '') = ?"
+            )
+            params = params + (str(coordinator_id), str(hazard_type or ""))
         try:
             async with self._db() as db:
-                await db.execute("""
+                await db.execute(f"""
                     UPDATE notification_log
                     SET acknowledged = 1, ack_time = ?
                     WHERE id = (
                         SELECT id FROM notification_log
                         WHERE acknowledged = 0 AND severity = 'CRITICAL'
-                          AND message != '[audit]'
+                          AND message != '[audit]'{extra_sql}
                         ORDER BY timestamp DESC LIMIT 1
                     )
-                """, (dt_util.utcnow().isoformat(),))
+                """, params)
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error acknowledging notification: %s", e)
