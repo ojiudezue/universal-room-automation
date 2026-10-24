@@ -3309,6 +3309,18 @@ class PresenceCoordinator(BaseCoordinator):
             self._rebuild_adjacency_cache()
         return list((self._adjacency_cache or {}).get(room_name, []))
 
+    def get_room_zone(self, room_name: str) -> str | None:
+        """Return the house zone a room belongs to, or None.
+
+        Public read of the ``_room_to_zone`` reverse map (first-writer-wins,
+        rebuilt at zone discovery). Membership only — never occupancy (the
+        tracker's per-room occupancy view is lossy, presence ledger #19).
+        Halo S1b: consumed by NotificationManager._panel_target_areas (T2).
+        """
+        if not room_name:
+            return None
+        return self._room_to_zone.get(room_name)
+
     def _prune_stale_zone_trackers(self, all_entries=None) -> None:
         """Zone Delete Flow (fix-up R4 / B-HIGH-2): prune any tracker whose
         zone is no longer present in a ZM zones dict OR in a legacy
