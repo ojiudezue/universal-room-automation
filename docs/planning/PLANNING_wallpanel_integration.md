@@ -1,6 +1,7 @@
 # Plan: Halo — wall-panel presentation integration (separate, opt-in HA integration)
 
 Status: draft plan rev 2, 2026-10-20. PLAN-REVIEW-1 (completeness) and PLAN-REVIEW-2 (adversarial build-prediction) applied 2026-10-20; see §PLAN-REVIEW-2 for the binding build contract, which overrides earlier text where they differ. Moves to the new repo once it exists.
+**Rev 3, 2026-10-22: S1a (Halo) is built and live. §S1b at the end of this doc is the build contract for the URA side (card WALLPANEL-URA-NOTIFY-1). Where it differs from D1.2 / D1.3 / R2-x, §S1b wins** (targeting changed by operator 2026-10-20; re-assert trigger changed by the shipped Halo code).
 Name: **Halo** — repo `~/Code/halo-panels`, HA domain `halo`, services `halo.indicate` / `halo.release` / `halo.release_all` (PLAN-REVIEW-1 2026-10-20: naming settled).
 
 Rev 2 changes, from operator feedback ("the message passing seems fragile vs a richer interface ... are you sure 'alerts' is the best coupling?"): the fire-and-forget `ura_room_alert` bus event is replaced by a typed service API the panel integration owns, which URA calls as one more Notification Manager (NM) delivery channel. Room `alert_lights` are folded into the same NM per-room delivery step. Layers cut from 8 to 4. Panel areas are now set for all 7 panels, so that decision is gone.
@@ -262,3 +263,265 @@ NM's light engine becomes per-room: snapshot and pattern task keyed by room; tar
 
 ## Order of work
 S0 probe → S1a (Halo) → S1b (NM channel; may be built in parallel against the contract, merges after S1a is live) → S2 → parked items by trigger.
+Rev 3 (2026-10-22): S0 and S1a done; S1b is next, contract in §S1b below (plan review, then build).
+
+## S0 RESULTS 2026-10-20
+
+Probe run 2026-10-20 18:5x CDT, read-only. Source: `ssh ha sqlite3 /config/universal_room_automation/data/universal_room_automation.db`, table `notification_log` (8264 rows, 2026-09-20T22:53Z to 2026-10-20T23:43Z, so "all history" is only ~30 days; widening was not possible). Room list = 47 `entry_type == room` entries in `/config/.storage/core.config_entries`. Dedupe = distinct `(timestamp to the second, coordinator_id, hazard_type, location, title)`; raw rows are 2-10x higher (per recipient/channel).
+
+### Table 1: logged `location` per distinct notification (safety / security classes)
+
+| Class | Coordinator | Distinct notifications | Logged `location` | Resolves to a URA room |
+|---|---|---|---|---|
+| safety, room name logged | safety | 7 | `Master Bathroom`, `Garage A`, `Study A Closet` (all exact room titles) | 7 / 7 |
+| safety, location logged BLANK (rows 2026-09-20 .. 2026-10-17T11:28Z; hazard_type also blank) | safety | 205 | empty; the title is `Safety alert: ... in <Room>` and the named room is an exact room title in all 205 | 205 / 205 via title only (not via `location`) |
+| security lock-check | security | 74 (63 "Lock check unavailable device", 11 "Periodic lock check") | empty | 0 / 74 |
+| perimeter person/vehicle | perimeter_alert | 2886 | 2874 camera `binary_sensor.*` entity_ids; 12 camera keys (`front_side_ptz`, `rear_ptz`, `reolinkstudybporchptz`) | 0 by room name; entity_id to area to room NOT tested (unknown), these are exterior cameras |
+
+Other coordinators (not safety/security): energy = entity names / `battery` / `main_panel` / `garage_a|b` / `generator`; optimization = `house`; stuck_signal = kind strings; hvac, presence, bayesian = blank. No `comma list` location appears in the DB (0 rows). No fire/smoke/CO/leak/gas hazard exists in the window: safety rows are only `high_co2`, `low_humidity`, `high_tvoc`. So the multi-leak join (`safety.py:1920`) and the leak path are untested by data; they are covered only by static reading.
+
+Unexplained: safety rows before 2026-10-18 carry blank `location`/`hazard_type`; from 2026-10-18T03:01Z on they are populated. I did not find the cause (the producer at `safety.py:2580-2590` passes `location=hazard.location` in the code as it stands now); treat the earlier blanks as a logging artefact of an older build, unverified.
+
+### Table 2: static classification of the 34 `async_notify` call sites (location passed)
+
+| Class | Sites (file:line) |
+|---|---|
+| room name | `hvac.py:5273` (`room_name`); safety via funnel `manager.py:1074` (`action.location`, = `hazard.location` from `safety.py:2589-2590`, room name from `_sensor_locations`/`_resolve_global_location` `safety.py:1479`, or `"unknown"`; may be a `", ".join(sorted(...))` list per `safety.py:1920`) |
+| `house` | `security.py:1379`, `optimization.py:5030`; `optimization.py:5574/5593` (`finding.target_id or "house"`, so a target id when present) |
+| `property` | security `NotificationAction` at `security.py:1062` (reaches NM through `manager.py:1074`) |
+| entity id | `perimeter_alert.py:1536` (camera `entity_id`), `button.py:2368` (test), `zone_monitoring_tripwire.py:115`; security actions `security.py:1519/1599` via funnel; `perimeter_alert.py:2975` passes `cooldown_key` (camera key) |
+| kind string | `_stuck_signal_nm.py:227/311` (`str(kind)`) |
+| pass-through | `manager.py:1074` (`action.location or None`), `notification_manager.py:3114` (re-fire, replays `data.get("location")`), `energy.py:9895` (`location or None`) |
+| explicit None | `notification_manager.py:5079/5272/5380`, `switch.py:4805` |
+| none (kwarg absent) | `hvac.py:2050/2130/4458/5311/5340/5371/5764/8909`, `hvac_override.py:8257`, `hvac_egress.py:963`, `presence.py:6128`, `transit_validator.py:2173`, `binary_sensor.py:3469` (room name is in the title only), `notification_manager.py:3700/3725`, `button.py:648` |
+
+Total 34 (the grep shows 36 hits; `perimeter_alert.py:7` and `notification_manager.py:3947` are prose). Absent or None: 20 sites, matching the plan's count. Security `NotificationAction`s (9 in `security.py`) and the safety action (1 in `safety.py:2580`) share the one funnel site.
+
+### Share that resolves to one or more URA rooms
+
+- Safety: 212 / 212 distinct notifications resolve to a room, but only 7 (3.3%) via the logged `location`; 205 only via the title string. Live code passes `hazard.location`, which is a room title by construction (`safety.py:1406-1464`) or `"unknown"` (0 observed). Comma lists need the split; none observed.
+- Security: lock-check 0 / 74 (no location). Perimeter 0 / 2886 by room name. Security `NotificationAction` sites pass `house`/`property`/entity_id. Roughly 0% resolves to a room today. Pooled safety+security+perimeter is 212 / 3172 = 6.7%, dominated by perimeter volume.
+- Gate as written in S0 ("80% of safety/security rows"): safety PASS (100% by title, 100% by code path, `location` itself only for post-2026-10-18 rows), security FAIL (~0%).
+
+### Verdict: GO for room targeting, scoped to safety
+
+1. S1 ships `_resolve_target_rooms` for **safety only**: exact room-title match plus the `", "` split, `"unknown"` or no match falls back to house-wide (all panels). Re-use `safety.py:1479`'s mapping; no new entity_id-to-area step is justified by the data.
+2. Security (intruder, investigate, lock-check, perimeter) and everything else: **house-wide**. The data demands no new rules; do not build an entity_id-to-room resolver in S1. Revival trigger: an operator ask to show perimeter alerts only on the nearest panel, plus a probe showing the camera devices carry URA-room areas.
+3. Caveats for the builder: the test fixture must use real room titles with a comma (e.g. none of the 47 room titles contains a comma; `Jaya Bedroom (Bedroom 4)` contains parentheses) and an `"unknown"` case. The probe cannot see quiet-hours/kill-switch suppressed notifications (plan caveat 1), and the window contains no life-safety hazard, so the leak/smoke path is verified by code reading only.
+4. Falsifier checked: if safety locations were mostly non-room strings the verdict would flip; the 7 logged and 205 title-derived values are all exact room titles.
+
+---
+
+## S1b — URA NM panel channel (build contract, rev 3, 2026-10-22)
+
+Card: WALLPANEL-URA-NOTIFY-1. S1a (Halo 0.1.x) is live on 7 panels. This section is the URA half. It overrides D1.2, D1.3, the S1 knob/test lists and R2-1/R2-2/R2-9/R2-14 where they differ; each override is marked **[supersedes …]**.
+
+### S1b.0 What changed since rev 2
+
+1. **Targeting is audience-based, not hazard-location-based** (operator 2026-10-20, via HomeLab: "occupied-rooms-only is too narrow, hallways rarely register occupied"). A panel shows a notification when people are likely to see it, not when it sits next to the hazard. **[supersedes D1.2 `_resolve_target_rooms(location, …)` and S0 verdict items 1-2]** The S0 location resolver is no longer needed for targeting; it survives only as an optional "also light the source room" term (S1b.2 rule T4, operator question Q2).
+2. **Re-assert trigger is `halo_ready`, not `EVENT_SERVICE_REGISTERED`.** Halo registers its services in `async_setup` (`halo/__init__.py:110-129`), never per entry, so an entry reload never re-registers them; Halo fires `EVENT_HALO_READY = "halo_ready"` with `{"areas": [...]}` at the end of every entry start (`halo/const.py` `EVENT_HALO_READY`; `halo/runtime.py:163-165`). **[supersedes D1.2 last bullet, R2-1(a), R2-14]**
+3. **`has_service` is true even with no Halo entry loaded.** With the integration installed but no entry, `halo.indicate` answers `no_surface` for every area (`halo/__init__.py:84-85`). Channel health must therefore read the response, not just `has_service`. **[supersedes D1.2 "Channel health … absent"]**
+4. **Owner-wide release exists.** `halo.release` with `owner` and no `id` releases every lease of that owner (`halo/runtime.py:278-279`); `release_all` releases all owners (`:284-286`). R2-10 is satisfied by the shipped code.
+5. **Halo `indicate` only adds.** Calling `indicate` again with the same `id` and a smaller area list does not remove the lease from areas no longer listed (`halo/runtime.py:242-259` loops only over the given areas). Retargeting therefore needs an explicit `release(owner, id, area_id=[dropped])`. This is the main new builder trap.
+
+### S1b.1 Institutional context verified (S1b additions)
+
+Read in full this session: card WALLPANEL-URA-NOTIFY-1 (`kanban.data.yaml:206-240`, incl. `targeting_operator_2026_10_20`, `split_decided_2026_10_20`, `AUDIT_2026_10_20_alert_lights`, `shipped_2026_10_21_halo_s1a`, `residual_halo_followups_2026_10_21`, `residual_2026_10_21_wake_adjacency`, `resolved_2026_10_21_bridge_colour`); this doc rev 2 plus the uncommitted S0 RESULTS section (kept unchanged above); Halo `services.yaml`, `__init__.py`, `const.py`, `runtime.py:125-300`; `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (all 730 lines) and `docs/architecture/SENSOR_FLEET_CLASSES.md` (all), because S1b **reads** room occupancy (a consumer of a presence value). HVAC state-of-play not read: no HVAC surface is touched.
+
+Presence-doc facts this plan relies on: room occupancy truth is the room coordinator's `STATE_OCCUPIED` (presence doc §1 table, `coordinator.py:3613`); the zone tracker's per-room view is **lossy** in multi-sensor rooms (corrections ledger #19, #20) so S1b must not read occupancy from `ZonePresenceTracker.to_dict()["rooms"]`; phantom holds exist (fan-loop rooms, Study A ZK) and will light a panel needlessly (accepted; S1b.6). Nothing in the presence corrections ledger is re-asserted here.
+
+REUSE / NEW per piece (greps re-run 2026-10-22; `grep -iE "halo|wallpanel|panel_channel"` over tracked URA `*.py` returns nothing, so no URA prior art for a panel channel):
+
+| Piece | Verdict | Where |
+|---|---|---|
+| Notification funnel | REUSE | `NotificationManager.async_notify` `notification_manager.py:1334` (signature carries `coordinator_id`, `severity`, `hazard_type`, `location`) |
+| Kill switch / enabled / dry-run gates | REUSE | `self.enabled` `:1365`; `_messaging_suppressed` `:1369`; `_dry_run_active` `:443`, `_log_dry_run` `:531` |
+| Quiet-hours early return (must be bypassed for panels) | REUSE (placement only) | `_is_quiet_hours()` gate `:1412`; definition `:3854-3865` returns True for house state `sleep`/`home_night` when `CONF_NM_QUIET_USE_HOUSE_STATE` |
+| House state read | REUSE | `coordinator_manager.house_state` (`manager.py:325`), same read as `:3859-3862` |
+| Sender shape | REUSE pattern | `_send_tts` `:2317-2338` (dry-run short-circuit, `async_call`, `_update_channel_health`) |
+| Channel health | REUSE | `_update_channel_health(channel, success)` `:5097` |
+| Background task tracking | REUSE | CM-entry `async_create_background_task` pattern `:5138-5161`, `:5339-5352` |
+| Room occupancy | REUSE | room coordinators via `aggregation._get_room_coordinators` `aggregation.py:767`; `coordinator.data[STATE_OCCUPIED]` (`const.py:1904`) |
+| Room → HA area | REUSE | `UniversalRoomCoordinator._get_room_area()` `coordinator.py:3038-3044` (`CONF_AREA_ID`, options over data) |
+| Room adjacency | REUSE | `PresenceCoordinator.get_adjacent_rooms(room_name)` `presence.py:3298-3310`, cache `_rebuild_adjacency_cache` `:3238-3296` (entry_id tokens resolved to room names; `CONF_ADJACENT_ROOMS` `const.py:720`) |
+| Room → house zone | REUSE | `PresenceCoordinator._room_to_zone` `presence.py:3490-3494` (first-writer-wins) and `zone_trackers[z].room_names` (`:563-567`, `:1872`). Membership only; occupancy NOT read from the tracker (ledger #19) |
+| Life-safety hazard set | REUSE | `NM_LIFE_SAFETY_HAZARDS` `const.py:3610` (smoke, fire, carbon_monoxide, water_leak, flooding, intruder, freeze_risk) |
+| Episode state for re-assert after restart | REUSE | `_active_alert_data` / `_active_episode_id` set in `_enter_alerting` `:2511-2545`, restored at boot (`:1038`) |
+| Release hooks | REUSE sites | kill switch `:698-735` (calls `_restore_alert_lights` `:724`); ack `async_acknowledge` `:2920` (`:2971`); re-eval cleared `_re_evaluate_hazard` else-branch `:3131-3136`; `async_stop` `:1326` (no release) |
+| NM switch / number entity pattern | REUSE pattern | `NMDryRunSwitch` `switch.py:4906-4936` (`switch.ura_nm_dry_run`, RestoreEntity); NM bucket Numbers |
+| Targeting helper `_panel_target_areas(...)` | NEW | nothing generic maps "where people are" to areas; `hvac_zones.occupied_rooms` (`hvac_zones.py:259`) is HVAC-zone scoped (HVAC zone ≠ house zone), `energy._get_occupancy_counts` (`energy.py:10238`) reads the lossy tracker view and returns counts only |
+| Panel lease ledger `_panel_leases` | NEW | per-id `{areas, level, expires_at}`; no NM structure holds per-area state |
+| `switch.ura_nm_panel_channel`, `number.ura_nm_panel_lease_ttl_min` | NEW | no CONF_NM_* / NM entity for panels (51 `CONF_NM_*` in `const.py`, none panel) |
+| Module consts `NM_PANEL_*` | NEW | listed in S1b.5 |
+
+Config-first: nothing to turn. Halo is live but has no caller; `nm_alert_lights` (`CONF_NM_ALERT_LIGHTS` `const.py:3525`) would flash every listed light for every qualifying alert with no targeting, no per-panel restore and no lease, and bedroom panels would fire at night. An HA automation calling `halo.indicate` could be written, but it would have to re-derive URA occupancy, adjacency and zones from entities — the duplication this card exists to avoid.
+
+### S1b.2 Targeting rule (the new helper)
+
+Inputs, read once per notify, captured into locals before any `await`:
+- `occ` = set of room names whose room coordinator reports `data[STATE_OCCUPIED] is True`. Unknown/None data counts as not occupied.
+- `adj(r)` = `presence.get_adjacent_rooms(r)`.
+- `zone(r)` = `presence._room_to_zone.get(r)` (exposed through a new tiny public getter, not a private-attribute read across modules).
+
+A room R is a **target** if any of:
+- **T1 own room:** R ∈ `occ`.
+- **T2 occupied zone:** `zone(R)` is not None and some room in that zone is in `occ`.
+- **T3 adjacent to occupied:** some O ∈ `occ` with R ∈ adj(O) **or** O ∈ adj(R). Both directions, because `CONF_ADJACENT_ROOMS` is configured per room and is often one-directional (presence doc §6 item 3, Jaya). Recommended default; operator Q1.
+- **T4 source room (safety only, optional):** R is the room named by `location` per the S0 rule (exact room title, `", "` split). Default **on** for coordinator `safety` (the hazard is there; someone walking in should see it). Operator Q2.
+
+Overrides:
+- **House-wide:** `hazard_type ∈ NM_PANEL_HOUSEWIDE_HAZARDS` (smoke, fire, carbon_monoxide) → every room with an area. This is the only case that ignores occupancy.
+- **Empty audience:** `occ` empty and not house-wide → no call and no row (nobody can see a panel); a debug log line only. With T4 on, a safety notify still targets its source room, so this case applies to security and to safety with T4 off or an unresolvable location.
+
+Output: the sorted, de-duplicated list of HA `area_id`s of target rooms (`_get_room_area()`; rooms with no area dropped). URA sends every target area; Halo answers `no_surface` for areas without a panel. URA keeps **no panel registry** (plan-wide non-goal stands).
+
+Hallways: the operator's example (Upstairs Hallway rarely registers occupied) is covered by T2 if the hallway sits in a house zone with an occupied room, and by T3 if it is configured adjacent to an occupied room. Verify in the Live step that the Upstairs Hallway and Foyer rooms have a zone and adjacency set; if not, that is a config action, not code (config-first).
+
+### S1b.3 Gating (what is sent at all)
+
+Order inside the sender, all synchronous, before the first `await`:
+1. `switch.ura_nm_panel_channel` off → return. No `has_service` call, no listener, no row (R2-14 byte-identical rule).
+2. `coordinator_id ∉ NM_PANEL_COORDINATORS` (`safety`, `security`) → return. Perimeter (`"perimeter_alert"`, `perimeter_alert.py:1525/2960`, ~96 distinct/day in S0 Table 1), HVAC, energy, optimization and stuck-signal never reach panels in S1b.
+3. Level from `NM_PANEL_LEVEL_MAP` (severity × coordinator, below); `None` → return.
+4. **Night gate (URA side):** house state ∈ `NM_PANEL_NIGHT_STATES` (`sleep`, `home_night`) → only notifications with `coordinator_id == "safety"` **or** `hazard_type ∈ NM_LIFE_SAFETY_HAZARDS` pass (so `intruder` passes; lock-check does not). Halo then applies its own floor on top (house sleeping: ≥ `alert`; bedroom panels: `critical` only — `halo/const.py` `SLEEP_MIN_LEVEL`, `BEDROOM_SLEEP_MIN_LEVEL`). URA's gate is needed because Halo's sleep entity does not cover `home_night`.
+5. Dry-run → `_log_dry_run(channel="panels", …)`, no service call.
+6. Targeting (S1b.2); empty → return.
+
+Level map (rung 1, `NM_PANEL_LEVEL_MAP`):
+
+| Coordinator | CRITICAL | HIGH | MEDIUM | LOW |
+|---|---|---|---|---|
+| safety | critical | alert | alert | — |
+| security | alert | alert | warn | — |
+
+Security CRITICAL maps to `alert`, not `critical`, so it never wakes a bedroom panel (bedroom floor = critical). Security HIGH → `alert` adopts R2-6's default. Operator Q3.
+
+Placement **[supersedes D1.2 placement]**: one call `self._schedule_panel_delivery(...)` in `async_notify` immediately after the `_messaging_suppressed` return (`:1369-1371`) and `_refresh_config()` (`:1375`), **before** the quiet-hours gate (`:1412`). It does the synchronous gating and targeting, then schedules the service call as a tracked background task, so a slow Halo never delays TTS/push and quiet hours do not suppress panels (the night gate above replaces DND for this channel).
+
+### S1b.4 Lease lifecycle
+
+- **id:** `ura:<coordinator_id>:<hazard_type or "none">:<location key>` where location key = normalised S0 room slugs joined by `+`, or `house`. Same notification repeated → same id → Halo renews TTL (R2-8 kept).
+- **TTL:** `number.ura_nm_panel_lease_ttl_min` × 60, clamped to Halo's `[10, 86400]` s before the call.
+- **Retarget on renew:** at each indicate for an id already in `_panel_leases`, compute `dropped = old_areas − new_areas`; pop/replace the ledger entry first, then `await indicate(new_areas)`, then if `dropped`, `await release(owner="ura", id, area_id=dropped)`. Only renewals retarget; there is **no occupancy listener** (S1b.6 marginal-benefit note). CRITICAL alerts re-fire every 30 s (life-safety) / 300 s (`NM_REPEAT_INTERVAL_*`, `const.py:3605-3606`), so active alerts follow people at that cadence.
+- **Release sites** (ledger pop BEFORE the `await`, capture-before-await per R2-11):
+  - ack (`async_acknowledge`, `:2920`, next to `:2971`) → release the episode's lease id(s).
+  - re-eval cleared (`:3131-3136`) → capture id from `_active_alert_data` into a local before it is set None, then release.
+  - kill switch engaged (`:698-735`, next to `:724`) → `halo.release(owner="ura")` with no id (owner-wide). Never `release_all`.
+  - panel switch turned off → owner-wide release, then unsubscribe `halo_ready`.
+  - `async_stop` (`:1326`) → **no release** (R2 decision kept; leases are TTL-bounded).
+  - Non-CRITICAL notifications (no episode) ride TTL only.
+- **Re-assert:** subscribe `halo_ready` while the switch is on. On the event, re-send every unexpired ledger entry with its **remaining** TTL (R2-2), and after an HA restart, rebuild one entry from restored `_active_alert_data` if NM is ALERTING (R2-1(a)) — targeting recomputed at that moment. Also attempt that rebuild once at NM start if Halo is already loaded.
+- **Clear only what URA set:** every call carries `owner="ura"`; release predicates in Halo match owner (`halo/runtime.py:278-279`). URA never calls `release_all` and never sends an id it did not create.
+
+Service call mechanics (R2-9 kept): `blocking=True, return_response=True`, `asyncio.timeout(NM_PANEL_CALL_TIMEOUT_S)`; `ServiceNotFound` → health `absent`; timeout/`HomeAssistantError` → health error; response with every area `no_surface` → health `no_surface`; any `accepted`/`suppressed_sleep` → `ok`. Exceptions never propagate into `async_notify`.
+
+DB: one `notification_log` row per delivered indicate, `channel="panels"`, through the existing `database.log_notification` (queued writer, one row per notify, not per area). **This is the Tier 2-DB trigger** (new row shape on an existing table: new `channel` value). No schema change. Ledger is in memory only.
+
+### S1b.5 Knobs
+
+| Knob | Rung | Default | Why / kill semantics |
+|---|---|---|---|
+| `switch.ura_nm_panel_channel` | 3 Switch (NM, RestoreEntity) | off | Opt-in. Off = no call, no listener, no row; turning off releases owner `ura` |
+| `number.ura_nm_panel_lease_ttl_min` | 3 Number | 30 (range 1-240) | Bounds a lost release; operator tunes by observation |
+| `NM_PANEL_COORDINATORS` | 1 const | {safety, security} | Which coordinators may light panels; widening needs review (perimeter volume) |
+| `NM_PANEL_LEVEL_MAP` | 1 const | table above | Safety signalling; review to change |
+| `NM_PANEL_HOUSEWIDE_HAZARDS` | 1 const | {smoke, fire, carbon_monoxide} | Life-safety ignores occupancy; empty set = no house-wide override |
+| `NM_PANEL_NIGHT_STATES` | 1 const | (sleep, home_night) | Matches `_is_quiet_hours` house-state set (`:3862`); empty = no URA night gate (Halo floor still applies) |
+| `NM_PANEL_TARGET_ZONE_ENABLED` | 1 const | True | T2; False = drop the zone term |
+| `NM_PANEL_TARGET_ADJACENT_ENABLED` | 1 const | True | T3; False = drop the adjacency term |
+| `NM_PANEL_TARGET_SOURCE_ROOM_ENABLED` | 1 const | True | T4 (safety only); False = audience only |
+| `NM_PANEL_CALL_TIMEOUT_S` | 1 const | 5 | Protocol bound |
+
+Halo-side knobs (`switch.halo_led`, `number.halo_boot_debounce_s`, per-panel enabled/bedroom) are unchanged and remain the operator's hardware kill switch.
+
+### S1b.6 Marginal-benefit notes (pushback recorded)
+
+- **Live retargeting on occupancy change** (re-send when someone walks into an adjacent room mid-alert): rejected for S1b. Renewal-driven retargeting captures it at 30-300 s for CRITICAL episodes, which are the ones that last; the listener variant adds a new state-change subscription over ~47 room sensors, cross-coordinator state and a rare-fire path. **Revival trigger:** a Live leak/intruder test where a person in a newly occupied adjacent room did not see the panel within one repeat interval and the operator names it as a miss.
+- **Phantom occupancy lights panels** (fan loops, Study A ZK): accepted; the cost is a blink in an empty room. Not worth a trusted-presence filter.
+- **Using the zone tracker's occupancy** would have been one line, but ledger #19 says it wipes multi-sensor rooms; reading room coordinators costs one loop over ~47 entries per qualifying notify (safety/security only), which is cheap.
+
+### S1b.7 Producer / consumer checks
+
+| Value | Producer (arithmetic, dependency health) | Consumers |
+|---|---|---|
+| room occupied | room coordinator `STATE_OCCUPIED` (`coordinator.py:3613`), fused motion/presence/occupancy with debounce and stuck/chatter exclusion. Health: known phantom holds (presence doc §6, §9) | NEW: `_panel_target_areas` (trust decision for display only) |
+| adjacency | `_rebuild_adjacency_cache` (`presence.py:3238`), built at zone discovery, keyed by room name, entry_id tokens resolved. Health: one-directional configs exist; stale tokens kept as-is. Cache only rebuilds on discovery (options change to adjacency needs a presence rediscovery) | existing: fan recheck L2 (`presence_fan_recheck.py:1400`); NEW: T3 |
+| room → zone | `_room_to_zone` (`presence.py:3490-3494`), first-writer-wins. Health: ZONE-ROOM-NAME-DRIFT-1 (renamed room keeps old name until restart, presence doc §9) → a renamed room loses T2 until restart | existing: presence hot paths; NEW: T2 |
+| room area | `_get_room_area()` options-over-data | existing: entity discovery; NEW: area list |
+| house state | `coordinator_manager.house_state` | existing: quiet hours `:3859`; NEW: night gate |
+| `panels` health | NEW `_update_channel_health("panels", …)` from Halo response | NM diagnostics / channel health sensor (display) |
+| `notification_log` row `channel="panels"` | NEW, `log_notification` | display/analytics readers of `notification_log`; verify no reader enumerates a closed channel set (builder greps `channel IN` / `channel ==` over `database.py`, `sensor.py`, `websocket_api.py` and records result) |
+
+Name-key consistency: occupancy is gathered from room coordinators by entry; adjacency and zone maps key by `CONF_ROOM_NAME or entry.title` (`presence.py:3266-3268`). The helper must key `occ` by the **same** expression, or T2/T3 silently miss. Test pins it with a room whose `room_name` differs from its title.
+
+### S1b.8 Site enumeration (Bug Class #53)
+
+- **Emission:** exactly one site, inside `async_notify` (S1b.3 placement). Every one of the 34 callers (D1.3 / S0 Table 2) passes through it; the gate decides. Callers that bypass `async_notify` and so never reach panels, by design: `_trigger_alert_lights` direct caller `notification_manager.py:~5070` (S2 decides), the REPEATING TTS path `:2832-2850` (re-fire goes through `async_notify` at `:3114`, which renews), `_send_*` per-person paths.
+- **Release:** the five sites in S1b.4. Builder re-greps `_restore_alert_lights(` and `_active_alert_data = None` and maps each hit to "release" or "not a clear" in the build notes (rev 2 found 3 + 1; line numbers have moved: `:724`, `:1326`, `:2971`; `_active_alert_data = None` at `:730`, `:1099`, `:3101`, `:3133`). `:1099` (boot restore of a stale alert) and `:3101` (re-eval with no data) must be classified explicitly.
+- **Re-assert:** `halo_ready` listener + NM-start rebuild. Two sites.
+
+### S1b.9 Falsifiable invariants
+
+- **I1 (no-op):** with `switch.ura_nm_panel_channel` off, for any caller and any house state, `async_notify` makes zero `halo.*` calls, registers zero listeners, and writes the same `notification_log` rows as before the cycle.
+- **I2 (ownership):** in no reachable path does URA call `halo.release_all`, or `halo.release`/`indicate` with an `owner` other than `"ura"` or an `id` it did not mint. (A non-URA lease on a panel is never cleared by URA.)
+- **I3 (night):** while house state ∈ {sleep, home_night}, URA sends no `indicate` for a notification that is not (coordinator `safety` or hazard ∈ `NM_LIFE_SAFETY_HAZARDS`).
+- **I4 (audience):** for a non-house-wide notification, every area in the `indicate` call belongs to a room satisfying T1-T4 at send time, and after a renewal no area outside the new target set still holds the lease (dropped areas are released in the same delivery task).
+- **I5 (no stuck URA lease):** every URA lease is released or expires within its TTL; re-assert never re-sends an expired or released id.
+
+Reviewer D attacks with: renew with a shrunk target set (I4, Halo add-only); ack arriving between ledger update and `await indicate` (I5); `halo_ready` during a release; switch off mid-delivery task; restart while ALERTING with a security episode at `home_night`; a room whose `room_name ≠ title`; a room in two zones; `occ` empty with a smoke alarm (house-wide must still fire).
+
+### S1b.10 Deliverables and acceptance
+
+**D-S1b-1 Targeting helper** `_panel_target_areas(coordinator_id, hazard_type, location) -> list[str]` (+ public `PresenceCoordinator.get_room_zone(room)` getter).
+- **Verify:** Kitchen occupied, Breakfast Nook in Kitchen's zone, Media adjacent to Kitchen, Master empty and not adjacent → areas = kitchen, breakfast nook, media; not master. A flash-everything build returns master too; an own-room-only build drops media and the nook.
+- **Verify:** adjacency configured only on Media → Kitchen; Kitchen occupied → Media targeted (reverse direction).
+- **Verify:** smoke with nobody occupied → every area; water leak with nobody occupied → no call.
+- **Test:** `test_target_own_room`, `test_target_occupied_zone`, `test_target_adjacent_both_directions`, `test_target_source_room_safety_only`, `test_housewide_ignores_occupancy`, `test_empty_audience_no_call`, `test_room_name_differs_from_title`, `test_room_without_area_dropped`.
+
+**D-S1b-2 Sender + gating + placement.**
+- **Verify:** quiet hours on (`home_night`), leak HIGH in Kitchen → panels indicate fires, TTS/lights suppressed. A build that placed the sender with the other global channels shows no call.
+- **Verify:** `home_night`, security lock-check MEDIUM → no call; `intruder` → call at `alert`.
+- **Verify:** HVAC / perimeter / energy notify → no call at any severity.
+- **Verify:** dry-run on → zero service calls, one `dry_run=1` row `channel=panels`.
+- **Test:** `test_panel_channel_off_is_noop` (byte-compare rows, no listener), `test_panels_bypass_quiet_hours`, `test_night_gate_safety_only`, `test_coordinator_allowlist`, `test_level_map`, `test_dry_run_panels`, `test_sender_does_not_block_other_channels` (Halo fake sleeps 10 s; TTS call completes first), `test_call_timeout_marks_health`.
+
+**D-S1b-3 Lease ledger, retarget, release, re-assert.**
+- **Verify:** renew with Media no longer targeted → one `indicate` (kitchen, nook) then one `release(owner=ura, id, area_id=[media])`. An add-only build shows no release and Media keeps blinking.
+- **Verify:** ack → `release(ura, id)`; kill switch → `release(ura)` with no id; `release_all` never called (assert on fake service call log).
+- **Verify:** `halo_ready` after 10 min with TTL 30 → re-indicate with ~20 min; released id not re-sent.
+- **Test:** `test_retarget_releases_dropped_areas`, `test_release_on_ack`, `test_release_on_reeval_cleared`, `test_killswitch_owner_wide_release`, `test_switch_off_releases_and_unsubscribes`, `test_never_release_all`, `test_reassert_on_halo_ready_remaining_ttl`, `test_reassert_skips_expired_and_released`, `test_reassert_after_restart_from_restored_alert_state`, `test_async_stop_does_not_release`.
+- Fake Halo: `hass.services.async_register("halo", "indicate"|"release", handler, supports_response=SupportsResponse.OPTIONAL)` recording a call log; `halo_ready` via `hass.bus.async_fire`. All ordering asserts on the call log.
+
+**D-S1b-4 Entities + health.** `switch.ura_nm_panel_channel`, `number.ura_nm_panel_lease_ttl_min` (NM device, RestoreEntity, pattern of `NMDryRunSwitch`); `panels` in channel health with `absent` / `no_surface` / `ok` / error.
+- **Test:** `test_panel_switch_restores`, `test_panel_ttl_number_restores`, `test_health_no_surface_when_halo_unconfigured`.
+
+**Live (post-deploy, switch turned on by the operator):**
+1. `switch.ura_nm_panel_channel` on; NM channel health shows `panels: ok` after the first qualifying notify (or `no_surface`/`absent` with a reason).
+2. Operator wets a leak probe in a room with a panel while one other panel room is occupied and a third is empty and not adjacent: amber pulse on the source and occupied/adjacent panels, nothing on the third; `sensor.halo_<area>_indication` shows lease id `ura:safety:water_leak:<room>`; `notification_log` has one `channel='panels'` row with non-empty `hazard_type` and `location`.
+3. Acknowledge → every `sensor.halo_*_indication` returns to `idle` and the LEDs restore.
+4. Reload the Halo entry during a test lease → lease reappears on the same panels within seconds (`halo_ready`).
+5. Config check: Upstairs Hallway and Foyer rooms have a house zone and adjacency set (read `core.config_entries`); if missing, raise a config action, not a bug.
+6. Operator `light` on a panel set by hand during the test is restored, not cleared, after release (ownership).
+
+### S1b.11 Non-goals
+
+- **Screen wake / sleep-after-grace migration into Halo** (card residuals (b) and `residual_2026_10_21_wake_adjacency`): separate follow-up, jointly with HomeLab. S1b does not touch display behaviour, even though it uses the same adjacency set.
+- Room `alert_lights` and NM per-room light engine (S2). Announce and card fields (S2; URA does not send them in S1b).
+- `info`-level and non-safety/security notifications; perimeter.
+- Occupancy-change listener / live retargeting (S1b.6, parked with trigger).
+- Any panel registry, panel names or bedroom flags in URA. Any change to Halo, Safety, Security, presence fusion or HVAC. Halo follow-ups (a) start-up delay on subentry reload and (c) `via_device` nesting stay on the card.
+- No schema migration, no new table.
+
+### S1b.12 Tier
+
+**Tier 2-DB.** Triggers: a new `channel` value in `notification_log` rows (persisted-record shape), a new emission inside the funnel every coordinator uses (no-op path must be byte-identical), and cross-coordinator reads (presence adjacency/zones + room occupancy + house state). Not Tier 3: no cost or safety actuation is decided here (Halo owns the hardware and its own floors; worst case is a panel blinking wrongly or not at all, while push/TTS paths are unchanged). Three framing-disjoint reviews: **A** targeting + level/night gate correctness (I3, I4, name-key consistency); **B** NM no-op preservation, async/task lifecycle, ledger ordering, re-assert/restart (I1, I5); **C** test authority by per-site mutation of the sender placement, the night gate, the retarget release, each release site and the re-assert filter. One adversarial plan review (Tier 2 rule) before build dispatch. Build in a worktree; ura-builder.
+
+### S1b.13 Operator questions (recommended defaults in bold)
+
+**ANSWERED 2026-10-24: operator accepted all five recommended defaults (bold below).**
+
+- **Q1** Adjacency direction: **both directions** (A adjacent to B if either lists the other), or only rooms the occupied room lists.
+- **Q2** Light the hazard's own room even when nobody is there or nearby (safety only): **yes**.
+- **Q3** Security levels: **CRITICAL/HIGH → `alert` (shows at night on non-bedroom panels, never bedrooms), MEDIUM → `warn`**; or security CRITICAL → `critical` (would reach bedroom panels at night).
+- **Q4** Night gate scope: **safety coordinator + life-safety hazards (includes `intruder`)**, or safety coordinator only.
+- **Q5** Empty audience for a non-house-wide alert: **send nothing**, or light the source-room panel anyway (that is Q2 with nobody home).
