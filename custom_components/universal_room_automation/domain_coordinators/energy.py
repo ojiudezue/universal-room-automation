@@ -731,6 +731,11 @@ class EnergyCoordinator(BaseCoordinator):
         self._predictor = DailyEnergyPredictor(
             hass,
             battery_soc_entity=ec.get(CONF_ENERGY_BATTERY_SOC_ENTITY),
+            # EC-PREDICTOR-SOLCAST-UNWIRED-1: DEFAULT_SOLCAST_* are None
+            # since 36b08ba78, so the predictor MUST get the configured ids
+            # (same entity_config keys BatteryStrategy's entity map reads).
+            solcast_today_entity=ec.get(CONF_ENERGY_SOLCAST_TODAY_ENTITY),
+            solcast_remaining_entity=ec.get(CONF_ENERGY_SOLCAST_REMAINING_ENTITY),
             weather_entity=weather_ent,
             battery_capacity_entity=ec.get(CONF_ENERGY_BATTERY_CAPACITY_ENTITY),
             # v4.1.1: Lazy lookup — survives integration reloads
