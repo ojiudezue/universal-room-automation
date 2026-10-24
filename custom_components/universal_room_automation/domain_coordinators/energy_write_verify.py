@@ -2169,9 +2169,11 @@ class WriteVerifier:
         try:
             # Fix-up HIGH-2: a stand-down pinned on the nudged value
             # (`_nudge_value(target)`) covers the target too.
-            # Round-2 LOW: a pin on v covers v and its own nudge only.
-            from .energy_battery import _nudge_value  # noqa: PLC0415
-            return int(value) in (int(sv), _nudge_value(int(sv)))
+            # Round-2: the pin holds the DE-NUDGED desire (watchdog pins
+            # `effective`) and every caller passes a de-nudged desire
+            # (`_reserve_action` target, overlay effective) → exact match.
+            # v - 1 and v + 1 both resume (stage-A contract C-3).
+            return int(sv) == int(value)
         except (TypeError, ValueError):
             return sv == value
 

@@ -1577,8 +1577,8 @@ def test_fixup_reserve_action_compare_boundaries(sh, clock):
     wv._pending_standdown_at[SURFACE] = clock.t
     wv._pending_standdown_value[SURFACE] = 10
     assert decide(s, 10) is None           # pinned target
-    assert c._write_verifier.is_standdown_active_for_value(SURFACE, 11)
     assert decide(s, 9) is not None        # round-2 LOW: v - 1 resumes
+    assert decide(s, 11) is not None       # v + 1 resumes (stage-A C-3)
     wv._pending_standdown_value[SURFACE] = 11
     assert decide(s, 10) is not None       # pin on 11 does not cover 10
     wv._pending_standdown_value[SURFACE] = 12
