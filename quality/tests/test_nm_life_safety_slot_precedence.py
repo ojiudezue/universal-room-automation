@@ -241,6 +241,36 @@ async def test_restart_recovery_prefers_older_life_safety_row(
 
 
 @pytest.mark.asyncio
+async def test_restart_recovery_stale_life_safety_does_not_displace_fresh_row(
+    monkeypatch, clock, tmp_path
+):
+    """Re-review D: a 30 h-old unacked smoke row (beyond the 24 h recovery
+    bound) must not be swapped in — the fresh perimeter alert is recovered."""
+    from test_imsg_audit_fix_1 import _drain
+    db = await _real_db(tmp_path)
+    await db.log_notification(
+        coordinator_id="safety", severity="CRITICAL", title="Smoke",
+        message="old smoke", hazard_type="smoke", location="Garage",
+        delivered=1,
+    )
+    await db._write_queue.join()
+    clock.advance(30 * 3600)
+    await db.log_notification(
+        coordinator_id="perimeter", severity="CRITICAL", title="Person",
+        message="person at gate", hazard_type="exterior_person",
+        location="Side Gate", delivered=1,
+    )
+    await db._write_queue.join()
+    clock.advance(60)
+    rig = Rig(monkeypatch, clock)
+    rig.nm.hass.data[nm_mod.DOMAIN]["database"] = db
+    await rig.nm._recover_state_from_db()
+    await _drain(db)
+    assert rig.nm.alert_state == AlertState.REPEATING
+    assert rig.nm._active_alert_data["hazard_type"] == "exterior_person"
+
+
+@pytest.mark.asyncio
 async def test_restart_recovery_newest_row_when_no_life_safety(
     monkeypatch, clock, tmp_path
 ):

@@ -4973,11 +4973,34 @@ class NotificationManager:
         if not isinstance(rows, list):
             return None
         for row in rows:
-            if isinstance(row, dict) and is_life_safety_hazard(
-                self.hass, row.get("hazard_type")
+            if (
+                isinstance(row, dict)
+                and is_life_safety_hazard(self.hass, row.get("hazard_type"))
+                and not self._recovery_row_is_stale(row)
             ):
                 return row
         return None
+
+    @staticmethod
+    def _recovery_row_is_stale(row: dict) -> bool:
+        """Same freshness bound as recovery (NM_RECOVERY_MAX_AGE_H; 0 = off;
+        unparseable/missing timestamp = fresh), so the life-safety swap can
+        never pick a row recovery would then drop."""
+        if NM_RECOVERY_MAX_AGE_H <= 0:
+            return False
+        ts_str = row.get("timestamp") or ""
+        if not ts_str:
+            return False
+        try:
+            ts = datetime.fromisoformat(ts_str)
+        except (ValueError, TypeError):
+            return False
+        now = dt_util.utcnow()
+        if ts.tzinfo is None and now.tzinfo is not None:
+            ts = ts.replace(tzinfo=now.tzinfo)
+        elif ts.tzinfo is not None and now.tzinfo is None:
+            ts = ts.replace(tzinfo=None)
+        return (now - ts).total_seconds() / 3600.0 > NM_RECOVERY_MAX_AGE_H
 
     async def _slot_row_id(self, database) -> int | None:
         """Row id of the alert in the active slot (newest matching unacked
