@@ -561,3 +561,24 @@ One adversarial pass (Tier 2-DB plan rule), done by ura-planner. Every finding b
 
 ### Live addition
 7. Leave a test leak unacked past one lease TTL (set `number.ura_nm_panel_lease_ttl_min` to 5 for the test): the panel stays lit across the 5-min mark because a repeat renewed it (H1). A build without the renew site goes dark at 5 min while push repeats keep arriving. That discriminates.
+
+## S1b build notes (2026-10-24, branch `fix/halo-s1b-nm-panels`)
+
+**Site classification (S1b.8 re-grep, `notification_manager.py` on the branch):**
+
+| Hit | Classification |
+|---|---|
+| `_restore_alert_lights()` in `async_suppress_messaging` (kill switch) | release: `_panel_release_owner_wide()` right after it (owner-wide, no id) |
+| `_restore_alert_lights()` in `async_teardown` (`async_stop`) | NOT a release (R2 decision): unsubscribe `halo_ready`, cancel panel tasks, leases ride TTL |
+| `_restore_alert_lights()` in `async_acknowledge` | release: the episode id from `_snap` (captured before teardown) |
+| `_active_alert_data = None` in `async_suppress_messaging` | covered by the owner-wide release above |
+| `_active_alert_data = None` in `restore_persistence_state` (boot: restored episode already acked) | NOT a release: at boot the ledger is empty and the panel switch has not restored yet; a pre-restart Halo lease rides TTL |
+| `_active_alert_data = None` in `_re_evaluate_hazard` no-data branch | NOT a release: no data, so no id exists to release |
+| `_active_alert_data = None` in `_re_evaluate_hazard` cleared branch | release: id captured into `_cleared_id` before the clear (R2-11) |
+| `_enter_alerting` replacing a different active episode (M2) | release of the replaced id (ledger pop now, `halo.release` in a lock-serialised task) |
+| panel switch off | owner-wide release, then unsubscribe |
+| renew | `_repeat_alert` top, after its guards and `_refresh_config()` (H1); no DB row per repeat |
+
+**Closed-channel-set readers (S1b.7):** `grep -nE "channel IN|channel ==|channel = \?"` over `database.py`, `sensor.py`, `websocket_api.py` returns nothing; no reader enumerates a closed channel set. `NM_CHANNELS_KNOWN` (per-person mute validation) deliberately does not include `panels`.
+
+**Deviations, recorded:** (1) room coordinators are iterated duck-typed from `hass.data[DOMAIN]` (filter `entry.data[entry_type] == room`, same filter as `_rebuild_adjacency_cache`) instead of importing `aggregation._get_room_coordinators`, so NM does not import `coordinator.py`. (2) The rebuild "once at NM start if Halo is already loaded" runs when the panel switch restores ON (that is the channel's start; before it the channel is off and must not call Halo, I1). (3) Fake Halo in tests is a fake `hass.services` that answers per area like `HaloRuntime.async_indicate`, not `hass.services.async_register` on a real hass: a real hass cannot be constructed in-process in a full-suite run (test_runtime_smoke D4b). (4) Panels dry-run rows also carry `acknowledged=1` (`_log_dry_run` gained an `acknowledged` kwarg, default unchanged), for the same H2 reason. (5) `test_nm_cycle_c2_fixup.py::test_helper_call_count_at_all_eight_sites` (pre-existing source-count test) bumped 13→14 for the night-gate call; the new site is behaviourally anchored by `test_night_gate_safety_only`. Converting that pre-existing test was not done: its docstring says three of its sites are not black-box observable.

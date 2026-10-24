@@ -72,7 +72,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 
 | Signal | File:line produced | Consumed by |
 |---|---|---|
-| `binary_sensor.<room>_occupied` (room occupancy) | `coordinator.py:3613` (STATE_OCCUPIED set in `_async_update_data`) | lighting, fans, covers, zone roll-up, HVAC `RoomCondition.hvac_occupied` (HVAC doc §2), security, perimeter |
+| `binary_sensor.<room>_occupied` (room occupancy) | `coordinator.py:3613` (STATE_OCCUPIED set in `_async_update_data`) | lighting, fans, covers, zone roll-up, HVAC `RoomCondition.hvac_occupied` (HVAC doc §2), security, perimeter; **NM wall-panel targeting** (Halo S1b, branch `fix/halo-s1b-nm-panels`, NOT deployed): `NotificationManager._panel_target_areas` reads each room coordinator's `data[STATE_OCCUPIED] is True` (display trust only: which panels blink), plus adjacency (`get_adjacent_rooms`, both directions) and house-zone membership through the new public getter `PresenceCoordinator.get_room_zone` (reads `_room_to_zone`; membership only, never the tracker's lossy occupancy view, §10 #19). Phantom holds light a panel needlessly (accepted). |
 | Zone `any_room_occupied` / `any_indoor_zone_occupied` | `aggregation.py` + presence consumption `presence.py:6414` | path-β indoor-occupancy guard, HVAC zone rollup, lighting bias |
 | `SIGNAL_HOUSE_STATE_CHANGED` | `presence.py` (dispatcher) | HVAC override arrester, fans, lighting, security, EVSE, battery, memory writers |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |

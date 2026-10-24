@@ -388,14 +388,20 @@ def test_helper_call_count_at_all_eight_sites():
     consume the union helper and are behaviourally anchored in
     test_nm_life_safety_slot_precedence.py. Re-review D fix-up: 12→13
     (recovery life-safety row picker now on one line).
+
+    Halo S1b (2026-10-24): 13→14 for the panel-channel night gate in
+    ``_schedule_panel_delivery`` (plan L1: the union predicate, not the base
+    frozenset). Behaviourally anchored by
+    test_nm_panel_channel.py::test_night_gate_safety_only (intruder passes at
+    night, lock_check does not).
     """
     import pathlib
     src = (pathlib.Path(__file__).resolve().parents[2]
            / "custom_components/universal_room_automation/domain_coordinators"
            / "notification_manager.py").read_text()
     calls = src.count("is_life_safety_hazard(self.hass,")
-    assert calls == 13, (
-        f"Expected 13 helper call sites, found {calls}. A grep-evading "
+    assert calls == 14, (
+        f"Expected 14 helper call sites, found {calls}. A grep-evading "
         "inline-literal bypass has likely been introduced at one of the "
         "sites (I-C2-LS invariant regression)."
     )

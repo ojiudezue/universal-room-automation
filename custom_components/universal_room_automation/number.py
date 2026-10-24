@@ -42,6 +42,7 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
+from .nm_panel_entities import NMPanelLeaseTtlNumber
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,6 +135,8 @@ async def async_setup_entry(
             # mute duration (minutes). Consumed when `nm.mute_person_channel`
             # is invoked with `duration_minutes` omitted (button + service).
             NMMuteDefaultDurationNumber(hass, entry),
+            # Halo S1b: NM wall-panel lease TTL (rung 3, default 30 min).
+            NMPanelLeaseTtlNumber(hass, entry),
             # ARREST-COMFORT-1 fix-up A-HIGH-1 (2026-08-10): rung-3 knobs
             # for the comfort-delay grace + SOC floor. Live on the HVAC
             # Coordinator device; setters push into HVACCoordinator ->
