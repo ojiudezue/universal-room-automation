@@ -1268,7 +1268,8 @@ cards:
   approval: unreviewed
   origin: {date: '2026-10-14', gist: 'plan re-review of SAFETY-HAZARD-NEVER-CLEARS-1 rev 3 (MED-2), found reading the consumer map'}
   why: "Safety NotificationAction at safety.py:2413-2420 sets no hazard_type/location; manager.py:1079 passes None; notification_manager.py:3039 calls is_hazard_active('', ''), always False, so the NM re-fire for an active hazard never happens. Pre-existing; out of scope of the clear-on-recovery cycle."
-  status: "parked"
+  status: done
+  disposition_2026_10_24: "done: operator confirmed 10-24 the TEST smoke CRITICAL (21:42Z) repeated until ack; one ack stopped it on all 4 channels. Re-page wiring proven live."
   shipped_version: v5.103.69
   operator_2026_10_15: "Operator: repeat schedule = A (today's ladder) as a setting with a default (D7, plan rev 4.2); deploy held until Sunday 10-18."
   next: "Parked until the revival trigger. Nothing to do now. The test path is in-suite; re-pairing the kitchen smoke detector (SAFETY-SENSOR-FLEET-HEALTH-1) is what makes the real case possible."
