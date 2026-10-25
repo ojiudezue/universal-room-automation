@@ -612,6 +612,10 @@ DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H: Final = 2
 # window). In-memory only — restart resets the deque; the per-day latch
 # also resets on restart. Not persisted by design (one hour of state).
 DEFAULT_EV_TOGGLE_TRIPWIRE_WINDOW_S: Final = 3600
+# Operator 2026-10-24: the EV trip-wire is diagnostic only — no page.
+# False = record the `ev_toggle_tripwire` anomaly row but never send NM.
+# Rung 1 (reviewed change to re-enable paging).
+EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED: Final = False
 
 # B5 (resilience A3, probe P3 GO 2026-10-04) — a cloud charge-from-grid
 # `off` read counts as OFF for the phase-1 predicates (D2a provably-off,

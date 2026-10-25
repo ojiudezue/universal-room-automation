@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.89
+# Universal Room Automation vv5.103.90
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.person import DOMAIN as PERSON_DOMAIN
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er, device_registry as dr, area_registry as ar
@@ -55,7 +55,16 @@ from .const import (
     BLE_SILENT_ONLY_AWAY_CONFIDENCE,
     ATTR_TRACKING_REASON,
     ATTR_TRACKER_SOURCES,
+    # PERSON-BLE-WINS-OVER-STALE-GPS-1: fleet guard + boot latch bounds.
+    BLE_LEADS_MIN_ACTIVE_PROXIES,
+    BLE_LEADS_ARM_S,
+    BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID,
 )
+
+try:  # Real HA always has it; minimal test stub graphs may not.
+    from homeassistant.helpers.event import async_track_state_change_event
+except Exception:  # noqa: BLE001 - defensive (stubbed HA in unit tests)
+    async_track_state_change_event = None  # type: ignore[assignment]
 
 # PATH-ALPHA D2a: BLE fleet liveness window (seconds). If any tracked
 # person had a Bermuda area update within this window, the scanner fleet
@@ -110,6 +119,30 @@ def _stamp(status: str, location: str, confidence: float,
         ATTR_TRACKING_REASON: tracking_reason,
         ATTR_TRACKER_SOURCES: dict(tracker_sources),
     }
+
+
+def person_state_for_trust(hass, person_entity_id: str) -> str | None:
+    """Person state for trust readers (PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b).
+
+    Routes through PersonTrackingCoordinator.effective_person_state, which
+    differs from raw HA state only for a person whose GPS-led "home" was
+    overruled by their own BLE on the last tick. No person coordinator, or
+    any exception -> the raw HA state (None when the entity is missing), so
+    callers keep their exact comparison and fail-open/closed shape.
+    """
+    try:
+        pc = hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if pc is not None and hasattr(pc, "effective_person_state"):
+            res = pc.effective_person_state(person_entity_id)
+            if res is None or isinstance(res, str):
+                return res
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        st = hass.states.get(person_entity_id)
+    except Exception:  # noqa: BLE001
+        return None
+    return st.state if st is not None else None
 
 
 class PersonTrackingCoordinator(DataUpdateCoordinator):
@@ -181,6 +214,21 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         # entities (S6 pre-matrix guard). A persistent config error must not
         # spam NM every tick; the set is cleared only on process restart.
         self._entity_missing_noted: set[str] = set()
+
+        # PERSON-BLE-WINS-OVER-STALE-GPS-1 (plan §4.1-4.3).
+        # Persons whose GPS-led person.state "home" was overruled by their
+        # own BLE trackers on the LAST completed tick. Built in a local
+        # during the tick and assigned ONCE after the person loop (R2-1),
+        # never mutated in place, so a reader running between awaits sees
+        # the previous tick's complete set. Kept on UpdateFailed.
+        self._gps_home_overruled: frozenset[str] = frozenset()
+        # Fleet guard: Bermuda Active Proxy Count, resolved by registry
+        # unique_id. `_fleet_healthy_since` is None at process start (boot
+        # latch) and after any below-floor / unknown / unavailable reading.
+        self._proxy_entity_id: str | None = None
+        self._proxy_unsub: Any = None
+        self._fleet_healthy_since: datetime | None = None
+        self._fleet_armed_last: bool = False
 
     # =========================================================================
     # PATH-ALPHA D2a (rev-3.5.1) — UNIFIED MATRIX CLASSIFIER
@@ -340,6 +388,275 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 continue
         return False
 
+    # =========================================================================
+    # PERSON-BLE-WINS-OVER-STALE-GPS-1 — GPS assistive, BLE leads
+    # (docs/planning/PLANNING_presence_gps_assistive.md rev 3)
+    # =========================================================================
+    # A person's own BLE trackers (both integrations: private_ble + Bermuda)
+    # all reading `not_home` overrule a GPS-led `person.state == "home"`,
+    # but ONLY while the switch is on, the fleet is armed (Bermuda Active
+    # Proxy Count >= floor for BLE_LEADS_ARM_S) and WiFi is not a home
+    # witness. Everything else is byte-identical to the pre-change code.
+
+    def _own_ble_trackers_all_not_home(self, person_state) -> bool:
+        """True iff >= 1 `bluetooth_le` tracker and every one reads `not_home`.
+
+        Unavailable / unknown / home on any BLE tracker -> False (no opinion
+        or a home witness). A listed tracker with no state has no known
+        source type and is skipped. Any exception -> False.
+        """
+        try:
+            attrs = getattr(person_state, "attributes", {}) or {}
+            trackers = attrs.get("device_trackers") or []
+            seen = 0
+            for tracker_id in trackers:
+                ts = self.hass.states.get(tracker_id)
+                if ts is None:
+                    continue
+                t_attrs = getattr(ts, "attributes", {}) or {}
+                if str(t_attrs.get("source_type", "")).lower() != "bluetooth_le":
+                    continue
+                seen += 1
+                if getattr(ts, "state", None) != "not_home":
+                    return False
+            return seen >= 1
+        except Exception:  # noqa: BLE001 - defensive: no opinion
+            return False
+
+    def _ble_leads_enabled(self) -> bool:
+        """Presence switch "BLE Leads Home/Away" (default ON).
+
+        Same cross-coordinator read pattern as the pre-arrival observation
+        mode check. Missing manager / presence / field -> True; exception
+        -> True (the fleet guard still protects).
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            pres = getattr(mgr, "coordinators", {}).get("presence")
+            if pres is None:
+                return True
+            return bool(getattr(pres, "_ble_leads_enabled", True))
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _resolve_proxy_entity_id(self) -> str | None:
+        """Bermuda Active Proxy Count entity_id via the registry unique_id."""
+        try:
+            reg = er.async_get(self.hass)
+            eid = reg.async_get_entity_id(
+                "sensor", "bermuda", BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID,
+            )
+        except Exception:  # noqa: BLE001 - registry absent / stubbed
+            return None
+        return eid if isinstance(eid, str) and eid else None
+
+    def _apply_proxy_state(self, state_str: Any, now: datetime) -> None:
+        """One reading of the proxy count -> update the healthy-since latch."""
+        healthy = False
+        try:
+            healthy = float(state_str) >= BLE_LEADS_MIN_ACTIVE_PROXIES
+        except (TypeError, ValueError):
+            healthy = False
+        if not healthy:
+            self._fleet_healthy_since = None
+        elif self._fleet_healthy_since is None:
+            self._fleet_healthy_since = now
+
+    @callback
+    def _on_proxy_state_change(self, event) -> None:
+        """Edge listener: catches a ~60 s dip that falls between 30 s ticks."""
+        try:
+            new_state = event.data.get("new_state")
+            state_str = new_state.state if new_state is not None else None
+        except Exception:  # noqa: BLE001
+            state_str = None
+        self._apply_proxy_state(state_str, dt_util.now())
+
+    def _release_proxy_listener(self) -> None:
+        """Idempotent unsubscribe (on_unload + teardown can both call it)."""
+        unsub = self._proxy_unsub
+        self._proxy_unsub = None
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _ensure_proxy_listener(self, now: datetime) -> None:
+        """Per tick: resolve the proxy entity, (re)subscribe, re-read state.
+
+        R2-2: registers on the first tick the entity resolves (covers a
+        Bermuda that loads after URA). A changed entity_id re-subscribes.
+        A miss turns the rule off (latch cleared). The tick re-read also
+        self-heals a missed listener event.
+        """
+        eid = self._resolve_proxy_entity_id()
+        if eid is None:
+            self._fleet_healthy_since = None
+            return
+        if eid != self._proxy_entity_id:
+            self._release_proxy_listener()
+            self._proxy_entity_id = eid
+            _LOGGER.info(
+                "BLE leads: fleet guard reads %s (Bermuda active proxy count; "
+                "floor %d, arm %ds)", eid, BLE_LEADS_MIN_ACTIVE_PROXIES,
+                BLE_LEADS_ARM_S,
+            )
+        if self._proxy_unsub is None and async_track_state_change_event is not None:
+            try:
+                unsub = async_track_state_change_event(
+                    self.hass, [eid], self._on_proxy_state_change,
+                )
+                self._proxy_unsub = unsub
+                try:
+                    self.integration_entry.async_on_unload(self._release_proxy_listener)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("BLE leads: proxy listener not registered: %s", err)
+        try:
+            st = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            st = None
+        self._apply_proxy_state(st.state if st is not None else None, now)
+
+    def _fleet_armed(self, now: datetime) -> bool:
+        """Healthy proxy count held for >= BLE_LEADS_ARM_S this session."""
+        since = self._fleet_healthy_since
+        if since is None:
+            return False
+        try:
+            return (now - since).total_seconds() >= BLE_LEADS_ARM_S
+        except Exception:  # noqa: BLE001 - tz mix
+            return False
+
+    def _router_says_home(self, person_state) -> bool:
+        """True iff ANY `router` tracker of the person reads `home`.
+
+        Review A1: the WiFi witness is "any router home", scanned directly
+        (like the BLE scan), not the diagnostic last-wins WiFi axis.
+        Exception -> True (treat as a witness: fail toward no overrule).
+        """
+        try:
+            attrs = getattr(person_state, "attributes", {}) or {}
+            for tracker_id in attrs.get("device_trackers") or []:
+                ts = self.hass.states.get(tracker_id)
+                if ts is None:
+                    continue
+                t_attrs = getattr(ts, "attributes", {}) or {}
+                if str(t_attrs.get("source_type", "")).lower() != "router":
+                    continue
+                if getattr(ts, "state", None) == "home":
+                    return True
+            return False
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _ble_overrules_gps_home(
+        self, person_state, sources: dict[str, str], fleet_armed: bool,
+        ble_leads_on: bool,
+    ) -> bool:
+        """The gate (plan §4.1): evaluated only inside a person.state=home arm.
+
+        `fleet_armed` is the tick-captured value (review A2/B-L1: one value
+        per tick, captured before the first await).
+        """
+        if not ble_leads_on:
+            return False
+        if not fleet_armed:
+            return False
+        if self._router_says_home(person_state):
+            return False
+        # Row 4 (a WiFi not_home reading) stays unchanged (operator Q2).
+        if sources.get("wifi") == "not_home":
+            return False
+        return self._own_ble_trackers_all_not_home(person_state)
+
+    def _apply_s3_away_arm(
+        self, person_name: str, stamp_row: dict[str, Any], now: datetime,
+        *, was_away_after_min_away: bool = False,
+    ) -> None:
+        """S3 case-(a) side effects, shared by the else-arms and the overrule.
+
+        ACTIVE + away; `no_signal` reason rewritten to `away_wifi_only` 0.9;
+        LOST-since stamps for path-beta grace + pre-arrival; and
+        `_person_was_away` (Review M3) so BLE pre-arrival fires on return.
+        """
+        stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
+        stamp_row["location"] = "away"
+        if stamp_row.get(ATTR_TRACKING_REASON) == "no_signal":
+            stamp_row[ATTR_TRACKING_REASON] = "away_wifi_only"
+            stamp_row["confidence"] = 0.9
+        if person_name not in self._person_lost_since:
+            self._person_lost_since[person_name] = now
+        if person_name not in self._lost_away_since:
+            self._lost_away_since[person_name] = now
+        if not was_away_after_min_away:
+            self._person_was_away[person_name] = True
+            return
+        # Overrule path (consequence-replay fix): reuse the LOST path's
+        # pre-arrival guard — `_person_was_away` arms only once the person
+        # has read away for >= `_min_away_minutes` (same test as the LOST
+        # branch), so a BLE return within 15 min of the overrule does not
+        # fire SIGNAL_PERSON_ARRIVING; a return after a real absence does.
+        lost_s = (now - self._person_lost_since[person_name]).total_seconds()
+        if lost_s >= self._min_away_minutes * 60:
+            self._person_was_away[person_name] = True
+
+    def _apply_ble_overrule(
+        self, person_name: str, stamp_row: dict[str, Any], now: datetime,
+        prior_location: str,
+    ) -> None:
+        """Overrule path: the S3 arm, stamped as row 14 (no new vocabulary)."""
+        # Review A4 / B-M1: the 15-min pre-arrival guard measures the
+        # overrule's OWN away span. On the first overrule tick, unless the
+        # person was already ACTIVE-away (a real absence already armed
+        # pre-arrival), restart the clock and drop any stale was_away left
+        # by an earlier LOST / no_signal / unavailable stretch or an
+        # S3 -> S2 sequence.
+        if person_name not in self._gps_home_overruled and prior_location != "away":
+            self._person_lost_since[person_name] = now
+            self._person_was_away[person_name] = False
+        self._apply_s3_away_arm(
+            person_name, stamp_row, now, was_away_after_min_away=True,
+        )
+        stamp_row[ATTR_TRACKING_REASON] = "away_ble_silent_only"
+        stamp_row["confidence"] = BLE_SILENT_ONLY_AWAY_CONFIDENCE
+
+    def effective_person_state(self, person_entity_id: str) -> str | None:
+        """HA person state for TRUST readers, with the BLE overrule applied.
+
+        Differs from the raw HA state ONLY for a person overruled on the last
+        completed tick whose URA location is `away` (and only while the
+        switch is on). Everything else, including persons URA disagrees with
+        for other reasons, returns the raw state verbatim.
+        """
+        try:
+            raw = self.hass.states.get(person_entity_id)
+        except Exception:  # noqa: BLE001
+            raw = None
+        raw_state = raw.state if raw is not None else None
+        overruled = self._gps_home_overruled
+        if not overruled:
+            return raw_state
+        try:
+            if not self._ble_leads_enabled():
+                return raw_state
+            for name in overruled:
+                if f"person.{name.lower().replace(' ', '_')}" == person_entity_id:
+                    if self.get_person_location(name) == "away":
+                        return "not_home"
+                    break
+        except Exception:  # noqa: BLE001
+            return raw_state
+        return raw_state
+
+    async def async_teardown(self) -> None:
+        """Release the proxy listener (called before the unload pop)."""
+        self._release_proxy_listener()
+
     def _classify_matrix_row(
         self,
         person_hass_state: str,
@@ -420,9 +737,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.90,
                           "away_wifi_only", sources_out)
 
-        # Row 14 — BLE-only away (Ziri canonical path). Knob-controlled;
-        # default 0.82 < path-α threshold 0.9 so solo BLE-only cannot flip
-        # house alone. See const.py BLE_SILENT_ONLY_AWAY_CONFIDENCE.
+        # Row 14 — BLE-only away (Ziri canonical path). Knob-controlled
+        # (const.py BLE_SILENT_ONLY_AWAY_CONFIDENCE, 0.82). NOTE: path α does
+        # NOT read confidence (presence.py all_tracked_persons_away ~:6395), so this
+        # value does not stop a BLE-only away vote from counting; the old
+        # "0.82 < path-α threshold 0.9" claim was wrong (presence doc §10).
         if ble == "silent":
             return _stamp(TRACKING_STATUS_ACTIVE, "away",
                           BLE_SILENT_ONLY_AWAY_CONFIDENCE,
@@ -466,7 +785,22 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             
             person_data = {}
             now = dt_util.now()
-            
+
+            # PERSON-BLE-WINS-OVER-STALE-GPS-1: fleet guard upkeep + per-tick
+            # captures. The overruled set is built in a LOCAL and assigned
+            # once after the loop (R2-1).
+            self._ensure_proxy_listener(now)
+            _fleet_armed_now = self._fleet_armed(now)
+            if _fleet_armed_now != self._fleet_armed_last:
+                _LOGGER.info(
+                    "BLE leads: fleet %s (proxy count %s)",
+                    "armed" if _fleet_armed_now else "disarmed",
+                    self._proxy_entity_id,
+                )
+                self._fleet_armed_last = _fleet_armed_now
+            _ble_leads_on = self._ble_leads_enabled()
+            overruled_this_tick: set[str] = set()
+
             for person_name in self.tracked_persons:
                 # Get old data before update
                 old_data = self.data.get(person_name, {}) if self.data else {}
@@ -731,7 +1065,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         _stamp_row = self._classify_matrix_row(
                             _ps_state, _sources, "silent", _ble_live,
                         )
-                        if _ps_state == "home":
+                        if _ps_state == "home" and self._ble_overrules_gps_home(
+                            person_state, _sources, _fleet_armed_now, _ble_leads_on,
+                        ):
+                            # PERSON-BLE-WINS-OVER-STALE-GPS-1 site 1: own BLE
+                            # (both integrations) says gone on an armed fleet
+                            # with no WiFi witness -> GPS "home" is overruled.
+                            self._apply_ble_overrule(person_name, _stamp_row, now, old_location)
+                            overruled_this_tick.add(person_name)
+                        elif _ps_state == "home":
                             # S2 case-(b): NEVER LOST. Force location=home even
                             # if source-derivation was inconclusive (HA person
                             # aggregation is our authority for "home"). Case-(b)
@@ -776,20 +1118,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         else:
                             # S3 case-(a): ACTIVE + away with matrix-derived
                             # tracking_reason. Formerly stamped LOST → AWAY-
-                            # BLOCK-1 root cause. Preserve `_person_was_away`.
-                            _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
-                            _stamp_row["location"] = "away"
-                            if _stamp_row.get(ATTR_TRACKING_REASON) == "no_signal":
-                                _stamp_row[ATTR_TRACKING_REASON] = "away_wifi_only"
-                                _stamp_row["confidence"] = 0.9
-                            if person_name not in self._person_lost_since:
-                                self._person_lost_since[person_name] = now
-                            if person_name not in self._lost_away_since:
-                                self._lost_away_since[person_name] = now
-                            # PRESERVE (Review M3, AUDIT §3 :385/:428): case-(a)
-                            # away must set _person_was_away so BLE pre-arrival
-                            # fires on the next home-visible tick.
-                            self._person_was_away[person_name] = True
+                            # BLOCK-1 root cause. Preserve `_person_was_away`
+                            # (Review M3, AUDIT §3 :385/:428) — inside the
+                            # shared helper.
+                            self._apply_s3_away_arm(person_name, _stamp_row, now)
 
                         person_data[person_name] = {
                             "location": _stamp_row["location"],
@@ -829,7 +1161,13 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         new_previous_location = old_previous_location
                         new_previous_location_time = old_previous_location_time
 
-                    if _ps_state == "home":
+                    if _ps_state == "home" and self._ble_overrules_gps_home(
+                        person_state, _sources, _fleet_armed_now, _ble_leads_on,
+                    ):
+                        # PERSON-BLE-WINS-OVER-STALE-GPS-1 site 2 (twin).
+                        self._apply_ble_overrule(person_name, _stamp_row, now, old_location)
+                        overruled_this_tick.add(person_name)
+                    elif _ps_state == "home":
                         # S2 case-(b) row 10 — NEVER LOST (rev-3.5.1 pin).
                         _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
                         _stamp_row["location"] = "home"
@@ -860,17 +1198,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         # DO NOT set _person_was_away.
                     else:
                         # S3 case-(a) — ACTIVE-away with per-source reason.
-                        _stamp_row["tracking_status"] = TRACKING_STATUS_ACTIVE
-                        _stamp_row["location"] = "away"
-                        if _stamp_row.get(ATTR_TRACKING_REASON) == "no_signal":
-                            _stamp_row[ATTR_TRACKING_REASON] = "away_wifi_only"
-                            _stamp_row["confidence"] = 0.9
-                        if person_name not in self._person_lost_since:
-                            self._person_lost_since[person_name] = now
-                        if person_name not in self._lost_away_since:
-                            self._lost_away_since[person_name] = now
-                        # PRESERVE (Review M3): case-(a) away sets was_away.
-                        self._person_was_away[person_name] = True
+                        # PRESERVE (Review M3): case-(a) away sets was_away
+                        # (inside the shared helper).
+                        self._apply_s3_away_arm(person_name, _stamp_row, now)
 
                     person_data[person_name] = {
                         "location": _stamp_row["location"],
@@ -885,6 +1215,16 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         ATTR_TRACKING_REASON: _stamp_row[ATTR_TRACKING_REASON],
                         ATTR_TRACKER_SOURCES: _stamp_row[ATTR_TRACKER_SOURCES],
                     }
+
+            # PERSON-BLE-WINS-OVER-STALE-GPS-1 (R2-1): assign the overruled set
+            # ONCE, after the person loop. DEBUG on transitions only.
+            _new_overruled = frozenset(overruled_this_tick)
+            if _new_overruled != self._gps_home_overruled:
+                _LOGGER.debug(
+                    "BLE leads: GPS-home overruled set %s -> %s",
+                    sorted(self._gps_home_overruled), sorted(_new_overruled),
+                )
+            self._gps_home_overruled = _new_overruled
 
             # D7: Periodic person snapshot logging (~every 15 minutes)
             db = self.hass.data.get(DOMAIN, {}).get("database")

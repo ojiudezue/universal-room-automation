@@ -1156,6 +1156,15 @@ class _PersonHarness:
         pc._scanner_to_rooms = {}
         pc._area_id_to_room = {}
         pc._direct_ble_rooms = set()
+        # PERSON-BLE-WINS-OVER-STALE-GPS-1: fields set by __init__ (this
+        # harness skips it). Fleet never armed -> the BLE-leads rule is off,
+        # so these tests stay byte-identical to the pre-change behaviour.
+        pc._gps_home_overruled = frozenset()
+        pc._proxy_entity_id = None
+        pc._proxy_unsub = None
+        pc._fleet_healthy_since = None
+        pc._fleet_armed_last = False
+        pc._resolve_proxy_entity_id = lambda: None
 
         async def _noop(*a, **k):
             return None

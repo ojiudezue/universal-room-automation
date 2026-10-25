@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "240",
+  "author": "ojiudezue",
+  "session_id": "claude_20261025_021849_ship_v5_103_90",
+  "timestamp": "2026-10-25T02:18:49Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.90 shipped: v5.103.90: Bluetooth leads home/away (GPS assistive) + EV toggle alarm no longer pages",
+  "summary": "v5.103.90: Bluetooth leads home/away (GPS assistive) + EV toggle alarm no longer pages",
+  "why": "HA's person entity prefers the companion GPS tracker; on 10-24 Oji's phone re-sent a 14:03 home fix all day so URA and six direct readers held him home for 8+ hours while both his BLE trackers read not_home (13 segments, ~19 h in a week). Operator doctrine: BLE decides, GPS assists, missing GPS must not block away. Narrowest fix: one gate at the two person.state==home arms reusing the existing away arm, guarded by Bermuda's active proxy count so a dead fleet or a restart cannot mark everyone away. EV tripwire paged on routine evening behaviour at zero cost; operator wants no EV pages.",
+  "implications": "Shipped PERSON-BLE-WINS-OVER-STALE-GPS-1, EV-TOGGLE-TRIPWIRE-PEAK-BOUNDARY-1 at v5.103.90; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.90.md (Live criteria).",
+  "revisit_trigger": "Presence: 24 h one-shot re-run of scripts/probes/presence_gps_override_probe.py \u2014 done if zero overnight app-user away stamps while own BLE reads home and no app-user away within 360-900 s after a restart; reopen if a home-without-phone false GUEST/AWAY is reported. EV: done if zero ev_toggle_tripwire notification rows over the next 7 days with anomaly rows still written.",
+  "refs": {
+    "cards": [
+      "PERSON-BLE-WINS-OVER-STALE-GPS-1",
+      "EV-TOGGLE-TRIPWIRE-PEAK-BOUNDARY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.90.md"
+    ],
+    "release_notes": "Presence: a frozen companion-app GPS 'home' no longer holds an app user home when all their own BLE trackers read not_home and the Bermuda proxy fleet has been healthy (>=30 proxies) for 360 s; six trust readers use URA's view; switch BLE Leads Home/Away (default on) restores old behaviour. EV toggle tripwire keeps its anomaly row but no longer sends a notification. See docs/readmes/README_v5.103.90.md."
+  }
+}

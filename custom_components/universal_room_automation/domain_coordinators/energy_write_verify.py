@@ -1608,7 +1608,9 @@ class WriteVerifier:
         toggle on EVSE ``charger_id``. ``action`` is ``"charger_on"`` or
         ``"charger_off"``. Above
         ``DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H`` in the rolling window →
-        one anomaly + one NM per EVSE per LOCAL day. Alert only; never
+        one anomaly row per EVSE per LOCAL day. Diagnostic only: the NM
+        page is gated on ``EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED`` (default
+        False, operator 2026-10-24 "don't page me about EV"). Never
         touches actuation; mirrors ``note_dispatch`` (write-churn)."""
         try:
             from . import energy_const as _ec  # noqa: PLC0415
@@ -1651,6 +1653,10 @@ class WriteVerifier:
                     "severity_class": "ALERT",
                 },
             )
+            if not bool(getattr(
+                _ec, "EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED", False,
+            )):
+                return  # diagnostic only — anomaly row, no page
             await self._maybe_fire_nm(
                 charger_id,
                 title=f"EV charger flip-flop: {charger_id}",

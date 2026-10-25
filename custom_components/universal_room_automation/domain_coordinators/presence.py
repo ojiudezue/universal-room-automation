@@ -1781,6 +1781,13 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_detection_suppressed_since: str | None = None
         self._arriving_rearm_suppressed_since: str | None = None
         self._away_veto_suppressed_since: str | None = None
+        # PERSON-BLE-WINS-OVER-STALE-GPS-1 (D2): "BLE Leads Home/Away"
+        # switch backing field (default ON). Read by PersonTrackingCoordinator
+        # `_ble_leads_enabled()` at the two person.state=home arms and by
+        # `effective_person_state`. OFF = GPS "home" also counts as proof
+        # (pre-change behaviour, byte-identical).
+        self._ble_leads_enabled: bool = True
+        self._ble_leads_suppressed_since: str | None = None
         # PATH-ALPHA D5 (away_transition_blocked) + D6 (tracker_trust_excluded):
         # instantiated lazily on first _run_inference tick (needs `hass` in
         # scope; `self.hass` is set by the coordinator base but we defer
