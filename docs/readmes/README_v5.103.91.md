@@ -1,6 +1,6 @@
 # v5.103.91: Census — face confirms, Bluetooth decides
 
-Card: FRIGATE-FACE-MISLABEL-OJI-1 (INSTANCE_2026_10_24_2142) follow-up; plan `docs/planning/PLANNING_census_ble_over_face.md` rev 4. Tier 2, plan review + 3 framing-disjoint reviews. Deploy risk LOW-MEDIUM (house-level identified/unidentified counts).
+Card: PERSON-BLE-WINS-OVER-STALE-GPS-1 (census follow-up of v5.103.90), triggered by FRIGATE-FACE-MISLABEL-OJI-1 (INSTANCE_2026_10_24_2142, stays with operator for retraining); plan `docs/planning/PLANNING_census_ble_over_face.md` rev 4. Tier 2, plan review + 3 framing-disjoint reviews. Deploy risk LOW-MEDIUM (house-level identified/unidentified counts).
 
 ## Problem
 After v5.103.90 Oji (abroad) read Away by BLE, but the census still counted him home: Frigate face-matched Jaya as "Oji" and the face-latch guard (`camera_census.py` ~5891-5946) checked raw `person.oji_udezue`, still `home` from a frozen GPS fix. `sensor.universal_room_automation_identified_persons_in_house` = 3 with 2 people home.
