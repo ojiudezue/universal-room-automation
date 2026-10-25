@@ -1,6 +1,6 @@
 # PLANNING — Presence: GPS assistive, BLE leads (card PERSON-BLE-WINS-OVER-STALE-GPS-1)
 
-**Status:** Rev 2, plan-review fixes F1-F7 applied
+**Status:** Rev 3 (re-review ef276f8d5 items R2-1, R2-2, F7, LOW and wording folded in; no further review round). Rev 2 applied plan-review fixes F1-F7
 (`docs/reviews/code-review/plan_review_presence_gps_assistive.md`, d46e28f7a). Awaiting re-review. No code written.
 **Card:** `PERSON-BLE-WINS-OVER-STALE-GPS-1` (`docs/planning/kanban.data.yaml:32943`).
 **Read first (done, completely):** `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`
@@ -26,6 +26,7 @@ very narrow changes unless justified. Don't act like this is green field."
 | F5 MED live check doesn't discriminate | The live check now keys on Oji's location, with the house-AWAY lag bounded. Added an overnight false-away re-run criterion (D1 Live). |
 | F6 LOW timeouts | Live values read and cited (§4.4). |
 | F7 LOW census tracker walk | Reviewed; not reused, with reason (§1.1). |
+| Rev 3 (ef276f8d5) | R2-1 overruled set built in a local and assigned once (§4.1). R2-2 listener registered on first resolve, including a late Bermuda load, and released via `entry.async_on_unload` plus teardown (§4.2). F7 sentence (§1.1). LOW note on the face-latch timing (§6b). Proxy sensor publishes up to ~60 s late (§4.2, §5.3). |
 
 ---
 
@@ -42,7 +43,7 @@ very narrow changes unless justified. Don't act like this is green field."
 | Per-tick GPS/WiFi/BLE axis read | **REUSED, unchanged** | `_read_source_inventory` `person_coordinator.py:209-295` (ignores `bluetooth_le` by design, :287-289) |
 | Fleet liveness gate | **REUSED, unchanged, not used as the guard** | `_ble_fleet_live` `:297-341`. It proves liveness only through another resident's Bermuda fix, so it is False for the last person out. That makes it useless as the guard for this rule. |
 | Fleet-health evidence | **NEW read of an existing HA entity** | Bermuda `sensor.bermuda_global_active_proxy_count`, unique_id `BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT` (live registry, 2026-10-24). Value = `coordinator.count_active_scanners(max_age=10)` = scanners with an advert in the last 10 s (`/config/custom_components/bermuda/coordinator.py:574-581`, Bermuda 0.8.7). grep `active_proxy|proxy_count` in the integration: 0 hits. |
-| Per-person BLE device_tracker evidence (`bluetooth_le`) | **NEW small helper in person_coordinator**. **F7:** `camera_census.py:4245-4300` already walks `person.device_trackers` with a `source_type == "bluetooth_le"` test, but it is an inline loop inside a census producer, with census-specific sticky classification (`_known_ble_trackers`, demotion rules, collision warnings). Extracting it would edit a census hot path to share a one-line `source_type` test, and its sticky rule (unavailable trackers stay admitted) is the wrong semantics here, where unavailable must mean no opinion. Cited, not reused. Same `source_type` test, same string. |
+| Per-person BLE device_tracker evidence (`bluetooth_le`) | **NEW small helper in person_coordinator**. **F7, in one sentence:** the walk at `camera_census.py:4250` is not reused because its sticky rule keeps an unavailable tracker counted as BLE, and this rule needs unavailable to mean no opinion. Detail: `camera_census.py:4245-4300` already walks `person.device_trackers` with a `source_type == "bluetooth_le"` test, but it is an inline loop inside a census producer, with census-specific sticky classification (`_known_ble_trackers`, demotion rules, collision warnings). Extracting it would edit a census hot path to share a one-line `source_type` test, and its sticky rule (unavailable trackers stay admitted) is the wrong semantics here, where unavailable must mean no opinion. Cited, not reused. Same `source_type` test, same string. |
 | Shared "is this person home" read for trust consumers | **NEW thin method on PersonCoordinator** built on `get_person_location` (`person_coordinator.py:1471`) with a raw-HA fallback (§6b) | name mapping reuses the `person.{name.lower().replace(' ', '_')}` rule at `person_coordinator.py:479` (inverse of `__init__.py:3065-3067`) |
 | Toggle | **REUSED class** `_PresenceKillSwitchBase` (`switch.py` ~3700-3838; sibling `PresenceAwayVetoEnabledSwitch` :3871). **NEW subclass + one backing field.** No GPS knob exists (grep `gps` in `switch.py`/`const.py` CONF_*). |
 | Cross-coordinator read of a presence flag | **REUSED pattern** | `person_coordinator.py:614-619` (`coordinator_manager.coordinators["presence"]`) |
@@ -121,15 +122,21 @@ In both `_ps_state == "home"` arms (`person_coordinator.py:734`, `:832`), before
 ```
 if ble_leads_enabled and fleet_armed(now) and sources["wifi"] != "home" and own_ble_trackers_all_not_home(person_state):
     run the existing S3 away arm; tracking_reason = "away_ble_silent_only"; confidence = BLE_SILENT_ONLY_AWAY_CONFIDENCE
-    self._gps_home_overruled.add(person_name)
+    overruled_this_tick.add(person_name)     # local, created at the top of _async_update_data
 ```
-`_gps_home_overruled` is entry-reset at the top of `_async_update_data` (per-tick value). It is the
+**R2-1:** the set is built in a local (`overruled_this_tick = set()` before the person loop) and
+assigned once, `self._gps_home_overruled = frozenset(overruled_this_tick)`, after the loop and before
+`return person_data`. It is never mutated in place, so a §6b reader running between awaits mid-tick
+sees the previous tick's complete set, never a half-built one. On the `UpdateFailed` path the previous
+set is kept, which matches `self.data`, since DataUpdateCoordinator keeps the last good data. It is the
 only state `effective_person_state` consults (§6b).
 
 ### 4.2 Fleet health (F1)
 `fleet_armed(now)` reads `self._fleet_healthy_since` (a datetime or None):
 - The proxy entity_id is resolved once via `entity_registry.async_get_entity_id("sensor", "bermuda", "BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT")` and cached; re-resolved on a miss. **Not found → `fleet_armed` is False → rule off** (Wigton, no-Bermuda installs: byte-identical).
-- One `async_track_state_change_event` listener on that entity, registered at setup and unsubscribed on unload: a new state below the floor, `unknown`, `unavailable` or non-numeric → `_fleet_healthy_since = None`. A state ≥ floor while `_fleet_healthy_since is None` → `_fleet_healthy_since = now`. The listener exists because the measured dips last ~60 s (§5.3) and the 30 s person tick (`const.py:46`) can miss one. A Bermuda reload resets its trackers to `not_home`, so a missed dip followed by an overrule would break INV-2.
+- **R2-2, registration:** a method `_ensure_proxy_listener()` runs at the top of every tick. If no listener is held and the registry lookup now resolves, it subscribes. This covers a Bermuda that loads after URA (or is added later): the first tick after the entity appears registers it. The resolved entity_id is cached, and a lookup miss does nothing (rule off). If the resolved entity_id changes (entity renamed), the old unsub is called and it re-subscribes.
+- **R2-2, release:** the unsub callable is passed to `self.config_entry.async_on_unload(unsub)` (the person coordinator is built with the integration entry at `__init__.py:3086`; DataUpdateCoordinator holds it as `config_entry`). It is also kept in `self._proxy_unsub` and released by a new `async_teardown()`, called from the unload path immediately before `hass.data[DOMAIN].pop("person_coordinator", None)` (`__init__.py:5680`), which mirrors the TransitionDetector teardown right after it. Double release is guarded (set `_proxy_unsub = None` after calling).
+- One `async_track_state_change_event` listener on that entity: a new state below the floor, `unknown`, `unavailable` or non-numeric → `_fleet_healthy_since = None`. A state ≥ floor while `_fleet_healthy_since is None` → `_fleet_healthy_since = now`. The listener exists because the measured dips last ~60 s (§5.3) and the 30 s person tick (`const.py:46`) can miss one. **Wording:** the proxy sensor itself is rate-limited and publishes up to ~60 s late (`_cache_ratelimit_interval = 60`, `bermuda/entity.py:193`). A real proxy outage therefore shows within about 70 s (10 s freshness plus 60 s publish), still well inside the 300 s tracker timeout. A dip shorter than the rate limit may never be published at all; that case is covered by the two-integration requirement in §4.4. A Bermuda reload resets its trackers to `not_home`, so a missed dip followed by an overrule would break INV-2.
 - The tick also re-reads the current state (same rule) so a missed listener event self-heals.
 - `fleet_armed` = `_fleet_healthy_since is not None and now - _fleet_healthy_since >= BLE_LEADS_ARM_S`.
 
@@ -215,7 +222,7 @@ existing BLE-led path.
 - Distribution over 2,474 rows: median 54, p1 44, max 62; `0` on 20 rows, `1` twice, `20` once (all at boot), `unavailable` once.
 - **Fleet-wide BLE `not_home` clusters** (≥ 4 of the 6 resident BLE trackers flipping `not_home` within 2 min): 17. **14 of the 17 coincide with the count reading 0** within ±10 min. The other 3 (10-20 07:25, 10-21 07:29, 10-21 15:47) had a normal count (59-62) and sit at school-run / pickup times: real departures, correctly not flagged.
 - **Every 0 / unavailable reading is an HA restart (19 `homeassistant_start` events) or one Bermuda reload (10-21 16:43, `unavailable` then 0).** Each dip lasted ~60 s. After them, present residents' trackers re-read `home` at +0 to +16.8 min (private_ble slowest).
-- **What the probe proves:** the count goes to 0 and the trackers go `not_home` together at every integration-level reset, and the count stays high through real departures. **What it cannot prove:** that the count drops during a proxy-hardware or adapter outage while HA keeps running, because none happened in the window. That half rests on source: `count_active_scanners(max_age=10)` counts scanners with an advert in the last 10 s (`bermuda/coordinator.py:574-581`), so a deaf proxy leaves the count within 10 s by construction, well inside the 300 s tracker timeout.
+- **What the probe proves:** the count goes to 0 and the trackers go `not_home` together at every integration-level reset, and the count stays high through real departures. **What it cannot prove:** that the count drops during a proxy-hardware or adapter outage while HA keeps running, because none happened in the window. That half rests on source: `count_active_scanners(max_age=10)` counts scanners with an advert in the last 10 s (`bermuda/coordinator.py:574-581`), so a deaf proxy leaves the count within 10 s by construction. The sensor publishes up to ~60 s late (`bermuda/entity.py:193`), so the drop is visible within ~70 s, well inside the 300 s tracker timeout.
 - **Guard chosen on this evidence:** count ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` (default 30: below p1 44, above every non-boot partial reading) held for `BLE_LEADS_ARM_S` (1200 s), with an edge listener so a 60 s dip cannot slip between 30 s ticks. A partial outage that keeps the count ≥ 30 but blinds the scanners near a resident is a named residual (§9); it needs both BLE integrations to lose that phone for ≥ 5-15 min.
 
 **Go/no-go:** GO.
@@ -271,7 +278,7 @@ no-coordinator path stay byte-identical.
 | `hvac.py:3401-3410` night-trust preset hold | raw `== "home"` | trust (FAN_TRUST_STATES, only if not `_zone_conditioning_retreat_ok`) | **ADOPT.** 0 overnight frozen segments were measured, but adopting costs one line and keeps HVAC from holding a zone for a person URA has as away. |
 | `hvac.py:3978-3986` `main_row_home_persons` | raw `== "home"` | **display** (activity-log payload for the preset row; feeds only `activity_logger.log`) | **ADOPT** for consistency, so the log matches the 3401 decision it is correlated with. Not trust-bearing. |
 | `hvac_fans.py:1525-1535` night vacancy hold | raw `== "home"` | trust (night, FAN_TRUST_STATES) | **ADOPT** (same reasoning as hvac.py:3401) |
-| `camera_census.py:5884-5895` stale-face latch guard | raw `== "not_home"` | trust (path α needs face 0) | **ADOPT.** Otherwise a face seen as the person leaves holds α for up to `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS` (1800 s). |
+| `camera_census.py:5884-5895` stale-face latch guard | raw `== "not_home"` | trust (path α needs face 0) | **ADOPT.** Otherwise a face seen as the person leaves holds α for up to `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS` (1800 s). **Timing note (LOW):** the census reads the previous tick's overruled set, up to 30 s old. Being one tick late only delays when the face drops out, by ≤ 30 s against a 1800 s window. It cannot drop a face early, because the set only contains persons both BLE integrations have already lost. |
 | `camera_census.py:4193-4199` `is_face_leg_person_vetoed`; `transit_validator.py:1837-1847` egress veto | raw `== "not_home"` | trust (identity) | **LEAVE.** These veto a face leg for a person who is `not_home`. The overrule state ends exactly on the person's return, before BLE re-acquires them, which is when the door face fires, so adopting would veto real arrival identities. Today a working GPS has the same timing; we add no new veto. |
 | `camera_census.py:4391-4445` BLE transition legs; `security.py:2024-2030`; `presence.py:5124/5143`, `:8734` geofence | edges on raw state changes | trust (edge-triggered) | **LEAVE.** The overrule produces no HA state edge, so these see no false edge; a frozen GPS emits none today either. Synthesising edges would add crossing events the cycle does not need. |
 | `camera_census.py:5686-5694`, `:5726-5733` | tracker inventory / router guests | structural | **LEAVE** (not a home/away read) |
@@ -286,7 +293,8 @@ no-coordinator path stay byte-identical.
 4. Matrix rows 2/3/4/10 — **no edit** (the matrix stays a pure function of axes).
 5. S1 / STALE — **no edit**.
 6. The seven §6b ADOPT sites — **change** (one-line swap to `person_state_for_trust`).
-7. `_gps_home_overruled` entry-reset at the top of `_async_update_data` — **new**, one site.
+7. `_gps_home_overruled` built in a local and assigned once after the person loop (R2-1) — **new**, one site.
+8. Proxy listener register (`_ensure_proxy_listener`, per tick) and release (`entry.async_on_unload` + `async_teardown` at `__init__.py:5680`) — **new**.
 
 ---
 
@@ -300,7 +308,8 @@ The builder copies `probe4.py` and `f1c.py` to `scripts/probes/presence_gps_over
 - `_ble_leads_enabled() -> bool`: presence `_ble_leads_enabled` via the `:614-619` pattern; missing → True; exception → True.
 - Fleet guard (§4.2): registry-resolved proxy entity, `_fleet_healthy_since`, the listener (unsub on unload), tick re-read, `fleet_armed(now)`. Proxy entity missing → False.
 - Gate at sites 1 and 2 (§4.1). Factor the S3 arm body into one local helper shared by the else-arm and the overrule path, so the side effects cannot drift.
-- `_gps_home_overruled: set[str]`, entry-reset per tick.
+- `_gps_home_overruled: frozenset[str]`, built in a local and assigned once per tick (R2-1).
+- `_ensure_proxy_listener()` + `async_teardown()`; teardown wired at `__init__.py:5680` (R2-2).
 - DEBUG log on transition into or out of overruled (not per tick); one INFO when `fleet_armed` changes.
 - Knobs (rung 1, `const.py`, review-only because they are safety bounds against a degraded fleet):
   `BLE_LEADS_MIN_ACTIVE_PROXIES = 30` (floor; 0 = any count passes, which leaves only the boot latch and unavailable as protection, so it is not a kill switch); `BLE_LEADS_ARM_S = 1200` (boot / recovery latch). The kill switch is D2.
@@ -313,7 +322,7 @@ The builder copies `probe4.py` and `f1c.py` to `scripts/probes/presence_gps_over
 - **Verify (F3 boot):** empty `self.data`, process just started, count 55, trackers `not_home`, GPS home → `home` for the first 1200 s.
 - **Verify:** proxy entity absent from the registry → `home` (rule off).
 - **Verify:** both sites behave identically; all 16 matrix row fixtures pass unmodified.
-- **Test:** `test_person_gps_assistive.py::test_frozen_gps_home_ble_not_home_goes_away`, `::test_one_ble_tracker_home_keeps_home`, `::test_ble_unavailable_keeps_home_ialpha`, `::test_wifi_home_witness_keeps_home`, `::test_no_ble_tracker_keeps_home`, `::test_row4_two_away_witnesses`, `::test_fallback_home_without_witness_overruled`, `::test_no_bermuda_branch_twin_site`, `::test_side_effects_match_s3_arm`, `::test_pre_arrival_fires_on_ble_return_after_overrule`, `::test_fleet_dead_keeps_home`, `::test_fleet_below_floor_keeps_home`, `::test_arm_window_boundary`, `::test_unsampled_dip_resets_latch_via_listener`, `::test_boot_latch_keeps_home`, `::test_proxy_entity_missing_rule_off`, `::test_listener_unsubscribed_on_unload`, `::test_overruled_set_entry_reset_per_tick`.
+- **Test:** `test_person_gps_assistive.py::test_frozen_gps_home_ble_not_home_goes_away`, `::test_one_ble_tracker_home_keeps_home`, `::test_ble_unavailable_keeps_home_ialpha`, `::test_wifi_home_witness_keeps_home`, `::test_no_ble_tracker_keeps_home`, `::test_row4_two_away_witnesses`, `::test_fallback_home_without_witness_overruled`, `::test_no_bermuda_branch_twin_site`, `::test_side_effects_match_s3_arm`, `::test_pre_arrival_fires_on_ble_return_after_overrule`, `::test_fleet_dead_keeps_home`, `::test_fleet_below_floor_keeps_home`, `::test_arm_window_boundary`, `::test_unsampled_dip_resets_latch_via_listener`, `::test_boot_latch_keeps_home`, `::test_proxy_entity_missing_rule_off`, `::test_listener_unsubscribed_on_unload`, `::test_listener_registers_on_late_bermuda_load`, `::test_overruled_set_assigned_once_after_loop`, `::test_overruled_set_kept_on_update_failed`.
 - **Mutation (framing C):** neuter site 1 → `test_frozen_gps_home_ble_not_home_goes_away` RED; neuter site 2 → `test_no_bermuda_branch_twin_site` RED; drop the fleet conjunct → `test_fleet_dead_keeps_home` RED; drop the arm window → `test_boot_latch_keeps_home` RED; drop the listener reset → `test_unsampled_dip_resets_latch_via_listener` RED; drop the WiFi check → `test_wifi_home_witness_keeps_home` RED.
 - **Live (F5, discriminating):** the next time Oji leaves with the phone and its GPS lags or freezes, `sensor.universal_room_automation_oji_udezue_location` reads Away with `away_ble_silent_only` within ~15 min of both his BLE trackers reading `not_home`. That observation is the discriminator. If he is last out, the house-state sensor's `last_away_branch` records an AWAY (`active` / `nobody_home`) within 30 min of that. That is the face-latch bound, now closed by §6b; a longer lag points at a §6b site that was missed.
 - **Live:** `sensor.bermuda_global_active_proxy_count` resolves (one INFO at setup naming it); within 20 min of restart the INFO "fleet armed" appears.
