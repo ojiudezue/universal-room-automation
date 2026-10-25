@@ -32960,6 +32960,7 @@ cards:
   origin: 'Consequence replay (docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md) read interior faces as Oji home all day; operator 2026-10-24: "Mislabeled face. I''m over the Atlantic... Frigate needs a training run. It''s likely seeing Jaya as me. I left the house around 8.42".'
   why: "Face identity feeds census (identified/unidentified), GUEST detection, path-alpha face latch and perimeter alerts; a wrong name can hold the house home or hide an unknown person."
   adjacency_2026_10_24: "Swept board (FRIGATE-*, face): ADJACENT to FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge, not accuracy). NEW as a model-accuracy problem."
+  INSTANCE_2026_10_24_2142: "Census identified_persons_in_house=3 (ezinne, jaya, oji_udezue) with Oji abroad: one body (frigate_count 1) face-recognised as both oji_udezue and jaya; Oji added face-only (ble_confirmed Ezinne, Jaya). URA location for Oji = Away (v5.103.90) but the face latch guard reads raw person.state (still home from frozen GPS) so it does not drop the face. Option if retrain does not fix: do not count a face-only identity when URA BLE-led location is away (own small plan + review; replay showed the adjacent guard is sensitive)."
   next: "DO: retrain Frigate face library (add/clean Oji and Jaya samples, remove mislabeled Oji images from 10-24) -> I re-measure 'Oji' indoor hits while Oji is away on the next absence."
   rank: {"value": 6, "time_criticality": 4, "effort": 2}
 - id: PERSON-BLE-WINS-OVER-STALE-GPS-1
