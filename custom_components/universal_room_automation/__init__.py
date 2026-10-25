@@ -5677,6 +5677,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v4.6.10 review-fix B2 pattern at :2884 — never raise KeyError
         # on unload paths because a partial-setup failure may have left
         # the key absent.
+        # PERSON-BLE-WINS-OVER-STALE-GPS-1 (R2-2): release the person
+        # coordinator's proxy-count listener BEFORE dropping the reference
+        # (idempotent; entry.async_on_unload also releases it).
+        _person_coord = hass.data[DOMAIN].get("person_coordinator")
+        if _person_coord is not None and hasattr(_person_coord, "async_teardown"):
+            try:
+                await _person_coord.async_teardown()
+            except Exception as _err:  # noqa: BLE001
+                _LOGGER.debug("person_coordinator teardown failed: %s", _err)
         hass.data[DOMAIN].pop("person_coordinator", None)
         
         # v4.5.19: tear down TransitionDetector BEFORE removing from

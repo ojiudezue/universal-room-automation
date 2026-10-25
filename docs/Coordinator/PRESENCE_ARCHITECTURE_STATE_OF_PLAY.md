@@ -77,6 +77,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 | `SIGNAL_HOUSE_STATE_CHANGED` | `presence.py` (dispatcher) | HVAC override arrester, fans, lighting, security, EVSE, battery, memory writers |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |
 | `person.*` entities + `sensor.<person>_room` | `person_coordinator.py` | guest gate, census identity fusion, egress, perimeter enrichment |
+| `person_state_for_trust(hass, person_entity_id)` → `PersonTrackingCoordinator.effective_person_state` (GPS-assistive cycle, branch `fix/presence-gps-assistive`, NOT deployed) | `person_coordinator.py` (module wrapper + method) | six raw `person.state` TRUST readers: `aggregation.py` `_sleep_person_fallback_occupied` / `_nonsleep_person_fallback_occupied` (zone_persons_home veto), `hvac_zones.ZoneManager.zone_has_home_person` (no production caller: no-op today), `hvac.py` night-trust preset hold + `main_row_home_persons` (display, activity log), `hvac_fans.py` night vacancy hold. The `camera_census.py` stale-face latch stays RAW on purpose: the consequence replay (`docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md` §3.6) showed the swap lengthened false-GUEST unidentified runs for ≤ ~1.5 min of earlier AWAY. Returns the raw HA state except `not_home` for a person overruled on the last tick (and URA location `away`, switch on). No person coordinator / any error → raw. Identity vetoes (`camera_census` `is_face_leg_person_vetoed`, `transit_validator` egress veto) and edge-triggered readers stay raw by design. |
 | `environmental_data.occupied` (5-min sample of room `STATE_OCCUPIED`, keyed by entry_id) | `coordinator.py` data-logging block | **room dwell model** (`room_dwell_model.py`, branch `feat/occupancy-dwell-anomaly`, NOT deployed): share of time occupied by local hour x weekday/weekend, nightly rebuild, read-only → `binary_sensor.<room>_occupancy_anomaly` (display only; no notification). Also `get_uncomfortable_minutes_today`. **PREDICT-MODEL-DWELL-MIGRATION-1 (branch `feature/predict-dwell-migration`, NOT deployed):** the same model now also feeds (a) the room `Bayesian Occupancy Forecast` / `Bayesian Occupancy Pattern` sensors (display; kill switch `FORECAST_DWELL_SOURCE_ENABLED`), and (b) one WRITE: the hourly `dwell_share` producer on `RoomDwellModelRunner` (`room_dwell_model.py` `_dwell_tick`) writes one `prediction_results` row per room per UTC hour, `room_id = entry_id`, predicted = the share frozen at minute `DWELL_SHARE_TICK_MINUTE` of the hour from a model with `trained_until_utc <= start(H)`, actual = the hour's occupied fraction from this same signal; **`confidence` holds the cell's sample count, not a probability**; `error_value` signed (expected − actual). Kill switch `DWELL_SHARE_PRODUCER_ENABLED`. These predictions describe the room-occupancy SIGNAL, so phantom holds count as "usual" and "accurate" (accepted). |
 
 ---
@@ -184,6 +185,37 @@ rung-1 module constant). If any tracked person had a Bermuda update within 90 s 
 (`away_ble_silent_only`); otherwise `BLE=silent` degrades to indeterminate (row 16
 `no_signal`). This is the backstop that prevents a dead scanner fleet from voting everyone
 away.
+
+**GPS assistive, BLE leads (PERSON-BLE-WINS-OVER-STALE-GPS-1, branch `fix/presence-gps-assistive`,
+NOT deployed; plan `docs/planning/PLANNING_presence_gps_assistive.md` rev 3).** In the two
+`person.state == "home"` arms of `_async_update_data` (Bermuda-sensor-but-no-room, and no Bermuda
+sensor), a GPS-led HA `home` is overruled when ALL hold (`_ble_overrules_gps_home`):
+- switch **BLE Leads Home/Away** on (`PresenceBleLeadsEnabledSwitch`, `_PresenceKillSwitchBase`, backing
+  `PresenceCoordinator._ble_leads_enabled`, default ON; OFF = pre-change behaviour, byte-identical);
+- fleet armed: Bermuda's Active Proxy Count (resolved by registry unique_id
+  `BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT`, never by name) has read ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` (30)
+  continuously for ≥ `BLE_LEADS_ARM_S` (360 s), measured from the later of process start and the last
+  below-floor / unknown / unavailable reading (`const.py`, rung 1). `_fleet_healthy_since` starts None
+  (boot latch). An `async_track_state_change_event` listener on the proxy sensor catches a ~60 s dip
+  between 30 s ticks; the tick also re-reads the state. The listener registers on the first tick the
+  entity resolves (late Bermuda load) and is released by `entry.async_on_unload` and by
+  `async_teardown()` called in `async_unload_entry` just before the `person_coordinator` pop. Proxy
+  entity missing → rule off (non-Bermuda installs unchanged);
+- WiFi axis `MISSING` / `unavailable` (WiFi `home` is a witness; row 4 `not_home` is unchanged);
+- every `bluetooth_le` tracker in the person's `device_trackers` reads exactly `not_home`, with ≥ 1 such
+  tracker (`_own_ble_trackers_all_not_home`; unavailable / unknown / home on any one → no overrule).
+The overrule runs the shared S3 away arm (`_apply_s3_away_arm`: ACTIVE + `away`, LOST-since stamps)
+but arms `_person_was_away` only after the overrule has held ≥ 15 min (`_min_away_minutes`, the LOST
+path's pre-arrival guard), so a short BLE dropout at home fires no pre-arrival; a return after a real
+absence does (consequence replay §3.7) and stamps the existing row-14 reason
+`away_ble_silent_only` at `BLE_SILENT_ONLY_AWAY_CONFIDENCE` (0.82). No new status / reason /
+confidence; `tracker_sources.gps == "home"` shows GPS was overruled. Overruled persons are collected
+in a local and assigned once per tick to `_gps_home_overruled` (a frozenset; kept on UpdateFailed), the
+only state `effective_person_state` consults (§1 table). GPS still hastens away (GPS `away` rows
+unchanged) and still holds home when BLE has no opinion or the fleet is unproven. Residuals (plan §9):
+non-Bermuda installs get no rule; a partial outage keeping ≥ 30 proxies but blinding every scanner near
+one resident can mark them away; the first 6 min after a restart / proxy drop keep today's behaviour; an
+app user whose BLE stays `not_home` > 360 s after a restart reads away until re-heard (0 of 14 measured).
 
 **Phone-left-behind** — `PersonPhoneLeftBehindSensor`
 (`binary_sensor.py:2095-2270`), unique_id
@@ -666,6 +698,27 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    `tracker_sources` / `tracking_reason` / `confidence`; location in the no-room / no-Bermuda branches
    comes from `person.<x>.state` (`person_coordinator.py` S2/S3/S5 wrapper). HA's person entity already
    picks the freshest GPS, so the iPad could move AWAY only when its fix was the freshest one HA saw.
+
+24. **"BLE-only away at 0.82 cannot flip the house because path α needs 0.9"** (old comment at
+   `person_coordinator.py` row 14, and `const.py` `BLE_SILENT_ONLY_AWAY_CONFIDENCE` comment). WRONG
+   (GPS-assistive plan, 2026-10-24): path α reads `location` only, never confidence
+   (`presence.py` `all_tracked_persons_away`, ~:6395). The row-14 comment is corrected; the 0.82 value is
+   kept as an existing label, not a gate.
+
+25. **"Fleet liveness gates BLE silence for everyone."** INCOMPLETE (2026-10-24): `_ble_fleet_live`
+   (`person_coordinator.py`) proves liveness only through some person's Bermuda room fix on the previous
+   tick, so it is False for the last person out. The GPS-assistive rule uses Bermuda's Active Proxy Count
+   as its fleet guard instead (§3).
+
+26. **§2 step 0 "census_count includes BLE-located residents."** INCOMPLETE (2026-10-24): the census
+   BLE list (`camera_census._get_ble_persons`) counts any person_coordinator `location` not
+   away/unknown, including a GPS-forced `home` (`camera_census.py` ~:2683-2685). A frozen GPS therefore
+   blocked nobody-home as well as α.
+
+27. **"A dead BLE fleet makes the trackers unavailable."** WRONG (GPS-assistive plan rev 1, refuted by
+   plan review F1): private_ble and Bermuda trackers read `not_home` while still available when the
+   scanners go deaf; they go unavailable only if the integration itself fails. The fleet signal is
+   Bermuda's Active Proxy Count (§3).
 
 ## 11. Read before you touch — agent checklist
 
