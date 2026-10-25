@@ -3724,6 +3724,9 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
     """Total persons counted inside the house (camera + BLE)."""
 
     _attr_icon = "mdi:home-account"
+    # CENSUS-BLE-OVER-FACE-1: per-tick display counter, kept out of the
+    # recorder (this sensor records every tick).
+    _unrecorded_attributes = frozenset({"face_dropped_ble_overrule_count"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -3873,6 +3876,9 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                 )
                 attrs["face_lookup_missing_count"] = int(
                     getattr(census, "_face_lookup_missing_count", 0) or 0
+                )
+                attrs["face_dropped_ble_overrule_count"] = int(
+                    getattr(census, "_face_dropped_ble_overrule_count", 0) or 0
                 )
                 # B-MEDIUM-2: real second-precision peak age computed at
                 # dispatch time (previously int(minutes) * 60 — 60× coarser

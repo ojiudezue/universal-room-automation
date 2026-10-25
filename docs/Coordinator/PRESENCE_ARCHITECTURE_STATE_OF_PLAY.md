@@ -77,7 +77,7 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
 | `SIGNAL_HOUSE_STATE_CHANGED` | `presence.py` (dispatcher) | HVAC override arrester, fans, lighting, security, EVSE, battery, memory writers |
 | `SIGNAL_CENSUS_UPDATED` | `camera_census.py` | PresenceCoordinator (`_handle_census_update`), inference denominator |
 | `person.*` entities + `sensor.<person>_room` | `person_coordinator.py` | guest gate, census identity fusion, egress, perimeter enrichment |
-| `person_state_for_trust(hass, person_entity_id)` → `PersonTrackingCoordinator.effective_person_state` (GPS-assistive cycle, branch `fix/presence-gps-assistive`, NOT deployed) | `person_coordinator.py` (module wrapper + method) | six raw `person.state` TRUST readers: `aggregation.py` `_sleep_person_fallback_occupied` / `_nonsleep_person_fallback_occupied` (zone_persons_home veto), `hvac_zones.ZoneManager.zone_has_home_person` (no production caller: no-op today), `hvac.py` night-trust preset hold + `main_row_home_persons` (display, activity log), `hvac_fans.py` night vacancy hold. The `camera_census.py` stale-face latch stays RAW on purpose: the consequence replay (`docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md` §3.6) showed the swap lengthened false-GUEST unidentified runs for ≤ ~1.5 min of earlier AWAY. Returns the raw HA state except `not_home` for a person overruled on the last tick (and URA location `away`, switch on). No person coordinator / any error → raw. Identity vetoes (`camera_census` `is_face_leg_person_vetoed`, `transit_validator` egress veto) and edge-triggered readers stay raw by design. |
+| `person_state_for_trust(hass, person_entity_id)` → `PersonTrackingCoordinator.effective_person_state` (GPS-assistive cycle, live since v5.103.90) | `person_coordinator.py` (module wrapper + method) | raw `person.state` TRUST readers: `aggregation.py` `_sleep_person_fallback_occupied` / `_nonsleep_person_fallback_occupied` (zone_persons_home veto), `hvac_zones.ZoneManager.zone_has_home_person` (no production caller: no-op today), `hvac.py` night-trust preset hold + `main_row_home_persons` (display, activity log), `hvac_fans.py` night vacancy hold, and (CENSUS-BLE-OVER-FACE-1, branch `fix/census-ble-over-face`, NOT deployed; plan `docs/planning/PLANNING_census_ble_over_face.md` rev 4) the `camera_census._get_face_recognized_person_names` stale-face latch guard. That guard reads raw state once; raw `not_home` drops as before, otherwise (rung-1 `CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS`, default True) it asks this helper and drops an overruled adult's face, counted per tick in `face_dropped_ble_overrule_count` on `sensor.universal_room_automation_persons_in_house` (unrecorded). The dropped body stays in the camera total, so it can raise `unidentified_count` (measured cost accepted by the operator, plan §4.3). `_get_face_recognized_persons_fresh` (confidence corroboration) stays raw: body evidence, not identity. The earlier "left RAW on purpose" choice is superseded (§10 #28). Returns the raw HA state except `not_home` for a person overruled on the last tick (and URA location `away`, switch on). No person coordinator / any error → raw. Identity vetoes (`camera_census` `is_face_leg_person_vetoed`, `transit_validator` egress veto) and edge-triggered readers stay raw by design. |
 | `environmental_data.occupied` (5-min sample of room `STATE_OCCUPIED`, keyed by entry_id) | `coordinator.py` data-logging block | **room dwell model** (`room_dwell_model.py`, branch `feat/occupancy-dwell-anomaly`, NOT deployed): share of time occupied by local hour x weekday/weekend, nightly rebuild, read-only → `binary_sensor.<room>_occupancy_anomaly` (display only; no notification). Also `get_uncomfortable_minutes_today`. **PREDICT-MODEL-DWELL-MIGRATION-1 (branch `feature/predict-dwell-migration`, NOT deployed):** the same model now also feeds (a) the room `Bayesian Occupancy Forecast` / `Bayesian Occupancy Pattern` sensors (display; kill switch `FORECAST_DWELL_SOURCE_ENABLED`), and (b) one WRITE: the hourly `dwell_share` producer on `RoomDwellModelRunner` (`room_dwell_model.py` `_dwell_tick`) writes one `prediction_results` row per room per UTC hour, `room_id = entry_id`, predicted = the share frozen at minute `DWELL_SHARE_TICK_MINUTE` of the hour from a model with `trained_until_utc <= start(H)`, actual = the hour's occupied fraction from this same signal; **`confidence` holds the cell's sample count, not a probability**; `error_value` signed (expected − actual). Kill switch `DWELL_SHARE_PRODUCER_ENABLED`. These predictions describe the room-occupancy SIGNAL, so phantom holds count as "usual" and "accurate" (accepted). |
 
 ---
@@ -107,11 +107,11 @@ cited to a verified `file:line` on `develop`, or marked **UNVERIFIED**.
    - **Labels:** nobody-home now sets `_veto_path = "nobody_home"` on the FIRING return only; the already-AWAY return keeps `none`.
 1. **AWAY path α** — "ACTIVE-only" tracker veto (v4.7.14 origin). AWAY iff `NOT camera_input_degraded
    AND all_tracked_persons_away AND unidentified_count == 0 AND face_recognized_count == 0`
-   (`presence.py:1169-1180`, re-read 2026-10-16). It does NOT check `census_count` or zone/room
+   (`presence.py:1227-1232`, gate comments `:1206-1226`, re-read 2026-10-24). It does NOT check `census_count` or zone/room
    occupancy (corrected 2026-10-16, see §10 #12). Gated on
-   `face_recognized_count` to close the forgotten-phone inflation (`presence.py:1042-1052`,
+   `face_recognized_count` to close the forgotten-phone inflation,
    const `CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800 s`, cross-check
-   `camera_census.py:3034-3055`).
+   `camera_census._get_face_recognized_person_names` stale-face latch guard (~`camera_census.py:5893-5940`).
 2. **AWAY path β** (v5.7.0 WS-A) — admits `LOST`-but-away trackers into the AWAY denominator,
    gated by indoor-occupancy guard (A2/A4), configurable `CONF_LOST_AWAY_GRACE_MIN` (A3) + sleep
    exemption + the FIX-2b indoor-clear tick debounce (`presence.py:1053-1072`,
@@ -186,8 +186,7 @@ rung-1 module constant). If any tracked person had a Bermuda update within 90 s 
 `no_signal`). This is the backstop that prevents a dead scanner fleet from voting everyone
 away.
 
-**GPS assistive, BLE leads (PERSON-BLE-WINS-OVER-STALE-GPS-1, branch `fix/presence-gps-assistive`,
-NOT deployed; plan `docs/planning/PLANNING_presence_gps_assistive.md` rev 3).** In the two
+**GPS assistive, BLE leads (PERSON-BLE-WINS-OVER-STALE-GPS-1, live as v5.103.90; plan `docs/planning/PLANNING_presence_gps_assistive.md` rev 3).** In the two
 `person.state == "home"` arms of `_async_update_data` (Bermuda-sensor-but-no-room, and no Bermuda
 sensor), a GPS-led HA `home` is overruled when ALL hold (`_ble_overrules_gps_home`):
 - switch **BLE Leads Home/Away** on (`PresenceBleLeadsEnabledSwitch`, `_PresenceKillSwitchBase`, backing
@@ -653,7 +652,7 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    guest was sleeping in Guest Bedroom 1 (ZV + MS600 fired together; operator-confirmed).
 
 12. **"Path α requires `census_count == 0` AND all zones away."** WRONG (overnight pass 2026-10-16,
-   orchestrator re-read `presence.py:1169-1180`). Path α is trackers-away + unidentified 0 + face 0 +
+   orchestrator re-read `presence.py:1169-1180`; the predicate is at `:1227-1232` as of 2026-10-24). Path α is trackers-away + unidentified 0 + face 0 +
    camera fleet not degraded; a moment with no interior body on camera is enough even if a room
    sensor holds. This is why an untracked occupant flips the house AWAY (HOUSE-STATE-AWAY-FLAP-
    UNTRACKED-OCCUPANT-1; plan `docs/planning/PLANNING_house_away_flap_untracked_occupant.md`).
@@ -719,6 +718,14 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    plan review F1): private_ble and Bermuda trackers read `not_home` while still available when the
    scanners go deaf; they go unavailable only if the integration itself fails. The fleet signal is
    Bermuda's Active Proxy Count (§3).
+
+28. **"The census stale-face latch should stay on raw `person.state`; routing it through the BLE
+   overrule mostly adds false GUEST for a resident home without a phone."** SUPERSEDED (2026-10-24,
+   CENSUS-BLE-OVER-FACE-1). The replay's "Oji home without BLE" premise rested on Frigate face labels
+   the operator refuted (Jaya mislabelled as Oji; Oji abroad from ~08:42 10-24). D0
+   (`PLANNING_census_ble_over_face.md` §4.3) found every face-only sample in the confirmed-away window
+   wrong, and measured the real cost (4 GUEST-eligible runs, ~33 min, on 10-24, third body in one camera
+   frame), which the operator accepted (option A). The latch now follows BLE Leads (§1 table).
 
 ## 11. Read before you touch — agent checklist
 
