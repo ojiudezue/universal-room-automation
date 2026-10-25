@@ -633,3 +633,46 @@ def test_wire_in_parse_present_in_process_inbound_reply():
     assert "_NM_SAFEWORD_WINDOW_RE" in src
     assert "NM_SAFEWORD_WINDOW_ENABLED" in src
     assert "_perimeter_silence_until" in src
+
+
+# ---------------------------------------------------------------------------
+# NM-ACK-TTS-IGNORES-DISABLE-1 — ack announce honours CONF_NM_TTS_ENABLED
+# ---------------------------------------------------------------------------
+
+
+def _tts_speak_calls(nm):
+    return [
+        c for c in nm.hass.services.async_call.await_args_list
+        if c.args[:2] == ("tts", "speak")
+    ]
+
+
+def _make_tts_nm(enabled: bool):
+    from custom_components.universal_room_automation.const import (
+        CONF_NM_TTS_ENABLED, CONF_NM_TTS_SPEAKERS,
+    )
+    nm = NotificationManager(_make_hass(), _make_config(**{
+        CONF_NM_TTS_ENABLED: enabled,
+        CONF_NM_TTS_SPEAKERS: ["media_player.a", "media_player.b"],
+    }))
+    nm._log_dry_run = AsyncMock()
+    return nm
+
+
+def test_ack_announce_silent_when_tts_disabled():
+    nm = _make_tts_nm(enabled=False)
+    _run(nm._announce_ack("Op", "smoke", "kitchen"))
+    assert _tts_speak_calls(nm) == []
+    assert nm._log_dry_run.await_count == 0
+
+
+def test_ack_announce_speaks_when_tts_enabled():
+    nm = _make_tts_nm(enabled=True)
+    _run(nm._announce_ack("Op", "smoke", "kitchen"))
+    calls = _tts_speak_calls(nm)
+    assert [c.args[2]["media_player_entity_id"] for c in calls] == [
+        "media_player.a", "media_player.b",
+    ]
+    assert calls[0].args[2]["message"] == (
+        "smoke alert acknowledged by Op in kitchen"
+    )
