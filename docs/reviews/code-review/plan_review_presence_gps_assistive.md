@@ -79,3 +79,40 @@ F1 (fleet-health conjunct + D0b probe), F2 (raw-reader table + disposition + cor
 
 ## Bug classes
 F1 and F3: observation of a degraded upstream treated as evidence (the dead-fleet backstop class `_ble_fleet_live` exists for). F2: #53 computed-but-not-consumed (the gate is not consumed by the raw-state readers). F4: unfalsifiable/false invariant.
+
+---
+
+## Re-review rev 2 (3311ad713), 2026-10-24
+
+**Verdict: FIX-REQUIRED (minor).** These are three plan-text edits. No new design and no further plan review are needed; once the orchestrator confirms the edits, the plan is READY. F1–F7 are addressed, and the change is still narrow: one gate at two sites, one listener, and seven one-line read swaps that keep their comparison strings.
+
+### F1–F7 verification
+- **F1 fleet guard: fixed.** `count_active_scanners(max_age=10)` is confirmed at `bermuda/coordinator.py:574-581`. The registry lookup by unique_id follows the resolve-via-registry rule. "Missing sensor → rule off" is specified (§4.2) and tested (`test_proxy_entity_missing_rule_off`). The floor of 30 is grounded in D0b (p1 44). The published state goes through `BermudaGlobalEntity._cached_ratelimit` (`bermuda/entity.py:204-215`, interval 60 s at `:193`), so a drop shows up as an HA state up to ~60 s late, not 10 s. That is still inside the 300 s tracker timeout. **§5.3's "within 10 s" should read "within ~60 s".** (LOW, text only.)
+- **F2 raw readers: fixed.** The seven ADOPT sites match my table. `hvac.py:3978-3986` is now classified as display. Leaving the two identity vetoes and the edge readers raw is justified. See R2-3 for one inconsistency.
+- **F3 boot latch: fixed.** The `restored` clause is gone. `_fleet_healthy_since = None` at process start plus `BLE_LEADS_ARM_S = 1200` covers both boot and recovery. The 1200 s is grounded in the measured +16.8 min re-acquire. Its discharge is specified.
+- **F4 INV-2: fixed.** It is falsifiable and now includes the fleet, boot and unsampled-dip repros.
+- **F5 live criteria: fixed.** The person-location discriminator, the 30 min house bound and the false-away overnight re-run are all present.
+- **F6 timing: fixed.** It cites live `devtracker_nothome_timeout = 300` and the habluetooth 900 s fallback. The live HA version is still unchecked; the plan says so.
+- **F7: not addressed.** `camera_census.py:4250-4270` already filters `device_trackers` per slug and counts the BLE ones. The plan neither reuses that filter nor says why not. **LOW: one sentence.**
+
+### New findings in rev 2
+
+**R2-1 MEDIUM: the "entry-reset at the top" of `_gps_home_overruled` exposes an empty set mid-tick.**
+`_async_update_data` (`person_coordinator.py:453`) awaits inside the per-person loop: `:465` `_build_scanner_room_map`, `:521` `_find_bermuda_area_sensor`, `:531` `_calculate_confidence`. If the set is cleared at the top and refilled person by person, then any §6b reader that runs during those awaits sees the set empty. That covers aggregation zone vetoes, HVAC and the face latch. During that window, an overruled person reads raw `home` again, and the outcome flickers on every tick.
+**Plan change:** build a local `overruled: set[str]` during the tick and assign `self._gps_home_overruled = overruled` once, after the person loop and before return. This is the "capture, thread the local, assign once" pattern. Add the test `test_overruled_set_not_visible_partial_mid_tick`: stub an await to yield, read `effective_person_state` from another task, and expect the previous tick's set. (The current set vs previous-tick `self.data` mismatch is fine: on the first overrule tick, `get_person_location` still says home → raw. That is conservative and one tick late.)
+
+**R2-2 MEDIUM: there is no teardown hook for the listener.**
+PersonCoordinator has no listener, `async_shutdown` or unsub infrastructure today (grep of `person_coordinator.py` for `async_track|_unsub|async_shutdown`: 0 hits). Unload only does `hass.data[DOMAIN].pop("person_coordinator", None)` (`__init__.py:5680`). So "unsubscribed on unload" names a mechanism that does not exist. A builder may register the listener and leak it on every reload (untracked-listener class).
+Also, §4.2 re-resolves the entity "on a miss" at tick time. If Bermuda loads after URA, the listener is never registered, and the dip protection silently degrades to tick sampling.
+**Plan change:** register the listener at the first successful resolution, whether that happens at setup or on a later tick, and do it once. Store the unsub. Release it with `entry.async_on_unload(...)` at the coordinator's creation site, or with an `async_shutdown` override called before the `:5680` pop. Extend `test_listener_unsubscribed_on_unload` to cover the case where the entity resolves late.
+
+**R2-3 LOW: the face-latch ADOPT contradicts the identity-veto LEAVE.**
+The plan leaves `camera_census.py:4193` / `transit_validator.py:1837` raw because the overrule outlasts the person's return until BLE re-acquires them, so a door face would be vetoed. The same timing applies to the ADOPTed face-latch guard at `camera_census.py:5884-5895`: a face recognised at the door while the person is still overruled is dropped from `face_recognized_count`. The effect is benign: it delays nothing that BLE re-acquisition does not already gate, and arrival is driven by other signals. But the plan should say so in §6b rather than give opposite rulings on the same timing argument.
+
+### Regression checks (no finding)
+- `effective_person_state` for a missing, LOST or unknown person: `get_person_location` is not `"away"`, so it returns raw → byte-identical. With no coordinator, it returns raw. Name mapping `person.{k.lower().replace(' ', '_')}` matches the existing construction at `person_coordinator.py:479`.
+- If the Bermuda coordinator stalls with its entities still available, the count freezes at its last value, but the Bermuda trackers freeze too and do not flip to `not_home`. The rule needs both integrations, so it cannot fire. No leak.
+- Rung 1 for `BLE_LEADS_MIN_ACTIVE_PROXIES` / `BLE_LEADS_ARM_S` (review-only safety bounds) is correct, and the kill switch stays on D2.
+
+### Must-fix before build
+R2-1 (local set, assign once), R2-2 (listener registration-at-resolution + an unload hook that actually exists). R2-3, F7 and the 60 s text fix are one-line edits.
