@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T19:48:46-05:00_ - _Data commit: `11c1ac0c9df1`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T20:13:32-05:00_ - _Data commit: `b39325901b6d`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
@@ -283,12 +283,13 @@ thread: **presence** - status: **planned**
 _created 2026-10-24_
 - **Why:** GPS is optional per user (location off, iOS permission denied, privacy) and can freeze; BLE with fleet liveness is the house's own evidence. Away-mode and house-state decisions consume this.
 - **Next:** Me: ura-planner plan (probe first, prior-art scan, falsifiable invariant), Tier 2 plan review, build, 3 reviews.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `tier`: 2
   - `measured_2026_10_24`: person.oji_udezue home, source = phone GPS tracker last_updated 14:03 local (just after the 14:02 restart; no update since). Both BLE trackers not_home. URA sensor.universal_room_automation_oji_udezue_location = Home, reason home_ble_sil...
   - `measured_2026_10_24_away_path`: Prober (code + recorder 10-17..10-24): URA forces a person ACTIVE+home whenever HA person.state==home (person_coordinator.py:725-770), regardless of BLE; the matrix row stamps are not the decision. No timeout on a stale GPS home -> house...
   - `unparked_2026_10_24`: Park was a MISREAD. Operator clarified: 'I don't have to care about Bluetooth being missed while at home. Or prove I do. We have to demote gps in code. And make it assistive vs at same level as ble. But we could make it so a toggle makes...
   - `superseded_park_2026_10_24`: Operator: 'prove I have to care'; house works on BLE, only Ezinne + Oji have the app, kids do not; GPS is assistive not probative; a presence toggle to lean on GPS harder is an advanced feature for app-heavy / sparse-BLE homes. Only obse...
+  - `operator_decision_2026_10_24_BH1_BH2`: A (accept): home without phone -> marked away like the kids (false GUEST / house AWAY if alone and out of camera view 30+ min). Garage guard rejected: last-heard area is the garage on every car departure (10-24 last_seen=Garage A), so it...
   - `next_if_revived`: Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY + SENSOR_FLEET_CLASSES first. Plan: when BLE is silent with liveness proof, GPS home only counts if fresh (knob, rung 3) and otherwise BLE-silent away wins; GPS missing must never block away. Deci...
 
 ### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#5 · WSJF 3.7 · v6 tc3 u2 /e3_
