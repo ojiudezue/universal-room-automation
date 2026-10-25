@@ -22,3 +22,13 @@ Plan review FIX-REQUIRED → rev 4. A SHIP, B SHIP (B-1 LOW above), C 14/17 RED 
 - No ERROR from camera_census after restart.
 - While Oji reads Away by BLE (`away_ble_silent_only`), `face_recognized_persons` / `person_list` on the persons-in-house / identified sensors exclude `oji_udezue` even if `sensor.frigate_oji_last_camera_2` updates; `face_dropped_ble_overrule_count` > 0 when that happens.
 - Ezinne and Jaya still face-confirmed when on camera.
+
+## Validated 2026-10-25 (restart 17:33:56 CDT, house home_day)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| No camera_census ERROR after restart | PASS | system_log ERROR filter universal_room_automation: 0 entries (17:52) |
+| Switch on after restart | PASS | `switch.ura_presence_coordinator_ble_leads_home_away` = on |
+| Census without the mislabel | PASS | `persons_in_house` = 1, `face_recognized_persons` = [], `identified_persons_in_house` person_list = ["jaya"] |
+| Oji excluded while BLE-overruled; counter > 0 | NOT EXERCISABLE LIVE (proven in-suite) | Oji's phone now reports GPS abroad (`person.oji_udezue` not_home, URA reason `away_gps_only`), so the BLE overrule path is not active and the guard has nothing to drop; counter 0 as expected. Covered by the census face-latch tests + orchestrator mutation (7 RED). |
+| Ezinne/Jaya still face-confirmed | PARTIAL | Jaya identified; Ezinne out of the house at check time |
