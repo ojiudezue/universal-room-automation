@@ -32940,6 +32940,17 @@ cards:
   next: "PICK: A (recommended) add a ZK/ZX presence radar to Master Bathroom - the A788 measures as motion-class (~1 min hold), so only new hardware closes the 17-per-ordinary-day Away misses; or B first DO check the InvisOutlet's own app/web settings for an occupancy hold-time or mmWave mode (no knob is exposed in HA), or C accept the miss. -> On A/B I wire/re-measure and re-run P3; on C I close the card."
   measured_2026_10_19_overnight: "CARD-WAS-WRONG on the reason, STILL-REAL on the gap. Read-only, recorder 10-11 04:27 -> 10-19 01:49 CDT. Master Bathroom config (core.config_entries 01KSHA5DB3T0VMJKQVM5P8MMNA): motion_sensors = ...invisoutet_mqtt_masterbath_motion, presence_sensors = ...invisoutet_mqtt_masterbath_occupancy, timeout 900 s. The A788 is NOT on the do-not-use list (that is Study A b7d0 only; AUDIT_census_arc_and_away_holistic.md:322 extended it by model, wrongly). But measured, the A788 occupancy behaves MOTION-CLASS: 156 ON episodes, p50 69 s / p90 164 s / max 11 min; drops ~1 min after the last motion; only 1 of 156 held >5 min past motion (10-13 23:33, 7.7 min). No false holds (longest 11 min; URA's 60-85 min episodes are its 900 s timeout chaining bursts). No misses (all 239 motion bursts overlapped occupancy). HA exposes no hold-time/sensitivity knob for this device (only outlets, nightlight, env sensors, distance). So it cannot carry a still bath/shower: the exclusion from the Away veto stands, for a different reason. Recorded in SENSOR_FLEET_CLASSES.md do-not-use scope note."
   paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
+- id: FRIGATE-FACE-MISLABEL-OJI-1
+  title: "Frigate face recognition labels another resident (likely Jaya) as Oji: 75 indoor 'Oji' hits on 10-24 while Oji was on a flight"
+  thread: identity
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-24"
+  origin: 'Consequence replay (docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md) read interior faces as Oji home all day; operator 2026-10-24: "Mislabeled face. I''m over the Atlantic... Frigate needs a training run. It''s likely seeing Jaya as me. I left the house around 8.42".'
+  why: "Face identity feeds census (identified/unidentified), GUEST detection, path-alpha face latch and perimeter alerts; a wrong name can hold the house home or hide an unknown person."
+  adjacency_2026_10_24: "Swept board (FRIGATE-*, face): ADJACENT to FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge, not accuracy). NEW as a model-accuracy problem."
+  next: "DO: retrain Frigate face library (add/clean Oji and Jaya samples, remove mislabeled Oji images from 10-24) -> I re-measure 'Oji' indoor hits while Oji is away on the next absence."
+  rank: {"value": 6, "time_criticality": 4, "effort": 2}
 - id: PERSON-BLE-WINS-OVER-STALE-GPS-1
   title: "Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10)"
   thread: presence
