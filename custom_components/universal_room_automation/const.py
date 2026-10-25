@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.90
+# Universal Room Automation vv5.103.91
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.90"
+VERSION: Final = "v5.103.91"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -3962,6 +3962,15 @@ CENSUS_EVENT_DEBOUNCE_SECONDS: Final = 30  # v4.2.8: was 5s, increased to reduce
 
 # Face recognition window (how long a Frigate face match stays "active")
 CENSUS_FACE_RECOGNITION_WINDOW_SECONDS: Final = 1800  # 30 minutes
+
+# CENSUS-BLE-OVER-FACE-1 (rung 1, review-only): the census stale-face latch
+# guard (camera_census._get_face_recognized_person_names) also drops a face
+# for a person the BLE-leads rule overruled (person_state_for_trust ->
+# not_home). The operator toggle is the existing switch BLE Leads Home/Away;
+# this flag only lets a reviewer revert THIS site to raw person.state without
+# turning the whole rule off. False = raw read exactly as before (the helper
+# is never called). Read as a module attribute at call time.
+CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS: Final = True
 
 # WiFi guest VLAN detection
 CONF_GUEST_VLAN_SSID: Final = "guest_vlan_ssid"

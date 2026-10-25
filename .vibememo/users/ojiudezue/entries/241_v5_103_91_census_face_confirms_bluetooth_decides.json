@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "241",
+  "author": "ojiudezue",
+  "session_id": "claude_20261025_061010_ship_v5_103_91",
+  "timestamp": "2026-10-25T06:10:10Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.91 shipped: Census: face confirms, Bluetooth decides",
+  "summary": "Census: face confirms, Bluetooth decides",
+  "why": "After v5.103.90 marked Oji away by BLE, the census still counted him home because Frigate mislabels Jaya as Oji and the face-latch guard read raw person state (frozen GPS home). Routing that one guard through person_state_for_trust makes face confirm and BLE decide, same principle as .90; operator accepted possible GUEST arming for unexplained bodies and the B-1 phone-less-resident flip side.",
+  "implications": "Shipped PERSON-BLE-WINS-OVER-STALE-GPS-1 at v5.103.91; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.91.md (Live criteria).",
+  "revisit_trigger": "After restart (10-25 AM): oji excluded from face_recognized_persons while Away, face_dropped_ble_overrule_count>0 when frigate_oji_last_camera_2 fires, Ezinne/Jaya still face-confirmed; write Validated table.",
+  "refs": {
+    "cards": [
+      "PERSON-BLE-WINS-OVER-STALE-GPS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.91.md"
+    ],
+    "release_notes": "A Frigate face match no longer counts a person in the house when Bluetooth has overruled them to away (switch.ura_presence_coordinator_ble_leads_home_away). New counter face_dropped_ble_overrule_count. See docs/readmes/README_v5.103.91.md."
+  }
+}

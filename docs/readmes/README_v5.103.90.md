@@ -46,6 +46,18 @@ Full name-diff vs develop: CLEAN (default 18,444 passed; URA_SOURCE_MUTATION=1 1
 - Daytime camera-face cross-check in the live re-run: waits on Frigate retraining (FRIGATE-FACE-MISLABEL-OJI-1).
 - Companion-app location not sending for Oji: operator-side, not URA.
 
+## Validated 2026-10-24 (restart ~21:20 CDT)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Switch exists, on | PASS | `switch.ura_presence_coordinator_ble_leads_home_away` = on (entity id differs from the README's prospective `switch.ura_presence_ble_leads_home_away`) |
+| No ERROR after restart | PASS | system_log for universal_room_automation: WARNING only (boot settle, sensors-unavailable holds, census cameras unavailable at boot, deprecation notices) |
+| Fleet guard | PASS | `sensor.bermuda_global_active_proxy_count` = 60 from 21:22:58 |
+| Oji (abroad, GPS frozen home) → Away | PASS | `sensor.universal_room_automation_oji_udezue_location` = Away at 21:28:13, reason `away_ble_silent_only`, conf 0.82, sources gps=home/ble=silent; ~5 min after proxies healthy (360 s arm), HA `person.oji_udezue` still home (HA untouched) |
+| Residents at home stay home | PASS | Ezinne + Jaya = Receiving Room (bermuda, ble visible); house = `home_night` |
+| No EV tripwire page | pending organic | no toggle storm since restart; checked by the 7-day revisit |
+| 24 h probe re-run | pending | `scripts/probes/presence_gps_override_probe.py` one-shot ~10-25 21:30 |
+
 ## Live acceptance criteria (prospective)
 - `switch.ura_presence_ble_leads_home_away` exists, on, restored after restart.
 - No ERROR from person_coordinator/presence after restart.

@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.90
+# Universal Room Automation vv5.103.91
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1296,6 +1296,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Census (cameras + BLE fusion)
         census = self.hass.data.get(DOMAIN, {}).get("census")
         if census is not None:
+            # KEEP + DOCUMENT (CENSUS-BLE-OVER-FACE-1 §5.3): PersonCensus has no
+            # get_room_identified_persons, so this branch is dead and room identity
+            # always falls back to person_coordinator (BLE). Hook kept for a future
+            # per-room census identity.
             result = getattr(census, "get_room_identified_persons", lambda r: None)(room_name)
             if result is not None:
                 return result

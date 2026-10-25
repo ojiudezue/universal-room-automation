@@ -473,7 +473,13 @@ identity was corroborated:
   (`camera_census.py:2647`) increments on every fail-CLOSED lookup so
   operators can distinguish "no face" from "face resolver broken".
 - **`person.<slug>` = `not_home` veto** (see §4.3) — mirrored in
-  `camera_census._get_face_recognized_person_names` (~`:3346-3366`).
+  `camera_census._get_face_recognized_person_names` (~`camera_census.py:5893-5940`).
+  Since CENSUS-BLE-OVER-FACE-1 (branch `fix/census-ble-over-face`, NOT deployed) that interior
+  latch also drops a face for a GPS+BLE adult the BLE-leads rule overruled
+  (`person_coordinator.person_state_for_trust` → `not_home`), while switch BLE Leads Home/Away is on
+  and rung-1 `CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS` is True. BLE decides presence; face confirms.
+  The egress face-leg veto and `transit_validator` stay on raw state; a mislabelled entry crossing
+  can still register a slug via the egress union.
 
 ### 5.5 Consumer map + doctrine
 

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-24'
+  last_reconciled: '2026-10-25'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -32960,13 +32960,14 @@ cards:
   origin: 'Consequence replay (docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md) read interior faces as Oji home all day; operator 2026-10-24: "Mislabeled face. I''m over the Atlantic... Frigate needs a training run. It''s likely seeing Jaya as me. I left the house around 8.42".'
   why: "Face identity feeds census (identified/unidentified), GUEST detection, path-alpha face latch and perimeter alerts; a wrong name can hold the house home or hide an unknown person."
   adjacency_2026_10_24: "Swept board (FRIGATE-*, face): ADJACENT to FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge, not accuracy). NEW as a model-accuracy problem."
+  INSTANCE_2026_10_24_2142: "Census identified_persons_in_house=3 (ezinne, jaya, oji_udezue) with Oji abroad: one body (frigate_count 1) face-recognised as both oji_udezue and jaya; Oji added face-only (ble_confirmed Ezinne, Jaya). URA location for Oji = Away (v5.103.90) but the face latch guard reads raw person.state (still home from frozen GPS) so it does not drop the face. Option if retrain does not fix: do not count a face-only identity when URA BLE-led location is away (own small plan + review; replay showed the adjacent guard is sensitive)."
   next: "DO: retrain Frigate face library (add/clean Oji and Jaya samples, remove mislabeled Oji images from 10-24) -> I re-measure 'Oji' indoor hits while Oji is away on the next absence."
   rank: {"value": 6, "time_criticality": 4, "effort": 2}
 - id: PERSON-BLE-WINS-OVER-STALE-GPS-1
   title: "Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10)"
   thread: presence
   status: shipped_organic
-  shipped_version: v5.103.90
+  shipped_version: v5.103.91
   tier: 2
   created: "2026-10-24"
   origin: 'Operator 2026-10-24: "I left the house hours ago. It still says I home." then "Ble should win always and app/gps should support if available" and "We also don''t control a user setting it to not send location or not giving iOS permission". Also: companion location is less private; app now connects via the tunnel.'
@@ -32976,6 +32977,7 @@ cards:
   unparked_2026_10_24: "Park was a MISREAD. Operator clarified: 'I don't have to care about Bluetooth being missed while at home. Or prove I do. We have to demote gps in code. And make it assistive vs at same level as ble. But we could make it so a toggle makes it more important for ble sparse and more app use.' -> BUILD: GPS assistive by default; presence toggle (rung 3 switch) restores GPS-probative for sparse-BLE/app-heavy homes. First deliverable = recorder probe: how often a resident at home is BLE-silent long enough to be marked away (the risk to quantify)."
   superseded_park_2026_10_24: "Operator: 'prove I have to care'; house works on BLE, only Ezinne + Oji have the app, kids do not; GPS is assistive not probative; a presence toggle to lean on GPS harder is an advanced feature for app-heavy / sparse-BLE homes. Only observed instance = restart-frozen GPS on 10-24 while others were home (no effect). Revival trigger: house stays home with every resident BLE-silent for >30 min, OR a URA install in a sparse-BLE / app-heavy home (Wigton)."
   operator_decision_2026_10_24_BH1_BH2: "A (accept): home without phone -> marked away like the kids (false GUEST / house AWAY if alone and out of camera view 30+ min). Garage guard rejected: last-heard area is the garage on every car departure (10-24 last_seen=Garage A), so it would defeat the main case. Kill switch = BLE Leads Home/Away."
+  residual_fleet_fraction_2026_10_24: "Operator: make the 30-proxy floor a fraction of the fleet. Bermuda total proxy count = HA current scanners (bermuda coordinator.py:1484 async_current_scanners), so it drops with active during a proxy outage; ratio active/total would not trip. Design: fraction (e.g. 0.5) of a URA-remembered fleet size (persisted high-water of total, decays over ~7 d) with an absolute floor (~3). Same 31/62 here; matters for multi-home (Wigton). Follow-up Tier 2, own review."
   next: "Me: ura-planner plan (probe first, prior-art scan, falsifiable invariant), Tier 2 plan review, build, 3 reviews."
   next_if_revived: "Read PRESENCE_ARCHITECTURE_STATE_OF_PLAY + SENSOR_FLEET_CLASSES first. Plan: when BLE is silent with liveness proof, GPS home only counts if fresh (knob, rung 3) and otherwise BLE-silent away wins; GPS missing must never block away. Decide BLE dead-zone risk (still body at home in a BLE hole). Tier 2 plan review, 3 reviews (presence ripple into house state)."
   measured_d0_2026_10_24: "D0 (recorder 10-17 04:12 -> 10-24 18:47, 7.6 d): Oji 13 GPS-home URA segments >= 2 min, 1,132 min (18.9 h), both BLE trackers not_home >= 95% of each except two short ones; Ezinne 1 segment (2 min, BLE home 100%); Jaya/Ziri 0 (no GPS). Overnight BLE-silent-at-home episodes >= 5 min: 0 for every resident. D0b: Bermuda Active Proxy Count median 54, p1 44; 0/unavailable only at the 19 HA restarts + one Bermuda reload (~60 s each); 14 of 17 fleet-wide BLE not_home clusters coincide with count 0, the other 3 are real school-run departures at normal count. Restart recovery: app users 14/14 re-read home within 360 s. Probe: scripts/probes/presence_gps_override_probe.py."
