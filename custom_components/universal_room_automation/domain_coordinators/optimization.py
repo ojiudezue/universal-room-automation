@@ -660,6 +660,15 @@ class OptimizationCoordinator(BaseCoordinator):
         self._detector_frozen_s: int = 0
         self._detector_entity_id: str | None = None
         self._detector_unresolved_logged: bool = False
+        # Review A-HIGH-1: previous tick's HA last_changed, used ONLY to
+        # notice that a change happened between 5-min samples (aliasing).
+        # Never the dwell anchor (plan I1); last_reported never read.
+        self._detector_last_changed: Any = None
+        # Review B-MED-1: emit deferred because NM quiet hours are active.
+        self._detector_hung_deferred_quiet: bool = False
+        # Review A-L2: resolved entity with no numeric state, since when.
+        self._detector_noread_since: datetime | None = None
+        self._detector_noread_warned: bool = False
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
         # RAM-only for room sensor_health (a restart re-persists once per
@@ -3105,6 +3114,8 @@ class OptimizationCoordinator(BaseCoordinator):
         self._detector_last_value = None
         self._detector_value_since = None
         self._detector_frozen_s = 0
+        self._detector_last_changed = None
+        self._detector_hung_deferred_quiet = False
 
     def _evaluate_camera_detector_hung_dimension(
         self,
@@ -3134,6 +3145,8 @@ class OptimizationCoordinator(BaseCoordinator):
                 )
                 self._detector_unresolved_logged = True
             return []
+        # Review A-L3: a later inert state logs again.
+        self._detector_unresolved_logged = False
         # 3) Read; non-numeric resets the dwell.
         st = self.hass.states.get(entity_id)
         raw = getattr(st, "state", None) if st is not None else None
@@ -3141,14 +3154,41 @@ class OptimizationCoordinator(BaseCoordinator):
             value = float(raw)
         except (TypeError, ValueError):
             value = None
+        now = dt_util.utcnow()
         if value is None or value != value:  # None or NaN
             self._reset_detector_dwell()
+            # Review A-L2: surface the silent-inert case once.
+            if self._detector_noread_since is None:
+                self._detector_noread_since = now
+            elif (
+                not self._detector_noread_warned
+                and (now - self._detector_noread_since).total_seconds()
+                > CAMERA_DETECTOR_FROZEN_S
+            ):
+                _LOGGER.warning(
+                    "camera_detector_hung inert: %s has had no numeric "
+                    "state for > %ss (state=%r); detector-hang tripwire "
+                    "cannot evaluate", entity_id, CAMERA_DETECTOR_FROZEN_S,
+                    raw,
+                )
+                self._detector_noread_warned = True
             return []
-        now = dt_util.utcnow()
+        self._detector_noread_since = None
+        self._detector_noread_warned = False
+        # Review A-HIGH-1: HA advancing last_changed between our samples
+        # means the value changed (and possibly changed back) - not frozen.
+        last_changed = getattr(st, "last_changed", None)
+        lc_advanced = (
+            last_changed is not None
+            and self._detector_last_changed is not None
+            and last_changed != self._detector_last_changed
+        )
+        self._detector_last_changed = last_changed
         # 4) Value change (or first numeric read) re-anchors and clears latch.
         if (
             self._detector_last_value is None
             or value != self._detector_last_value
+            or lc_advanced
         ):
             if self._detector_hung_fired:
                 _LOGGER.info(
@@ -3170,6 +3210,26 @@ class OptimizationCoordinator(BaseCoordinator):
             return []
         if self._detector_hung_fired:
             return []
+        # Review B-MED-1: NM drops HIGH during quiet hours with no
+        # discharge, so defer (no emit, no latch, dwell kept). Discharge:
+        # the first tick after quiet hours end emits. NM absent -> emit.
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        quiet = False
+        if nm is not None:
+            try:
+                quiet = bool(nm.is_quiet_hours_active())
+            except Exception:  # noqa: BLE001
+                quiet = False
+        if quiet:
+            if not self._detector_hung_deferred_quiet:
+                _LOGGER.info(
+                    "camera_detector_hung page deferred: NM quiet hours "
+                    "active (%s frozen %ds)", entity_id,
+                    self._detector_frozen_s,
+                )
+            self._detector_hung_deferred_quiet = True
+            return []
+        self._detector_hung_deferred_quiet = False
         self._detector_hung_fired = True
         frozen_s = self._detector_frozen_s
         description = (
@@ -5699,7 +5759,7 @@ class OptimizationCoordinator(BaseCoordinator):
             return findings
         sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
-        def _is_camera_input_dark(f) -> bool:
+        def _is_fleet_oneshot(f) -> bool:
             # A-MED-2 LOW-2: exempt the fleet-dark one-shot from the
             # per-cycle cap, same posture as META. The latch is set
             # when the finding is emitted; if the cap dropped it the
@@ -5711,14 +5771,14 @@ class OptimizationCoordinator(BaseCoordinator):
                 and dkey[0] in _FLEET_ONESHOT_KINDS
             )
 
-        # Preserve META rows AND camera_input_dark separately — both
-        # bypass the cap.
+        # Preserve META rows AND the fleet one-shot kinds
+        # (_FLEET_ONESHOT_KINDS) separately — both bypass the cap.
         exempt = [f for f in findings
                   if f.dimension == OptimizationDimension.META
-                  or _is_camera_input_dark(f)]
+                  or _is_fleet_oneshot(f)]
         non_exempt = [f for f in findings
                       if f.dimension != OptimizationDimension.META
-                      and not _is_camera_input_dark(f)]
+                      and not _is_fleet_oneshot(f)]
         non_exempt.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
         meta = exempt  # alias kept for the log line below
         # Reserve space for the exempt rows so the total stays under the cap.
@@ -5859,12 +5919,12 @@ class OptimizationCoordinator(BaseCoordinator):
         # intact (bypass is an outer guard, not a conjunction inside
         # the existing predicate).
         _dkey = getattr(finding, "dedup_key", None)
-        _is_camera_input_dark_finding = (
+        _is_fleet_oneshot_finding = (
             isinstance(_dkey, tuple)
             and len(_dkey) >= 1
             and _dkey[0] in _FLEET_ONESHOT_KINDS
         )
-        if not _is_camera_input_dark_finding:
+        if not _is_fleet_oneshot_finding:
             if should_defer_high_to_digest(self.hass, finding):
                 _LOGGER.info(
                     "Optimizer: HIGH finding (dimension=%s) deferred to "

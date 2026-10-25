@@ -34,8 +34,9 @@ T0 = datetime(2026, 10, 21, 15, 0, 0, tzinfo=timezone.utc)
 
 
 class _State:
-    def __init__(self, state):
+    def __init__(self, state, last_changed=None):
         self.state = state
+        self.last_changed = last_changed
 
 
 class _States:
@@ -45,8 +46,8 @@ class _States:
     def get(self, eid):
         return self._s.get(eid)
 
-    def set(self, eid, state):
-        self._s[eid] = _State(state)
+    def set(self, eid, state, last_changed=None):
+        self._s[eid] = _State(state, last_changed)
 
 
 class _Entries:
@@ -441,6 +442,7 @@ def test_detector_hung_pages_not_digest(env):
     hass = _Hass()
     nm = MagicMock()
     nm.async_notify = AsyncMock()
+    nm.is_quiet_hours_active = MagicMock(return_value=False)
     hass.data["universal_room_automation"]["notification_manager"] = nm
     hass.config_entries = _Entries([types.SimpleNamespace(
         entry_id="cm", data={"entry_type": "coordinator_manager"},
@@ -510,3 +512,129 @@ def test_binary_sensor_detector_attributes(env):
     assert attrs["detector_frozen_s"] == 950
     assert attrs["detector_hung_fired"] is True
     assert s.is_on is False  # on/off truth unchanged (census latch)
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up A-HIGH-1: sampling aliasing (last_changed advance = change)
+# ---------------------------------------------------------------------------
+
+def test_detector_hung_aliasing_same_value_moving_last_changed_no_fire(env):
+    """Same integer at every 5-min sample but HA last_changed moved between
+    samples (value changed and came back) -> NOT frozen, never fires."""
+    coord, hass = _coord()
+    env.clock.advance(1000)
+    for i in range(24):  # 2 h of 300 s ticks
+        lc = datetime(2026, 10, 21, 0, 0, 0, tzinfo=timezone.utc) + timedelta(
+            seconds=37 * i,
+        )
+        hass.states.set(FPS, "34", last_changed=lc)
+        assert _tick(coord, env, 300) == [], i
+    assert coord._detector_hung_fired is False
+
+
+def test_detector_hung_frozen_value_frozen_last_changed_fires(env):
+    """Discriminator: same value AND same last_changed -> fires once."""
+    coord, hass = _coord()
+    env.clock.advance(1000)
+    lc = datetime(2026, 10, 21, 0, 0, 0, tzinfo=timezone.utc)
+    hass.states.set(FPS, "34", last_changed=lc)
+    fired = [i for i in range(1, 10) if _tick(coord, env, 300)]
+    # anchor at tick 1; 900 s later = tick 4
+    assert fired == [4]
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up B-MED-1: defer through NM quiet hours (no latch)
+# ---------------------------------------------------------------------------
+
+def _hass_with_nm(quiet):
+    hass = _Hass()
+    nm = MagicMock()
+    nm.is_quiet_hours_active = MagicMock(side_effect=lambda: quiet[0])
+    hass.data["universal_room_automation"]["notification_manager"] = nm
+    return hass
+
+
+def test_detector_hung_defers_during_quiet_hours_then_fires_once(env):
+    quiet = [True]
+    coord, hass = _coord(_hass_with_nm(quiet))
+    env.clock.advance(1000)
+    hass.states.set(FPS, "45")
+    assert _tick(coord, env, 0) == []
+    for _ in range(12):  # 1 h frozen, all inside quiet hours
+        assert _tick(coord, env, 300) == []
+    assert coord._detector_hung_fired is False
+    assert coord._detector_hung_deferred_quiet is True
+    quiet[0] = False
+    out = _tick(coord, env, 300)
+    assert len(out) == 1
+    assert coord._detector_hung_deferred_quiet is False
+    assert _tick(coord, env, 300) == []
+
+
+def test_detector_hung_nm_absent_emits_as_before(env):
+    coord, hass = _coord()  # no notification_manager in hass.data
+    env.clock.advance(1000)
+    hass.states.set(FPS, "45")
+    _tick(coord, env, 0)
+    assert len(_tick(coord, env, 900)) == 1
+
+
+def test_binary_sensor_exposes_deferred_quiet(env):
+    from custom_components.universal_room_automation.binary_sensor import (
+        CameraInputDegradedBinarySensor,
+    )
+    quiet = [True]
+    hass = _hass_with_nm(quiet)
+    coord, _ = _coord(hass)
+    hass.states.set(FPS, "45")
+    env.clock.advance(1000)
+    _tick(coord, env, 0)
+    _tick(coord, env, 950)
+
+    class _CM:
+        coordinators = {"optimization": coord}
+
+    hass.data["universal_room_automation"]["coordinator_manager"] = _CM()
+    entry = types.SimpleNamespace(
+        entry_id="cm", data={"entry_type": "coordinator_manager"}, options={},
+    )
+    attrs = CameraInputDegradedBinarySensor(hass, entry).extra_state_attributes
+    assert attrs["detector_hung_deferred_quiet"] is True
+    assert attrs["detector_hung_fired"] is False
+
+
+# ---------------------------------------------------------------------------
+# Review LOWs A-L2 / A-L3
+# ---------------------------------------------------------------------------
+
+def test_detector_hung_warns_once_when_resolved_but_never_numeric(env, caplog):
+    import logging
+    coord, hass = _coord()
+    hass.states.set(FPS, "unavailable")
+    with caplog.at_level(logging.WARNING):
+        _tick(coord, env, 0)
+        assert _tick(coord, env, 900) == []
+        assert not [r for r in caplog.records if "inert" in r.getMessage()]
+        _tick(coord, env, 1)  # 901 s > 900
+        _tick(coord, env, 300)
+    warns = [r for r in caplog.records
+             if r.levelno == logging.WARNING and "inert" in r.getMessage()]
+    assert len(warns) == 1
+
+
+def test_detector_hung_unresolved_logs_again_after_resolve(env, caplog):
+    import logging
+    coord, hass = _coord()
+    saved = list(env.registry)
+    hass.states.set(FPS, "45")
+    with caplog.at_level(logging.INFO):
+        env.registry.clear()
+        _tick(coord, env)
+        env.registry.extend(saved)
+        _tick(coord, env)
+        env.registry.clear()
+        _tick(coord, env)
+    logs = [r for r in caplog.records
+            if "inert_unresolved" in r.getMessage()]
+    assert len(logs) == 2

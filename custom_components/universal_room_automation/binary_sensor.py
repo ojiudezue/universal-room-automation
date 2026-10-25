@@ -3308,6 +3308,7 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
             "boot_settle_remaining_s": 0,
             "detector_frozen_s": 0,
             "detector_hung_fired": False,
+            "detector_hung_deferred_quiet": False,
         }
         if opt is not None:
             try:
@@ -3336,6 +3337,9 @@ class CameraInputDegradedBinarySensor(BinarySensorEntity):
                 )
                 attrs["detector_hung_fired"] = bool(
                     getattr(opt, "_detector_hung_fired", False)
+                )
+                attrs["detector_hung_deferred_quiet"] = bool(
+                    getattr(opt, "_detector_hung_deferred_quiet", False)
                 )
                 from .const import BOOT_SETTLE_S as _BOOT_SETTLE_S
                 boot_ref = getattr(
