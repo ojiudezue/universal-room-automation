@@ -1,7 +1,7 @@
 # PLANNING — Census: BLE decides, face confirms (CENSUS-BLE-OVER-FACE-1)
 
 **Operator (verbatim, 2026-10-24):** "Ble is going to be better than face almost anytime. Same logic as gps. It can confirm. Plan it maybe add another toggle." Addendum: "Narrow fixes."
-**Status:** plan rev 3 (D0 run: GO; operator answers recorded), not reviewed. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
+**Status:** plan rev 4 (plan review `docs/reviews/code-review/plan_review_census_ble_over_face.md` findings 1-9 addressed; per-camera check run), awaiting re-check. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
 **Read first, completely:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`, `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 ledger), `docs/architecture/SENSOR_FLEET_CLASSES.md`, `docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md`, `docs/planning/PLANNING_presence_gps_assistive.md`. Not HVAC work.
 
 ---
@@ -85,15 +85,18 @@ What the cost actually is, from the code: when an overruled person's name is dro
 2. the camera total exceeds the BLE-identified count, i.e. `camera_total_pre_cancel > identified_count`
    after dropping the name, since the clamp ceiling is `max(camera_total_pre_cancel, identified_count)`
    (`:5998-6003`).
-A Jaya body with Jaya BLE-located in the same area fails (1). A Jaya body with Jaya BLE-located in another
-area usually fails (2), because Jaya and Ezinne are already in `identified_count`. So the expected
-cost when the face is a mislabel of a BLE-identified co-resident is **near zero**, unproven until D0.
-The replay's proxy (`frigate_count − |identified minus Oji|`) ignored the area-cancel, so it
-overstated the cost even on its own premise.
+**Measured cost (D0, §4.3): 4 GUEST-eligible runs, ~33 min total, on 10-24, while Oji was confirmed
+abroad.** In each, the cameras saw 3 distinct bodies (per-camera check, §4.3), BLE named 2 residents,
+and the false "Oji" face was the only thing explaining the third. With the change that third body
+becomes unidentified. Ziri was at college (operator-confirmed), so he is not the third body; Oji was
+abroad. Who it was is pending the operator (visitor? see §11). The replay's earlier proxy
+(`frigate_count − |identified minus Oji|`) and its at-home premise are both superseded by §4.3.
 
-The residual real cost is the option-A class: a GPS+BLE adult genuinely at home with BLE dark, whose
-body no BLE-located resident explains. The measured week has **no confirmed instance** of that.
-GUEST persistence is 300 s (`DEFAULT_GUEST_PERSISTENCE_SECONDS`, `const.py:3973`).
+The cost is two classes, both accepted (Q1): (i) a real unidentified person (e.g. a visitor) masked
+today by a wrong resident name, now surfaced; (ii) option A, a GPS+BLE adult genuinely home with BLE
+dark whose body no BLE-located resident explains (no confirmed instance in the window).
+GUEST persistence is 300 s (`DEFAULT_GUEST_PERSISTENCE_SECONDS`, `const.py:3973`). Census
+confidence stays medium/high because the raw corroboration face path is deliberately not vetoed (§5.3).
 
 **Benefit of (a):** `identified_persons` / `face_confirmed` stop naming an absent adult; and path α's
 `face_recognized_count` stops being held > 0 by an absent adult's stale or mislabelled face (the
@@ -178,16 +181,37 @@ counted 3 bodies (`camera_total_pre_cancel = 3`, `camera_unrecognized = 3`), BLE
 residents (Ezinne, Jaya) whose areas (`kitchen`, `receiving_room`, `foyer`, `patio`) did not match the
 face camera (`family_room`, `utilities_ptz`), so the area-cancel absorbed nothing, and the clamp ceiling
 (3) exceeded `id'` (2). Today the false "Oji" face explains the third body; with the change it becomes
-unidentified. Whether that third body was a real unidentified person or a camera over-count is
-**unknown** (no verifiable oracle). Either way the current state hides it behind a wrong name.
+unidentified.
+
+**Per-camera check (rev 4, recorder `sensor.*_person_count` / `binary_sensor.*_person_occupancy*` at
+each run start and ~3-6 min in):**
+
+| Run (CDT) | Non-zero per-camera counts | Reading |
+|---|---|---|
+| 13:40:21 (and 13:44) | `family_room_person_count` = 3 | 3 bodies in ONE camera frame |
+| 15:19:01 (and 15:22) | `family_room_person_count` = 3 | 3 bodies in one frame (the face camera was `utilities_ptz`, but no other camera counted anyone) |
+| 15:43:02 (and 15:49) | `family_room_person_count` = 3 | 3 bodies in one frame |
+| 19:04:36 (and 19:07) | `family_room` = 2, `master_hallway` = 1 (19:07: + `playroom` = 1) | two cameras in different rooms at the same instant: distinct bodies, not overlapping FOV |
+
+**Result: three distinct bodies, not one body counted by two cameras.** Three of the four runs are a
+single Frigate camera counting 3 people in one frame, so cross-camera double-counting is ruled out;
+only a Frigate in-frame over-count remains possible (not tested). With Oji abroad and Ziri at college
+(operator), the residents who could be home are Ezinne and Jaya (both BLE-identified), so the third
+body was most likely a non-resident. **Operator answer on whether a visitor was present: PENDING
+(placeholder).**
+
+The "other resident BLE-home, different area" bucket in the table above compares camera names with
+`ble_by_area` area keys (`utilities_ptz` is not an area); it does not prove a different body. The
+per-camera check above is the discriminator that does.
 
 Caveats: (1) Bermuda fleet-arm gate not replayed, so selection is an upper bound; (2) the GUEST gate
 also needs census confidence and its own persistence state, so "GUEST-eligible" is not "GUEST fired";
 (3) recorder `person.*` attributes do not carry `device_trackers`, so §2's "kids are BLE-only" stays
 cited to the replay audit §1, not re-verified here.
 
-**Verdict: GO.** The §4.2 gate (no added run in the co-located-mislabel bucket) passes: the 11
-co-located samples produced no run. The cost sits in the "unexplained body" bucket, which the operator
+**Verdict: GO, on the operator's acceptance of a measured cost, not on the gate.** The §4.2 gate (no
+added run in the co-located-mislabel bucket) passes, but it ran on 11 samples (2.5 min) and could
+hardly have failed; read the "GO" as "cost measured and accepted (Q1)", not as evidence the cost is low. The cost sits in the "unexplained body" bucket, which the operator
 accepted (Q1, 2026-10-24). Expect roughly a few GUEST-eligible runs per day on days an adult is
 abroad with frozen GPS and a resident is mislabelled as them; each one means the camera saw more
 bodies than BLE can name.
@@ -218,7 +242,8 @@ is not a consumer-visible admission site for the house zone and stays a non-goal
 |---|---|---|---|
 | `recognized_set` → `identified_count`, `identified_persons` (`camera_census.py:5947-5970`, `:6026-6029`) | face names ∪ BLE ∪ egress | trust input to unidentified math | yes (intended) |
 | Unidentified math (`:5972-6003`) | `identified_count` via ceiling | **trust** (GUEST) | yes, §3 cost |
-| `SIGNAL_CENSUS_UPDATED` `face_recognized_count` (`:1837`) → path α (`presence.py:1169-1180`), sensor attr (`sensor.py:5724-5737`) | len(face_recognized) | **trust** (AWAY) | yes (intended: absent adult's face stops blocking α) |
+| `_get_face_recognized_persons_fresh` (`camera_census.py:2077-2079`, `:3586+`) → cross-validation corroboration bundle → divergence downgrade → census `confidence` (GUEST-gate input) | raw face names, no person veto | **trust** (confidence) | **no, deliberately raw.** It corroborates that a BODY exists, not who it is; a mislabelled face is still evidence of a person in frame. Consequence: confidence stays medium/high while the name leaves the identified set, which is what makes the D0 runs GUEST-eligible (accepted, Q1) |
+| `SIGNAL_CENSUS_UPDATED` `face_recognized_count` (`:1837`) → path α (gate comments ~`presence.py:1206-1230`), sensor attr (`sensor.py:5724-5737`) | len(face_recognized) | **trust** (AWAY) | yes (intended: absent adult's face stops blocking α) |
 | `face_persons` / `face_confirmed` attr (`camera_census.py:1757`, `sensor.py:4091`) | identified_persons | display | yes |
 | `face_recognized_persons` attr (`sensor.py:3787`) | face list | display | yes |
 | GUEST gate (`presence.py` `_guest_gate_armed`, ~:5965) | unidentified_count + confidence + persistence | **trust** | indirect via unidentified |
@@ -253,6 +278,13 @@ Falsifiers a reviewer should try: a face name that canonicalises to `p` through 
 different evidence class and stays; see non-goals); the raw path (Q2); a tick where the overrule set
 changed between person tick and census tick (accepted: one-tick lag, same as every other trust reader).
 
+**Timing direction.** `_gps_home_overruled` is assigned (`person_coordinator.py:1227`) before
+`self.data` is published, and `get_person_location` reads `self.data`. If they disagree for a tick,
+the helper returns raw, so the lag always errs toward **admitting** the face (today's behaviour), for
+at most one tick. **Restart:** the set starts `frozenset()` (`:224`), is not restored, and the fleet-arm
+latch (≥ `BLE_LEADS_ARM_S` 360 s) keeps it empty, so for ≥ 6 min after boot the site behaves exactly as
+today. INV-FACE-CONFIRMS covers the interior latch only, not egress (§9).
+
 ## 8. Deliverables
 
 ### D0 — probe (§4.2)
@@ -264,8 +296,26 @@ At `camera_census.py:5884-5904`, when `const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS
 state with `person_state_for_trust(self.hass, person_entity_id)` instead of
 `self.hass.states.get(...).state`; keep the existing `== "not_home"` test, the DEBUG line (add the
 source: `raw` / `ble_overrule`), and fail-open shape. Replace the "deliberately left on RAW" comment.
-Add a per-tick counter `face_dropped_ble_overrule_count` on the census sensor attributes (display;
-reset at tick start beside `_face_lookup_missing_count`, `:1708`).
+**Read order (pinned):** read raw `person.<slug>` state once (as today). If raw is `not_home`, drop as
+today. Otherwise, only when the flag is True, call `person_state_for_trust`; drop if it returns
+`not_home`. The helper is never called when the flag is False.
+
+**Counter (pinned):** `face_dropped_ble_overrule_count`, per-tick, reset at tick start beside
+`_face_lookup_missing_count` (`:1708`), incremented ONLY when raw ≠ `not_home` AND the trust value is
+`not_home` (kids' existing raw drops do not count). Carried on
+`sensor.universal_room_automation_persons_in_house` (class at `sensor.py` ~:3722, unique_id `census_persons_in_house` `:3731`, beside
+`face_lookup_missing_count`) and added to a new `_unrecorded_attributes` on that sensor (it has none today; the sensor records
+every tick; no recorder growth). Display only.
+
+**Byte-identity wording:** switch off / flag False / not overruled ⇒ the **admission decision** is
+byte-identical; the new attribute is present in every case.
+
+**Slug shape:** the census builds `person.{slug.lower()}` (`camera_census.py:5891`) from entry data +
+options; the helper matches `person.{name.lower().replace(' ', '_')}` (`person_coordinator.py:648`)
+against `tracked_persons` from `entry.data` only (`:160`). They agree for the live underscore slugs
+(`oji_udezue`). Tests MUST use the live key shape (`person.oji_udezue`, `tracked_persons` in
+`entry.data`); a spaced name or an options-only list silently falls back to raw, which the Live
+criterion (counter > 0 while Oji is abroad) detects.
 
 **Acceptance criteria**
 - **Test:** `test_census_face_dropped_when_ble_overruled` — p overruled + location away, face fresh → p absent from `identified_persons`, `face_recognized_count` excludes p, counter = 1.
@@ -280,11 +330,18 @@ reset at tick start beside `_face_lookup_missing_count`, `:1708`).
 - **Live (no-regression):** while Oji is home with BLE (`home` trackers), `person_list` includes him and the counter is 0.
 
 ### D2 — docs in the same commit
-PRESENCE SoP §1 row (face latch now follows BLE Leads; cite this plan) and §10 entry ("face latch left raw" superseded by operator option A, 2026-10-24); IDENTITY manual §5.4 veto bullet.
+- PRESENCE SoP §1 row (face latch now follows BLE Leads; cite this plan) and §10 entry ("face latch left raw" superseded by operator option A + D0, 2026-10-24).
+- PRESENCE SoP §1 row and §3: change "branch `fix/presence-gps-assistive`, NOT deployed" to live as v5.103.90.
+- IDENTITY manual §5.4 veto bullet: cite `camera_census.py:5884-5904` (was `~:3346-3366`) and the new BLE-Leads behaviour.
+- Code comment `camera_census.py:1779-1786`: cite `:5884-5904` (was `:3034-3055`).
+- Path α citations in this plan and the SoP: use the current lines (~`presence.py:1206-1230`), re-verified at build.
+- Room-level KEEP + DOCUMENT note at `coordinator.py:1299` (one comment line).
 
 ## 9. Non-goals
 - Egress face-leg veto (`is_face_leg_person_vetoed`, `transit_validator`) stays raw: advisory, separate evidence (a face AT a crossing), and an entry crossing is precisely how a returning resident should become identified before BLE re-acquires. Not required for correctness of INV-FACE-CONFIRMS.
-- Raw-path `_get_face_recognized_persons` (pending Q2).
+- **Egress scope fence:** a mislabelled *entry* crossing still registers the wrong slug via `_get_egress_face_ids_fresh` for the union TTL. INV-FACE-CONFIRMS holds for the interior latch only; the Live check does not cover egress.
+- Raw-path `_get_face_recognized_persons` (enhanced census is on live; overwritten for the house).
+- `_get_face_recognized_persons_fresh` (corroboration / confidence) stays raw: body evidence, not identity (§5.3).
 - No change to unidentified/ceiling math, GUEST gate, path α, nobody-home.
 - No fix for the Frigate Jaya↔Oji mislabel (card FRIGATE-FACE-MISLABEL-OJI-1) or the `last_camera` flap restamp.
 - No "unnamed resident" bucket (§3 c, parked; revive if GUEST false positives from option A are carded twice in a month).
@@ -301,4 +358,6 @@ All answered 2026-10-24 (operator via coordinator):
 4. Toggle: reuse BLE Leads Home/Away, no new switch: **YES**.
 5. 10-19 / 10-22 faces: operator cannot recall; classified `unknown` in D0 (verifiable evidence only).
 
-Remaining for plan review: none from the operator. Reviewer focus: the D0 caveats (fleet-arm not replayed; GUEST-eligible ≠ fired).
+6. Was a visitor present on 10-24 at 13:40-16:00 and ~19:04 CDT (the third body)? **PENDING — placeholder.** Ziri at college (operator-confirmed).
+
+Remaining for plan review: Q6 (does not block build; it attributes the accepted cost). Reviewer focus: the D0 caveats (fleet-arm not replayed; GUEST-eligible ≠ fired).
