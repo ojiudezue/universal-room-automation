@@ -33235,7 +33235,7 @@ cards:
 - id: BLE-LOCATION-QUALITY-1
   title: "BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked"
   thread: presence
-  status: investigating
+  status: pre_planning
   tier: 2
   created: "2026-10-25"
   origin: 'Operator 2026-10-23 asked for high-bar livability ideas from jumacabo.com 3D-house + bluetooth-trilateration posts (Reddit). Reply ranked 5 ideas; operator: "Ok on the baseline measurement" and pushed on 3D ("code driven blender model? Lovelace has limits"). Never carded; operator asked 2026-10-25 "Was it carded?"'
@@ -33244,8 +33244,9 @@ cards:
   ideas: ["1 full-time scanning: ESPHome proxies scan_parameters window=interval (320 ms), ojifirstble-proxy active:false; Shelly Gen2+ BLE scanner mode Auto. OPERATOR reflash; re-measure with the same audit after.", "2 floor change only via Staircase/Upstairs Hallway (reuse room adjacency config); first verify no such gate exists in the BLE transition path.", "3 hold last room when signal goes quiet instead of drifting (check fleet-liveness/silent-phone behaviour first).", "4 reusable BLE replay scorer vs radar/camera truth (baseline script is the seed).", "5 dashboard: flash room tile + one-line banner on events; pending state until HA confirms."]
   parked_3d: "3D twin / geometry position engine PARKED, not dropped. Trigger: after ideas 1-3, a room pair still flips. Cheaper option if wanted sooner: generated 2.5D floor plan in the PWA, rooms coloured by URA state, people as dots."
   reassessed_2026_10_25: "Idea 1 NOT supported by the baseline: Ezinne/Jaya are heard by ~30 scanners per active minute (259-299 distance changes/min), far above the post's ~15 readings/min starting point; 37/49 Shellys already auto; only 11 of ~55 scanners are ESPHome. Reading rate is not our bottleneck; flapping is Bermuda's choice among many scanners. Downsides of full-time scanning: ESP32 single 2.4 GHz radio (WiFi drops / API disconnects, esp. radar+BLE combo boards; a proxy-count dip also disarms the v5.103.90 BLE-leads fleet guard), more advert load on HA (BLE budget memory), operator reflash. Problem itself unproven: raw flap is high but URA smoothing cuts it ~3.5x and no misfire has been measured."
-  next: "Me: one read-only harm check before any fix: did BLE flaps cause wrong actions (lights/occupancy/night lights) in the top pairs (Jaya Bed/Bath nights 10-19/20, Foyer/Study A, Garage A<->Jaya Bedroom cross-floor)? If no harm -> close done (refuted as a problem). If harm -> plan the narrow fix it points to (likely jaya_3 proxy placement/ignore or idea 2/3), not idea 1."
-  status_note: "idea 1 parked; investigating harm"
+  next: "Me: config-first: read live hold knobs for Jaya Bedroom (BLE hold / sleep hold / borrowed neighbour) and whether a config change keeps the bedroom occupied when BLE flips to the attached bathroom at night; else Tier-1/2 plan: bathroom counts for the bedroom extend leg only, or short hysteresis."
+  harm_2026_10_25: "docs/planning/AUDIT_ble_flap_harm_2026_10_25.md: only real harm = Jaya Bedroom read vacant 85 min (10-19) / 71 min (10-20) while Jaya in bed, because BLE flip to Jaya Bathroom withdraws the bedroom BLE hold (coordinator.py ~4066-4218) and radars alone hold ~50/360 night min; Upstairs thermostat sleep->away 24 min 02:07-02:31 10-20 (URA reset ~02:06 also contributed). Foyer/Study A, Garage A cross-floor, Oji night drift: no harm. Proxy reflash (idea 1) dropped."
+  status_note: "narrowed to Jaya Bedroom night hold"
   rank: {"value": 6, "time_criticality": 3, "effort": 3}
 - id: URA-V8-PANEL-RENDER-SPIN-1
   title: "ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off"
