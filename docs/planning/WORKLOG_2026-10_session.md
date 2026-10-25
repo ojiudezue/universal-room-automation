@@ -229,6 +229,13 @@ this session's own work. Per-release detail lives in each `README_v5.103.N.md`; 
 | Timed checks 10-22 07:17, 10-22 19:13, 10-23 07:19, 10-28 10:23 | me | session crons + on cards |
 | Worklog lapsed 10-14→10-21 | me | keep appending at each ship batch |
 
+### 2026-10-24 evening (after v5.103.89)
+**Shipped live, no code:** Enphase Realtime integration enabled (MQTT add-on stays off); HM `gc_refreeze_h` 0→4 (early: stalls 50→1/h; re-read due ~10-25 08:00).
+**Merged to develop, ships next deploy:** EV toggle tripwire diagnostic-only, no page (`EV_TOGGLE_TRIPWIRE_NOTIFY_ENABLED=False`, d8d98548d). Operator: "I don't want to be paged at all about EV".
+**In review → deploy gate:** PERSON-BLE-WINS-OVER-STALE-GPS-1 on `fix/presence-gps-assistive` (749162ec4). GPS assistive, BLE leads (switch `BLE Leads Home/Away`, default on; arm 360 s at ≥30 Bermuda proxies). Plan rev 3 + plan review (2 rounds), consequence replay, build, reviews A SHIP / B decision / C 56/62 RED → fix-up 17/17 RED, orchestrator gate mutation 26 RED. Full-suite name-diff running. Pending operator: B-H1/H2 (home without phone → away/false guest) A=accept (default) / B=garage guard.
+**Found:** Oji's companion app sends no new location (re-sends the 14:03 fix); old duplicate mobile_app registration deleted by operator. Frigate labels Jaya as Oji (FRIGATE-FACE-MISLABEL-OJI-1, operator retrain). `sensor.persons`=4 is Spook's configured-person count, not occupancy. In-house unidentified flicker 0-2 at 19:50-20:09 (interior only; exterior 0).
+**Cards:** PERSON-BLE-WINS-OVER-STALE-GPS-1, FRIGATE-FACE-MISLABEL-OJI-1, CENSUS-UNIDENTIFIED-SNAPSHOT-1 (inbox).
+
 ## Release index (auto-appended at deploy)
 
 - 2026-10-24 07:04 **v5.103.87** — v5.103.87: daily solar forecast restored, regime next-room check made real, work log at ship (cards: EC-PREDICTOR-SOLCAST-UNWIRED-1,REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1,WORKLOG-APPEND-AT-SHIP-1)
