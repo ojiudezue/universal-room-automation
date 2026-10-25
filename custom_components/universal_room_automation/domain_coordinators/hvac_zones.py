@@ -2666,12 +2666,12 @@ class ZoneManager:
             persons = list(getattr(zone, "zone_persons", []) or [])
         except Exception:  # noqa: BLE001
             return False
+        # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: BLE-overrule-aware trust read
+        # (raw HA state unless the person's GPS "home" was overruled).
+        from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
+
         for person_entity in persons:
-            try:
-                st = hass.states.get(person_entity)
-            except Exception:  # noqa: BLE001
-                continue
-            if st is not None and getattr(st, "state", None) == "home":
+            if person_state_for_trust(hass, person_entity) == "home":
                 return True
         return False
 

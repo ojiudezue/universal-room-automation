@@ -1,5 +1,6 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-10-24 (built, `fix/presence-gps-assistive`, NOT deployed — PERSON-BLE-WINS-OVER-STALE-GPS-1):** the four HVAC raw `person.<x>.state == "home"` reads — `hvac_zones.ZoneManager.zone_has_home_person` (D7 / row-1 unestablished-zone preserve), the `hvac.py` D7 night-trust preset hold, `hvac.py` `main_row_home_persons` (display, activity log `home_persons`) and the `hvac_fans.py` night vacancy hold — now read `person_coordinator.person_state_for_trust`. It returns the raw HA state except `not_home` for a person whose GPS-led `home` was overruled by their own BLE on the last person tick (Presence STATE_OF_PLAY §3). Comparisons and fail-open/closed shapes are unchanged; no HVAC logic changed. Presence switch "BLE Leads Home/Away" OFF → byte-identical.
 **2026-10-21 (doc only):** §4.2 optimizer row line refs corrected (`optimization.py:4677`/`:4826`); stuck-rule cite `coordinator.py:364` → `:387` (§9.3, C27). Found by the OC vision rev-6 review pass.
 **2026-10-20 (built, `fix/recorder-churn-diag-sensors`, NOT deployed, display only):** `sensor.ura_hvac_ac_ramp_kwh_rate_<zone>` no longer publishes `age_seconds`; `last_updated` is kept live but unrecorded; `stale` is still computed. No HVAC decision reads this sensor.
 **2026-10-19 (built, `fix/paused-room-lights-fans`, NOT deployed):** paused rooms (Automation switch off / Manual Mode on) are skipped by the HVAC zone vacancy sweep, comfort fans, sleep-onset fan, pre-arrival fans and the fan recheck arm — see §4.2b "Paused rooms".
@@ -200,7 +201,7 @@ Consequences:
 | Layer | State | Gate |
 |---|---|---|
 | Preset-layer retreat (row-1), incl. **night** retreat of empty zones | **LIVE** | `conditioning_retreat_ok` |
-| D7 night-trust suppression (zone_persons home) — only when zone NOT cleared to retreat | **LIVE** | `hvac.py:2403` |
+| D7 night-trust suppression (zone_persons home) — only when zone NOT cleared to retreat. "Home" = `person_state_for_trust` (raw HA person state unless BLE overruled a GPS home; branch `fix/presence-gps-assistive`, NOT deployed) | **LIVE** | `hvac.py:2403` |
 | D8 night tail-hold | **LIVE** — house `sleep` / `waking` only (v5.103.19) | `const.py:1230`; selector `hvac_zones.py` `_effective_hvac_hold_seconds` |
 | D9 compose-away (Custom Preset Ranges setpoint layer), F2 throttle bypass, F4 | **DELETED by HVAC Batch C (SHIPPED v5.103.39)** — S10 now edits named preset profiles (§4.2 S10 row); compose-away/F2 and the throttle map no longer exist. HISTORICAL: dormant behind `switch.ura_hvac_coordinator_guest_mode_actuation` (gate `hvac.py:2867`), blocked on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` + `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` (both closed by construction) | F4 (arrester row-10) unchanged |
 

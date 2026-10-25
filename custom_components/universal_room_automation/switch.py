@@ -423,6 +423,8 @@ async def async_setup_entry(
             PresenceGuestDetectionEnabledSwitch(hass, entry),
             PresenceArrivingRearmEnabledSwitch(hass, entry),
             PresenceAwayVetoEnabledSwitch(hass, entry),
+            # PERSON-BLE-WINS-OVER-STALE-GPS-1 (D2): BLE leads home/away.
+            PresenceBleLeadsEnabledSwitch(hass, entry),
             # v4.7.34 Phase 1 D7: Optimization Coordinator kill switch
             # (restart-persistent via entry.options write-back AND
             # RestoreEntity; modeled on EnergyObservationModeSwitch:396).
@@ -3885,6 +3887,25 @@ class PresenceAwayVetoEnabledSwitch(_PresenceKillSwitchBase):
     _backing_field = "_away_veto_enabled"
     _since_field = "_away_veto_suppressed_since"
     _icon = "mdi:home-remove"
+
+
+class PresenceBleLeadsEnabledSwitch(_PresenceKillSwitchBase):
+    """BLE Leads Home/Away (PERSON-BLE-WINS-OVER-STALE-GPS-1). Default ON.
+
+    On: a phone's Bluetooth decides home or away; GPS can only speed up
+    leaving. Off: a GPS 'home' also counts as proof, for homes with few
+    Bluetooth scanners or heavy app use (pre-change behaviour).
+
+    Load-bearing: gates ``PersonTrackingCoordinator._ble_overrules_gps_home``
+    at both person.state=home arms of ``_async_update_data`` and
+    ``effective_person_state`` (the seven §6b trust readers).
+    """
+
+    _unique_slug = "presence_ble_leads_enabled"
+    _friendly_name = "BLE Leads Home/Away"
+    _backing_field = "_ble_leads_enabled"
+    _since_field = "_ble_leads_suppressed_since"
+    _icon = "mdi:bluetooth"
 
 
 class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):

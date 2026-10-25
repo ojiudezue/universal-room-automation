@@ -240,7 +240,27 @@ TRACKING_REASON_VALUES: Final = frozenset({
 # Kill-switch: set to 0.0 to prevent any solo BLE-only away vote from ever
 # clearing the path-α threshold (row 14 becomes effectively vetoing).
 # See docs/planning/AUDIT_tracking_status_consumers.md §6.
+# CORRECTION (2026-10-24, presence doc §10 #24): path α does NOT read
+# confidence, so the "< 0.9 cannot flip the house" claim above is wrong;
+# this value is a label on the away stamp, not a gate.
 BLE_SILENT_ONLY_AWAY_CONFIDENCE: Final = 0.82
+
+# PERSON-BLE-WINS-OVER-STALE-GPS-1 (plan docs/planning/
+# PLANNING_presence_gps_assistive.md §4.2-4.3). Rung 1, review-only: both
+# are safety bounds against a degraded or unproven BLE fleet. The rule
+# "own BLE trackers all not_home overrule a GPS-led person.state home" runs
+# only while Bermuda's Active Proxy Count (sensor resolved by unique_id
+# BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT) has read >= BLE_LEADS_MIN_ACTIVE_PROXIES
+# continuously for >= BLE_LEADS_ARM_S, measured from the later of process
+# start and the last below-floor / unknown / unavailable reading.
+# Floor 30: below the measured p1 (44), above every non-boot partial
+# reading. 0 = any numeric count passes (NOT a kill switch: the boot latch
+# and unavailable still protect). Arm 360 s: covers every measured
+# app-user restart recovery (14/14). Kill switch = the presence switch
+# "BLE Leads Home/Away" (`_ble_leads_enabled`).
+BLE_LEADS_MIN_ACTIVE_PROXIES: Final = 30
+BLE_LEADS_ARM_S: Final = 360
+BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID: Final = "BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT"
 
 # v3.2.8: Stale threshold (shorter than decay timeout)
 STALE_THRESHOLD_SECONDS: Final = 60  # 1 minute - time before "stale" status

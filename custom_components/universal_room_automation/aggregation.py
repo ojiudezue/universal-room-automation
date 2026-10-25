@@ -4452,12 +4452,15 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
             if not zone_persons:
                 return False
 
+            # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: trust read routed through
+            # the BLE-overrule-aware helper (raw state unless overruled).
+            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+
             any_person_home = False
             home_person_entity = ""
             for person_entity in zone_persons:
                 # Strict "home" only — unknown/unavailable intentionally not trusted.
-                state = self.hass.states.get(person_entity)
-                if state is not None and state.state == "home":
+                if person_state_for_trust(self.hass, person_entity) == "home":
                     any_person_home = True
                     home_person_entity = person_entity
                     break
@@ -4587,11 +4590,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
             if not zone_persons:
                 return False
 
+            # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: BLE-overrule-aware trust read.
+            from .person_coordinator import person_state_for_trust  # noqa: PLC0415
+
             # Conservative: require literal "home" — unknown/unavailable not trusted.
             any_person_home = False
             for person_entity in zone_persons:
-                state = self.hass.states.get(person_entity)
-                if state is not None and state.state == "home":
+                if person_state_for_trust(self.hass, person_entity) == "home":
                     any_person_home = True
                     break
             if not any_person_home:

@@ -339,7 +339,14 @@ def _invoke_fallback(fake_self) -> bool:
         + ast.unparse(helper_node)
         + "\n"
     )
-    ns: dict = {}
+    # PERSON-BLE-WINS-OVER-STALE-GPS-1: the helper now does a function-local
+    # `from .person_coordinator import person_state_for_trust`; give the
+    # exec'd namespace the real package so that relative import resolves to
+    # the production module (no stub).
+    ns: dict = {
+        "__package__": "custom_components.universal_room_automation",
+        "__name__": "custom_components.universal_room_automation._v4713_helper",
+    }
     exec(compile(module_src, "<helper>", "exec"), ns)  # noqa: S102
     helper = ns["_sleep_person_fallback_occupied"]
     return helper(fake_self)

@@ -3401,9 +3401,10 @@ class HVACCoordinator(BaseCoordinator):
             ):
                 home_persons = []
                 try:
+                    # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: overrule-aware read.
+                    from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
                     for person_entity in (zone.zone_persons or []):
-                        st = self.hass.states.get(person_entity)
-                        if st is not None and st.state == "home":
+                        if person_state_for_trust(self.hass, person_entity) == "home":
                             home_persons.append(person_entity)
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.debug(
@@ -3977,9 +3978,11 @@ class HVACCoordinator(BaseCoordinator):
                     # read failure must not block the preset write's log.
                     main_row_home_persons: list[str] = []
                     try:
+                        # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b (display): match
+                        # the night-trust decision's overrule-aware read.
+                        from ..person_coordinator import person_state_for_trust  # noqa: PLC0415
                         for _p in (zone.zone_persons or []):
-                            _st = self.hass.states.get(_p)
-                            if _st is not None and _st.state == "home":
+                            if person_state_for_trust(self.hass, _p) == "home":
                                 main_row_home_persons.append(_p)
                     except Exception:  # noqa: BLE001
                         main_row_home_persons = []
