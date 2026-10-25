@@ -2,15 +2,15 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-25T02:09:52-05:00_ - _Data commit: `d4b032095989`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-25T04:22:56-05:00_ - _Data commit: `47a9521955af`_ - _last_reconciled: 2026-10-25_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
-| 🔬 Investigating | 0 |
+| 📥 Inbox | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -21,24 +21,26 @@ _Generated: 2026-10-25T02:09:52-05:00_ - _Data commit: `d4b032095989`_ - _last_r
 | 🅿️ Parked | 104 |
 | ✅ Done | 392 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
+_(none)_
+
+## 🔬 Investigating (1)
+_measuring; truth not yet known_
+
 ### `BLE-LOCATION-QUALITY-1` - BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
-thread: **presence** - status: **inbox**
+thread: **presence** - status: **investigating**
 _created 2026-10-25_
 - **Why:** Raw BLE flapping and floor jumps (Jaya Bedroom <-> Garage A) feed room occupancy, night lights and sleep logic; URA smoothing cuts it ~3.5x but the source is noisy.
-- **Next:** DO: reflash proxies for full-time scanning (idea 1) -> I re-run the baseline audit and compare; then I check ideas 2 and 3 against presence code and plan the one the numbers support.
-- **Forensic keys (4):**
+- **Next:** Me: one read-only harm check before any fix: did BLE flaps cause wrong actions (lights/occupancy/night lights) in the top pairs (Jaya Bed/Bath nights 10-19/20, Foyer/Study A, Garage A<->Jaya Bedroom cross-floor)? If no harm -> close done...
+- **Forensic keys (6):**
   - `tier`: 2
   - `baseline`: DONE: docs/planning/AUDIT_ble_location_baseline_2026_10_23.md (raw changes/h Oji 76, Jaya 62, Ezinne 36; floor jumps 1.9/3.1/1.5 per h; top flap Jaya Bathroom<->Bedroom; night drift 10-19/20; radar agreement Study A 97-99%, Jaya Bedroom ...
   - `ideas`: 1 full-time scanning: ESPHome proxies scan_parameters window=interval (320 ms), ojifirstble-proxy active:false; Shelly Gen2+ BLE scanner mode Auto. OPERATOR reflash; re-measure with the same audit after.
   - `parked_3d`: 3D twin / geometry position engine PARKED, not dropped. Trigger: after ideas 1-3, a room pair still flips. Cheaper option if wanted sooner: generated 2.5D floor plan in the PWA, rooms coloured by URA state, people as dots.
-
-## 🔬 Investigating (0)
-_measuring; truth not yet known_
-
-_(none)_
+  - `reassessed_2026_10_25`: Idea 1 NOT supported by the baseline: Ezinne/Jaya are heard by ~30 scanners per active minute (259-299 distance changes/min), far above the post's ~15 readings/min starting point; 37/49 Shellys already auto; only 11 of ~55 scanners are E...
+  - `status_note`: idea 1 parked; investigating harm
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
