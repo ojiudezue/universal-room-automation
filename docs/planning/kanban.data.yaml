@@ -610,7 +610,7 @@ cards:
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: '2026-10-24 02:08'
+  updated: "2026-10-25 02:09"
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
   links: {"related": ["WATERLEAK-TRIO-UNKNOWN-1", "SAFETY-NO-INITIAL-SENSOR-PASS-1", "ELK-M1-HA-USABILITY-1"], "context": "ADJACENCY SWEEP (board + BACKLOG grep smoke/leak/safety sensor): WATERLEAK-TRIO-UNKNOWN-1 (parked) is the earlier instance of the leak pucks going unknown together, fold its evidence here at plan time. SAFETY-NO-INITIAL-SENSOR-PASS-1 is the code gap that surfaced this; a sensor nobody can read is not fixed by any seeding. Homelab THREAD-INOVELLI-1 owns the Thread re-commission. NEW. ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."}
   reverified_2026_10_20_overnight: "STILL-REAL 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable (since the 10-18 20:36 restart). Still waits on your re-pair."
@@ -634,6 +634,7 @@ cards:
   reverified_2026_10_18_overnight: "STILL-REAL: the kitchen Heiman smoke detector is still unavailable (binary_sensor.smoke_sensor_s1_smoke and siblings). Your re-pair (instruction 10-17) is the fix."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): binary_sensor.smoke_sensor_s1_smoke unavailable (since the 10-20 22:20 restart, still not re-paired)."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): the kitchen Heiman (binary_sensor.smoke_sensor_s1_smoke and its battery/fault/test siblings) all read unavailable. Re-pair still needed.'
+  recheck_2026_10_25_overnight: "STILL-REAL: binary_sensor.smoke_sensor_s1_smoke unavailable (re-stamped 10-24 21:20 at the restart, unavailable since 10-15). Your DO stands. The 10-24 16:42 CDT kitchen smoke CRITICAL was the TEST safety alert (notification_log rows 23810-23815, title TEST), not a real event."
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
   revisit_trigger: "The first Custom Preset Ranges give-up (thermostat unreachable / range not taking / original not restored). Check notification_log shows it at HIGH with delivered=1 on the companion/lights channels; close done, or reopen with the row."
   disposed_2026_10_22_overnight: "SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger. It shipped in v5.103.69; README validation 10-17 listed 'S10 HIGH delivery' as event-gated, proven in-suite only. URA notification_log since the 10-17 13:23 restart has zero hvac-coordinator notifications, so no Custom Preset Ranges give-up event has happened. The card's old 'next' (approve the merge) is obsolete: it shipped."
@@ -28982,7 +28983,7 @@ cards:
     restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
     phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
     waking an occupied house adds no action. Left a Home Assistant notification instead.'
-  next: "PICK for the repeat hangs (5 outages since 09-16; it is back now since 10-08 12:14): (A) treat the Coral as faulty: reseat, swap, or move detection to the CPU/OpenVINO detector, or (B) restart Frigate on a schedule as a stopgap. -> I make the change you pick in daytime and re-count detections the next night. The missing alarm is still CAMERA-SILENT-PRODUCER-TRIPWIRE-1, whose redesign is waiting on your APPROVE."
+  next: "PICK for the repeat hangs (5 outages since 09-16; healthy now): (A) treat the Coral as faulty: reseat, swap, or move detection to the CPU/OpenVINO detector, or (B) restart Frigate on a schedule as a stopgap. -> I make the change you pick in daytime and re-count detections the next night. The missing alarm (CAMERA-SILENT-PRODUCER-TRIPWIRE-1) no longer needs your approval: it is built, ported and in review (frozen detection_fps check)."
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -29057,8 +29058,9 @@ cards:
 
   measured_2026_10_02_overnight: "FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and person/motion detections resumed 10-01 11:28 CDT (10-01: hot_tub 52, back_yard 40, playroom 5, front_side_ptz 4, madrone_g6_entry 3, front_door_aerial 3, garage_a 2 person ONs). 09-30 had ZERO person ONs on any camera (the 09-29 hang). THEN IT HUNG AGAIN, SAME SIGNATURE AS 09-29: sensor.frigate_detection_fps_2 updated ~177x/hour until 10-01 16:22 CDT and has been frozen at 126 since (no rows after); sensor.frigate_coral_inference_speed_2 unavailable since 10-01 14:37Z; Frigate itself is up (uptime_2 / camera_fps_2 ~120 / skipped_fps_2 ~1-3 all still updating). Detection ONs across *_person_occupancy_2 + *_motion_3: 492 across 24 sensors in the 5 h BEFORE 16:25 CDT vs 19 on ONE sensor in the ~10 h after. So exterior person detection has been dark ~10 h as of 02:05 CDT and nothing in URA noticed (again). Last person ON fleet-wide: 10-01 16:16:51 CDT. NOT remediated: homelab-side restart in an occupied sleeping house = operator action. Paged via HA persistent_notification (no phone push at night, per the 09-26 precedent). New fact for the cause: the hang recurred ~5 h after a restart, so a restart is a stopgap, not a fix."
   status: "waiting_operator"
-  updated: '2026-10-24 02:08'
+  updated: "2026-10-25 02:09"
   reverified_2026_10_24_overnight: 'Healthy, no new hang (2026-10-24 02:08, ha-mcp): sensor.frigate_status_2 running since 10-23 18:44 CDT, sensor.frigate_detection_fps_2 = 69 (fresh 02:08), binary_sensor.ura_coordinator_manager_camera_input_dark off since 10-23 18:44. The four *_inference_speed sensors are still unavailable while detection runs (recorder: last row 10-23 04:42), confirming again they are not a health signal. PICK unchanged, low urgency.'
+  recheck_2026_10_25_overnight: "Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built)."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   triage_2026_10_17: "Default taken: redo the trip-wire as the card proposes, then both reviews again."
   INSTANCE_2026_10_07_frigate2_offline_24h: "Another unnoticed silence: Frigate2 went off the network 10-06 02:08 CDT and every Frigate2 person/motion entity has been unavailable for ~24 h with no alert (see PERIMETER-DETECTION-WENT-DARK-1 REOPENED_2026_10_07). Note the shape: this time the entities went UNAVAILABLE, not frozen-off, so a tripwire that treats a whole-fleet 'unavailable' as silence would have caught it at the first check - worth keeping in the redesign's acceptance criteria."
@@ -29122,9 +29124,9 @@ cards:
   title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
     build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
   thread: perimeter
-  status: planned
+  status: "in_progress"
   created: '2026-09-17 02:20'
-  updated: "2026-10-18 02:02"
+  updated: "2026-10-25 02:08"
   refinement_status: refined
   approval: implied
   tags:
@@ -29229,7 +29231,7 @@ cards:
     confirmed 4 tests go red when the evaluator is neutered. NOT merged, NOT deployed. Do not ship
     this branch as-is — it would install a trip-wire that the live reload cadence silently disarms,
     which is worse than no trip-wire because it would be believed.'
-  next: "Me (default taken 10-17): redo the trip-wire to read each camera's quiet time from the entities at check time (survives reloads), re-size the threshold against 'no camera reported anyone', replace the hollow test, then both reviews again. Lands in the digest unless you say page."
+  next: "Me (overnight 10-25): reviews A + B running on feat/camera-detector-hung-tripwire-v2; fix any CRITICAL/HIGH, validator name-diff, then review lane. Deploy at an attended session, followed by the plan D2 staged daytime detector-pause check (operator)."
   links:
     related:
     - CAMERA-STUCK-SENSOR-TRIPWIRE-1
@@ -29272,6 +29274,7 @@ cards:
     358m — only two of seven windows even reach 6 hours. The redesign should persist the silence
     accounting (or key it off a persisted last-seen timestamp rather than an in-process counter),
     which also makes it robust by construction instead of dependent on someone elses uptime.'
+  build_record_2026_10_25: "CAPTURE GAP CLOSED: the 10-21 overnight pass planned (docs/planning/PLANNING_camera_detector_hung_tripwire.md Rev 2, plan-reviewed) AND built this card on feat/camera-detector-hung-tripwire (b499108d8, frozen detection_fps stat check, CAMERA_DETECTOR_FROZEN_S 900 s) but never recorded it here and never reviewed it; the card still said redo. 10-25 overnight: ported onto develop 5736c35c8 as feat/camera-detector-hung-tripwire-v2 (6eb6fff67). Only conflict was the README (v5.103.84 is a different shipped release; draft moved to docs/readmes/README_DRAFT_camera_detector_hung_tripwire.md). Sites re-verified on current code: registry optimization.py:1107-1108, findings-cap exemption :5702-5712 via _FLEET_ONESHOT_KINDS :173-176, NM HIGH->digest exemption :5861-5867, diagnostics binary_sensor.py:3309-3339. Cycle file 26/26; 10 failures in test_optimization_coordinator.py also fail on develop (pre-existing). Builder mutation drills: 7 sites, all RED, restored. Builder LOWs: registry walk every 300 s cycle; helper names still say camera_input_dark; plan text says suffix detection_fps but code uses :sensor_fps:detection (code wins; fix plan text)."
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   INSTANCE_2026_10_22_recount: "Overnight recount by the close method (one [audit] row per alert for person.oji_udezue, CDT days): 10-18 27, 10-19 33, 10-20 30, 10-21 74. 10-21 tops the ~60/day reopen bar, but 48 of the 74 fell in one 13:00-14:59 block, spread across ~10 cameras (back_yard 9, pool_equipment 8, front_side_ptz 8, utilities_ptz 7, rear_ptz 6, Study B porch 6, hot_tub 6, g5_bullet 6+4, pool overhead 4). That looks like real daytime activity on the property (a service visit or yard work), not a single phantom source. The other 22 hours carried 26 alerts. NOT reopened on one burst day. Reopen if 2 consecutive days exceed 60, or any single camera exceeds 20 in a day."
   disposed_2026_10_20_overnight: "DONE - close criterion met. One-shot recount (URA notification_log, one [audit] row per alert for person.oji_udezue, CDT days): 10-14 132 (69 CRITICAL), 10-15 123 (67), 10-16 81 (74), 10-17 59 (50), 10-18 27 (8 CRITICAL), 10-19 33 (6 CRITICAL). With the family home the CRITICAL share collapsed (the travel-week nobody-tracked-home branch) and the total is ~half the <60/day bar on both normal days. 10-19 sources: utilities_ptz 7, rear_ptz 11 (two legs), g5_bullet 5, Study B porch 2, front_side_ptz 1. No lever needed; building more suppression now would be negative value."
@@ -32706,10 +32709,11 @@ cards:
   next: "DO: swap the front-door lock batteries (Z-Wave controller move optional, your call). -> I then measure: battery % slope per week on the lock's battery sensor, plus how many lock.lock commands URA and other automations send it (recorder logbook), and say whether anything is draining it faster than normal (Kwikset is roughly 6-12 months on a set)."
   refs:
   - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
-  updated: '2026-10-24 02:08'
+  updated: "2026-10-25 02:09"
   reverified_2026_10_18_overnight: "STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable since 10-17 18:03 CDT; Security logs 'periodic lock check: 1 device unavailable' (8 times since the last restart). Battery swap stands."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): lock.doorlock_kwikset_zwave_frontentry unavailable, sensor.node_3_node_status = dead."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): lock.doorlock_kwikset_zwave_frontentry = unavailable. Battery swap still needed.'
+  recheck_2026_10_25_overnight: "STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable at 02:10 CDT; Security periodic lock check warns x4 since the 21:20 restart. Your DO stands."
 - id: EC-RESERVE-CLOUD-DIVERGENCE-1
   disposition_2026_10_14: "done: mechanism found (external Enphase pending-change), self-resolved, no URA build. Residual to EC-ENPHASE-CONNECTIVITY-RESILIENCE-1."
   verdict_2026_10_14: "CONFIRMED (the 10-13 lead), and the card's proposed fix is REFUTED. Mechanism: URA's reserve write sat pending at Enphase (control_change_pending) for about 2 days; the cloud reported the real setting (14), and the battery obeyed it. URA's checker was RIGHT to flag non-compliance. It is not a comparison bug. The fix floated in this card ('accept the local gateway confirmation') would have been WRONG: the local number said 10 the whole time while the battery behaved as if the reserve were 14. Do not build it. The episode cleared by itself when the cloud integration reconnected at 11:33-11:40 CDT 10-13; no reverts since. Operator hypothesis (14 = a stale drain target from before a TOU change on a poor-solar day): not supported. On 10-12 the cloud value walked 6, 8, 10, 12, 14 in step with SOC, which is not a fixed config value, and 14 cleared on reconnect, not on a config change. A low-solar day is still the likely reason SOC was low enough for the value to look like 'the charge level'. Cost of the episode: about 2-4% of battery capacity held back overnight. Small."
@@ -32871,7 +32875,7 @@ cards:
   next: "DO (when back, any order) the operator-action checks W3/W10/W14/W15/W17 from ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md, or ACK to close the card and accept them as unverified. -> I write the result into the README Validated table and close."
   updated: "2026-10-16 02:07"
 - id: LANDSCAPE-RETRY-POSTFIX-CHECK-1
-  updated: "2026-10-21 22:05"
+  updated: "2026-10-25 02:09"
   rerank_2026_10_21: "v3 t2 e1 -> v3 t3 e1: 5 post-fix nights failed the discriminator; one operator APPROVE fixes the remaining step"
   rank: {"value": 3, "time_criticality": 3, "effort": 1}
   mechanism_2026_10_20_overnight: "10-18 NO-OP RUN EXPLAINED (the trace survived the restart after all; automation.landscape_lighting_lifx_matter_version, run 9fd5b732, 10-18 19:29:29 CDT): the very first action (choose branch 0, switch.turn_on on the six switch.switch_lowvtransformer_dewenwils_wifi_landscape1/2_switch_1..3 transformer outlets) failed with The Tuya cloud rejected the command, and because that step has no continue_on_error the error aborted the whole run in 0.45 s - no light step ran. So the 10-18 miss is a cloud-call fragility in the automation, not a URA or device issue, and it is fixable by config (continue_on_error on that step). 10-19 sunset run (19:28-19:34) finished normally through the retry loop. Re-verify 02:05 CDT 10-20: all GK tuya_local lights + Hampton landscape1-4 + several LIFX/Matter landscape lights still unavailable, so the device-side DO still stands."
@@ -32884,6 +32888,7 @@ cards:
   measured_2026_10_19_overnight: "DISCRIMINATOR NOT MET (5 post-fix nights; recorder state of the 20 target lights at trigger+7 min / +60 min, sunset+30 trigger). Missing at +7 min: 10-14 0, 10-15 1 (gklandscape_perimeter3 unavailable), 10-16 11, 10-17 10, 10-18 19. Two causes, neither fixed by the retry loop: (1) the GK tuya_local cluster - perimeter1/3/4/7/8 + sideapproach9-12 - plus hampton_landscape2 are UNAVAILABLE from ~10-16 on (system_log: tuya_local 'Device reported error 901: Network Error: Unable to Connect', 1383 occurrences; 'Referenced entities ... are missing or not currently available' x7). Retrying an unreachable device cannot help - this is device power/Wi-Fi, not the automation. (2) 10-18: the automation fired at 19:29:29 and the run ended the same second with NO light or switch state change; the lights stayed off until the 20:35 restart and were not turned on after it. Cause unknown - the restart cleared system_log and the trace. Also seen: one off-path retry error 'Peer is no longer responding to active session (timed out after 38.8s)' (Matter). 10-14 (the only fully clean night) and 10-15 show the retry works when devices are reachable."
   links: {"related": ["WIFI-ACTUATOR-FLEET-FLAP-1"], "context": "WIFI-ACTUATOR-FLEET-FLAP-1 is the Shelly Wi-Fi flap thread; the GK cluster dropping out together is the same Wi-Fi-fleet family, but a different vendor (tuya_local), so evidence stays here."}
   paged_2026_10_19_overnight: "Paged 02:42 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1, sent directly so it wakes nobody)."
+  recheck_2026_10_25_overnight: "STILL-REAL: the GK landscape lights are still unavailable at 02:10 CDT (ha_search gklandscape: perimeter1/3/4/5/7, corner1/2, backdrivewayleft all unavailable). Both asks stand."
 - id: STUDY-A-CSI-SENSOR-1
   updated: "2026-10-21 22:05"
   links_added_2026_10_21: "related+RECORDER-WRITE-RATE-ATTENUATION-1: ESPectre is the top recorder writer (~5k rows/hr); attenuation keeps it on."
@@ -32950,13 +32955,17 @@ cards:
 - id: CENSUS-UNIDENTIFIED-SNAPSHOT-1
   title: "Attach a camera snapshot to unidentified/guest census events so the operator can check who it was"
   thread: identity
-  status: inbox
+  status: "waiting_operator"
   tier: 2
   created: "2026-10-24"
   origin: 'Operator 2026-10-24 (speculative): "Wonder if we can grab picture is guests. Very useful as a check". Same evening the dashboard showed 0-2 unidentified in-house persons flickering 19:50-20:09 with only Ezinne + Jaya home.'
   why: "Unidentified counts feed GUEST arming and security; a picture turns an opaque number into a one-glance check and gives face-retraining samples (FRIGATE-FACE-MISLABEL-OJI-1)."
-  next: "Me: adjacency sweep (FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY_FUSION_CAMERAS_MANUAL, existing Frigate snapshot/event APIs, NM image attach) before scoping; privacy: interior snapshots stay local."
+  next: "PICK: A (recommended, no URA code): a v8 dashboard card that appears only when the unidentified count is above 0 and shows the latest Frigate person snapshots from the interior cameras, stored locally by Frigate already; or B: URA attaches an at-detection snapshot to the guest-arming notification (reuses the SNAP-1 local-file delivery, Tier 2, interior images leave the house via the message channel) -> on A I build the card in an attended session; on B I write a Tier-2 plan."
   rank: {"value": 4, "time_criticality": 2, "effort": 4}
+  updated: "2026-10-25 02:08"
+  refinement_status: "refined"
+  sweep_2026_10_25_overnight: "ADJACENT, not duplicate. Swept board (snapshot/unidentified/guest), BACKLOG (guest false-arming item 3), planning docs (PLANNING_snap1_at_detection_snapshots.md, guest plans), IDENTITY_FUSION_CAMERAS_MANUAL. SNAP-1 (done) built at-detection local-file snapshots for PERIMETER alerts only; FRIGATE-SUBLABEL-FACE-BRIDGE-1 (done v5.97.0) bridges face names, not images. Nothing attaches an image to an interior unidentified or guest event. Config-first: Frigate already stores a snapshot per person event on every interior camera, so the check the operator wants can be a dashboard view with no URA code."
+  parsimony: {"problem": "An unidentified count in the census is an opaque number; the operator cannot see who it was.", "verdict": "SIMPLIFY: dashboard view of Frigate snapshots first (option A); notification attachment only if the dashboard proves insufficient."}
 - id: FRIGATE-FACE-MISLABEL-OJI-1
   title: "Frigate face recognition labels another resident (likely Jaya) as Oji: 75 indoor 'Oji' hits on 10-24 while Oji was on a flight"
   thread: identity
