@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-24'
+  last_reconciled: '2026-10-25'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -32967,7 +32967,7 @@ cards:
   title: "Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10)"
   thread: presence
   status: shipped_organic
-  shipped_version: v5.103.90
+  shipped_version: v5.103.91
   tier: 2
   created: "2026-10-24"
   origin: 'Operator 2026-10-24: "I left the house hours ago. It still says I home." then "Ble should win always and app/gps should support if available" and "We also don''t control a user setting it to not send location or not giving iOS permission". Also: companion location is less private; app now connects via the tunnel.'
