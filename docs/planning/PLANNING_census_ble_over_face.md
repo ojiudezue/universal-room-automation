@@ -1,7 +1,7 @@
 # PLANNING — Census: BLE decides, face confirms (CENSUS-BLE-OVER-FACE-1)
 
 **Operator (verbatim, 2026-10-24):** "Ble is going to be better than face almost anytime. Same logic as gps. It can confirm. Plan it maybe add another toggle." Addendum: "Narrow fixes."
-**Status:** plan rev 1, not reviewed. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
+**Status:** plan rev 2 (replay premise corrected per operator; Q2 answered), not reviewed. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
 **Read first, completely:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`, `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 ledger), `docs/architecture/SENSOR_FLEET_CLASSES.md`, `docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md`, `docs/planning/PLANNING_presence_gps_assistive.md`. Not HVAC work.
 
 ---
@@ -71,13 +71,29 @@ Options for a body whose face says Oji while Oji is away by BLE:
 | (b) ignored (removed from camera total) | Needs a new subtract path; a real guest mislabelled as a resident disappears from the census and from AWAY blocking | Rejected: hides bodies, new writer to the census math |
 | (c) "unnamed resident" bucket (explains body, not guest, not named) | New count, new consumer semantics for GUEST and α; a guest mislabelled as a resident is masked exactly as today | Rejected: greenfield, and the only win is avoiding a GUEST cost the operator accepted under option A |
 
-**Cost of (a), measured (replay §3.6, proxy, 7.6 days to 10-24 19:25):** on Oji's at-home-without-BLE
-intervals the unidentified run at medium/high confidence grows from 1,080 / 1,411 / 0 s to
-1,080 / 2,641 / 2,595 s (IV10 / IV11 / IV12). GUEST persistence is 300 s
-(`DEFAULT_GUEST_PERSISTENCE_SECONDS`, `const.py:3973`), so one additional GUEST-eligible run (IV12,
-~43 min) and one longer run (IV11, +20 min) in 7.6 days, all on one day (10-24) when Oji's phone
-BLE was dark at home. Option-A acceptance covers this; §9 Q1 asks the operator to confirm it
-explicitly, because the replay audit (§5) noted that his earlier acceptance did not name GUEST.
+**Cost of (a) — premise corrected (rev 2, 2026-10-24).** The replay (§3.6) put the cost at
+unidentified runs of 1,080 / 2,641 / 2,595 s (IV10 / IV11 / IV12) versus 1,080 / 1,411 / 0 s with the
+guard raw. Those numbers assumed "Oji at home without BLE", judged from Frigate face labels. **The
+operator has since confirmed those labels were mislabels**: Jaya seen as Oji; Oji left ~08:42 on 10-24
+and is abroad. So in IV10–IV12 the rule would have been **correct**, and the replay's GUEST cost
+rests on a refuted premise.
+
+What the cost actually is, from the code: when an overruled person's name is dropped, the body
+(really Jaya) stays in `camera_total`. It raises `unidentified_count` only if BOTH hold:
+1. the BLE area-cancel does not absorb it, i.e. no BLE-located resident is in that camera's area
+   (`_ble_home_by_area`, ~`:5503`); and
+2. the camera total exceeds the BLE-identified count, i.e. `camera_total_pre_cancel > identified_count`
+   after dropping the name, since the clamp ceiling is `max(camera_total_pre_cancel, identified_count)`
+   (`:5998-6003`).
+A Jaya body with Jaya BLE-located in the same area fails (1). A Jaya body with Jaya BLE-located in another
+area usually fails (2), because Jaya and Ezinne are already in `identified_count`. So the expected
+cost when the face is a mislabel of a BLE-identified co-resident is **near zero**, unproven until D0.
+The replay's proxy (`frigate_count − |identified minus Oji|`) ignored the area-cancel, so it
+overstated the cost even on its own premise.
+
+The residual real cost is the option-A class: a GPS+BLE adult genuinely at home with BLE dark, whose
+body no BLE-located resident explains. The measured week has **no confirmed instance** of that.
+GUEST persistence is 300 s (`DEFAULT_GUEST_PERSISTENCE_SECONDS`, `const.py:3973`).
 
 **Benefit of (a):** `identified_persons` / `face_confirmed` stop naming an absent adult; and path α's
 `face_recognized_count` stops being held > 0 by an absent adult's stale or mislabelled face (the
@@ -91,26 +107,36 @@ when every other resident is also away; tonight others were home, so the visible
 | Bucket | Count | Ground truth |
 |---|---|---|
 | Overrule minutes (Oji BLE-away by rule) | 1,124 | — |
-| Interior face events for Oji inside those minutes | ~91 (IV1 1, IV6 6, IV7 2, IV10 4, IV11 24, IV12 54) | **right**: all in camera-confirmed at-home intervals (home without phone) |
+| Interior "Oji" face events inside those minutes | ~91 (IV1 1, IV6 6, IV7 2, IV10 4, IV11 24, IV12 54) | **Unverified; at least IV10–IV12 (82 events) are refuted as Oji.** The replay called them "home without phone" from Frigate labels alone; operator confirms 10-24 was Jaya mislabelled as Oji (he left ~08:42, abroad). IV1/IV6/IV7 (9 events, 10-19 and 10-22) need re-checking against the same mislabel |
 | Face events inside true-away intervals (IV3, IV4, IV9) | 0 fresh; latch tail only, ≤ ~80 s before expiry | stale latch, harmless |
-| Wrong face-only identity for a BLE-away person | **1 known**: 10-24 21:42 (Oji abroad, Frigate labels Jaya as Oji; FRIGATE-FACE-MISLABEL-OJI-1), after the replay window | **wrong** |
+| Wrong face-only identity for a BLE-away person | 10-24 21:42 instance (FRIGATE-FACE-MISLABEL-OJI-1) **plus, per operator, the 10-24 IV10–IV12 faces** | **wrong** |
 
-So in the measured week, face-only-while-BLE-away was right far more often than wrong. The operator's
-premise ("BLE better than face almost anytime") holds for *who is home* only under option A: the
-"right" faces were a resident at home without a phone, which option A chooses to treat as away. This
-is a policy choice, not a data-quality win. Stated plainly so the operator rules on it knowingly (§9 Q1).
+Honest restatement: the replay's "face was right while BLE was dark" conclusion does not survive the
+operator's correction for 10-24, and 10-19 / 10-22 are unproven. The data now leans toward the
+operator's premise (BLE better than face), but the right/wrong split is **not known** until D0
+re-classifies with a ground truth that does not rest on Frigate labels alone.
 
 ### 4.2 D0 probe (read-only, before build; go/no-go)
 Script over HA recorder + URA DB, last 7 days, for each tracked person:
 1. Minutes where URA location sensor = `Away` with reason `away_ble_silent_only` AND `person.<x>` = `home` (i.e. in `_gps_home_overruled`); and, separately for kids, minutes BLE `not_home`.
 2. In those minutes, `sensor.frigate_<first>_last_camera[_2]` changes (the guard's actual input, not `last_recognized_face`) and interior `*_last_recognized_face_2` = that person.
-3. Classify each face event right/wrong using the replay oracle (interior face clusters on ≥2 cameras within 30 min, egress rows, later BLE re-fix in-house) plus, for 10-24 21:42 onward, the operator's travel (Oji abroad).
-4. Replay the census unidentified proxy (replay caveat c) with the guard swapped: total GUEST-eligible seconds added.
+3. Classify each face event right/wrong. Frigate labels are **not** ground truth (refuted 10-24). Use:
+   operator-confirmed travel (Oji abroad from ~08:42 10-24); egress exit rows with no later entry;
+   GPS fixes far from home; and, as the discriminator for mislabel, **whether a BLE-identified resident
+   was BLE-located in the same camera's area at the face timestamp** (Jaya/Ziri/Ezinne via
+   person_coordinator room). Face labelled X with resident Y BLE-located in that area and X's BLE
+   `not_home` ⇒ classify "likely mislabel of Y"; no co-located BLE resident ⇒ "unexplained body"
+   (the only bucket that can carry cost).
+4. Replay the census body maths **with the BLE area-cancel and the ceiling clamp** (not the replay's
+   `frigate_count` proxy): per tick, would `unidentified_count` rise if the overruled name were dropped?
+   Report GUEST-eligible seconds added (≥ 300 s runs), split by bucket from step 3.
 5. Confirm `person.jaya` / `person.ziri` device_trackers are BLE-only (§2).
 
-**Gate:** proceed if (4) adds no GUEST-eligible run outside periods where the person was home
-without BLE (i.e. no new cost beyond the option-A class). Stop and re-plan if a run appears while the
-person was verifiably away (would mean the body math, not the name, is the problem).
+**Gate:** proceed if step 4 adds no GUEST-eligible run in the "likely mislabel of a co-located BLE
+resident" bucket (expected: zero, since the area-cancel or clamp explains the body). Runs in the
+"unexplained body" bucket are the option-A cost; report them for the operator. Stop and re-plan if
+step 4 shows the area-cancel failing to absorb a co-located BLE resident's body (would mean the body
+maths, not the name, is the problem).
 
 ## 5. Producer and consumer checks
 
@@ -128,9 +154,9 @@ UpdateFailed (SoP §3); no person coordinator / exception → raw (fail-open pre
 `_get_face_recognized_persons()` (`camera_census.py:3545-3584`) has **no person veto and no
 freshness gate**; feeds `_cross_correlate_persons` (`:2181-2185`). When `CONF_ENHANCED_CENSUS` is on,
 `_apply_enhanced_house_census` (`:5908+`) recomputes `identified_persons` / `identified_count` /
-`unidentified_count` and overwrites the raw house values (comment `:5938-5946`). **Open Q2:** confirm
-enhanced census is on live; if it is, the raw path is not a consumer-visible admission site and is a
-non-goal. If it is off, the raw path needs the same rule and the plan grows by one site.
+`unidentified_count` and overwrites the raw house values (comment `:5938-5946`). **Resolved (rev 2):**
+live `sensor.universal_room_automation_persons_in_house` has `enhanced_census: true`, so the raw path
+is not a consumer-visible admission site for the house zone and stays a non-goal.
 
 ### 5.3 Consumers of the face-admitted identity (file:line, trust vs display)
 
@@ -214,7 +240,8 @@ PRESENCE SoP §1 row (face latch now follows BLE Leads; cite this plan) and §10
 **Tier 2, elevated to three framing-disjoint reviews** (standing policy: trust-hierarchy ripple presence ↔ census ↔ GUEST/AWAY). One-site change, no DB, no shared-primitive writer, so not Tier 3. Framings: A local correctness (guard, fail-open, flag/switch matrix); B cross-coordinator (GUEST and α consequences, tick ordering between person and census coordinators); C test authority by per-site mutation. One adversarial plan review before build.
 
 ## 11. Open questions for the operator
-1. **GUEST cost under option A.** When you are home with your phone's BLE dark and no co-resident covers the camera area, your face will no longer explain your body, so the house can go GUEST (measured: one extra ~43-min eligible run and one +20-min run in 7.6 days, all 10-24). Accept? (The kids already work this way.)
-2. Is `CONF_ENHANCED_CENSUS` on live? (If off, the raw path joins scope.)
+1. **Residual GUEST cost under option A.** When an adult is genuinely home with phone BLE dark and no BLE-located resident explains their body on camera, their face no longer explains it, so the house can go GUEST. The replay's measured cost for this (10-24) is refuted: those faces were Jaya mislabelled. The real size is unknown until D0, expected small. Accept the class? (The kids already work this way.)
+2. ~~Enhanced census on live?~~ Answered: `enhanced_census: true`; raw path out of scope.
 3. Should room-level identified persons (`coordinator.py:1109`) follow too? Plan says no change; confirm it is display-only.
 4. Separate toggle: confirm reuse of BLE Leads is fine (a separate switch only makes sense if you want BLE leading home/away but faces still naming absent adults).
+5. Were the 10-19 09:37 and 10-22 16:46-18:03 "Oji" faces also Jaya? (Ground truth for D0 step 3.)
