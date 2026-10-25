@@ -5848,6 +5848,20 @@ class PersonCensus:
                         tracked_persons.append(slug)
                 break
 
+        # CENSUS-BLE-OVER-FACE-1: resolve the trust reader once per call
+        # (review A-L1), and only when the rung-1 flag is True. Import
+        # failure -> None -> the guard keeps the raw decision (fail-open).
+        _trust_reader = None
+        if _ura_const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS:
+            try:
+                from .person_coordinator import person_state_for_trust
+                _trust_reader = person_state_for_trust
+            except Exception:  # noqa: BLE001 — fail-open to raw
+                _LOGGER.debug(
+                    "Face latch trust reader import failed; raw kept",
+                    exc_info=True,
+                )
+
         for person_slug in tracked_persons:
             # CENSUS-ACCURACY-1 D2: DO NOT construct the entity_id. The live
             # entities are keyed on the FRIGATE face-library first name
@@ -5910,13 +5924,10 @@ class PersonCensus:
                     drop_source: str | None = None
                     if raw_value == "not_home":
                         drop_source = "raw"
-                    elif _ura_const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS:
+                    elif _trust_reader is not None:  # flag True (resolved above)
                         trust_value = raw_value
                         try:
-                            from .person_coordinator import (
-                                person_state_for_trust,
-                            )
-                            trust_value = person_state_for_trust(
+                            trust_value = _trust_reader(
                                 self.hass, person_entity_id,
                             )
                         except Exception:  # noqa: BLE001 — fail-open to raw

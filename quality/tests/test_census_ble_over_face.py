@@ -456,3 +456,91 @@ def test_body_kept_absorbed_by_colocated_ble_resident(world):
     assert res.camera_unrecognized == 0
     assert res.unidentified_count == 0
     assert res.total_persons == 2
+
+
+# ---------------------------------------------------------------------------
+# Review C fix-up: per-tick reset (census tick) + sensor attribute
+# ---------------------------------------------------------------------------
+
+
+def test_counter_resets_each_census_tick(world, monkeypatch):
+    """Drive the REAL census tick twice: tick 1 drops Oji (counter 1);
+    before tick 2 the overrule ends, nothing is dropped, so the counter
+    reads 0 only because the tick resets it."""
+    cc = world.cc
+    census = world.census
+    raw = _wire_enhanced(world, cam_count=3, cam_area="family_room")
+    clock = SimpleNamespace(now=lambda: T0, utcnow=lambda: T0, UTC=timezone.utc)
+    monkeypatch.setattr(cc, "dt_util", clock)
+    import homeassistant.helpers.dispatcher as _disp
+    sent: list = []
+    monkeypatch.setattr(_disp, "async_dispatcher_send",
+                        lambda _h, _sig, payload: sent.append(payload))
+
+    async def _house(_ble, _now):
+        return raw
+
+    async def _prop(_now):
+        return cc.CensusZoneResult(
+            zone="property", identified_count=0, identified_persons=[],
+            unidentified_count=0, total_persons=0, confidence="high",
+            source_agreement="single_source", frigate_count=0, unifi_count=0,
+        )
+
+    census._update_lock = asyncio.Lock()
+    census._refresh_ble_crossing_listeners = lambda: None
+    census._watchdog_stuck_cameras = lambda _now: None
+    census._calculate_house_census = _house
+    census._calculate_property_census = _prop
+    census._is_enhanced_census_enabled = lambda: True
+    census._apply_enhanced_property_census = lambda r, _now: r
+    census._refresh_camera_input_dark_latch = lambda: None
+    census._compute_peak_age_seconds = lambda *_a: 0
+    census._peak_house_timestamp = None
+    census._camera_input_dark_latched = False
+    census._peak_refresh_suppressed_count = 0
+    census._census_write_counter = 0
+    census._created_at = T0
+    census._last_result = None
+
+    asyncio.run(census.async_update_census())
+    assert census._face_dropped_ble_overrule_count == 1
+    assert sent[-1]["face_recognized_count"] == 0
+
+    world.coord._gps_home_overruled = frozenset()  # overrule ended
+    asyncio.run(census.async_update_census())
+    assert census._face_dropped_ble_overrule_count == 0
+    assert sent[-1]["face_recognized_count"] == 1
+
+
+def test_sensor_publishes_counter(world):
+    """URAPersonsInHouseSensor.extra_state_attributes carries the census
+    counter verbatim."""
+    cc = world.cc
+    sensor = importlib.import_module(f"{PKG}.sensor")
+    house = cc.CensusZoneResult(
+        zone="house", identified_count=2, identified_persons=["ezinne", "jaya"],
+        unidentified_count=1, total_persons=3, confidence="high",
+        source_agreement="single_source", frigate_count=3, unifi_count=0,
+        enhanced_census=True,
+    )
+    prop = cc.CensusZoneResult(
+        zone="property", identified_count=0, identified_persons=[],
+        unidentified_count=0, total_persons=0, confidence="high",
+        source_agreement="single_source", frigate_count=0, unifi_count=0,
+    )
+    full = cc.FullCensusResult(
+        house=house, property_exterior=prop, total_on_property=3,
+        ble_persons=[], face_persons=[], persons_outside=0, timestamp=T0,
+    )
+    census = SimpleNamespace(
+        last_result=full,
+        get_pending_peak_info=lambda *_a: {},
+        _face_dropped_ble_overrule_count=4,
+        _face_lookup_missing_count=0,
+    )
+    world.hass.data[DOMAIN]["census"] = census
+    ent = object.__new__(sensor.URAPersonsInHouseSensor)
+    ent.hass = world.hass
+    attrs = ent.extra_state_attributes
+    assert attrs["face_dropped_ble_overrule_count"] == 4
