@@ -1,6 +1,6 @@
 # PLANNING — Presence: GPS assistive, BLE leads (card PERSON-BLE-WINS-OVER-STALE-GPS-1)
 
-**Status:** Rev 3 (re-review ef276f8d5 items R2-1, R2-2, F7, LOW and wording folded in; no further review round). Rev 2 applied plan-review fixes F1-F7
+**Status:** Rev 3 (re-review ef276f8d5 items R2-1, R2-2, F7, LOW and wording folded in; no further review round), plus operator answers 2026-10-24: arm window re-derived to 360 s, WiFi row 4 dropped, pre-arrival on dropout accepted, Ziri's away is correct. Rev 2 applied plan-review fixes F1-F7
 (`docs/reviews/code-review/plan_review_presence_gps_assistive.md`, d46e28f7a). Awaiting re-review. No code written.
 **Card:** `PERSON-BLE-WINS-OVER-STALE-GPS-1` (`docs/planning/kanban.data.yaml:32943`).
 **Read first (done, completely):** `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md`
@@ -26,6 +26,7 @@ very narrow changes unless justified. Don't act like this is green field."
 | F5 MED live check doesn't discriminate | The live check now keys on Oji's location, with the house-AWAY lag bounded. Added an overnight false-away re-run criterion (D1 Live). |
 | F6 LOW timeouts | Live values read and cited (§4.4). |
 | F7 LOW census tracker walk | Reviewed; not reused, with reason (§1.1). |
+| Operator answers (2026-10-24) | Q2: row 4 dropped, so the gate requires WiFi MISSING/unavailable. Q3: dropout-triggered pre-arrival accepted. Q4: Ziri is at college, so his away is accurate; no card. Restarts: "react quickly for the main case… safe for edge cases" → `BLE_LEADS_ARM_S` re-derived from the fastest-recovering tracker = **360 s** (§4.3, §5.4). Main-case latency stated from measurement (§4.4). |
 | Rev 3 (ef276f8d5) | R2-1 overruled set built in a local and assigned once (§4.1). R2-2 listener registered on first resolve, including a late Bermuda load, and released via `entry.async_on_unload` plus teardown (§4.2). F7 sentence (§1.1). LOW note on the face-latch timing (§6b). Proxy sensor publishes up to ~60 s late (§4.2, §5.3). |
 
 ---
@@ -101,7 +102,7 @@ and #3/#4 and the #16 readers take that at face value.
 Definitions used below:
 - **own-BLE-away(p):** person p has ≥1 tracker in `person.device_trackers` with `source_type == "bluetooth_le"`, and every such tracker's state is exactly `not_home`.
 - **fleet-armed:** the Active Proxy Count entity resolves, its state has been numeric and ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` continuously for ≥ `BLE_LEADS_ARM_S`, measured from the later of process start and the last time it read below the floor, `unknown` or `unavailable` (§4.2-4.3).
-- **overrule(p):** switch ON ∧ fleet-armed ∧ p's WiFi axis ≠ `home` ∧ own-BLE-away(p), evaluated in a `_ps_state == "home"` arm.
+- **overrule(p):** switch ON ∧ fleet-armed ∧ p's WiFi axis ∈ {`MISSING`, `unavailable`} ∧ own-BLE-away(p), evaluated in a `_ps_state == "home"` arm.
 
 **INV-1 (the fix).** If overrule(p) holds on a tick, p is not stamped `location == "home"`. p is stamped ACTIVE + `away` + `away_ble_silent_only`, and `effective_person_state(person.p)` returns `not_home` at every §6b trust site.
 *Falsified by* the 10-24 tuple (person.state home, gps home, wifi MISSING, both BLE trackers `not_home`, proxy count 55 steady for 30 min) yielding `home` at person_coordinator or at any §6b trust site.
@@ -120,7 +121,7 @@ Definitions used below:
 ### 4.1 The gate (unchanged shape from Rev 1)
 In both `_ps_state == "home"` arms (`person_coordinator.py:734`, `:832`), before forcing home:
 ```
-if ble_leads_enabled and fleet_armed(now) and sources["wifi"] != "home" and own_ble_trackers_all_not_home(person_state):
+if ble_leads_enabled and fleet_armed(now) and  sources["wifi"] in ("MISSING", "unavailable") and own_ble_trackers_all_not_home(person_state):
     run the existing S3 away arm; tracking_reason = "away_ble_silent_only"; confidence = BLE_SILENT_ONLY_AWAY_CONFIDENCE
     overruled_this_tick.add(person_name)     # local, created at the top of _async_update_data
 ```
@@ -148,10 +149,22 @@ that is the named residual for non-Bermuda installs.
 
 ### 4.3 Boot latch (F3)
 `_fleet_healthy_since` starts as None at process start, so the rule cannot fire until the proxy count
-has been ≥ floor for `BLE_LEADS_ARM_S` this session. Default 1200 s, grounded in §5.3: after restarts,
-present residents' `private_ble_device` trackers re-read `home` up to 16.8 min late (Jaya 10-20 02:06),
-consistent with habluetooth's 900 s stale-advert fallback for non-connectable devices. The same latch
-covers recovery from a proxy outage. The `restored` clause from Rev 1 is deleted: neither tracker type
+has been ≥ floor for `BLE_LEADS_ARM_S` this session. **Default 360 s** (re-derived per the operator,
+§5.4). The rule needs ALL of a person's BLE trackers `not_home`, so after a restart the
+**fastest-recovering** tracker governs, not the slow private_ble tail: one tracker reading `home`
+blocks the rule. Measured over 23 (person, restart) cases where the person was home before the
+restart, the fastest tracker re-read `home` within 300 s in 19 and within 360 s in 20. Among the app
+users (Oji, Ezinne, the only people the rule can act on), 14 real cases, all within 360 s; at 300 s one
+miss (Oji 10-20 02:08, 344 s). 1200 s was sized to the 16.8 min private_ble tail, which does not govern
+an all-trackers rule. The same latch covers recovery from a proxy outage.
+
+**Residual tail risk (stated):** an app user who is home can still have every BLE tracker read
+`not_home` past 360 s after a restart. Measured: no app-user case in 7.6 d. The only longer cases were
+Jaya (515 s at 22:23, 842 s at 04:42; no GPS, so the rule cannot act on her) and Oji 10-20 17:52
+(2,959 s, consistent with him having left: that is the 10-20 17:47 departure). If it happens: that
+person reads away until BLE re-hears them. The house goes AWAY only if every other resident also reads
+away AND cameras see nobody (α), or the zones are empty (nobody-home). The kids carry the same exposure
+today. The `restored` clause from Rev 1 is deleted: neither tracker type
 is a RestoreEntity, so it never carries `restored` (review F3).
 
 Discharge (suppression-needs-discharge): the latch releases on its own after `BLE_LEADS_ARM_S` of
@@ -160,7 +173,8 @@ healthy count. If the count never becomes healthy, the rule stays off, which is 
 ### 4.4 Timing (F6, live values)
 - Bermuda `*_bermuda_tracker`: `not_home` after `devtracker_nothome_timeout = 300` s without an advert (live Bermuda options).
 - `private_ble_device_*`: `not_home` when habluetooth declares the IRK device unavailable. For a non-connectable phone that is the learned advertising interval, or the fallback `FALLBACK_MAXIMUM_STALE_ADVERTISEMENT_SECONDS = 900` s (`habluetooth/const.py:27`, the version in `.venv-ha`; the live HA version was not checked).
-- The rule needs **all** of a person's BLE trackers `not_home`, so a frozen-GPS departure is detected at max(300 s, private_ble timeout): roughly 5-15 min after leaving. Today it is never detected. A GPS that updates still wins the race (card: median 30 s).
+- **Main-case latency, measured** (§5.4, 33 departures 10-17 → 10-24): Bermuda's tracker goes `not_home` 296-410 s after the last room fix (typically ~320 s, i.e. its 300 s timeout). private_ble follows within -600 to +218 s of that (the 900 s fallback never showed; habluetooth uses the learned advert interval). So the rule fires **~5-9 min after leaving** (typically ~6-7 min), counted from the last BLE room fix. Today a frozen GPS means it never fires.
+- **When the app reports, GPS away still wins:** ~30 s median (card probe, 7 clean events 14-43 s). The new rule matters only when GPS lags or freezes.
 - Requiring both integrations also protects against a single-integration reset: a Bermuda reload alone cannot fire the rule while private_ble still hears the phone.
 
 ### 4.5 Per-row table (default mode). "away-evidence" = fleet-armed ∧ own-BLE-away.
@@ -169,10 +183,10 @@ healthy count. If the count never becomes healthy, the rule stays off, which is 
 |---|---|---|---|---|---|---|
 | S1 / STALE | any | any | room fix / < 300 s | room | same | no |
 | 2 / 3 | home | home | any | home | same (WiFi witness) | no |
-| 4 | home | not_home | away-evidence | home 0.5 | **away 0.82** | **yes** |
+| 4 | home | not_home | any | home 0.5 | same (dropped per operator Q2: no WiFi trackers live) | no |
 | 10 (10-24) | home | MISSING/unavail | away-evidence | home 0.75 | **away 0.82** | **yes** |
 | 10 | home | MISSING/unavail | no away-evidence (any tracker home/unknown/unavail, no tracker, fleet not armed) | home | same | no |
-| state home, GPS unknown/MISSING | unk | ≠home | away-evidence | home 0.75 | **away** | **yes** |
+| state home, GPS unknown/MISSING | unk | MISSING/unavail | away-evidence | home 0.75 | **away** | **yes** |
 | 6 / 8 / 9 / 11 / 13 | away | any | any | away (row 8 home via WiFi) | same: **GPS away hastens away** | no |
 | 14 / 16 / S6 | — | — | — | unchanged | same | no |
 
@@ -181,7 +195,7 @@ degraded or unproven; it never holds home against healthy BLE saying the person 
 
 **Deviations from existing semantics, each justified:**
 1. *Case-(b) pin narrowed.* The pin protects a phone on a charger with cold Bermuda. A charging phone at home still advertises, so private_ble reads `home` → no change. It narrows only under affirmative BLE `not_home` from two integrations, with a proven-healthy fleet. ACTIVE-away is produced, not LOST.
-2. *Row 4 → away:* two of three axes say away.
+2. *(Rev 3) Row 4 unchanged* (operator dropped it).
 3. *No new status, reason or confidence.* `away_ble_silent_only` is reused; `tracker_sources.gps == "home"` shows GPS was overruled.
 4. *Seven raw readers now go through one helper (§6b).* The fix is otherwise not consumed where trust decisions are made (Bug Class #53).
 
@@ -223,9 +237,14 @@ existing BLE-led path.
 - **Fleet-wide BLE `not_home` clusters** (≥ 4 of the 6 resident BLE trackers flipping `not_home` within 2 min): 17. **14 of the 17 coincide with the count reading 0** within ±10 min. The other 3 (10-20 07:25, 10-21 07:29, 10-21 15:47) had a normal count (59-62) and sit at school-run / pickup times: real departures, correctly not flagged.
 - **Every 0 / unavailable reading is an HA restart (19 `homeassistant_start` events) or one Bermuda reload (10-21 16:43, `unavailable` then 0).** Each dip lasted ~60 s. After them, present residents' trackers re-read `home` at +0 to +16.8 min (private_ble slowest).
 - **What the probe proves:** the count goes to 0 and the trackers go `not_home` together at every integration-level reset, and the count stays high through real departures. **What it cannot prove:** that the count drops during a proxy-hardware or adapter outage while HA keeps running, because none happened in the window. That half rests on source: `count_active_scanners(max_age=10)` counts scanners with an advert in the last 10 s (`bermuda/coordinator.py:574-581`), so a deaf proxy leaves the count within 10 s by construction. The sensor publishes up to ~60 s late (`bermuda/entity.py:193`), so the drop is visible within ~70 s, well inside the 300 s tracker timeout.
-- **Guard chosen on this evidence:** count ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` (default 30: below p1 44, above every non-boot partial reading) held for `BLE_LEADS_ARM_S` (1200 s), with an edge listener so a 60 s dip cannot slip between 30 s ticks. A partial outage that keeps the count ≥ 30 but blinds the scanners near a resident is a named residual (§9); it needs both BLE integrations to lose that phone for ≥ 5-15 min.
+- **Guard chosen on this evidence:** count ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` (default 30: below p1 44, above every non-boot partial reading) held for `BLE_LEADS_ARM_S` (360 s, §5.4), with an edge listener so a 60 s dip cannot slip between 30 s ticks. A partial outage that keeps the count ≥ 30 but blinds the scanners near a resident is a named residual (§9); it needs both BLE integrations to lose that phone for ≥ ~5-9 min.
 
 **Go/no-go:** GO.
+
+### 5.4 Arm window and departure latency (operator follow-up, read-only, scratchpad `arm.py`, `lat.py`)
+- **Restart recovery**, per (person, restart) where the person had a BLE tracker `home` before shutdown, seconds from `homeassistant_start` to the first `home` on ANY of their BLE trackers. 23 cases: −4, −4, −3, −3, −3, −2, −1, 0, 4, 6, 8, 13, 16, 18, 81, 117, 145, 154, 197, **344** (Oji, 02:08), **515** (Jaya), **842** (Jaya, 04:42), **2,959** (Oji, 10-20 17:52, a departure). ≤ 300 s: 19/23; ≤ 360 s: 20/23; app users: 14/14 real cases ≤ 360 s. Bermuda trackers usually lead (0-150 s); private_ble lags 42-2,196 s.
+- **Departure latency**, 33 non-restart Bermuda `home → not_home` edges: 296-637 s after the last room fix (median ~318 s; two Jaya outliers 594/637 s). private_ble `not_home` relative to that: −599 to +218 s (median ~+90 s).
+- Verdict: 360 s covers every observed app-user restart; 300 s misses one by 44 s. The operator asked for "~300 s if the data supports it"; the data supports 360 s, which is still under 1/3 of the Rev 2 value.
 
 ---
 
@@ -312,21 +331,21 @@ The builder copies `probe4.py` and `f1c.py` to `scripts/probes/presence_gps_over
 - `_ensure_proxy_listener()` + `async_teardown()`; teardown wired at `__init__.py:5680` (R2-2).
 - DEBUG log on transition into or out of overruled (not per tick); one INFO when `fleet_armed` changes.
 - Knobs (rung 1, `const.py`, review-only because they are safety bounds against a degraded fleet):
-  `BLE_LEADS_MIN_ACTIVE_PROXIES = 30` (floor; 0 = any count passes, which leaves only the boot latch and unavailable as protection, so it is not a kill switch); `BLE_LEADS_ARM_S = 1200` (boot / recovery latch). The kill switch is D2.
+  `BLE_LEADS_MIN_ACTIVE_PROXIES = 30` (floor; 0 = any count passes, which leaves only the boot latch and unavailable as protection, so it is not a kill switch); `BLE_LEADS_ARM_S = 360` (boot / recovery latch; §5.4). The kill switch is D2.
 
 **Acceptance criteria**
 - **Verify:** 10-24 tuple, fleet armed → `location="away"`, ACTIVE, `away_ble_silent_only`, 0.82, `tracker_sources.gps == "home"`, `_person_was_away` True.
 - **Verify (discriminating):** same tuple with one BLE tracker `home` → `home`; with a tracker `unavailable` → `home`; WiFi `home` → `home`; no `bluetooth_le` tracker → `home`.
-- **Verify (F1):** all trackers `not_home`, proxy count 0 → `home` (byte-identical); count 31 for 1199 s → `home`; at 1200 s → away.
-- **Verify (F1 dip):** armed; a listener event of `0` then `55` 60 s later, with no tick in between; overrule tuple on the next tick → `home` until 1200 s after the 55.
-- **Verify (F3 boot):** empty `self.data`, process just started, count 55, trackers `not_home`, GPS home → `home` for the first 1200 s.
+- **Verify (F1):** all trackers `not_home`, proxy count 0 → `home` (byte-identical); count 31 for 359 s → `home`; at 360 s → away.
+- **Verify (F1 dip):** armed; a listener event of `0` then `55` 60 s later, with no tick in between; overrule tuple on the next tick → `home` until 360 s after the 55.
+- **Verify (F3 boot):** empty `self.data`, process just started, count 55, trackers `not_home`, GPS home → `home` for the first 360 s; and with ONE tracker reading `home` at 100 s, still `home` after 360 s.
 - **Verify:** proxy entity absent from the registry → `home` (rule off).
 - **Verify:** both sites behave identically; all 16 matrix row fixtures pass unmodified.
-- **Test:** `test_person_gps_assistive.py::test_frozen_gps_home_ble_not_home_goes_away`, `::test_one_ble_tracker_home_keeps_home`, `::test_ble_unavailable_keeps_home_ialpha`, `::test_wifi_home_witness_keeps_home`, `::test_no_ble_tracker_keeps_home`, `::test_row4_two_away_witnesses`, `::test_fallback_home_without_witness_overruled`, `::test_no_bermuda_branch_twin_site`, `::test_side_effects_match_s3_arm`, `::test_pre_arrival_fires_on_ble_return_after_overrule`, `::test_fleet_dead_keeps_home`, `::test_fleet_below_floor_keeps_home`, `::test_arm_window_boundary`, `::test_unsampled_dip_resets_latch_via_listener`, `::test_boot_latch_keeps_home`, `::test_proxy_entity_missing_rule_off`, `::test_listener_unsubscribed_on_unload`, `::test_listener_registers_on_late_bermuda_load`, `::test_overruled_set_assigned_once_after_loop`, `::test_overruled_set_kept_on_update_failed`.
+- **Test:** `test_person_gps_assistive.py::test_frozen_gps_home_ble_not_home_goes_away`, `::test_one_ble_tracker_home_keeps_home`, `::test_ble_unavailable_keeps_home_ialpha`, `::test_wifi_home_witness_keeps_home`, `::test_no_ble_tracker_keeps_home`, `::test_row4_unchanged_wifi_not_home`, `::test_fallback_home_without_witness_overruled`, `::test_no_bermuda_branch_twin_site`, `::test_side_effects_match_s3_arm`, `::test_pre_arrival_fires_on_ble_return_after_overrule`, `::test_fleet_dead_keeps_home`, `::test_fleet_below_floor_keeps_home`, `::test_arm_window_boundary`, `::test_unsampled_dip_resets_latch_via_listener`, `::test_boot_latch_keeps_home`, `::test_proxy_entity_missing_rule_off`, `::test_listener_unsubscribed_on_unload`, `::test_listener_registers_on_late_bermuda_load`, `::test_overruled_set_assigned_once_after_loop`, `::test_overruled_set_kept_on_update_failed`.
 - **Mutation (framing C):** neuter site 1 → `test_frozen_gps_home_ble_not_home_goes_away` RED; neuter site 2 → `test_no_bermuda_branch_twin_site` RED; drop the fleet conjunct → `test_fleet_dead_keeps_home` RED; drop the arm window → `test_boot_latch_keeps_home` RED; drop the listener reset → `test_unsampled_dip_resets_latch_via_listener` RED; drop the WiFi check → `test_wifi_home_witness_keeps_home` RED.
-- **Live (F5, discriminating):** the next time Oji leaves with the phone and its GPS lags or freezes, `sensor.universal_room_automation_oji_udezue_location` reads Away with `away_ble_silent_only` within ~15 min of both his BLE trackers reading `not_home`. That observation is the discriminator. If he is last out, the house-state sensor's `last_away_branch` records an AWAY (`active` / `nobody_home`) within 30 min of that. That is the face-latch bound, now closed by §6b; a longer lag points at a §6b site that was missed.
-- **Live:** `sensor.bermuda_global_active_proxy_count` resolves (one INFO at setup naming it); within 20 min of restart the INFO "fleet armed" appears.
-- **Live re-run (D0 probe, 24 h after deploy):** (1) GPS-home URA segments with both BLE trackers `not_home` > 20 min, excluding the 20 min after a restart: **0** (was 11 of 13). (2) **False aways:** episodes where an app user's URA location reads `away` while their own BLE tracker reads `home` within ±3 min, overnight (23-06): **0**. (3) No `away_ble_silent_only` stamp for an app user within 1200 s of a `homeassistant_start`.
+- **Live (F5, discriminating):** the next time Oji leaves with the phone and its GPS lags or freezes, `sensor.universal_room_automation_oji_udezue_location` reads Away with `away_ble_silent_only` within one 30 s tick of both his BLE trackers reading `not_home` (expect ~5-9 min after he leaves). That observation is the discriminator. If he is last out, the house-state sensor's `last_away_branch` records an AWAY (`active` / `nobody_home`) within 30 min of that. That is the face-latch bound, now closed by §6b; a longer lag points at a §6b site that was missed.
+- **Live:** `sensor.bermuda_global_active_proxy_count` resolves (one INFO at setup naming it); within ~7 min of restart (360 s + the ~60 s proxy publish lag) the INFO "fleet armed" appears.
+- **Live re-run (D0 probe, 24 h after deploy):** (1) GPS-home URA segments with both BLE trackers `not_home` > 10 min, excluding the 6 min after a restart: **0** (was 11 of 13). (2) **False aways:** episodes where an app user's URA location reads `away` while their own BLE tracker reads `home` within ±3 min, overnight (23-06): **0**. (3) No `away_ble_silent_only` stamp for an app user within 360 s of a `homeassistant_start`; and any app-user `away_ble_silent_only` stamp within 360-900 s of a start is listed and checked against BLE (the tail residual).
 
 ### D1b — `effective_person_state` and the seven §6b swaps
 - Method on PersonCoordinator + module wrapper `person_state_for_trust(hass, entity_id)` (§6b).
@@ -370,9 +389,11 @@ The builder copies `probe4.py` and `f1c.py` to `scripts/probes/presence_gps_over
 - Not enforcing the 0.82 < 0.9 comment.
 - No new trip-wire (operator: no need to care about BLE misses at home).
 - **Residual R1:** installs without Bermuda's proxy-count entity get no BLE-leads rule (today's behaviour).
-- **Residual R2:** a partial outage that keeps ≥ 30 proxies live but blinds every scanner near one resident, for ≥ 5-15 min across both BLE integrations, can mark that resident away (as it already can for the kids).
-- **Residual R3:** for the first 20 min after every restart and every proxy-count drop, a frozen GPS still holds the person home (today's behaviour).
-- Ziri never BLE-resolved: pre-existing, out of scope (Q4).
+- **Residual R2:** a partial outage that keeps ≥ 30 proxies live but blinds every scanner near one resident, for ≥ ~5-9 min across both BLE integrations, can mark that resident away (as it already can for the kids).
+- **Residual R3:** for the first 6 min after every restart and every proxy-count drop, a frozen GPS still holds the person home (today's behaviour).
+- **Residual R4 (restart tail):** an app user at home whose BLE trackers all stay `not_home` > 360 s after a restart reads away until BLE re-hears them. 0 of 14 app-user cases in 7.6 d (§4.3, §5.4).
+- Ziri: at college (operator). His away is accurate; no card.
+- Row 4 (GPS home + WiFi not_home): dropped per operator; no WiFi trackers live.
 
 ## 10. Tier
 **Tier 2, elevated to 3 framing-disjoint build reviews** (presence → house state → HVAC / census
@@ -386,7 +407,4 @@ Deploy risk: MED.
 
 ## 11. Open questions for the operator
 1. **Oracle check:** were you out on 10-19 17:50-19:34, 10-22 16:45-18:02 and 10-23 11:32-14:04? (BLE gone, GPS home.) The 10-24 10:10 start coincides with a restart; roughly when did you actually leave today?
-2. Row 4 (GPS home, WiFi off, BLE gone) also flips to away. It is dormant here (no WiFi trackers). Include?
-3. A daytime BLE dropout of 15 min or more at home (with a healthy fleet) would fire BLE pre-arrival on reconnect. Accept, or skip `_person_was_away` on the overrule? (Default: set it.)
-4. Ziri's only tracker is effectively never seen, so URA has him away all week. Separate card?
-5. Arm window 1200 s means a frozen GPS still holds you home for up to 20 min after each restart (R3). That is fine for the measured cases; say if you want it shorter.
+ANSWERED 2026-10-24: Q2 row 4 dropped; Q3 dropout pre-arrival accepted (overrule sets `_person_was_away`); Q4 Ziri at college, no card; Q5 arm window re-derived to 360 s (§5.4).
