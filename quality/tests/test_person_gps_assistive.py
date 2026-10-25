@@ -940,3 +940,198 @@ def test_unload_entry_tears_down_person_coordinator_listener(env):
     assert order == [("teardown", True)]
     assert env.track.unsub_calls == 1
     assert "person_coordinator" not in env.hass.data[DOMAIN]
+
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up (A1 / A2 / A4 / B-M1 / C1-C5)
+# ---------------------------------------------------------------------------
+
+
+def test_any_router_home_is_a_witness(env):
+    """A1: router trackers [home, unavailable] -> the last-wins WiFi axis
+    says `unavailable`, but a router reads home -> no overrule."""
+    _tuple_1024(env.hass)
+    env.hass.set("device_tracker.unifi_phone", "home", {"source_type": "router"})
+    env.hass.set("device_tracker.unifi_laptop", "unavailable",
+                 {"source_type": "router"})
+    trackers = env.hass.states.get(OJI_ENTITY).attributes["device_trackers"]
+    env.hass.set(OJI_ENTITY, "home", {"device_trackers": trackers + [
+        "device_tracker.unifi_phone", "device_tracker.unifi_laptop"]})
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env)
+    row = _row(_tick(env.coord))
+    assert row["tracker_sources"]["wifi"] == "unavailable"
+    assert row["location"] == "home"
+
+
+def test_router_unavailable_only_still_overrules(env):
+    """Discriminator for A1: a router that only reads unavailable is no
+    witness -> overrule."""
+    _tuple_1024(env.hass, wifi="unavailable")
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env)
+    assert _row(_tick(env.coord))["location"] == "away"
+
+
+def test_fleet_armed_captured_once_per_tick(env):
+    """A2/B-L1: a proxy dip landing at an await inside the person loop does
+    not change this tick's verdict (tick-captured value)."""
+    _tuple_1024(env.hass)
+    env.hass.set(AREA, "unknown")
+    _arm(env, seconds=10_000)
+
+    async def _area(_name):
+        cb = env.track.subs[-1][1]
+        cb(SimpleNamespace(data={"new_state": _St("0")}))
+        await asyncio.sleep(0)
+        return AREA
+    env.coord._find_bermuda_area_sensor = _area
+    row = _row(_tick(env.coord))
+    assert row["location"] == "away"
+    assert env.coord._fleet_healthy_since is None   # the dip did land
+
+
+def test_first_overrule_restarts_clock_after_lost_stretch(env):
+    """B-M1: person.state unavailable for 20 min (LOST no_signal stamps
+    _person_lost_since), then home with BLE gone: the 15-min guard counts
+    from the overrule start, not from the LOST stamp."""
+    _tuple_1024(env.hass, person="unavailable")
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_lost_since[OJI] == T0
+    start = T0 + timedelta(minutes=20)
+    env.clock.t = start
+    _tuple_1024(env.hass)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_lost_since[OJI] == start
+    assert env.coord._person_was_away.get(OJI) is False
+    env.clock.t = start + timedelta(seconds=899)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away[OJI] is False
+    env.clock.t = start + timedelta(seconds=900)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away[OJI] is True
+
+
+def test_first_overrule_clears_stale_was_away_after_s3_s2(env):
+    """A4: S3 away (was_away True) -> S2 GPS home (stale True kept) ->
+    overrule: the first overrule tick drops the stale flag."""
+    _tuple_1024(env.hass, person="not_home")
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away[OJI] is True
+    env.clock.t = T0 + timedelta(minutes=30)
+    _tuple_1024(env.hass, irk="home")          # S2: BLE witness, no overrule
+    env.coord.data = _tick(env.coord)
+    assert _row(env.coord.data)["location"] == "home"
+    assert env.coord._person_was_away[OJI] is True   # pre-existing stale flag
+    env.clock.t = T0 + timedelta(minutes=40)
+    _tuple_1024(env.hass)                      # overrule
+    env.coord.data = _tick(env.coord)
+    assert _row(env.coord.data)["location"] == "away"
+    assert env.coord._person_was_away[OJI] is False
+    assert env.coord._person_lost_since[OJI] == T0 + timedelta(minutes=40)
+
+
+def test_overrule_after_real_away_keeps_pre_arrival_armed(env):
+    """Discriminator: the person was ACTIVE-away (GPS away) before the
+    overrule -> the real absence's arming is kept."""
+    _tuple_1024(env.hass, person="not_home", gps="not_home")
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away[OJI] is True
+    env.clock.t = T0 + timedelta(minutes=5)
+    _tuple_1024(env.hass)                      # GPS freezes home
+    env.coord.data = _tick(env.coord)
+    assert _row(env.coord.data)["location"] == "away"
+    assert env.coord._person_was_away[OJI] is True
+    assert env.coord._person_lost_since[OJI] == T0
+
+
+def test_ble_leads_switch_registered_by_setup_entry():
+    """C1: the real switch.async_setup_entry adds the BLE-leads switch."""
+    from runtime_harness import build_smoke_hass
+    sw_mod = importlib.import_module(f"{PKG}.switch")
+
+    async def _go():
+        hass = build_smoke_hass(zones_count=3)
+        added: list = []
+        for entry in hass.config_entries.async_entries():
+            await sw_mod.async_setup_entry(
+                hass, entry, lambda ents, _u=False: added.extend(ents))
+        return added
+    added = asyncio.run(_go())
+    hits = [e for e in added if type(e) is sw_mod.PresenceBleLeadsEnabledSwitch]
+    assert len(hits) == 1
+
+
+def test_presence_coordinator_default_ble_leads_on():
+    """C2: a real PresenceCoordinator starts with the rule ON."""
+    pres_mod = importlib.import_module(f"{PKG}.domain_coordinators.presence")
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    coord = pres_mod.PresenceCoordinator(hass)
+    assert coord._ble_leads_enabled is True
+    assert coord._ble_leads_suppressed_since is None
+
+
+def test_proxy_entity_rename_resubscribes(env):
+    """C3: a changed entity_id releases the old listener and subscribes
+    to the new one."""
+    _tuple_1024(env.hass)
+    _bermuda_branch(env.coord, env.hass)
+    _tick(env.coord)
+    assert [ids for ids, _cb in env.track.subs] == [[PROXY]]
+    env.reg.eid = "sensor.bermuda_proxies_renamed"
+    env.hass.set("sensor.bermuda_proxies_renamed", "55")
+    env.clock.t = T0 + timedelta(seconds=30)
+    _tick(env.coord)
+    assert env.track.unsub_calls == 1
+    assert [ids for ids, _cb in env.track.subs] == [
+        [PROXY], ["sensor.bermuda_proxies_renamed"]]
+    assert env.coord._proxy_entity_id == "sensor.bermuda_proxies_renamed"
+
+
+def test_s3_arm_rewrites_no_signal_and_arms_now(env):
+    """C4: the shared S3 arm (non-overrule) keeps the pre-refactor rewrite
+    no_signal -> away_wifi_only 0.9 and arms pre-arrival at once."""
+    row = {"tracking_status": "lost", "location": "unknown",
+           "confidence": 0.0, "tracking_reason": "no_signal"}
+    env.coord._apply_s3_away_arm(OJI, row, T0)
+    assert (row["tracking_status"], row["location"], row["tracking_reason"],
+            row["confidence"]) == ("active", "away", "away_wifi_only", 0.9)
+    assert env.coord._person_was_away[OJI] is True
+    assert env.coord._person_lost_since[OJI] == T0
+    assert env.coord._lost_away_since[OJI] == T0
+
+
+def _raise(*_a, **_k):
+    raise RuntimeError("boom")
+
+
+def test_fail_open_effective_state_error_returns_raw(env):
+    """C5 (1): an error past the raw read -> raw state."""
+    env.hass.set(OJI_ENTITY, "home", {})
+    env.coord._gps_home_overruled = frozenset({OJI})
+    env.coord.get_person_location = _raise
+    assert env.coord.effective_person_state(OJI_ENTITY) == "home"
+
+
+def test_fail_open_trust_wrapper_states_error_returns_none(env):
+    """C5 (2): no coordinator and states.get raises -> None."""
+    bad = SimpleNamespace(data={DOMAIN: {}}, states=SimpleNamespace(get=_raise))
+    assert env.pc.person_state_for_trust(bad, OJI_ENTITY) is None
+
+
+def test_fail_open_ble_leads_lookup_error_is_on(env):
+    """C5 (3): manager lookup raises -> switch treated ON."""
+    class _Mgr:
+        @property
+        def coordinators(self):
+            raise RuntimeError("boom")
+    env.hass.data[DOMAIN]["coordinator_manager"] = _Mgr()
+    assert env.coord._ble_leads_enabled() is True

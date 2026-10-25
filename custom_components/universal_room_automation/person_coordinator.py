@@ -532,16 +532,45 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001 - tz mix
             return False
 
+    def _router_says_home(self, person_state) -> bool:
+        """True iff ANY `router` tracker of the person reads `home`.
+
+        Review A1: the WiFi witness is "any router home", scanned directly
+        (like the BLE scan), not the diagnostic last-wins WiFi axis.
+        Exception -> True (treat as a witness: fail toward no overrule).
+        """
+        try:
+            attrs = getattr(person_state, "attributes", {}) or {}
+            for tracker_id in attrs.get("device_trackers") or []:
+                ts = self.hass.states.get(tracker_id)
+                if ts is None:
+                    continue
+                t_attrs = getattr(ts, "attributes", {}) or {}
+                if str(t_attrs.get("source_type", "")).lower() != "router":
+                    continue
+                if getattr(ts, "state", None) == "home":
+                    return True
+            return False
+        except Exception:  # noqa: BLE001
+            return True
+
     def _ble_overrules_gps_home(
-        self, person_state, sources: dict[str, str], now: datetime,
+        self, person_state, sources: dict[str, str], fleet_armed: bool,
         ble_leads_on: bool,
     ) -> bool:
-        """The gate (plan §4.1): evaluated only inside a person.state=home arm."""
+        """The gate (plan §4.1): evaluated only inside a person.state=home arm.
+
+        `fleet_armed` is the tick-captured value (review A2/B-L1: one value
+        per tick, captured before the first await).
+        """
         if not ble_leads_on:
             return False
-        if not self._fleet_armed(now):
+        if not fleet_armed:
             return False
-        if sources.get("wifi") not in ("MISSING", "unavailable"):
+        if self._router_says_home(person_state):
+            return False
+        # Row 4 (a WiFi not_home reading) stays unchanged (operator Q2).
+        if sources.get("wifi") == "not_home":
             return False
         return self._own_ble_trackers_all_not_home(person_state)
 
@@ -578,8 +607,18 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
 
     def _apply_ble_overrule(
         self, person_name: str, stamp_row: dict[str, Any], now: datetime,
+        prior_location: str,
     ) -> None:
         """Overrule path: the S3 arm, stamped as row 14 (no new vocabulary)."""
+        # Review A4 / B-M1: the 15-min pre-arrival guard measures the
+        # overrule's OWN away span. On the first overrule tick, unless the
+        # person was already ACTIVE-away (a real absence already armed
+        # pre-arrival), restart the clock and drop any stale was_away left
+        # by an earlier LOST / no_signal / unavailable stretch or an
+        # S3 -> S2 sequence.
+        if person_name not in self._gps_home_overruled and prior_location != "away":
+            self._person_lost_since[person_name] = now
+            self._person_was_away[person_name] = False
         self._apply_s3_away_arm(
             person_name, stamp_row, now, was_away_after_min_away=True,
         )
@@ -1027,12 +1066,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             _ps_state, _sources, "silent", _ble_live,
                         )
                         if _ps_state == "home" and self._ble_overrules_gps_home(
-                            person_state, _sources, now, _ble_leads_on,
+                            person_state, _sources, _fleet_armed_now, _ble_leads_on,
                         ):
                             # PERSON-BLE-WINS-OVER-STALE-GPS-1 site 1: own BLE
                             # (both integrations) says gone on an armed fleet
                             # with no WiFi witness -> GPS "home" is overruled.
-                            self._apply_ble_overrule(person_name, _stamp_row, now)
+                            self._apply_ble_overrule(person_name, _stamp_row, now, old_location)
                             overruled_this_tick.add(person_name)
                         elif _ps_state == "home":
                             # S2 case-(b): NEVER LOST. Force location=home even
@@ -1123,10 +1162,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         new_previous_location_time = old_previous_location_time
 
                     if _ps_state == "home" and self._ble_overrules_gps_home(
-                        person_state, _sources, now, _ble_leads_on,
+                        person_state, _sources, _fleet_armed_now, _ble_leads_on,
                     ):
                         # PERSON-BLE-WINS-OVER-STALE-GPS-1 site 2 (twin).
-                        self._apply_ble_overrule(person_name, _stamp_row, now)
+                        self._apply_ble_overrule(person_name, _stamp_row, now, old_location)
                         overruled_this_tick.add(person_name)
                     elif _ps_state == "home":
                         # S2 case-(b) row 10 — NEVER LOST (rev-3.5.1 pin).
