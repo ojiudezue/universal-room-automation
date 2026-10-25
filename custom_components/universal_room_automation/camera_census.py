@@ -27,6 +27,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .camera_resolver import _strip_disambiguation_suffix
+from . import const as _ura_const  # rung-1 flags read at call time
 
 from .const import (
     DOMAIN,
@@ -1349,6 +1350,10 @@ class PersonCensus:
         # Published on SIGNAL_CENSUS_UPDATED + attrs so operators can tell
         # whether a tick's face-dedup path was healthy.
         self._face_lookup_missing_count: int = 0
+        # CENSUS-BLE-OVER-FACE-1: PER-TICK count of face names dropped only
+        # because the BLE-leads overrule (raw person.state was not not_home)
+        # says not_home. Reset beside _face_lookup_missing_count. Display.
+        self._face_dropped_ble_overrule_count: int = 0
         # CENSUS-ACCURACY-1 D2: build-time enumerated map from frigate face
         # library person name (lowercased) -> live `frigate_*_last_camera`
         # entity_id. Memoised on first use; the enumeration is small
@@ -1710,6 +1715,8 @@ class PersonCensus:
         # CENSUS-ACCURACY-1 D2: per-tick reset of face-lookup miss counter.
         # LIFETIME peak_refresh_suppressed_count is NOT reset here.
         self._face_lookup_missing_count = 0
+        # CENSUS-BLE-OVER-FACE-1: per-tick reset (see __init__).
+        self._face_dropped_ble_overrule_count = 0
 
         # --- 1. Gather BLE person data from person_coordinator ---
         ble_persons = self._get_ble_persons()
@@ -1782,10 +1789,12 @@ class PersonCensus:
         # AUDIT_tracking_status_consumers.md §D8. Source: face_recognized
         # is the camera-only identity set (list[str]) derived from Frigate
         # face-recognition sensors, subject to the person-tracker cross-
-        # check at camera_census.py:3034-3055 (drops faces whose person.<slug>
-        # says not_home; fail-OPEN if the person entity is missing —
+        # check in _get_face_recognized_person_names (camera_census.py
+        # ~:5893-5940, the stale-face latch guard: drops faces whose
+        # person.<slug> says not_home, or whose GPS home the BLE-leads rule
+        # overruled, CENSUS-BLE-OVER-FACE-1; fail-OPEN if the person entity is missing —
         # documented upper bound, not addressed here). Freshness window
-        # is CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s (const.py:2609).
+        # is CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s (const.py:3964).
         _face_recognized = getattr(house_result, "face_recognized_persons", []) or []
         # CENSUS-ACCURACY-1 D1 (payload extension, INV-PAYLOAD-DISCRIMINABLE).
         # Review fix-up 2026-08-18:
@@ -5882,23 +5891,55 @@ class PersonCensus:
                     # entity is missing/unknown/unavailable, count them
                     # (preserves prior behavior — conservative).
                     person_entity_id = f"person.{person_slug.lower()}"
-                    # PERSON-BLE-WINS-OVER-STALE-GPS-1: deliberately left on RAW
-                    # person.state (consequence replay 2026-10-24: routing this
-                    # through the BLE overrule bought <= ~1.5 min of earlier AWAY
-                    # but lengthened false-GUEST unidentified runs).
+                    # CENSUS-BLE-OVER-FACE-1 (PLANNING_census_ble_over_face.md
+                    # rev 4; supersedes the 2026-10-24 "left on RAW" choice):
+                    # read RAW person.state once. Raw not_home drops as before
+                    # (BLE-only kids). Otherwise, only while the rung-1 flag is
+                    # True, ask the trust helper, which returns not_home solely
+                    # for a GPS+BLE adult the BLE-leads rule overruled on the
+                    # last person tick (switch BLE Leads Home/Away on, URA
+                    # location away). Flag False -> the helper is never called
+                    # and the decision is byte-identical to the raw guard.
                     try:
                         person_state = self.hass.states.get(person_entity_id)
                     except Exception:  # noqa: BLE001 — defensive
                         person_state = None
-                    if (
-                        person_state is not None
-                        and person_state.state == "not_home"
-                    ):
+                    raw_value = (
+                        person_state.state if person_state is not None else None
+                    )
+                    drop_source: str | None = None
+                    if raw_value == "not_home":
+                        drop_source = "raw"
+                    elif _ura_const.CENSUS_FACE_LATCH_FOLLOWS_BLE_LEADS:
+                        trust_value = raw_value
+                        try:
+                            from .person_coordinator import (
+                                person_state_for_trust,
+                            )
+                            trust_value = person_state_for_trust(
+                                self.hass, person_entity_id,
+                            )
+                        except Exception:  # noqa: BLE001 — fail-open to raw
+                            _LOGGER.debug(
+                                "Face latch trust read failed for %s; raw kept",
+                                person_entity_id,
+                                exc_info=True,
+                            )
+                        if trust_value == "not_home":
+                            drop_source = "ble_overrule"
+                            self._face_dropped_ble_overrule_count = (
+                                getattr(
+                                    self, "_face_dropped_ble_overrule_count", 0,
+                                )
+                                + 1
+                            )
+                    if drop_source is not None:
                         _LOGGER.debug(
                             "Face-recognized person %s dropped: "
-                            "%s=not_home (stale-face latch guard)",
+                            "%s=not_home (stale-face latch guard, source=%s)",
                             person_slug,
                             person_entity_id,
+                            drop_source,
                         )
                         continue
                     recognized.append(person_slug)
