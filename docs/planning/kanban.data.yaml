@@ -815,7 +815,8 @@ cards:
   created: "2026-10-21"
   title: 'ev_toggle_tripwire fired 10-18, 10-19, 10-21 on garage_a with pause owners none/dp (not fill priority): suspected EVSE flip-flop at the peak boundary'
   thread: energy
-  status: "waiting_operator"
+  status: shipped_organic
+  shipped_version: v5.103.90
   tier: 1
   origin: 'Found by the v5.103.63 README live validation (docs/planning/AUDIT_readme_straggler_validation_2026_10_21.md); operator 2026-10-21: "card the EV toggle tripwire as its own investigation: YES".'
   why: 'A tripwire firing three times in four days means the EVSE is toggling; if it is a peak-boundary flip-flop it wastes contactor cycles and may charge on peak.'
@@ -32964,7 +32965,8 @@ cards:
 - id: PERSON-BLE-WINS-OVER-STALE-GPS-1
   title: "Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10)"
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.90
   tier: 2
   created: "2026-10-24"
   origin: 'Operator 2026-10-24: "I left the house hours ago. It still says I home." then "Ble should win always and app/gps should support if available" and "We also don''t control a user setting it to not send location or not giving iOS permission". Also: companion location is less private; app now connects via the tunnel.'
