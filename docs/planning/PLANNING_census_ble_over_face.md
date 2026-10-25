@@ -1,7 +1,7 @@
 # PLANNING — Census: BLE decides, face confirms (CENSUS-BLE-OVER-FACE-1)
 
 **Operator (verbatim, 2026-10-24):** "Ble is going to be better than face almost anytime. Same logic as gps. It can confirm. Plan it maybe add another toggle." Addendum: "Narrow fixes."
-**Status:** plan rev 2 (replay premise corrected per operator; Q2 answered), not reviewed. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
+**Status:** plan rev 3 (D0 run: GO; operator answers recorded), not reviewed. No code edited. **Tier 2, three framing-disjoint reviews** (§8).
 **Read first, completely:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`, `docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md` (incl. §10 ledger), `docs/architecture/SENSOR_FLEET_CLASSES.md`, `docs/planning/AUDIT_presence_gps_assistive_consequence_replay.md`, `docs/planning/PLANNING_presence_gps_assistive.md`. Not HVAC work.
 
 ---
@@ -138,6 +138,60 @@ resident" bucket (expected: zero, since the area-cancel or clamp explains the bo
 step 4 shows the area-cancel failing to absorb a co-located BLE resident's body (would mean the body
 maths, not the name, is the problem).
 
+### 4.3 D0 RESULT (run 2026-10-24 ~22:15 CDT, read-only, HA recorder 7 d)
+
+Script: session scratchpad `d0_face.py` / `d0b.py`, `ssh ha python3 -`, `mode=ro`. Inputs per census
+sample (`sensor.universal_room_automation_persons_in_house`, recorded every tick with
+`face_recognized_persons`, `identified_count`, `unidentified_count`, `camera_total_pre_cancel`,
+`camera_unrecognized`, `peak_held`, `ble_by_area`, `confidence`), plus
+`identified_persons_in_house` (`person_list`, `ble_confirmed`), each person's URA location sensor
+(`tracker_sources`), `person.*` state and `sensor.frigate_<first>_last_camera_2`.
+
+**Selection ("would be dropped"):** person in `face_recognized_persons` AND `person.<p>` = `home` AND
+`tracker_sources` gps `home`, ble `silent`, wifi `MISSING` (the overrule shape). Fleet-armed gate NOT
+replayed (caveat 1). **Counterfactual body maths:** the enhanced-census formula from the recorded
+inputs: `id' = identified_count − dropped`, `ceiling = max(camera_total_pre_cancel, id')`,
+`held = camera_unrecognized` (or `max(camera_unrecognized, unidentified)` while `peak_held`),
+`unid' = max(0, min(id' + held, ceiling) − id')`.
+
+**Ground truth (verifiable only, per operator):** Oji away from 10-24 08:42 CDT (confirmed travel).
+Everything else `unknown` (no operator memory used). Egress `person_id` is effectively never populated
+(attach rate 0.0 on the live sensor) and Oji's GPS is the frozen source, so neither adds labels.
+Co-location = the face's camera matches a `ble_by_area` key at that sample.
+
+| Person | Ground truth | Body explained by | Samples | Minutes |
+|---|---|---|---|---|
+| Oji | away (confirmed travel) | co-located BLE resident | 11 | 2.5 |
+| Oji | away (confirmed travel) | other resident BLE-home, different area | 1,250 | 392.4 |
+| Oji | unknown (10-19, 10-22) | other resident BLE-home, different area | 141 | 45.8 |
+| Ezinne, Jaya, Ziri | — | — | 0 | 0 |
+
+Every face-only sample in the confirmed-away window is **wrong** (Oji abroad). No sample was verifiably right.
+
+**Cost (unidentified rises 0 → 1 at medium/high confidence, runs ≥ 300 s = GUEST-eligible):**
+- 10-24 (Oji confirmed away): **4 GUEST-eligible runs, 544 / 420 / 743 / 300 s (~33 min total)**, at
+  13:40, 15:19, 15:43, 19:04 CDT; plus 31 shorter runs (12–281 s).
+- 10-19 / 10-22 (unknown): 1 run of 90 s, none GUEST-eligible.
+
+**The coordinator's "near zero" hypothesis is falsified by the data.** In all four runs the camera
+counted 3 bodies (`camera_total_pre_cancel = 3`, `camera_unrecognized = 3`), BLE identified 2
+residents (Ezinne, Jaya) whose areas (`kitchen`, `receiving_room`, `foyer`, `patio`) did not match the
+face camera (`family_room`, `utilities_ptz`), so the area-cancel absorbed nothing, and the clamp ceiling
+(3) exceeded `id'` (2). Today the false "Oji" face explains the third body; with the change it becomes
+unidentified. Whether that third body was a real unidentified person or a camera over-count is
+**unknown** (no verifiable oracle). Either way the current state hides it behind a wrong name.
+
+Caveats: (1) Bermuda fleet-arm gate not replayed, so selection is an upper bound; (2) the GUEST gate
+also needs census confidence and its own persistence state, so "GUEST-eligible" is not "GUEST fired";
+(3) recorder `person.*` attributes do not carry `device_trackers`, so §2's "kids are BLE-only" stays
+cited to the replay audit §1, not re-verified here.
+
+**Verdict: GO.** The §4.2 gate (no added run in the co-located-mislabel bucket) passes: the 11
+co-located samples produced no run. The cost sits in the "unexplained body" bucket, which the operator
+accepted (Q1, 2026-10-24). Expect roughly a few GUEST-eligible runs per day on days an adult is
+abroad with frozen GPS and a resident is mislabelled as them; each one means the camera saw more
+bodies than BLE can name.
+
 ## 5. Producer and consumer checks
 
 ### 5.1 Producer — `face_recognized` (enhanced path)
@@ -168,7 +222,7 @@ is not a consumer-visible admission site for the house zone and stays a non-goal
 | `face_persons` / `face_confirmed` attr (`camera_census.py:1757`, `sensor.py:4091`) | identified_persons | display | yes |
 | `face_recognized_persons` attr (`sensor.py:3787`) | face list | display | yes |
 | GUEST gate (`presence.py` `_guest_gate_armed`, ~:5965) | unidentified_count + confidence + persistence | **trust** | indirect via unidentified |
-| Room identified persons (`coordinator.py:1109`, `:1292-1299` via `get_room_identified_persons`) | census room view | display / room context | verify in build (Q3); not changed by this plan |
+| Room identified persons (`coordinator.py:1109`, `:1292-1299`) | calls `census.get_room_identified_persons` via `getattr(..., lambda r: None)`; **that method does not exist on the census**, so it always falls back to `person_coordinator.get_persons_in_room` (BLE only) (orchestrator-verified) | display / room context | no. **KEEP + DOCUMENT:** missing census hook, dead `getattr` branch, harmless today; available if per-room census identity is ever built |
 | Egress face-leg veto `is_face_leg_person_vetoed` (`camera_census.py:4178-4200`) and `transit_validator` egress veto | raw `person.state` | trust (egress identity, advisory) | **non-goal** (§7) |
 | Music following, NM targeting, `persons_home` | person_coordinator location, not census face | display/routing | no (already follow BLE since v5.103.90) |
 | Perimeter alerts | DetectionLeg, no census identity | — | no |
@@ -240,8 +294,11 @@ PRESENCE SoP §1 row (face latch now follows BLE Leads; cite this plan) and §10
 **Tier 2, elevated to three framing-disjoint reviews** (standing policy: trust-hierarchy ripple presence ↔ census ↔ GUEST/AWAY). One-site change, no DB, no shared-primitive writer, so not Tier 3. Framings: A local correctness (guard, fail-open, flag/switch matrix); B cross-coordinator (GUEST and α consequences, tick ordering between person and census coordinators); C test authority by per-site mutation. One adversarial plan review before build.
 
 ## 11. Open questions for the operator
-1. **Residual GUEST cost under option A.** When an adult is genuinely home with phone BLE dark and no BLE-located resident explains their body on camera, their face no longer explains it, so the house can go GUEST. The replay's measured cost for this (10-24) is refuted: those faces were Jaya mislabelled. The real size is unknown until D0, expected small. Accept the class? (The kids already work this way.)
-2. ~~Enhanced census on live?~~ Answered: `enhanced_census: true`; raw path out of scope.
-3. Should room-level identified persons (`coordinator.py:1109`) follow too? Plan says no change; confirm it is display-only.
-4. Separate toggle: confirm reuse of BLE Leads is fine (a separate switch only makes sense if you want BLE leading home/away but faces still naming absent adults).
-5. Were the 10-19 09:37 and 10-22 16:46-18:03 "Oji" faces also Jaya? (Ground truth for D0 step 3.)
+All answered 2026-10-24 (operator via coordinator):
+1. GUEST risk: **ACCEPTED** (D0 §4.3 sizes it: 4 GUEST-eligible runs, ~33 min, on 10-24).
+2. Enhanced census live: `enhanced_census: true`; raw path out of scope.
+3. Room-level identity: unchanged; missing census hook recorded KEEP + DOCUMENT (§5.3).
+4. Toggle: reuse BLE Leads Home/Away, no new switch: **YES**.
+5. 10-19 / 10-22 faces: operator cannot recall; classified `unknown` in D0 (verifiable evidence only).
+
+Remaining for plan review: none from the operator. Reviewer focus: the D0 caveats (fleet-arm not replayed; GUEST-eligible ≠ fired).
