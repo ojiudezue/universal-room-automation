@@ -33247,6 +33247,16 @@ cards:
   next: "Me: one read-only harm check before any fix: did BLE flaps cause wrong actions (lights/occupancy/night lights) in the top pairs (Jaya Bed/Bath nights 10-19/20, Foyer/Study A, Garage A<->Jaya Bedroom cross-floor)? If no harm -> close done (refuted as a problem). If harm -> plan the narrow fix it points to (likely jaya_3 proxy placement/ignore or idea 2/3), not idea 1."
   status_note: "idea 1 parked; investigating harm"
   rank: {"value": 6, "time_criticality": 3, "effort": 3}
+- id: URA-V8-PANEL-RENDER-SPIN-1
+  title: "ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off"
+  thread: dashboarding
+  status: investigating
+  tier: 1
+  created: "2026-10-25"
+  origin: 'HomeLab session handoff 2026-10-25 (operator asked): 6-h test 10-24 15:22-21:23, card WALL-HEAT-1 in homelab-automation docs/CONFIGS.md. Kitchen (rooms) 98% of samples >50%, Master (now) 70%, Study B (now) 54%, Up Hallway (rooms) 50%; never-woken Study A/Media ~0-5%; Entry on HA /map 5%. Repro: light.media_room_panel_screen on -> renderer 93-141% in 15 s, off -> 0% in 30 s. Ruled out: dashboard save time, WS reconnect loop, KS screensaver, kiosk_mode. Hot: CrRendererMain, raster, Mali GPU.'
+  why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
+  next: "Me: bisect via a stripped test view on Media Room panel (adb top 192.168.12.154:5555), fix the offending card config, verify <20% for 30 min, tell HomeLab to rerun scripts/wallpanel/ks-spin-logger.sh."
+  rank: {"value": 5, "time_criticality": 4, "effort": 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

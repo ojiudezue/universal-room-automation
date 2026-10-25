@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-25T04:22:56-05:00_ - _Data commit: `47a9521955af`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-25T04:29:58-05:00_ - _Data commit: `67fe212c3ff0`_ - _last_reconciled: 2026-10-25_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-25T04:22:56-05:00_ - _Data commit: `47a9521955af`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -26,10 +26,18 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `BLE-LOCATION-QUALITY-1` - BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked — _#1 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `URA-V8-PANEL-RENDER-SPIN-1` - ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off — _#1 · WSJF 5.5 · v5 tc4 u2 /e2_
+thread: **dashboarding** - status: **investigating**
+_created 2026-10-25_
+- **Why:** Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake.
+- **Next:** Me: bisect via a stripped test view on Media Room panel (adb top 192.168.12.154:5555), fix the offending card config, verify <20% for 30 min, tell HomeLab to rerun scripts/wallpanel/ks-spin-logger.sh.
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `BLE-LOCATION-QUALITY-1` - BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **presence** - status: **investigating**
 _created 2026-10-25_
 - **Why:** Raw BLE flapping and floor jumps (Jaya Bedroom <-> Garage A) feed room occupancy, night lights and sleep logic; URA smoothing cuts it ~3.5x but the source is noisy.
