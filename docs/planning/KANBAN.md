@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-24T18:44:39-05:00_ - _Data commit: `abcc090248e4`_ - _last_reconciled: 2026-10-24_
+_Generated: 2026-10-24T19:48:46-05:00_ - _Data commit: `11c1ac0c9df1`_ - _last_reconciled: 2026-10-24_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 13 |
@@ -21,10 +21,16 @@ _Generated: 2026-10-24T18:44:39-05:00_ - _Data commit: `abcc090248e4`_ - _last_r
 | 🅿️ Parked | 104 |
 | ✅ Done | 390 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `CENSUS-UNIDENTIFIED-SNAPSHOT-1` - Attach a camera snapshot to unidentified/guest census events so the operator can check who it was — _#1 · WSJF 2.0 · v4 tc2 u2 /e4_
+thread: **identity** - status: **inbox**
+_created 2026-10-24_
+- **Why:** Unidentified counts feed GUEST arming and security; a picture turns an opaque number into a one-glance check and gives face-retraining samples (FRIGATE-FACE-MISLABEL-OJI-1).
+- **Next:** Me: adjacency sweep (FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY_FUSION_CAMERAS_MANUAL, existing Frigate snapshot/event APIs, NM image attach) before scoping; privacy: interior snapshots stay local.
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
