@@ -547,6 +547,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
 
     def _apply_s3_away_arm(
         self, person_name: str, stamp_row: dict[str, Any], now: datetime,
+        *, was_away_after_min_away: bool = False,
     ) -> None:
         """S3 case-(a) side effects, shared by the else-arms and the overrule.
 
@@ -563,13 +564,25 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             self._person_lost_since[person_name] = now
         if person_name not in self._lost_away_since:
             self._lost_away_since[person_name] = now
-        self._person_was_away[person_name] = True
+        if not was_away_after_min_away:
+            self._person_was_away[person_name] = True
+            return
+        # Overrule path (consequence-replay fix): reuse the LOST path's
+        # pre-arrival guard — `_person_was_away` arms only once the person
+        # has read away for >= `_min_away_minutes` (same test as the LOST
+        # branch), so a BLE return within 15 min of the overrule does not
+        # fire SIGNAL_PERSON_ARRIVING; a return after a real absence does.
+        lost_s = (now - self._person_lost_since[person_name]).total_seconds()
+        if lost_s >= self._min_away_minutes * 60:
+            self._person_was_away[person_name] = True
 
     def _apply_ble_overrule(
         self, person_name: str, stamp_row: dict[str, Any], now: datetime,
     ) -> None:
         """Overrule path: the S3 arm, stamped as row 14 (no new vocabulary)."""
-        self._apply_s3_away_arm(person_name, stamp_row, now)
+        self._apply_s3_away_arm(
+            person_name, stamp_row, now, was_away_after_min_away=True,
+        )
         stamp_row[ATTR_TRACKING_REASON] = "away_ble_silent_only"
         stamp_row["confidence"] = BLE_SILENT_ONLY_AWAY_CONFIDENCE
 

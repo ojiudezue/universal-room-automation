@@ -282,7 +282,9 @@ def test_frozen_gps_home_ble_not_home_goes_away(env):
     assert row["tracking_reason"] == "away_ble_silent_only"
     assert row["confidence"] == 0.82
     assert row["tracker_sources"]["gps"] == "home"
-    assert env.coord._person_was_away[OJI] is True
+    assert env.coord._person_lost_since[OJI] == T0
+    # Pre-arrival is NOT armed on the first overrule tick (15-min guard).
+    assert env.coord._person_was_away.get(OJI, False) is False
     assert env.coord._gps_home_overruled == frozenset({OJI})
 
 
@@ -393,35 +395,78 @@ def test_side_effects_match_s3_arm(env):
     assert (got["location"], got["tracking_status"]) == ("away", "active")
     assert env.coord._person_lost_since == {OJI: T0} == ref_state[0]
     assert env.coord._lost_away_since == {OJI: T0} == ref_state[1]
-    assert env.coord._person_was_away == {OJI: True} == ref_state[2]
+    # Deliberate difference: the S3 arm arms pre-arrival at once; the
+    # overrule waits the LOST path's 15 min.
+    assert ref_state[2] == {OJI: True}
+    assert env.coord._person_was_away.get(OJI, False) is False
     assert got["method"] == ref["method"] == "person_state"
 
 
-def test_pre_arrival_fires_on_ble_return_after_overrule(env, monkeypatch):
-    """Q3: an overrule arms BLE pre-arrival; the next BLE room fix fires
-    SIGNAL_PERSON_ARRIVING."""
-    _tuple_1024(env.hass)
-    _bermuda_branch(env.coord, env.hass)
-    _arm(env)
-    env.coord._pre_arrival_enabled = True
-    env.coord.data = _tick(env.coord)
-    assert env.coord._person_was_away[OJI] is True
+def _ble_return_setup(env, monkeypatch):
     sent = []
     import homeassistant.helpers.dispatcher as _disp
     monkeypatch.setattr(_disp, "async_dispatcher_send",
                         lambda hass, sig, payload: sent.append((sig, payload)))
-    # BLE re-acquires the phone in a room.
-    env.hass.set(AREA, "study_a")
     env.coord._resolve_person_room = lambda area: "Study A"
 
     async def _conf(*_a, **_k):
         return 0.9
     env.coord._calculate_confidence = _conf
-    env.clock.t = T0 + timedelta(seconds=30)
+    return sent
+
+
+@pytest.mark.parametrize("held,armed", [(899, False), (900, True), (901, True)])
+def test_overrule_arms_pre_arrival_only_after_15_min(env, held, armed):
+    """LOST-path guard reused: _person_was_away arms only once the overrule
+    has held >= 15 min (literal boundary 899/900/901 s)."""
+    _tuple_1024(env.hass)
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away.get(OJI, False) is False
+    env.clock.t = T0 + timedelta(seconds=held)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away.get(OJI, False) is armed
+
+
+def test_pre_arrival_fires_on_ble_return_after_overrule(env, monkeypatch):
+    """A BLE return after a real absence (overrule held 20 min) fires
+    SIGNAL_PERSON_ARRIVING."""
+    _tuple_1024(env.hass)
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord._pre_arrival_enabled = True
+    env.coord.data = _tick(env.coord)
+    env.clock.t = T0 + timedelta(minutes=20)
+    env.coord.data = _tick(env.coord)
+    assert env.coord._person_was_away[OJI] is True
+    sent = _ble_return_setup(env, monkeypatch)
+    env.hass.set(AREA, "study_a")
+    env.clock.t = T0 + timedelta(minutes=20, seconds=30)
     row = _row(_tick(env.coord))
     assert row["location"] == "Study A"
     assert len(sent) == 1
     assert sent[0][1] == {"person_entity": OJI_ENTITY, "source": "ble"}
+
+
+def test_no_pre_arrival_on_ble_return_within_15_min(env, monkeypatch):
+    """Replay IV1/IV6 shape: BLE dark a few minutes while home, then back
+    -> no SIGNAL_PERSON_ARRIVING."""
+    _tuple_1024(env.hass)
+    _bermuda_branch(env.coord, env.hass)
+    _arm(env, seconds=10_000)
+    env.coord._pre_arrival_enabled = True
+    env.coord.data = _tick(env.coord)
+    env.clock.t = T0 + timedelta(minutes=8, seconds=30)
+    env.coord.data = _tick(env.coord)
+    sent = _ble_return_setup(env, monkeypatch)
+    env.hass.set(AREA, "study_a")
+    env.clock.t = T0 + timedelta(minutes=9)
+    row = _row(_tick(env.coord))
+    assert row["location"] == "Study A"
+    assert sent == []
+    assert env.coord._person_was_away[OJI] is False
+    assert OJI not in env.coord._person_lost_since
 
 
 @pytest.mark.parametrize("count", ["0", "unavailable", "unknown", "abc"])
@@ -810,6 +855,8 @@ def test_zone_persons_home_veto_uses_effective_state(env, site):
 
 
 def test_hvac_zone_has_home_person_effective(env):
+    """NOTE: zone_has_home_person has no production caller today (consequence
+    replay §3.3); the swap is kept for consistency and is a no-op live."""
     hz = importlib.import_module(f"{PKG}.domain_coordinators.hvac_zones")
     zone = _Zone(zone_persons=[OJI_ENTITY])
     env.hass.set(OJI_ENTITY, "home", {})
@@ -853,33 +900,6 @@ def test_hvac_fans_night_hold_effective(env):
     assert _run() is True
     _overruled_pc(env)
     assert _run() is False
-
-
-def test_face_latch_drops_overruled_person(env):
-    """camera_census stale-face latch: an overruled person is dropped from
-    the face-recognized list; a raw-home person is kept."""
-    cc = importlib.import_module(f"{PKG}.camera_census")
-    now = datetime.now(timezone.utc)
-
-    def _census():
-        env.hass.set("sensor.frigate_oji_last_camera_2", "front_door",
-                     last_updated=now - timedelta(seconds=30))
-        env.hass.config_entries = SimpleNamespace(async_entries=lambda _d: [
-            SimpleNamespace(data={cc.CONF_ENTRY_TYPE: cc.ENTRY_TYPE_INTEGRATION,
-                                  "tracked_persons": [OJI_ENTITY]}, options={}),
-        ])
-        census = object.__new__(cc.PersonCensus)
-        census.hass = env.hass
-        census._frigate_person_last_camera_map = {
-            "oji": "sensor.frigate_oji_last_camera_2"}
-        return census
-
-    env.hass.set(OJI_ENTITY, "home", {})
-    env.hass.data[DOMAIN]["person_coordinator"] = env.coord
-    assert "oji_udezue" in _census()._get_face_recognized_person_names(now)
-    _overruled_pc(env)
-    assert env.hass.states.get(OJI_ENTITY).state == "home"
-    assert "oji_udezue" not in _census()._get_face_recognized_person_names(now)
 
 
 # ---------------------------------------------------------------------------

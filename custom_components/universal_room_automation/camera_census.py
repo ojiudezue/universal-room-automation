@@ -5882,10 +5882,18 @@ class PersonCensus:
                     # entity is missing/unknown/unavailable, count them
                     # (preserves prior behavior — conservative).
                     person_entity_id = f"person.{person_slug.lower()}"
-                    # PERSON-BLE-WINS-OVER-STALE-GPS-1 §6b: overrule-aware read
-                    # (raw state unless the GPS "home" was overruled by BLE).
-                    from .person_coordinator import person_state_for_trust  # noqa: PLC0415
-                    if person_state_for_trust(self.hass, person_entity_id) == "not_home":
+                    # PERSON-BLE-WINS-OVER-STALE-GPS-1: deliberately left on RAW
+                    # person.state (consequence replay 2026-10-24: routing this
+                    # through the BLE overrule bought <= ~1.5 min of earlier AWAY
+                    # but lengthened false-GUEST unidentified runs).
+                    try:
+                        person_state = self.hass.states.get(person_entity_id)
+                    except Exception:  # noqa: BLE001 — defensive
+                        person_state = None
+                    if (
+                        person_state is not None
+                        and person_state.state == "not_home"
+                    ):
                         _LOGGER.debug(
                             "Face-recognized person %s dropped: "
                             "%s=not_home (stale-face latch guard)",
