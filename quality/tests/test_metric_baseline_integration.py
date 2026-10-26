@@ -982,17 +982,18 @@ class TestTrippedBreakerExpectedOn:
 
     ENT = "sensor.span_panel_rack_power"
 
-    def _drive(self, readings_w, drop_w=0.0, drop_seconds=3600):
+    def _drive(self, readings_w, drop_w=0.0, drop_seconds=3600, ent=None, name="Rack"):
         from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
             SPANCircuitMonitor, CircuitInfo,
         )
         hass = MagicMock()
         hass.config_entries.async_entries = lambda *_a, **_k: []
         monitor = SPANCircuitMonitor(hass)
-        monitor._circuits = {self.ENT: CircuitInfo(self.ENT, "Rack", "left")}
+        ent = ent or self.ENT
+        monitor._circuits = {ent: CircuitInfo(ent, name, "left")}
         monitor._discovered = True
         cur = {"v": "0"}
-        hass.states.get = lambda eid: MagicMock(state=cur["v"]) if eid == self.ENT else None
+        hass.states.get = lambda eid: MagicMock(state=cur["v"]) if eid == ent else None
         t0 = 1_000_000.0
         found = []
         with patch("time.time") as tm:
@@ -1011,6 +1012,21 @@ class TestTrippedBreakerExpectedOn:
         trips = self._drive([200.0] * 80)
         assert len(trips) == 1
         assert trips[0]["circuit"] == "Rack"
+
+    def test_cycling_critical_freezer_still_trips(self):
+        # Review B M1: cycling critical load bypasses the expected-on gate.
+        trips = self._drive(
+            [200.0, 3.5] * 40, drop_w=0.0,
+            ent="sensor.span_panel_freezer_power", name="Span Right Freezer Power",
+        )
+        assert len(trips) == 1
+
+    def test_critical_match_by_friendly_name_only(self):
+        trips = self._drive(
+            [200.0, 3.5] * 40, drop_w=0.0,
+            ent="sensor.span_panel_circuit_7_power", name="Sump Pit",
+        )
+        assert len(trips) == 1
 
     def test_cycling_load_dropping_to_standby_is_not_tripped(self):
         # Lights / AC / compressor: alternates 200 W and 3.5 W standby.

@@ -42,6 +42,17 @@ MINIMUM_LOADED_ENERGY_WH = 50.0
 # Rung-1 constant (safety-adjacent detector shape; change via review).
 # Kill-switch: 0.0 -> mean alone must exceed the threshold (loosest gate).
 TRIPPED_BREAKER_EXPECTED_ON_SIGMA = 2.0
+# Review B M1: cycling CRITICAL loads (fridge/freezer/sump/well/pump) fail the
+# expected-on gate yet a trip there is costly, so they bypass it and keep the
+# legacy "<= loaded threshold for the zero window" detection. A 0 W
+# discriminator was measured and rejected (2026-10-26, 7 d recorder): of 583
+# false rows only 38 read exactly 0 W for the window (all battery meters),
+# and fridge/freezer/grinder-pump circuits read exactly 0.0 W while idle
+# 538-3143 times/week. Matched case-insensitively against entity_id and
+# friendly name. Rung-1 constant; empty tuple disables the bypass.
+TRIPPED_BREAKER_CRITICAL_PATTERNS: tuple[str, ...] = (
+    "fridge", "freezer", "sump", "well", "pump",
+)
 
 # MetricBaseline thresholds for circuit power z-scores
 CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
@@ -381,7 +392,10 @@ class SPANCircuitMonitor:
                 if circuit.zero_since is None:
                     circuit.zero_since = now
                     circuit.expected_on_at_drop = expected_on
-                elif not circuit.alerted and circuit.expected_on_at_drop:
+                elif not circuit.alerted and (
+                    circuit.expected_on_at_drop
+                    or self._is_critical_circuit(circuit)
+                ):
                     # NM Cycle A A1: rung-2-ready knob (default 900s).
                     from ..const import (
                         CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
@@ -417,6 +431,12 @@ class SPANCircuitMonitor:
 
         self._anomalies = new_anomalies
         return new_anomalies
+
+    @staticmethod
+    def _is_critical_circuit(circuit: CircuitInfo) -> bool:
+        """True for cycling critical loads that bypass the expected-on gate."""
+        hay = f"{circuit.entity_id} {circuit.friendly_name}".lower()
+        return any(p in hay for p in TRIPPED_BREAKER_CRITICAL_PATTERNS)
 
     @staticmethod
     def _is_expected_on(baseline: MetricBaseline) -> bool:
