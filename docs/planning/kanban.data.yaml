@@ -97,12 +97,13 @@ cards:
 - id: HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1
   title: "The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh"
   thread: "hvac"
-  status: "waiting_operator"
+  status: "in_progress"
   tier: 1
   created: "2026-10-23 02:05"
-  updated: "2026-10-23 02:05"
-  refinement_status: "initial"
-  approval: "unreviewed"
+  updated: "2026-10-26 02:08"
+  refinement_status: "refined"
+  approval: "implied"
+  default_taken_2026_10_26: "Option A (recommended, Tier 1) taken per the finish-the-arc rule 2: offered 10-23 with 'Default A if no veto by the next attended session'; attended sessions ran 10-24 and 10-25 with no veto. Built to review tonight; NOT deployed (overnight pass). Scope widened on verify: the today/nudges/resets/cycle impact sensors are also TOTAL_INCREASING and also read 0 before the first DB refresh after a restart (hvac_override.py:651 cache seeded with zeros, last_refresh_ts None), so the restart-zero guard covers the whole impact-sensor family, not only the total."
   tags: ["found-during-probe", "measure-before-build", "no-fabrication-verify"]
   problem_solution: ["Problem: two AC-ramp savings sensors say they count 'since the feature was turned on', but they only add up the last 30 days, because old rows are deleted from the database each night. So they go DOWN every midnight. They also show 0 for about a minute after every HA restart before the real number comes back. HA treats each drop to 0 as a meter reset and adds the whole value again, so the long-term statistics for 'AC kWh avoided' now read about 212,000 kWh. The real 30-day figure is about 383. Solution: (1) keep showing the last good value until the first database refresh after a restart, not 0. (2) Either call these sensors what they are (a 30-day total that is allowed to go down) or make them real running totals that are saved across days. Then (3) the operator clears the broken long-term statistics once."]
   origin: {"date": "2026-10-23", "gist": "overnight pass: HA system_log warning 'ura_hvac_coordinator_ac_kwh_avoided_total ... total_increasing, but its state is not strictly increasing (382.871, previous 402.521)' at 00:00:59 CDT"}
