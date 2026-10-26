@@ -135,16 +135,19 @@ def test_ec_total_unavailable_stays_on_total_no_data():
     assert sensor.extra_state_attributes["whole_house_source"] == "ec_total"
 
 
-def test_cost_sensor_still_reads_net(monkeypatch):
+def test_cost_sensor_reads_ec_cost_today_not_counter(monkeypatch):
+    """AUDIT_house_sensors_correctness_2026_10_25 H10: the cost sensor no
+    longer multiplies the (lifetime) NET counter by the rate; it mirrors the
+    EC's realized cost_today."""
     states = _States()
-    states.set_kwh(NET, 3.0)
+    states.set_kwh(NET, 15346.0)
     states.set_kwh(TOTAL, 10.0)
-    ec = SimpleNamespace(_entity_lifetime_consumption=TOTAL)
+    ec = SimpleNamespace(_entity_lifetime_consumption=TOTAL, cost_today=4.75)
     cost = object.__new__(_agg.WholeHouseCostTodaySensor)
     cost.hass = _hass(states, ec)
     cost.entry = _entry()
     monkeypatch.setattr(_agg, "_get_effective_rate_kwh", lambda h: (0.5, "t"))
-    assert cost.native_value == pytest.approx(1.5)  # 3 kWh NET * 0.5
+    assert cost.native_value == pytest.approx(4.75)
 
 
 def test_net_to_total_switch_publishes_no_data_then_total_baseline():

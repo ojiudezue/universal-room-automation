@@ -66,6 +66,26 @@ from custom_components.universal_room_automation.domain_coordinators.hvac_fans i
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_automation_dt_util():
+    """The room helper below freezes ``automation.dt_util.now/utcnow`` by
+    assignment on the SHARED dt_util module. Restore after each test so the
+    naive frozen clock does not leak into later files (it broke
+    test_routine_forecaster / test_house_diag_correctness_rf in full runs)."""
+    import custom_components.universal_room_automation.automation as _auto  # noqa: PLC0415
+
+    mod = _auto.dt_util
+    saved = {n: mod.__dict__[n] for n in ("now", "utcnow") if n in mod.__dict__}
+    try:
+        yield
+    finally:
+        for n in ("now", "utcnow"):
+            if n in saved:
+                setattr(mod, n, saved[n])
+            elif n in mod.__dict__:
+                delattr(mod, n)
+
+
 # ---------------------------------------------------------------------------
 # A-LOW-1 — _OracleISOField.__set__ datetime coercion + TypeError.
 # ---------------------------------------------------------------------------

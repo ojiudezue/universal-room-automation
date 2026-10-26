@@ -973,3 +973,97 @@ class TestNewBaselinesFeedAndRestore:
         assert restored["soc_at_peak_start"].max_samples == 365
         assert restored["daily_import_cost"].max_samples == 365
         assert restored["solar_forecast_error_pct"].max_samples == 365
+
+
+class TestTrippedBreakerExpectedOn:
+    """HOUSE-DIAG-CORRECTNESS (audit 2026-10-25 H14): an idle / cycling
+    circuit that drops to standby must NOT be reported tripped; a circuit
+    whose learned baseline says it never idles still is."""
+
+    ENT = "sensor.span_panel_rack_power"
+
+    def _drive(self, readings_w, drop_w=0.0, drop_seconds=3600, ent=None, name="Rack"):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor, CircuitInfo,
+        )
+        hass = MagicMock()
+        hass.config_entries.async_entries = lambda *_a, **_k: []
+        monitor = SPANCircuitMonitor(hass)
+        ent = ent or self.ENT
+        monitor._circuits = {ent: CircuitInfo(ent, name, "left")}
+        monitor._discovered = True
+        cur = {"v": "0"}
+        hass.states.get = lambda eid: MagicMock(state=cur["v"]) if eid == ent else None
+        t0 = 1_000_000.0
+        found = []
+        with patch("time.time") as tm:
+            for i, w in enumerate(readings_w):
+                tm.return_value = t0 + i * 300
+                cur["v"] = str(w)
+                found += monitor.check_anomalies()
+            t1 = t0 + len(readings_w) * 300
+            cur["v"] = str(drop_w)
+            for dt in (0, 300, drop_seconds):
+                tm.return_value = t1 + dt
+                found += monitor.check_anomalies()
+        return [a for a in found if a["type"] == "tripped_breaker"]
+
+    def test_steady_load_dropping_to_zero_is_tripped(self):
+        trips = self._drive([200.0] * 80)
+        assert len(trips) == 1
+        assert trips[0]["circuit"] == "Rack"
+
+    def test_cycling_critical_freezer_still_trips(self):
+        # Review B M1: cycling critical load bypasses the expected-on gate.
+        trips = self._drive(
+            [200.0, 3.5] * 40, drop_w=0.0,
+            ent="sensor.span_panel_freezer_power", name="Span Right Freezer Power",
+        )
+        assert len(trips) == 1
+
+    def test_critical_freezer_idle_window_boundary(self):
+        # Freezer window 1800 s (literal): idle 1800 s = normal, 2100 s = trip.
+        kw = dict(drop_w=0.0, ent="sensor.span_panel_freezer_power", name="Freezer")
+        assert self._drive([3.5, 200.0] * 40, drop_seconds=1800, **kw) == []
+        assert len(self._drive([3.5, 200.0] * 40, drop_seconds=2100, **kw)) == 1
+
+    def test_critical_pump_long_idle_window(self):
+        # Grinder pump idles up to 7200 s normally; window 9000 s.
+        kw = dict(drop_w=0.0, ent="sensor.span_panel_grinder_pump_power", name="Grinder Pump")
+        assert self._drive([3.5, 200.0] * 40, drop_seconds=7200, **kw) == []
+        assert len(self._drive([3.5, 200.0] * 40, drop_seconds=9300, **kw)) == 1
+
+    def test_critical_match_by_friendly_name_only(self):
+        trips = self._drive(
+            [200.0, 3.5] * 40, drop_w=0.0,
+            ent="sensor.span_panel_circuit_7_power", name="Sump Pit",
+            drop_seconds=9300,
+        )
+        assert len(trips) == 1
+
+    def test_cycling_load_dropping_to_standby_is_not_tripped(self):
+        # Lights / AC / compressor: alternates 200 W and 3.5 W standby.
+        trips = self._drive([200.0, 3.5] * 40, drop_w=3.5)
+        assert trips == []
+
+    def test_unlearned_baseline_is_not_tripped(self):
+        # 20 samples < 60 (CIRCUIT_MIN_SAMPLES): no expected-on evidence.
+        trips = self._drive([200.0] * 20)
+        assert trips == []
+
+    def test_expected_on_floor_boundary(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_circuits import (
+            SPANCircuitMonitor,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (
+            MetricBaseline,
+        )
+        bl = MetricBaseline(metric_name="m", coordinator_id="energy", scope="s")
+        bl.sample_count = 60
+        bl.mean = 25.0
+        bl.variance = 100.0  # std 10 -> floor 25 - 2*10 = 5.0, NOT > 5.0
+        assert SPANCircuitMonitor._is_expected_on(bl) is False
+        bl.mean = 25.1  # floor 5.1 > 5.0
+        assert SPANCircuitMonitor._is_expected_on(bl) is True
+        bl.sample_count = 59
+        assert SPANCircuitMonitor._is_expected_on(bl) is False

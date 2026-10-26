@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.91
+# Universal Room Automation vv5.103.92
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6942,7 +6942,7 @@ class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
             return {}
         return {
             "sensors_total": safety.sensors_monitored,
-            "sensors_available": safety.sensors_monitored,
+            "sensors_available": safety.count_available_sensors(),
             "hazards_detected_24h": safety._hazards_detected_24h,
             "alerts_sent_24h": safety._alerts_sent_24h,
         }

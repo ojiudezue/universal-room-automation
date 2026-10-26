@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.91
+# Universal Room Automation vv5.103.92
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -1370,6 +1370,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             
             area_id = config.get(CONF_AREA_ID)
             scanner_areas = config.get(CONF_SCANNER_AREAS) or []
+            # The room's own area in scanner_areas is meaningless (Tier 1
+            # already maps it) and must not demote the room off direct BLE.
+            if area_id:
+                scanner_areas = [a for a in scanner_areas if a != area_id]
 
             # v3.8.9: Track rooms with direct BLE coverage (Tier 1)
             # A room is Tier 1 if it has an area_id but no scanner_areas override.

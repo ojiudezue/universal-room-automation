@@ -19,7 +19,9 @@ from custom_components.universal_room_automation.domain_coordinators.safety impo
     HazardType,
     Hazard,
 )
-from custom_components.universal_room_automation.domain_coordinators.base import (
+# Severity as Safety itself binds it: another stub file may re-exec ``base``
+# after safety was imported, and the assertions below check identity.
+from custom_components.universal_room_automation.domain_coordinators.safety import (
     Severity,
 )
 from custom_components.universal_room_automation.domain_coordinators.manager import (
@@ -45,6 +47,28 @@ class _CapturingNM:
         args_d = dict(bound.arguments)
         args_d.pop("self")
         self.calls.append(args_d)
+
+
+@pytest.fixture(autouse=True)
+def _reconcile_manager_base_classes(monkeypatch):
+    """Stub files (e.g. test_notification_manager) may re-exec the package and
+    ``base`` after ``safety`` was imported, so manager's NotificationAction
+    can be a different class object from the one Safety builds -> the
+    isinstance gate in _execute_action silently skips NM. Bind manager's
+    base-class globals to Safety's (same pattern as test_safety_nm_refire),
+    scoped via monkeypatch."""
+    # Resolve from the module globals the code under test ACTUALLY executes
+    # with (the classes this file bound at import), not from sys.modules —
+    # a later re-exec can make sys.modules hold different module objects.
+    safety_g = SafetyCoordinator.handle_test_hazard.__globals__
+    manager_g = CoordinatorManager._execute_action.__globals__
+    na_cls = safety_g["NotificationAction"]
+    monkeypatch.setitem(manager_g, "NotificationAction", na_cls)
+    monkeypatch.setitem(
+        manager_g, "ActionType",
+        type(na_cls.__dataclass_fields__["action_type"].default),
+    )
+    monkeypatch.setitem(manager_g, "ServiceCallAction", safety_g["ServiceCallAction"])
 
 
 def _setup():
