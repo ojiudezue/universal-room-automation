@@ -6942,7 +6942,7 @@ class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
             return {}
         return {
             "sensors_total": safety.sensors_monitored,
-            "sensors_available": safety.sensors_monitored,
+            "sensors_available": safety.count_available_sensors(),
             "hazards_detected_24h": safety._hazards_detected_24h,
             "alerts_sent_24h": safety._alerts_sent_24h,
         }
