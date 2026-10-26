@@ -1178,8 +1178,6 @@ MIRROR_KEYS_ZONE_DPM: frozenset[str] = frozenset({
 })
 
 
-@instrument_flow
-
 def strip_own_area(scanner_areas, area_id) -> list:
     """Drop the room's own area from CONF_SCANNER_AREAS.
 
@@ -1192,6 +1190,8 @@ def strip_own_area(scanner_areas, area_id) -> list:
         return areas
     return [a for a in areas if a != area_id]
 
+
+@instrument_flow
 class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Universal Room Automation v3.0.0."""
 
