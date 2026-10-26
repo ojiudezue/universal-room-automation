@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T02:02:49-05:00_ - _Data commit: `c5c4d9c6bfc5`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-26T02:04:46-05:00_ - _Data commit: `c9bee628562c`_ - _last_reconciled: 2026-10-25_
 
 
 ## Columns
@@ -31,10 +31,12 @@ _measuring; truth not yet known_
 
 ### `URA-V8-PANEL-RENDER-SPIN-1` - ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off — _#1 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **dashboarding** - status: **investigating**
-_created 2026-10-25_
+_created 2026-10-25 · updated 2026-10-26 02:45_
 - **Why:** Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake.
-- **Next:** Me: bisect via a stripped test view on Media Room panel (adb top 192.168.12.154:5555), fix the offending card config, verify <20% for 30 min, tell HomeLab to rerun scripts/wallpanel/ks-spin-logger.sh.
-- **Forensic keys (1):**
+- **Next:** Me, attended daytime session: run the audit's bisect on the Media Room panel (adb top 192.168.12.154:5555) starting with the cheap discriminators: navigate-away-and-back after wake (state vs view), then disable material-you-utilities, th...
+- **Forensic keys (3):**
+  - `measured_2026_10_26_static`: Overnight read-only static audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md). The ura-v8 config has NONE of the usual CPU suspects: no CSS animation/keyframes, no backdrop-filter in views, no card-mod, no power-flow/apex...
+  - `overnight_gate_2026_10_26`: Bisect NOT run overnight: it needs a panel screen on and dashboard edits in an occupied, sleeping house. It stays my work (not an operator decision) for the next attended daytime session.
   - `tier`: 1
 
 ## 🧭 Pre-planning (14)
@@ -474,10 +476,11 @@ _under review_
 
 ### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#1 · WSJF 6.5 · v5 tc6 u2 /e2_
 thread: **dashboard** - status: **review**
-_created 2026-10-21 20:10 · updated 2026-10-21 22:05_
+_created 2026-10-21 20:10 · updated 2026-10-26 02:45_
 - **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...
 - **Next:** Inventory each chip's entity source and whether the room detail card already shows/controls it; add the missing detail controls first, then the chips; backup the dashboard JSON; verify in Chrome at desktop + 390 px.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `INSTANCE_2026_10_26_stale_chip_triggers`: Side finding from the panel-spin audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md): ura-v8 room_card chips read other entities via states[...] without triggers_update, so a chip can show a stale value until its own entit...
   - `links_added_2026_10_21`: related+DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1,WALLPANEL-URA-NOTIFY-1: Same v8 dashboard batch (People table fix); Halo panels show the same per-room status.
   - `rerank_2026_10_21`: unscored -> v5 t6 e2: operator approved 10-21; Tier 1 dashboard work, ready to drive
   - `built_2026_10_22`: Chips live on all 47 ura-v8 tiles (room_card template JS field) + detail popup cards (status/control, unusual, who's here, offline, window+HVAC). Backup docs/dashboard-prototypes/ura-v8-backups/20261022T212645Z_pre_room_status_chips.json...
