@@ -1179,6 +1179,19 @@ MIRROR_KEYS_ZONE_DPM: frozenset[str] = frozenset({
 
 
 @instrument_flow
+
+def strip_own_area(scanner_areas, area_id) -> list:
+    """Drop the room's own area from CONF_SCANNER_AREAS.
+
+    HA's AreaSelectorConfig has no exclude option (entity/device/multiple
+    only), so the own area can be picked; it is meaningless (Tier 1 already
+    matches it) and any non-empty list demotes the room off direct BLE.
+    """
+    areas = list(scanner_areas or [])
+    if not area_id:
+        return areas
+    return [a for a in areas if a != area_id]
+
 class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Universal Room Automation v3.0.0."""
 
@@ -2624,6 +2637,11 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
             else:
+                if CONF_SCANNER_AREAS in user_input:
+                    user_input[CONF_SCANNER_AREAS] = strip_own_area(
+                        user_input[CONF_SCANNER_AREAS],
+                        self._data.get(CONF_AREA_ID),
+                    )
                 self._data.update(user_input)
                 return await self.async_step_devices()
 
@@ -12566,6 +12584,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         errors = {}
         
         if user_input is not None:
+            # Own area in scanner_areas is meaningless and demotes the room
+            # off direct BLE (person_coordinator._direct_ble_rooms): strip it.
+            if CONF_SCANNER_AREAS in user_input:
+                user_input[CONF_SCANNER_AREAS] = strip_own_area(
+                    user_input[CONF_SCANNER_AREAS],
+                    self._get_current(CONF_AREA_ID),
+                )
             # Validate at least one occupancy detection method
             motion = user_input.get(CONF_MOTION_SENSORS, [])
             mmwave = user_input.get(CONF_MMWAVE_SENSORS, [])
@@ -13310,7 +13335,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # v3.2.4: Scanner areas for sparse scanner homes
             vol.Optional(
                 CONF_SCANNER_AREAS,
-                default=self._get_current(CONF_SCANNER_AREAS, [])
+                default=strip_own_area(
+                    self._get_current(CONF_SCANNER_AREAS, []),
+                    self._get_current(CONF_AREA_ID),
+                )
             ): selector.AreaSelector(
                 selector.AreaSelectorConfig(multiple=True)
             ),

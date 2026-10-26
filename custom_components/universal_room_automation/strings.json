@@ -104,7 +104,7 @@
           "motion_sensors": "Motion sensors",
           "presence_sensors": "Presence sensors",
           "occupancy_sensors": "Combined sensors",
-          "scanner_areas": "BLE Scanner Areas (Optional)",
+          "scanner_areas": "Borrow Bluetooth from other areas (optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
@@ -119,7 +119,7 @@
           "motion_sensors": "See movement only.",
           "presence_sensors": "See people sitting still.",
           "occupancy_sensors": "Radar and motion reported as one signal.",
-          "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
+          "scanner_areas": "Pick areas with no URA room whose Bluetooth scanner covers this room (e.g. an entry nook or vanity). A phone heard there counts as in this room. Leave empty if it has its own scanner; its own area is ignored.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
           "humidity_sensor": "Room humidity for fan control and comfort alerts",
@@ -144,7 +144,8 @@
           "auto_switches": "Auto-On / Auto-Off Devices",
           "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
-          "manual_devices": "Manual Devices"
+          "manual_devices": "Manual Devices",
+          "adjacent_rooms": "Adjacent rooms"
         },
         "data_description": {
           "lights": "Lights to control on entry/exit (auto-detected from area if available)",
@@ -156,7 +157,8 @@
           "auto_switches": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
-          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)"
+          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
+          "adjacent_rooms": "Rooms you can walk straight into from this one. A phone in one of them backs up this room's presence radar while a ceiling fan runs, and nearby wall panels light up for alerts."
         }
       },
       "night_light_detail": {
@@ -1776,7 +1778,7 @@
           "motion_sensors": "Motion sensors",
           "presence_sensors": "Presence sensors",
           "occupancy_sensors": "Combined sensors",
-          "scanner_areas": "BLE Scanner Areas (Optional)",
+          "scanner_areas": "Borrow Bluetooth from other areas (optional)",
           "disable_camera_presence": "Ignore Camera Person Detection",
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity Sensor",
@@ -1793,7 +1795,7 @@
           "motion_sensors": "See movement only.",
           "presence_sensors": "See people sitting still.",
           "occupancy_sensors": "Radar and motion reported as one signal.",
-          "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
+          "scanner_areas": "Pick areas with no URA room whose Bluetooth scanner covers this room (e.g. an entry nook or vanity). A phone heard there counts as in this room. Leave empty if it has its own scanner; its own area is ignored.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways).",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",
@@ -1821,6 +1823,7 @@
           "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices",
+          "adjacent_rooms": "Adjacent rooms",
           "night_light_sleep_hue": "Night-light colour at sleep"
         },
         "data_description": {
@@ -1834,6 +1837,7 @@
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only auto-off",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
           "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off",
+          "adjacent_rooms": "Rooms you can walk straight into from this one. A phone in one of them backs up this room's presence radar while a ceiling fan runs, and nearby wall panels light up for alerts.",
           "night_light_sleep_hue": "Red is easiest on sleep and is used on colour lights. White-only lights use the sleep colour temperature below."
         }
       },
