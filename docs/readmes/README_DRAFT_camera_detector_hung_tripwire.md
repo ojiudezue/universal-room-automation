@@ -29,6 +29,7 @@ Review fix-up (port to develop as `feat/camera-detector-hung-tripwire-v2`):
   `NotificationManager.is_quiet_hours_active()` before it emits. While quiet hours are active it does not emit,
   does not latch, and keeps the dwell, so the first tick after quiet hours end sends the page. If NM is absent
   the evaluator emits as before.
+- Re-verify LOW, defer cap: the quiet-hours hold is capped at `CAMERA_DETECTOR_QUIET_DEFER_MAX_S` = 43200 s (12 h, const.py, rung 1); past it the page is sent anyway (one INFO log), so an all-day schedule or a stuck sleep state cannot hold it forever. `<= 0` = no cap.
 - A-L2: one WARNING when the resolved fps entity has had no numeric state for longer than `FROZEN_S`.
   A-L3: the unresolved INFO log re-arms after a successful resolve.
 

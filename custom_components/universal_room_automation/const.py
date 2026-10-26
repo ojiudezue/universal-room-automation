@@ -4607,6 +4607,10 @@ BOOT_SETTLE_S: Final = 180
 # healthy same-value run 5.0 min, so 3x = 900 s. Module const (rung 1): a fitted
 # number, retune via reviewed change. Kill switch: <= 0 disables the check.
 CAMERA_DETECTOR_FROZEN_S: Final = 900
+# Max time a hung-detector alert may be deferred by NM quiet hours before it is
+# sent anyway (discharge for an all-day schedule or a house stuck in sleep).
+# Rung 1 (reviewed change). <= 0 = no cap, i.e. defer indefinitely.
+CAMERA_DETECTOR_QUIET_DEFER_MAX_S: Final = 43200
 # Registry match key for the Frigate fleet detection_fps sensor. Live registry
 # (2026-10-21): unique_id "<frigate_entry_id>:sensor_fps:detection"; per-camera
 # fps sensors end "..._detection" (no colon) and so do not match.

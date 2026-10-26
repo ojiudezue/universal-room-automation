@@ -114,6 +114,7 @@ from ..const import (
     CAMERA_INPUT_DEGRADED_DWELL_S,
     BOOT_SETTLE_S,
     CAMERA_DETECTOR_FROZEN_S,
+    CAMERA_DETECTOR_QUIET_DEFER_MAX_S,
     CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
@@ -666,6 +667,9 @@ class OptimizationCoordinator(BaseCoordinator):
         self._detector_last_changed: Any = None
         # Review B-MED-1: emit deferred because NM quiet hours are active.
         self._detector_hung_deferred_quiet: bool = False
+        # When the quiet-hours defer began (capped by
+        # CAMERA_DETECTOR_QUIET_DEFER_MAX_S).
+        self._detector_hung_deferred_since: datetime | None = None
         # Review A-L2: resolved entity with no numeric state, since when.
         self._detector_noread_since: datetime | None = None
         self._detector_noread_warned: bool = False
@@ -3116,6 +3120,7 @@ class OptimizationCoordinator(BaseCoordinator):
         self._detector_frozen_s = 0
         self._detector_last_changed = None
         self._detector_hung_deferred_quiet = False
+        self._detector_hung_deferred_since = None
 
     def _evaluate_camera_detector_hung_dimension(
         self,
@@ -3221,6 +3226,23 @@ class OptimizationCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 quiet = False
         if quiet:
+            if self._detector_hung_deferred_since is None:
+                self._detector_hung_deferred_since = now
+            deferred_s = (
+                now - self._detector_hung_deferred_since
+            ).total_seconds()
+            if (
+                CAMERA_DETECTOR_QUIET_DEFER_MAX_S > 0
+                and deferred_s >= CAMERA_DETECTOR_QUIET_DEFER_MAX_S
+            ):
+                _LOGGER.info(
+                    "camera_detector_hung defer cap reached (%ds >= %ds): "
+                    "sending despite NM quiet hours (%s)",
+                    int(deferred_s), CAMERA_DETECTOR_QUIET_DEFER_MAX_S,
+                    entity_id,
+                )
+                quiet = False
+        if quiet:
             if not self._detector_hung_deferred_quiet:
                 _LOGGER.info(
                     "camera_detector_hung page deferred: NM quiet hours "
@@ -3230,6 +3252,7 @@ class OptimizationCoordinator(BaseCoordinator):
             self._detector_hung_deferred_quiet = True
             return []
         self._detector_hung_deferred_quiet = False
+        self._detector_hung_deferred_since = None
         self._detector_hung_fired = True
         frozen_s = self._detector_frozen_s
         description = (

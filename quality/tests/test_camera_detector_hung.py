@@ -638,3 +638,47 @@ def test_detector_hung_unresolved_logs_again_after_resolve(env, caplog):
     logs = [r for r in caplog.records
             if "inert_unresolved" in r.getMessage()]
     assert len(logs) == 2
+
+
+# ---------------------------------------------------------------------------
+# Re-verify LOW: quiet-hours defer is capped (CAMERA_DETECTOR_QUIET_DEFER_MAX_S)
+# ---------------------------------------------------------------------------
+
+def _frozen_in_quiet(env):
+    quiet = [True]
+    coord, hass = _coord(_hass_with_nm(quiet))
+    env.clock.advance(1000)
+    hass.states.set(FPS, "45")
+    assert _tick(coord, env, 0) == []
+    # First deferred tick: dwell reached at 900 s.
+    assert _tick(coord, env, 900) == []
+    assert coord._detector_hung_deferred_quiet is True
+    return coord
+
+
+def test_detector_hung_quiet_defer_cap_discharges_once(env):
+    coord = _frozen_in_quiet(env)
+    # 43200 s (12 h) after defer began -> sent anyway, exactly once.
+    assert _tick(coord, env, 43199) == []
+    out = _tick(coord, env, 1)
+    assert len(out) == 1
+    assert coord._detector_hung_fired is True
+    assert coord._detector_hung_deferred_quiet is False
+    assert _tick(coord, env, 300) == []
+
+
+def test_detector_hung_quiet_defer_under_cap_still_held(env):
+    coord = _frozen_in_quiet(env)
+    for _ in range(143):  # 42900 s < 43200 s
+        assert _tick(coord, env, 300) == []
+    assert coord._detector_hung_fired is False
+    assert coord._detector_hung_deferred_quiet is True
+
+
+@pytest.mark.parametrize("cap", [0, -1])
+def test_detector_hung_quiet_defer_cap_disabled_holds(env, monkeypatch, cap):
+    monkeypatch.setattr(opt_mod, "CAMERA_DETECTOR_QUIET_DEFER_MAX_S", cap)
+    coord = _frozen_in_quiet(env)
+    assert _tick(coord, env, 86400) == []
+    assert coord._detector_hung_fired is False
+    assert coord._detector_hung_deferred_quiet is True
