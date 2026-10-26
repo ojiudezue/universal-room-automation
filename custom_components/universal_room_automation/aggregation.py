@@ -800,6 +800,22 @@ def _is_sleep_hours(hass: HomeAssistant) -> bool:
         return sleep_start <= current_hour < sleep_end
 
 
+def _predicted_import_rate(hass, get_config) -> tuple[float, str]:
+    """$/kWh for predicted_cost_* import kWh.
+
+    AUDIT_house_sensors_correctness_2026_10_25 P5: the EC rate
+    (``ec_tou``) is the TOU engine's effective import rate, which already
+    includes delivery + transmission (``energy_tou.get_effective_import_rate``).
+    Adding CONF_DELIVERY_RATE on top double-counted delivery. The configured
+    delivery add-on now applies only to the static fallback rate, which is a
+    bare energy rate.
+    """
+    rate, source = _get_effective_rate_kwh(hass)
+    if source == "ec_tou":
+        return rate, source
+    return rate + get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE), source
+
+
 def _get_confidence_level(confidence: int) -> str:
     """Convert confidence percentage to level label."""
     if confidence >= ENERGY_CONFIDENCE_HIGH:
@@ -2580,11 +2596,10 @@ class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate, _src = _get_effective_rate_kwh(self.hass)
-            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+                self._cached_value = round(energy_kwh * import_rate, 2)
             else:
                 self._cached_value = round(energy_kwh * export_rate, 2)
         self._cached_confidence = confidence
@@ -2673,11 +2688,10 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate, _src = _get_effective_rate_kwh(self.hass)
-            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+                self._cached_value = round(energy_kwh * import_rate, 2)
             else:
                 self._cached_value = round(energy_kwh * export_rate, 2)
         self._cached_confidence = confidence
@@ -2740,11 +2754,10 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate, _src = _get_effective_rate_kwh(self.hass)
-            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+                self._cached_value = round(energy_kwh * import_rate, 2)
             else:
                 self._cached_value = round(energy_kwh * export_rate, 2)
         self._cached_confidence = confidence
@@ -2807,11 +2820,10 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate, _src = _get_effective_rate_kwh(self.hass)
-            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+                self._cached_value = round(energy_kwh * import_rate, 2)
             else:
                 self._cached_value = round(energy_kwh * export_rate, 2)
         self._cached_confidence = confidence
@@ -3037,12 +3049,21 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
 
 
 class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
-    """Sensor: Whole house realized energy cost today — WholeHouseEnergy × TOU-aware rate.
+    """Sensor: Whole house realized energy cost today.
 
-    v4.6.8: New sensor. Returns None when whole_house_energy_sensors not configured.
-    Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
-    v4.6.10 D6: state_class TOTAL_INCREASING → TOTAL (MONETARY + TOTAL_INCREASING is
-    rejected by HA recorder; TOTAL is correct for daily-resetting accumulators).
+    v4.6.8: New sensor. v4.6.10 D6: state_class TOTAL (MONETARY + TOTAL_INCREASING
+    is rejected by HA recorder).
+
+    AUDIT_house_sensors_correctness_2026_10_25 H10: the sensor used to multiply
+    the configured whole-house energy source by the instantaneous rate. On this
+    install that source is a LIFETIME counter, so it read $1,978 (15,346 kWh x
+    rate). It now mirrors the Energy Coordinator's realized ``cost_today``
+    (net import cost minus export credit, accrued per tick at the TOU rate of
+    that tick). REUSE: the EC accumulator already resets at local midnight and
+    is restored from its snapshot on restart (``energy_billing.py``), so this
+    sensor inherits both properties instead of keeping a second baseline.
+    Returns None when whole_house_energy_sensors is not configured (unchanged
+    gate) or when the EC is not running.
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -3056,7 +3077,6 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_whole_house_cost_today"
         self._attr_name = "Whole House Cost Today"
-        self._last_valid_value: float | None = None
 
     def _get_sensor_list(self, plural_key, singular_key):
         """Get sensor list with singular→plural migration fallback (mirrors WholeHouseEnergySensor)."""
@@ -3068,48 +3088,38 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
             return [singular]
         return []
 
-    def _sum_energy_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum energy sensor states normalized to kWh.
-
-        Review C1 (power-units cycle): this sensor sums the SAME
-        CONF_WHOLE_HOUSE_ENERGY_SENSORS list that WholeHouseEnergySensor
-        normalizes — a raw sum here let a Wh source inflate cost 1000x
-        while the energy sensor read correctly (Bug Class #30).
-        """
-        total = 0.0
-        any_valid = False
-        for sensor_id in sensor_ids:
-            state = self.hass.states.get(sensor_id)
-            value = energy_state_to_kwh(state)
-            if value is not None:
-                total += value
-                any_valid = True
-        return total if any_valid else None
+    def _ec(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("energy")
 
     @property
     def native_value(self) -> float | None:
-        """Return whole house cost today (energy_today × effective rate).
-
-        Returns None when whole_house_energy_sensors not configured — HA history
-        charts distinguish None (unconfigured) from 0.0 (configured but zero usage).
-        """
+        """Return the EC's realized net cost today (USD)."""
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
         if not sensors:
             return None
-        energy_kwh = self._sum_energy_sensors(sensors)
-        if energy_kwh is None:
+        ec = self._ec()
+        if ec is None:
             return None
-        rate, _src = _get_effective_rate_kwh(self.hass)
-        return round(energy_kwh * rate, 4)
+        try:
+            cost = ec.cost_today
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(cost, (int, float)):
+            return None
+        return round(float(cost), 4)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return rate and source sensor details."""
+        """Return rate and source details."""
         rate, rate_source = _get_effective_rate_kwh(self.hass)
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
         return {
+            "cost_source": "energy_coordinator_cost_today",
             "rate_source": rate_source,
             "rate_used": round(rate, 6),
             "source_energy_sensor_count": len(sensors),

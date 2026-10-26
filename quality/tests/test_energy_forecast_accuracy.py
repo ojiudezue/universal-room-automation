@@ -53,6 +53,9 @@ def _load_accuracy_tracker_ns(today: date | None = None) -> dict:
         "PCT_ERROR_BOUND",
         "POOR_THRESHOLD_PCT",
         "STALE_EVAL_DAYS",
+        "FACTOR_PCT_ERROR_CLAMP",
+        "FACTOR_MIN_PLAUSIBLE_DAILY_KWH",
+        "FACTOR_MAX_PLAUSIBLE_DAILY_KWH",
     }
     pieces: list[str] = []
     for node in tree.body:
@@ -60,6 +63,8 @@ def _load_accuracy_tracker_ns(today: date | None = None) -> dict:
             targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
             if any(name in wanted_consts for name in targets):
                 pieces.append(ast.get_source_segment(src, node))
+        elif isinstance(node, ast.FunctionDef) and node.name == "_factor_pct_error":
+            pieces.append(ast.get_source_segment(src, node))
         elif isinstance(node, ast.ClassDef) and node.name == "AccuracyTracker":
             pieces.append(ast.get_source_segment(src, node))
 
@@ -237,19 +242,16 @@ def test_evaluate_accuracy_production_call_preserves_pct_error():
 
 
 def test_adjustment_factor_clamp_unchanged():
-    """9. get_adjustment_factor() on a fixed pct_error sequence equals the
-    golden value. Second guard on control-path byte-identity."""
+    """9. get_adjustment_factor() on plausible in-band errors equals the
+    golden damped-mean formula (unchanged for healthy data). Driven through
+    the production evaluate_accuracy so the guarded pct is produced by code."""
     ns = _load_accuracy_tracker_ns()
     T = ns["AccuracyTracker"]
     t = T()
     pct_errors = [10, -5, 8, -3, 12, -7, 6]
     for i, pe in enumerate(pct_errors):
-        t._daily_errors.append({
-            "date": f"2026-08-{20+i:02d}",
-            "predicted": 20.0, "actual": 20.0 + pe * 0.2,
-            "error": pe * 0.2, "pct_error": float(pe),
-            "pct_error_bounded": float(pe),
-        })
+        # predicted 100 kWh, actual 100+pe -> pct error exactly pe.
+        t.evaluate_accuracy(100.0, 100.0 + pe, f"2026-08-{20+i:02d}")
     mean_pe = sum(pct_errors) / len(pct_errors)
     golden = max(0.7, min(1.3, 1.0 + (mean_pe / 100.0) * 0.3))
     assert abs(t.get_adjustment_factor() - golden) < 1e-9
