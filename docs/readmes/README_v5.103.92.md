@@ -26,7 +26,7 @@ Card: HOUSE-SENSOR-CORRECTNESS-1. Source: `docs/planning/AUDIT_house_sensors_cor
 - Deferred: TOU-blended predicted cost; a better energy history source (daily import wrong 4 of 8 days, 20–29% under-read); tomorrow-forecast model; purge of the old 583 anomaly rows.
 
 ## Reviews and tests
-A: scanner FIX-REQUIRED (decorator misplaced, fixed 7a690736f + test), energy/diagnostics SHIP. B: diagnostics M1 (cycling critical loads would never alert) fixed with the critical list + measured windows; energy SHIP; three branches merge clean. C: 54 sites, 45 RED; real gaps filled with tests (fb687c048, 72ef7159a, d03237106).
+A: scanner FIX-REQUIRED (decorator misplaced, fixed 7a690736f + test), energy/diagnostics SHIP. B: diagnostics M1 (cycling critical loads would never alert) fixed with the critical list + measured windows; energy SHIP; three branches merge clean. C: 54 sites, 45 RED; real gaps filled with tests (fb687c048, 72ef7159a, d03237106). Full-suite name-diff first showed 8 order-dependent failures (old test files leaking a frozen dt_util clock, re-imported NM/safety modules, re-installed HA stubs); test-only fixes 9ee08a7e7, 847db5db3. Final run on 65ed79536: 18,510 passed, 0 failed.
 
 ## Live acceptance criteria (prospective)
 - No ERROR from universal_room_automation after restart.
