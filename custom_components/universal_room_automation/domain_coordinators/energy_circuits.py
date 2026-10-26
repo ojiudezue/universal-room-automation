@@ -43,16 +43,25 @@ MINIMUM_LOADED_ENERGY_WH = 50.0
 # Kill-switch: 0.0 -> mean alone must exceed the threshold (loosest gate).
 TRIPPED_BREAKER_EXPECTED_ON_SIGMA = 2.0
 # Review B M1: cycling CRITICAL loads (fridge/freezer/sump/well/pump) fail the
-# expected-on gate yet a trip there is costly, so they bypass it and keep the
-# legacy "<= loaded threshold for the zero window" detection. A 0 W
+# expected-on gate yet a trip there is costly, so they bypass it. A 0 W
 # discriminator was measured and rejected (2026-10-26, 7 d recorder): of 583
 # false rows only 38 read exactly 0 W for the window (all battery meters),
 # and fridge/freezer/grinder-pump circuits read exactly 0.0 W while idle
-# 538-3143 times/week. Matched case-insensitively against entity_id and
-# friendly name. Rung-1 constant; empty tuple disables the bypass.
-TRIPPED_BREAKER_CRITICAL_PATTERNS: tuple[str, ...] = (
-    "fridge", "freezer", "sump", "well", "pump",
-)
+# 538-3143 times/week.
+# Each pattern gets its own idle window, set above the longest NORMAL <=5 W
+# run as the 5-min EC tick observes it (7 d recorder, 2026-10-26): fridge
+# max 1200 s, freezer max 1500 s, grinder pump max 7200 s (p99 3900 s).
+# Fridge/freezer 1800 s (margin >= 300 s = one tick); pump/sump/well 9000 s
+# (margin 1800 s). With these windows none of the measured week's normal
+# idle runs would alert. Matched case-insensitively against entity_id +
+# friendly name, first match wins. Rung-1 constant; {} disables the bypass.
+TRIPPED_BREAKER_CRITICAL_IDLE_S: dict[str, int] = {
+    "fridge": 1800,
+    "freezer": 1800,
+    "sump": 9000,
+    "well": 9000,
+    "pump": 9000,
+}
 
 # MetricBaseline thresholds for circuit power z-scores
 CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
@@ -394,7 +403,7 @@ class SPANCircuitMonitor:
                     circuit.expected_on_at_drop = expected_on
                 elif not circuit.alerted and (
                     circuit.expected_on_at_drop
-                    or self._is_critical_circuit(circuit)
+                    or self._critical_idle_s(circuit) is not None
                 ):
                     # NM Cycle A A1: rung-2-ready knob (default 900s).
                     from ..const import (
@@ -407,6 +416,9 @@ class SPANCircuitMonitor:
                         CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
                         DEFAULT_TRIPPED_BREAKER_ZERO_WINDOW_S,
                     )
+                    critical_idle_s = self._critical_idle_s(circuit)
+                    if critical_idle_s is not None:
+                        window_s = critical_idle_s
                     if (now - circuit.zero_since) <= window_s:
                         # not yet — record and continue
                         circuit.last_power = power
@@ -433,10 +445,13 @@ class SPANCircuitMonitor:
         return new_anomalies
 
     @staticmethod
-    def _is_critical_circuit(circuit: CircuitInfo) -> bool:
-        """True for cycling critical loads that bypass the expected-on gate."""
+    def _critical_idle_s(circuit: CircuitInfo) -> int | None:
+        """Idle window for a cycling critical load, else None."""
         hay = f"{circuit.entity_id} {circuit.friendly_name}".lower()
-        return any(p in hay for p in TRIPPED_BREAKER_CRITICAL_PATTERNS)
+        for pattern, idle_s in TRIPPED_BREAKER_CRITICAL_IDLE_S.items():
+            if pattern in hay:
+                return idle_s
+        return None
 
     @staticmethod
     def _is_expected_on(baseline: MetricBaseline) -> bool:

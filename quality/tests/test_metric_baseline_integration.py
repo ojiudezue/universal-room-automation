@@ -1021,10 +1021,23 @@ class TestTrippedBreakerExpectedOn:
         )
         assert len(trips) == 1
 
+    def test_critical_freezer_idle_window_boundary(self):
+        # Freezer window 1800 s (literal): idle 1800 s = normal, 2100 s = trip.
+        kw = dict(drop_w=0.0, ent="sensor.span_panel_freezer_power", name="Freezer")
+        assert self._drive([3.5, 200.0] * 40, drop_seconds=1800, **kw) == []
+        assert len(self._drive([3.5, 200.0] * 40, drop_seconds=2100, **kw)) == 1
+
+    def test_critical_pump_long_idle_window(self):
+        # Grinder pump idles up to 7200 s normally; window 9000 s.
+        kw = dict(drop_w=0.0, ent="sensor.span_panel_grinder_pump_power", name="Grinder Pump")
+        assert self._drive([3.5, 200.0] * 40, drop_seconds=7200, **kw) == []
+        assert len(self._drive([3.5, 200.0] * 40, drop_seconds=9300, **kw)) == 1
+
     def test_critical_match_by_friendly_name_only(self):
         trips = self._drive(
             [200.0, 3.5] * 40, drop_w=0.0,
             ent="sensor.span_panel_circuit_7_power", name="Sump Pit",
+            drop_seconds=9300,
         )
         assert len(trips) == 1
 

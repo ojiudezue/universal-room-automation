@@ -67,3 +67,37 @@ def test_cell_keyed_on_entry_time_not_now():
     out = fc.predict("home_day")
     assert out["state"] == "away"
     assert out["transition_eta_minutes"] == 180  # 600 - 420
+
+
+def test_day_type_keyed_on_entry_time():
+    # Entry on the other day type, same hour -> same time bin, different
+    # day_type. A competing (now-day_type, entry-bin) cell must not win.
+    now = rf_mod.dt_util.utcnow()
+    days = next(
+        n for n in range(1, 7)
+        if rf_mod._day_type(rf_mod.dt_util.as_local(now - timedelta(days=n)))
+        != rf_mod._day_type(rf_mod.dt_util.as_local(now))
+    )
+    fc, entered = _fc(days * 24 * 60)
+    local_e = rf_mod.dt_util.as_local(entered)
+    tb = rf_mod._hour_to_time_bin(local_e.hour)
+    fc._counts[("home_day", rf_mod._day_type(local_e), tb)]["away"] = 5
+    other_dt = 1 - rf_mod._day_type(local_e)
+    fc._counts[("home_day", other_dt, tb)]["sleep"] = 9
+    assert fc.predict("home_day")["state"] == "away"
+
+
+def test_future_entry_time_clamped_to_zero_elapsed():
+    # Clock skew: entry stamped 30 min in the future -> elapsed 0, not -30.
+    fc, entered = _fc(-30)
+    _seed_cell(fc, entered, "home_day", "away", [60] * 5)
+    assert fc.predict("home_day")["transition_eta_minutes"] == 60
+
+
+def test_unsubtractable_entry_time_falls_back():
+    # Naive entry stamp vs aware now -> TypeError -> elapsed 0, now-keyed.
+    fc = rf_mod.RoutineForecaster(_h._hass(), _h._FakeDB([]))
+    fc._last_row_ts = (rf_mod.dt_util.utcnow() - timedelta(minutes=100)).replace(tzinfo=None)
+    fc._last_row_state = "home_day"
+    _seed_cell(fc, rf_mod.dt_util.utcnow(), "home_day", "away", [60, 90, 120, 150, 180])
+    assert fc.predict("home_day")["transition_eta_minutes"] == 120
