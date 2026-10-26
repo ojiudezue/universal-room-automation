@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T02:09:49-05:00_ - _Data commit: `95c9e444900a`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-26T05:52:32-05:00_ - _Data commit: `c0ea3148e661`_ - _last_reconciled: 2026-10-25_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.92.md (2026-10-26) is newer than last_reconciled (2026-10-25)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -14,7 +20,7 @@ _Generated: 2026-10-26T02:09:49-05:00_ - _Data commit: `95c9e444900a`_ - _last_r
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 3 |
-| 🔍 Review | 1 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 30 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 2 |
@@ -478,10 +484,22 @@ _created 2026-09-17 02:20 · updated 2026-10-25 02:08 · refined_
   - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
   - `build_record_2026_10_25`: CAPTURE GAP CLOSED: the 10-21 overnight pass planned (docs/planning/PLANNING_camera_detector_hung_tripwire.md Rev 2, plan-reviewed) AND built this card on feat/camera-detector-hung-tripwire (b499108d8, frozen detection_fps stat check, CA...
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
-### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#1 · WSJF 6.5 · v5 tc6 u2 /e2_
+### `HOUSE-SENSOR-CORRECTNESS-1` - House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area — _#1 · WSJF 6.5 · v6 tc5 u2 /e2_
+thread: **energy** - status: **review**
+_created 2026-10-26_
+- **Why:** Wrong house values: one fed EV drain-precedence house load (factor pinned 1.3), others mislead the dashboard; 583 false CRITICAL rows/week bury real alerts.
+- **Next:** Me: full-suite name-diff, deploy v5.103.92, restart while awake, Validated table.
+- **Forensic keys (5):**
+  - `tier`: 2
+  - `branches`: fix/house-energy-correctness fb687c048, fix/house-diagnostics-correctness 72ef7159a, fix/scanner-areas-own-area d03237106; merged develop 8f69f5362. Reviews A/B/C 2026-10-26 docs/reviews/code-review/review_{A,B,C}_house_correctness_2026_...
+  - `config_applied_2026_10_26`: select.ura_energy_coordinator_dp_house_load_source max_span_r1 -> live_span (operator approved). Recorder un-excluded 3 house sensors (RUNBOOK_recorder_excludes.md), effective at next restart. 12 rooms' own area removed from scanner_area...
+  - `residual_cycling_alwayson`: Review A M: an always-on circuit with high variance outside the critical name patterns (fridge/freezer/sump/well/pump) can no longer raise tripped_breaker. Critical windows rest on 1 week of data (fridge/freezer 1800 s, pumps 9000 s).
+  - `deferred`: TOU-blended predicted cost; better energy history source (energy_daily import wrong 4/8 days, 20-29% under-read); tomorrow forecast model; 583 old anomaly_log rows not purged.
+
+### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#2 · WSJF 6.5 · v5 tc6 u2 /e2_
 thread: **dashboard** - status: **review**
 _created 2026-10-21 20:10 · updated 2026-10-26 02:07_
 - **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...

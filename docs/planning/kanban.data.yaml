@@ -33287,6 +33287,20 @@ cards:
   origin: 'HomeLab session handoff 2026-10-25 (operator asked): 6-h test 10-24 15:22-21:23, card WALL-HEAT-1 in homelab-automation docs/CONFIGS.md. Kitchen (rooms) 98% of samples >50%, Master (now) 70%, Study B (now) 54%, Up Hallway (rooms) 50%; never-woken Study A/Media ~0-5%; Entry on HA /map 5%. Repro: light.media_room_panel_screen on -> renderer 93-141% in 15 s, off -> 0% in 30 s. Ruled out: dashboard save time, WS reconnect loop, KS screensaver, kiosk_mode. Hot: CrRendererMain, raster, Mali GPU.'
   why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
+- id: HOUSE-SENSOR-CORRECTNESS-1
+  title: "House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area"
+  thread: energy
+  status: review
+  tier: 2
+  created: "2026-10-26"
+  origin: 'Operator 2026-10-25 asked for a correctness audit of house sensors (docs/planning/AUDIT_house_sensors_correctness_2026_10_25.md); 2026-10-26 "Do both" / "Fix". Scanner own-area: operator 10-26 "we shouldn''t list their own area. Fix this".'
+  why: "Wrong house values: one fed EV drain-precedence house load (factor pinned 1.3), others mislead the dashboard; 583 false CRITICAL rows/week bury real alerts."
+  branches: "fix/house-energy-correctness fb687c048, fix/house-diagnostics-correctness 72ef7159a, fix/scanner-areas-own-area d03237106; merged develop 8f69f5362. Reviews A/B/C 2026-10-26 docs/reviews/code-review/review_{A,B,C}_house_correctness_2026_10_26.md; all findings fixed."
+  config_applied_2026_10_26: "select.ura_energy_coordinator_dp_house_load_source max_span_r1 -> live_span (operator approved). Recorder un-excluded 3 house sensors (RUNBOOK_recorder_excludes.md), effective at next restart. 12 rooms' own area removed from scanner_areas (backup in session scratchpad)."
+  residual_cycling_alwayson: "Review A M: an always-on circuit with high variance outside the critical name patterns (fridge/freezer/sump/well/pump) can no longer raise tripped_breaker. Critical windows rest on 1 week of data (fridge/freezer 1800 s, pumps 9000 s)."
+  deferred: "TOU-blended predicted cost; better energy history source (energy_daily import wrong 4/8 days, 20-29% under-read); tomorrow forecast model; 583 old anomaly_log rows not purged."
+  next: "Me: full-suite name-diff, deploy v5.103.92, restart while awake, Validated table."
+  rank: {"value": 6, "time_criticality": 5, "effort": 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
