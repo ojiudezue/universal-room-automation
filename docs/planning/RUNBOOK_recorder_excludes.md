@@ -40,3 +40,6 @@ This is the single ledger for every entity excluded from the Home Assistant reco
 **Deliberately NOT excluded (2026-10-20):** `binary_sensor.madronewatermonitor_low_flow_leak` and `_tank_refill_leak` (we want leak on/off history for incident review); `sensor.iphone_oji_nearest_rssi` / `_distance` (useful for BLE tuning). They are the next ~3.8k rows/hr if ever needed.
 
 Consumer map evidence for the 2026-10-20 batch: session 2026-10-20 prober report (dashboards = all 18 `.storage/lovelace.*`; Energy prefs `.storage/energy`; helpers in `core.config_entries` + `configuration.yaml` + `packages/`; URA history readers only `hvac_override.py:319/:6466` (SPAN ac power) and `energy.py:11762` (SmartHub statistics)). Backup of the pre-change config: `docs/dashboard-prototypes/ura-v8-backups/*_pre_recorder_throttle_configuration.yaml`.
+
+## 2026-10-26 un-exclude (house-level sensors removed by mistake on 10-20)
+- Removed from recorder exclude list: `sensor.universal_room_automation_predicted_energy_today`, `..._whole_house_energy_today`, `..._whole_house_power` (house-level, not room mirrors; audit AUDIT_house_sensors_correctness_2026_10_25.md R1). Takes effect at next HA restart. Undo: re-add the three lines. Backup: session scratchpad configuration.yaml.bak-20261026.
