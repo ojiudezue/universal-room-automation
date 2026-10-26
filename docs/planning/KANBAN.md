@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T10:07:34-05:00_ - _Data commit: `c065041da832`_ - _last_reconciled: 2026-10-26_
+_Generated: 2026-10-26T10:21:16-05:00_ - _Data commit: `cce7b9b7f80e`_ - _last_reconciled: 2026-10-26_
 
 
 ## Columns
@@ -33,12 +33,13 @@ _measuring; truth not yet known_
 thread: **dashboarding** - status: **investigating**
 _created 2026-10-25 · updated 2026-10-26 02:07_
 - **Why:** Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake.
-- **Next:** Me, after the v5.103.92 restart later today: (1) measure, (3) tell HomeLab. PICK for operator: explicit lists on panel views (A, recommended, Media Room first) or keep wildcards (B).
-- **Forensic keys (5):**
+- **Next:** Me: read HomeLab results after ~16:20 (renderer CPU vs 10-24). PICK for operator: explicit lists on panel views (A, recommended, Media Room first) or keep wildcards (B).
+- **Forensic keys (6):**
   - `measured_2026_10_26_static`: Overnight read-only static audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md). The ura-v8 config has NONE of the usual CPU suspects: no CSS animation/keyframes, no backdrop-filter in views, no card-mod, no power-flow/apex...
   - `overnight_gate_2026_10_26`: Bisect NOT run overnight: it needs a panel screen on and dashboard edits in an occupied, sleeping house. It stays my work (not an operator decision) for the next attended daytime session.
   - `done_2026_10_26`: Cause is HA frontend cost, not ura-v8 views. Removed 3 resources (duplicate prism-dashboard.js; 404s template-entity-row.js, /local/plotly-graph-card.js); backup docs/dashboard-prototypes/ura-v8-backups/20261026T114409Z_pre_panel_cpu_fix...
   - `remaining_2026_10_26`: (1) Measure panel CPU after person.wall_kiosk (adb top on Media Room). (2) Wildcard auto-entities cards disable Kiosk Satellite dashboard filtering (~50% CPU): replace with explicit lists on the panel views, Media Room first; loses dynam...
+  - `homelab_rerun_2026_10_26`: HomeLab told 10:20; fleet spin logger rerun started 10:21 CDT (72 x 5 min, 7 panels, ends ~16:20). Compare renderer CPU only: daytime screensaver changed 10-25 ~22:00 (Clock+mood, KS ~6% vs 80-110%), so KS CPU and SoC temp are not compar...
   - `tier`: 1
 
 ### `EC-DB-RESTORE-TIMEOUT-1` - Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0 — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
