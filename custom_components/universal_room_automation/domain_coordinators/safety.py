@@ -3310,13 +3310,15 @@ class SafetyCoordinator(BaseCoordinator):
         from .signals import SIGNAL_SAFETY_ENTITIES_UPDATE
         async_dispatcher_send(self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE)
 
-    def get_diagnostics_status(self) -> str:
-        """Return diagnostics health status."""
-        total_sensors = self.sensors_monitored
-        if total_sensors == 0:
-            return "degraded"
+    def count_available_sensors(self) -> int:
+        """Count configured safety sensors whose live state is real.
 
-        # Check how many sensors are available
+        A sensor is available when it has a state object that is not
+        ``unavailable``/``unknown``. Missing entities (configured id with no
+        state, e.g. a renamed leak sensor) count as unavailable. Sole
+        producer for both the diagnostics state and its
+        ``sensors_available`` attribute (audit 2026-10-25 H7).
+        """
         available = 0
         for entity_id in list(self._binary_sensors.keys()) + list(
             self._numeric_sensors.keys()
@@ -3325,8 +3327,17 @@ class SafetyCoordinator(BaseCoordinator):
                 state = self.hass.states.get(entity_id)
                 if state and state.state not in _UNAVAILABLE_STATES:
                     available += 1
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
+        return available
+
+    def get_diagnostics_status(self) -> str:
+        """Return diagnostics health status."""
+        total_sensors = self.sensors_monitored
+        if total_sensors == 0:
+            return "degraded"
+
+        available = self.count_available_sensors()
 
         if available >= total_sensors:
             return "healthy"

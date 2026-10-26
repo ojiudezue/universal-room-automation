@@ -478,9 +478,35 @@ class RoutineForecaster:
                 "transition_eta_minutes": None,
             }
 
-        now_local = dt_util.as_local(dt_util.utcnow())
-        day_type = _day_type(now_local)
-        time_bin = _hour_to_time_bin(now_local.hour)
+        # HOUSE-DIAG-CORRECTNESS (audit 2026-10-25 P13): the ETA was the
+        # median TOTAL dwell for the transition, so after the house had sat
+        # in the state longer than that median it still said "in 71 min"
+        # (live: 164 min elapsed). When we know when the current state
+        # began (last observed transition landed in it), (a) key the cell
+        # on the ENTRY time — cells are built keyed on entry time
+        # (refresh walk, cell_ref = prior_ts) — and (b) report the REMAINING
+        # time: median of (dwell - elapsed) over the samples that outlast
+        # the elapsed time; None when every sample is already exceeded.
+        # Unknown entry time -> elapsed 0 + now-keyed cell (prior shape).
+        now_utc = dt_util.utcnow()
+        entered_at = (
+            self._last_row_ts
+            if self._last_row_ts is not None
+            and self._last_row_state == current_str
+            else None
+        )
+        elapsed_seconds = 0.0
+        ref_local = dt_util.as_local(now_utc)
+        if entered_at is not None:
+            try:
+                elapsed_seconds = max(
+                    0.0, (now_utc - entered_at).total_seconds()
+                )
+                ref_local = dt_util.as_local(entered_at)
+            except Exception:  # noqa: BLE001
+                elapsed_seconds = 0.0
+        day_type = _day_type(ref_local)
+        time_bin = _hour_to_time_bin(ref_local.hour)
 
         # Cascade through coarser cells.
         cell_counts, cell_etas = self._lookup_with_cascade(
@@ -520,7 +546,11 @@ class RoutineForecaster:
 
         confidence = max(0.0, min(1.0, chosen_count / total))
         eta_minutes: int | None = None
-        eta_samples = cell_etas.get(chosen_state) or []
+        eta_samples = [
+            sample - elapsed_seconds
+            for sample in (cell_etas.get(chosen_state) or [])
+            if sample > elapsed_seconds
+        ]
         if eta_samples:
             try:
                 median_seconds = statistics.median(eta_samples)

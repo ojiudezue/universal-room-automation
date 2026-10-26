@@ -27,6 +27,21 @@ NORMALLY_LOADED_THRESHOLD_W = 5.0
 # Prevents alerts on circuits that briefly spike above NORMALLY_LOADED_THRESHOLD_W
 # but never actually deliver meaningful energy.
 MINIMUM_LOADED_ENERGY_WH = 50.0
+# HOUSE-DIAG-CORRECTNESS (2026-10-26): a tripped_breaker alert needs evidence
+# the circuit is EXPECTED to be drawing, not merely that it once drew and is
+# now at/below NORMALLY_LOADED_THRESHOLD_W. Audit 2026-10-25 H14: 619 CRITICAL
+# rows / 7 d, every one an idle load (lights off, AC off in shoulder season,
+# EVSE idle, 3-4 W standby). SPAN exposes no per-circuit trip state (only the
+# relay switch, which reflects a COMMANDED open, not a trip), so the evidence
+# is the learned power baseline: the circuit is "expected on" when, at the
+# moment it dropped, its baseline (>= CIRCUIT_MIN_SAMPLES) sat at least
+# TRIPPED_BREAKER_EXPECTED_ON_SIGMA standard deviations above the loaded
+# threshold, i.e. the circuit essentially never idles. Cycling / switched
+# loads (lights, AC, EVSE, compressors) fail this and can no longer page as
+# "tripped"; continuously-loaded circuits keep full trip detection.
+# Rung-1 constant (safety-adjacent detector shape; change via review).
+# Kill-switch: 0.0 -> mean alone must exceed the threshold (loosest gate).
+TRIPPED_BREAKER_EXPECTED_ON_SIGMA = 2.0
 
 # MetricBaseline thresholds for circuit power z-scores
 CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
@@ -79,6 +94,9 @@ class CircuitInfo:
         self.was_loaded: bool = False
         self.zero_since: float | None = None  # timestamp when went to zero
         self.alerted: bool = False
+        # Expected-on verdict captured when the circuit dropped (see
+        # TRIPPED_BREAKER_EXPECTED_ON_SIGMA); gates the tripped alert.
+        self.expected_on_at_drop: bool = False
         self.controllable: bool = True  # discovered from SPAN breaker switch
         self.cumulative_energy_wh: float = 0.0  # Track energy delivery
         self._last_check_time: float | None = None  # For energy integration
@@ -287,6 +305,9 @@ class SPANCircuitMonitor:
 
             # v3.13.2: Z-score anomaly detection via MetricBaseline
             baseline = self._get_power_baseline(entity_id)
+            # Expected-on verdict from the baseline BEFORE this sample is
+            # folded in (so the drop itself cannot vote on it).
+            expected_on = self._is_expected_on(baseline)
             if baseline.sample_count >= CIRCUIT_MIN_SAMPLES and power > 0:
                 z = baseline.z_score(power)
                 # B-2026-08-03-1: absolute-deviation floor. On near-zero
@@ -359,7 +380,8 @@ class SPANCircuitMonitor:
                     and circuit.cumulative_energy_wh >= MINIMUM_LOADED_ENERGY_WH):
                 if circuit.zero_since is None:
                     circuit.zero_since = now
-                elif not circuit.alerted:
+                    circuit.expected_on_at_drop = expected_on
+                elif not circuit.alerted and circuit.expected_on_at_drop:
                     # NM Cycle A A1: rung-2-ready knob (default 900s).
                     from ..const import (
                         CONF_TRIPPED_BREAKER_ZERO_WINDOW_S,
@@ -395,6 +417,14 @@ class SPANCircuitMonitor:
 
         self._anomalies = new_anomalies
         return new_anomalies
+
+    @staticmethod
+    def _is_expected_on(baseline: MetricBaseline) -> bool:
+        """True when the learned baseline says this circuit never idles."""
+        if baseline.sample_count < CIRCUIT_MIN_SAMPLES:
+            return False
+        floor = baseline.mean - TRIPPED_BREAKER_EXPECTED_ON_SIGMA * baseline.std
+        return floor > NORMALLY_LOADED_THRESHOLD_W
 
     def get_status(self) -> dict[str, Any]:
         """Return circuit monitor status for sensor."""
