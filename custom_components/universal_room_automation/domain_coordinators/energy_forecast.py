@@ -43,6 +43,36 @@ PCT_ERROR_BOUND = 200.0
 POOR_THRESHOLD_PCT = 50.0
 STALE_EVAL_DAYS = 2
 
+# --- Adjustment-factor input guard (rung 1 — module constants) ---
+# AUDIT_house_sensors_correctness_2026_10_25 P8: the factor was pinned at its
+# 1.3 cap by stored pct_error rows of +16,664.8 % (10-18) and +2,988.6 %
+# (08-30); real day errors in the same window were -49..+1 %. The factor now
+# reads a pct RECOMPUTED from the (predicted, actual) pair, only for pairs
+# where both sides are plausible daily totals, clamped to +/-FACTOR_PCT_ERROR_CLAMP.
+# 60 keeps every genuine error seen (max |49|) while one bad day can move the
+# 7-day mean by at most 60/7 = 8.6 pct -> factor by 0.026. Change by review.
+FACTOR_PCT_ERROR_CLAMP = 60.0
+# A daily consumption below this is a counter artifact (same floor the
+# restore path in energy.py has used since v3.14.0).
+FACTOR_MIN_PLAUSIBLE_DAILY_KWH = 10.0
+# Above this the pair is rejected (10-02..10-04 predictions of 743 / 1,144 /
+# 1,204 kWh). Mirrors energy_const.MAX_PLAUSIBLE_DAILY_KWH (240), the
+# energy_daily write clamp; duplicated here because this module is loaded
+# standalone by tests.
+FACTOR_MAX_PLAUSIBLE_DAILY_KWH = 240.0
+
+
+def _factor_pct_error(predicted: float | None, actual: float | None) -> float | None:
+    """pct error used by the adjustment factor, or None when the pair is
+    implausible. Recomputed from the pair, never read from storage."""
+    if predicted is None or actual is None:
+        return None
+    for v in (predicted, actual):
+        if not (FACTOR_MIN_PLAUSIBLE_DAILY_KWH <= v <= FACTOR_MAX_PLAUSIBLE_DAILY_KWH):
+            return None
+    pct = (actual - predicted) / predicted * 100.0
+    return max(-FACTOR_PCT_ERROR_CLAMP, min(FACTOR_PCT_ERROR_CLAMP, pct))
+
 # Comfort midpoint for temperature regression (°F)
 COMFORT_MIDPOINT_F = 72.0
 
@@ -845,6 +875,7 @@ class AccuracyTracker:
                     "error": round(error_kwh, 2),
                     "pct_error": round(pct_error, 1),
                     "pct_error_bounded": round(pct_error_bounded, 1),
+                    "pct_error_factor": _factor_pct_error(predicted, actual),
                 })
                 restored += 1
                 self._last_eval_date = date_str
@@ -889,6 +920,7 @@ class AccuracyTracker:
             "error": round(error, 2),
             "pct_error": round(pct_error, 1),
             "pct_error_bounded": round(pct_error_bounded, 1),
+            "pct_error_factor": _factor_pct_error(predicted_kwh, actual_kwh),
         })
 
         # Return dict is UNCHANGED — control-path consumers keep reading pct_error.
@@ -900,17 +932,23 @@ class AccuracyTracker:
     def get_adjustment_factor(self) -> float:
         """Damped mean-error adjustment factor from recent accuracy (not Bayesian).
 
-        1 + mean(last 7 pct errors)/100 x 0.3, clamped to [0.7, 1.3]; 1.0 until
-        3 samples exist.
+        1 + mean(last 7 guarded pct errors)/100 x 0.3, clamped to [0.7, 1.3];
+        1.0 until 3 usable samples exist. Each error is recomputed from its
+        (predicted, actual) pair, implausible pairs are skipped, and the rest
+        are clamped (``_factor_pct_error``), so one bad day cannot pin it.
 
         If predictions consistently under-estimate, factor > 1.0.
         If predictions consistently over-estimate, factor < 1.0.
         """
-        if len(self._daily_errors) < 3:
+        usable = [
+            e["pct_error_factor"] for e in self._daily_errors
+            if e.get("pct_error_factor") is not None
+        ]
+        if len(usable) < 3:
             return 1.0
 
-        recent = list(self._daily_errors)[-7:]
-        avg_pct_error = sum(e["pct_error"] for e in recent) / len(recent)
+        recent = usable[-7:]
+        avg_pct_error = sum(recent) / len(recent)
 
         # Dampen adjustment (don't swing wildly)
         adjustment = 1.0 + (avg_pct_error / 100.0) * 0.3

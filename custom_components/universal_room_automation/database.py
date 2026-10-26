@@ -3160,11 +3160,16 @@ class UniversalRoomDatabase:
                     FROM eh
                     WHERE day_of_week = ?
                     AND outside_temp BETWEEN ? AND ?
+                    AND DATE(timestamp) < ?
                     GROUP BY DATE(timestamp)
                     ORDER BY timestamp DESC
                     LIMIT ?
                 """, (*_energy_history_kwh_params(),
-                      day_of_week, temp_low, temp_high, limit))
+                      day_of_week, temp_low, temp_high,
+                      # AUDIT_house_sensors_correctness_2026_10_25 P1:
+                      # exclude today's partial day (rows are UTC, as is
+                      # day_of_week; same clock as log_energy_history).
+                      datetime.utcnow().date().isoformat(), limit))
                 
                 rows = await cursor.fetchall()
                 return [
@@ -3226,7 +3231,10 @@ class UniversalRoomDatabase:
             results = []
             now = datetime.utcnow()
             
-            for week_offset in range(num_weeks):
+            # AUDIT_house_sensors_correctness_2026_10_25 P3: start at the
+            # previous week so the current partial week is not averaged in
+            # as if it were a whole week.
+            for week_offset in range(1, num_weeks + 1):
                 # Calculate week start/end
                 week_start = now - timedelta(days=now.weekday() + (week_offset * 7))
                 week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -3248,7 +3256,9 @@ class UniversalRoomDatabase:
             results = []
             now = datetime.utcnow()
             
-            for month_offset in range(num_months):
+            # AUDIT_house_sensors_correctness_2026_10_25 P4: start at the
+            # previous month (exclude the partial current month).
+            for month_offset in range(1, num_months + 1):
                 # Calculate month start/end
                 year = now.year
                 month = now.month - month_offset

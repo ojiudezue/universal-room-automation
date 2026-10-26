@@ -370,24 +370,7 @@ def test_energy_ambiguous_mwh_casing_refused():
         assert _units.energy_state_to_kwh(s) is None, variant
 
 
-def test_cost_sensor_sums_normalized_energy():
-    """Review C1: WholeHouseCostTodaySensor must normalize its energy sum
-    (it shares CONF_WHOLE_HOUSE_ENERGY_SENSORS with the normalized
-    WholeHouseEnergySensor — raw summing let a Wh source inflate cost
-    1000x). Call-site assertion against the production source.
-    """
-    path = os.path.join(
-        _REPO, "custom_components", "universal_room_automation", "aggregation.py",
-    )
-    with open(path, encoding="utf-8") as fh:
-        src = fh.read()
-    start = src.find("def _sum_energy_sensors")
-    assert start > 0
-    end = src.find("\n    @property", start)
-    body = src[start:end if end > 0 else len(src)]
-    assert "energy_state_to_kwh(" in body, (
-        "_sum_energy_sensors must normalize via energy_state_to_kwh"
-    )
-    assert "float(state.state)" not in body, (
-        "_sum_energy_sensors must not raw-read state values"
-    )
+# test_cost_sensor_sums_normalized_energy (source grep) retired: the cost
+# sensor no longer reads CONF_WHOLE_HOUSE_ENERGY_SENSORS values at all (it
+# mirrors EC cost_today). Behavioural replacement:
+# test_house_energy_correctness.py::test_whole_house_cost_today_mirrors_ec_cost_today
