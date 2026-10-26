@@ -33289,6 +33289,17 @@ cards:
   origin: 'HomeLab session handoff 2026-10-25 (operator asked): 6-h test 10-24 15:22-21:23, card WALL-HEAT-1 in homelab-automation docs/CONFIGS.md. Kitchen (rooms) 98% of samples >50%, Master (now) 70%, Study B (now) 54%, Up Hallway (rooms) 50%; never-woken Study A/Media ~0-5%; Entry on HA /map 5%. Repro: light.media_room_panel_screen on -> renderer 93-141% in 15 s, off -> 0% in 30 s. Ruled out: dashboard save time, WS reconnect loop, KS screensaver, kiosk_mode. Hot: CrRendererMain, raster, Mali GPU.'
   why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
+- id: OLLAMA-WORKSTATION-62-WAKE-1
+  title: "Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models"
+  thread: optimization
+  status: waiting_operator
+  tier: 1
+  created: "2026-10-26"
+  origin: "Operator 2026-10-26: remind operator the .62 fix was due within 2 days (set 10-24); once awake re-run OC slice-0 eval for the three local models."
+  why: "OC vision rev 5 slice 0 (model eval) is blocked on local models. Do not use the Mac Ollama (192.168.13.149)."
+  checked_2026_10_26: "10:20 CDT: http://192.168.13.62:11434/api/tags not answering (non-JSON/no response)."
+  next: "DO: bring the .62 workstation/Ollama back -> I confirm /api/tags lists the three models and re-run the slice-0 eval (API key from keychain, env-inline only)."
+  rank: {"value": 4, "time_criticality": 4, "effort": 1}
 - id: URA-ENTITY-COUNT-REDUCTION-1
   title: "Reduce URA's enabled entity count (3,110 of 17,886 house-wide) to cut frontend cost on wall panels"
   thread: dashboarding
