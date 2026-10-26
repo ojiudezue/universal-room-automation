@@ -611,7 +611,8 @@ cards:
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-10-25 02:09"
+  updated: "2026-10-26 02:20"
+  recheck_2026_10_26: "Overnight 02:10 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
   links: {"related": ["WATERLEAK-TRIO-UNKNOWN-1", "SAFETY-NO-INITIAL-SENSOR-PASS-1", "ELK-M1-HA-USABILITY-1"], "context": "ADJACENCY SWEEP (board + BACKLOG grep smoke/leak/safety sensor): WATERLEAK-TRIO-UNKNOWN-1 (parked) is the earlier instance of the leak pucks going unknown together, fold its evidence here at plan time. SAFETY-NO-INITIAL-SENSOR-PASS-1 is the code gap that surfaced this; a sensor nobody can read is not fixed by any seeding. Homelab THREAD-INOVELLI-1 owns the Thread re-commission. NEW. ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."}
   reverified_2026_10_20_overnight: "STILL-REAL 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable (since the 10-18 20:36 restart). Still waits on your re-pair."
@@ -33220,7 +33221,8 @@ cards:
   status: "in_progress"
   tier: 1
   created: "2026-10-25 02:08"
-  updated: "2026-10-25 02:08"
+  updated: "2026-10-26 02:20"
+  INSTANCE_2026_10_26_0151: "Same ERROR again at 01:51 CDT 10-26 (system_log, notification_manager.py:3924, count 1 since the 10-25 17:33 restart). Expected: fix/nm-ack-tts-gate (798f17c82) is built but not reviewed/merged/deployed. Overnight 10-26 picks up the owed review + validation."
   refinement_status: "initial"
   approval: "implied"
   problem_solution: ["Problem: when someone acknowledges an alert, the notification manager announces the acknowledgement out loud on the configured speakers without checking whether spoken alerts are switched on. Spoken alerts are off in this house, yet at 00:39 tonight an acknowledgement tried to speak on five speakers, including the master bedroom. It only stayed silent because the speak call is also missing the text-to-speech engine, so Home Assistant rejected it with an error. Solution: make the acknowledgement announcement obey the same on/off switch as every other spoken alert (small code fix now). Fixing the missing engine is a separate choice for you, because it decides which voice engine speaks and would make spoken alerts actually work when you turn them on."]
