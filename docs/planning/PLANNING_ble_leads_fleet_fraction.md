@@ -12,14 +12,10 @@ base that is working, not a static number. Design recorded on the card: a fracti
 high-water fleet size, with an absolute floor.
 
 ## 0. Bottom line (marginal-benefit pushback first)
-- **At this house the change alters nothing.** Over 7 days of recorder data every fraction from 0.5 to
-  0.8 arms and disarms on exactly the same readings as today's static 30 (§2.3). Only restarts and
-  Bermuda reloads ever disarm.
-- **At Wigton it alters nothing today either.** The parent plan's residual R1 still applies: an install
-  without Bermuda's proxy-count entity runs no BLE-leads rule at all (`person_coordinator.py:495-498`).
-- **What it buys:** a future Bermuda install with fewer than ~30 proxies. Today such an install can
-  never arm, which fails safe (the rule stays off, i.e. pre-v5.103.90 behaviour). It does not misbehave.
-- **What it costs:** one new persisted value (a small HA `Store`) and a threshold that now moves.
+- **Here, nothing changes:** over 7 days every fraction 0.5-0.8 arms and disarms on exactly today's
+  readings (§2.3). **At Wigton too:** no Bermuda entity → no rule (parent R1, `person_coordinator.py:495-498`).
+- **It buys:** a future Bermuda home with < ~30 proxies, which today can never arm (fails safe, not wrong).
+  **It costs:** one small persisted HA `Store` and a moving threshold.
 - **Recommendation:** build the simple version below (rung-1 constants, a 7-day rolling daily max, no
   new entity, no options field). If the operator would rather not carry a Store for a home that does
   not exist yet, **park it with the trigger "a second Bermuda install is onboarded"**. Both are
@@ -39,33 +35,24 @@ high-water fleet size, with an absolute floor.
 | Bermuda total proxy count | **NOT used** (rejected, §3.2) | `sensor.bermuda_global_total_proxy_count`, unique_id `BERMUDA_GLOBAL_PROXY_COUNT` (live registry) |
 | Rejected alternative: recorder long-term statistics max | **NOT used** | would depend on recorder retention and excludes (`RUNBOOK_recorder_excludes.md`) and an executor read at boot; a 7-entry Store is simpler |
 
-Greps run: `BLE_LEADS|_fleet_healthy_since|PROXY_COUNT|_proxy_entity` over the integration;
-`Store(` in `coordinator.py`, `hvac.py`, `manager.py`; `high_water|max_seen|_hwm`; `BLE_LEADS_MIN_ACTIVE_PROXIES`
-in `quality/tests`; `fleet|proxy|bermuda|scanner` over `docs/planning` filenames
-(`PLANNING_ble_scanner_borrow_v2.md` is about per-room scanner borrowing, unrelated).
-
+Greps: `BLE_LEADS|_fleet_healthy_since|PROXY_COUNT|_proxy_entity|high_water|max_seen|_hwm`, `Store(`,
+`BLE_LEADS_MIN_ACTIVE_PROXIES` in tests, plan filenames (`PLANNING_ble_scanner_borrow_v2.md`: unrelated).
 ### 1.2 Bermuda source (live `/config/custom_components/bermuda`, read 2026-10-26)
-- Active count = `count_active_scanners()` (scanners with an advert in the last 10 s; `coordinator.py:574`,
-  `sensor.py:531-536`). Total count = `len(coordinator.scanner_list)` (`sensor.py:506-511`), rebuilt from
-  `async_current_scanners()` (`coordinator.py:1496`). Both rate-limited to ~60 s.
-- So a proxy that drops off HA's scanner list leaves **both** counts. The ratio active/total cannot see
-  that outage; a remembered size can.
-
+Active = `count_active_scanners()` (advert in last 10 s; `coordinator.py:574`, `sensor.py:531-536`); total =
+`len(scanner_list)` (`sensor.py:506-511`) from `async_current_scanners()` (`coordinator.py:1496`); both ~60 s
+rate-limited. A proxy dropping off HA's list leaves **both**, so active/total cannot see it; a remembered size can.
 ### 1.3 Config-first
 No options field, Number or HA-side setting controls the floor. Setting the floor lower (a code change
 anyway, rung 1) would portably arm small homes but weakens the guard here. A per-install options field
 (rung 2) was considered: it fixes portability with no new state, but every new install must be told its
 proxy count and it goes stale as proxies are added. Code with a learned size is the better fit.
 
-### 1.4 Memory bodies pulled
-`reference_presence_state_of_play`, `reference_sensor_fleet_classes`, `feedback_measure_before_build`,
-`feedback_marginal_benefit_pushback`, `feedback_suppression_needs_discharge`,
-`project_single_user_no_backcompat` (rolling to other homes), `feedback_extend_existing_never_rebuild`.
+Memory: `reference_presence_state_of_play`, `feedback_measure_before_build`, `feedback_marginal_benefit_pushback`,
+`feedback_suppression_needs_discharge`, `project_single_user_no_backcompat`.
 
 ## 2. D0 — measurement (RUN 2026-10-26, read-only, `immutable=1`)
 Recorder retention 10-19 04:18 → 10-26 06:40 (7.1 d). Scripts: session scratchpad `fleetfrac.py`,
 `fleetsim.py`. The builder copies them to `scripts/probes/ble_fleet_fraction_probe.py`.
-
 ### 2.1 Distributions
 | Series | Rows | p1 | p5 | p50 | p99 | max | Lowest non-zero |
 |---|---|---|---|---|---|---|---|
@@ -73,7 +60,6 @@ Recorder retention 10-19 04:18 → 10-26 06:40 (7.1 d). Scripts: session scratch
 | Total | 315 | 0 | 0 | 61 | 62 | 62 | 55 |
 Time-weighted: (active, total) = (62,62) 28%, (60,62) 26%, (61,62) 25%, (56,56) 9% (10-19 before ~21:30,
 when the fleet was 55-56), (0,0) 0.17% (17 min in all).
-
 ### 2.2 Dips and restarts
 - 16 `homeassistant_start` events. Every `0` reading of active sits 100-155 s from one; each lasts ~60 s
   and both counts read 0 together.
@@ -83,7 +69,6 @@ when the fleet was 55-56), (0,0) 0.17% (17 min in all).
   and has sat at 58-62 since. Proxies join and leave HA's scanner list for hours. A remembered size must
   therefore follow a shrinking fleet, not only a growing one.
 - Lowest active/total ratio with both non-zero: 0.82 (50/61, 10-23 13:49).
-
 ### 2.3 Replay: would a fraction have armed and disarmed correctly?
 Rule replayed: disarmed while active < max(3, f × size), size = max reading in the trailing 7 days.
 | f | Size from active: disarm episodes | not at a restart/reload | Size from total: not at restart |
@@ -104,9 +89,7 @@ at the single existing site `_apply_proxy_state` (`person_coordinator.py:459`). 
 guard (listener, tick re-read, boot latch, 360 s arm, entity-missing → off) is unchanged.
 - `fleet_size` = max of the stored **daily maxima of the active count** over the last
   `BLE_LEADS_FLEET_WINDOW_DAYS` local days, including today's running max.
-- **Unknown size** (fresh install, empty or unreadable Store): `fleet_size` = this session's running
-  max. The boot latch still holds the rule off for 360 s.
-
+- **Unknown size** (fresh install / unreadable Store): this session's running max; boot latch still applies.
 ### 3.2 Where the high-water mark lives, and why
 - **Active, not total.** In replay they agree (both 62). The total series has a window-start artefact.
   Total adds a second entity and listener for no measured gain. A proxy in HA's list that never hears
@@ -122,15 +105,10 @@ guard (listener, tick re-read, boot latch, 360 s arm, entity-missing → off) is
   A short outage cannot lower the size, because the other days' maxima still hold it up.
   - An outage longer than 7 days rebases the size to the degraded fleet. That is accepted: after a week
     the smaller fleet is the installed base.
-- **Writes only from numeric readings > 0.** `0`, `unknown` and `unavailable` never enter the store, so
-  the restart zeros never poison it.
-
+- **Writes only from numeric readings > 0**, so restart zeros never poison it.
 ### 3.3 Restart semantics
-- Empty at boot stays: `_fleet_healthy_since = None` and the 360 s arm are unchanged.
-- The Store survives restarts, so the first post-restart threshold compares against yesterday's fleet,
-  not against what Bermuda reports during boot.
-- Store load failure means unknown size (§3.1), and the DEBUG log says so.
-
+Empty at boot stays (`_fleet_healthy_since = None`, 360 s arm). The Store survives restarts, so the first
+threshold compares against yesterday's fleet, not the boot readings. Load failure → unknown size (§3.1).
 ### 3.4 Knobs (rung 1, `const.py`, review-only)
 | Knob | Value | Why rung 1 | Kill / edge semantics |
 |---|---|---|---|
@@ -196,26 +174,19 @@ store load in setup. No other site compares against the proxy count (grep `BLE_L
 - **Live re-run (one shot, 48 h after deploy):** the D0 replay against the live threshold shows 0
   disarms that are not at a restart or reload, and the `presence_gps_override_probe.py` result is
   unchanged (0 GPS-home segments with all own-BLE `not_home` > 10 min outside arm windows).
-
 ### D2 — Docs (same commit)
-State of Play §3 fleet bullet: the floor becomes the fraction + floor + store; residual R2 wording
-re-based to "≥ half the remembered fleet". Constant comment at `const.py:248-260` rewritten. Card
-residual block closed.
+State of Play §3 fleet bullet + residual R2 re-based to "≥ half the remembered fleet"; `const.py:248-260`
+comment rewritten; card residual closed.
 
 ## 7. Non-goals
-- No change to the latch, arm window, listener lifecycle, overrule gate, switch, `effective_person_state`
-  or any §6b reader.
-- No options-flow field, Number entity or new sensor/attribute.
-- No use of the total proxy count, no per-area or per-scanner health (the per-resident partial-outage
-  residual R2 is unchanged in kind).
-- No Wigton enablement: no Bermuda there means the rule stays off (R1).
+No change to the latch, arm window, listener, gate, switch or any trust reader. No options field, Number,
+sensor or attribute. No total-count or per-scanner health (residual R2 unchanged in kind). No Wigton
+enablement (R1).
 
 ## 8. Residuals
-- **R-F1:** a fresh install restarted during a partial outage before its first full day learns the
-  degraded size; it self-corrects when the fleet recovers (the max only rises within the window).
-- **R-F2:** an outage longer than 7 days becomes the new fleet size.
-- **R-F3:** jitter here goes down to 0.81 of the fleet. An install with a noisier fleet could need a lower
-  fraction (a reviewed change).
+R-F1 a fresh install restarted mid-outage before day one learns the degraded size (self-corrects on
+recovery). R-F2 an outage > 7 days becomes the fleet size. R-F3 jitter here reaches 0.81; a noisier fleet
+may need a lower fraction (reviewed change).
 
 ## 9. Tier
 **Tier 2** (operator: own review). One comparison site plus a new persisted value on the presence →
