@@ -260,6 +260,12 @@ earlier probes were residents actually leaving while a room's 300 s hold tail wa
 **Scanner-areas config field** — `CONF_SCANNER_AREAS = "scanner_areas"` (`const.py:564`),
 area-selector in config flow (`config_flow.py:2576`) and options flow
 (`config_flow.py:12576`). Introduced v3.2.4 (`config_flow.py:14`).
+**Own area ignored (branch `fix/scanner-areas-own-area`, NOT deployed, 2026-10-26):** HA's
+`AreaSelectorConfig` has no exclude option (entity/device/multiple only), so both room flows strip
+the room's own `CONF_AREA_ID` from the submitted list (`config_flow.strip_own_area`; the options
+form default excludes it too), and `_build_scanner_room_map` drops it before deciding Tier-1 direct
+status and the Tier-2 map. Before this, listing the own area (12 live rooms, cleaned 2026-10-26)
+silently demoted the room off `_direct_ble_rooms`.
 
 **What BLE can prove**: coarse ROOM, with scanner-area granularity, when the fleet is live.
 **What BLE cannot prove**: identity-at-a-door, sub-room location, or presence vs
