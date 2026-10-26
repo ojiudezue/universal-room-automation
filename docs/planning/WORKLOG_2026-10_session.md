@@ -243,3 +243,4 @@ this session's own work. Per-release detail lives in each `README_v5.103.N.md`; 
 - 2026-10-24 14:01 **v5.103.89** — v5.103.89: Envoy reserve oracle phase 2 + Halo panel channel (off by default) (cards: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1,WALLPANEL-URA-NOTIFY-1,NM-MULTI-ALERT-TRACKING-1)
 - 2026-10-24 21:18 **v5.103.90** — v5.103.90: Bluetooth leads home/away (GPS assistive) + EV toggle alarm no longer pages (cards: PERSON-BLE-WINS-OVER-STALE-GPS-1,EV-TOGGLE-TRIPWIRE-PEAK-BOUNDARY-1)
 - 2026-10-25 01:10 **v5.103.91** — v5.103.91: Census — face confirms, Bluetooth decides (cards: PERSON-BLE-WINS-OVER-STALE-GPS-1)
+- 2026-10-26 10:04 **v5.103.92** — v5.103.92: House sensor correctness fixes (cards: HOUSE-SENSOR-CORRECTNESS-1)

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-25'
+  last_reconciled: '2026-10-26'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -33303,7 +33303,8 @@ cards:
 - id: HOUSE-SENSOR-CORRECTNESS-1
   title: "House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area"
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.92
   tier: 2
   created: "2026-10-26"
   origin: 'Operator 2026-10-25 asked for a correctness audit of house sensors (docs/planning/AUDIT_house_sensors_correctness_2026_10_25.md); 2026-10-26 "Do both" / "Fix". Scanner own-area: operator 10-26 "we shouldn''t list their own area. Fix this".'
