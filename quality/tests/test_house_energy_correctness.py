@@ -305,3 +305,25 @@ def test_month_forecast_excludes_current_partial_month(db, monkeypatch):
     value, _c = _run(db.predict_energy("month"))
     # +0.25 inclusive-BETWEEN boundary sample, as in the week test.
     assert value == pytest.approx(736.2, abs=0.05)
+
+
+def test_negative_error_is_clamped_low():
+    """-80 % day (predicted 100, actual 20) + six exact days: clamped to -60
+    -> mean -8.5714 -> factor 0.974286. Unclamped: -80/7 -> 0.965714."""
+    T = _load_accuracy_tracker_ns()["AccuracyTracker"]
+    t = T()
+    rows = [_row(f"2026-10-{10+i:02d}", 100.0, 100.0, 0.0) for i in range(6)]
+    rows.append(_row("2026-10-18", 100.0, 20.0, -80.0))
+    t.restore_from_db(rows)
+    assert t.get_adjustment_factor() == pytest.approx(0.974286, abs=1e-5)
+
+
+def test_window_is_last_seven_usable():
+    """One old -50 % day then seven exact days: only the last 7 count -> 1.0.
+    An 8-wide window would give -50/8 -> 0.98125."""
+    T = _load_accuracy_tracker_ns()["AccuracyTracker"]
+    t = T()
+    t.evaluate_accuracy(100.0, 50.0, "2026-10-01")
+    for i in range(7):
+        t.evaluate_accuracy(100.0, 100.0, f"2026-10-{10+i:02d}")
+    assert t.get_adjustment_factor() == pytest.approx(1.0, abs=1e-9)
