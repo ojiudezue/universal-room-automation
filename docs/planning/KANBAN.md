@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T02:07:22-05:00_ - _Data commit: `254e82692c35`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-26T02:07:47-05:00_ - _Data commit: `4ed59c1a687f`_ - _last_reconciled: 2026-10-25_
 
 
 ## Columns
@@ -1106,7 +1106,7 @@ _revisit-trigger set_
 
 ### `STUDYA-ZK-EMPTY-HOLD-1` - Study A's presence radar holds the room occupied while the house is verifiably empty (696 of 2,781 min in the guest-free control), and its only second sensor (the Athom) is dead — _#1 · WSJF 10.0 · v5 tc3 u2 /e1_
 thread: **presence** - status: **parked**
-_created 2026-10-18 · updated 2026-10-26 02:09 · refined_
+_created 2026-10-18 · updated 2026-10-26 02:07 · refined_
 - **Next:** Parked (default: Study A stays out of the Away veto). Revive on revival_trigger.
 - **Forensic keys (8):**
   - `verify_2026_10_22`: Overnight re-check 02:0x: binary_sensor.athom_presence_sensor_d93b20_occupancy no longer exists in HA (404), so the second Study A sensor is gone, not just offline. The ZK (binary_sensor.mmwave_zigbee_studya_presence) reads off (last cha...
@@ -1493,7 +1493,7 @@ _created 2026-09-14 00:45 · updated 2026-10-16 02:16 · refined_
 
 ### `EC-FORECAST-TRUTH-GAPS-1` - Energy forecasts cannot be scored or trained: energy_daily has missing days, predicted production is null, apparent forecast high is unavailable — _#26 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **energy** - status: **parked**
-_created 2026-10-21 17:10 · updated 2026-10-26 02:09_
+_created 2026-10-21 17:10 · updated 2026-10-26 02:07_
 - **Why:** energy_daily consumption/prediction rows missing 10-05..10-17 entirely; predicted_production_kwh null (solar input null so forecast_today/forecasted_import read unknown); weather_apparent_forecast_high unavailable; EC consumption forecas...
 - **Next:** Parked. Revive on revival_trigger; then plan the dry-run-first backfill mode (Tier 2, one plan review, operator approves --apply).
 - **Forensic keys (8):**
