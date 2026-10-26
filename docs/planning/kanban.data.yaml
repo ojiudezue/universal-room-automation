@@ -33289,6 +33289,16 @@ cards:
   origin: 'HomeLab session handoff 2026-10-25 (operator asked): 6-h test 10-24 15:22-21:23, card WALL-HEAT-1 in homelab-automation docs/CONFIGS.md. Kitchen (rooms) 98% of samples >50%, Master (now) 70%, Study B (now) 54%, Up Hallway (rooms) 50%; never-woken Study A/Media ~0-5%; Entry on HA /map 5%. Repro: light.media_room_panel_screen on -> renderer 93-141% in 15 s, off -> 0% in 30 s. Ruled out: dashboard save time, WS reconnect loop, KS screensaver, kiosk_mode. Hot: CrRendererMain, raster, Mali GPU.'
   why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
+- id: EC-DB-RESTORE-TIMEOUT-1
+  title: "Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0"
+  thread: energy
+  status: investigating
+  tier: 1
+  created: "2026-10-26"
+  origin: "v5.103.92 live validation 2026-10-26: system_log ERROR energy.py:1255 at 10:06 CDT."
+  why: "energy_import_today 27.3 -> 0.0 and energy_cost_today 2.35 -> 0.0 at 10:06:51; whole-house cost today (now sourced from EC since v5.103.92) under-reads until midnight. The 10-25 17:33 restart restored fine, so it is intermittent (likely DB contention at boot)."
+  next: "Me: measure how often the restore times out (journald/system_log across recent restarts, URA DB lock/write-queue at boot) and what the restore was waiting on, before choosing a fix (longer timeout, restore today's counters first, or retry after boot)."
+  rank: {"value": 4, "time_criticality": 3, "effort": 2}
 - id: OLLAMA-WORKSTATION-62-WAKE-1
   title: "Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models"
   thread: optimization

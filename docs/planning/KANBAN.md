@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T10:04:20-05:00_ - _Data commit: `1a5f3004e371`_ - _last_reconciled: 2026-10-26_
+_Generated: 2026-10-26T10:07:34-05:00_ - _Data commit: `c065041da832`_ - _last_reconciled: 2026-10-26_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-10-26T10:04:20-05:00_ - _Data commit: `1a5f3004e371`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 3 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
 ### `URA-V8-PANEL-RENDER-SPIN-1` - ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off — _#1 · WSJF 5.5 · v5 tc4 u2 /e2_
@@ -39,6 +39,14 @@ _created 2026-10-25 · updated 2026-10-26 02:07_
   - `overnight_gate_2026_10_26`: Bisect NOT run overnight: it needs a panel screen on and dashboard edits in an occupied, sleeping house. It stays my work (not an operator decision) for the next attended daytime session.
   - `done_2026_10_26`: Cause is HA frontend cost, not ura-v8 views. Removed 3 resources (duplicate prism-dashboard.js; 404s template-entity-row.js, /local/plotly-graph-card.js); backup docs/dashboard-prototypes/ura-v8-backups/20261026T114409Z_pre_panel_cpu_fix...
   - `remaining_2026_10_26`: (1) Measure panel CPU after person.wall_kiosk (adb top on Media Room). (2) Wildcard auto-entities cards disable Kiosk Satellite dashboard filtering (~50% CPU): replace with explicit lists on the panel views, Media Room first; loses dynam...
+  - `tier`: 1
+
+### `EC-DB-RESTORE-TIMEOUT-1` - Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0 — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **energy** - status: **investigating**
+_created 2026-10-26_
+- **Why:** energy_import_today 27.3 -> 0.0 and energy_cost_today 2.35 -> 0.0 at 10:06:51; whole-house cost today (now sourced from EC since v5.103.92) under-reads until midnight. The 10-25 17:33 restart restored fine, so it is intermittent (likely ...
+- **Next:** Me: measure how often the restore times out (journald/system_log across recent restarts, URA DB lock/write-queue at boot) and what the restore was waiting on, before choosing a fix (longer timeout, restore today's counters first, or retr...
+- **Forensic keys (1):**
   - `tier`: 1
 
 ## 🧭 Pre-planning (15)
