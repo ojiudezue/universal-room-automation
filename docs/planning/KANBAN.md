@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-26T02:04:46-05:00_ - _Data commit: `c9bee628562c`_ - _last_reconciled: 2026-10-25_
+_Generated: 2026-10-26T02:05:19-05:00_ - _Data commit: `75b7f757e9b8`_ - _last_reconciled: 2026-10-25_
 
 
 ## Columns
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 ### `URA-V8-PANEL-RENDER-SPIN-1` - ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off — _#1 · WSJF 5.5 · v5 tc4 u2 /e2_
 thread: **dashboarding** - status: **investigating**
-_created 2026-10-25 · updated 2026-10-26 02:45_
+_created 2026-10-25 · updated 2026-10-26 02:07_
 - **Why:** Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake.
 - **Next:** Me, attended daytime session: run the audit's bisect on the Media Room panel (adb top 192.168.12.154:5555) starting with the cheap discriminators: navigate-away-and-back after wake (state vs view), then disable material-you-utilities, th...
 - **Forensic keys (3):**
@@ -55,10 +55,11 @@ thread: **energy** - status: **pre_planning**
 
 ### `BLE-LOCATION-QUALITY-1` - BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **presence** - status: **pre_planning**
-_created 2026-10-25_
+_created 2026-10-25 · updated 2026-10-26 02:07_
 - **Why:** Raw BLE flapping and floor jumps (Jaya Bedroom <-> Garage A) feed room occupancy, night lights and sleep logic; URA smoothing cuts it ~3.5x but the source is noisy.
-- **Next:** Me: config-first: read live hold knobs for Jaya Bedroom (BLE hold / sleep hold / borrowed neighbour) and whether a config change keeps the bedroom occupied when BLE flips to the attached bathroom at night; else Tier-1/2 plan: bathroom co...
-- **Forensic keys (7):**
+- **Next:** Me: Tier 2 plan (ura-planner, after reading PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md + SENSOR_FLEET_CLASSES.md in full) for the en-suite extend leg, one plan review, then build to review. Not started overnight 10-26 (review lane at its WIP...
+- **Forensic keys (8):**
+  - `config_first_2026_10_26`: CONFIG-FIRST: NO setting fixes it (live read, .storage/core.config_entries via Samba, 10-26 ~02:06). Jaya Bedroom (Bedroom 4): area_id jaya_bedroom, presence_sensors [jaya_3_presence, mmwave_zigbee_jayabedroom_presence], occupancy_timeou...
   - `tier`: 2
   - `baseline`: DONE: docs/planning/AUDIT_ble_location_baseline_2026_10_23.md (raw changes/h Oji 76, Jaya 62, Ezinne 36; floor jumps 1.9/3.1/1.5 per h; top flap Jaya Bathroom<->Bedroom; night drift 10-19/20; radar agreement Study A 97-99%, Jaya Bedroom ...
   - `ideas`: 1 full-time scanning: ESPHome proxies scan_parameters window=interval (320 ms), ojifirstble-proxy active:false; Shelly Gen2+ BLE scanner mode Auto. OPERATOR reflash; re-measure with the same audit after.
@@ -416,22 +417,23 @@ _being built_
 
 ### `NM-ACK-TTS-IGNORES-DISABLE-1` - Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors) — _#1 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **notifications** - status: **in_progress** - approval: **implied**
-_created 2026-10-25 02:08 · updated 2026-10-26 02:20 · initial_
+_created 2026-10-25 02:08 · updated 2026-10-26 02:07 · initial_
 - **Problem / Solution:**
   - Problem: when someone acknowledges an alert, the notification manager announces the acknowledgement out loud on the configured speakers without checking whether spoken alerts are switched on. Spoken alerts are off in this house, yet at 0...
 - **Origin:** 2026-10-25 - Overnight pass log read (ha_get_logs source=system): notification_manager.py:3924 ERROR 'TTS ack announcement failed: at least one of entity_id, device_id, area_id, floor_id, label_id is required' at 00:39:32 CDT, same secon...
 - **Why:** Code: _announce_ack (notification_manager.py:3897-3924) checks only CONF_NM_TTS_SPEAKERS and the dry-run gate; it never checks CONF_NM_TTS_ENABLED, whereas the alert path gates TTS through _channel_ready('tts', ...) (notification_manager...
-- **Next:** Me: Tier-1 build in a worktree (gate + test + mutation), one review, validate, to review lane. Not deployed overnight.
+- **Next:** Me: one serial full-suite name-diff (validator) for tonight's three branches merged on develop, then review lane. Deploy at an attended session (not overnight).
 - **Parsimony:** [SIMPLIFY: gate the ack announce on CONF_NM_TTS_ENABLED now (Tier 1); park the engine-target fix as a PICK.] With TTS disabled, an acknowledgement still issues tts.speak to 5 speakers (it errors today only because the call lacks an engine target).
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 1
+  - `reviewed_2026_10_26`: Tier 1 review A: SHIP (f653536b0, docs/reviews/code-review/nm_ack_tts_gate_review.md on fix/nm-ack-tts-gate). Gate = _channel_qualifies('tts', CRITICAL) at notification_manager.py:3904-3908, reads the merged data+options config (same as ...
   - `INSTANCE_2026_10_26_0151`: Same ERROR again at 01:51 CDT 10-26 (system_log, notification_manager.py:3924, count 1 since the 10-25 17:33 restart). Expected: fix/nm-ack-tts-gate (798f17c82) is built but not reviewed/merged/deployed. Overnight 10-26 picks up the owed...
   - `adjacency`: Swept board (grep tts/TTS/_announce_ack): only the NM config description card mentions TTS disabled; no card on this. BACKLOG/plans: no TTS-target item. NEW.
   - `residual_engine_target`: Latent, TTS disabled so no live effect: tts.speak needs a tts.* entity target. PICK later: A add an options-flow TTS engine picker (recommended) or B pick tts.home_assistant_cloud by default.
 
 ### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **hvac** - status: **in_progress** - approval: **implied**
-_created 2026-10-23 02:05 · updated 2026-10-26 02:08 · refined_
+_created 2026-10-23 02:05 · updated 2026-10-26 02:07 · refined_
 - **Problem / Solution:**
   - Problem: two AC-ramp savings sensors say they count 'since the feature was turned on', but they only add up the last 30 days, because old rows are deleted from the database each night. So they go DOWN every midnight. They also show 0 for...
 - **Origin:** 2026-10-23 - overnight pass: HA system_log warning 'ura_hvac_coordinator_ac_kwh_avoided_total ... total_increasing, but its state is not strictly increasing (382.871, previous 402.521)' at 00:00:59 CDT
@@ -476,7 +478,7 @@ _under review_
 
 ### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#1 · WSJF 6.5 · v5 tc6 u2 /e2_
 thread: **dashboard** - status: **review**
-_created 2026-10-21 20:10 · updated 2026-10-26 02:45_
+_created 2026-10-21 20:10 · updated 2026-10-26 02:07_
 - **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...
 - **Next:** Inventory each chip's entity source and whether the room detail card already shows/controls it; add the missing detail controls first, then the chips; backup the dashboard JSON; verify in Chrome at desktop + 390 px.
 - **Forensic keys (7):**
@@ -585,7 +587,7 @@ _created 2026-09-16 03:30 · updated 2026-10-25 02:09 · refined_
 
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#4 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-10-16 02:20 · updated 2026-10-26 02:20 · initial_
+_created 2026-10-16 02:20 · updated 2026-10-26 02:07 · initial_
 - **Problem / Solution:**
   - Problem: URA's Safety coordinator can only react to detectors Home Assistant can read. Tonight the only real smoke detector (the Heiman in the kitchen) reads 'unavailable' and has since the 10-15 12:46 restart; four Zigbee leak sensors n...
 - **Origin:** 2026-10-16 - Overnight pass: found by the ura-planner measurement for SAFETY-NO-INITIAL-SENSOR-PASS-1 (plan section 6/9); smoke state re-read live by the orchestrator.
@@ -595,7 +597,7 @@ _created 2026-10-16 02:20 · updated 2026-10-26 02:20 · initial_
 - **Forensic keys (13):**
   - `verify_2026_10_23`: Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change.
   - `verify_2026_10_22`: Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reportin...
-  - `recheck_2026_10_26`: Overnight 02:10 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 runnin...
+  - `recheck_2026_10_26`: Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 runni...
   - `links_added_2026_10_21`: related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap.
   - `reverified_2026_10_20_overnight`: STILL-REAL 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable (since the 10-18 20:36 restart). Still waits on your re-pair.
   - `operator_instruction_2026_10_17`: hardware stuff I will re-pair (board, 2026-10-18T03:59:25.122Z)
@@ -2585,7 +2587,7 @@ _closed, evidence in refs_
 
 ### `EV-TOGGLE-TRIPWIRE-PEAK-BOUNDARY-1` - ev_toggle_tripwire fired 10-18, 10-19, 10-21 on garage_a with pause owners none/dp (not fill priority): suspected EVSE flip-flop at the peak boundary — _WSJF 6.5 · v5 tc6 u2 /e2_
 thread: **energy** - status: **done**
-_created 2026-10-21 · updated 2026-10-26 02:35 · refined_
+_created 2026-10-21 · updated 2026-10-26 02:07 · refined_
 - **Problem / Solution:**
   - Problem: the EV toggle alarm pages HIGH most evenings because, at the 17:00 start of the higher-price period, URA pauses the garage A charger and two seconds later turns it back on to use spare solar. When the solar forecast for the rest...
 - **Why:** A tripwire firing three times in four days means the EVSE is toggling; if it is a peak-boundary flip-flop it wastes contactor cycles and may charge on peak.
@@ -2606,7 +2608,7 @@ _created 2026-10-21 · updated 2026-10-26 02:35 · refined_
 
 ### `PERSON-BLE-WINS-OVER-STALE-GPS-1` - Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10) — _WSJF 3.8 · v7 tc6 u2 /e4_
 thread: **presence** - status: **done**
-_created 2026-10-24 · updated 2026-10-26 02:35_
+_created 2026-10-24 · updated 2026-10-26 02:07_
 - **Why:** GPS is optional per user (location off, iOS permission denied, privacy) and can freeze; BLE with fleet liveness is the house's own evidence. Away-mode and house-state decisions consume this.
 - **Next:** None - closed 10-26. Read face_dropped_ble_overrule_count once on the next frozen-home-GPS episode (residual).
 - **Forensic keys (13):**
