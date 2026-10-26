@@ -19,7 +19,9 @@ from custom_components.universal_room_automation.domain_coordinators.safety impo
     HazardType,
     Hazard,
 )
-from custom_components.universal_room_automation.domain_coordinators.base import (
+# Severity as Safety itself binds it: another stub file may re-exec ``base``
+# after safety was imported, and the assertions below check identity.
+from custom_components.universal_room_automation.domain_coordinators.safety import (
     Severity,
 )
 from custom_components.universal_room_automation.domain_coordinators.manager import (
@@ -45,6 +47,26 @@ class _CapturingNM:
         args_d = dict(bound.arguments)
         args_d.pop("self")
         self.calls.append(args_d)
+
+
+@pytest.fixture(autouse=True)
+def _reconcile_manager_base_classes(monkeypatch):
+    """Stub files (e.g. test_notification_manager) may re-exec the package and
+    ``base`` after ``safety`` was imported, so manager's NotificationAction
+    can be a different class object from the one Safety builds -> the
+    isinstance gate in _execute_action silently skips NM. Bind manager's
+    base-class globals to Safety's (same pattern as test_safety_nm_refire),
+    scoped via monkeypatch."""
+    import custom_components.universal_room_automation.domain_coordinators.manager as manager_mod  # noqa: E501,PLC0415
+    import custom_components.universal_room_automation.domain_coordinators.safety as safety_mod  # noqa: E501,PLC0415
+
+    na_cls = safety_mod.NotificationAction
+    monkeypatch.setattr(manager_mod, "NotificationAction", na_cls)
+    monkeypatch.setattr(
+        manager_mod, "ActionType",
+        type(na_cls.__dataclass_fields__["action_type"].default),
+    )
+    monkeypatch.setattr(manager_mod, "ServiceCallAction", safety_mod.ServiceCallAction)
 
 
 def _setup():
