@@ -57,16 +57,18 @@ def _reconcile_manager_base_classes(monkeypatch):
     isinstance gate in _execute_action silently skips NM. Bind manager's
     base-class globals to Safety's (same pattern as test_safety_nm_refire),
     scoped via monkeypatch."""
-    import custom_components.universal_room_automation.domain_coordinators.manager as manager_mod  # noqa: E501,PLC0415
-    import custom_components.universal_room_automation.domain_coordinators.safety as safety_mod  # noqa: E501,PLC0415
-
-    na_cls = safety_mod.NotificationAction
-    monkeypatch.setattr(manager_mod, "NotificationAction", na_cls)
-    monkeypatch.setattr(
-        manager_mod, "ActionType",
+    # Resolve from the module globals the code under test ACTUALLY executes
+    # with (the classes this file bound at import), not from sys.modules —
+    # a later re-exec can make sys.modules hold different module objects.
+    safety_g = SafetyCoordinator.handle_test_hazard.__globals__
+    manager_g = CoordinatorManager._execute_action.__globals__
+    na_cls = safety_g["NotificationAction"]
+    monkeypatch.setitem(manager_g, "NotificationAction", na_cls)
+    monkeypatch.setitem(
+        manager_g, "ActionType",
         type(na_cls.__dataclass_fields__["action_type"].default),
     )
-    monkeypatch.setattr(manager_mod, "ServiceCallAction", safety_mod.ServiceCallAction)
+    monkeypatch.setitem(manager_g, "ServiceCallAction", safety_g["ServiceCallAction"])
 
 
 def _setup():
