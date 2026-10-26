@@ -138,7 +138,12 @@ def _room_entry(eid, room, area_id, scanner_areas):
 
 
 def _build(pc, entries):
-    coord = pc.PersonTrackingCoordinator.__new__(pc.PersonTrackingCoordinator)
+    # Plain stand-in self, driving the REAL unbound method: depending on suite
+    # order, DataUpdateCoordinator may be a MagicMock-derived stub, and
+    # ``__new__`` of a Mock subclass yields an object whose attribute writes
+    # raise AttributeError('_mock_methods'). The method only reads/writes the
+    # attributes set below.
+    coord = SimpleNamespace()
     hass = MagicMock()
     hass.config_entries.async_entries = MagicMock(return_value=entries)
     hass.data = {}
@@ -151,7 +156,7 @@ def _build(pc, entries):
     area_reg = MagicMock()
     area_reg.async_get_area = lambda aid: SimpleNamespace(name=aid.replace("_", " ").title())
     with patch.object(pc.ar, "async_get", return_value=area_reg):
-        _run(coord._build_scanner_room_map())
+        _run(pc.PersonTrackingCoordinator._build_scanner_room_map(coord))
     return coord
 
 

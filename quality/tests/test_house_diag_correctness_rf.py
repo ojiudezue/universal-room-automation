@@ -6,7 +6,7 @@ side effects; it installs stubs only when absent).
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import test_routine_forecaster as _h  # noqa: F401
 
@@ -94,10 +94,14 @@ def test_future_entry_time_clamped_to_zero_elapsed():
     assert fc.predict("home_day")["transition_eta_minutes"] == 60
 
 
-def test_unsubtractable_entry_time_falls_back():
+def test_unsubtractable_entry_time_falls_back(monkeypatch):
     # Naive entry stamp vs aware now -> TypeError -> elapsed 0, now-keyed.
+    # Force an AWARE now explicitly: an ambient naive utcnow (leaked by
+    # another file) would make the subtraction succeed and hide the path.
+    aware_now = datetime.now(timezone.utc)
+    monkeypatch.setattr(rf_mod.dt_util, "utcnow", lambda: aware_now)
     fc = rf_mod.RoutineForecaster(_h._hass(), _h._FakeDB([]))
-    fc._last_row_ts = (rf_mod.dt_util.utcnow() - timedelta(minutes=100)).replace(tzinfo=None)
+    fc._last_row_ts = (aware_now - timedelta(minutes=100)).replace(tzinfo=None)
     fc._last_row_state = "home_day"
-    _seed_cell(fc, rf_mod.dt_util.utcnow(), "home_day", "away", [60, 90, 120, 150, 180])
+    _seed_cell(fc, aware_now, "home_day", "away", [60, 90, 120, 150, 180])
     assert fc.predict("home_day")["transition_eta_minutes"] == 120
