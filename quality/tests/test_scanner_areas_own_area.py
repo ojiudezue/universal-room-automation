@@ -173,3 +173,22 @@ def test_borrow_only_room_unchanged(pc_mod):
     coord = _build(pc_mod, [_room_entry("e1", "Study A", OWN, [OTHER])])
     assert coord._direct_ble_rooms == set()
     assert coord._scanner_to_rooms == {OTHER: ["Study A"]}
+
+
+def test_config_flow_class_keeps_timing_instrumentation():
+    """Review A/B/C 2026-10-26: strip_own_area must not sit between
+    @instrument_flow and the ConfigFlow class."""
+    from custom_components.universal_room_automation import config_flow as cf
+
+    assert getattr(
+        cf.UniversalRoomAutomationConfigFlow, "_cflow_timing_instrumented", False
+    )
+
+
+def test_strip_own_area_without_area_id_keeps_list():
+    from custom_components.universal_room_automation.config_flow import (
+        strip_own_area,
+    )
+
+    assert strip_own_area(["a", "b"], None) == ["a", "b"]
+    assert strip_own_area(None, "a") == []
