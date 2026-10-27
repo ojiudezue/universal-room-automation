@@ -13675,7 +13675,8 @@ class HVACACRampKwhRateSensor(
 # ============================================================================
 # These surface the cumulative effect of the AC ramp-down feature:
 #   - nudges_today / resets_today (count of soft + hard interventions)
-#   - kwh_avoided_today / _total (rough estimate — see TECH_DEBT.md)
+#   - kwh_avoided_today / _total (rough estimate — see TECH_DEBT.md;
+#     "_total" is a trailing 30-day sum, see HVACACKwhAvoidedTotalSensor)
 #   - false_positive_rate (% of nudges where kwh_rate didn't drop)
 #
 # All read from `OverrideArrester._impact_cache`, refreshed once per
@@ -13701,6 +13702,33 @@ class _ACRampImpactSensorMixin:
         if arr is None:
             return None
         return getattr(arr, "_impact_cache", None)
+
+    def _get_refreshed_cache(self) -> dict | None:
+        """Return the impact cache ONLY once the arrester's first DB refresh
+        has completed (``last_refresh_ts`` set), else None.
+
+        HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1: the arrester seeds
+        ``_impact_cache`` with zeros at construction
+        (``hvac_override.py`` ``OverrideArrester.__init__``) and fills it at
+        the end of the first ``check_ac_reset`` pass. For ~1 min after every
+        restart the seeded 0 was published; the TOTAL_INCREASING members of
+        this family read that as a meter reset and HA long-term statistics
+        re-added the whole value (sum reached ~212,000 kWh). Every native_value
+        in the family reads through this one check. Per-sensor decision while
+        it returns None:
+          - nudges today / resets today / kWh today (TOTAL_INCREASING): None
+            (unknown); statistics skip unknown, so no false reset.
+          - kWh this cycle / $ today / $ this cycle / $ 30 days (TOTAL): None;
+            a 0 blip would not corrupt the sum but is still a false value.
+          - kWh 30 days (RestoreEntity): the restored last state, else None.
+          - false-positive rate (MEASUREMENT): None (already its unknown value).
+        If the ramp feature is off, ``check_ac_reset`` returns before the
+        refresh, so the family stays unknown rather than showing a fake 0.
+        """
+        cache = self._get_cache()
+        if cache is None or cache.get("last_refresh_ts") is None:
+            return None
+        return cache
 
     async def async_added_to_hass(self) -> None:
         """Refresh on every HVAC tick (Bug Class #35 prevention)."""
@@ -13741,10 +13769,10 @@ class HVACACNudgesTodaySensor(
         self._attr_device_info = _hvac_device_info()
 
     @property
-    def native_value(self) -> int:
-        cache = self._get_cache()
+    def native_value(self) -> int | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0
+            return None
         return int(cache.get("nudges_today", 0))
 
     @property
@@ -13779,10 +13807,10 @@ class HVACACResetsTodaySensor(
         self._attr_device_info = _hvac_device_info()
 
     @property
-    def native_value(self) -> int:
-        cache = self._get_cache()
+    def native_value(self) -> int | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0
+            return None
         return int(cache.get("resets_today", 0))
 
 
@@ -13798,7 +13826,8 @@ class HVACACKwhAvoidedTodaySensor(
     events whose `timestamp >= start_of_local_day()`. Properties:
       - monotonic non-decreasing within a day (state_class total_increasing)
       - resets to 0 at local midnight (rows fall out of the WHERE clause)
-      - restart-safe: value is re-derived from ac_ramp_events, no RAM state
+      - restart-safe: value is re-derived from ac_ramp_events, no RAM state;
+        reads unknown (not 0) until the first DB refresh after a restart
 
     Prior implementation used a rolling 24h window (`days=1`) which caused
     non-monotonic decreases as events aged out — see hvac_override.py.
@@ -13819,10 +13848,10 @@ class HVACACKwhAvoidedTodaySensor(
         self._attr_device_info = _hvac_device_info()
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0.0
+            return None
         return float(cache.get("kwh_avoided_today", 0.0))
 
     @property
@@ -13841,8 +13870,17 @@ class HVACACKwhAvoidedTodaySensor(
 class HVACACKwhAvoidedTotalSensor(
     _ACRampImpactSensorMixin, AggregationEntity, SensorEntity, RestoreEntity,
 ):
-    """v4.5.12 D8: cumulative kWh avoided since the AC ramp-down feature
-    was first enabled. Persists across HA restart (RestoreEntity).
+    """v4.5.12 D8: kWh avoided by AC ramp-down over the TRAILING 30 DAYS.
+
+    NOT a lifetime total (HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1): it sums
+    ``ac_ramp_events`` with ``days=None``, and ``cleanup_ac_ramp_events``
+    (database.py, retention 30 days) prunes that table at each day rollover,
+    so the value goes DOWN every midnight. Hence state_class TOTAL (allowed
+    to decrease; valid for device_class ENERGY per HA
+    ``sensor/const.py`` DEVICE_CLASS_STATE_CLASSES), not TOTAL_INCREASING.
+    The unique_id keeps its historical ``_total`` suffix so the entity_id
+    does not change. RestoreEntity: the last state is shown until the
+    arrester's first DB refresh after a restart.
 
     Same rough-estimate caveat as the today sensor.
 
@@ -13852,13 +13890,13 @@ class HVACACKwhAvoidedTotalSensor(
     _attr_has_entity_name = True
     _attr_icon = "mdi:flash-off-outline"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "kWh"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_total"
-        self._attr_name = "80 · AC kWh Avoided (Total)"
+        self._attr_name = "80 · AC kWh Avoided (30 days)"
         self._attr_device_info = _hvac_device_info()
         self._restored_value: float | None = None
 
@@ -13875,12 +13913,14 @@ class HVACACKwhAvoidedTotalSensor(
                 self._restored_value = None
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            # Fall back to the last persisted value while coord is starting
-            return self._restored_value if self._restored_value is not None else 0.0
-        # Live cache wins once it's populated
+            # Before the first DB refresh (coordinator starting, or cache
+            # still holding its seeded zeros): the last persisted value,
+            # else unknown. Never the seeded 0.
+            return self._restored_value
+        # Live cache wins once a refresh has completed
         return float(cache.get("kwh_avoided_total", 0.0))
 
     @property
@@ -13888,8 +13928,9 @@ class HVACACKwhAvoidedTotalSensor(
         return {
             "accuracy": "rough_estimate",
             "accuracy_note": (
-                "Cumulative since feature enable. Trend-watching only; "
-                "not billing-grade. See docs/TECH_DEBT.md."
+                "Sum over the trailing 30 days (ac_ramp_events retention); "
+                "drops as old days age out, so it is not a lifetime total. "
+                "Trend-watching only; not billing-grade. See docs/TECH_DEBT.md."
             ),
         }
 
@@ -13919,10 +13960,10 @@ class HVACACKwhAvoidedBillingCycleSensor(
         self._attr_device_info = _hvac_device_info()
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0.0
+            return None
         return float(cache.get("kwh_avoided_cycle", 0.0))
 
     @property
@@ -13993,10 +14034,10 @@ class HVACACRampSavingsTodaySensor(_ACRampSavingsSensorBase):
         self._attr_name = "76 · AC Ramp Savings Today"
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0.0
+            return None
         return round(float(cache.get("savings_today", 0.0)), 2)
 
     @property
@@ -14020,10 +14061,10 @@ class HVACACRampSavingsBillingCycleSensor(_ACRampSavingsSensorBase):
         self._attr_name = "77 · AC Ramp Savings This Cycle"
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0.0
+            return None
         return round(float(cache.get("savings_cycle", 0.0)), 2)
 
     @property
@@ -14039,7 +14080,11 @@ class HVACACRampSavingsBillingCycleSensor(_ACRampSavingsSensorBase):
 
 
 class HVACACRampSavingsLifetimeSensor(_ACRampSavingsSensorBase):
-    """PLANNING_hvac_kwh_avoided_savings D2: AC-ramp $ saved lifetime.
+    """PLANNING_hvac_kwh_avoided_savings D2: AC-ramp $ saved over the
+    TRAILING 30 DAYS (not lifetime: ``ac_ramp_events`` keeps 30 days, so the
+    value drops at each midnight prune; state_class TOTAL allows that).
+    unique_id keeps its historical ``_lifetime`` suffix so the entity_id
+    does not change (HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1).
 
     Entity: sensor.ura_hvac_ac_ramp_savings_lifetime
     """
@@ -14048,13 +14093,13 @@ class HVACACRampSavingsLifetimeSensor(_ACRampSavingsSensorBase):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_savings_lifetime"
-        self._attr_name = "78 · AC Ramp Savings Lifetime"
+        self._attr_name = "78 · AC Ramp Savings (30 days)"
 
     @property
-    def native_value(self) -> float:
-        cache = self._get_cache()
+    def native_value(self) -> float | None:
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return 0.0
+            return None
         return round(float(cache.get("savings_lifetime", 0.0)), 2)
 
     @property
@@ -14095,9 +14140,9 @@ class HVACACFalsePositiveRateSensor(
 
     @property
     def native_value(self):
-        cache = self._get_cache()
+        cache = self._get_refreshed_cache()
         if cache is None:
-            return None  # → "unavailable" until coord ready
+            return None  # unknown until the first DB refresh
         rate = cache.get("false_positive_rate")
         # rate is None when sample_size < 5; HA renders as "unavailable"
         return rate
