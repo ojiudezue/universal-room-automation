@@ -13,7 +13,6 @@ import pytest
 
 pytest.importorskip("homeassistant.helpers.storage")
 
-from homeassistant.components.sensor import SensorStateClass  # noqa: E402
 
 from custom_components.universal_room_automation import sensor as sen  # noqa: E402
 from custom_components.universal_room_automation.const import DOMAIN  # noqa: E402
@@ -115,9 +114,13 @@ def test_total_after_refresh_reads_cache_over_restored():
 def test_thirty_day_kwh_sensor_may_decrease():
     kwh = _make(sen.HVACACKwhAvoidedTotalSensor, _refreshed_cache())
     usd = _make(sen.HVACACRampSavingsLifetimeSensor, _refreshed_cache())
-    assert kwh.state_class == SensorStateClass.TOTAL
-    assert kwh.state_class != SensorStateClass.TOTAL_INCREASING
-    assert usd.state_class == SensorStateClass.TOTAL
+    # Compare by string value: SensorStateClass is a StrEnum, and in full-suite
+    # order an earlier test can leave this module's imported SensorStateClass
+    # bound to a MagicMock stub (sys.modules pollution), which made the enum
+    # compare fail order-dependently. The string values are the HA contract.
+    assert kwh.state_class == "total"
+    assert kwh.state_class != "total_increasing"
+    assert usd.state_class == "total"
 
 
 def test_thirty_day_names_and_unique_ids():
