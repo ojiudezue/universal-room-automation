@@ -3901,6 +3901,11 @@ class NotificationManager:
         speakers = self._config.get(CONF_NM_TTS_SPEAKERS, [])
         if not speakers:
             return
+        # NM-ACK-TTS-IGNORES-DISABLE-1: honour the TTS channel enable switch
+        # (and its severity threshold) via the same oracle the alert path
+        # uses. Acks only exist for CRITICAL alerts. No token is burned.
+        if not self._channel_qualifies("tts", Severity.CRITICAL):
+            return
         message = f"{hazard_type} alert acknowledged by {person_name}"
         if location:
             message += f" in {location}"
