@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-10-26'
+  last_reconciled: "2026-10-27"
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "EC-DB-RESTORE-TIMEOUT-1@2026-10-27T02:08:00", "card_id": "EC-DB-RESTORE-TIMEOUT-1", "at": "2026-10-27T02:08:00", "outcome": "measured", "headline": "Energy boot restore: 2 of the last 17 restarts (10-21 18:28, 10-26 10:09) ran out of the 15 s limit and zeroed today's cost/import. The queries themselves take ~1 ms, so it is boot-time contention. Worse than the title said: a timeout also skips the reload of load-shedding level, solar-follow state and the bill ledger. Planned as Tier 2 (per-step limits + retry after startup); not built tonight because of the review-lane cap.", "acknowledged": false}
+  - {"fid": "HOUSE-SENSOR-CORRECTNESS-1@2026-10-27T02:08:00", "card_id": "HOUSE-SENSOR-CORRECTNESS-1", "at": "2026-10-27T02:08:00", "outcome": "done", "headline": "Soak exit: house sensor fixes (v5.103.92) closed. 0 false tripped-breaker rows since the restart (about 4 an hour before), whole-house cost today now equals EC cost today at a non-zero value, forecast factor 0.918.", "acknowledged": false}
+  - {"fid": "URA-ENTITY-COUNT-REDUCTION-1@2026-10-27T02:08:00", "card_id": "URA-ENTITY-COUNT-REDUCTION-1", "at": "2026-10-27T02:08:00", "outcome": "parked", "headline": "Entity-count cleanup parked: URA is 3,110 of 17,890 enabled entities (17%); disabling all its diagnostics would trim 4.4%, and the panel test already showed frontend cuts didn't reduce the spin. Comes back only if the panel bisect shows entity count drives CPU.", "acknowledged": false}
+  - {"fid": "URA-V8-PANEL-RENDER-SPIN-1@2026-10-27T02:08:00", "card_id": "URA-V8-PANEL-RENDER-SPIN-1", "at": "2026-10-27T02:08:00", "outcome": "escalated", "headline": "Wall-panel spin moved to your queue: the measurements are done, and what's left is your PICK (explicit lists instead of wildcard cards on panel views, Media Room first: recommended) plus a HomeLab screensaver test for the new screen-off spin.", "acknowledged": false}
+  - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-27T02:08:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-10-27T02:08:00", "outcome": "measured", "headline": "Re-checked 5 cards waiting on you; all still need you: front lock still offline (Z-Wave node dead), kitchen smoke sensor still offline, BLE proxy BP1_B still off, Ollama .62 still not answering. Frigate is healthy (40 fps).", "acknowledged": false}
   - {"fid": "EC-FORECAST-TRUTH-GAPS-1@2026-10-26T02:07", "card_id": "EC-FORECAST-TRUTH-GAPS-1", "at": "2026-10-26T02:07:00", "outcome": "parked", "headline": "Forecast truth gaps: took the offered default and parked the historical backfill of the blank days. The live gaps were already fixed. It comes back when forecast scoring needs data from before 10-22.", "acknowledged": false}
   - {"fid": "STUDYA-ZK-EMPTY-HOLD-1@2026-10-26T02:07", "card_id": "STUDYA-ZK-EMPTY-HOLD-1", "at": "2026-10-26T02:07:00", "outcome": "parked", "headline": "Study A radar: took the default. Study A stays out of the Away veto, parked until a second sensor is back (the old Athom is gone from HA). Nothing needed from you unless you want Study A in the veto.", "acknowledged": false}
   - {"fid": "URA-V8-PANEL-RENDER-SPIN-1@2026-10-26T02:07", "card_id": "URA-V8-PANEL-RENDER-SPIN-1", "at": "2026-10-26T02:07:00", "outcome": "measured", "headline": "Wall-panel CPU spin: static audit found no animated or blur-heavy card on the busy views, and entity churn is low. Top suspects are the global theme utility (material-you-utilities) and 53 hidden pop-ups on Rooms. The bisect needs a screen on, so it is queued for a daytime session.", "acknowledged": false}
@@ -56,23 +61,6 @@ meta:
   - {"fid": "SAFETY-HAZARD-NEVER-CLEARS-1@2026-10-20T02:05", "card_id": "SAFETY-HAZARD-NEVER-CLEARS-1", "at": "2026-10-20T02:05:00", "outcome": "done", "headline": "Safety hazards now clear without a restart (several raise/clear cycles 10-17..10-19). Closed.", "acknowledged": false}
   - {"fid": "NIGHTLIGHT-RED-RECONCILE-PARITY-1@2026-10-20T02:05", "card_id": "NIGHTLIGHT-RED-RECONCILE-PARITY-1", "at": "2026-10-20T02:05:00", "outcome": "parked", "headline": "Night-light red-on-reconnect: not observable by 10-18; parked with a revival trigger (proven in-suite).", "acknowledged": false}
   - {"fid": "JAYA-FAN-STILL-PHANTOM-1@2026-10-20T02:05", "card_id": "JAYA-FAN-STILL-PHANTOM-1", "at": "2026-10-20T02:05:00", "outcome": "parked", "headline": "Jaya fan recheck: zero Jaya episodes to test since 10-12; parked with a revival trigger.", "acknowledged": false}
-  - {"fid": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:41", "card_id": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1", "at": "2026-10-19T02:41:00", "outcome": "built", "headline": "Built to review: bill check now compares SmartHub hourly data (priced by TOU) with EC over the same days. 3 reviews SHIP after fix-ups, 0 new test failures. Not deployed; needs 2 option ids + your cycle-day answer.", "acknowledged": false}
-  - {"fid": "ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:22", "card_id": "ZONE-ROOM-NAME-DRIFT-1", "at": "2026-10-19T02:22:00", "outcome": "escalated", "headline": "Room rename drift: plan + review found the old name sticks in presence, person, HVAC and both fan maps (can AWAY a sleeper, retreat a zone, leave a fan off) until restart. Tier 3 -> APPROVE scope. Workaround: restart after any rename.", "acknowledged": false}
-  - {"fid": "HOUSE-STATE-SENSOR-ATTR-CHURN-1@2026-10-19T02:15", "card_id": "HOUSE-STATE-SENSOR-ATTR-CHURN-1", "at": "2026-10-19T02:15:00", "outcome": "built", "headline": "Built to review: house-state sensor stops recording 5 churny attributes (~9.5 MB/day of recorder blobs). Review SHIP; scoped tests green; full suite still owed at deploy. Not deployed.", "acknowledged": false}
-  - {"fid": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1@2026-10-19T02:14", "card_id": "OCCUPANCY-SOURCE-FOLLOWS-CAPABILITY-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Soak exit: radar-room fan rejection (v5.103.53/.54) cannot be judged - Guest 1/2 and Media fans barely ran since 10-12. Parked with a fan-season revival trigger (2 cards).", "acknowledged": false}
-  - {"fid": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1@2026-10-19T02:14", "card_id": "EGRESS-ENTRY-DISPLAY-LATE-NAME-1", "at": "2026-10-19T02:14:00", "outcome": "done", "headline": "Last Person Entry late name: moot - no code ever names an entry row after insert (exit-only backfill). Closed; entry-side backfill noted as a future trigger.", "acknowledged": false}
-  - {"fid": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1@2026-10-19T02:14", "card_id": "EGRESS-EXIT-JOINT-DEPART-ONE-ROW-1", "at": "2026-10-19T02:14:00", "outcome": "parked", "headline": "Joint departure on one exit row: 3 of 107 rows in 14 days, named person did leave. Parked until a consumer acts on exit identity.", "acknowledged": false}
-  - {"fid": "ZONE-ROOM-NAME-DRIFT-1@2026-10-19T02:14", "card_id": "ZONE-ROOM-NAME-DRIFT-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Room rename drift: 0 live drifted rooms, but confirmed the presence zone tier keeps the old name until restart. Moved to pre-planning (Tier 2 plan next).", "acknowledged": false}
-  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-19T02:14", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Envoy recount: blips down to ~1-3/day and 10-17/18 clean, but the two longest outages (586 + 714 min) came after the Ethernet move. Scope stays.", "acknowledged": false}
-  - {"fid": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1@2026-10-19T02:14", "card_id": "EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Bill check plan: SmartHub hourly data matches 3 real bills within ~1%. Plan written, reviewed (fix: never block the energy decision cycle), Rev 2 ready to build. Q: is bill cycle day 23 right (PEC reads 24/25)?", "acknowledged": false}
-  - {"fid": "EC-LOADED-VS-INSTALLED-VERSION-1@2026-10-19T02:14", "card_id": "EC-LOADED-VS-INSTALLED-VERSION-1", "at": "2026-10-19T02:14:00", "outcome": "measured", "headline": "Live now: HA runs URA v5.103.72 while v5.103.74 is installed (.73 + .74 wait for a restart). Card confirmed; Tier-1 build queued.", "acknowledged": false}
-  - {"fid": "PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-10-19T02:08", "card_id": "PERIMETER-ALERT-VOLUME-FATIGUE-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "Exterior alert volume falling: 129 -> 76 -> 68 -> 25/day (10-15..10-18). Disposition stays 10-20.", "acknowledged": false}
-  - {"fid": "FRONT-SIDE-PTZ-CHATTER-1@2026-10-19T02:08", "card_id": "FRONT-SIDE-PTZ-CHATTER-1", "at": "2026-10-19T02:08:00", "outcome": "measured", "headline": "front_side_ptz post-crop: 11 alerts in 2 days, daytime only; the noisy PTZs are Study B porch (25) and utilities (20). VERIFY which one you meant.", "acknowledged": false}
-  - {"fid": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-19T02:03", "card_id": "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Paused rooms stop occupancy lights/fans: plan written + reviewed; needs your one-line yes on R1 (no sleep-onset fan when paused) and R3 (accept early-vacant backstop). Then build to review.", "acknowledged": false}
-  - {"fid": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-10-19T02:03", "card_id": "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Safety rapid-change detector: card had overridden your 10-15 \"it is a fix\" with a retire default. Back to you: APPROVE fix (recommended) or retire.", "acknowledged": false}
-  - {"fid": "LANDSCAPE-RETRY-POSTFIX-CHECK-1@2026-10-19T02:03", "card_id": "LANDSCAPE-RETRY-POSTFIX-CHECK-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Landscape retry fix NOT holding: 9 GK + 1 Hampton lights unreachable on Wi-Fi since ~10-16, and the 10-18 run did nothing. DO: check the GK landscape lights.", "acknowledged": false}
-  - {"fid": "MASTER-BATH-NO-TRUSTED-PRESENCE-1@2026-10-19T02:03", "card_id": "MASTER-BATH-NO-TRUSTED-PRESENCE-1", "at": "2026-10-19T02:03:00", "outcome": "escalated", "headline": "Master Bath radar measured: not do-not-use, but it behaves like a motion sensor (~1 min hold), so it cannot hold a still bather. PICK: add a radar (recommended) / check its own settings / accept.", "acknowledged": false}
-  - {"fid": "HVAC-CONSENSUS-GATE-PIN-1@2026-10-19T02:03", "card_id": "HVAC-CONSENSUS-GATE-PIN-1", "at": "2026-10-19T02:03:00", "outcome": "refuted", "headline": "Wait-for-Presence HVAC gate pin: REFUTED - consensus never went below 0.5 in 8 days, so the gate never engaged; the fan-radar case gives 0.6. Closed; latch-without-expiry kept as a revival trigger.", "acknowledged": false}
 cards:
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
@@ -620,9 +608,10 @@ cards:
     context: 'Surfaced by the plan review of the initial-pass plan (docs/reviews/plan-review/PLAN_REVIEW_safety_initial_sensor_pass.md P-03; plan section 12). Swept board/BACKLOG for NM startup/ordering: none found. NEW.'
   next: "REVIVE when (a) SAFETY-NO-INITIAL-SENSOR-PASS-1 is approved for build (its startup pass fires exactly in this gap: the plan must order the pass after NM has restored, or queue until NM ready - carry this as a constraint into that plan), or (b) any smoke/leak/gas/CO sensor reads 'on' within 120 s of a homeassistant_start (re-run .claude/tmp/safety_boot_race_probe.sql against the recorder). Then Tier-2 plan: queue safety events until NM ready."
 - id: SAFETY-SENSOR-FLEET-HEALTH-1
+  verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-10-26 02:07"
+  updated: "2026-10-27 02:06"
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
   links: {"related": ["WATERLEAK-TRIO-UNKNOWN-1", "SAFETY-NO-INITIAL-SENSOR-PASS-1", "ELK-M1-HA-USABILITY-1"], "context": "ADJACENCY SWEEP (board + BACKLOG grep smoke/leak/safety sensor): WATERLEAK-TRIO-UNKNOWN-1 (parked) is the earlier instance of the leak pucks going unknown together, fold its evidence here at plan time. SAFETY-NO-INITIAL-SENSOR-PASS-1 is the code gap that surfaced this; a sensor nobody can read is not fixed by any seeding. Homelab THREAD-INOVELLI-1 owns the Thread re-commission. NEW. ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."}
@@ -28776,6 +28765,7 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
+  verified_2026_10_27: "Still healthy, PICK still open for the repeat-hang policy. 02:05 CDT: sensor.frigate_status_2 running since 10-26 10:07, detection fps 40, camera_input_dark off."
   verify_2026_10_22: "Overnight re-check 02:0x: no new outage. sensor.frigate_status_2 = running for all of 10-20 to 10-22; detection_fps_2 = 46; URA camera_input_dark only blipped on for 12-36 s at a time (12 blips over 2 days, each self-cleared, none over a minute). Side note: sensor.frigate_coral_inference_speed_2 has been unavailable the whole window while detection runs, so check whether Frigate is still on the Coral or has fallen back to another detector before picking A. The PICK still stands."
   reverified_2026_10_20_overnight: "Healthy 02:05 CDT: sensor.frigate_status_2 running since the 10-18 20:36 restart, detection_fps_2 = 62, camera_input_dark off. No new hang; the PICK (Coral vs scheduled restart) still stands but stays low urgency."
   verified_2026_10_16_overnight: "2026-10-16 02:09 CDT: Frigate2 is detecting (sensor.frigate_detection_fps_2 = 75, fresh) and URA camera_input_dark is off (since 23:25 10-15), so no outage right now. But sensor.frigate_coral_inference_speed_2 has been unavailable since the 10-15 12:49 restart; whether detection is running on the Coral or has fallen back is not verified from HA (needs the Frigate host). The PICK still stands."
@@ -29073,7 +29063,7 @@ cards:
 
   measured_2026_10_02_overnight: "FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and person/motion detections resumed 10-01 11:28 CDT (10-01: hot_tub 52, back_yard 40, playroom 5, front_side_ptz 4, madrone_g6_entry 3, front_door_aerial 3, garage_a 2 person ONs). 09-30 had ZERO person ONs on any camera (the 09-29 hang). THEN IT HUNG AGAIN, SAME SIGNATURE AS 09-29: sensor.frigate_detection_fps_2 updated ~177x/hour until 10-01 16:22 CDT and has been frozen at 126 since (no rows after); sensor.frigate_coral_inference_speed_2 unavailable since 10-01 14:37Z; Frigate itself is up (uptime_2 / camera_fps_2 ~120 / skipped_fps_2 ~1-3 all still updating). Detection ONs across *_person_occupancy_2 + *_motion_3: 492 across 24 sensors in the 5 h BEFORE 16:25 CDT vs 19 on ONE sensor in the ~10 h after. So exterior person detection has been dark ~10 h as of 02:05 CDT and nothing in URA noticed (again). Last person ON fleet-wide: 10-01 16:16:51 CDT. NOT remediated: homelab-side restart in an occupied sleeping house = operator action. Paged via HA persistent_notification (no phone push at night, per the 09-26 precedent). New fact for the cause: the hang recurred ~5 h after a restart, so a restart is a stopgap, not a fix."
   status: "waiting_operator"
-  updated: "2026-10-25 02:09"
+  updated: "2026-10-27 02:06"
   reverified_2026_10_24_overnight: 'Healthy, no new hang (2026-10-24 02:08, ha-mcp): sensor.frigate_status_2 running since 10-23 18:44 CDT, sensor.frigate_detection_fps_2 = 69 (fresh 02:08), binary_sensor.ura_coordinator_manager_camera_input_dark off since 10-23 18:44. The four *_inference_speed sensors are still unavailable while detection runs (recorder: last row 10-23 04:42), confirming again they are not a health signal. PICK unchanged, low urgency.'
   recheck_2026_10_25_overnight: "Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built)."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
@@ -32034,6 +32024,7 @@ cards:
   next: "None. Wigton: its 10-04 notes (homelab CONFIGS.md) already record that http settings live in .storage/http there; if a YAML http: block exists on Wigton, remove it during WIGTON-URA-REENABLE-1."
   updated: "2026-10-15 02:11"
 - id: BLE-PROXY-PLACEMENT-1
+  verified_2026_10_27: "Still needed. 02:05 CDT: BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable since 10-26 10:09)."
   INSTANCE_2026_10_23_wallpanels: "Found while measuring WALLPANEL-TOUCH-WITNESS-1: the 7 wall panels are already Bluetooth proxies with rooms assigned, including entry_way = Foyer. Bermuda probably does not use them as scanners yet (no panel distance sensors). If enabled, the Foyer panel may cover the first placement on this card without new hardware. See [[WALLPANEL-TOUCH-WITNESS-1]]."
   verify_2026_10_23: "Overnight re-check 02:01: BP1_B still offline (distance sensor unavailable since 10-21 18:28). Still waiting on power-up."
   verify_2026_10_22: "Overnight re-check 02:0x: BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b = unavailable since the 10-21 restart). Still waiting on the power-up."
@@ -32057,7 +32048,7 @@ cards:
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: "DO: place the proxies in order (Foyer first) and power BP1_B back up. It is now assigned to Study A but is offline (unavailable). -> I then check that each new scanner reports with the right area and that BP1_B distance sensors come back."
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
-  updated: '2026-10-24 02:08'
+  updated: "2026-10-27 02:06"
   reverified_2026_10_18_overnight: "STILL-REAL: BP1_B still offline (sensor.*_distance_to_screek_bp1_b = unavailable for both tracked iPhones; bp1_a reads unknown). Your DO stands."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): BP1_B still offline (sensor.jaya_bedroom_iphone_jaya_distance_to_screek_bp1_b unavailable)."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): every screek_bp1_b entity (buttons + per-phone distance sensors) reads unavailable, so BP1_B is still powered off/offline. Your DO stands.'
@@ -32684,6 +32675,7 @@ cards:
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
 - id: FRONT-DOOR-LOCK-OFFLINE-1
+  verified_2026_10_27: "Still needed. 02:05 CDT: lock.doorlock_kwikset_zwave_frontentry unavailable since 10-26 10:09, sensor.node_3_node_status dead since 10-26 10:06. Battery swap still outstanding."
   verify_2026_10_23: "Overnight re-check 02:01: lock.doorlock_kwikset_zwave_frontentry unavailable, sensor.node_3_node_status dead (since 10-21 18:25). URA Security logs 'Periodic lock check: 1 device(s) unavailable' (31x since restart). Batteries still not swapped."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. lock.doorlock_kwikset_zwave_frontentry = unavailable and sensor.node_3_node_status = dead (both since the 10-21 18:25 restart). Batteries not yet swapped; the operator action is still needed."
   reverified_2026_10_20_overnight: "STILL-REAL 02:05 CDT: lock.doorlock_kwikset_zwave_frontentry unavailable (since the 10-18 20:38 restart). Still waits on the battery swap."
@@ -32724,7 +32716,7 @@ cards:
   next: "DO: swap the front-door lock batteries (Z-Wave controller move optional, your call). -> I then measure: battery % slope per week on the lock's battery sensor, plus how many lock.lock commands URA and other automations send it (recorder logbook), and say whether anything is draining it faster than normal (Kwikset is roughly 6-12 months on a set)."
   refs:
   - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
-  updated: "2026-10-25 02:09"
+  updated: "2026-10-27 02:06"
   reverified_2026_10_18_overnight: "STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable since 10-17 18:03 CDT; Security logs 'periodic lock check: 1 device unavailable' (8 times since the last restart). Battery swap stands."
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): lock.doorlock_kwikset_zwave_frontentry unavailable, sensor.node_3_node_status = dead."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): lock.doorlock_kwikset_zwave_frontentry = unavailable. Battery swap still needed.'
@@ -33275,33 +33267,45 @@ cards:
   status_note: "narrowed to Jaya Bedroom night hold"
   rank: {"value": 6, "time_criticality": 3, "effort": 3}
 - id: URA-V8-PANEL-RENDER-SPIN-1
-  updated: "2026-10-26 02:07"
+  regroom_2026_10_27: "Overnight 10-27: moved investigating -> waiting_operator. The measurements are done (static audit + 10-26 rerun); the next steps are a HomeLab screensaver test and an operator PICK, not a measurement I can run. No URA code involved."
+  updated: "2026-10-27 02:03"
   measured_2026_10_26_static: "Overnight read-only static audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md). The ura-v8 config has NONE of the usual CPU suspects: no CSS animation/keyframes, no backdrop-filter in views, no card-mod, no power-flow/apexcharts on now/rooms, no seconds clocks; now() templates re-render ~1/min. Entity churn is low (now 1,362/h, rooms 1,981/h at night, < 1/s vs 27.6 writes/s HA-wide; daytime unmeasured). homelab CONFIGS.md:714 says Up Hallway also spun on /map once and navigating away and back cleared it, which points to a renderer state entered on WAKE rather than a view property. Ranked suspects: (1) material-you-utilities global resource (re-applies theme CSS on every visibilitychange + style MutationObserver loop; enabled-on-panels unknown); (2) Material-Clean theme card-mod root CSS (all views); (3) rooms only: 53 hidden bubble-card pop-ups in views[2].sections[8] (175 markdown + 47 auto-entities; pop-up backdrop blur default unverified); (4) now only: wildcard auto-entities binary_sensor.*_occupied at sections[3].cards[1]; (5) now hero/weather gradients. Bisect order + per-step falsifiers in the audit. adb baseline 02:03 CDT, screen off: kiosk_satellite 12.9%, nothing else hot."
   overnight_gate_2026_10_26: "Bisect NOT run overnight: it needs a panel screen on and dashboard edits in an occupied, sleeping house. It stays my work (not an operator decision) for the next attended daytime session."
   done_2026_10_26: "Cause is HA frontend cost, not ura-v8 views. Removed 3 resources (duplicate prism-dashboard.js; 404s template-entity-row.js, /local/plotly-graph-card.js); backup docs/dashboard-prototypes/ura-v8-backups/20261026T114409Z_pre_panel_cpu_fix.json. No CPU change. Sidebar hide: no effect, reverted. auto-entities error not reproduced. Created person.wall_kiosk linked to user Wall Kiosk (no trackers) so the sidebar badge stops scanning all entities (~14%); URA consumers checked harmless."
   remaining_2026_10_26: "(1) Measure panel CPU after person.wall_kiosk (adb top on Media Room). (2) Wildcard auto-entities cards disable Kiosk Satellite dashboard filtering (~50% CPU): replace with explicit lists on the panel views, Media Room first; loses dynamic room pickup (operator PICK pending, recommend yes). (3) Tell HomeLab (uds:/tmp/cc-socks/98599.sock): person created + resources removed; ask rerun of scripts/wallpanel/ks-spin-logger.sh. (4) Entity count 17,886 enabled (URA 3,110) -> URA-ENTITY-COUNT-REDUCTION-1."
   homelab_rerun_2026_10_26: "HomeLab told 10:20; fleet spin logger rerun started 10:21 CDT (72 x 5 min, 7 panels, ends ~16:20). Compare renderer CPU only: daytime screensaver changed 10-25 ~22:00 (Clock+mood, KS ~6% vs 80-110%), so KS CPU and SoC temp are not comparable to 10-24."
   measured_2026_10_26_rerun: "HomeLab rerun 10:21-16:20 vs 10-24: person.wall_kiosk + resource removals did NOT reduce spin. Awake renderer ~100% (master 98->102, kitchen 98->102, entry 97 now on ura-v8/now); peaks 266-363%. NEW: renderer keeps spinning with screen OFF (kitchen asleep mean 121%, entry 65%, master 37%); on 10-24 screen-off dropped to 0% in 30 s. Changes since 10-24: HomeLab daytime screensaver Weather Mood -> Clock with KS black overlay as screen-off (10-25 ~22:00), and HA restart 10:05. Data homelab-automation logs/ks-spin-test.csv."
-  next: "HomeLab: test screen-off regression by reverting screensaver on one panel. Operator PICK: explicit lists vs wildcard auto-entities (remaining lever, ~50%). PICK for operator: explicit lists on panel views (A, recommended, Media Room first) or keep wildcards (B)."
+  next: "PICK: A (recommended) replace the wildcard auto-entities cards on the panel views with explicit lists, Media Room first (the remaining ~50% lever; loses auto-pickup of new rooms), or B keep wildcards. Also DO (HomeLab, daytime): revert the new screen-off screensaver on one panel to test the screen-off spin regression. -> On A I edit the panel views in an attended daytime session (backup first) and HomeLab re-runs the spin logger."
   title: "ura-v8 dashboard renderer spins ~100% CPU on wall panels after screen wake (now + rooms views); stops when screen off"
   thread: dashboarding
-  status: investigating
+  status: waiting_operator
   tier: 1
   created: "2026-10-25"
   origin: 'HomeLab session handoff 2026-10-25 (operator asked): 6-h test 10-24 15:22-21:23, card WALL-HEAT-1 in homelab-automation docs/CONFIGS.md. Kitchen (rooms) 98% of samples >50%, Master (now) 70%, Study B (now) 54%, Up Hallway (rooms) 50%; never-woken Study A/Media ~0-5%; Entry on HA /map 5%. Repro: light.media_room_panel_screen on -> renderer 93-141% in 15 s, off -> 0% in 30 s. Ruled out: dashboard save time, WS reconnect loop, KS screensaver, kiosk_mode. Hot: CrRendererMain, raster, Mali GPU.'
   why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
 - id: EC-DB-RESTORE-TIMEOUT-1
+  status: planned
+  tier: 2
   title: "Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0"
   thread: energy
-  status: investigating
-  tier: 1
   created: "2026-10-26"
   origin: "v5.103.92 live validation 2026-10-26: system_log ERROR energy.py:1255 at 10:06 CDT."
   why: "energy_import_today 27.3 -> 0.0 and energy_cost_today 2.35 -> 0.0 at 10:06:51; whole-house cost today (now sourced from EC since v5.103.92) under-reads until midnight. The 10-25 17:33 restart restored fine, so it is intermittent (likely DB contention at boot)."
-  next: "Me: measure how often the restore times out (journald/system_log across recent restarts, URA DB lock/write-queue at boot) and what the restore was waiting on, before choosing a fix (longer timeout, restore today's counters first, or retry after boot)."
-  rank: {"value": 4, "time_criticality": 3, "effort": 2}
+  updated: "2026-10-27 02:03"
+  refinement_status: refined
+  problem_solution:
+  - "Problem: when Home Assistant restarts, the Energy Coordinator reloads its saved state in one 14-step chain with a single 15-second time limit. About one restart in eight the chain runs out of time, and every step after the stall is skipped, so today's import and cost counters start again from zero (and a few other saved settings are not reloaded either). Solution: give each restore step its own time limit and keep going when one step stalls, and retry any skipped step once the house has finished starting up."
+  measured_2026_10_27: "Overnight one-shot read-only probe (HA recorder home-assistant_v2.db, events homeassistant_start + states of sensor.ura_energy_coordinator_energy_cost_today / _import_today). 17 HA restarts 10-20 02:08 .. 10-26 10:09. Cost-today 15 min before vs first value after: 15 kept their value (within normal drift), 2 RESET TO 0.0: 10-21 18:28 (2.83 -> 0.0) and 10-26 10:09 (2.35 -> 0.0). Rate 2/17 = 12% of restarts. The reset is visible ~3 min BEFORE the homeassistant_start event because the EC restore runs during integration setup. Log side: system_log since the 10-26 restart has 0 'restore timed out' entries (expected, no restart since); error_log window (2000 lines) also 0; journalctl is not reachable from the ssh add-on, so the 10-21 instance is evidenced by the recorder only, not by a log line. Query cost: the restore SELECTs (energy_daily LIMIT 90, room_power_profiles 611 rows, energy_state 27 rows) each run in <=1.1 ms at steady state, DB is WAL mode, 1.48 GB. So the queries are not slow: the stall is boot-time contention. Most likely wait: the chain also WRITES (save_peak_import_history, save_energy_state, save_evse_state) and each aiosqlite.connect uses timeout=30 s (database.py:356), longer than the 15 s chain budget, so one write waiting on another boot-time writer can burn the whole budget. Not proven which step stalled (no boot-time log retained)."
+  mechanism_2026_10_27: "Code: energy.py:1250-1257 wraps _restore_all_sequential (energy.py:1552-1572) in ONE asyncio.wait_for(timeout=15.0). Steps in order: cycle, accuracy, peak_import, temp_regression, evse, circuit, energy_baselines, consumption_history, power_profiles, MIDNIGHT_SNAPSHOT (step 10, restores today's lifetime baselines, energy.py:~2620-2647), envoy_cache, load_shedding_level, solar_follow_state, bill_forecast_ledger. A timeout cancels everything not yet run. So the card's title understates the blast radius: on a timeout, load-shedding level, solar-follow state (original amps / touched set) and the bill-forecast ledger may also start from defaults, not just the display counters. That is why this is re-tiered 1 -> 2 (energy startup path, restores control state)."
+  gate_2026_10_27: "Validity: STILL-REAL (2 of 17 restarts). Config-first: no knob governs the 15 s budget or the order; no setting fixes it. Prior art: REUSE the existing per-step try/except pattern in the restore methods and the existing post-started repass pattern (_span_scope_migration_repass on EVENT_HOMEASSISTANT_STARTED, energy.py:1376-1392) for the retry; no new mechanism. Parsimony: BUILD (SIMPLIFY variant): per-step wait_for (e.g. 10 s each) in _restore_all_sequential + record skipped steps + one retry of skipped steps on HA started. Do NOT raise the overall timeout alone (would just delay setup and still lose the tail). Cost/benefit: small diff, but it is the EC boot path (regression-prone) -> Tier 2 with 2 framing-disjoint reviews. Overnight: NOT built tonight because of the WIP cap (review lane will hold 4 once tonight's three branches clear validation)."
+  knobs:
+  - "EC_RESTORE_STEP_TIMEOUT_S (module constant, energy_const.py, rung 1: boot-path protocol window, change should need review; proposed 10 s)"
+  next: "Me: Tier-2 build at the next pass with review-lane room (WIP cap): per-step timeouts in _restore_all_sequential, log which step stalled, retry skipped steps once on EVENT_HOMEASSISTANT_STARTED (reuse the _span_scope_migration_repass pattern); test that a hung step N no longer skips steps N+1..14 (mutation: restore the single wait_for -> RED). The stall log line will finally name the step."
+  rank: {"value": 5, "time_criticality": 3, "effort": 3}
 - id: OLLAMA-WORKSTATION-62-WAKE-1
+  updated: "2026-10-27 02:06"
+  verified_2026_10_27: "Still needed. 02:04 CDT: http://192.168.13.62:11434/api/tags gave no response (5 s timeout)."
   title: "Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models"
   thread: optimization
   status: waiting_operator
@@ -33313,20 +33317,28 @@ cards:
   next: "DO: bring the .62 workstation/Ollama back -> I confirm /api/tags lists the three models and re-run the slice-0 eval (API key from keychain, env-inline only)."
   rank: {"value": 4, "time_criticality": 4, "effort": 1}
 - id: URA-ENTITY-COUNT-REDUCTION-1
+  status: parked
   title: "Reduce URA's enabled entity count (3,110 of 17,886 house-wide) to cut frontend cost on wall panels"
   thread: dashboarding
-  status: pre_planning
   tier: 2
   created: "2026-10-26"
   origin: "Wall-panel CPU investigation 2026-10-26 (URA-V8-PANEL-RENDER-SPIN-1): HA frontend cost scales with entity count; operator asked to card the remaining panel fixes."
   why: "Every panel subscribes to the full state set; URA is the largest single contributor."
   links: {"parent": "URA-V8-PANEL-RENDER-SPIN-1"}
-  next: "Me: inventory URA entities by platform/room and consumer (dashboard, automation, URA internal); propose disable-by-default candidates. Dead != delete; no removals without operator yes."
   rank: {"value": 3, "time_criticality": 2, "effort": 3}
+  updated: "2026-10-27 02:08"
+  refinement_status: refined
+  problem_solution:
+  - "Problem: wall panels run hot, and one theory was that Home Assistant's screen cost grows with the number of entities, of which URA owns the biggest share. Solution (parked): measured the share first; URA's ceiling is too small to be worth a cleanup cycle until the panel test shows entity count actually drives the CPU."
+  measured_2026_10_27: "One-shot read of /config/.storage/core.entity_registry 02:07 CDT: URA has 5,378 registered, 3,110 enabled of 17,890 enabled house-wide (17%). Enabled by domain: sensor 1,573, switch 612, binary_sensor 505, number 257, button 101, select 61, time 1. By category: none 1,966, diagnostic 781, config 363. 0 hidden-but-enabled. Largest name families: *_automation 411, *_energy 242, *_last_* 203, *_occupied 179, *_occupancy 168, *_override 157."
+  gate_2026_10_27: "Parsimony: PARK. Even disabling every enabled URA diagnostic entity (781) cuts the house-wide count by 4.4%, and the parent's 10-26 rerun showed that frontend-side cuts (person.wall_kiosk, 3 resource removals) did not reduce spin, which now continues with the screen off. The premise that entity count drives panel CPU is unproven, and the ceiling is small. Revival trigger: the parent's bisect (URA-V8-PANEL-RENDER-SPIN-1) shows panel CPU tracking house entity count or state-change rate, e.g. a measurable CPU drop after a bulk disable elsewhere. If revived, start with the 781 diagnostic entities (disable-by-default for new installs, operator yes per entity group; dead != delete)."
+  next: "Parked. Revisit only on the trigger in gate_2026_10_27."
 - id: HOUSE-SENSOR-CORRECTNESS-1
+  updated: "2026-10-27 02:06"
+  organic_evidence_2026_10_27: "Soak exit, one-shot 02:05 CDT: (1) anomaly_log energy.circuit_tripped_breaker rows after the 10-26 15:05Z restart = 0 (last row 15:04:19Z; ~4/h in the 3 days before). (2) Whole-house cost today 0.5377 = EC cost today 0.5377, cost_source energy_coordinator_cost_today, both non-zero, so the weak PASS from 10-26 is now a real PASS. (3) Forecast adjustment_factor 0.918 (< 1.3). Discriminators met -> done."
   title: "House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area"
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.92
   tier: 2
   created: "2026-10-26"
@@ -33336,7 +33348,7 @@ cards:
   config_applied_2026_10_26: "select.ura_energy_coordinator_dp_house_load_source max_span_r1 -> live_span (operator approved). Recorder un-excluded 3 house sensors (RUNBOOK_recorder_excludes.md), effective at next restart. 12 rooms' own area removed from scanner_areas (backup in session scratchpad)."
   residual_cycling_alwayson: "Review A M: an always-on circuit with high variance outside the critical name patterns (fridge/freezer/sump/well/pump) can no longer raise tripped_breaker. Critical windows rest on 1 week of data (fridge/freezer 1800 s, pumps 9000 s)."
   deferred: "TOU-blended predicted cost; better energy history source (energy_daily import wrong 4/8 days, 20-29% under-read); tomorrow forecast model; 583 old anomaly_log rows not purged."
-  next: "Me: full-suite name-diff, deploy v5.103.92, restart while awake, Validated table."
+  next: "None. Closed 10-27 (soak exit). Residuals stay on this card (residual_cycling_alwayson, deferred list); the boot-restore reset seen in validation is its own card EC-DB-RESTORE-TIMEOUT-1."
   rank: {"value": 6, "time_criticality": 5, "effort": 2}
 parked:
 - title: Pre-roll frame buffer
