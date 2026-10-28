@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-27T02:27:55-05:00_ - _Data commit: `91f96be15c3b`_ - _last_reconciled: 2026-10-28_
+_Generated: 2026-10-28T02:04:16-05:00_ - _Data commit: `eeada327dd37`_ - _last_reconciled: 2026-10-28_
 
 
 ## Columns
@@ -2650,6 +2650,24 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
 ## ✅ Done (395)
 _closed, evidence in refs_
 
+### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _WSJF 10.0 · v5 tc1 u4 /e1_
+thread: **presence** - status: **done**
+_created 2026-10-20 19:30 · updated 2026-10-28 10:40 · refined_
+- **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
+- **Next:** Plan v1 (dwell-based room model, sensor only, D0 14-day replay gate) being written -> docs/planning/PLANNING_occupancy_anomaly_dwell_model.md; then revise against AUDIT_predictions_room_zone_house_2026_10_21.md (running), then 1 plan rev...
+- **Forensic keys (11):**
+  - `rerank_2026_10_21`: unscored -> v5 t1 e1: only remaining step is the 7-day replay, which cannot run before 10-28; its RoomDwellModel feeds the prediction migration
+  - `links_added_2026_10_21`: related+PREDICT-MODEL-DWELL-MIGRATION-1: Its RoomDwellModel (v5.103.83) is the model the prediction migration moves onto; the 10-28 replay result informs that plan.
+  - `operator_answer_2026_10_20_b`: Operator: "I would not alert. The routine change is enough. It should assert in its sensor and give more information." -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why ...
+  - `disposition_2026_10_24`: done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md
+  - `operator_answer_2026_10_20`: Operator: "Make the sensor work." -> B (wire evaluation), measure false-positive rate first (D0).
+  - `tier`: 2
+  - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
+  - `operator_answer_2026_10_21`: Operator picked C (rebuild on a dwell model): "Then write it" ... "It might need to be revised based on the audit. But lets get v1 on the board."
+  - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
+  - `due_checks_2026_10_21`: SHIPPED v5.103.83 10-21 (live-validated: model built, Study A weekday 18:00 share 0.30). DUE 10-28 10:20: 7-day replay G1-G4 + operator judges each real fire; confirm a NULL-duration exit row exists -> close or tune.
+  - `week_check_2026_10_28`: DONE. Replay --days 7 at shipped setting (48d, 0.02, 1800 s): 0 fires; G1-G4 all PASS (G3 Study A 09-17 share 0.533, 0 daytime fires; G4 47/47 learned). Live: 0 occupancy.dwell_anomaly rows ever, 0 on-states across 9 enabled sensors sinc...
+
 ### `HOUSE-SENSOR-CORRECTNESS-1` - House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area — _WSJF 6.5 · v6 tc5 u2 /e2_
 thread: **energy** - status: **done**
 _created 2026-10-26 · updated 2026-10-27 02:06_
@@ -3155,23 +3173,6 @@ _created 2026-10-21 · updated 2026-10-21 22:05_
   - `disposition_2026_10_24`: done: 10-24 21:42Z test delivered on 4 channels, ack cleared. Residual: no re-page row in 5m34s before ack, repeat cadence unproven; folded to SAFETY-NM-REFIRE-UNWIRED-1 per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md
   - `tier`: 1
   - `related`: OC-REQUEST-FIX-DISPATCHER-1
-
-### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _WSJF 10.0 · v5 tc1 u4 /e1_
-thread: **presence** - status: **done**
-_created 2026-10-20 19:30 · updated 2026-10-21 22:05 · refined_
-- **Why:** binary_sensor.py OccupancyAnomalyBinarySensor does all work in async_update (~3395) but is a CoordinatorEntity (entity.py:19) that never polls; 9 rooms enabled, all 'off' for 6+ days; 0 bayesian.prediction_anomaly rows in anomaly_log eve...
-- **Next:** Plan v1 (dwell-based room model, sensor only, D0 14-day replay gate) being written -> docs/planning/PLANNING_occupancy_anomaly_dwell_model.md; then revise against AUDIT_predictions_room_zone_house_2026_10_21.md (running), then 1 plan rev...
-- **Forensic keys (10):**
-  - `rerank_2026_10_21`: unscored -> v5 t1 e1: only remaining step is the 7-day replay, which cannot run before 10-28; its RoomDwellModel feeds the prediction migration
-  - `links_added_2026_10_21`: related+PREDICT-MODEL-DWELL-MIGRATION-1: Its RoomDwellModel (v5.103.83) is the model the prediction migration moves onto; the 10-28 replay result informs that plan.
-  - `operator_answer_2026_10_20_b`: Operator: "I would not alert. The routine change is enough. It should assert in its sensor and give more information." -> NO NM alert (remove the async_notify from _fire_anomaly_alert); the sensor turns on and its attributes explain why ...
-  - `disposition_2026_10_24`: done: discriminator met per docs/planning/AUDIT_shipped_organic_disposition_2026_10_24.md
-  - `operator_answer_2026_10_20`: Operator: "Make the sensor work." -> B (wire evaluation), measure false-positive rate first (D0).
-  - `tier`: 2
-  - `adjacency`: NEW; swept board for occupancy_anomaly/bayesian anomaly; related to PRESENCE wake-backstop (same fix branch).
-  - `operator_answer_2026_10_21`: Operator picked C (rebuild on a dwell model): "Then write it" ... "It might need to be revised based on the audit. But lets get v1 on the board."
-  - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
-  - `due_checks_2026_10_21`: SHIPPED v5.103.83 10-21 (live-validated: model built, Study A weekday 18:00 share 0.30). DUE 10-28 10:20: 7-day replay G1-G4 + operator judges each real fire; confirm a NULL-duration exit row exists -> close or tune.
 
 ### `FAN-PHANTOM-RETRO-EPISODES-1` - Memory records repeated phantom_retro episodes in Jaya Bedroom (fan-release correlated, holds up to ~2 h) - check rate and whether the paused-room change altered it — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done**
