@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-27T02:06:02-05:00_ - _Data commit: `c0a6ac8b8b6e`_ - _last_reconciled: 2026-10-27_
+_Generated: 2026-10-27T02:27:55-05:00_ - _Data commit: `91f96be15c3b`_ - _last_reconciled: 2026-10-28_
 
 
 ## Columns
@@ -16,8 +16,8 @@ _Generated: 2026-10-27T02:06:02-05:00_ - _Data commit: `c0a6ac8b8b6e`_ - _last_r
 | 🔨 In progress | 0 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
-| ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 2 |
+| ⏳ Waiting on me (Claude) | 1 |
+| 🚀 Shipped (organic open) | 1 |
 | 🅿️ Parked | 107 |
 | ✅ Done | 395 |
 
@@ -47,10 +47,11 @@ thread: **energy** - status: **pre_planning**
 
 ### `BLE-LOCATION-QUALITY-1` - BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **presence** - status: **pre_planning**
-_created 2026-10-25 · updated 2026-10-26 02:07_
+_created 2026-10-25 · updated 2026-10-28 02:02_
 - **Why:** Raw BLE flapping and floor jumps (Jaya Bedroom <-> Garage A) feed room occupancy, night lights and sleep logic; URA smoothing cuts it ~3.5x but the source is noisy.
-- **Next:** Me: after 2 nights (10-28 AM) re-measure Jaya Bedroom overnight vacancy, bed/bath flips, Garage A<->Jaya Bedroom jumps, bath placement vs PIR. Clean -> close done. Not clean -> Tier 2 plan for the scanner_areas hold (design_2026_10_26).
-- **Forensic keys (10):**
+- **Next:** Me, next overnight pass (10-29 02:00): re-measure night B complete (10-27 22:00 -> 10-28 08:00) with the same recorder method. If Jaya Bedroom vacancy-while-in-suite stays under ~10 min and Bedroom<->Bathroom flips stay single digits -> ...
+- **Forensic keys (11):**
+  - `measured_2026_10_28`: ura-prober recorder read 02:01 CDT, same entities/method as the 10-23 baseline and 10-25 harm audits. Jaya home both nights (person.jaya home throughout). NIGHT A (10-26 22:00 -> 10-27 08:00, first full night after the 10-26 offset chang...
   - `config_first_2026_10_26`: CONFIG-FIRST: NO setting fixes it (live read, .storage/core.config_entries via Samba, 10-26 ~02:06). Jaya Bedroom (Bedroom 4): area_id jaya_bedroom, presence_sensors [jaya_3_presence, mmwave_zigbee_jayabedroom_presence], occupancy_timeou...
   - `config_applied_2026_10_26`: Operator-approved Bermuda rssi_offsets (options flow calibration2, ha_set_integration, full scanner_info resubmitted): jaya-bedroom-presence-sensor (40:4c:ca:3d:07:3e) 12 -> 9; Shelly1PMMiniG3 JayaBathroom (b0:81:84:f5:b9:2a) 0 -> -9. Ve...
   - `design_2026_10_26`: If offsets don't fix it: operator's cleaner design = make the room's existing scanner_areas a BLE HOLD source (extend-only): bedroom hold also counts persons resolved to a room whose area is in this room's scanner_areas. Today Tier-1 dir...
@@ -429,10 +430,11 @@ _under review_
 
 ### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#1 · WSJF 6.5 · v5 tc6 u2 /e2_
 thread: **dashboard** - status: **review**
-_created 2026-10-21 20:10 · updated 2026-10-26 02:07_
+_created 2026-10-21 20:10 · updated 2026-10-28 02:03_
 - **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...
-- **Next:** Inventory each chip's entity source and whether the room detail card already shows/controls it; add the missing detail controls first, then the chips; backup the dashboard JSON; verify in Chrome at desktop + 390 px.
-- **Forensic keys (7):**
+- **Next:** REVIEW: look at the status chips on the ura-v8 room tiles (live since 10-22 on all 47 tiles) and say keep / change. -> On keep I close this card and fold the stale-chip fix (chips that read other entities need them in triggers_update, IN...
+- **Forensic keys (8):**
+  - `groom_2026_10_28`: Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live t...
   - `INSTANCE_2026_10_26_stale_chip_triggers`: Side finding from the panel-spin audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md): ura-v8 room_card chips read other entities via states[...] without triggers_update, so a chip can show a stale value until its own entit...
   - `links_added_2026_10_21`: related+DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1,WALLPANEL-URA-NOTIFY-1: Same v8 dashboard batch (People table fix); Halo panels show the same per-room status.
   - `rerank_2026_10_21`: unscored -> v5 t6 e2: operator approved 10-21; Tier 1 dashboard work, ready to drive
@@ -543,9 +545,19 @@ _created 2026-10-07 03:05 · updated 2026-10-27 02:06 · initial_
   - `reverified_2026_10_24_overnight`: STILL WAITING (2026-10-24 02:08, ha-mcp): lock.doorlock_kwikset_zwave_frontentry = unavailable. Battery swap still needed.
   - `recheck_2026_10_25_overnight`: STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable at 02:10 CDT; Security periodic lock check warns x4 since the 21:20 restart. Your DO stands.
 
-### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#2 · WSJF 10.0 · v9 tc9 u2 /e2_
+### `OLLAMA-WORKSTATION-62-WAKE-1` - Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models — _#2 · WSJF 10.0 · v4 tc4 u2 /e1_
+thread: **optimization** - status: **waiting_operator**
+_created 2026-10-26 · updated 2026-10-27 02:06_
+- **Why:** OC vision rev 5 slice 0 (model eval) is blocked on local models. Do not use the Mac Ollama (192.168.13.149).
+- **Next:** DO: bring the .62 workstation/Ollama back -> I confirm /api/tags lists the three models and re-run the slice-0 eval (API key from keychain, env-inline only).
+- **Forensic keys (3):**
+  - `verified_2026_10_27`: Still needed. 02:04 CDT: http://192.168.13.62:11434/api/tags gave no response (5 s timeout).
+  - `tier`: 1
+  - `checked_2026_10_26`: 10:20 CDT: http://192.168.13.62:11434/api/tags not answering (non-JSON/no response).
+
+### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#3 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-27 02:06 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-28 02:02 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -554,7 +566,8 @@ _created 2026-09-16 03:30 · updated 2026-10-27 02:06 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (34):**
+- **Forensic keys (35):**
+  - `verify_2026_10_28`: Overnight re-check 02:02 CDT: Frigate2 healthy now (sensor.frigate_detection_fps_2 = 30, skipped_fps 0, process_fps 124). The PICK for the repeat hangs is still yours; the tripwire build (CAMERA-SILENT-PRODUCER-TRIPWIRE-1) is still in re...
   - `verified_2026_10_27`: Still healthy, PICK still open for the repeat-hang policy. 02:05 CDT: sensor.frigate_status_2 running since 10-26 10:07, detection fps 40, camera_input_dark off.
   - `verify_2026_10_22`: Overnight re-check 02:0x: no new outage. sensor.frigate_status_2 = running for all of 10-20 to 10-22; detection_fps_2 = 46; URA camera_input_dark only blipped on for 12-36 s at a time (12 blips over 2 days, each self-cleared, none over a...
   - `reverified_2026_10_20_overnight`: Healthy 02:05 CDT: sensor.frigate_status_2 running since the 10-18 20:36 restart, detection_fps_2 = 62, camera_input_dark off. No new hang; the PICK (Coral vs scheduled restart) still stands but stays low urgency.
@@ -590,16 +603,6 @@ _created 2026-09-16 03:30 · updated 2026-10-27 02:06 · refined_
   - `reverified_2026_10_24_overnight`: Healthy, no new hang (2026-10-24 02:08, ha-mcp): sensor.frigate_status_2 running since 10-23 18:44 CDT, sensor.frigate_detection_fps_2 = 69 (fresh 02:08), binary_sensor.ura_coordinator_manager_camera_input_dark off since 10-23 18:44. The...
   - `recheck_2026_10_25_overnight`: Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built).
 
-### `OLLAMA-WORKSTATION-62-WAKE-1` - Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models — _#3 · WSJF 10.0 · v4 tc4 u2 /e1_
-thread: **optimization** - status: **waiting_operator**
-_created 2026-10-26 · updated 2026-10-27 02:06_
-- **Why:** OC vision rev 5 slice 0 (model eval) is blocked on local models. Do not use the Mac Ollama (192.168.13.149).
-- **Next:** DO: bring the .62 workstation/Ollama back -> I confirm /api/tags lists the three models and re-run the slice-0 eval (API key from keychain, env-inline only).
-- **Forensic keys (3):**
-  - `verified_2026_10_27`: Still needed. 02:04 CDT: http://192.168.13.62:11434/api/tags gave no response (5 s timeout).
-  - `tier`: 1
-  - `checked_2026_10_26`: 10:20 CDT: http://192.168.13.62:11434/api/tags not answering (non-JSON/no response).
-
 ### `SAFETY-SENSOR-FLEET-HEALTH-1` - The house's only smoke detector has been invisible to Home Assistant since the 10-15 restart, and several leak and gas sensors are dead or misfiled, so Safety cannot see those hazards — _#4 · WSJF 9.5 · v9 tc8 u2 /e2_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-10-16 02:20 · updated 2026-10-27 02:06 · initial_
@@ -627,10 +630,11 @@ _created 2026-10-16 02:20 · updated 2026-10-27 02:06 · initial_
 
 ### `LANDSCAPE-RETRY-POSTFIX-CHECK-1` - Landscape Lighting retry loop — post-fix dropout check vs 62/10-day Matter baseline — _#5 · WSJF 8.0 · v3 tc3 u2 /e1_
 thread: **lighting** - status: **waiting_operator**
-_created 2026-10-14 02:10 · updated 2026-10-25 02:09_
+_created 2026-10-14 02:10 · updated 2026-10-28 02:02_
 - **Why:** Kept Matter automation (62 drops/10d vs 398 native), added repeat-until-on retry (<=5), removed 8 dead entities, turned off duplicate native automation; 82 dead/duplicate light entities disabled_by user. No post-fix measurement yet.
-- **Next:** APPROVE: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on), so one Tuya-cloud rejection cannot stop the whole run (HA automation config ed...
-- **Forensic keys (5):**
+- **Next:** APPROVE: let me add continue_on_error: true to the first step of automation.landscape_lighting_lifx_matter_version (the Dewenwils transformer switch.turn_on). Re-read 10-28: that step still has no continue_on_error; the retry loops alrea...
+- **Forensic keys (6):**
+  - `verify_2026_10_28`: Overnight re-check (02:02 CDT, recorder history via ha_get_history). CARD-WAS-WRONG on method: the 10-20 evidence 'still unavailable at 02:05 CDT' was read after the 01:00 transformer cut, when every GK light goes off then unavailable (p...
   - `rerank_2026_10_21`: v3 t2 e1 -> v3 t3 e1: 5 post-fix nights failed the discriminator; one operator APPROVE fixes the remaining step
   - `mechanism_2026_10_20_overnight`: 10-18 NO-OP RUN EXPLAINED (the trace survived the restart after all; automation.landscape_lighting_lifx_matter_version, run 9fd5b732, 10-18 19:29:29 CDT): the very first action (choose branch 0, switch.turn_on on the six switch.switch_lo...
   - `measured_2026_10_19_overnight`: DISCRIMINATOR NOT MET (5 post-fix nights; recorder state of the 20 target lights at trigger+7 min / +60 min, sunset+30 trigger). Missing at +7 min: 10-14 0, 10-15 1 (gklandscape_perimeter3 unavailable), 10-16 11, 10-17 10, 10-18 19. Two ...
@@ -790,12 +794,13 @@ _created 2026-09-21 · updated 2026-10-18 02:08 · refined ×1_
 
 ### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#15 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-28 22:50 · updated 2026-10-25 02:06_
+_created 2026-09-28 22:50 · updated 2026-10-28 02:02_
 - **Origin:** 2026-09-28 - operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)
 - **Why:** Audit finding: sensor.ura_energy_coordinator_energy_forecast_today = -73.7 kWh (Solcast minus predicted consumption). The prediction swung 55 -> 500 kWh today and read 1,234-2,274 kWh on earlier days, against about 185-225 kWh/day real. ...
-- **Next:** Two calls left (plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md rev 2). Call (3), the cleanup of the 4 poisoned rows, is DONE - v5.103.45 NULLed them (0 rows over 240 kWh). (1) APPROVE or decline, no code: set select.ur...
+- **Next:** PICK (one call left; call 1 and call 3 are done): A (recommended, default I take at the next pass if you don't veto) PARK Option F/S: since v5.103.82 every daily energy row from 10-17 to 10-27 has a value and solar above zero, so the bla...
 - **Tags:** energy, forecast, data-integrity, found-during-audit
-- **Forensic keys (16):**
+- **Forensic keys (17):**
+  - `verify_2026_10_28`: Overnight re-check 02:00 CDT. CALL (1) DONE: select.ura_energy_coordinator_dp_house_load_source = live_span since 2026-10-26 10:06 CDT (operator-approved during the HOUSE-SENSOR-CORRECTNESS-1 config pass); the 10-25 next still listed it ...
   - `verify_2026_10_23`: Overnight re-check 02:01: select.ura_energy_coordinator_dp_house_load_source still max_span_r1, so pick (1) is still open. system_log energy.py:3557 'Consumption cross-check divergence: Envoy today=33060 kWh, our lifetime delta=105 kWh' ...
   - `links_added_2026_10_21`: related+EC-SOLAR-LIFETIME-COUNTER-FLAP-1,EC-FORECAST-TRUTH-GAPS-1: EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82) fixed the same lifetime-counter flap for daily solar; EC-FORECAST-TRUTH-GAPS-1 is the truth-row gap the poisoned days create.
   - `rerank_2026_10_21`: v7 t6 e3 -> v7 t5 e3: v5.103.82 stopped new poisoned solar days, so delay cost now grows slower; still poisons the trained history
@@ -955,11 +960,12 @@ _updated 2026-10-12 02:07_
 
 ### `WALLPANEL-URA-NOTIFY-1` - URA drives the wall-panel bezel LEDs and room-targeted announcements (NM surface) — _#25 · WSJF 2.8 · v6 tc6 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **pending**
-_created 2026-10-20 08:30 · updated 2026-10-25 02:08_
+_created 2026-10-20 08:30 · updated 2026-10-28 02:02_
 - **Origin:** 2026-10-20 - Operator: ponder how URA uses the wall panels (KS + bridge). HomeLab brief docs/wallpanel-capability-brief.md (homelab cd71444); HomeLab feedback ffa7d06; 10-20 correction: operator has NOT decided the HomeLab/URA panel spli...
 - **Why:** Facts (not approvals): proposed that URA owns light.wallpanel_{master,up_hallway,media_room,kitchen,entry}_led end to end (on/effect/off); effects solid/blink/pulse/alert/notify/cycle (no breathe); state unknown after bridge restart != o...
 - **Next:** DO: when convenient, turn on switch.ura_nm_panel_channel and run a test leak (plan steps 1-7) -> I confirm only the targeted panels lit and that the ack released them, then close Halo S1b. APPROVE S2 (NM drives room alert lights) separat...
-- **Forensic keys (12):**
+- **Forensic keys (13):**
+  - `verify_2026_10_28`: Overnight re-check 02:02 CDT: switch.ura_nm_panel_channel still off (since the 10-26 10:06 restart), so the test-leak DO is still open.
   - `residual_2026_10_21_wake_adjacency`: Operator 2026-10-21: "are the tablets able to wake from adjacent room occupancy? Just like the notifications are sent to tablets when it concerns adjacent rooms". VERIFIED NO: wake is HomeLab automation wallpanel_fleet_wake (automations....
   - `links_added_2026_10_21`: related+DASH-V8-ROOM-STATUS-CHIPS-1,TABLET-FLEET-1: Halo panels and the v8 room chips both surface per-room status; TABLET-FLEET-1 is the older wall-tablet idea Halo largely supersedes.
   - `rerank_2026_10_21`: unscored -> v6 t6 e5: operator named Halo S1b as next (10-21); in flight, Tier 2-DB plan
@@ -1090,25 +1096,21 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-## ⏳ Waiting on me (Claude) (0)
+## ⏳ Waiting on me (Claude) (1)
 _I owe something_
 
-_(none)_
-
-## 🚀 Shipped (organic open) (2)
-_live, awaiting proof_
-
 ### `HA-GC-GEN2-PAUSES-1` - Home Assistant freezes for about 2 seconds once a minute while Python cleans up memory (full garbage collection on a very large heap) — _#1 · WSJF 6.5 · v7 tc4 u2 /e2_
-thread: **health_monitor** - status: **shipped_organic** - approval: **explicit**
-_created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
+thread: **health_monitor** - status: **waiting_me** - approval: **explicit**
+_created 2026-10-14 02:50 · updated 2026-10-28 02:03 · refined_
 - **Problem / Solution:**
   - Problem: about once a minute the whole of Home Assistant stops for ~1.8 seconds while Python does a full memory clean-up. Everything waits: lights, sensors, URA's decisions. The clean-up is slow because the heap holds a very large number...
 - **Origin:** 2026-10-14 - HM v2.1 W16 read on the overnight pass proved the GC hypothesis for the ~2 s/80 s house-wide pauses
 - **Why:** This is the residual house-wide pause the v5.103.56 cycle explicitly left as "not URA, GC hypothesis pending". It is now confirmed and has a measurable target.
-- **Next:** Me, next ATTENDED session (default taken 10-17; it is an HA config write so not overnight): set Health Monitor option gc_refreeze_h 0 -> 4 h, then re-read gc_gen2_1h / loop_stalls 8-12 h later; close if pauses stay <5/h, else lower to 2 h.
+- **Next:** Me, next ATTENDED session (HA config write, so not overnight): lower Health Monitor gc_refreeze_h 4 -> 2 h (the card's own fallback rule), then re-read the hourly stall statistics for one full day. Close if every hour stays under 5 stall...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Refs:** ~/Code/ha-health-monitor/docs/readmes/README_v2.1.0.md (Live results 2026-10-14, W16)
-- **Forensic keys (12):**
+- **Forensic keys (13):**
+  - `soak_exit_2026_10_28`: Soak exit, one-shot 02:03 CDT (shipped_organic sweep). Discriminator was hahm_loop_stalls under 5/h with gc_refreeze_h = 4 (applied 10-24 ~22:05Z). NOT MET: recorder hourly means for sensor.hahm_loop_stalls on 10-27 (CDT) are under 3/h f...
   - `verify_2026_10_23`: Overnight read 02:00 (HA MCP, read-only): sensor.hahm_loop_lag_p95 = 81.6 ms, gc_frozen true, gc_gen2_1h 108, gc_gen2_max_ms_1h 902 ms; loop_stalls 50. Still far above the <5/h close target, so the gc_refreeze_h 0 -> 4 h change is still ...
   - `links_added_2026_10_21`: related+HM-V22-NEXT-SLICE-1: HM v2.2 shipped the GC counters and the gc_refreeze option this card turns.
   - `rerank_2026_10_21`: v7 t4 e5 -> v7 t4 e2: next step is one Health Monitor option change + one re-read, not a build
@@ -1122,7 +1124,10 @@ _created 2026-10-14 02:50 · updated 2026-10-23 02:05 · refined_
   - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+## 🚀 Shipped (organic open) (1)
+_live, awaiting proof_
+
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-04 01:00 · updated 2026-10-25 02:06_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
