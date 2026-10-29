@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-28T10:24:32-05:00_ - _Data commit: `e78514e1c732`_ - _last_reconciled: 2026-10-29_
+_Generated: 2026-10-29T02:05:41-05:00_ - _Data commit: `886c299b3475`_ - _last_reconciled: 2026-10-29_
 
 
 ## Columns
@@ -1504,7 +1504,8 @@ _created 2026-09-25 18:00 · updated 2026-09-30 02:40 · refined ×2_
 - **Tags:** energy, envoy, tier-2db, measure-before-build, numbers-get-knobs, mutation-drill
 - **Parsimony:** [BUILD] Every SOC tier can be simultaneously disqualified, leaving the EC unable to decide for hours at a time, because no tier is both local and fast.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md; docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `revival_2026_10_29`: Operator 10-29: make enphase_realtime (entry 01M494ANMSSYTXZM039P3XV2GQ, added 10-06, stream off) the FALLBACK SOC source. 7-day measure: battery_2 ~1 min down vs native 124 min (native drops nightly 23:06-ish ~20 min; battery_2 kept rep...
   - `parked_2026_09_30_overnight`: PARKED by this card's own rule ("If the cutout test shows the stream causes dropouts, this card parks instead"). ENPHASE-BATTERY-CUTOUTS-1 final readout 09-29 16:00-21:00: stream never on 0/6/8/6 dropouts, stream on 55/37/54/94, stream o...
   - `groom_2026_09_29`: ADJACENCY FOUND, now linked as blocked_by ENPHASE-BATTERY-CUTOUTS-1. That card stopped the Envoy stream add-on at 20:15 CDT 09-28 to test whether the stream (sc_stream kept on 24/7, against Enphases 15-min auto-disable design) drives the...
   - `unblocked_2026_09_27`: OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native)...
