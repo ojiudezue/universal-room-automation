@@ -53,6 +53,18 @@ Full suite on merged develop: see deploy line. EC: `test_ec_reserve_oracle_phase
 - EC: D6 (pending attribute) parked; stream witness parked; upstream #960 filed.
 - Halo: S2+ (alert-light flash, voice satellite announcements) not in this cycle.
 
+## Validated 2026-10-29 (overnight soak exit, read-only; EC leg)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Strategy sensor exposes `reserve_reference_source`, `reserve_last_landed(_at)` | PASS | live `sensor.ura_energy_coordinator_battery_strategy`: `local` / `30` / `2026-10-29T04:12:37Z` |
+| `reserve_write` rows carry `reserve_reference_source` | PASS | URA DB `ura_activity_log`: 28/28 rows since deploy (local 24, cloud 2, cloud_low_soc_guard 2) |
+| No repeated identical writes inside 900 s | FAIL once (deploy day) | reserve 98 re-sent every 5 min 10-24 22:08-22:33Z (5 rows, all `applied`); none since 10-25 |
+| Zero false CRITICAL `envoy_write_verification` pages when the local witness confirms | VIOLATED | `notification_log`: REVERTED 10-25 04:11Z, self-heal loop (charge_from_grid) 10-27 19:47Z, REVERTED 10-29 04:12Z. The 10-29 page is proven false: write of 30 at 02:00:47Z, native Envoy reserve read 30 at 02:00:54Z; local feed unavailable 04:09:29-04:30:10Z; at 04:12:37Z the sweep compared against the stale cloud 10.0 (`energy_write_verify.py:1221`). The D3 escape only checks the live local reading, so a local outage after a witnessed landing still pages. |
+| Halo: switch off / lease TTL after restart | as-expected | `switch.ura_nm_panel_channel` = off (10-29 02:01 CDT); operator test-leak run still pending (WALLPANEL-URA-NOTIFY-1) |
+
+Disposition: card EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 moved to waiting_operator (Tier-3 fix-up APPROVE or accept-the-residual PICK). No money/comfort loss in the false-page case (SOC held at floor 30).
+
 ## Live acceptance criteria (prospective)
 - **EC Live:** no ERROR from energy/write-verify after restart; strategy sensor exposes `reserve_reference_source`, `reserve_last_landed(_at)`.
 - **EC Live:** next reserve change → `reserve_write` rows carry `reserve_reference_source`; no repeated identical writes inside 900 s.
