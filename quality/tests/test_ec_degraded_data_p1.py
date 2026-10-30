@@ -237,6 +237,13 @@ def stream_on(monkeypatch):
     _setc(monkeypatch, "SOC_STREAM_TIER_ENABLED", True)
 
 
+def _trust(s, clock):
+    """EC-SOURCE-FAILOVER D2: the stream starts `unproven`; tests that
+    exercise OTHER guards seed an earned trust (state + lapse anchor)."""
+    s._soc_stream_trust = "trusted"
+    s._stream_last_agree_at = clock.t
+
+
 def _native_stale(hass, clock):
     _st(hass, _NATIVE, "unavailable", unit="%", lu=clock.t)
     _st(hass, _SM, "unavailable", lu=clock.t)
@@ -262,6 +269,7 @@ def _cloud(hass, clock, value="96.2", age=60):
 class TestD1StreamTier:
     def test_stream_tier_serves_when_native_stale(self, clock, stream_on):
         s, hass, _ = _strategy(clock)
+        _trust(s, clock)
         _native_stale(hass, clock)
         _stream(hass, clock, "90")
         _cloud(hass, clock, "96.2")
@@ -347,6 +355,7 @@ class TestD1StreamTier:
         when fresh; otherwise today's cloud fallback (no LKG seeded)."""
         _setc(monkeypatch, "SOC_STREAM_TIER_ENABLED", kill)
         s, hass, _ = _strategy(clock, stream=entity)
+        _trust(s, clock)
         if native == "fresh":
             _st(hass, _NATIVE, "61", unit="%", lu=clock.t)
         else:
@@ -366,6 +375,7 @@ class TestD1StreamTier:
     def test_stream_cowitness_boundary_mode_b(self, clock, stream_on):
         """Co-witness max age 120 s (hard literal): 119 serves, 121 refuses."""
         s, hass, _ = _strategy(clock)
+        _trust(s, clock)
         _native_stale(hass, clock)
         _cloud(hass, clock, "50")
         _stream(hass, clock, "90", cow_age=119)
@@ -379,6 +389,7 @@ class TestD1StreamTier:
         CONFIGURED co-witness still refuses; no co-witness is allowed."""
         _setc(monkeypatch, "DEFAULT_SOC_STREAM_MAX_AGE_S", 90)
         s, hass, _ = _strategy(clock, cowitness=False)
+        _trust(s, clock)
         _native_stale(hass, clock)
         _cloud(hass, clock, "50")
         _stream(hass, clock, "90", lr_age=89)
@@ -387,6 +398,7 @@ class TestD1StreamTier:
         _stream(hass, clock, "90", lr_age=91)
         assert s.battery_soc == 50.0
         s2, hass2, _ = _strategy(clock, cowitness=True)
+        _trust(s2, clock)
         _native_stale(hass2, clock)
         _cloud(hass2, clock, "50")
         _stream(hass2, clock, "90", lr_age=10, cow_age=500)
@@ -397,10 +409,10 @@ class TestD1StreamTier:
         _st(hass, _NATIVE, "80", unit="%", lu=clock.t)
         _stream(hass, clock, "90")  # 10 pp > 3
         s._evaluate_stream_divergence(now=clock.t)
-        assert s._soc_stream_trust == "trusted"
+        assert s._soc_stream_trust == "unproven"
         # R2-5: a second compare in the SAME second does not count.
         s._evaluate_stream_divergence(now=clock.t)
-        assert s._soc_stream_trust == "trusted"
+        assert s._soc_stream_trust == "unproven"
         clock.adv(seconds=60)
         _st(hass, _NATIVE, "80", unit="%", lu=clock.t)
         _stream(hass, clock, "90")
@@ -417,15 +429,24 @@ class TestD1StreamTier:
         _stream(hass, clock, "80")
         s._evaluate_stream_divergence(now=clock.t)
         assert s._soc_stream_trust == "quarantined"
-        # Two spaced agreeing compares → trusted again.
+        # EC-SOURCE-FAILOVER D2.5: two spaced agreeing compares leave
+        # quarantine for `unproven` (not `trusted`); three more earn trust.
         for _ in range(2):
             clock.adv(seconds=60)
             _st(hass, _NATIVE, "81", unit="%", lu=clock.t)
             _st(hass, _SM, "self_consumption", lu=clock.t)
             _stream(hass, clock, "80")
             s._evaluate_stream_divergence(now=clock.t)
-        assert s._soc_stream_trust == "trusted"
+        assert s._soc_stream_trust == "unproven"
         assert coord.saves == 2
+        for _ in range(3):
+            clock.adv(seconds=60)
+            _st(hass, _NATIVE, "81", unit="%", lu=clock.t)
+            _st(hass, _SM, "self_consumption", lu=clock.t)
+            _stream(hass, clock, "80")
+            s._evaluate_stream_divergence(now=clock.t)
+        assert s._soc_stream_trust == "trusted"
+        assert coord.saves == 3
 
     def test_stream_divergence_wired_into_get_status(self, clock, stream_on):
         """Wire-in anchor: get_status (the `_evaluate_soc_resolution`
@@ -449,14 +470,15 @@ class TestD1StreamTier:
         assert s2._soc_stream_trust == "quarantined"
         s3, _, _ = _strategy(clock)
         s3.restore_stream_trust_snapshot({})
-        assert s3._soc_stream_trust == "trusted"
+        assert s3._soc_stream_trust == "unproven"
         s3.restore_stream_trust_snapshot({"state": "bogus"})
-        assert s3._soc_stream_trust == "trusted"
+        assert s3._soc_stream_trust == "unproven"
 
     def test_stream_tick_degraded_refuses_fresh_charge(self, clock, stream_on):
         """Stream tick: envoy_available stays native-based → degraded flag
         `stream` → fresh grid-charge entry refused."""
         s, hass, _ = _strategy(clock)
+        _trust(s, clock)
         _native_stale(hass, clock)
         _stream(hass, clock, "40")
         s.determine_mode("off_peak", "shoulder", now=clock.t.astimezone(_CDT))
@@ -466,6 +488,7 @@ class TestD1StreamTier:
 
     def test_tier_map_and_disagreement_include_stream(self, clock, stream_on):
         s, hass, _ = _strategy(clock)
+        _trust(s, clock)
         _native_stale(hass, clock)
         _stream(hass, clock, "90")
         _cloud(hass, clock, "96.2")
@@ -536,11 +559,11 @@ async def test_stream_trust_and_page_latch_persist_across_restart(clock):
     assert s2._soc_stream_trust == "quarantined"
     assert s2._untrusted_page_boundary_iso == "2026-10-03T17:00:00-05:00"
     assert s2._cfg_unknown_page_boundary_iso == "2026-10-03T17:00:00-05:00"
-    # Missing key → default trusted (C1-6 documented).
+    # Missing key → init `unproven` (EC-SOURCE-FAILOVER D2.1).
     s3, hass3, _ = _strategy(clock)
     hass3.data["universal_room_automation"] = {"database": _KV()}
     await _persist_shell(hass3, s3)._restore_evse_state()
-    assert s3._soc_stream_trust == "trusted"
+    assert s3._soc_stream_trust == "unproven"
 
 
 # ===========================================================================
@@ -1266,6 +1289,7 @@ class TestD3CloudWithhold:
         if tier == "lkg":
             s._soc_lkg, s._soc_lkg_at = 40.0, clock.t - timedelta(seconds=30)
         if tier == "stream":
+            _trust(s, clock)
             _stream(hass, clock, "40")
         s.determine_mode("off_peak", "shoulder", now=clock.t.astimezone(_CDT))
         assert s._tick_soc_source == tier
@@ -1438,6 +1462,7 @@ class TestD4Page:
     def test_page_not_fired_on_stream_tier(self, clock, stream_on):
         clock.set(datetime(2026, 10, 3, 20, 30, tzinfo=_UTC))
         s, hass, coord = _strategy(clock)
+        _trust(s, clock)
         for _ in range(5):
             _native_stale(hass, clock)
             _stream(hass, clock, "90")
@@ -1595,6 +1620,8 @@ class TestD5Attrs:
 
     def test_stream_trust_attr_values(self, clock, stream_on):
         s, _, _ = _strategy(clock)
+        assert s.get_status()["stream_trust"] == "unproven"
+        s._soc_stream_trust = "trusted"
         assert s.get_status()["stream_trust"] == "trusted"
         s._soc_stream_trust = "quarantined"
         assert s.get_status()["stream_trust"] == "quarantined"
@@ -1684,8 +1711,12 @@ def _apply_asof(hass, win, t):
         _st(hass, eid, state, unit=unit, lu=lu, lr=lr or lu)
 
 
-def _replay(clock, win, t0, t1, *, stream, render_s=30, decide_at=None, on_decide=None):
+def _replay(clock, win, t0, t1, *, stream, render_s=30, decide_at=None, on_decide=None,
+            trusted=False):
     s, hass, coord = _strategy(clock, stream=stream, cowitness=stream)
+    if trusted:
+        clock.set(t0)
+        _trust(s, clock)
     _st(hass, _CFG_W, "off", lu=t0)
     out = []
     renders = []
@@ -1798,7 +1829,7 @@ class TestReplay:
         t1 = datetime(2026, 10, 3, 22, 27, tzinfo=_UTC)
         dec = [t0 + timedelta(minutes=5 * i) for i in range(5)]
         _, coord, out = _replay(clock, win, t0 - timedelta(minutes=10), t1,
-                                stream=True, decide_at=dec)
+                                stream=True, decide_at=dec, trusted=True)
         assert [tier for _, tier, _ in out] == ["stream"] * 5
         socs = [r["soc"] for _, _, r in out]
         assert socs == [96.0, 95.0, 93.0, 92.0, 91.0]  # stream as-of rows
@@ -1812,7 +1843,8 @@ class TestReplay:
         t0 = datetime(2026, 10, 3, 5, 35, tzinfo=_UTC)
         t1 = datetime(2026, 10, 3, 6, 0, tzinfo=_UTC)
         dec = [t0 + timedelta(minutes=5 * i) for i in range(6)]
-        _, coord, out = _replay(clock, win, t0, t1, stream=True, decide_at=dec)
+        _, coord, out = _replay(clock, win, t0, t1, stream=True, decide_at=dec,
+                                trusted=True)
         tiers = [tier for _, tier, _ in out]
         assert "stream" not in tiers
         assert any(not eb_mod.soc_tier_trusted(x) for x in tiers)

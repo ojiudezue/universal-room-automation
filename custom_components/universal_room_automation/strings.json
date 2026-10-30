@@ -1161,7 +1161,7 @@
           },
           "cloud_verification": {
             "name": "Battery cloud verification (advanced)",
-            "description": "Optional battery-cloud entities used to verify that battery commands took effect and to fall back on when the local battery gateway is briefly unavailable. Under cloud-first writes these entities are ALSO the actual write targets for reserve / charge-from-grid / battery-mode. BLANKING a field disables that surface's verification AND routes both writes and command-state reads on that surface back to the local gateway (documented via a one-time INFO log at startup).",
+            "description": "Optional battery-cloud entities used to verify that battery commands took effect and to fall back on when the local battery gateway is briefly unavailable. Under cloud-first writes these entities are ALSO the actual write targets for reserve / charge-from-grid / battery-mode. BLANKING a field disables that surface's verification AND routes both writes and command-state reads on that surface back to the local gateway (documented via a one-time INFO log at startup). The local battery stream fields set a second local source for battery level.",
             "data": {
               "energy_cloud_reserve_oracle_entity": "Battery reserve — cloud read-back",
               "energy_cloud_charge_from_grid_oracle_entity": "Charge from grid — cloud read-back",
@@ -1169,6 +1169,7 @@
               "energy_cloud_battery_soc_fallback_entity": "Battery charge sensor — cloud fallback",
               "energy_stream_battery_soc_entity": "Local battery stream",
               "energy_stream_cowitness_entity": "Stream heartbeat sensor",
+              "energy_stream_battery_soc_max_age_s": "Local battery stream max age (s)",
               "energy_soc_divergence_threshold_pp": "Battery level disagreement alert (pp)",
               "energy_soc_divergence_dwell_min": "Disagreement confirmation time (min)",
               "energy_cloud_lag_alert_s": "Cloud update delay alert (s)",
@@ -1179,8 +1180,9 @@
               "energy_cloud_charge_from_grid_oracle_entity": "Cloud switch entity that reports back whether charge-from-grid actually propagated. If URA commanded OFF and this reports ON with no intervening command, an anomaly is raised.",
               "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode. Used to verify battery-mode writes. Unmapped values are treated as inconclusive — never as a mismatch.",
               "energy_cloud_battery_soc_fallback_entity": "Cloud battery-charge sensor used ONLY when the local battery-charge sensor is unavailable and the 5-minute last-known-good cache is stale. Also cross-checked against the primary at every read for divergence.",
-              "energy_stream_battery_soc_entity": "Optional. A fast local battery-level sensor used when the battery gateway integration drops out.",
-              "energy_stream_cowitness_entity": "Optional. A fast-changing sensor from the same local stream (for example its grid power). Shows the stream is still live.",
+              "energy_stream_battery_soc_entity": "Optional. A fast local battery-level sensor used when the battery gateway integration drops out. Pick one from a different integration that stays up when the gateway drops; a sensor that fails at the same time gives no protection.",
+              "energy_stream_cowitness_entity": "Optional. A fast-changing sensor from the same local stream (for example its house load power). Shows the stream is still live.",
+              "energy_stream_battery_soc_max_age_s": "Optional. Ignore the local battery stream when its last report is older than this. Use a few times the stream's update interval (for example 120 for a sensor that updates every 30 s). Leave blank or 0 for a stream that goes unavailable by itself when it stops (such as an MQTT sensor with expire_after); then the heartbeat sensor is used instead.",
               "energy_soc_divergence_threshold_pp": "Warn when local and cloud battery readings disagree by more than this many percentage points. Set to 0 to turn detection off.",
               "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting — filters one-off blips.",
               "energy_cloud_lag_alert_s": "Warn when the battery cloud's settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor).",
@@ -1219,6 +1221,7 @@
         },
         "error": {
           "utility_statistic_id_invalid": "A utility statistic id looks like source:name (for example smarthub:smarthub_energy_sensor_...). Leave it blank to turn the bill check off.",
+          "stream_max_age_too_small": "Local battery stream max age must be 0 (off) or at least 30 seconds.",
           "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
           "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
           "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",

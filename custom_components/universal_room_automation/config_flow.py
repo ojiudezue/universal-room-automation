@@ -6067,6 +6067,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
             CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
             CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+            # EC-SOURCE-FAILOVER D1.2 — per-house stream max age (s).
+            CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+            SOC_STREAM_MAX_AGE_MIN_S,
             DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -6164,6 +6167,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # EC-DEGRADED-DATA-POLICY-1 D1 stream tier fields.
                     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
                     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+                    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
                     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                     # D2 detection knobs live in the same section.
                     CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
@@ -6232,6 +6236,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "guard_kw_required_when_enabled"
                 )
                 errors.setdefault("base", "guard_kw_required_when_enabled")
+
+            # EC-SOURCE-FAILOVER D1.2 — stream max age: 0 / blank = off
+            # (mode "b"); a non-zero value below SOC_STREAM_MAX_AGE_MIN_S
+            # would make every read stale (trust never earns) → reject.
+            _sm_raw = user_input.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S)
+            if _sm_raw not in (None, ""):
+                try:
+                    _sm_val = float(_sm_raw)
+                except (TypeError, ValueError):
+                    _sm_val = None
+                if _sm_val is None or (
+                    _sm_val != 0 and _sm_val < SOC_STREAM_MAX_AGE_MIN_S
+                ):
+                    errors[CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S] = (
+                        "stream_max_age_too_small"
+                    )
+                    errors.setdefault("base", "stream_max_age_too_small")
 
             # EC-SOC-LADDER-XVALIDATE-1 — cross-field SOC ladder check at
             # save time. Reject an inverted ladder at the SOURCE with a
@@ -7479,6 +7500,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     },
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
+                ),
+                # EC-SOURCE-FAILOVER D1.2 — optional, NO default: unset/0 =
+                # freshness mode "b" (identical to today); > 0 = mode "a".
+                # Non-zero < SOC_STREAM_MAX_AGE_MIN_S rejected on submit.
+                vol.Optional(
+                    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None,
+                        ),
+                    },
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=3600, step=10,
+                        unit_of_measurement="s",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
                 # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                 # D2 detection knobs (rung-2). Bounds sanity-checked

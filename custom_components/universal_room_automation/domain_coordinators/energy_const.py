@@ -338,26 +338,52 @@ DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
 # ---------------------------------------------------------------------------
 # EC-DEGRADED-DATA-POLICY-1 Phase 1 (PLANNING_ec_degraded_data_phase1.md).
 # ---------------------------------------------------------------------------
-# D1 — local MQTT stream SOC tier (between native Envoy and LKG).
+# D1 — local second-source battery level SOC tier (between native Envoy and
+# LKG). Any local producer that stays up when the native gateway drops (e.g.
+# a polled realtime integration, or an MQTT stream with expire_after).
 # Rung-1 kill switch: a trust decision on a breaker-safety input; flipping it
 # must be reviewed. False = today's resolver (envoy → LKG → cloud), byte-
-# identical. Ships DORMANT (operator Q1); flipped only on the D0 A/B GO.
-SOC_STREAM_TIER_ENABLED: Final = False
+# identical. EC-SOURCE-FAILOVER (PLANNING_ec_source_failover_class.md D1):
+# enabled; the per-house on/off is the stream entity field (unset = off).
+SOC_STREAM_TIER_ENABLED: Final = True
 # Rung-2 (config flow, per-deployment wiring). Unset = tier off. No house-
 # specific default: a second install without a stream degrades to today.
 CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY: Final = "energy_stream_battery_soc_entity"
-# Rung-2. A fast-changing sibling stream entity (e.g. stream grid power)
-# proving the producer is alive. MANDATORY when DEFAULT_SOC_STREAM_MAX_AGE_S
-# is 0 (freshness mode "b"); optional otherwise.
+# Rung-2. A value-moving sibling entity from the same local second source
+# (e.g. its house load power) proving the producer's data is still moving.
+# MANDATORY in freshness mode "b" (max age unset/0); optional in mode "a".
 CONF_ENERGY_STREAM_COWITNESS_ENTITY: Final = "energy_stream_cowitness_entity"
-# Rung-1 protocol window. > 0 = freshness mode "a" (stream `last_reported`
-# age must be <= this); 0 = mode "b" (rely on the MQTT `expire_after`
-# contract + a mandatory co-witness). Pending the D0-S1 measurement; ships
-# at 0 (the fail-closed mode — the tier refuses without a co-witness).
+# Rung-2 (EC-SOURCE-FAILOVER D1.2): per-house stream max age, seconds.
+# Unset/0 = DEFAULT_SOC_STREAM_MAX_AGE_S (mode "b"); > 0 = mode "a" with this
+# max `last_reported` age. Depends on the producer's cadence (use ~4x poll).
+CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S: Final = "energy_stream_battery_soc_max_age_s"
+# Options-flow lower bound for a non-zero max age (a smaller value makes
+# every read stale, so trust never earns). Rung-1: form validation bound.
+SOC_STREAM_MAX_AGE_MIN_S: Final = 30
+# Rung-1 default for an unset per-house max age. > 0 = freshness mode "a"
+# (stream `last_reported` age must be <= this); 0 = mode "b" (the producer
+# goes unavailable by itself when it stops + a mandatory co-witness). Stays
+# 0 so mode-"b" houses are unchanged; the per-house field selects mode "a".
 DEFAULT_SOC_STREAM_MAX_AGE_S: Final = 0
-# Rung-1 protocol window: the co-witness must have CHANGED (last_updated)
-# within this many seconds (~2x the producer's expire_after of 60 s).
+# Rung-1 protocol window (frozen-source detector): the co-witness must have
+# CHANGED (last_updated) within this many seconds (D0-c: p99 11 s).
 DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S: Final = 120
+# Rung-1 safety bound (EC-SOURCE-FAILOVER D2): agreeing compared samples
+# (<= DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT, >= 60 s apart) vs fresh native
+# that earn trust from `unproven`. 1 = weakest; not a disable.
+DEFAULT_SOC_STREAM_TRUST_EARN_SAMPLES: Final = 3
+# Rung-1 safety bound (D2): a `trusted` stream with no agreeing sample for
+# longer than this lapses to `unproven` (checked on serving reads). 6 h
+# covers the longest measured native dropout (232 min). 0 = no lapse.
+DEFAULT_SOC_STREAM_TRUST_MAX_AGE_S: Final = 21600
+# Rung-1 junk-guard tolerance (D3): slew backstop margin over the battery-
+# physics bound (rate x elapsed since the last native value), and the jump
+# size that arms the settle window on an unobserved reconnect. 100 = off.
+DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT: Final = 3.0
+# Rung-1 safety window (D3): after a stream reconnect (unavailable seen, or
+# a sub-tick change with a jump over the margin) no value is served or
+# compared for this many seconds (native-path junk lasted 36 s). 0 = off.
+DEFAULT_SOC_STREAM_RECONNECT_SETTLE_S: Final = 60
 # Rung-1 anti-flap count: consecutive compared samples beyond the divergence
 # threshold (REUSED DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT) that quarantine the
 # stream, and consecutive agreeing samples that restore trust.
@@ -2716,6 +2742,9 @@ EC_CONSTRUCTION_ENTITY_KEYS: Final[frozenset[str]] = EC_ROLE_KEY_SET | frozenset
     CONF_ENERGY_ENVOY_ENTITY,
     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+    # EC-SOURCE-FAILOVER D1.2: read once at BatteryStrategy construction
+    # (typed attr, not the entity map), so a change needs the parent reload.
+    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
     CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
     CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES,
     CONF_ENERGY_WEATHER_FALLBACK_1,
