@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-29T21:55:30-05:00_ - _Data commit: `746c1dc464d3`_ - _last_reconciled: 2026-10-29_
+_Generated: 2026-10-29T21:56:09-05:00_ - _Data commit: `bebe737106ea`_ - _last_reconciled: 2026-10-30_
 
 
 ## Columns
@@ -760,13 +760,13 @@ _created 2026-10-18 · updated 2026-10-21 22:05 · refined_
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#14 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
-_created 2026-09-21 · updated 2026-10-18 02:08 · refined ×1_
+_created 2026-09-21 · updated 2026-10-30 02:01 · refined ×1_
 - **Problem / Solution:**
   - Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy background tasks _async_try_refr...
 - **Why:** the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.
-- **Next:** DO: fill in the three blanks in docs/planning/DRAFT_envoy_upstream_issue.md (Envoy firmware, pyenphase version, a debug-log excerpt from one long hang), re-check core PR #183172, then post it as a comment on home-assistant/core #181243. ...
+- **Next:** APPROVE: update HA Core 2026.10.1 -> 2026.10.4 in an attended daytime window (it carries the upstream fix, core PR #183172, merged 10-15 in the 2026.10.2 milestone; one HA restart). -> I then re-count Envoy dropouts and long hangs for 7 ...
 - **Tags:** energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident
-- **Forensic keys (16):**
+- **Forensic keys (17):**
   - `triage_2026_10_17`: Default taken: I draft the upstream HA report; operator posts it.
   - `draft_2026_10_14`: Operator picked (A). Draft at docs/planning/DRAFT_envoy_upstream_issue.md (not posted): recommends a COMMENT on open core#181243 rather than a new issue. pyenphase EnvoyClientClosedError(RuntimeError) at exceptions.py:103; core coordinat...
   - `instance_2026_10_03_overnight`: Recorder count of sensor.envoy_482543015950_battery 'unavailable' rows per day: 09-29 19 / 09-30 11 / 10-01 44 / 10-02 3 (00:10, ..., 14:15) / 10-03 1 (00:42 = restart boot). The '~23:05 nightly drop' named on 10-01 did NOT recur on 10-0...
@@ -782,6 +782,7 @@ _created 2026-09-21 · updated 2026-10-18 02:08 · refined ×1_
   - `measured_2026_09_22`: OVERNIGHT PASS — verify-before-work on this card, and the diagnosis is now VERIFIED AT SOURCE rather than inherited from the card body. Core log pulled via the authenticated hassio proxy (20000 lines, 2026-09-21 23:04 -> 2026-09-22 02:05...
   - `INSTANCE_2026_09_25_setup_hang`: NEW FAILURE SHAPE, distinct from the self-recovering flaps: after the HA core update 2026.9.3 + Envoy reboot + core-switch/UDM restart, the enphase_envoy entry (01KNYRAGVP5XESS6N8PD6BVQP2) sat in setup_in_progress from ~18:21 with ZERO l...
   - `measured_2026_09_30_overnight`: READOUT of the ha_2026_9_4_tracking discriminator (scripts/probes/envoy_flap_rate_probe.py, HA recorder, sensor.envoy_482543015950_battery unavailable-transitions per local day): 09-22 120, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27...
+  - `groom_2026_10_30_overnight`: STILL-REAL, ball moved: gh pr view 183172 -R home-assistant/core -> MERGED 2026-10-15, milestone 2026.10.2 (cherry-picked). update.home_assistant_core_update reads installed 2026.10.1, latest 2026.10.4, so the house is running WITHOUT th...
   - `groom_2026_10_18_overnight`: CARD-WAS-WRONG (mine, 02:02 tonight): I rewrote next as 'Me: draft the upstream report', but that draft already exists (draft_2026_10_14, docs/planning/DRAFT_envoy_upstream_issue.md). The 10-17 default is therefore already done and the b...
 
 ### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#15 · WSJF 4.5 · v5 tc2 u2 /e2_
