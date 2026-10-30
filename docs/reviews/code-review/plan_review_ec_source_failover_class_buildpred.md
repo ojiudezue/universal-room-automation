@@ -61,3 +61,37 @@ Quarantine needs 2 compared samples ≥60 s apart. Native drops at 23:06-23:09. 
 
 ## Must-fix before build dispatch
 BP-1, BP-2, BP-3 (choose and document), BP-4, BP-5, BP-6, BP-7, BP-8. BP-9/BP-10 are small plan text additions.
+
+## Addendum: operator requirements (2026-10-29)
+
+### OR-1 MEDIUM: recommended changes and production behaviour are mixed together
+§3.1 and §3.3 put live behaviour, dormant code and proposals in the same tables. The builder can misread them in three places:
+- **(a) "Stream tier ... REUSE, enable"** (§1.2, §3.3 "BUILT, never live"). The code exists, but nothing in it has run in production: the trust init at `:636`, quarantine, and the restore at `energy.py:1846`. A builder reading "REUSE" will treat it as proven, skip the BP-3 review, and skip its tests.
+- **(b) §3.1 "Stream co-witness ... last_updated 120 s"** is production code that is never reached. D1c's change to it is a proposal.
+- **(c) The §5 invariants mix states that hold today (INV-SF3) with states that hold only after the change (INV-SF2).**
+
+**Fix:** add a "Today (develop @cdf67a490) / After slice 1" column pair to §3.1, and tag each invariant [holds today] or [new].
+
+### OR-2 MEDIUM: pieces whose benefit is not yet shown
+- **D1b** has no proven benefit until D0 measures data freshness (BP-1). The way D0 is written now, it could approve a regression.
+- **D1c** has no correctness benefit in mode "a", where the co-witness is optional. Its only effect is to weaken the frozen-poller detector (BP-6). Drop it, or justify it.
+- **The `unknown_age` keyword** is justified only by D1b. If D1b is dropped, the keyword goes with it. Do not ship it alone as "harmonization".
+- **The text rename in D1a** is harmless and can stay.
+- **D2** is listed as a separate cycle. Keep it out of this build, and say so in the builder brief.
+
+### OR-3 MEDIUM: configurability for other houses
+Code today is clean here. The SOC entity, cloud fallback (`DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY = None`, `energy_const.py:323`), stream entity and co-witness are all options-flow fields (`config_flow.py:6068-6069,7464-7477`), and all of them default to unset. The risk is that the builder hard-codes values the plan gives as concrete examples:
+- **Values the builder may copy in:** `sensor.envoy_482543015950_battery_2`, `load_power`, the `_2` suffix, and the 23:06 window. These appear in D1a's "Config (operator action)", in the tests, and in the Live criteria.
+- **Forbid:** any entity ID, serial, `_2` suffix or time window in `custom_components/`, including defaults, migrations, auto-population and NM text. Tests must use synthetic entity IDs.
+- **Units and sign:** the stream guard already requires unit `%` and a value in 0-100 (`:1797-1801`). No sign question arises for SOC. Keep power out of scope (M6).
+
+**Second-house matrix (behaviour after slice 1 with nothing configured):**
+
+| House sources | Configuration | Result |
+|---|---|---|
+| No `enphase_realtime` | stream unset | `_stream_tier_configured()` returns False and the tier is skipped; behaviour is identical to today (this is the real INV-SF4; see BP-7) |
+| Cloud only | cloud fallback set | D1b semantics apply. BP-1 matters more here, because cloud is the only fallback |
+| MQTT stream with `expire_after` and no per-message stamp | stream set | `DEFAULT_SOC_STREAM_MAX_AGE_S=120` forces mode "a" for every house (BP-10). A per-house stream max-age at rung 2, with 0 meaning mode "b", would serve both kinds of producer. That is a new config field, so the plan should either justify it or record the limitation |
+| Native integration unset | SOC unset | unchanged from today |
+
+**Fix:** add this matrix and the forbid-list to §6 D1a and to the builder brief.
