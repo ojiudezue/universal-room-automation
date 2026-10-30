@@ -1,6 +1,6 @@
 # PLANNING: EC source failover as a class (multi-producer values, freshness stamps, untrusted fallbacks)
 
-**Revision:** rev 3, 2026-10-29 (rev 1 = cdf67a490, rev 2 = de891642d). **Status:** rev 3 applies the two rev-2 re-reviews (completeness 6bf9983bd, build-prediction 858ee1bc5) and the D0 probe results (`AUDIT_ec_source_failover_d0_probes_2026_10_29.md`, 8663731a9). Orchestrator checks the rev-3 edits, then operator checkpoint. **Tier:** 3 (section B7).
+**Revision:** rev 3.1 (small clarifications after rev 3 re-check), rev 3, 2026-10-29 (rev 1 = cdf67a490, rev 2 = de891642d). **Status:** rev 3 applies the two rev-2 re-reviews (completeness 6bf9983bd, build-prediction 858ee1bc5) and the D0 probe results (`AUDIT_ec_source_failover_d0_probes_2026_10_29.md`, 8663731a9). Orchestrator checks the rev-3 edits, then operator checkpoint. **Tier:** 3 (section B7).
 **Origin card:** ENVOY-STREAM-SOC-TIER-1 (`revival_2026_10_29`, `measured_2026_10_29`, `binding_constraint_3_8_2026_09_27`, `constraints`).
 **Reviews answered:** `docs/reviews/code-review/plan_review_ec_source_failover_class_completeness.md` (816d691d0) and `plan_review_ec_source_failover_class_buildpred.md` (60cea4ec7 + addendum 65cdc0318). Section C maps every finding to its resolution.
 **Operator requirements (2026-10-29, binding):** R1 separate production from proposals; R2 every change fixes a measured wrong behaviour; R3 fallbacks are configurable per house, unset means identical to today.
@@ -171,6 +171,67 @@ Window 10-24 13:28 to 10-29 21:49 (5.3 days; the realtime entities only exist fr
      - The margin (3 pp, same as the divergence threshold) absorbs integer-% steps: native 40 then stream 41 after 30 s gives |Δ| = 1 ≤ 0.64 + 3, so it is served.
   3. **Physics source (R3):** capacity comes from the existing configured capacity entity via `_battery_capacity_kwh()` (`energy_battery.py:4820`, REUSED, `CONF_ENERGY_BATTERY_CAPACITY_ENTITY`), falling back to `BATTERY_CAPACITY_KWH`. No configurable charge/discharge rate exists; the rates stay `BATTERY_MAX_CHARGE_KW` / `BATTERY_MAX_DISCHARGE_KW` (30.72 kW). **Recorded R3 limitation:** a house with a slower battery gets a wider (weaker) backstop, never a tighter one that would refuse good values, unless its battery is faster than 30.72 kW. Making the rates config is not proposed: no measured benefit (R2). Revival trigger: a second install whose battery rates differ.
 - **Card constraint (c), "age from the payload timestamp":** cannot be met literally for this producer, because `secctrl` has no timestamp (D0-a). Rev 2 meets its intent instead: the integration marks the entity unavailable on a failed poll (no integration-side frozen republish), and an Envoy-side freeze stops `load_power` changing, which kills the co-witness (A1.6, kept on `last_updated`). The operator is asked at checkpoint to accept this substitution in writing. A producer that does expose a payload timestamp is a later option (B6).
+
+### D3/D2 rev 3.1 clarifications (binding)
+
+- **MEDIUM-R3-1:** the slew check runs only on serving reads (`check_trust=True`) or when native is stale. It never runs on the divergence-comparison read (`check_trust=False`), so a real divergence still reaches quarantine. Test: `test_native_fresh_stream_plus_5pp_quarantined`.
+- **LOW-R3-2:** if `_battery_capacity_kwh()` returns None or ≤ 0, use `BATTERY_CAPACITY_KWH`.
+- **LOW-R3-3:** the trust-lapse check runs only on serving reads (`check_trust=True`).
+- **RC-1:** "previous read value" for settle arm (b): if the previous read returned None (unavailable, stale, settling), treat it as no jump. Settle was already armed by arm (a) on the unavailable read.
+- **RC-2:** an NM for "stuck unproven" is parked. Revival trigger, recorded on card ENVOY-STREAM-SOC-TIER-1: `stream_unproven_native_fresh_s` seen above 3600 s in any house.
+- **Native reference fields** (`_soc_native_last_value`, `_soc_native_last_at`) are written on the native path even when no stream is configured. They are internal only; resolver output, tier labels and attributes are unchanged, so INV-SF4 holds. The INV-SF4 test asserts this.
+
+## B2a. Config surface (operator-visible)
+
+Everything below appears in the options flow, step `cloud_verification` ("Battery cloud verification (advanced)", `strings.json:1163`). Labels follow the repo style: a short phrase for the label, a plain sentence for the help.
+
+### 1. NEW field: `energy_stream_battery_soc_max_age_s`
+
+| Item | Value |
+|---|---|
+| Placement | step `cloud_verification`, directly after `energy_stream_cowitness_entity`, same `vol.Optional` + `description={"suggested_value": ...}` pattern as `config_flow.py:7464-7477` |
+| Selector | `NumberSelector`, mode box, unit `s`, min 0, max 3600, step 10. 0 = off. Validation: a non-zero value below 30 is rejected with a form error |
+| Default | none (optional). Unset or 0 = mode "b", identical to today |
+| Label | **Local battery stream max age (s)** |
+| Help | Optional. Ignore the local battery stream when its last report is older than this. Use a few times the stream's update interval (for example 120 for a sensor that updates every 30 s). Leave blank or 0 for a stream that goes unavailable by itself when it stops (such as an MQTT sensor with expire_after); then the heartbeat sensor is used instead. |
+| This house | 120 (operator action, daytime) |
+
+### 2. CHANGED help text: `energy_stream_battery_soc_entity`
+
+| Item | Value |
+|---|---|
+| Label | unchanged: **Local battery stream** |
+| Help today (`strings.json:1182`) | Optional. A fast local battery-level sensor used when the battery gateway integration drops out. |
+| Help after | Optional. A fast local battery-level sensor used when the battery gateway integration drops out. Pick one from a different integration that stays up when the gateway drops; a sensor that fails at the same time gives no protection. |
+
+Note for the operator: the existing heartbeat help (`strings.json:1183`) gives "its grid power" as the example. This plan recommends a sensor whose value always moves (`load_power` here; `grid_power` can sit near zero). Optional text change, not required: replace "(for example its grid power)" with "(for example its house load power)".
+
+### 3. CHANGED step description: `cloud_verification`
+
+Append one sentence: "The local battery stream fields set a second local source for battery level."
+
+Placement oddity (pre-existing): the stream fields live in a step named for cloud verification. Recommendation: do NOT move them. Moving fields between options steps risks breaking the options round-trip for saved values. The operator can override.
+
+### 4. Code constants NOT shown in the UI (rung 1, review-gated)
+
+| Constant | Value | Why it stays code |
+|---|---|---|
+| `SOC_STREAM_TIER_ENABLED` | True | master kill switch for a trusted SOC tier; the per-house on/off is the stream entity field |
+| `DEFAULT_SOC_STREAM_TRUST_EARN_SAMPLES` | 3 | how much agreement with the main source earns trust; a safety bound |
+| `DEFAULT_SOC_STREAM_TRUST_MAX_AGE_S` | 21600 (6 h) | how long the stream may serve without a cross-check; a safety bound |
+| `DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT` | 3.0 | tolerance of the physics backstop; loosening it weakens the junk guard |
+| `DEFAULT_SOC_STREAM_RECONNECT_SETTLE_S` | 60 | wait after a reconnect before trusting a value; a safety window |
+| `DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S` | 120 | how long the heartbeat may stay unchanged; the frozen-source detector |
+
+### 5. Diagnostic attributes on `sensor.ura_energy_coordinator_battery_strategy`
+
+| Attribute | Meaning |
+|---|---|
+| `stream_trust` (existing) | `disabled`, `unproven`, `trusted` or `quarantined` (`unproven` is new) |
+| `stream_unproven_since` (new) | when the stream last entered `unproven` |
+| `stream_unproven_native_fresh_s` (new) | seconds the stream has stayed `unproven` while the main source was up, i.e. while it could have earned trust. A large value means the stream is misconfigured (for example max age too small) |
+| `soc_resolution.tier` (existing) | `local_stream` when the stream is serving |
+
 
 ### D4: Builder brief rules (no Part-A change)
 
