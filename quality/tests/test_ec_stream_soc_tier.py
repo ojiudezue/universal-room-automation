@@ -512,6 +512,31 @@ class TestEarnedTrust:
         assert s._soc_stream_trust == "trusted"
 
 
+    def test_stream_equal_native_entity_disabled_runtime(self, clock, caplog):
+        """Fix-up D2-MED-1 / Review D test_D4: stream = the (derived) native
+        SOC entity, heartbeat live, max age 3600, native frozen 40 min →
+        never served as stream; tier `disabled`; ONE warning."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        s, hass, _ = _mk(clock, max_age=3600, extra={"battery_soc_stream": _NATIVE})
+        for i in range(3):
+            if i:
+                clock.adv(seconds=60)
+            _native(hass, clock, "80")
+            _st(hass, _COW, "1234", unit="W", lu=clock.t)
+            s.get_status()
+        t_last = clock.t
+        clock.adv(minutes=40)
+        _st(hass, _NATIVE, "80", unit="%", lu=t_last)  # frozen native
+        _st(hass, _COW, "1234", unit="W", lu=clock.t)
+        got = (s.battery_soc, s._soc_source_last)
+        assert got != (80.0, "stream")
+        assert s.get_status()["stream_trust"] == "disabled"
+        assert s._soc_stream_trust == "unproven"
+        warns = [r for r in caplog.records if "SOC stream tier DISABLED" in r.getMessage()]
+        assert len(warns) == 1
+
+
 class TestRestore:
     @pytest.mark.parametrize("persisted,expect", [
         ("trusted", "unproven"), ("quarantined", "quarantined"),
@@ -739,6 +764,19 @@ class TestSettle:
         clock.set(t1 + timedelta(seconds=90))
         _stream(hass, clock, "49", lc=t1 + timedelta(seconds=30))
         assert (s.battery_soc, s._soc_source_last) == (49.0, "stream")
+
+    def test_settle_extension_capped_at_two_windows(self, clock):
+        """Fix-up D2-LOW-1: extensions cap at first anchor + 2 x 60 s, so a
+        stream changing every < 60 s cannot stall forever."""
+        s, hass, t1 = self._reconnect_50(clock)
+        for off, v in ((35, "49"), (85, "48"), (115, "47")):
+            clock.set(t1 + timedelta(seconds=off))
+            _no_lkg(s)
+            _stream(hass, clock, v, lc=t1 + timedelta(seconds=off - 5))
+            assert s.battery_soc is None, off
+        clock.set(t1 + timedelta(seconds=121))
+        _stream(hass, clock, "47", lc=t1 + timedelta(seconds=110))
+        assert (s.battery_soc, s._soc_source_last) == (47.0, "stream")
 
     def test_settle_return_keeps_previous_value(self, clock):
         """Kept prev alone: the window ends (t1+60), then a blip → 0 AFTER it
@@ -1082,6 +1120,19 @@ def test_options_stream_equal_native_rejected():
         "energy_envoy_entity": "sensor.envoy", "energy_battery_soc_entity": native,
     })
     assert r["type"] == "create_entry", r
+
+
+def test_options_stream_equal_derived_native_rejected():
+    """Fix-up D2-MED-1: native key ABSENT from the entry but derivable from
+    the Envoy serial (same derivation as __init__) → still rejected."""
+    envoy = "sensor.envoy_123456789012_current_power_production"
+    r = _save({_SE: "sensor.envoy_123456789012_battery"},
+              options={"energy_envoy_entity": envoy})
+    assert r["type"] == "form", r
+    assert r["errors"][_SE] == "stream_entity_is_native"
+    r = _save({_SE: "sensor.test_second_source_battery"},
+              options={"energy_envoy_entity": envoy})
+    assert r["errors"].get(_SE) != "stream_entity_is_native" if r["type"] == "form" else True
 
 
 @pytest.mark.parametrize("age,hb,ok", [

@@ -660,6 +660,8 @@ class BatteryStrategy:
         # D3 reconnect settle (not persisted).
         self._stream_settle_until: Any = None
         self._stream_settle_anchor: Any = None
+        self._stream_settle_first: Any = None
+        self._stream_same_as_native_warned: bool = False
         self._stream_seen_unavailable: bool = False
         self._stream_last_read_at: Any = None
         self._stream_prev_value: float | None = None
@@ -1799,7 +1801,23 @@ class BatteryStrategy:
         from . import energy_const as _ec
         if not _ec.SOC_STREAM_TIER_ENABLED:
             return False
-        return bool(self._entities.get("battery_soc_stream"))
+        stream_eid = self._entities.get("battery_soc_stream")
+        if not stream_eid:
+            return False
+        # Fix-up D2-MED-1: a stream wired to the resolved native SOC entity
+        # (e.g. the serial-derived one the options flow never sees) would
+        # earn trust instantly and serve a frozen native value past the
+        # primary staleness gate → tier disabled, one WARNING.
+        if stream_eid == self._entities.get("battery_soc"):
+            if not self._stream_same_as_native_warned:
+                self._stream_same_as_native_warned = True
+                _LOGGER.warning(
+                    "SOC stream tier DISABLED: the local battery stream %s is "
+                    "the main battery charge sensor itself. Pick a sensor "
+                    "from a different integration.", stream_eid,
+                )
+            return False
+        return True
 
     def _read_stream_soc(
         self, *, check_trust: bool = True, now: Any = None,
@@ -1875,7 +1893,7 @@ class BatteryStrategy:
             # Fix-up D-HIGH-1: a further change INSIDE an active settle
             # window (a second, unobserved reconnect) extends the window
             # from that change.
-            self._arm_stream_settle(changed, settle)
+            self._arm_stream_settle(changed, settle, extend=True)
         elif (
             prev_read_at is not None
             and prev_value is not None
@@ -1943,9 +1961,20 @@ class BatteryStrategy:
             return None
         return value
 
-    def _arm_stream_settle(self, changed: Any, settle: Any) -> None:
-        """Arm (or extend) the D3 settle window from ``changed``."""
-        self._stream_settle_until = changed + settle
+    def _arm_stream_settle(
+        self, changed: Any, settle: Any, *, extend: bool = False,
+    ) -> None:
+        """Arm (or extend) the D3 settle window from ``changed``.
+
+        Fix-up D2-LOW-1: extensions are capped at the first anchor of the
+        window + 2 x SETTLE, so a fast-moving stream cannot stall forever.
+        """
+        until = changed + settle
+        if extend and self._stream_settle_first is not None:
+            until = min(until, self._stream_settle_first + 2 * settle)
+        else:
+            self._stream_settle_first = changed
+        self._stream_settle_until = until
         self._stream_settle_anchor = changed
 
     def _soc_slew_bound_pp(self, elapsed_s: float) -> float:

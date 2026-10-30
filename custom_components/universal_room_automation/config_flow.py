@@ -6274,6 +6274,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 _sf.pop(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None)
             _sf_stream = _sf.get(CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY)
             _sf_native = _sf.get(CONF_ENERGY_BATTERY_SOC_ENTITY)
+            if not _sf_native:
+                # Fix-up D2-MED-1: the native SOC entity is normally derived
+                # from the Envoy serial at setup (same derivation as
+                # __init__.py `derive_envoy_config`), never stored.
+                from .domain_coordinators.energy_const import (
+                    CONF_ENERGY_ENVOY_ENTITY as _ENVOY_KEY,
+                    derive_envoy_config as _derive,
+                    extract_envoy_serial as _serial_of,
+                )
+                _sf_serial = _serial_of(str(_sf.get(_ENVOY_KEY) or ""))
+                if _sf_serial:
+                    _sf_native = _derive(_sf_serial).get(
+                        CONF_ENERGY_BATTERY_SOC_ENTITY,
+                    )
             if _sf_stream and _sf_native and _sf_stream == _sf_native:
                 errors[CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY] = (
                     "stream_entity_is_native"
