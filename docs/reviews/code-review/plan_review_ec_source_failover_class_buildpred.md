@@ -95,3 +95,61 @@ Code today is clean here. The SOC entity, cloud fallback (`DEFAULT_CLOUD_BATTERY
 | Native integration unset | SOC unset | unchanged from today |
 
 **Fix:** add this matrix and the forbid-list to §6 D1a and to the builder brief.
+
+---
+
+## Re-review rev 2 (de891642d): changed sections only, build-prediction framing plus R1-R3
+
+**Verdict: FIX-REQUIRED (small).** Rev 2 resolves every finding from my first pass. It introduces four new gaps (RB-1 to RB-4) inside the new pieces. All of them can be fixed in the plan text before build dispatch.
+
+### Status of the first-pass findings
+| Finding | Status |
+|---|---|
+| BP-1 cloud `last_reported` | **Resolved.** D1b dropped and parked with a replay trigger; A4 records the prior NO-GO |
+| BP-2 frozen republish | **Resolved** for this producer by the D0-a source read (`FastCoordinator`, unavailable on a failed poll). The Envoy-side freeze is covered by the co-witness kept on `last_updated` |
+| BP-3 boot trust | **Resolved in design** (D2 `unproven`). See RB-2 for an ordering gap |
+| BP-4 injected `now` | **Resolved** (moot; helper unchanged) |
+| BP-5 `unknown_age` | **Resolved** (dropped) |
+| BP-6 co-witness | **Resolved** (D1c dropped; D0-c sizes the window) |
+| BP-7 test authority | **Resolved** (unpatched-constant test, unset-entity identity, config-driven max age, both mutation halves, ≥10 s margins) |
+| BP-8 operator config | **Resolved** (daytime step plus pre-23:00 `unproven`→`trusted` gate, which also proves the earn path) |
+| BP-9 one-sample residual | **Resolved** (test plus accepted residual) |
+| BP-10 global max age | **Resolved** (per-house field; constant stays 0) |
+| OR-1 production vs proposed | **Resolved.** The Part A / Part B split is clear, and the invariants are tagged |
+| OR-2 unproven benefit | **Resolved**, except RB-1: the slew guard's benefit as specified is partly unproven |
+| OR-3 configurability | **Partly resolved.** Entity wiring is clean, but RB-1 brings in this house's battery physics |
+
+### RB-1 HIGH: the slew guard reuses house-specific constants and, as specified, rejects legitimate steps
+`soc_envelope` (`energy_battery.py:3384-3433`) builds its bounds from `BATTERY_CAPACITY_KWH=40.0` and `BATTERY_MAX_DISCHARGE_KW=30.72` (`energy_const.py:2383-2385`). These are rung-1 module constants holding this house's values, not per-house config. That breaks R3: in a second house with a different battery, the slew guard uses the wrong physics. Two concrete failures follow:
+- **(a) Legitimate integer steps get rejected (this house).** 30.72/40 gives 76.8 pp/h, which is 0.64 pp per 30 s tick. Because every served stream read re-anchors the LKG (`:1097-1100`), the envelope around the next read is ±0.64 pp, and the producer reports integer %. **Repro:** native down, stream 41 → 40 at the next tick. 1 pp is more than 0.64, so the read is rejected and the tick falls to `lkg`. On the next tick (60 s from the anchor, ±1.28 pp) it is accepted. The tier label flaps `local_stream`↔`lkg` once per pp step. Holds are unaffected because LKG is trusted, but D1's live criterion ("tier = `local_stream` for every row") reads FAIL on a correct build. The predictable response is for the builder to widen the envelope by hand.
+- **(b) The plan's partial-fleet claim does not hold after a gap.** "95 → 87 rejected" is true only within about 6 min of the LKG anchor (8 pp at 1.28 pp/min). **Repro:** stream unavailable for 7 min inside the native outage (LKG, then cloud, which does not re-anchor), then the stream reconnects partial-fleet at 87 for longer than the 60 s settle. The envelope is about ±10 pp, so 87 is served as trusted.
+- **Plan fix:**
+  - The slew check rejects only when `|Δ| > envelope + quantization`, with quantization at least 1 pp (a rung-1 constant). Test a legitimate 1 pp step at a 30 s tick.
+  - State that the slew guard is a coarse backstop. It catches the 0-class and gross junk, not an 8 pp partial fleet after a gap. Revise the INV-SF7 wording and the `95 → 87` test to use timing that the physics actually supports.
+  - Record the R3 limitation: the battery physics constants are this house's values. Either move them to the options flow (separate card) or note in the R3 table that other houses get envelope bounds sized for 40 kWh / 30.72 kW.
+
+### RB-2 MEDIUM: the earn, recovery and lapse ordering is ambiguous
+- The existing quarantine recovery moves `quarantined`→`trusted` after `DEFAULT_SOC_STREAM_QUARANTINE_TICKS=2` agreements (`:1920-1926`). The plan does not say whether recovery now goes `quarantined`→`unproven`→`trusted` (needing N=3) or keeps the 2-tick shortcut. A builder will keep the existing code, and recovery from a proven-bad state is then easier (2) than first earn (3). **Fix:** quarantine recovery lands in `unproven`, then needs N fresh agreements. Add a test for this.
+- The plan does not say which counter the earn path uses: the existing `_stream_agree_count` (reset by `_stream_div_count` logic) or a new one. **Fix:** name it.
+- The lapse ("last agreeing comparison older than `TRUST_MAX_AGE_S`") needs a new timestamp field. It is not persisted, which is fine because restore yields `unproven`. The plan should name the field and the tick where the lapse is evaluated: in `_read_stream_soc` before serving, not only in `_evaluate_stream_divergence`, which returns early while native is down (`:1880-1883`). If the builder puts the lapse check inside `_evaluate_stream_divergence`, it never fires during the very outage it bounds.
+- `restore_stream_trust_snapshot` whitelists only `("trusted","quarantined")` (`:1942`). The plan's test `test_restore_trusted_becomes_unproven` covers the mapping. Also say explicitly that a persisted `unproven` restores as `unproven`, not that it is ignored. Today an unknown state returns early and keeps the init value, which is correct only if the init also changes to `unproven`. Make sure the builder changes the init at `:636`.
+
+### RB-3 MEDIUM: where the settle tracking lives, and blips shorter than a tick
+- The plan says "when the **resolver** reads the stream entity as unavailable". The resolver reads the stream only while native is down (native returns first, `:1082-1090`). Settle state therefore is not recorded for drops that happen while native is up. In that case `_evaluate_stream_divergence` (`_read_stream_soc(check_trust=False)`) compares the reconnect 0 against native 95. That is one divergent sample, which resets the earn count (and counts toward quarantine). **Fix:** the settle check lives in `_read_stream_soc`, so both callers honour it and junk never enters a comparison.
+- EC ticks are about 30 s apart (M0b row spacing). M2 measured realtime blips of 0.2-0.5 min, so a blip shorter than a tick is never observed as unavailable, and settle never arms. **Repro:** stream unavailable from 23:10:05 to 23:10:17, and the 23:10:19 tick reads first value 0. Settle has not armed, so only the envelope stands between that 0 and service, which RB-1 shows is fine for a 0 within minutes of the anchor. **Fix:** either arm settle from the entity's own `last_changed` (if `last_changed` is newer than the previous tick's read and the previous value differed by more than the envelope, treat it as a reconnect), or a state-change listener (that brings in listener lifecycle and unsub, which is heavier). Or document that the settle covers only drops longer than a tick and that the envelope covers the rest.
+
+### RB-4 MEDIUM: wiring and validation of the per-house max-age field
+- `self._entities` maps CONF keys to entity IDs (`energy.py:1182-1187`). A builder adding the numeric field to that mapping makes `_get_entity` return an int. **Fix:** say where the value lives (a typed attribute on BatteryStrategy, read from options), name all three config_flow sites (`6068`, `6165`, `7464-7477` pattern), and add strings.json label and help text.
+- **Silent never-serve config.** **Repro:** max age 10 s on a producer that polls every 30 s. Every read is stale, and `_evaluate_stream_divergence` also reads through freshness, so trust never earns, `stream_trust` stays `unproven` forever, and nothing pages. **Fix:** set a selector minimum (for example 30 s). The pre-23:00 gate already detects this in this house; for other houses, add an NM or a diagnostic when the state is `unproven` for more than 1 h while native is fresh and the stream is configured. The trigger lives in code, per the no-soak rule.
+
+### RB-5 LOW: the EVSE blind-guard ruling rests on an unverified claim
+B4 says reserve verifiability is "still false in the outage", but A2 lists `is_reserve_verifiable` as keyed on "write record age, not SOC" (`energy_write_verify.py:274-281`). Those two statements do not follow from each other. **Fix:** cite the line that makes verifiability false while native is down, or change the ruling text to rest on SOC being known alone. The recommendation (accept) does not depend on it.
+
+### RB-6 LOW (R1 wording)
+A1.8 says "unreadable restores to `trusted`". The code actually returns early and keeps the init `"trusted"` (`:1942-1943`). The effect is the same and the mechanism is different. A builder fixing "restore" without changing the init at `:636` leaves boot-trusted in place. RB-2's last bullet covers this.
+
+### R2 check (nothing without a clear benefit)
+D1 and D2 each fix a measured wrong behaviour. The D3 settle guards a behaviour measured on this Envoy, although not yet on this producer; D0-b gates it. The slew guard is justified, provided RB-1 is fixed. No other additions.
+
+### Must-fix before operator checkpoint
+RB-1, RB-2, RB-3, RB-4. RB-5 and RB-6 are text.
