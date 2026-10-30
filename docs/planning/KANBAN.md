@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-29T02:49:52-05:00_ - _Data commit: `6b29b7bf07f9`_ - _last_reconciled: 2026-10-29_
+_Generated: 2026-10-29T21:55:30-05:00_ - _Data commit: `746c1dc464d3`_ - _last_reconciled: 2026-10-29_
 
 
 ## Columns
@@ -1504,7 +1504,8 @@ _created 2026-09-25 18:00 · updated 2026-09-30 02:40 · refined ×2_
 - **Tags:** energy, envoy, tier-2db, measure-before-build, numbers-get-knobs, mutation-drill
 - **Parsimony:** [BUILD] Every SOC tier can be simultaneously disqualified, leaving the EC unable to decide for hours at a time, because no tier is both local and fast.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md; docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `parked_nm_stuck_unproven_2026_10_29`: PARKED NM (plan rev 3.1 RC-2): page on stream stuck unproven. Revival trigger: battery_strategy attr stream_unproven_native_fresh_s > 3600 s in any house.
   - `measured_2026_10_29`: enphase_realtime v1.0.5 (latest, HACS 1386354142; README says it is built to REPLACE core, both run here = two pollers; live 10 s/fast 30 s/stream off). battery_2: unit %, 983 rows since 10-24, 0 zero/negative values, 0 jumps >5 pp, 3 re...
   - `revival_2026_10_29`: Operator 10-29: make enphase_realtime (entry 01M494ANMSSYTXZM039P3XV2GQ, added 10-06, stream off) the FALLBACK SOC source. 7-day measure: battery_2 ~1 min down vs native 124 min (native drops nightly 23:06-ish ~20 min; battery_2 kept rep...
   - `parked_2026_09_30_overnight`: PARKED by this card's own rule ("If the cutout test shows the stream causes dropouts, this card parks instead"). ENPHASE-BATTERY-CUTOUTS-1 final readout 09-29 16:00-21:00: stream never on 0/6/8/6 dropouts, stream on 55/37/54/94, stream o...
