@@ -1857,10 +1857,11 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
             # EC-DEGRADED-DATA-POLICY-1 D1 — stream-tier trust state. A
-            # persisted `quarantined` survives restart; an absent key (or a
-            # row older than STALE_MAX_AGE_HOURS, plan review #1 C1-6)
-            # restores as the default `trusted` — a native comparison
-            # re-quarantines within 2 compared samples.
+            # persisted `quarantined` survives restart; a persisted `trusted`
+            # restores as `unproven`, and an absent key (or a row older than
+            # STALE_MAX_AGE_HOURS, plan review #1 C1-6) keeps the init
+            # `unproven` (EC-SOURCE-FAILOVER D2): trust is re-earned against
+            # native after every restart.
             # D4 / R2-8 — page latches (own key: persists with D1 dormant).
             for _key, _fn in (
                 ("battery_soc_stream_trust", "restore_stream_trust_snapshot"),

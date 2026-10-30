@@ -313,8 +313,11 @@ class TestD1StreamTier:
         "cow_unavailable_b", "quarantined",
     ])
     def test_stream_tier_rejects(self, clock, stream_on, case):
-        """I-4 fail-closed — every failed guard falls through to cloud."""
+        """I-4 fail-closed — every failed guard falls through to cloud.
+        Trust is seeded so each case isolates ONE guard (else `unproven`
+        alone would refuse — a hollow pass)."""
         s, hass, _ = _strategy(clock, cowitness=(case != "cow_unconfigured_b"))
+        _trust(s, clock)
         _native_stale(hass, clock)
         _cloud(hass, clock, "50")
         if case == "unavailable":

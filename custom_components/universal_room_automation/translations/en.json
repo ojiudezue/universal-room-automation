@@ -1222,6 +1222,8 @@
         "error": {
           "utility_statistic_id_invalid": "A utility statistic id looks like source:name (for example smarthub:smarthub_energy_sensor_...). Leave it blank to turn the bill check off.",
           "stream_max_age_too_small": "Local battery stream max age must be 0 (off) or at least 30 seconds.",
+          "stream_entity_is_native": "The local battery stream must be a different sensor from the main battery charge sensor. Pick one from a different integration that stays up when the gateway drops.",
+          "stream_max_age_needs_heartbeat": "A local battery stream max age above 300 seconds needs a stream heartbeat sensor. Set the heartbeat sensor, or use 300 seconds or less.",
           "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
           "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
           "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",

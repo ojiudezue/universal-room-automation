@@ -659,6 +659,7 @@ class BatteryStrategy:
         self._stream_unproven_acc_at: Any = None
         # D3 reconnect settle (not persisted).
         self._stream_settle_until: Any = None
+        self._stream_settle_anchor: Any = None
         self._stream_seen_unavailable: bool = False
         self._stream_last_read_at: Any = None
         self._stream_prev_value: float | None = None
@@ -1546,7 +1547,7 @@ class BatteryStrategy:
         # Pairwise max pp gap over non-None tier values. D1: the stream
         # value (guards + freshness, trust state ignored) joins the set
         # when the tier is enabled and configured; None otherwise.
-        stream_val = self._read_stream_soc(check_trust=False)
+        stream_val = self._read_stream_soc(check_trust=False, now=now)
         vals = [
             v for v in (primary_soc, lkg_val, cloud_val, stream_val)
             if v is not None
@@ -1825,9 +1826,10 @@ class BatteryStrategy:
         prev_read_at = self._stream_last_read_at
         prev_value = self._stream_prev_value
         self._stream_last_read_at = now
-        # Pessimistic: any early return leaves "previous read = None"
-        # (RC-1: a None previous read is treated as no jump).
-        self._stream_prev_value = None
+        # Fix-up D-HIGH-1: `_stream_prev_value` is the last NUMERIC value
+        # observed (kept across settle / freshness misses) so arm (b) still
+        # sees a jump after a missed read. Junk reads (non-numeric, wrong
+        # unit, out of range) are treated like an observed drop (arm (a)).
         eid = self._entities.get("battery_soc_stream")
         try:
             st = self.hass.states.get(eid)
@@ -1837,43 +1839,66 @@ class BatteryStrategy:
             # D3 settle arm (a): an observed drop. The next numeric read
             # arms the settle window from its `last_changed`.
             self._stream_settle_until = None
+            self._stream_settle_anchor = None
             self._stream_seen_unavailable = True
             return None
         try:
             value = float(st.state)
         except (TypeError, ValueError):
+            self._stream_seen_unavailable = True
             return None
         try:
             unit = st.attributes.get("unit_of_measurement")
         except Exception:  # noqa: BLE001
             unit = None
         if unit is None or str(unit).strip() != "%":
+            self._stream_seen_unavailable = True
             return None
         if not (0.0 <= value <= 100.0):
+            self._stream_seen_unavailable = True
             return None
         # D3 reconnect settle. SETTLE <= 0 → never settles (kill switch).
         settle = timedelta(seconds=float(_ec.DEFAULT_SOC_STREAM_RECONNECT_SETTLE_S))
         changed = getattr(st, "last_changed", None)
         if changed is None or getattr(changed, "tzinfo", None) is None:
             changed = now
+        until = self._stream_settle_until
+        anchor = self._stream_settle_anchor
         if self._stream_seen_unavailable:
             self._stream_seen_unavailable = False
-            self._stream_settle_until = changed + settle
+            self._arm_stream_settle(changed, settle)
+        elif (
+            until is not None
+            and anchor is not None
+            and anchor < changed < until
+        ):
+            # Fix-up D-HIGH-1: a further change INSIDE an active settle
+            # window (a second, unobserved reconnect) extends the window
+            # from that change.
+            self._arm_stream_settle(changed, settle)
         elif (
             prev_read_at is not None
             and prev_value is not None
             and changed > prev_read_at
-            and abs(value - prev_value)
-            > float(_ec.DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT)
+            and abs(value - prev_value) > self._soc_slew_bound_pp(
+                (changed - prev_read_at).total_seconds(),
+            )
         ):
-            # Arm (b): a change since the last read with a jump over the
-            # margin = a possible sub-tick reconnect no read observed.
-            self._stream_settle_until = changed + settle
+            # Arm (b): a change since the last read with a jump beyond what
+            # battery physics allows over that interval (+ margin) = a
+            # possible sub-tick reconnect no read observed. Fix-up
+            # B-HIGH-1: physics-scaled, so real discharge between 5-min
+            # decision reads never arms it.
+            self._arm_stream_settle(changed, settle)
         until = self._stream_settle_until
         if until is not None:
             if now < until:
+                # Fix-up D-HIGH-1: keep the observed value as "previous"
+                # so a later jump is still detected after the window.
+                self._stream_prev_value = value
                 return None
             self._stream_settle_until = None
+            self._stream_settle_anchor = None
         max_age = self._stream_max_age_s
         if max_age is None:
             max_age = _ec.DEFAULT_SOC_STREAM_MAX_AGE_S
@@ -1881,6 +1906,9 @@ class BatteryStrategy:
         if max_age and max_age > 0:
             # Mode "a": HA refreshes `last_reported` per report. A missing
             # / naive stamp is NOT a pass-through here (fail-closed).
+            # Fix-up D-HIGH-1: a freshness miss does not null
+            # `_stream_prev_value`, so a junk jump right after a missed read
+            # (long outages) is still caught by arm (b).
             age = _state_age_s(st, stamp="last_reported")
             if age is None or age > max_age:
                 return None
@@ -1915,24 +1943,20 @@ class BatteryStrategy:
             return None
         return value
 
-    def _stream_within_slew(self, value: float, now: Any) -> bool:
-        """D3 coarse physics backstop vs the last NATIVE value.
+    def _arm_stream_settle(self, changed: Any, settle: Any) -> None:
+        """Arm (or extend) the D3 settle window from ``changed``."""
+        self._stream_settle_until = changed + settle
+        self._stream_settle_anchor = changed
 
-        Reject when ``|value - native_ref| > rate x elapsed + margin``,
-        rate = max(charge, discharge kW) / capacity kWh x 100 / 3600 pp/s.
-        Capacity from the configured capacity entity; None / <= 0 → the
-        BATTERY_CAPACITY_KWH constant. No native reference this session →
-        abstain (the stream cannot be `trusted` without native anyway).
+    def _soc_slew_bound_pp(self, elapsed_s: float) -> float:
+        """Max plausible |ΔSOC| in pp over ``elapsed_s`` (D3 envelope).
+
+        rate = max(charge, discharge kW) / capacity kWh x 100 / 3600 pp/s,
+        plus DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT. Capacity from the
+        configured capacity entity; None / <= 0 → BATTERY_CAPACITY_KWH.
+        Shared by the slew backstop and settle arm (b).
         """
         from . import energy_const as _ec
-        ref = self._soc_native_last_value
-        ref_at = self._soc_native_last_at
-        if ref is None or ref_at is None:
-            return True
-        try:
-            elapsed = max(0.0, (now - ref_at).total_seconds())
-        except Exception:  # noqa: BLE001
-            return False
         try:
             cap = self._battery_capacity_kwh()
         except Exception:  # noqa: BLE001
@@ -1943,7 +1967,28 @@ class BatteryStrategy:
             float(_ec.BATTERY_MAX_CHARGE_KW), float(_ec.BATTERY_MAX_DISCHARGE_KW),
         )
         rate_pp_s = rate_kw / cap * 100.0 / 3600.0
-        bound = rate_pp_s * elapsed + float(_ec.DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT)
+        return rate_pp_s * max(0.0, float(elapsed_s)) + float(
+            _ec.DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT
+        )
+
+    def _stream_within_slew(self, value: float, now: Any) -> bool:
+        """D3 coarse physics backstop vs the last NATIVE value.
+
+        Reject when ``|value - native_ref| > rate x elapsed + margin``,
+        rate = max(charge, discharge kW) / capacity kWh x 100 / 3600 pp/s.
+        Capacity from the configured capacity entity; None / <= 0 → the
+        BATTERY_CAPACITY_KWH constant. No native reference this session →
+        abstain (the stream cannot be `trusted` without native anyway).
+        """
+        ref = self._soc_native_last_value
+        ref_at = self._soc_native_last_at
+        if ref is None or ref_at is None:
+            return True
+        try:
+            elapsed = max(0.0, (now - ref_at).total_seconds())
+        except Exception:  # noqa: BLE001
+            return False
+        bound = self._soc_slew_bound_pp(elapsed)
         if abs(value - ref) > bound:
             _LOGGER.debug(
                 "SOC stream %.1f outside slew bound %.2f pp of native %.1f "

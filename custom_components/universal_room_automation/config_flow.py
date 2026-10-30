@@ -6070,6 +6070,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # EC-SOURCE-FAILOVER D1.2 — per-house stream max age (s).
             CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
             SOC_STREAM_MAX_AGE_MIN_S,
+            # Fix-up D-MED-1: stream != native; > primary max age needs a
+            # heartbeat (REUSED DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S).
+            CONF_ENERGY_BATTERY_SOC_ENTITY,
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
             DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -6254,6 +6258,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     )
                     errors.setdefault("base", "stream_max_age_too_small")
 
+            # Fix-up D-MED-1 — effective (merged) stream wiring checks.
+            # (1) the stream must not be the native SOC entity itself: it
+            #     would earn trust instantly and serve a frozen native value
+            #     past the primary staleness gate.
+            # (2) a max age above the native SOC max age needs a heartbeat
+            #     (co-witness), the frozen-source detector.
+            _sf = {
+                **self._config_entry.data, **self._config_entry.options,
+                **user_input,
+            }
+            if isinstance(_cv, dict) and user_input.get(
+                CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+            ) in (None, ""):
+                _sf.pop(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None)
+            _sf_stream = _sf.get(CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY)
+            _sf_native = _sf.get(CONF_ENERGY_BATTERY_SOC_ENTITY)
+            if _sf_stream and _sf_native and _sf_stream == _sf_native:
+                errors[CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY] = (
+                    "stream_entity_is_native"
+                )
+                errors.setdefault("base", "stream_entity_is_native")
+            try:
+                _sf_age = float(
+                    _sf.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S) or 0
+                )
+            except (TypeError, ValueError):
+                _sf_age = 0.0
+            if (
+                _sf_stream
+                and _sf_age > DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S
+                and not _sf.get(CONF_ENERGY_STREAM_COWITNESS_ENTITY)
+            ):
+                errors[CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S] = (
+                    "stream_max_age_needs_heartbeat"
+                )
+                errors.setdefault("base", "stream_max_age_needs_heartbeat")
+
             # EC-SOC-LADDER-XVALIDATE-1 — cross-field SOC ladder check at
             # save time. Reject an inverted ladder at the SOURCE with a
             # field-scoped error naming the specific inversion. The set of
@@ -6397,6 +6438,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             saved_options = {**self._config_entry.options, **user_input}
             if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
                 saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+            # Fix-up A/B-LOW (blank max age): same drop-key-on-blank pattern
+            # as the solar override above. A blank (omitted / "") or 0
+            # stream max age removes the key, so blank == 0 == unset (mode
+            # "b") and a 0-vs-unset save is not an option change (no parent
+            # reload). Only when the cloud_verification section was
+            # submitted (absent section = untouched).
+            if isinstance(_cv, dict):
+                _sm_v = user_input.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S)
+                try:
+                    _sm_off = _sm_v in (None, "") or float(_sm_v) == 0
+                except (TypeError, ValueError):
+                    _sm_off = True
+                if _sm_off:
+                    saved_options.pop(
+                        CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None,
+                    )
             # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D4: the two statistic
             # ids are clearable like the solar override above: omitted or
             # blank = key removed (feature off), never persisted as "".

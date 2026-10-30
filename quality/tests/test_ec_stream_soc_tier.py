@@ -342,10 +342,9 @@ class TestEarnedTrust:
         s._evaluate_stream_divergence(now=clock.t)
         assert s._stream_div_count == 1 and s._stream_agree_count == 0
         assert s._soc_stream_trust == "unproven"
-        # 84 → 80 is a > 3 pp step: its first read only arms the settle;
-        # then the count restarts from 0 → two more agreements = 2 < 3.
+        # The divergence reset the count: two agreements = 2 < 3.
         clock.adv(seconds=60)
-        _earn(s, hass, clock, "80", n=3)
+        _earn(s, hass, clock, "80", n=2)
         assert s._stream_agree_count == 2
         assert s._soc_stream_trust == "unproven"
         clock.adv(seconds=60)
@@ -498,6 +497,21 @@ class TestEarnedTrust:
         assert (s.battery_soc, s._soc_source_last) == (84.0, "stream")
 
 
+    def test_div_agree_div_does_not_quarantine(self, clock):
+        """Review C F1: the divergence count is CONSECUTIVE — an agreement
+        resets it, so div / agree / div (ticks = 2) does not quarantine."""
+        s, hass, _ = _mk(clock)
+        _earn(s, hass, clock, "80")
+        old = clock.t - timedelta(seconds=600)
+        for v in ("84", "80", "84"):
+            clock.adv(seconds=60)
+            _native(hass, clock, "80")
+            _stream(hass, clock, v, lc=old)
+            s._evaluate_stream_divergence(now=clock.t)
+        assert s._stream_div_count == 1
+        assert s._soc_stream_trust == "trusted"
+
+
 class TestRestore:
     @pytest.mark.parametrize("persisted,expect", [
         ("trusted", "unproven"), ("quarantined", "quarantined"),
@@ -576,9 +590,13 @@ class TestSettle:
             out.append((s.battery_soc, s._soc_source_last))
         assert (0.0, "stream") not in out
         assert out[1] == (36.0, "lkg")  # INV-SF5: miss → LKG, not None
-        # Settle ends at t_zero + 60 s; then 36 returns and is served.
+        # 0 → 36 at t_zero+60 is itself a jump beyond physics over 30 s
+        # (kept previous value 0): one more settle, then served.
         clock.set(t_zero + timedelta(seconds=60))
         _stream(hass, clock, "36", lc=clock.t)
+        assert (s.battery_soc, s._soc_source_last) == (36.0, "lkg")
+        clock.set(t_zero + timedelta(seconds=120))
+        _stream(hass, clock, "36", lc=t_zero + timedelta(seconds=60))
         assert (s.battery_soc, s._soc_source_last) == (36.0, "stream")
 
     def test_settle_boundary_literals(self, clock):
@@ -626,22 +644,113 @@ class TestSettle:
         _stream(hass, clock, "39", lc=clock.t - timedelta(seconds=10))  # 3 pp
         assert (s.battery_soc, s._soc_source_last) == (39.0, "stream")
 
-    def test_prev_none_after_stale_read_is_no_jump(self, clock):
-        """RC-1: a previous read that returned None (stale) is treated as no
-        jump — the next fresh value with a moved last_changed is served."""
+    def _stale_then(self, clock, value):
         s, hass, _ = _mk(clock, max_age=120)
         _earn(s, hass, clock, "36")
         _native_down(hass, clock)
-        clock.adv(minutes=30)
+        clock.adv(minutes=60)  # slew bound ~80 pp: cannot catch 0 vs 36
         _stream(hass, clock, "36")
         assert (s.battery_soc, s._soc_source_last) == (36.0, "stream")
         clock.adv(seconds=30)
-        _stream(hass, clock, "36", lr_age=200)  # stale → None
+        _stream(hass, clock, "36", lr_age=200)  # stale → None (missed read)
         s.battery_soc
         clock.adv(seconds=30)
         _no_lkg(s)
-        _stream(hass, clock, "30", lc=clock.t)
-        assert (s.battery_soc, s._soc_source_last) == (30.0, "stream")
+        _stream(hass, clock, value, lc=clock.t - timedelta(seconds=5))
+        return s.battery_soc, s._soc_source_last
+
+    def test_plausible_step_after_stale_read_served(self, clock):
+        assert self._stale_then(clock, "35") == (35.0, "stream")
+
+    def test_junk_after_stale_read_settles(self, clock):
+        """Fix-up D-HIGH-1 (long outage): a freshness miss keeps the observed
+        value as "previous", so a junk jump right after it still arms."""
+        assert self._stale_then(clock, "0") == (None, "none")
+
+    @pytest.mark.parametrize("junk", ["101", "-1", "abc"])
+    def test_junk_read_arms_settle_like_a_drop(self, clock, junk):
+        """A junk read (out of range / non-numeric) is treated as an
+        observed drop: the next value settles 60 s before serving."""
+        s, hass, _ = _trusted_old_native_ref(clock)
+        _stream(hass, clock, "36")
+        assert s.battery_soc == 36.0
+        clock.adv(seconds=30)
+        _stream(hass, clock, junk)
+        s.battery_soc
+        clock.adv(seconds=30)
+        t_back = clock.t
+        _no_lkg(s)
+        _stream(hass, clock, "36", lc=t_back)
+        assert s.battery_soc is None
+        clock.set(t_back + timedelta(seconds=60))
+        _stream(hass, clock, "36", lc=t_back)
+        assert (s.battery_soc, s._soc_source_last) == (36.0, "stream")
+
+    def test_steady_discharge_300s_reads_all_served(self, clock):
+        """Fix-up B-HIGH-1: decision-tick spacing (300 s) with a real 4 pp /
+        5 min discharge: arm (b) is physics-scaled, every read serves."""
+        s, hass, _ = _mk(clock, max_age=120)
+        _earn(s, hass, clock, "80")
+        _native_down(hass, clock)
+        out = []
+        for v in ("80", "76", "72", "68", "64"):
+            clock.adv(seconds=300)
+            _stream(hass, clock, v, lc=clock.t - timedelta(seconds=10))
+            out.append((s.battery_soc, s._soc_source_last))
+        assert out == [
+            (80.0, "stream"), (76.0, "stream"), (72.0, "stream"),
+            (68.0, "stream"), (64.0, "stream"),
+        ]
+
+    def _reconnect_50(self, clock):
+        """Trusted, native last 36 and down 60 min; observed drop; reconnect
+        at t1 with 50 (read at t1 arms settle to t1+60)."""
+        s, hass, _ = _mk(clock)
+        _earn(s, hass, clock, "36")
+        _native_down(hass, clock)
+        clock.adv(minutes=60)
+        _stream(hass, clock, "unavailable")
+        s.battery_soc
+        clock.adv(seconds=20)
+        t1 = clock.t
+        _stream(hass, clock, "50", lc=t1)
+        s.battery_soc
+        return s, hass, t1
+
+    def test_second_reconnect_inside_settle_window(self, clock):
+        """Review D exact sequence: second sub-tick blip → 0 at t1+30; the
+        read at t1+61 must NOT serve (0, 'stream')."""
+        s, hass, t1 = self._reconnect_50(clock)
+        clock.set(t1 + timedelta(seconds=61))
+        _no_lkg(s)
+        _stream(hass, clock, "0", lc=t1 + timedelta(seconds=30))
+        got = (s.battery_soc, s._soc_source_last)
+        assert got != (0.0, "stream")
+        assert got == (None, "none")
+
+    def test_change_inside_window_extends_settle(self, clock):
+        """Window extension alone: a small (in-physics) change inside the
+        window still extends it to last_changed + 60 s."""
+        s, hass, t1 = self._reconnect_50(clock)
+        clock.set(t1 + timedelta(seconds=61))
+        _no_lkg(s)
+        _stream(hass, clock, "49", lc=t1 + timedelta(seconds=30))
+        assert s.battery_soc is None
+        clock.set(t1 + timedelta(seconds=90))
+        _stream(hass, clock, "49", lc=t1 + timedelta(seconds=30))
+        assert (s.battery_soc, s._soc_source_last) == (49.0, "stream")
+
+    def test_settle_return_keeps_previous_value(self, clock):
+        """Kept prev alone: the window ends (t1+60), then a blip → 0 AFTER it
+        (t1+70) is caught by arm (b) against the kept 50."""
+        s, hass, t1 = self._reconnect_50(clock)
+        clock.set(t1 + timedelta(seconds=30))
+        _stream(hass, clock, "50", lc=t1)
+        s.battery_soc  # still settling
+        clock.set(t1 + timedelta(seconds=75))
+        _no_lkg(s)
+        _stream(hass, clock, "0", lc=t1 + timedelta(seconds=70))
+        assert s.battery_soc is None
 
     def test_settle_junk_never_reaches_comparison(self, clock):
         """Native fresh at 36 throughout; the stream drops and comes back at
@@ -751,6 +860,17 @@ class TestSlew:
         _stream(hass, clock, "87")
         assert (s.battery_soc == 87.0) is served
 
+    def test_slew_boundary_equal_is_served(self, clock):
+        """Bound is strict `>`: |delta| == bound serves, above refuses.
+        Elapsed 0 → bound = margin 3.0 exactly."""
+        s, hass, t_native = self._setup(clock, native="80")
+        assert clock.t == t_native
+        _stream(hass, clock, "83")
+        assert (s.battery_soc, s._soc_source_last) == (83.0, "stream")
+        _no_lkg(s)
+        _stream(hass, clock, "83.5")
+        assert s.battery_soc is None
+
     def test_no_native_reference_abstains(self, clock):
         s, hass, _ = _mk(clock)
         s._soc_stream_trust = "trusted"
@@ -853,6 +973,46 @@ def test_blind_hold_and_evse_guard_stand_down_when_stream_serves(clock):
     assert ev._blind_window_entry_predicate(shim2) is True
 
 
+def test_evse_guard_stands_down_via_dp_snapshot_path(clock):
+    """Review C F2: production guard reads the DP-tick SNAPSHOT
+    (energy_pool `blind_hold_active_snapshot`, recorded by
+    `_dp_decision_tick`). Drive the REAL DP tick with a stream-serving
+    strategy: snapshot False → guard predicate False; stream unset → True."""
+    dp = importlib.import_module("test_evse_drain_precedence_session_b2c1_fixup")
+
+    class _Coord(dp._FakeCoord):
+        _record_blind_hold_snapshot = EnergyCoordinator._record_blind_hold_snapshot
+        blind_hold_active_snapshot = EnergyCoordinator.blind_hold_active_snapshot
+        blind_hold_active = property(EnergyCoordinator.blind_hold_active.fget)
+
+        def reserve_write_verifiable(self):
+            return False
+
+    def _run_tick(battery):
+        coord, ev, _, _ = dp._make_coord()
+        c = _Coord(coord.hass, ev, battery, coord._tou, coord._predictor)
+        c._entity_config = coord._entity_config
+        c._blind_hold_snapshot = None
+        c._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
+        assert c._blind_hold_snapshot is not None  # recorded by the tick
+        return c, ev
+
+    s, hass, _ = _mk(clock)
+    _earn(s, hass, clock, "80")
+    clock.adv(seconds=30)
+    _native_down(hass, clock)
+    _no_lkg(s)
+    _stream(hass, clock, "80")
+    c, ev = _run_tick(s)
+    assert c._blind_hold_snapshot[0] is False
+    assert ev._blind_window_entry_predicate(c) is False
+    s2, hass2, _ = _mk(clock, stream=False, cowitness=False)
+    _native_down(hass2, clock)
+    c2, ev2 = _run_tick(s2)
+    assert c2._blind_hold_snapshot[0] is True
+    assert ev2._blind_window_entry_predicate(c2) is True
+
+
 # ===========================================================================
 # B2a — options flow + strings
 # ===========================================================================
@@ -860,9 +1020,11 @@ def test_blind_hold_and_evse_guard_stand_down_when_stream_serves(clock):
 _KEY = "energy_stream_battery_soc_max_age_s"
 
 
-def _save(user_cv):
+def _save(user_cv, options=None):
     rt = importlib.import_module("test_baec_config_flow_round_trip")
-    flow = rt._make_options_flow(options={"energy_envoy_entity": "sensor.envoy"})
+    flow = rt._make_options_flow(
+        options=options or {"energy_envoy_entity": "sensor.envoy"},
+    )
     flow.hass._states = {}
     flow.hass.data = {}
     with rt._ha_mocks_injected():
@@ -871,15 +1033,74 @@ def _save(user_cv):
         ))
 
 
-@pytest.mark.parametrize("val", [120, 30, 0, 3600])
+_SE = "energy_stream_battery_soc_entity"
+_HB = "energy_stream_cowitness_entity"
+
+
+@pytest.mark.parametrize("val", [120, 30, 300])
 def test_options_max_age_round_trip(val):
-    r = _save({
-        "energy_stream_battery_soc_entity": "sensor.test_second_source_battery",
-        _KEY: val,
-    })
+    r = _save({_SE: "sensor.test_second_source_battery", _KEY: val})
     assert r["type"] == "create_entry", r
     assert r["data"][_KEY] == val
     assert "cloud_verification" not in r["data"]
+
+
+@pytest.mark.parametrize("val", [0, "", None])
+def test_options_max_age_blank_or_zero_clears_key(val):
+    """Fix-up A/B-LOW: blank / 0 drop the key (solar-override pattern), so
+    0 == unset == blank and a stored 120 can be cleared."""
+    cv = {_SE: "sensor.test_second_source_battery"}
+    if val is not None:
+        cv[_KEY] = val
+    r = _save(cv, options={"energy_envoy_entity": "sensor.envoy", _KEY: 120})
+    assert r["type"] == "create_entry", r
+    assert _KEY not in r["data"]
+
+
+def test_options_section_absent_keeps_max_age():
+    rt = importlib.import_module("test_baec_config_flow_round_trip")
+    flow = rt._make_options_flow(
+        options={"energy_envoy_entity": "sensor.envoy", _KEY: 120},
+    )
+    flow.hass._states = {}
+    flow.hass.data = {}
+    with rt._ha_mocks_injected():
+        r = rt._run(flow.async_step_coordinator_energy(user_input={}))
+    assert r["type"] == "create_entry", r
+    assert r["data"][_KEY] == 120
+
+
+def test_options_stream_equal_native_rejected():
+    """Fix-up D-MED-1 (1)."""
+    native = "sensor.test_native_battery_soc"
+    r = _save({_SE: native}, options={
+        "energy_envoy_entity": "sensor.envoy", "energy_battery_soc_entity": native,
+    })
+    assert r["type"] == "form", r
+    assert r["errors"][_SE] == "stream_entity_is_native"
+    r = _save({_SE: "sensor.test_second_source_battery"}, options={
+        "energy_envoy_entity": "sensor.envoy", "energy_battery_soc_entity": native,
+    })
+    assert r["type"] == "create_entry", r
+
+
+@pytest.mark.parametrize("age,hb,ok", [
+    (300, False, True), (310, False, False), (3600, False, False),
+    (3600, True, True), (310, True, True),
+])
+def test_options_max_age_over_300_needs_heartbeat(age, hb, ok):
+    """Fix-up D-MED-1 (2): require-heartbeat variant (selector max stays
+    3600 per B2a)."""
+    cv = {_SE: "sensor.test_second_source_battery", _KEY: age}
+    if hb:
+        cv[_HB] = "sensor.test_second_source_load_power"
+    r = _save(cv)
+    if ok:
+        assert r["type"] == "create_entry", r
+        assert r["data"][_KEY] == age
+    else:
+        assert r["type"] == "form", r
+        assert r["errors"][_KEY] == "stream_max_age_needs_heartbeat"
 
 
 @pytest.mark.parametrize("val", [10, 20, 29])
@@ -933,3 +1154,13 @@ def test_strings_b2a_exact(fname):
         "battery level."
     )
     assert step["error"]["stream_max_age_too_small"]
+    assert step["error"]["stream_entity_is_native"] == (
+        "The local battery stream must be a different sensor from the main "
+        "battery charge sensor. Pick one from a different integration that "
+        "stays up when the gateway drops."
+    )
+    assert step["error"]["stream_max_age_needs_heartbeat"] == (
+        "A local battery stream max age above 300 seconds needs a stream "
+        "heartbeat sensor. Set the heartbeat sensor, or use 300 seconds or "
+        "less."
+    )
