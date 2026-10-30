@@ -1,6 +1,8 @@
 # PLANNING: EC source failover as a class (multi-producer values, freshness stamps, untrusted fallbacks)
 
 **Revision:** rev 3.1 (small clarifications after rev 3 re-check), rev 3, 2026-10-29 (rev 1 = cdf67a490, rev 2 = de891642d). **Status:** rev 3 applies the two rev-2 re-reviews (completeness 6bf9983bd, build-prediction 858ee1bc5) and the D0 probe results (`AUDIT_ec_source_failover_d0_probes_2026_10_29.md`, 8663731a9). Orchestrator checks the rev-3 edits, then operator checkpoint. **Tier:** 3 (section B7).
+
+**Operator checkpoint 2026-10-30 (pre-build): APPROVED.** (1) Build rev 3.1 + B2a as written. (2) Constraint (c) substitution accepted: 60 s settle + slew check in place of payload-timestamp age. (3) EVSE blind guard: stands down while a trusted stream tier supplies SOC (recommendation accepted). (4) Stream fields stay in the `cloud_verification` step. (5) Heartbeat help wording change taken: "(for example its grid power)" → "(for example its house load power)" — part of the build.
 **Origin card:** ENVOY-STREAM-SOC-TIER-1 (`revival_2026_10_29`, `measured_2026_10_29`, `binding_constraint_3_8_2026_09_27`, `constraints`).
 **Reviews answered:** `docs/reviews/code-review/plan_review_ec_source_failover_class_completeness.md` (816d691d0) and `plan_review_ec_source_failover_class_buildpred.md` (60cea4ec7 + addendum 65cdc0318). Section C maps every finding to its resolution.
 **Operator requirements (2026-10-29, binding):** R1 separate production from proposals; R2 every change fixes a measured wrong behaviour; R3 fallbacks are configurable per house, unset means identical to today.
