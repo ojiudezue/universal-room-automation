@@ -153,3 +153,24 @@ D1 and D2 each fix a measured wrong behaviour. The D3 settle guards a behaviour 
 
 ### Must-fix before operator checkpoint
 RB-1, RB-2, RB-3, RB-4. RB-5 and RB-6 are text.
+
+---
+
+## Rev 3 check (4acd21a80)
+
+**Verdict: SHIP-PLAN.** RB-1 to RB-6 are resolved. Rev 3 introduces two new LOW ambiguities. A builder brief note is enough for both; no plan change is needed.
+
+| Finding | Status |
+|---|---|
+| RB-1 slew physics, quantisation, gap | **Resolved.** The reference is now the last trusted native value, so LKG re-anchoring no longer narrows the bound. A +3 pp margin covers the 1 pp step (test `test_stream_one_pp_step_served`). The guard is described as a coarse backstop, with the 87-after-10-min limit documented by a test. Capacity reuses `_battery_capacity_kwh()` (A1.11b). The rate limitation is recorded with a trigger, and the direction is safe: a slower battery gets a wider bound |
+| RB-2 earn, recovery, lapse | **Resolved.** The init at `:636`, the restore table, the reused `_stream_agree_count`, recovery to `unproven` with the same N, and the lapse in the read path are all specified, and each has a test and a drill |
+| RB-3 settle placement, sub-tick blips | **Resolved.** Settle lives in `_read_stream_soc`. Arm (a) fires on an observed unavailable; arm (b) fires on `last_changed` plus a jump above the margin |
+| RB-4 max-age wiring | **Resolved.** Typed attribute outside the entity map, three config_flow sites, min 30, stuck-unproven attribute |
+| RB-5 EVSE ruling | **Resolved.** It now rests on SOC being known |
+| RB-6 restore wording | **Resolved.** A1.8 corrected |
+
+### New in rev 3 (LOW)
+- **RC-1 LOW: arm (b)'s "previous read value" is undefined when the previous read returned None.** A read can return None because of a stale stamp, the slew check, quarantine, or settle. **Repro:** the stream is slew-rejected for 3 ticks, then a legitimate value arrives that is more than 3 pp from the last served value. What counts as "previous" decides whether settle re-arms. Either reading is safe: it costs at most 60 s on LKG, and it can never admit junk, because the slew check still applies. **Brief note:** say that "previous" means the last numeric state value the read saw before any guard ran, stored on every numeric read.
+- **RC-2 LOW: the stuck-unproven signal is an attribute, not a trip-wire.** It is accepted under R2: there is no measured instance, and the trigger is to add an NM if the attribute is ever seen above 1 h. Something must actually check that attribute; this house's pre-23:00 live gate does. Note it on the card as the revival trigger so it is not lost.
+
+No other regressions. INV-SF4 (unset entity gives identical behaviour) is untouched by the rev 3 edits: every new field and guard sits behind `_stream_tier_configured()`.
