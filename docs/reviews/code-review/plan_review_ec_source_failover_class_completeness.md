@@ -138,3 +138,18 @@ CRITICAL-1, HIGH-1, HIGH-2, HIGH-3, MEDIUM-1, MEDIUM-2, MEDIUM-3. Fix the LOWs i
 
 ### Operator requirements
 R1: PASS. R2: PASS for D1 and D2 (measured, M0b). D3 is acceptable as a guard (LOW-R2-3). R3: PASS, apart from MEDIUM-R2-1. The D4 forbid list and the second-house table are good.
+
+---
+
+## Rev 3 check (4acd21a80)
+
+**Verdict: SHIP-PLAN with one must-fix plan edit (MEDIUM-R3-1).**
+
+Prior items: MEDIUM-R2-1 is resolved. D3.3 reuses `_battery_capacity_kwh` (`energy_battery.py:4820-4842`, which handles both Wh and kWh). The rate constants are recorded as an R3 limitation with a trigger, and the "weaker, never tighter" claim is correct. MEDIUM-R2-2 is resolved. The reference is now the last native value, the bound is rate × elapsed + 3 pp, the 1 pp test is added, and the backstop is labelled coarse. LOW-R2-3 is resolved because D3 is now labelled a guard. LOW-R2-4 is resolved because the figure is cited to DESIGN §9.
+
+### New, introduced by rev 3
+- **MEDIUM-R3-1: if the slew check sits inside `_read_stream_soc`, it disables quarantine.** D3.1 puts settle inside `_read_stream_soc` so both callers honour it, but D3.2 does not say where slew goes, and a builder will naturally put it in the same place. `_evaluate_stream_divergence` reads through `_read_stream_soc(check_trust=False)` (`:1880`). While native is fresh, the native reference is seconds old, so the bound is about 3 pp. Any stream value more than about 3 pp from native would then be rejected before it is compared. No divergent sample is ever counted, quarantine (> 3 pp) can never fire, and the earn count is never reset by it. A persistently offset producer just sits unproven or trusted with no signal. **Fix:** state that slew applies only on the serve path (`check_trust=True`) or only when native is stale. Add the test "native fresh, stream +5 pp for 2 samples → quarantined" and a matching mutation row.
+- **LOW-R3-2:** `_battery_capacity_kwh` can return 0. With 0, `rate` divides by zero, or becomes inf, which silently turns the backstop off. D3.3 should say: capacity ≤ 0 or None → use `BATTERY_CAPACITY_KWH`.
+- **LOW-R3-3:** the D2 lapse step changes trust state inside a read. The plan should say the lapse runs only on `check_trust=True` reads, so that a compare-path read cannot demote trust while native is fresh. This matters little, because compares refresh `_stream_last_agree_at` anyway.
+
+Nothing else new. R1, R2 and R3 still pass. The D0 results are cited, and the knob rows are complete, including the new margin knob, whose kill value of 100 is documented.
