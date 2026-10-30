@@ -109,3 +109,32 @@ CRITICAL-1, HIGH-1, HIGH-2, HIGH-3, MEDIUM-1, MEDIUM-2, MEDIUM-3. Fix the LOWs i
 - **MEDIUM-6: the freshness window is fitted to this house.** `DEFAULT_SOC_STREAM_MAX_AGE_S=120` is a rung-1 global sized to *this* house's `enphase_realtime` 10 s polling (§6 D1a). Another house could use a different producer, such as the MQTT add-on (the 5-6 s cadence plus `expire_after` that mode "b" was designed for) or a slower poller. With a fixed global, that house would either get a wrong window or need a code change. **Fix:** move the window to rung 2, either as an options-flow field next to the stream entity or as a value derived from the selected producer, and keep 0 as "mode b".
 - **LOW-3: correlated-fallback protection relies on per-house measurement.** §4 says only measurement and config prevent a correlated fallback, so another house has no protection beyond the "%" unit guard. At minimum, the options-flow help text must warn about it. Better, make the quarantine compare a precondition of first use (ties to HIGH-3), so a correlated producer is never trusted without at least one live comparison.
 - The plan names specific entities (§6 D1a config: `sensor.envoy_482543015950_battery_2`, `load_power`). That is acceptable because they are operator config values, not code. The README and the knob comments must say so explicitly.
+
+---
+
+## Re-review rev 2 (de891642d), changed sections only
+
+**Verdict: SHIP-PLAN with two must-fix plan edits (MEDIUM-R2-1 and R2-2).** These are small text changes. A third round of plan review is not needed if the orchestrator checks them.
+
+### Prior findings
+| Finding | Status | Evidence |
+|---|---|---|
+| CRITICAL-1 cloud `last_reported` | RESOLVED | B3 drops D1b and parks it with a replay trigger. A4 cites the NO-GO. |
+| HIGH-1 card constraints | RESOLVED, with an operator waiver for (c) | D3 adds the settle (the `unavailable,0,36` test) and the envelope slew. D0-a read the source: the battery entity goes unavailable on a failed poll, so the integration does not republish a frozen value. The (c) substitution goes to the checkpoint. |
+| HIGH-2 co-witness | RESOLVED | D1c is dropped and the co-witness stays on `last_updated`. D0-c sizes the window. |
+| HIGH-3 trust at boot | RESOLVED | D2 adds the `unproven` state. A restored `quarantined` stays quarantined. Trust lapses after 6 h. INV-SF6 and its tests are added. |
+| MEDIUM-1 per-EVSE `last_updated` | RESOLVED (parked) | B6 parks it with a measurable trigger. |
+| MEDIUM-2 consumers | RESOLVED | The B4 table rows match my enumeration (energy.py:2848, 5052, 7800; drain_precedence:642; battery:1600, 2021, 8223). The EVSE guard ruling goes to the checkpoint. |
+| MEDIUM-3, MEDIUM-4, LOW-1 | RESOLVED | MEDIUM-3 and MEDIUM-4 are moot because D1b is gone. LOW-1 becomes a per-house field. |
+| MEDIUM-5 (R1) | RESOLVED | Part A (live/dormant/unconfigured, with version and file:line) is now split from Part B. I spot-checked the A1 rows against the code and they match. |
+| MEDIUM-6 (R3 window) | RESOLVED | The new rung-2 field. The constant stays 0, so mode "b" houses see no change. |
+| LOW-2, LOW-3 | RESOLVED | A4 links the related plans. D2 plus the help text cover the correlated-fallback case. |
+
+### New findings
+- **MEDIUM-R2-1 (R3): the slew guard reuses envelope physics that is hard-coded for this house.** `soc_envelope` (`energy_battery.py:3384-3433`) builds `SOCEnvelope` from the module constants `BATTERY_CAPACITY_KWH=40.0`, `BATTERY_MAX_CHARGE_KW=30.72` and `BATTERY_MAX_DISCHARGE_KW=30.72` (`energy_const.py:2383-2385`). No options field exists for them. That is 76.8 pp/h. In a house with a smaller or slower battery (for example 13.5 kWh at 5 kW, which is about 37 pp/h), the envelope is twice as wide, so the D3 guard against partial-fleet junk becomes weaker. A house with a faster battery than these constants gets false rejections. B0 marks the envelope "REUSE" and D3 calls it "generic", but it is not generic for another house. **Fix:** in D3, either read capacity and power from config, or state that the slew guard is house-calibrated and that the settle plus earned trust are the generic protection. Either way, list it in the B6 second-house table.
+- **MEDIUM-R2-2 (D3 build-prediction gap): there is no quantisation margin when the stream is first served.** The envelope is anchored on the last native value, and its width grows at about 1.28 pp/min. M3 measures a stream-vs-native difference of up to 1 pp (integer %). A stream read 30 s after native drops can sit 1 pp outside a roughly 0.64 pp envelope and be rejected. That falls back to LKG, which covers it, but it also spends the first minute or so of the outage on LKG, and with a tight per-house max age it can churn. **Fix:** D3 should specify that the envelope check uses a margin of at least the 3 pp divergence threshold, add a test for "native 40 to stream 41 at 30 s, served", and give the margin a knob row.
+- **LOW-R2-3 (R2): D3's benefit on this producer is unmeasured.** M3 saw no zero across 3 reconnects. The guard is justified by the card's binding constraint and by observations on the same Envoy, and D0-b will check the full history. I accept it as a safety guard, but B2 should name it a guard rather than a measured fix, so R2 is applied honestly.
+- **LOW-R2-4:** the `DEFAULT_SOC_STREAM_TRUST_MAX_AGE_S` reason quotes "232 min longest dropout". That number is not tied to a D0 or M row in this plan. Cite where it comes from (DESIGN §9).
+
+### Operator requirements
+R1: PASS. R2: PASS for D1 and D2 (measured, M0b). D3 is acceptable as a guard (LOW-R2-3). R3: PASS, apart from MEDIUM-R2-1. The D4 forbid list and the second-house table are good.
