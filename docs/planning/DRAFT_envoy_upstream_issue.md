@@ -75,3 +75,17 @@ Earlier dropouts (2026-09-25, core log, repeating): traceback through `enphase_e
 Source: `docs/planning/AUDIT_envoy_reliability_recount_and_witness_reconcile.md` section 3.1 (HA recorder, `sensor.envoy_482543015950_battery`, restart-adjacent episodes excluded). Since the host moved to Ethernet and HA's GC pauses were tamed on 10-15, short blips nearly stopped (24 in 5 days down to 2 in 3 days), but the integration now goes down for hours at a time: 587 min (10-15 17:38 to 10-16 03:25), 714 min (10-16 06:43 to 18:37), and another opened 10-17 23:08. Our own notes from 10-16 say that during one of these the Envoy's `/info` endpoint answered while the authenticated `/ivp/pdm/device_data` call hung, and a gateway reboot was needed. That fits leg 1 here (setup / first refresh with no timeout) better than random network loss, so it is worth one sentence in the comment: "after mitigating host-side stalls, the remaining failure is multi-hour hangs, consistent with a missing timeout in setup/first refresh."
 
 Still to fill before posting (operator): Envoy firmware version, pyenphase version from the running core, a debug-log excerpt covering one long hang. Re-check core PR #183172 status first.
+
+---
+
+## Revision 2 (overnight 2026-10-31) — stronger evidence on 2026.10.4; recommend posting THIS part
+
+Source: `docs/planning/AUDIT_envoy_core_fix_2026_10_4_match.md` "Night 1 on HA 2026.10.4" (operator-approved debug capture 10-30 22:54-23:35) + recorder read 2026-10-31 02:0x CDT.
+
+**Recorder (sensor.envoy_<serial>_battery, HA 2026.10.4):** unavailable 2026-10-30 23:04:56 -> back 23:42:02 (37 min). The same Envoy's stream-based entity (separate integration, `/ivp/...` path) stayed live the whole window.
+
+**Suggested comment text (new paragraph for #181243, or a separate issue "one hung endpoint blanks all enphase_envoy data" if maintainers prefer):**
+
+> On 2026.10.4 (includes #183172) I still get a nightly outage at ~23:00-23:05 local, so that PR does not cover it. With debug logging for `homeassistant.components.enphase_envoy` and `pyenphase`, the Envoy itself stays responsive: `/ivp/meters` and `/ivp/meters/readings` keep answering in 0.1-0.9 s throughout. Only `/production.json?details=1` degrades: reply time rose from 1.1 s to 4.5-5.0 s over 22:55-23:00, last success 23:00:02, then every request (30 between 23:05 and 23:35) failed with `SocketTimeoutError: Timeout on reading data from socket` at the 45 s read limit. Because that endpoint is fetched inside the single coordinator update, each update fails after ~230 s (`Finished fetching ... in 233.6 seconds (success: False)`, `EnvoyError aiohttp ClientError Timeout on reading data from socket`) and every entity goes unavailable — including battery SOC and meter data that come from endpoints that were still answering. The outage ended on its own after 37 min. Request: per-endpoint failure isolation in pyenphase/the coordinator (keep meter/ensemble-derived data when `production.json` times out), and/or a shorter timeout for that endpoint so one slow legacy endpoint cannot blank the integration. Fixed clock time suggests an Envoy-side nightly job; firmware: <operator fill>.
+
+Operator fills firmware + pyenphase version before posting. Items 1-2 of the original draft are older and weaker; post Revision 2 first.
