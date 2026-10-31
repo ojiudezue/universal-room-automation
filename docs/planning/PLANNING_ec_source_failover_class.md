@@ -277,7 +277,7 @@ The stream is a trusted tier, so consumers behave as they do with native SOC. Cl
 |---|---|---|
 | INV-SF2 | `battery_soc` is None only when every configured producer is missing, unavailable, wrong unit or range, stale, or (stream) not `trusted`, settling, or outside the envelope. Falsified by: a tick with tier None while the stream entity is numeric, %, fresh by the house's max age, settled, inside the envelope and `trusted` | new |
 | INV-SF3 | Cloud never yields a trusted tier; `envoy_available` never reads a fallback | holds today, must keep |
-| INV-SF4 | Stream entity unset → every resolver output, tier label, `_soc_source_last` and trust attribute is identical to develop, with the shipped constants (not monkeypatched) | new (the real second-house test) |
+| INV-SF4 | Stream entity unset → every resolver output, tier label and `_soc_source_last` is identical to develop, with the shipped constants (not monkeypatched). Trust attributes are present with unset/None values (`stream_unproven_since`, `native_fresh_s`); no consumer reads them | new (the real second-house test) |
 | INV-SF5 | One stream miss while native is down drops to LKG, not None | new |
 | INV-SF6 | The stream is never served unless it has agreed with native `N` times since boot or restore and within the trust max age | new |
 | INV-SF7 | A stream value is never served or compared within the settle window after the entity was unavailable (observed by a read, or inferred from `last_changed` plus a jump above the margin), and never when it lies outside the native-referenced bound (rate × elapsed + margin). Falsified by: the sequence unavailable, 0, 36 serving or comparing 0; or a sub-tick blip followed by 0 being served. Not claimed: catching a partial-fleet error smaller than the bound | new |
@@ -301,7 +301,9 @@ Config extremes for build reviewer D: house max age < native 300 s and > LKG 300
 | `DEFAULT_SOC_STREAM_RECONNECT_SETTLE_S` (**new**) | 1 | 60 (observed native-path junk lasted 36 s; D0-b reconnects 17-31 s, no junk; kept) | safety window; cost to any house is at most 60 s on LKG, which covers 300 s | 0 = no settle |
 | quarantine ticks, spacing, 3 pp threshold (existing) | 1 | 2, 60 s, 3 pp | proven | — |
 
-**Options-flow help text (R3):** for the stream entity: "A second local battery level that keeps reporting when the main source drops. Do not pick an entity from the same integration path as the main source; if it fails at the same time, it gives no protection. URA uses it only after it has agreed with the main source several times." For the max age: "How old the reading may be, in seconds. Use a value a few times the source's poll interval. Leave empty for sources that go unavailable on their own when they stop reporting (for example MQTT with expire_after)."
+**Options-flow help text (R3):** for the stream entity: "A second local battery level that keeps reporting when the main source drops. Do not pick an entity from the same integration path as the main source; if it fails at the same time, it gives no protection. URA uses it only after it has agreed with the main source several times." For the max age: "How old the reading may be, in seconds. Use a value a few times the source's poll interval. Leave empty for sources that go unavailable on their own when they stop reporting (for example MQTT with expire_after). Above 300 seconds needs a stream heartbeat sensor." (Built text: see `strings.json`; the options flow also rejects a stream equal to the main battery charge sensor.)
+
+**Known limit (review A, pre-existing):** a capacity entity with no unit of measurement is read as Wh.
 
 **How other houses configure it:**
 
@@ -412,3 +414,10 @@ Process: the changed sections of this rev 2 (Part B, A4, C) go to a re-review by
 | MEDIUM-5 / OR-1 production vs proposed | Part A / Part B split; invariants tagged |
 | OR-2 unproven benefit | each B2 change states the wrong behaviour and its measurement; unmeasured items parked |
 | OR-3 hard-coding | D4 forbid list; second-house table |
+
+
+## Build outcome (2026-10-31)
+
+Built on `feature/ec-stream-soc-tier` (7e078417b). Reviews A SHIP, B FIX, C SHIP, D FIX; all HIGH/MED fixed (summary: `docs/reviews/code-review/ec_stream_soc_tier_review_summary.md`). Full-suite name-diff clean. Nothing from the plan was dropped. Builder choices recorded: max-age key added to `EC_CONSTRUCTION_ENTITY_KEYS` (change reloads the parent, same as the other stream fields); quarantine exit = 2 agreements to unproven then 3 more; missing agree time = lapsed (fail-closed).
+
+Night-1 evidence on HA 2026.10.4 (`AUDIT_envoy_core_fix_2026_10_4_match.md`): native drop recurred 23:04:56 for >36 min; `/production.json?details=1` hung while meter endpoints answered. The stream tier targets exactly this window.
