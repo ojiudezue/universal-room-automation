@@ -48,3 +48,17 @@ Plus, within 23:00-23:40 each night: `ssh ha 'sudo docker logs --since <t0> --un
 ## Orchestrator correction (2026-10-30)
 
 Item 5's "no enphase_realtime entities in the recorder" is wrong. Its entities carry the `_2` suffix (`sensor.envoy_482543015950_battery_2`). Recorder during the 10-29 native outage (23:06:40-00:01:27): battery_2 was live except `unavailable` 23:14:27-23:22:07 (7.7 min) and 23:23:17-23:23:48 (31 s); it resumed at the prior value (35/34). On 10-21..10-27 it stayed up through every drop. So the fallback would have covered ~46 of 55 min that night; the 60 s reconnect settle handles the two reconnects. It is the first realtime dropout seen during a native drop; recheck the remaining nights after deploy.
+
+## Night 1 on HA 2026.10.4 — debug capture 2026-10-30 22:54-23:35 (operator-approved)
+
+**The drop recurred on 2026.10.4.** `sensor.envoy_482543015950_battery` went `unavailable` at 23:04:56 and was still unavailable at 23:41 (>36 min). The fix (PR #183172) does not prevent it, as predicted (NO-MATCH confirmed).
+
+**Mechanism (from pyenphase/enphase_envoy DEBUG):** the Envoy itself stays up; ONE endpoint hangs.
+- `/production.json?details=1` reply time rose from 1.1 s (22:54) to 4.5-5.0 s (22:55-23:00); last success 23:00:02. After that every request (30 between 23:05 and 23:35) hit `SocketTimeoutError: Timeout on reading data from socket` at the 45 s sock_read limit, with pyenphase retries (28 timeouts logged).
+- In the same window `/ivp/meters` and `/ivp/meters/readings` kept answering in 0.1-0.9 s (e.g. 23:20:40, 23:25:33, 23:30:22).
+- Because `production.json` is fetched inside the single coordinator update, each update fails after ~230 s (`Finished fetching ... in 233.6 seconds (success: False)`) and every native entity goes unavailable: `update on try 0, EnvoyError aiohttp ClientError Timeout on reading data from socket`.
+- `enphase_realtime` logged `/ivp/ensemble/relay: TimeoutError()` at 20:39, 21:15, 22:18, 23:03 and 23:04, so the Envoy's slow-endpoint behaviour also touches it.
+
+**Interpretation:** a nightly Envoy-side job (fixed clock ~23:00-23:05) makes the legacy `production.json?details=1` endpoint hang while the meter endpoints stay healthy. The integration has no partial-failure path: one hung endpoint blanks all data, including battery SOC, which comes from different endpoints. Upstream candidates: per-endpoint failure isolation in pyenphase / the coordinator (keep meter- and ensemble-derived data when `production.json` times out), or a shorter timeout for that endpoint. This is a better-evidenced draft for `docs/planning/DRAFT_envoy_upstream_issue.md` (operator posts).
+
+**Consequence for URA:** the stream SOC tier (feature/ec-stream-soc-tier) remains the local mitigation. Debug logging reverted to `warning` at 23:41. Raw capture (scratch, not committed): 338 lines in the session scratchpad `envoy_debug_1030.log`.
