@@ -212,8 +212,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-01T11:06:58-06:00</b></span>
-<span>data <b>e3c75a996ebc</b></span>
+<span>generated <b>2026-11-01T11:18:02-06:00</b></span>
+<span>data <b>0e89bf080f1b</b></span>
 <span>reconciled <b>2026-11-01</b></span>
 </div></header>
 <section class="autonomy">
@@ -495,7 +495,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <section class="lane" data-col="investigating">
 <h2>Investigating <span class="count">1</span><span class="hint">measuring; truth not yet known</span></h2>
 <div class="cards">
-<details class="card" data-id="HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1" draggable="true"><summary><span class="id">HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs</span><div class="tagline">hvac</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-01</div><dt>Why</dt><dd>Check 11-01 (prober, recorder 7 d): HVACCoordinator._execute_vacancy_sweep (hvac.py:6716; gates hvac.py:3023-3046, 3099-3121; reset hvac_zones.py:1139-1142) is working as designed with no firing in an occupied zone, but 172 fires in 7 d ...</dd><dt>Next</dt><dd>MEASURE first: (a) per sweep, which entities were actually ON at fire time and turned off by the sweep (not the room tier) - &#x27;when it worked&#x27;; (b) of those, how many belong to rooms whose own automation would have turned them off anyway ...</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+<details class="card" data-id="HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1" draggable="true"><summary><span class="id">HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs</span><div class="tagline">hvac</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-01</div><dt>Why</dt><dd>Check 11-01 (prober, recorder 7 d): HVACCoordinator._execute_vacancy_sweep (hvac.py:6716; gates hvac.py:3023-3046, 3099-3121; reset hvac_zones.py:1139-1142) is working as designed with no firing in an occupied zone, but 172 fires in 7 d ...</dd><dt>Next</dt><dd>MEASURE first: (a) per sweep, which entities were actually ON at fire time and turned off by the sweep (not the room tier) - &#x27;when it worked&#x27;; (b) of those, how many belong to rooms whose own automation would have turned them off anyway ...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>tier</code>: 1</li><li><code>measured_2026_11_01</code>: AUDIT_zone_sweep_effectiveness.md: 173 fires in 7 d, 155 (89.6%) no-ops (zone_3 re-fires every 15-30 min at night). 10 fires turned something off: 5 person-switched lights/relays in URA-automated rooms the room never turned off (Jaya Bat...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="pre_planning">
@@ -1127,7 +1127,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>e3c75a996ebc</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>0e89bf080f1b</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

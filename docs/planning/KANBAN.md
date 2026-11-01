@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T11:06:58-06:00_ - _Data commit: `e3c75a996ebc`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T11:18:02-06:00_ - _Data commit: `0e89bf080f1b`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -48,8 +48,9 @@ thread: **hvac** - status: **investigating**
 _created 2026-11-01_
 - **Why:** Check 11-01 (prober, recorder 7 d): HVACCoordinator._execute_vacancy_sweep (hvac.py:6716; gates hvac.py:3023-3046, 3099-3121; reset hvac_zones.py:1139-1142) is working as designed with no firing in an occupied zone, but 172 fires in 7 d ...
 - **Next:** MEASURE first: (a) per sweep, which entities were actually ON at fire time and turned off by the sweep (not the room tier) - 'when it worked'; (b) of those, how many belong to rooms whose own automation would have turned them off anyway ...
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 1
+  - `measured_2026_11_01`: AUDIT_zone_sweep_effectiveness.md: 173 fires in 7 d, 155 (89.6%) no-ops (zone_3 re-fires every 15-30 min at night). 10 fires turned something off: 5 person-switched lights/relays in URA-automated rooms the room never turned off (Jaya Bat...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
