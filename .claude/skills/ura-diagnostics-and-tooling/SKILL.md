@@ -288,7 +288,7 @@ ls /Users/okosisi/ha-config/.storage/core.config_entries >/dev/null && echo MOUN
 
 # Remount if stale/down (copy verbatim from CLAUDE.md — the URL-encoded
 # password matters; do not "fix" the %40 or %5E)
-mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config
+mount_smbfs "//homeassistant:$(security find-generic-password -a homeassistant -s ura-samba -w | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read().strip(),safe=""))')@192.168.13.13/config" /Users/okosisi/ha-config
 
 # Find URA config entries by title
 python3 -c "import json,sys;

@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T11:22:33-06:00_ - _Data commit: `c18f84d35998`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T11:46:46-06:00_ - _Data commit: `f7be0270b28f`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 12 |
@@ -17,22 +17,14 @@ _Generated: 2026-11-01T11:22:33-06:00_ - _Data commit: `c18f84d35998`_ - _last_r
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 5 |
+| 🚀 Shipped (organic open) | 6 |
 | 🅿️ Parked | 107 |
 | ✅ Done | 394 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (2)
 _raw capture_
 
-### `ZONE-LIVE-POWER-ROLLUP-1` - Zone watts/energy exclude zone-specific loads: ZoneTotalPowerSensor and ZoneEnergyTodaySensor sum rooms only; zone_power_sensors is unread and zone_energy_sensors feeds only house coverage — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **inbox**
-_created 2026-11-01_
-- **Why:** CORRECTED 2026-11-01 (I wrongly said no zone watt sensor exists): aggregation.py:5022 ZoneTotalPowerSensor = sum of each room coordinator's STATE_POWER_CURRENT (live, e.g. sensor.zone_master_suite_total_power 1269 W); aggregation.py:5048...
-- **Next:** Small change (Tier 1-2): ZoneTotalPowerSensor += zone_power_sensors, ZoneEnergyTodaySensor += zone_energy_sensors (skip any entity already in a member room's list); populate zone_power_sensors with the zone AC circuits' power twins.
-- **Forensic keys (1):**
-  - `tier`: 2
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **inbox**
 _created 2026-11-01_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -40,7 +32,7 @@ _created 2026-11-01_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `GARAGE-COVER-FLAP-1` - cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GARAGE-COVER-FLAP-1` - cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **inbox**
 _created 2026-11-01_
 - **Why:** Seen in AUDIT_security_sweep_and_mopup.md (10-26, 10-27). Cause unknown; could be a bouncing contact sensor on the Konnected board. The security sweep acts on 'open' state.
@@ -987,7 +979,7 @@ _created 2026-10-20 08:30 · updated 2026-10-29 02:05_
 thread: **security** - status: **waiting_operator**
 _created 2026-11-01_
 - **Why:** lock.doorlock_kwikset_zwave_frontentry unavailable for the full 7-day recorder window; battery sensor statistics stop 2026-05-08 (last reads 20%, 0%, 100%, 0%).
-- **Next:** DO: replace the lock batteries / re-pair it on Z-Wave -> I confirm it reports and the sweep covers it.
+- **Next:** DO: operator 2026-11-01 - new locks being installed soon -> when installed, tell me the new lock entity ids; I update the security sweep's lock list (and add SECURITY-LOCK-SWEEP-RETRY-CAP-1 before they go live).
 - **Forensic keys (1):**
   - `tier`: 1
 
@@ -1136,7 +1128,7 @@ _created 2026-10-14 02:50 · updated 2026-10-28 02:03 · refined_
   - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🚀 Shipped (organic open) (5)
+## 🚀 Shipped (organic open) (6)
 _live, awaiting proof_
 
 ### `PERSON-BLE-WINS-OVER-STALE-GPS-1` - Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10) — _#1 · WSJF 3.8 · v7 tc6 u2 /e4_
@@ -1213,7 +1205,15 @@ _created 2026-09-25 18:00 · updated 2026-10-31 02:14 · refined ×2_
   - `unblocked_2026_09_27`: OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native)...
   - `binding_constraint_3_8_2026_09_27`: BINDING CONSTRAINT from Run 2 criterion 3.8, observed live 09-26 23:14:11: when the Envoy re-enumerates (reboot), the stream publishes SOC=0 and backup_reserve 0 then 30 for ~36 s before true values (SOC 36, reserve 10). The plan MUST ga...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ZONE-LIVE-POWER-ROLLUP-1` - Zone watts/energy exclude zone-specific loads: ZoneTotalPowerSensor and ZoneEnergyTodaySensor sum rooms only; zone_power_sensors is unread and zone_energy_sensors feeds only house coverage — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **shipped_organic**
+_created 2026-11-01_
+- **Why:** CORRECTED 2026-11-01 (I wrongly said no zone watt sensor exists): aggregation.py:5022 ZoneTotalPowerSensor = sum of each room coordinator's STATE_POWER_CURRENT (live, e.g. sensor.zone_master_suite_total_power 1269 W); aggregation.py:5048...
+- **Next:** Small change (Tier 1-2): ZoneTotalPowerSensor += zone_power_sensors, ZoneEnergyTodaySensor += zone_energy_sensors (skip any entity already in a member room's list); populate zone_power_sensors with the zone AC circuits' power twins.
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-04 01:00 · updated 2026-11-01 02:05_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...

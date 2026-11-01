@@ -33319,7 +33319,7 @@ cards:
   tier: 1
   created: "2026-11-01"
   why: "lock.doorlock_kwikset_zwave_frontentry unavailable for the full 7-day recorder window; battery sensor statistics stop 2026-05-08 (last reads 20%, 0%, 100%, 0%)."
-  next: "DO: replace the lock batteries / re-pair it on Z-Wave -> I confirm it reports and the sweep covers it."
+  next: "DO: operator 2026-11-01 - new locks being installed soon -> when installed, tell me the new lock entity ids; I update the security sweep's lock list (and add SECURITY-LOCK-SWEEP-RETRY-CAP-1 before they go live)."
 - id: GARAGE-COVER-FLAP-1
   title: "cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day"
   thread: security
