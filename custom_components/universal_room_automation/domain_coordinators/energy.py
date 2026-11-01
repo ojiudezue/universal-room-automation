@@ -1602,6 +1602,15 @@ class EnergyCoordinator(BaseCoordinator):
             try:
                 await asyncio.wait_for(factory(), timeout=budget)
             except asyncio.TimeoutError:
+                if name in self._RESTORE_IMMEDIATE_RETRY and await (
+                    self._immediate_restore_retry(
+                        name, factory, budget,
+                        EC_RESTORE_STEP_TIMEOUT_S,
+                        EC_RESTORE_TOTAL_BUDGET_S
+                        - (_time.monotonic() - started),
+                    )
+                ):
+                    continue
                 _LOGGER.warning(
                     "Energy DB restore step %r timed out after %.1fs — "
                     "continuing with the remaining steps",
@@ -1613,6 +1622,40 @@ class EnergyCoordinator(BaseCoordinator):
                 "Energy DB restore skipped steps at boot: %s",
                 self._restore_skipped,
             )
+
+    # Steps that get ONE immediate second attempt inside setup (before the
+    # first decision cycle). midnight_snapshot: it cannot be retried after
+    # start (see _RESTORE_RETRY_SAFE), and losing it zeroes today's
+    # import/cost until midnight.
+    _RESTORE_IMMEDIATE_RETRY: frozenset[str] = frozenset({"midnight_snapshot"})
+
+    async def _immediate_restore_retry(
+        self, name, factory, first_budget, step_timeout, remaining,
+    ) -> bool:
+        """Second in-setup attempt, bounded by the remaining total budget.
+
+        Returns True when it succeeded. Logs a WARNING with the outcome.
+        """
+        if remaining <= 0:
+            _LOGGER.warning(
+                "Energy DB restore step %r timed out after %.1fs; no budget "
+                "left for an immediate retry", name, first_budget,
+            )
+            return False
+        budget = min(step_timeout, remaining)
+        try:
+            await asyncio.wait_for(factory(), timeout=budget)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "Energy DB restore step %r timed out after %.1fs; immediate "
+                "retry also timed out after %.1fs", name, first_budget, budget,
+            )
+            return False
+        _LOGGER.warning(
+            "Energy DB restore step %r timed out after %.1fs; immediate "
+            "retry succeeded", name, first_budget,
+        )
+        return True
 
     def _restore_steps(self, now) -> list[tuple[str, Any]]:
         """Ordered (name, coroutine-factory) list of the boot restore steps."""

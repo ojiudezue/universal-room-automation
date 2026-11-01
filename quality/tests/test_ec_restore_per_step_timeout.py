@@ -92,6 +92,7 @@ def _shell(hang=(), running=False, db=None):
     s._bill_ledger_ready = False
     s.calls = []
     s._RESTORE_RETRY_SAFE = em.EnergyCoordinator._RESTORE_RETRY_SAFE
+    s._RESTORE_IMMEDIATE_RETRY = em.EnergyCoordinator._RESTORE_IMMEDIATE_RETRY
     for meth, name in zip(STEP_METHODS, STEP_NAMES):
         def _mk(name=name):
             async def _step(*a, **k):
@@ -102,7 +103,8 @@ def _shell(hang=(), running=False, db=None):
         setattr(s, meth, _mk())
     _bind(s, "_restore_all_sequential", "_restore_steps",
           "_schedule_restore_retry", "_retry_skipped_restores",
-          "_reseed_cycle_after_boot", "_cancel_listeners")
+          "_reseed_cycle_after_boot", "_cancel_listeners",
+          "_immediate_restore_retry")
     return s
 
 
@@ -196,6 +198,93 @@ async def test_step_timeout_is_per_step_not_whole_chain(monkeypatch):
     await s._restore_all_sequential(None)
     assert s.calls == STEP_NAMES
     assert s._restore_skipped == []
+
+
+# ---------------------------------------------------------------------------
+# midnight_snapshot: one immediate in-setup retry
+# ---------------------------------------------------------------------------
+def _flaky_midnight(s, hangs):
+    """midnight step hangs on its first `hangs` calls, then restores."""
+    async def _step(*a, **k):
+        s.calls.append("midnight_snapshot")
+        if s.calls.count("midnight_snapshot") <= hangs:
+            await asyncio.Event().wait()
+        s._lifetime_net_import_snapshot = 51.234  # restored baseline
+        s.cost_today = 2.35
+    s._restore_midnight_snapshot = _step
+
+
+@pytest.mark.asyncio
+async def test_midnight_first_hang_second_succeeds_not_skipped(fast_budgets):
+    s = _shell()
+    _flaky_midnight(s, hangs=1)
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s.calls.count("midnight_snapshot") == 2
+    assert s._restore_skipped == []
+    assert s._lifetime_net_import_snapshot == 51.234
+    assert s.cost_today == 2.35
+    # retry happens in place: the rest of the chain still runs after it
+    assert s.calls[-4:] == ["envoy_cache", "load_shedding_level",
+                            "solar_follow_state", "bill_forecast_ledger"]
+
+
+@pytest.mark.asyncio
+async def test_midnight_both_hang_skipped_and_boot_only(fast_budgets):
+    s = _shell()
+    _flaky_midnight(s, hangs=2)
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s.calls.count("midnight_snapshot") == 2
+    assert s._restore_skipped == ["midnight_snapshot"]
+    assert not hasattr(s, "cost_today")
+    before = list(s.calls)
+    await s._retry_skipped_restores("test")
+    assert s.calls == before  # still not retried after start
+
+
+@pytest.mark.asyncio
+async def test_midnight_retry_bounded_by_remaining_budget(monkeypatch):
+    # step 0.2 s, total 0.3 s: first attempt 0.2, retry clipped to ~0.1,
+    # then the budget is spent -> later steps not run.
+    _set_budgets(monkeypatch, 0.2, 0.3)
+    s = _shell()
+    _flaky_midnight(s, hangs=2)
+    loop = asyncio.get_event_loop()
+    t0 = loop.time()
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert loop.time() - t0 < 0.38  # unclipped retry would take >= 0.4
+    assert s.calls.count("midnight_snapshot") == 2
+    assert s._restore_skipped == ["midnight_snapshot", "envoy_cache",
+                                  "load_shedding_level", "solar_follow_state",
+                                  "bill_forecast_ledger"]
+
+
+@pytest.mark.asyncio
+async def test_midnight_no_retry_when_budget_spent(monkeypatch, caplog):
+    _set_budgets(monkeypatch, 10.0, 0.1)
+    s = _shell()
+    for meth in STEP_METHODS[:9]:
+        setattr(s, meth, _noop_step)
+    async def _slow_then_hang(*a, **k):
+        s.calls.append("midnight_snapshot")
+        await asyncio.Event().wait()
+    s._restore_midnight_snapshot = _slow_then_hang
+    import logging
+    with caplog.at_level(logging.WARNING):
+        await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s.calls.count("midnight_snapshot") == 1
+    assert any("no budget left for an immediate retry" in r.getMessage()
+               for r in caplog.records)
+
+
+async def _noop_step(*a, **k):
+    return None
+
+
+@pytest.mark.asyncio
+async def test_other_steps_get_no_immediate_retry(fast_budgets):
+    s = _shell(hang=("evse",))
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s.calls.count("evse") == 1
 
 
 # ---------------------------------------------------------------------------
