@@ -535,3 +535,63 @@ async def test_x6_c100_strict_deadband(sh, clock, local, expect_page):
     await sweep(c, s, clock, T_DROP_S, local=None)
     assert bool(_reverted_nm(c)) is expect_page
     assert bool(_reverted(c)) is expect_page
+
+
+# ===========================================================================
+# Review C fix-up — per-sweep cache binding (M16 / M17 / M28) + M5 / M8
+# ===========================================================================
+@pytest.mark.asyncio
+async def test_step_failure_after_cached_unavailable_does_not_qualify(
+    sh, clock, monkeypatch,
+):
+    """Sweep 1 caches reason "unavailable" (no page). Sweep 2's memory step
+    fails after its reset (swallowed) → no witness read this sweep → the gate
+    must not reuse the stale cache nor qualify on a missing one → page."""
+    c, s = await _witnessed(sh, clock)
+    wv = c._write_verifier
+    await sweep(c, s, clock, T_DROP_S, local=None)
+    assert _reverted(c) == [] and wv._sweep_witness[3] == "unavailable"
+
+    def _boom(battery):
+        raise RuntimeError("soc read failed")
+    monkeypatch.setattr(wv, "_read_soc_via_resolver", _boom)
+    await sweep(c, s, clock, T_DROP_S + 300)
+    assert wv._sweep_witness is None
+    assert len(_reverted(c)) == 1 and len(_reverted_nm(c)) == 1
+
+
+@pytest.mark.asyncio
+async def test_ledger_changed_between_step_and_gate_does_not_qualify(
+    sh, clock, monkeypatch,
+):
+    """The cached witness read is bound to the ledger the step saw: a
+    commanded_at that moves between the step and the gate (same value, still
+    before first_at) → no qualification → page."""
+    c, s = await _witnessed(sh, clock)
+    wv = c._write_verifier
+    orig = wv._witness_memory_step
+
+    def _step_then_move(battery):
+        orig(battery)
+        s._last_reserve_level_at = c.t0 + timedelta(seconds=T_CMD_S + 1)
+    monkeypatch.setattr(wv, "_witness_memory_step", _step_then_move)
+    await sweep(c, s, clock, T_DROP_S, local=None)
+    assert len(_reverted(c)) == 1 and len(_reverted_nm(c)) == 1
+
+
+@pytest.mark.asyncio
+async def test_ledger_cleared_clears_memory(sh, clock):
+    c, s = await _witnessed(sh, clock)
+    s._last_reserve_level = None
+    await sweep(c, s, clock, T_DROP_S, local=None)
+    assert c._write_verifier._reserve_witness_confirm is None
+
+
+@pytest.mark.asyncio
+async def test_value_change_with_live_confirm_restamps_value(sh, clock):
+    """Ledger value replaced, stamp unchanged (first_at still >= T_c), local
+    confirms the new value → memory re-recorded for the new value."""
+    c, s = await _witnessed(sh, clock, cmd=15)
+    s._last_reserve_level = 20
+    await sweep(c, s, clock, T_POST_WINDOW_S + 300, local=20)
+    assert c._write_verifier._reserve_witness_confirm.value == 20.0

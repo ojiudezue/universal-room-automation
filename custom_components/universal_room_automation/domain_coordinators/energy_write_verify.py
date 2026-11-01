@@ -622,10 +622,10 @@ class WriteVerifier:
         same sweep. Untrusted reasons (incl. "unavailable") neither stamp
         nor clear. Never raises."""
         try:
+            self._sweep_witness = None
             from . import energy_const as _ec  # noqa: PLC0415
             if not _ec.RESERVE_WITNESS_MEMORY_ENABLED:
                 return
-            self._sweep_witness = None
             cmd, cmd_at = self._commanded_ledger(
                 battery, WRITE_VERIFY_SURFACE_RESERVE,
             )
