@@ -826,6 +826,11 @@ class HVACCoordinator(BaseCoordinator):
             persist=False,
             reason="display counter; vacancy actuation is live-derived per cycle",
         )
+        # HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (1): the global "46 · Vacancy
+        # Auto-Off" switch is a MASTER gate ANDed with each zone's own
+        # CONF_ZONE_VACANCY_SWEEP_ENABLED (it no longer overwrites the
+        # per-zone value). Default ON; the switch pushes its restored value.
+        self._vacancy_sweep_master_enabled: bool = True
         # HVAC fast occupancy response (v5.103.20) display counters.
         # restart: RESET WITH REASON — re-derived within a day; the durable
         # record of every fast write is its `preset_change` ledger row.
@@ -1237,8 +1242,18 @@ class HVACCoordinator(BaseCoordinator):
 
     @property
     def vacancy_sweeps_today(self) -> int:
-        """Return count of vacancy sweeps executed today."""
+        """Return count of REAL vacancy sweeps today (ones that turned at
+        least one entity off; HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1)."""
         return self._vacancy_sweeps_today.value
+
+    @property
+    def vacancy_sweep_master_enabled(self) -> bool:
+        """Global vacancy-sweep gate (switch "46 · Vacancy Auto-Off")."""
+        return getattr(self, "_vacancy_sweep_master_enabled", True)
+
+    @vacancy_sweep_master_enabled.setter
+    def vacancy_sweep_master_enabled(self, value: bool) -> None:
+        self._vacancy_sweep_master_enabled = bool(value)
 
     @property
     def energy_offset(self) -> float:
@@ -3033,17 +3048,7 @@ class HVACCoordinator(BaseCoordinator):
                     # EXCLUSION) but the hallway lights must stay on
                     # while the person is IN the hallway. Same shape as
                     # row 2b's NO-SWAP write basis in hvac_zones.py.
-                    _sweep_light_ok = not getattr(
-                        zone, "any_room_occupied", False,
-                    )
-                    if (
-                        _sweep_light_ok
-                        and not zone.vacancy_sweep_done
-                        and zone.vacancy_sweep_enabled
-                    ):
-                        await self._execute_vacancy_sweep(zone)
-                        zone.vacancy_sweep_done = True
-                        self._vacancy_sweeps_today.increment()
+                    await self._maybe_run_vacancy_sweep(zone)
 
                 # D6: Stale occupancy failsafe (skip during sleep — RH4)
                 # v3.22.2: Multi-source confidence check before declaring stale.
@@ -3108,17 +3113,7 @@ class HVACCoordinator(BaseCoordinator):
                         # continuous occupancy > max_hours (a stuck
                         # sensor); if lighting shows real occupancy we
                         # DO NOT sweep the lights dark.
-                        _sweep_light_ok = not getattr(
-                            zone, "any_room_occupied", False,
-                        )
-                        if (
-                            _sweep_light_ok
-                            and not zone.vacancy_sweep_done
-                            and zone.vacancy_sweep_enabled
-                        ):
-                            await self._execute_vacancy_sweep(zone)
-                            zone.vacancy_sweep_done = True
-                            self._vacancy_sweeps_today.increment()
+                        await self._maybe_run_vacancy_sweep(zone)
                         _LOGGER.warning(
                             "HVAC: Zone %s occupied >%dh with only %d/%d source(s) "
                             "(threshold %d) — treating as stale sensor",
@@ -6713,23 +6708,64 @@ class HVACCoordinator(BaseCoordinator):
     # HVAC-PRESET-FLAP-1 (2026-08-11): duty off-phase honesty (S14).
     # ------------------------------------------------------------------
 
-    async def _execute_vacancy_sweep(self, zone) -> None:
+    async def _maybe_run_vacancy_sweep(self, zone) -> None:
+        """The ONE gate for both sweep callers (row-1 vacancy, D6 stale).
+
+        Fires at most once per lighting vacancy (`vacancy_sweep_done`,
+        re-armed by `hvac_zones` row 2b when any room is lighting-occupied).
+        Gates: the zone is empty in the LIGHTING denomination (a standing
+        hallway occupant keeps hallway lights on — fix-up round 2
+        2026-09-17), not already swept, the zone's own opt-out AND the
+        global switch (HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (1)).
+        `vacancy_sweeps_today` counts only sweeps that turned something
+        off (HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (2)); a no-op still
+        spends the vacancy (done flag), so it does not re-run every tick.
+        """
+        if getattr(zone, "any_room_occupied", False):
+            return
+        if zone.vacancy_sweep_done:
+            return
+        if not zone.vacancy_sweep_enabled:
+            return
+        if not self.vacancy_sweep_master_enabled:
+            return
+        turned_off = await self._execute_vacancy_sweep(zone)
+        zone.vacancy_sweep_done = True
+        if turned_off:
+            self._vacancy_sweeps_today.increment()
+
+    async def _execute_vacancy_sweep(self, zone) -> list[str]:
         """Turn off URA-configured lights and fans in all rooms of a vacant zone.
 
         D1: Only touches entities explicitly configured in URA room entries.
         v4.2.7: Added observation mode guard + warning-level error logging.
+        Returns the entity ids it turned off (empty = a no-op sweep). A real
+        sweep logs one INFO line and one `vacancy_sweep` activity row
+        listing them (HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (3)).
         """
         # Defensive observation mode check (call site already gates, but
         # protect against future callers that might skip the gate)
         if self._observation_mode:
             _LOGGER.debug("HVAC: Vacancy sweep suppressed by observation mode for %s", zone.zone_name)
-            return
+            return []
 
         from ..const import CONF_LIGHTS, CONF_FANS, CONF_NIGHT_LIGHTS
 
         from ..const import room_automation_paused  # noqa: PLC0415
 
-        swept_count = 0
+        turned_off: list[str] = []
+        # HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (4): a zone with an ACTIVE
+        # pre-arrival keeps its fans. The arrival fans
+        # (`hvac_predict._activate_zone_fans`) were turned on for the
+        # person on the way; at the arriving -> home_day edge the zone is
+        # still empty and past grace, so the row-1 sweep used to turn them
+        # off ~40-60 s after they came on (audit 2026-11-01: 4 fans, 3
+        # fires). Discharge: the pre-arrival ends — arrival in the zone
+        # (fan controller takes over) or timeout / max age
+        # (`_deactivate_zone_fans`). Lights are still swept.
+        _pre_arrival_active = getattr(zone, "zone_id", None) in (
+            getattr(self, "_pre_arrival_zones", None) or set()
+        )
         for room_name in zone.rooms:
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
@@ -6787,7 +6823,7 @@ class HVACCoordinator(BaseCoordinator):
                             {"entity_id": entity_id}, blocking=False,
                             **ura_ctx_kwargs(domain),
                         )
-                        swept_count += 1
+                        turned_off.append(entity_id)
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
@@ -6800,6 +6836,12 @@ class HVACCoordinator(BaseCoordinator):
             # the hold. Lights are UNAFFECTED (the hold is fan-scoped).
             # HVAC Batch D site G5: the room does not hand its fans to HVAC —
             # the zone sweep leaves its fans as they are (lights unaffected).
+            if _pre_arrival_active:
+                _LOGGER.debug(
+                    "HVAC: Vacancy sweep left fans on in %s — pre-arrival "
+                    "active for zone %s", room_name, zone.zone_name,
+                )
+                continue
             from .hvac_fans import hvac_tier_owns_room_fans as _owns  # noqa: PLC0415
             if not _owns(self._fan_controller, room_name, config):
                 _LOGGER.debug(
@@ -6871,8 +6913,8 @@ class HVACCoordinator(BaseCoordinator):
                     except Exception:  # noqa: BLE001
                         snap_w8 = None
 
-                async def _emit_w8() -> int:
-                    swept = 0
+                async def _emit_w8() -> list[str]:
+                    swept: list[str] = []
                     for entity_id in fans:
                         domain = entity_id.split(".")[0]
                         state = self.hass.states.get(entity_id)
@@ -6882,7 +6924,7 @@ class HVACCoordinator(BaseCoordinator):
                                     domain, "turn_off",
                                     {"entity_id": entity_id}, blocking=False,
                                 )
-                                swept += 1
+                                swept.append(entity_id)
                             except Exception as exc:  # noqa: BLE001
                                 _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
                     return swept
@@ -6902,7 +6944,7 @@ class HVACCoordinator(BaseCoordinator):
                             room_key_w8, FAN_TRIGGER_HVAC_VACANCY, snap_w8, "off",
                         ) as verdict:
                             if verdict.is_allow:
-                                swept_count += await _emit_w8()
+                                turned_off.extend(await _emit_w8())
                             else:
                                 _LOGGER.debug(
                                     "HVAC: Vacancy sweep W8 DEFER/VETO for %s "
@@ -6913,14 +6955,42 @@ class HVACCoordinator(BaseCoordinator):
                             "HVAC: W8 oracle wrap failed for %s — direct emit fallback",
                             room_name, exc_info=True,
                         )
-                        swept_count += await _emit_w8()
+                        turned_off.extend(await _emit_w8())
                 else:
-                    swept_count += await _emit_w8()
+                    turned_off.extend(await _emit_w8())
 
+        if not turned_off:
+            # A no-op sweep (nothing was on) — the common case (~90 %,
+            # audit 2026-11-01). DEBUG only; no row, not counted.
+            _LOGGER.debug(
+                "HVAC: Vacancy sweep for zone %s — nothing on", zone.zone_name,
+            )
+            return turned_off
         _LOGGER.info(
-            "HVAC: Vacancy sweep for zone %s — swept %d entities",
-            zone.zone_name, swept_count,
+            "HVAC: Vacancy sweep for zone %s — turned off %d: %s",
+            zone.zone_name, len(turned_off), ", ".join(turned_off),
         )
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger is not None:
+            try:
+                self.hass.async_create_task(activity_logger.log(
+                    coordinator="hvac",
+                    action="vacancy_sweep",
+                    description=(
+                        f"{zone.zone_name} empty — turned off "
+                        f"{len(turned_off)}: {', '.join(turned_off)}"
+                    ),
+                    zone=getattr(zone, "zone_id", None),
+                    importance="notable",
+                    details={
+                        "turned_off": list(turned_off),
+                        "house_state": getattr(self, "_house_state", None),
+                        "pre_arrival_fans_kept": _pre_arrival_active,
+                    },
+                ))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("vacancy_sweep ledger row failed", exc_info=True)
+        return turned_off
 
     def _is_zone_hvac_established(self, zone) -> bool:
         """Delegate — never raises. See ZoneManager.is_zone_hvac_established."""

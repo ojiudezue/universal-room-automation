@@ -3989,13 +3989,15 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
 class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
     """Toggle HVAC zone vacancy sweep.
 
-    When ON (default): HVAC coordinator turns off lights and fans in zones
-    after they become vacant (after grace period expires).
-    When OFF: Vacancy sweeps are skipped — lights/fans remain as-is.
+    When ON (default): each zone follows its own "vacancy sweep" setting —
+    the HVAC coordinator turns off lights and fans in a zone after it
+    becomes vacant (after grace period expires).
+    When OFF: Vacancy sweeps are skipped in every zone — lights/fans remain
+    as-is. (Master gate, ANDed with the per-zone setting.)
 
     v3.18.2: Provides UI visibility and runtime control over vacancy sweeps.
 
-    Entity: switch.ura_hvac_zone_sweep
+    Entity: switch.ura_hvac_coordinator_zone_sweep ("46 · Vacancy Auto-Off")
     Device: URA: HVAC Coordinator
     """
 
@@ -4028,15 +4030,17 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         return manager.coordinators.get("hvac")
 
     def _update_zones(self) -> None:
-        """Push sweep enabled/disabled to all zone states."""
+        """Push the switch value to the HVAC coordinator's MASTER gate.
+
+        HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (1): the global switch no
+        longer overwrites each zone's own CONF_ZONE_VACANCY_SWEEP_ENABLED.
+        A zone sweeps only when BOTH are on (OFF here disables all; ON
+        defers to the per-zone value).
+        """
         hvac = self._get_hvac()
         if hvac is None:
             return
-        zm = hvac.zone_manager
-        if zm is None:
-            return
-        for zone in zm.zones.values():
-            zone.vacancy_sweep_enabled = self._is_on
+        hvac.vacancy_sweep_master_enabled = self._is_on
 
     @property
     def is_on(self) -> bool:
@@ -4063,6 +4067,21 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         # default-ON sweep to OFF (incident 2026-10-03 v5.103.37).
         if last_state is not None and last_state.state in ("on", "off"):
             self._is_on = last_state.state == "on"
+        # The master gate lives on the HVAC coordinator, so a coordinator
+        # that is not registered yet — or is rebuilt later without this
+        # switch being re-added — gets the value when it signals READY.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_COORDINATOR_READY, self._handle_hvac_ready,
+            )
+        )
+        self._update_zones()
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """SIGNAL_HVAC_COORDINATOR_READY — re-push the master gate."""
         self._update_zones()
 
     @property

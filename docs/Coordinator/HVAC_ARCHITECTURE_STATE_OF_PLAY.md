@@ -1,5 +1,7 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
+**2026-11-01 (built, `fix/zone-sweep-cleanup`, NOT deployed — HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1):** zone vacancy sweep — the "46 · Vacancy Auto-Off" switch is now a master gate ANDed with each zone's own opt-out (it overwrote them before); `vacancy_sweeps_today` counts only sweeps that turned something off; one `vacancy_sweep` activity row per real sweep; a zone with an active pre-arrival keeps its fans (the sweep, not `_deactivate_zone_fans`, was turning off fans pre-arrival had lit 36–61 s earlier). New §4.2c "Zone vacancy sweep — gates"; §8 switch label fixed.
+
 **2026-10-24 (built, `fix/presence-gps-assistive`, NOT deployed — PERSON-BLE-WINS-OVER-STALE-GPS-1):** the four HVAC raw `person.<x>.state == "home"` reads — `hvac_zones.ZoneManager.zone_has_home_person` (D7 / row-1 unestablished-zone preserve; NO production caller today, so a no-op — consequence replay §3.3), the `hvac.py` D7 night-trust preset hold, `hvac.py` `main_row_home_persons` (display, activity log `home_persons`) and the `hvac_fans.py` night vacancy hold — now read `person_coordinator.person_state_for_trust`. It returns the raw HA state except `not_home` for a person whose GPS-led `home` was overruled by their own BLE on the last person tick (Presence STATE_OF_PLAY §3). Comparisons and fail-open/closed shapes are unchanged; no HVAC logic changed. Presence switch "BLE Leads Home/Away" OFF → byte-identical.
 **2026-10-21 (doc only):** §4.2 optimizer row line refs corrected (`optimization.py:4677`/`:4826`); stuck-rule cite `coordinator.py:364` → `:387` (§9.3, C27). Found by the OC vision rev-6 review pass.
 **2026-10-20 (built, `fix/recorder-churn-diag-sensors`, NOT deployed, display only):** `sensor.ura_hvac_ac_ramp_kwh_rate_<zone>` no longer publishes `age_seconds`; `last_updated` is kept live but unrecorded; `stale` is still computed. No HVAC decision reads this sensor.
@@ -271,6 +273,26 @@ One per-room **Fan Mode** (`select.<room>_fan_mode`, key `room_fan_mode` in the 
   - The migration never reads it, and keeps a Fan Mode already stored in `entry.data`.
   - Operator ruling YES: the shared-space auto-off (`automation._shared_space_turn_off_all`) skips Fan Mode Off fans and any fan another room owns under Follow thermostat (e.g. Breakfast Nook → Kitchen's shared fan).
 
+### 4.2c Zone vacancy sweep — gates (HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1, built 2026-11-01, `fix/zone-sweep-cleanup`, NOT deployed)
+
+A LIGHTING actuator living in the HVAC coordinator: when a zone empties, turn off what the rooms left on. Audit `docs/planning/AUDIT_zone_sweep_effectiveness.md` (7 d to 11-01): 173 fires, ~90 % found nothing on; the measured real work is person-switched lights/relays in room-automated rooms that the room tier never turned off (5 entities, up to 4 h 47 m), plus HVAC-owned fans. It is NOT a backstop for paused rooms (skipped since v5.103.75).
+
+| Gate / rule | Site |
+|---|---|
+| Callers: row-1 vacancy (zone past grace, target home/sleep, not held) and D6 stale-occupancy force-away. Both call ONE gate | `hvac.py:3051`, `:3116` → `_maybe_run_vacancy_sweep` `hvac.py:6711` |
+| Zone empty in the LIGHTING denomination (`any_room_occupied` False). A standing hallway occupant keeps the hallway lights on although the zone is HVAC-empty | `_maybe_run_vacancy_sweep` |
+| Once per lighting vacancy: `vacancy_sweep_done`, set after every run (a no-op too), re-armed False whenever any room is lighting-occupied (row 2b) | `hvac_zones.py:1139-1142` |
+| Per-zone opt-out `CONF_ZONE_VACANCY_SWEEP_ENABLED` (Zone Manager zone config, default True; two ZM zones on one thermostat: OR) AND the global switch "46 · Vacancy Auto-Off" (`switch.ura_hvac_coordinator_zone_sweep`). Since 2026-11-01 the switch is a MASTER gate on the coordinator (`vacancy_sweep_master_enabled`, `hvac.py:833`), pushed on toggle, restore and `SIGNAL_HVAC_COORDINATOR_READY` (`switch.py:4032`, `:4083`). Before: the switch overwrote every zone's own value at startup and on toggle | `hvac_zones.py:509`, `:529`; `switch.py` |
+| Observation mode → no writes | `_execute_vacancy_sweep` `hvac.py:6737` |
+| Per room: paused room skipped whole (§4.2b) | same |
+| Lights = `lights` + `night_lights` − `lights_leave_on_when_empty` − lights under a person's room-tier hold (`light_hold_allowed`). A `switch.*` is swept only if it is in those lists (no `CONF_SWITCHES` read; the v3.17 plan said otherwise, corrected 11-01). URA context stamp | same |
+| Fans: skipped for the whole zone while it has an ACTIVE pre-arrival (`_pre_arrival_zones`; discharge = arrival in the zone or timeout / max age → `_deactivate_zone_fans`); else only Fan Mode Follow thermostat, no manual-ON hold (room or HVAC tier), fan oracle W8 ALLOW | `hvac.py:6766`; fan block |
+| Output: returns the entity ids turned off. Real sweep → one INFO line + one `ura_activity_log` row `action=vacancy_sweep` (notable; `details.turned_off`, `house_state`, `pre_arrival_fans_kept`) + `vacancy_sweeps_today` +1. No-op → DEBUG only, no row, not counted (the done flag is still set) | `hvac.py:6978`; `_maybe_run_vacancy_sweep` |
+
+**Pre-arrival fan fight — verdict (2026-11-01, code + audit timing).** The 4 fan-offs 36–61 s after pre-arrival turned the same fans on were the SWEEP, not `_deactivate_zone_fans`: the latter runs only on pre-arrival timeout (`_expire_pre_arrival_zones`, window knob 35 ≥ 5 min) or max age, neither reachable 36–61 s after activation, and the zone still read `zone_presence_state=pre_arrival` at the fire. Mechanism: house `arriving → home_day` runs a cycle; the zone (no one there yet) is past grace with target `home`, row-1 does not look at `_pre_arrival_zones`, so the sweep ran and turned off the Follow-thermostat fans pre-arrival had just lit. Fixed by the fan exemption above (test `test_pre_arrival_zone_keeps_fans_but_sweeps_lights`).
+
+**Done-flag churn (zone_3 re-fires every 15–30 min at night) — measured 11-01:** not sub-tick flicker. Recorder `sensor.ura_hvac_coordinator_zone_3_status` 10-31 22:46 → 11-01 02:25: each re-arm is a real lighting-occupancy episode of Kitchen (sometimes the garage hallways), 3–6 min long, i.e. one room occupancy timeout. Each episode is a new vacancy, so re-sweeping after it is the intended "once per vacancy". A minimum-occupied re-arm gate would have to exceed the occupancy timeout to filter these and would then also lose the measured fills (a person-switched light in a room that never saw occupancy is caught only because another room re-armed the zone). Not built; the noise is removed by counting/logging only real sweeps. Why Kitchen reads occupied in 3–6 min bursts all night is a presence question, not a sweep one.
+
 ### 4.3 Logging coverage — the answer to "do we record everything?": **YES post W1-A Stage A** (feature branch; ships next)
 
 W1-A Stage A (behaviour-neutral) adds ONE `climate_write` row per attempted wire call in
@@ -384,7 +406,7 @@ Values dated 2026-09-26 unless the row says otherwise.
 
 | Entity / option | Value |
 |---|---|
-| `switch.ura_hvac_coordinator_enabled` / `_zone_intelligence` / `_zone_sweep` / `_override_arrester` | on / on / on / on |
+| `switch.ura_hvac_coordinator_enabled` / `_zone_intelligence` / `_zone_sweep` (label **"46 · Vacancy Auto-Off"**; a master gate ANDed with each zone's own setting since 2026-11-01, §4.2c) / `_override_arrester` | on / on / on / on |
 | `switch.ura_hvac_coordinator_hvac_observation_mode` | off |
 | `switch.ura_hvac_coordinator_guest_mode_actuation` (Custom Preset Ranges) | **on** since 2026-10-02 21:28:45Z (re-read live 2026-10-15); zone_3 in `hvac_s10_rollout_zone_ids` since 2026-10-13 |
 | `switch.ura_hvac_coordinator_26_ac_nudge` / `_ac_reset` / `_ac_ramp_down_energy_aware`; option `hvac_ac_ramp_master_enabled` | on / on / on; True |
