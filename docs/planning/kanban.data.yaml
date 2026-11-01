@@ -30492,7 +30492,8 @@ cards:
   title: The battery brain goes blind and freezes whenever both its data sources age out — give it a
     third, local, fast (~5-6s) source so it can keep deciding
   thread: energy
-  status: "in_progress"
+  status: shipped_organic
+  shipped_version: v5.103.93
   parked_2026_09_30_overnight: 'PARKED by this card''s own rule ("If the cutout test shows the stream causes dropouts, this card parks instead"). ENPHASE-BATTERY-CUTOUTS-1 final readout 09-29 16:00-21:00: stream never on 0/6/8/6 dropouts, stream on 55/37/54/94, stream off 9 -> the stream add-on (sc_stream held on 24/7) drives the peak cutouts, so it cannot be a permanent SOC source. Verified 2026-09-30 02:40 CDT: all sensor.envoy_stream_* unavailable since the 00:17Z restart (add-on still stopped). REVIVAL TRIGGER: a way to read the stream without holding sc_stream on 24/7 (e.g. a duty-cycled or on-demand arm that measures no cutout increase), OR Enphase firmware that removes the cutout interaction. Side effect to note: SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 uses the stream as its grid fallback; with the stream off it falls back to its older source.'
   groom_2026_09_29: 'ADJACENCY FOUND, now linked as blocked_by ENPHASE-BATTERY-CUTOUTS-1. That card stopped the Envoy stream add-on at 20:15 CDT 09-28 to test whether the stream (sc_stream kept on 24/7, against Enphases 15-min auto-disable design) drives the peak battery cutouts. The same-evening A/B roughly halved dropouts with the stream off, but that did not explain them fully. Live now: sensor.envoy_stream_grid_power = unavailable. The approval ask stays, but it is gated on that readout: a stream that has to stay off cannot become a SOC tier.'
   created: '2026-09-25 18:00'
