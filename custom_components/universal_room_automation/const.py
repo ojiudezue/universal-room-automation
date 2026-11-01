@@ -261,6 +261,23 @@ BLE_SILENT_ONLY_AWAY_CONFIDENCE: Final = 0.82
 BLE_LEADS_MIN_ACTIVE_PROXIES: Final = 30
 BLE_LEADS_ARM_S: Final = 360
 BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID: Final = "BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT"
+# PERSON-BLE-WINS-OVER-STALE-GPS-1 residual (plan docs/planning/
+# PLANNING_ble_rearm_and_fleet_fraction.md rev 2 §2.2, D2). The fleet floor
+# is a FRACTION of the remembered fleet size, not a fixed 30:
+#   F = max(BLE_LEADS_ABS_MIN_PROXIES, ceil(BLE_LEADS_FLEET_FRACTION x R))
+# where R = max daily total (Bermuda Total Proxy Count, unique_id
+# BERMUDA_TOTAL_PROXY_COUNT_UNIQUE_ID) over the last
+# BLE_LEADS_FLEET_MEMORY_DAYS local days, persisted in a Store. The total
+# shrinks with an outage, so the memory is what keeps the floor up. Until
+# the memory holds a slot from a completed prior local day (first deploy,
+# store missing / corrupt, total entity missing) the legacy
+# BLE_LEADS_MIN_ACTIVE_PROXIES (30) applies. All rung 1 (safety bounds on
+# the BLE-overrules-GPS rule). FRACTION 0 -> floor = ABS_MIN (not a kill;
+# the "BLE Leads Home/Away" switch is the kill).
+BLE_LEADS_FLEET_FRACTION: Final = 0.5
+BLE_LEADS_ABS_MIN_PROXIES: Final = 3
+BLE_LEADS_FLEET_MEMORY_DAYS: Final = 7
+BERMUDA_TOTAL_PROXY_COUNT_UNIQUE_ID: Final = "BERMUDA_GLOBAL_PROXY_COUNT"
 
 # v3.2.8: Stale threshold (shorter than decay timeout)
 STALE_THRESHOLD_SECONDS: Final = 60  # 1 minute - time before "stale" status
@@ -653,6 +670,16 @@ BLE_TIER_2_WEIGHT: Final = 0.6
 #    entirely (chain-leg predicate always false → BLE can neither
 #    create nor extend). Kill semantics: `False`.
 BLE_CHAIN_HOLD_ENABLED: Final = True
+
+# BLE-LOCATION-QUALITY-1 (plan docs/planning/PLANNING_ble_rearm_and_fleet_
+# fraction.md rev 2 §1.3, D1). While a room is held by BLE alone (chain
+# unbroken, `_ble_only_hold_since` set), ONE absent BLE stretch per BLE-only
+# hold episode is bridged for up to this many seconds from the first empty
+# read, so a one-tick Bermuda blip into the hallway does not end the session.
+# Never creates occupancy (needs the chain). 90 s covers 84 % of measured
+# short returns (D1.0 probe, 2026-11-01). Rung 1: a trust bound on a BLE
+# hold, same governance as BLE_CHAIN_HOLD_ENABLED. Kill semantics: 0.
+BLE_ABSENCE_GRACE_S: Final = 90
 
 # 2) D2_PIR_STALENESS_MULTIPLIER — INT multiplier consumed by the D2
 #    mmWave-fan demotion block: PIR staleness threshold =

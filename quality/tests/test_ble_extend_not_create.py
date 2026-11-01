@@ -126,6 +126,23 @@ class _FakeSelf:
         # instance BEFORE running the block AND populate
         # _became_occupied_time in the past.
         self._room_type = "generic"
+        # BLE-LOCATION-QUALITY-1 D1 absence-grace fields (real defaults).
+        self._ble_absent_since = None
+        self._ble_grace_used = False
+
+    # The BLE block now calls these coordinator helpers on `self`; delegate
+    # to the REAL production methods so the block runs unchanged.
+    def _ble_hold_cap_exceeded(self, now):
+        from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
+            UniversalRoomCoordinator,
+        )
+        return UniversalRoomCoordinator._ble_hold_cap_exceeded(self, now)
+
+    def _ble_absence_grace_applies(self, now):
+        from custom_components.universal_room_automation.coordinator import (  # noqa: PLC0415
+            UniversalRoomCoordinator,
+        )
+        return UniversalRoomCoordinator._ble_absence_grace_applies(self, now)
 
     def _get_config(self, key, default=None):
         # Match production _get_config: options-then-data-then-default.
@@ -183,6 +200,8 @@ def _run_ble_block(
     # The BLE block calls the module-level NM fire helper on cap eviction.
     from custom_components.universal_room_automation import coordinator as _cm  # noqa: PLC0415
     ns["_fire_ble_hold_cap_nm"] = _cm._fire_ble_hold_cap_nm
+    # D1 absence-grace branch logs the window (module global of coordinator).
+    ns["BLE_ABSENCE_GRACE_S"] = _cm.BLE_ABSENCE_GRACE_S
     exec(_BLE_BLOCK_CODE, ns)
 
 
@@ -514,34 +533,68 @@ def test_ble_block_skipped_when_failsafe_fired():
 # ==========================================================================
 
 
-def test_camera_block_unchanged_by_this_cycle():
-    """Non-goal: the v3.5.1 camera block MUST NOT change. Guard the
-    exact source text so an accidental co-edit lights up here."""
+def _run_camera_block(self_obj, data, now, room_name):
+    """Execute the REAL v3.5.1 camera block (extracted from coordinator.py,
+    same exec pattern as the BLE block) against a duck-typed `self`."""
     src = _COORD_SRC.read_text(encoding="utf-8")
     cam_start = src.index("# === v3.5.1: Camera extends room occupancy ===")
     cam_end = src.index("# === v3.8.8: BLE/Bermuda extends room occupancy ===")
-    cam_block = src[cam_start:cam_end]
-    # Compute a stable digest of the camera block. This value is the
-    # baseline captured 2026-07-17 during this cycle's build. If a
-    # future edit changes the camera block, this digest changes and
-    # the test fails LOUDLY — the operator can then decide whether
-    # the co-edit was intentional (update the digest) or accidental.
-    digest = hashlib.sha256(cam_block.encode("utf-8")).hexdigest()
-    # Baseline FROZEN 2026-07-17; re-frozen 2026-09-03 for the
-    # ble-bleed-extend-corroboration HIGH-1 co-edit that added the
-    # `self._ble_only_hold_since = None` reset after the camera
-    # branch's `_became_occupied_time` seed. If this cycle again
-    # intentionally edits the v3.5.1 camera block, RE-FREEZE this hex
-    # deliberately after inspecting the diff; a silent co-edit will
-    # fail loudly here.
-    _BASELINE_CAMERA_BLOCK_SHA256 = (
-        "4ff04f7fce26587a0145e7a789e829840daeaa3b7d61a89aae433366dc63bd4c"
-    )
-    assert digest == _BASELINE_CAMERA_BLOCK_SHA256, (
-        f"Camera block SHA changed: expected "
-        f"{_BASELINE_CAMERA_BLOCK_SHA256}, got {digest}. If the co-edit "
-        f"was intentional, update the frozen hex above; otherwise revert."
-    )
+    lines = []
+    for ln in src[cam_start:cam_end].splitlines():
+        lines.append(ln[8:] if ln.startswith("        ") else ("" if not ln.strip() else ln))
+    code = compile("\n".join(lines), str(_COORD_SRC), "exec")
+    ns = {
+        "self": self_obj, "data": data, "now": now, "room_name": room_name,
+        "DOMAIN": DOMAIN, "STATE_OCCUPIED": STATE_OCCUPIED,
+        "STATE_OCCUPANCY_SOURCE": STATE_OCCUPANCY_SOURCE,
+        "STATE_TIMEOUT_REMAINING": STATE_TIMEOUT_REMAINING,
+        "_LOGGER": logging.getLogger("camera_block_test"),
+    }
+    exec(code, ns)
+
+
+def test_camera_block_unchanged_by_this_cycle():
+    """Behavioural pin of the v3.5.1 camera block (converted 2026-11-01 from
+    a source-SHA guard, which is a hollow anchor, Bug Class #62).
+
+    Camera person ON -> occupied, source "camera", timeout reset, session
+    seeded, and the BLE-only episode ended (anchor + D1 grace fields
+    cleared). Camera person OFF -> the block changes nothing."""
+    hass = make_hass()
+    now = datetime(2026, 11, 1, 6, 34, 0)
+    cam = MagicMock()
+    cam.get_person_sensor_for_area = MagicMock(return_value=["binary_sensor.cam_person"])
+    hass.data[DOMAIN] = {"camera_manager": cam}
+
+    def _fresh():
+        s = _FakeSelf(hass, occupancy_timeout=300)
+        s._get_room_area = lambda: "jaya_bedroom"
+        s._last_occupied_state = True
+        s._ble_only_hold_since = now - timedelta(seconds=600)
+        s._ble_absent_since = now - timedelta(seconds=30)
+        s._ble_grace_used = True
+        return s
+
+    s = _fresh()
+    hass.states.get = MagicMock(return_value=MagicMock(state="on"))
+    data = {STATE_OCCUPIED: False}
+    _run_camera_block(s, data, now, "Jaya Bedroom")
+    assert data[STATE_OCCUPIED] is True
+    assert data[STATE_OCCUPANCY_SOURCE] == "camera"
+    assert data[STATE_TIMEOUT_REMAINING] == 300
+    assert s._became_occupied_time == now
+    assert s._last_motion_time == now
+    assert s._ble_only_hold_since is None
+    assert s._ble_absent_since is None
+    assert s._ble_grace_used is False
+
+    s = _fresh()
+    hass.states.get = MagicMock(return_value=MagicMock(state="off"))
+    data = {STATE_OCCUPIED: False}
+    _run_camera_block(s, data, now, "Jaya Bedroom")
+    assert data == {STATE_OCCUPIED: False}
+    assert s._ble_grace_used is True
+    assert s._ble_only_hold_since == now - timedelta(seconds=600)
 
 
 # ==========================================================================
@@ -670,16 +723,25 @@ def test_five_tick_chain_motion_confirm_then_chain_extend_then_exit():
         assert data[STATE_OCCUPANCY_SOURCE] == "ble"
         coord._last_occupied_state = data[STATE_OCCUPIED]
 
-    # Tick 5: BLE person departs. Block sees ble_persons=[] -> the
-    # `if ble_persons:` branch is skipped, occupancy stays False, and
-    # the outer cycle would fire exit. Mirror the prod update.
+    # Tick 5: BLE person departs. Since BLE-LOCATION-QUALITY-1 D1 the
+    # first empty read of a BLE-only hold opens the single absence grace
+    # (90 s): the room stays held, flagged `ble_absence_grace`.
     persons[room] = []
     now = t0 + timedelta(seconds=timeout * 12)
+    data5a = {STATE_OCCUPIED: False}
+    _run_ble_block(coord, data5a, now, room)
+    assert data5a.get(STATE_OCCUPIED) is True
+    assert data5a.get("ble_absence_grace") is True
+    coord._last_occupied_state = bool(data5a.get(STATE_OCCUPIED))
+    # Tick 5b: still absent 90 s after the first empty read -> the grace
+    # has expired; the block does not re-admit and the outer cycle would
+    # fire exit. Mirror the prod update.
+    now = now + timedelta(seconds=90)
     data5 = {STATE_OCCUPIED: False}
     _run_ble_block(coord, data5, now, room)
     assert data5.get(STATE_OCCUPIED) is False, (
-        "tick 5 (BLE departs): block must not re-admit; occupancy "
-        "should exit once ble_persons is empty"
+        "tick 5b (BLE departed, grace expired): block must not re-admit; "
+        "occupancy should exit"
     )
     assert data5.get(STATE_OCCUPANCY_SOURCE) != "ble"
     coord._last_occupied_state = bool(data5.get(STATE_OCCUPIED))

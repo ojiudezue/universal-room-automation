@@ -295,6 +295,15 @@ def _drive_ble_block(
     s.entry = coord.entry
     s._get_config = coord._get_config
     s._get_ble_hold_cap_seconds = coord._get_ble_hold_cap_seconds
+    # BLE block helpers (real methods bound to the shim) + D1 grace fields.
+    s._ble_absent_since = None
+    s._ble_grace_used = False
+    s._ble_hold_cap_exceeded = (
+        lambda _now, _s=s: UniversalRoomCoordinator._ble_hold_cap_exceeded(_s, _now)
+    )
+    s._ble_absence_grace_applies = (
+        lambda _now, _s=s: UniversalRoomCoordinator._ble_absence_grace_applies(_s, _now)
+    )
 
     data = {}
     _run_ble_block(s, data, now, room_name)
@@ -708,6 +717,15 @@ def _ble_block_then_stamp(coord, now, *, ble_only_hold_since, last_occupied_stat
     s.entry = coord.entry
     s._get_config = coord._get_config
     s._get_ble_hold_cap_seconds = coord._get_ble_hold_cap_seconds
+    # BLE block helpers (real methods bound to the shim) + D1 grace fields.
+    s._ble_absent_since = None
+    s._ble_grace_used = False
+    s._ble_hold_cap_exceeded = (
+        lambda _now, _s=s: UniversalRoomCoordinator._ble_hold_cap_exceeded(_s, _now)
+    )
+    s._ble_absence_grace_applies = (
+        lambda _now, _s=s: UniversalRoomCoordinator._ble_absence_grace_applies(_s, _now)
+    )
     # Stamp fields + override verdicts (real method, bare instance).
     s._last_hvac_evidence_time = None
     s._hvac_evidence_active = False
