@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "245",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_161715_ship_v5_103_94",
+  "timestamp": "2026-11-01T16:17:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.94 shipped: Energy Coordinator restore no longer zeroes today's counters after a slow boot",
+  "summary": "Energy Coordinator restore no longer zeroes today's counters after a slow boot",
+  "why": "The EC restore ran 14 steps under one shared 15 s timeout, so one stalled step at boot skipped every later step and today's import and cost reset to zero until midnight on 2 of 19 restarts. Per-step limits stop one slow step from killing the rest, the immediate retry plus read-before-apply protects today's counters specifically, and the post-start retry recovers safe steps without overwriting live values.",
+  "implications": "Shipped EC-DB-RESTORE-TIMEOUT-1 at v5.103.94; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.94.md (Live criteria).",
+  "revisit_trigger": "Revisit if a restart still zeroes today's counters, if a restore WARNING names the same step repeatedly, or if EC setup exceeds 60 s.",
+  "refs": {
+    "cards": [
+      "EC-DB-RESTORE-TIMEOUT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.94.md"
+    ],
+    "release_notes": "Per-step restore timeouts (10 s, 45 s soft budget), immediate second try for today's counters with read-before-apply, post-start retry of retry-safe steps, power-profile save blocked while unrestored. Tier 2, reviews A/B fixed, name-diff clean."
+  }
+}

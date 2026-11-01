@@ -802,6 +802,7 @@ def test_restore_all_sequential_restores_ledger():
               "_restore_solar_follow_state"):
         setattr(s, n, _noop)
     s._restore_all_sequential = em.EnergyCoordinator._restore_all_sequential.__get__(s)
+    s._restore_steps = em.EnergyCoordinator._restore_steps.__get__(s)
     _run(s._restore_all_sequential(_now(2026, 10, 20)))
     assert s._bill_ledger_ready is True
     assert len(s._billing.ledger.cycles) == 1
