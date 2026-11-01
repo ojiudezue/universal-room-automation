@@ -1267,14 +1267,11 @@ class EnergyCoordinator(BaseCoordinator):
                 )
             except Exception:  # noqa: BLE001
                 pass
-        try:
-            await asyncio.wait_for(
-                self._restore_all_sequential(now), timeout=15.0
-            )
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                "Energy DB restore timed out after 15s — starting with defaults"
-            )
+        # EC-DB-RESTORE-TIMEOUT-1: per-step timeouts live inside
+        # _restore_all_sequential (one stalled step no longer cancels the
+        # rest of the chain); skipped steps are retried once after start.
+        await self._restore_all_sequential(now)
+        self._schedule_restore_retry()
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -1570,26 +1567,197 @@ class EnergyCoordinator(BaseCoordinator):
             )
 
     async def _restore_all_sequential(self, now) -> None:
-        """Run all DB restore methods sequentially.
+        """Run all DB restore methods sequentially, each with its own timeout.
 
-        v3.21.0: Wrapped by asyncio.wait_for(timeout=15) in async_setup().
         Sequential to avoid concurrent DB access and shared-state contention.
         Each method has its own try/except so one failure doesn't block others.
+
+        EC-DB-RESTORE-TIMEOUT-1: was ONE asyncio.wait_for(15 s) around the
+        whole chain, so a stall in step N cancelled steps N+1..14 (2 of 17
+        restarts zeroed today's import/cost). Now each step gets
+        EC_RESTORE_STEP_TIMEOUT_S (clipped to what is left of
+        EC_RESTORE_TOTAL_BUDGET_S); a step that times out, or is reached
+        after the budget is spent, is logged and appended to
+        ``self._restore_skipped`` and the chain continues.
         """
-        await self._restore_cycle_from_db(now)
-        await self._restore_accuracy_from_db()
-        await self._restore_peak_import_history()
-        await self._fit_temp_regression()
-        await self._restore_evse_state()
-        await self._restore_circuit_state()
-        await self._restore_energy_baselines()
-        await self._restore_consumption_history()
-        await self._restore_power_profiles()
-        await self._restore_midnight_snapshot()
-        await self._restore_envoy_cache()
-        await self._restore_load_shedding_level()
-        await self._restore_solar_follow_state()
-        await self._restore_bill_forecast_ledger()
+        import time as _time
+        from .energy_const import (
+            EC_RESTORE_STEP_TIMEOUT_S,
+            EC_RESTORE_TOTAL_BUDGET_S,
+        )
+        # Entry reset: skipped list describes THIS pass only.
+        self._restore_skipped = []
+        started = _time.monotonic()
+        for name, factory in self._restore_steps(now):
+            remaining = EC_RESTORE_TOTAL_BUDGET_S - (_time.monotonic() - started)
+            if remaining <= 0:
+                _LOGGER.warning(
+                    "Energy DB restore: total budget %.1fs spent, step %r "
+                    "not run at boot",
+                    EC_RESTORE_TOTAL_BUDGET_S, name,
+                )
+                self._restore_skipped.append(name)
+                continue
+            budget = min(EC_RESTORE_STEP_TIMEOUT_S, remaining)
+            try:
+                await asyncio.wait_for(factory(), timeout=budget)
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "Energy DB restore step %r timed out after %.1fs — "
+                    "continuing with the remaining steps",
+                    name, budget,
+                )
+                self._restore_skipped.append(name)
+        if self._restore_skipped:
+            _LOGGER.warning(
+                "Energy DB restore skipped steps at boot: %s",
+                self._restore_skipped,
+            )
+
+    def _restore_steps(self, now) -> list[tuple[str, Any]]:
+        """Ordered (name, coroutine-factory) list of the boot restore steps."""
+        return [
+            ("cycle", lambda: self._restore_cycle_from_db(now)),
+            ("accuracy", self._restore_accuracy_from_db),
+            ("peak_import", self._restore_peak_import_history),
+            ("temp_regression", self._fit_temp_regression),
+            ("evse", self._restore_evse_state),
+            ("circuit", self._restore_circuit_state),
+            ("energy_baselines", self._restore_energy_baselines),
+            ("consumption_history", self._restore_consumption_history),
+            ("power_profiles", self._restore_power_profiles),
+            ("midnight_snapshot", self._restore_midnight_snapshot),
+            ("envoy_cache", self._restore_envoy_cache),
+            ("load_shedding_level", self._restore_load_shedding_level),
+            ("solar_follow_state", self._restore_solar_follow_state),
+            ("bill_forecast_ledger", self._restore_bill_forecast_ledger),
+        ]
+
+    # EC-DB-RESTORE-TIMEOUT-1: steps that are safe to re-run after HA has
+    # started, i.e. after the first decision cycle(s) ran. Excluded (boot-only)
+    # and why:
+    #   evse                 -- control ownership (pause sets, DP carrier,
+    #                           force-charge, LKG); ticks have re-derived it
+    #                           live, re-imposing stale owners would fight them.
+    #   circuit              -- was_loaded/zero_since/alerted are updated per
+    #                           tick; overwriting them can raise or mask alerts.
+    #   midnight_snapshot    -- when it is skipped, _last_reset_date is "" and
+    #                           the first decision cycle (inside async_setup)
+    #                           runs the day-rollover branch, which re-seeds the
+    #                           snapshots and SAVES a new midnight row over the
+    #                           DB one. A late retry would read that row back
+    #                           (useless) and overwrite billing accrued since
+    #                           boot. Boot-only; gets its own step timeout now.
+    #   envoy_cache          -- boot fallback for a slow Envoy; live values win.
+    #   load_shedding_level  -- live state is authority post-restart (its own
+    #                           docstring); escalation ticks have moved on.
+    #   solar_follow_state   -- must run before the 60 s tick registers
+    #                           (INV-SF-3); late it would clobber live amps.
+    _RESTORE_RETRY_SAFE: frozenset[str] = frozenset({
+        "cycle", "accuracy", "peak_import", "temp_regression",
+        "energy_baselines", "consumption_history", "power_profiles",
+        "bill_forecast_ledger",
+    })
+
+    def _schedule_restore_retry(self) -> None:
+        """Arm the one-shot retry of boot-skipped restore steps.
+
+        Same shape as the SPAN scope re-pass: HA already running (reload) ->
+        tracked task now; otherwise a listen_once on EVENT_HOMEASSISTANT_STARTED.
+        Both handles go on ``_unsub_listeners`` so teardown cancels them.
+        """
+        if not getattr(self, "_restore_skipped", None):
+            return
+        try:
+            _ha_running = bool(getattr(self.hass, "is_running", False))
+        except Exception:  # noqa: BLE001
+            _ha_running = False
+        if _ha_running:
+            task = self.hass.async_create_task(
+                self._retry_skipped_restores("reload")
+            )
+            self._unsub_listeners.append(task.cancel)
+            return
+        try:
+            from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+
+        async def _on_started(_event):
+            await self._retry_skipped_restores("post_started")
+
+        try:
+            unsub = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, _on_started,
+            )
+            self._unsub_listeners.append(unsub)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Energy: failed to register restore retry listener",
+                exc_info=True,
+            )
+
+    async def _retry_skipped_restores(self, trigger: str) -> None:
+        """Re-run the boot-skipped restore steps once (retry-safe ones only).
+
+        Each step keeps its per-step timeout. Retry variants that protect
+        values accrued since boot:
+          cycle        -> billing.reseed_cycle (DB full days + today so far),
+                          not update_from_db (which would drop since-boot
+                          accrual from the cycle totals).
+          peak_import  -> only when nothing was recorded since boot (the
+                          hourly save may already have replaced the DB list).
+          bill_forecast_ledger -> only if the lazy refresh retry has not
+                          already loaded it.
+        """
+        from .energy_const import EC_RESTORE_STEP_TIMEOUT_S
+        skipped = list(getattr(self, "_restore_skipped", None) or [])
+        self._restore_skipped = []
+        if not skipped:
+            return
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        steps = dict(self._restore_steps(now))
+        steps["cycle"] = lambda: self._reseed_cycle_after_boot(now)
+        outcome: dict[str, str] = {}
+        for name in skipped:
+            if name not in self._RESTORE_RETRY_SAFE:
+                outcome[name] = "excluded (boot-only)"
+                continue
+            if name == "peak_import" and self._peak_import_history:
+                outcome[name] = "skipped (readings accrued since boot)"
+                continue
+            if name == "bill_forecast_ledger" and getattr(
+                self, "_bill_ledger_ready", False
+            ):
+                outcome[name] = "skipped (already loaded)"
+                continue
+            try:
+                await asyncio.wait_for(
+                    steps[name](), timeout=EC_RESTORE_STEP_TIMEOUT_S,
+                )
+                outcome[name] = "ok"
+            except asyncio.TimeoutError:
+                outcome[name] = "timed out again"
+            except Exception as e:  # noqa: BLE001
+                outcome[name] = f"failed: {e}"
+        _LOGGER.warning(
+            "Energy DB restore retry (%s): %s", trigger, outcome,
+        )
+
+    async def _reseed_cycle_after_boot(self, now) -> None:
+        """Late cycle restore: DB full days + today's in-memory accrual."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        cycle_start = self._billing._get_cycle_start(now).isoformat()
+        cycle_end = now.date().isoformat()
+        cycle_data = await db.get_energy_daily_for_cycle(cycle_start, cycle_end)
+        self._billing.reseed_cycle(cycle_data)
+        # reseed_cycle does not key the cycle; without a key the next
+        # _check_cycle_reset would zero the totals just reseeded.
+        if self._billing._cycle_start_date != cycle_start:
+            self._billing._cycle_start_date = cycle_start
 
     def _register_solar_follow_timer(self) -> None:
         """Register the SolarFollowController 60s modulation tick.

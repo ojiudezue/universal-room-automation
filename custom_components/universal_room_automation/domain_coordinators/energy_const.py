@@ -2864,3 +2864,17 @@ EC_STOP_SAVE_TIMEOUT_S: Final = 10
 # decision cycle to finish (rung 1, same protocol window; worst-case job wall
 # time = this + EC_STOP_SAVE_TIMEOUT_S = 13 s, still under HA's 20 s Stage 1).
 EC_STOP_CYCLE_WAIT_S: Final = 3
+
+# EC-DB-RESTORE-TIMEOUT-1: boot DB restore budgets. Rung 1 (module constant):
+# boot-path protocol windows; changing them should need review.
+# Each restore step in EnergyCoordinator._restore_all_sequential gets its own
+# timeout so one stalled step (boot-time DB write contention; an aiosqlite
+# connect can wait up to 30 s) no longer cancels every step after it. A step
+# that times out is logged and retried once after HA has started (only the
+# steps that are safe to re-run late; see _RESTORE_RETRY_SAFE in energy.py).
+EC_RESTORE_STEP_TIMEOUT_S: Final[float] = 10.0
+# Total setup budget for the whole chain. Keeps coordinator setup bounded
+# (14 steps x 10 s would otherwise allow 140 s). A step reached after the
+# budget is spent is not run at boot; it is marked skipped and handled like a
+# timed-out step. Each step's own timeout is clipped to the remaining budget.
+EC_RESTORE_TOTAL_BUDGET_S: Final[float] = 45.0
