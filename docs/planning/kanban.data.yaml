@@ -33302,6 +33302,31 @@ cards:
   depends_on: ZONE-LIVE-POWER-ROLLUP-1
   why: "Zone energy/power sensors exist (sensor.zone_<name>_energy_today / _total_power) and gain zone-level loads with ZONE-LIVE-POWER-ROLLUP-1. Caution: the Rooms view also renders on wall panels (URA-V8-PANEL-RENDER-SPIN-1, CPU spin) - chips must reuse already-rendered cards/templates, not add auto-entities or heavy templates."
   next: "After ZONE-LIVE-POWER-ROLLUP-1 ships: back up the dashboard; add kWh today (and W) to each zone chip; add an Energy-tab card with today's kWh per house zone plus an 'unattributed' slice (house total minus zones) - pie for share, bar for comparison; verify on one panel that CPU does not rise."
+- id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
+  title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
+  thread: security
+  status: planned
+  tier: 1
+  created: "2026-11-01"
+  origin: "Operator 2026-11-01: does the security sweep close doors, does it check the lock is closed before acting; suspicion it tired batteries."
+  why: "AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no backoff: when a lock command fails it re-sends every interval (Mar 8-12: 74 lock commands, 116/133 rows still unlocked after). Battery causality unproven (battery already 20% before the burst)."
+  next: "Cap failed attempts per device per episode (e.g. 3), then one NM notification and stop until the device changes state; reset on success/state change. Tests + drill."
+- id: FRONT-LOCK-OFFLINE-1
+  title: "Front entry Kwikset lock has been unavailable since ~2026-05-08: the only lock the security sweep covers is unprotected"
+  thread: security
+  status: waiting_operator
+  tier: 1
+  created: "2026-11-01"
+  why: "lock.doorlock_kwikset_zwave_frontentry unavailable for the full 7-day recorder window; battery sensor statistics stop 2026-05-08 (last reads 20%, 0%, 100%, 0%)."
+  next: "DO: replace the lock batteries / re-pair it on Z-Wave -> I confirm it reports and the sweep covers it."
+- id: GARAGE-COVER-FLAP-1
+  title: "cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day"
+  thread: security
+  status: inbox
+  tier: 1
+  created: "2026-11-01"
+  why: "Seen in AUDIT_security_sweep_and_mopup.md (10-26, 10-27). Cause unknown; could be a bouncing contact sensor on the Konnected board. The security sweep acts on 'open' state."
+  next: "Investigate: which input drives it, transition timing, whether the door physically moves; then fix sensor/debounce."
 - id: BLE-LOCATION-QUALITY-1
   measured_2026_11_01: "Re-measure 10-26..10-31 (6 nights): Jaya BLE in Jaya Bedroom 98.7% of occupied night minutes (10-25 pre-change 71%); 00-06 area changes 17-24/night vs 620-765 baseline. Residual mechanism FOUND (trace 11-01): on 10-28 and 10-29 at ~06:34 the room was held by BLE only (both radars off), an ~8-11 s Upstairs Hallway blip made get_persons_in_room empty for one tick, occupied went off, and BLE could not re-create it (coordinator.py:4154-4155 ble_allowed = _last_occupied_state, BLE-WARM-CREATE-1 extend-only at 4084-4124) until the next radar edge 27-30 min later. 10-30 survived because a radar was on during the blip. Fix candidate (Tier 2, presence): allow BLE to re-arm the chain when the same person returns to the same room within a short window (~120 s) of a BLE-held exit and stays >= ~60 s; keep bleed protections. Operator 11-01: do it (list work)."
   next: "PLANNED: write the re-arm plan (Tier 2, one plan review), build, 3 reviews, deploy."
