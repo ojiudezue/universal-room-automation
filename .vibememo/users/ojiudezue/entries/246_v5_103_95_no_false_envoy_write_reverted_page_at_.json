@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "246",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_170145_ship_v5_103_95",
+  "timestamp": "2026-11-01T17:01:45Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.95 shipped: No false 'Envoy write reverted' page at the nightly Envoy drop",
+  "summary": "No false 'Envoy write reverted' page at the nightly Envoy drop",
+  "why": "Four false CRITICAL 'Envoy write reverted' pages in 8 days, all at the nightly ~23:05 Envoy drop: the local Envoy had confirmed the commanded reserve at 21:00, then went unavailable and the verifier fell back to a stale cloud value. The card's original rule would have hidden the real 10-24 page because the landed stamp is set at send time, so the fix remembers the local witness itself and qualifies only while the cloud is unchanged, which also survives restarts.",
+  "implications": "Shipped EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 at v5.103.95; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.95.md (Live criteria).",
+  "revisit_trigger": "Revisit if a false REVERTED page fires at the nightly drop with reserve_witness_confirm set, if a real revert goes unpaged, or if the Envoy upstream per-endpoint isolation fix lands.",
+  "refs": {
+    "cards": [
+      "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.95.md"
+    ],
+    "release_notes": "Remember the local Envoy's confirmation of the commanded reserve and the cloud value at that moment; skip the REVERTED page only while local is unavailable and the cloud still shows that value. Real reverts still page. Tier 3, reviews A-D, orchestrator mutation, name-diff clean."
+  }
+}
