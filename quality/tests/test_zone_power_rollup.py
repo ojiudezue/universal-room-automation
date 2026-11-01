@@ -321,3 +321,134 @@ def test_energy_cost_today_lifetime_counter_and_overlap():
 
 def test_zone_tier_threshold_matches_coverage():
     assert ZoneEnergyCostTodaySensor._ZONE_TIER_CUMULATIVE_THRESHOLD_KWH == 1000.0
+
+
+# ------------------------------------------- cross-zone overlap (review LOW)
+
+def test_power_skips_entity_in_other_zones_room():
+    hass = _hass({"sensor.x": (700, "W"), "sensor.ac": (100, "W")},
+                 [_zm_entry(zone_power=["sensor.x", "sensor.ac"])])
+    other_room = _coord(power=700.0, power_sensors=["sensor.x"])
+    other_room.entry.data["zone"] = "downstairs"
+    s = _make(ZoneTotalPowerSensor, hass, [_coord(power=0.0)])
+    with patch.object(agg, "_get_room_coordinators", return_value=[other_room]):
+        assert s.native_value == 100.0
+
+
+def test_energy_skips_entity_in_other_zones_room():
+    hass = _hass({"sensor.x": (5.0, "kWh")},
+                 [_zm_entry(zone_energy=["sensor.x"])])
+    other_room = _coord(energy=5.0, energy_sensors=["sensor.x"])
+    other_room.entry.data["zone"] = "downstairs"
+    s = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=1.0)])
+    with patch.object(agg, "_get_room_coordinators", return_value=[other_room]), \
+         patch.object(agg.dt_util, "now", return_value=_at(1)):
+        assert s.native_value == 1.0
+
+
+def test_entity_listed_by_two_zones_counts_once_in_first_by_name():
+    zm = _zm_entry(zone_power=["sensor.shared"])          # zone "upstairs"
+    zm.data["zones"]["attic"] = {"zone_power_sensors": ["sensor.shared"]}
+    zm.data["zones"]["zebra"] = {"zone_power_sensors": ["sensor.shared"]}
+    hass = _hass({"sensor.shared": (400, "W")}, [zm])
+    up = _make(ZoneTotalPowerSensor, hass, [_coord(power=0.0)])
+    assert up.native_value == 0.0          # "attic" sorts first and owns it
+    attic = _make(ZoneTotalPowerSensor, hass, [_coord(power=0.0)])
+    attic.zone = "attic"
+    assert attic.native_value == 400.0
+
+
+def test_energy_entity_listed_by_two_zones_skipped_in_later_zone():
+    zm = _zm_entry(zone_energy=["sensor.shared"])
+    zm.data["zones"]["attic"] = {"zone_energy_sensors": ["sensor.shared"]}
+    hass = _hass({"sensor.shared": (3.0, "kWh")}, [zm])
+    s = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=1.0)])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)):
+        assert s.native_value == 1.0
+
+
+# ------------------------------------------------ restart restore (review MEDIUM)
+
+def _roundtrip(src, dst):
+    dst._apply_restore(src.extra_restore_state_data.as_dict())
+
+
+def test_restart_midday_lifetime_counter_never_decreases():
+    states = {"sensor.ac_total": (5000.0, "kWh")}
+    hass = _hass(states, [_zm_entry(zone_energy=["sensor.ac_total"])])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)):
+        a = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=10.0)])
+        a.native_value
+        states["sensor.ac_total"] = (5020.0, "kWh")
+        assert a.native_value == 30.0
+        # Restart: fresh instance, room energy temporarily low.
+        b = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=2.0)])
+        _roundtrip(a, b)
+        states["sensor.ac_total"] = (5021.0, "kWh")
+        assert b.native_value == 30.0      # 2 + 21 = 23 < 30 -> held
+        b._get_zone_coordinators = lambda: [_coord(energy=10.0)]
+        assert b.native_value == 31.0      # baseline 5000 survived restart
+
+
+def test_restart_room_low_no_lifetime_sensor_held():
+    hass = _hass({}, [_zm_entry()])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)):
+        a = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=8.0)])
+        assert a.native_value == 8.0
+        b = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=0.5)])
+        _roundtrip(a, b)
+        assert b.native_value == 8.0
+
+
+def test_restore_next_day_starts_fresh():
+    states = {"sensor.ac_total": (5000.0, "kWh")}
+    hass = _hass(states, [_zm_entry(zone_energy=["sensor.ac_total"])])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)):
+        a = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=10.0)])
+        a.native_value
+        states["sensor.ac_total"] = (5020.0, "kWh")
+        assert a.native_value == 30.0
+        saved = a.extra_restore_state_data.as_dict()
+    with patch.object(agg.dt_util, "now", return_value=_at(2)):
+        b = _make(ZoneEnergyTodaySensor, hass, [_coord(energy=0.5)])
+        b._apply_restore(saved)
+        assert b._last_valid_value is None
+        assert b._zone_tier_baselines == {}
+        states["sensor.ac_total"] = (5025.0, "kWh")
+        assert b.native_value == 0.5       # fresh day: counter anchors at 5025
+
+
+def test_cost_restart_keeps_lifetime_baseline():
+    states = {"sensor.ac_total": (5000.0, "kWh")}
+    hass = _hass(states, [_zm_entry(zone_energy=["sensor.ac_total"])])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)), \
+         patch.object(agg, "_get_effective_rate_kwh", return_value=(0.5, "t")):
+        a = _make(ZoneEnergyCostTodaySensor, hass, [_coord(energy=0.0)])
+        a.native_value
+        states["sensor.ac_total"] = (5004.0, "kWh")
+        assert a.native_value == 2.0
+        b = _make(ZoneEnergyCostTodaySensor, hass, [_coord(energy=0.0)])
+        _roundtrip(a, b)
+        states["sensor.ac_total"] = (5006.0, "kWh")
+        assert b.native_value == 3.0
+
+
+def test_async_added_to_hass_applies_restore():
+    import asyncio
+    from homeassistant.helpers.restore_state import RestoredExtraData
+    hass = _hass({}, [_zm_entry()])
+    s = _make(ZoneEnergyTodaySensor, hass, [])
+    payload = {"last_valid_value": 7.5, "last_accepted_date": "2026-11-01",
+               "baselines": {}}
+
+    async def _noop(self):
+        return None
+
+    async def _extra():
+        return RestoredExtraData(payload)
+
+    s.async_get_last_extra_data = _extra
+    with patch.object(agg.ZoneSensorBase, "async_added_to_hass", _noop), \
+         patch.object(agg.dt_util, "now", return_value=_at(1)):
+        asyncio.run(s.async_added_to_hass())
+    assert s._last_valid_value == 7.5

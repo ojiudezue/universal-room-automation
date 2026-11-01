@@ -4342,10 +4342,45 @@ class ZoneSensorBase(AggregationEntity):
                         out.add(eid)
         return out
 
+    def _claimed_elsewhere(
+        self, coords, room_keys: tuple[str, ...], zone_key: str,
+    ) -> set[str]:
+        """Entities that must not be counted as this zone's zone-level load.
+
+        Any entity in ANY room's ``room_keys`` lists (not only this zone's
+        rooms), plus any entity in the ``zone_key`` list of another zone
+        whose name sorts before this one. The sort tie-break means an
+        entity listed by two zones is counted exactly once, in the first.
+        """
+        try:
+            all_rooms = list(_get_room_coordinators(self.hass))
+        except Exception:  # noqa: BLE001
+            all_rooms = []
+        claimed = self._room_sensor_set(list(coords) + all_rooms, room_keys)
+        try:
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                for name, zdata in (merged.get("zones", {}) or {}).items():
+                    if name == self.zone or str(name) > str(self.zone):
+                        continue
+                    other = (zdata or {}).get(zone_key) or []
+                    if isinstance(other, str):
+                        other = [other]
+                    claimed.update(e for e in other if e)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Zone '%s': other-zone overlap read failed: %s",
+                          self.zone, err)
+        return claimed
+
     def _zone_level_power(self, coords) -> tuple[float, dict[str, Any]]:
         """Live W of the zone's zone_power_sensors not already in a room."""
         from .const import CONF_POWER_SENSORS
-        room_sensors = self._room_sensor_set(coords, (CONF_POWER_SENSORS,))
+        room_sensors = self._claimed_elsewhere(
+            coords, (CONF_POWER_SENSORS,), CONF_ZONE_POWER_SENSORS,
+        )
         total = 0.0
         counted: list[str] = []
         overlap: list[str] = []
@@ -4382,8 +4417,9 @@ class ZoneSensorBase(AggregationEntity):
         and a native sensor reading above the threshold flips to derived.
         """
         from .const import CONF_ENERGY_SENSOR, CONF_ENERGY_SENSORS
-        room_sensors = self._room_sensor_set(
+        room_sensors = self._claimed_elsewhere(
             coords, (CONF_ENERGY_SENSORS, CONF_ENERGY_SENSOR),
+            CONF_ZONE_ENERGY_SENSORS,
         )
         if getattr(self, "_zone_tier_baselines", None) is None:
             self._zone_tier_baselines = {}
@@ -5203,7 +5239,81 @@ class ZoneTotalPowerSensor(ZoneSensorBase, SensorEntity):
         return dict(getattr(self, "_contrib", {}) or {})
 
 
-class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
+class _ZoneEnergyRestoreMixin(RestoreEntity):
+    """ZONE-LIVE-POWER-ROLLUP-1 review MEDIUM: survive a mid-day restart.
+
+    Persists (via RestoreEntity extra data) the zone-tier per-sensor
+    baselines and, for the energy sensor, the last accepted value and its
+    local date. On restore: same local day -> reseed; any other day ->
+    start fresh (nothing restored). Without this, a restart re-anchors
+    lifetime counters to 0 and the TOTAL_INCREASING value drops, which
+    the recorder books as a meter reset (statistics overcount).
+    """
+
+    _RESTORE_VERSION = 1
+
+    @property
+    def extra_restore_state_data(self):
+        from homeassistant.helpers.restore_state import RestoredExtraData
+        baselines = {}
+        for eid, entry in (getattr(self, "_zone_tier_baselines", None) or {}).items():
+            anchor = entry.get("anchor_date")
+            baselines[eid] = {
+                "scope": entry.get("scope"),
+                "baseline_kwh": entry.get("baseline_kwh"),
+                "anchor_date": anchor.isoformat() if anchor else None,
+            }
+        last_date = getattr(self, "_last_accepted_date", None)
+        return RestoredExtraData({
+            "v": self._RESTORE_VERSION,
+            "last_valid_value": getattr(self, "_last_valid_value", None),
+            "last_accepted_date": last_date.isoformat() if last_date else None,
+            "baselines": baselines,
+        })
+
+    def _apply_restore(self, data: dict | None) -> None:
+        """Reseed same-day state from restored extra data."""
+        if not isinstance(data, dict):
+            return
+        today = dt_util.now().date()
+        today_iso = today.isoformat()
+        if (
+            hasattr(self, "_last_accepted_date")
+            and data.get("last_accepted_date") == today_iso
+            and isinstance(data.get("last_valid_value"), (int, float))
+        ):
+            self._last_accepted_date = today
+            self._last_valid_value = float(data["last_valid_value"])
+        restored = {}
+        for eid, entry in (data.get("baselines") or {}).items():
+            if not isinstance(entry, dict) or entry.get("anchor_date") != today_iso:
+                continue
+            if entry.get("scope") not in ("today_native", "today_derived"):
+                continue
+            try:
+                base = float(entry.get("baseline_kwh") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            restored[eid] = {
+                "scope": entry["scope"], "baseline_kwh": base,
+                "anchor_date": today,
+            }
+        if restored:
+            self._zone_tier_baselines = restored
+            # Already re-evaluated today: do not re-anchor on first read.
+            self._zone_tier_reclassify_date = today
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        try:
+            extra = await self.async_get_last_extra_data()
+            self._apply_restore(extra.as_dict() if extra else None)
+        except Exception as err:  # noqa: BLE001 — restore must never brick setup
+            _LOGGER.debug("Zone '%s': energy restore failed: %s",
+                          getattr(self, "zone", "?"), err)
+
+
+class ZoneEnergyTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
     """Sensor: Total energy today in zone."""
     
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -5273,7 +5383,7 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         return current
 
 
-class ZoneEnergyCostTodaySensor(ZoneSensorBase, SensorEntity):
+class ZoneEnergyCostTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
     """Sensor: Total energy cost today in zone — energy_today × TOU-aware rate.
 
     v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
