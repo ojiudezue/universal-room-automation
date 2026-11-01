@@ -11551,8 +11551,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     data={**zone_entry.options, **user_input},
                 )
 
-        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): zone power sensors have no runtime
-        # reader, so they show only in Advanced mode or when already set.
+        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): zone power sensors show only in
+        # Advanced mode or when already set. (ZONE-LIVE-POWER-ROLLUP-1: they
+        # now feed the zone Total Power sensor; visibility left unchanged.)
         _zmerged = (
             zone_data if zm_result
             else {**zone_entry.data, **zone_entry.options}

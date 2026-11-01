@@ -684,7 +684,7 @@
           "zone_energy_sensors": "Energy sensors"
         },
         "data_description": {
-          "zone_power_sensors": "Power sensors for zone loads. Not used yet; the energy sensors are what count.",
+          "zone_power_sensors": "Power sensors for zone loads not already in a room. Added to the zone's total power.",
           "zone_energy_sensors": "Energy (kWh) sensors for zone loads, such as AC circuits or a subpanel."
         }
       },

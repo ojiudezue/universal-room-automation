@@ -4299,6 +4299,187 @@ class ZoneSensorBase(AggregationEntity):
             _LOGGER.error("Zone '%s': Error getting coordinators: %s", self.zone, e)
             return []
 
+    # --- ZONE-LIVE-POWER-ROLLUP-1: zone-level load helpers -----------------
+
+    def _zone_level_sensors(self, conf_key: str) -> list[str]:
+        """Entities configured at the zone level (Zone Manager options).
+
+        Same read shape as the house coverage zone tier
+        (``EnergyCoverageDeltaSensor._get_zones_total_energy``): the ZM
+        entry's merged ``data``+``options`` ``zones[<zone>]`` dict.
+        """
+        try:
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                zone_data = (merged.get("zones", {}) or {}).get(self.zone) or {}
+                sensors = zone_data.get(conf_key) or []
+                if isinstance(sensors, str):
+                    sensors = [sensors]
+                return [s for s in sensors if s]
+        except Exception as err:  # noqa: BLE001 — a config read must not brick the sensor
+            _LOGGER.debug("Zone '%s': zone-level %s read failed: %s",
+                          self.zone, conf_key, err)
+        return []
+
+    @staticmethod
+    def _room_sensor_set(coords, keys: tuple[str, ...]) -> set[str]:
+        """Union of the given room-config list keys across member rooms."""
+        out: set[str] = set()
+        for coord in coords:
+            try:
+                merged = {**coord.entry.data, **coord.entry.options}
+            except Exception:  # noqa: BLE001
+                continue
+            for key in keys:
+                val = merged.get(key)
+                if isinstance(val, str):
+                    val = [val]
+                for eid in val or []:
+                    if eid:
+                        out.add(eid)
+        return out
+
+    def _claimed_elsewhere(
+        self, coords, room_keys: tuple[str, ...], zone_key: str,
+    ) -> set[str]:
+        """Entities that must not be counted as this zone's zone-level load.
+
+        Any entity in ANY room's ``room_keys`` lists (not only this zone's
+        rooms), plus any entity in the ``zone_key`` list of another zone
+        whose name sorts before this one. The sort tie-break means an
+        entity listed by two zones is counted exactly once, in the first.
+        """
+        try:
+            all_rooms = list(_get_room_coordinators(self.hass))
+        except Exception:  # noqa: BLE001
+            all_rooms = []
+        claimed = self._room_sensor_set(list(coords) + all_rooms, room_keys)
+        try:
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                    continue
+                merged = {**entry.data, **entry.options}
+                for name, zdata in (merged.get("zones", {}) or {}).items():
+                    if name == self.zone or str(name) > str(self.zone):
+                        continue
+                    other = (zdata or {}).get(zone_key) or []
+                    if isinstance(other, str):
+                        other = [other]
+                    claimed.update(e for e in other if e)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Zone '%s': other-zone overlap read failed: %s",
+                          self.zone, err)
+        return claimed
+
+    def _zone_level_power(self, coords) -> tuple[float, dict[str, Any]]:
+        """Live W of the zone's zone_power_sensors not already in a room."""
+        from .const import CONF_POWER_SENSORS
+        room_sensors = self._claimed_elsewhere(
+            coords, (CONF_POWER_SENSORS,), CONF_ZONE_POWER_SENSORS,
+        )
+        total = 0.0
+        counted: list[str] = []
+        overlap: list[str] = []
+        unavailable: list[str] = []
+        for eid in self._zone_level_sensors(CONF_ZONE_POWER_SENSORS):
+            if eid in room_sensors:
+                overlap.append(eid)
+                continue
+            watts = power_state_to_w(self.hass.states.get(eid))
+            if watts is None:
+                unavailable.append(eid)
+                continue
+            total += watts
+            counted.append(eid)
+        return total, {
+            "zone_level_sensors": counted,
+            "zone_level_skipped_room_overlap": overlap,
+            "zone_level_unavailable": unavailable,
+        }
+
+    # Same threshold the house coverage tier uses to tell a lifetime
+    # counter (today-delta tracked) from a native today counter.
+    _ZONE_TIER_CUMULATIVE_THRESHOLD_KWH = (
+        EnergyCoverageDeltaSensor.WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH
+    )
+
+    def _zone_level_energy(self, coords) -> tuple[float, dict[str, Any]]:
+        """Today kWh of the zone's zone_energy_sensors not in a room.
+
+        Mirrors ``EnergyCoverageDeltaSensor._classify_and_accumulate``:
+        a first read <= threshold is ``today_native`` (passed through);
+        above it is ``today_derived`` (lifetime counter, today-delta via
+        ``today_delta_kwh``). Every entry is re-evaluated after midnight,
+        and a native sensor reading above the threshold flips to derived.
+        """
+        from .const import CONF_ENERGY_SENSOR, CONF_ENERGY_SENSORS
+        room_sensors = self._claimed_elsewhere(
+            coords, (CONF_ENERGY_SENSORS, CONF_ENERGY_SENSOR),
+            CONF_ZONE_ENERGY_SENSORS,
+        )
+        if getattr(self, "_zone_tier_baselines", None) is None:
+            self._zone_tier_baselines = {}
+            self._zone_tier_reclassify_date = None
+        today = dt_util.now().date()
+        if self._zone_tier_reclassify_date != today:
+            for entry in self._zone_tier_baselines.values():
+                entry["scope_pending_reeval"] = True
+            self._zone_tier_reclassify_date = today
+        threshold = self._ZONE_TIER_CUMULATIVE_THRESHOLD_KWH
+        total = 0.0
+        counted: list[str] = []
+        overlap: list[str] = []
+        unavailable: list[str] = []
+        for eid in self._zone_level_sensors(CONF_ZONE_ENERGY_SENSORS):
+            if eid in room_sensors:
+                overlap.append(eid)
+                continue
+            kwh = energy_state_to_kwh(self.hass.states.get(eid))
+            if kwh is None:
+                unavailable.append(eid)
+                continue
+            entry = self._zone_tier_baselines.get(eid)
+            if (
+                entry is None
+                or entry.get("scope_pending_reeval")
+                or (entry.get("scope") == "today_native" and kwh > threshold)
+            ):
+                scope = "today_derived" if kwh > threshold else "today_native"
+                entry = {
+                    "scope": scope,
+                    "baseline_kwh": kwh if scope == "today_derived" else 0.0,
+                    "anchor_date": today,
+                }
+                self._zone_tier_baselines[eid] = entry
+            if entry["scope"] == "today_derived":
+                total += today_delta_kwh(
+                    self._zone_tier_baselines, eid, kwh, today,
+                )
+            else:
+                total += kwh
+            counted.append(eid)
+        return total, {
+            "zone_level_sensors": counted,
+            "zone_level_skipped_room_overlap": overlap,
+            "zone_level_unavailable": unavailable,
+        }
+
+    def _rooms_power(self, coords) -> tuple[float, bool]:
+        """Sum of member rooms' STATE_POWER_CURRENT (+ any-nonzero flag)."""
+        total = 0.0
+        any_valid = False
+        for coord in coords:
+            if coord.data:
+                power = coord.data.get(STATE_POWER_CURRENT, 0)
+                if power:
+                    total += power
+                    any_valid = True
+        return total, any_valid
+
 
 class ZoneOccupiedSensor(ZoneSensorBase, SensorEntity):
     """Sensor: Count of occupied rooms in zone."""
@@ -5035,17 +5216,104 @@ class ZoneTotalPowerSensor(ZoneSensorBase, SensorEntity):
     
     @property
     def native_value(self) -> float:
-        """Return total power in zone."""
-        total = 0.0
-        for coord in self._get_zone_coordinators():
-            if coord.data:
-                power = coord.data.get(STATE_POWER_CURRENT, 0)
-                if power:
-                    total += power
-        return round(total, 1)
+        """Return total power in zone: member rooms + zone-level loads.
+
+        ZONE-LIVE-POWER-ROLLUP-1: adds the zone's ``zone_power_sensors``
+        (skipping any entity already in a member room's
+        ``power_sensors``; unavailable/non-numeric skipped, never zeroes
+        the sum).
+        """
+        coords = self._get_zone_coordinators()
+        rooms_w, _ = self._rooms_power(coords)
+        zone_w, detail = self._zone_level_power(coords)
+        self._contrib = {
+            "rooms_power_w": round(rooms_w, 1),
+            "zone_level_power_w": round(zone_w, 1),
+            **detail,
+        }
+        return round(rooms_w + zone_w, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Room vs zone-level contributions (from the last state read)."""
+        return dict(getattr(self, "_contrib", {}) or {})
 
 
-class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
+class _ZoneEnergyRestoreMixin(RestoreEntity):
+    """ZONE-LIVE-POWER-ROLLUP-1 review MEDIUM: survive a mid-day restart.
+
+    Persists (via RestoreEntity extra data) the zone-tier per-sensor
+    baselines and, for the energy sensor, the last accepted value and its
+    local date. On restore: same local day -> reseed; any other day ->
+    start fresh (nothing restored). Without this, a restart re-anchors
+    lifetime counters to 0 and the TOTAL_INCREASING value drops, which
+    the recorder books as a meter reset (statistics overcount).
+    """
+
+    _RESTORE_VERSION = 1
+
+    @property
+    def extra_restore_state_data(self):
+        from homeassistant.helpers.restore_state import RestoredExtraData
+        baselines = {}
+        for eid, entry in (getattr(self, "_zone_tier_baselines", None) or {}).items():
+            anchor = entry.get("anchor_date")
+            baselines[eid] = {
+                "scope": entry.get("scope"),
+                "baseline_kwh": entry.get("baseline_kwh"),
+                "anchor_date": anchor.isoformat() if anchor else None,
+            }
+        last_date = getattr(self, "_last_accepted_date", None)
+        return RestoredExtraData({
+            "v": self._RESTORE_VERSION,
+            "last_valid_value": getattr(self, "_last_valid_value", None),
+            "last_accepted_date": last_date.isoformat() if last_date else None,
+            "baselines": baselines,
+        })
+
+    def _apply_restore(self, data: dict | None) -> None:
+        """Reseed same-day state from restored extra data."""
+        if not isinstance(data, dict):
+            return
+        today = dt_util.now().date()
+        today_iso = today.isoformat()
+        if (
+            hasattr(self, "_last_accepted_date")
+            and data.get("last_accepted_date") == today_iso
+            and isinstance(data.get("last_valid_value"), (int, float))
+        ):
+            self._last_accepted_date = today
+            self._last_valid_value = float(data["last_valid_value"])
+        restored = {}
+        for eid, entry in (data.get("baselines") or {}).items():
+            if not isinstance(entry, dict) or entry.get("anchor_date") != today_iso:
+                continue
+            if entry.get("scope") not in ("today_native", "today_derived"):
+                continue
+            try:
+                base = float(entry.get("baseline_kwh") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            restored[eid] = {
+                "scope": entry["scope"], "baseline_kwh": base,
+                "anchor_date": today,
+            }
+        if restored:
+            self._zone_tier_baselines = restored
+            # Already re-evaluated today: do not re-anchor on first read.
+            self._zone_tier_reclassify_date = today
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        try:
+            extra = await self.async_get_last_extra_data()
+            self._apply_restore(extra.as_dict() if extra else None)
+        except Exception as err:  # noqa: BLE001 — restore must never brick setup
+            _LOGGER.debug("Zone '%s': energy restore failed: %s",
+                          getattr(self, "zone", "?"), err)
+
+
+class ZoneEnergyTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
     """Sensor: Total energy today in zone."""
     
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -5061,6 +5329,16 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         self._last_valid_value: float | None = None
         # Fix-up pass C-H1: date-based reset acceptance.
         self._last_accepted_date = None
+        # ZONE-LIVE-POWER-ROLLUP-1: per-sensor today-scope tracker for the
+        # zone-level energy sensors (same shape as the house coverage tier).
+        self._zone_tier_baselines: dict[str, dict[str, Any]] = {}
+        self._zone_tier_reclassify_date = None
+        self._contrib: dict[str, Any] = {}
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Room vs zone-level contributions (from the last state read)."""
+        return dict(self._contrib or {})
 
     @property
     def native_value(self) -> float:
@@ -5069,15 +5347,25 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         Fix-up pass C-H1: a decrease is only accepted when the local
         date has rolled over (genuine midnight reset). Replaces the
         ``current < 0.1`` magnitude heuristic.
+
+        ZONE-LIVE-POWER-ROLLUP-1: adds the zone's ``zone_energy_sensors``
+        (today-scoped like the house coverage tier; room overlap skipped).
         """
-        total = 0.0
-        for coord in self._get_zone_coordinators():
+        coords = self._get_zone_coordinators()
+        rooms_kwh = 0.0
+        for coord in coords:
             if coord.data:
                 energy = coord.data.get(STATE_ENERGY_TODAY, 0)
                 if energy:
-                    total += energy
+                    rooms_kwh += energy
+        zone_kwh, detail = self._zone_level_energy(coords)
+        self._contrib = {
+            "rooms_energy_kwh": round(rooms_kwh, 3),
+            "zone_level_energy_kwh": round(zone_kwh, 3),
+            **detail,
+        }
 
-        current = round(total, 2)
+        current = round(rooms_kwh + zone_kwh, 2)
 
         today = dt_util.now().date()
         if self._last_accepted_date is None:
@@ -5095,7 +5383,7 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         return current
 
 
-class ZoneEnergyCostTodaySensor(ZoneSensorBase, SensorEntity):
+class ZoneEnergyCostTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
     """Sensor: Total energy cost today in zone — energy_today × TOU-aware rate.
 
     v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
@@ -5116,15 +5404,23 @@ class ZoneEnergyCostTodaySensor(ZoneSensorBase, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return zone energy cost today (energy_today × effective rate)."""
+        """Return zone energy cost today (energy_today × effective rate).
+
+        ZONE-LIVE-POWER-ROLLUP-1: includes the zone's zone_energy_sensors via
+        the shared ``_zone_level_energy`` classifier (room overlap skipped).
+        """
+        coords = self._get_zone_coordinators()
         total_energy = 0.0
         any_valid = False
-        for coord in self._get_zone_coordinators():
+        for coord in coords:
             if coord.data:
                 energy = coord.data.get(STATE_ENERGY_TODAY, 0)
                 if energy:
                     total_energy += energy
                     any_valid = True
+        zone_kwh, detail = self._zone_level_energy(coords)
+        total_energy += zone_kwh
+        any_valid = any_valid or bool(detail["zone_level_sensors"])
         if not any_valid:
             return None
         rate, _src = _get_effective_rate_kwh(self.hass)
@@ -5161,15 +5457,16 @@ class ZoneCostPerHourSensor(ZoneSensorBase, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return zone cost per hour (W → kW × $/kWh = $/h)."""
-        total_power_w = 0.0
-        any_valid = False
-        for coord in self._get_zone_coordinators():
-            if coord.data:
-                power = coord.data.get(STATE_POWER_CURRENT, 0)
-                if power:
-                    total_power_w += power
-                    any_valid = True
+        """Return zone cost per hour (W → kW × $/kWh = $/h).
+
+        ZONE-LIVE-POWER-ROLLUP-1: same power basis as ZoneTotalPowerSensor
+        (member rooms + zone-level loads, room overlap skipped).
+        """
+        coords = self._get_zone_coordinators()
+        rooms_w, any_valid = self._rooms_power(coords)
+        zone_w, detail = self._zone_level_power(coords)
+        total_power_w = rooms_w + zone_w
+        any_valid = any_valid or bool(detail["zone_level_sensors"])
         if not any_valid:
             return None
         rate, _src = _get_effective_rate_kwh(self.hass)
