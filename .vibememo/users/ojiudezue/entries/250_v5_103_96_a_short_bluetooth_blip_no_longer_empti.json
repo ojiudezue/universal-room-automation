@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "250",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_170658_ship_v5_103_96",
+  "timestamp": "2026-11-01T17:06:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.96 shipped: A short Bluetooth blip no longer empties a room; BLE-leads floor scales with the fleet",
+  "summary": "A short Bluetooth blip no longer empties a room; BLE-leads floor scales with the fleet",
+  "why": "Jaya Bedroom went vacant 27-30 min on two mornings because a 10 s Bluetooth blip emptied a BLE-only room for one tick and BLE may never create occupancy, so nothing could restore it until a radar fired. A single bounded grace per hold fixes the blip without reopening the bathroom-bleed problem that the extend-only rule fixed. The fixed 30-proxy floor becomes a fraction of a remembered fleet so other houses work and an outage cannot lower it.",
+  "implications": "Shipped BLE-LOCATION-QUALITY-1, PERSON-BLE-WINS-OVER-STALE-GPS-1 at v5.103.96; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.96.md (Live criteria).",
+  "revisit_trigger": "Revisit if a BLE-only room is held after the person really left (bleed), if morning blip vacancies recur with repeated blips (parked stricter re-arm), or if the floor ever arms during a proxy outage.",
+  "refs": {
+    "cards": [
+      "BLE-LOCATION-QUALITY-1",
+      "PERSON-BLE-WINS-OVER-STALE-GPS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.96.md"
+    ],
+    "release_notes": "One 90 s grace per Bluetooth-only hold (never creates occupancy, no chaining, cap/failsafe/override win); BLE-leads proxy floor = max(3, ceil(0.5 x 7-day remembered fleet)), legacy 30 until a prior day is remembered. Tier 2 presence, reviews A/B/C, fix-ups."
+  }
+}
