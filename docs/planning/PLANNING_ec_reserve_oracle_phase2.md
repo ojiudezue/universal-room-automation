@@ -313,6 +313,7 @@ At `energy_battery.py:5302-5322`: `_base = _last_reserve_level_desired` if not N
 - **Verify:** commanded 15, cloud 10, local 15 (trusted) at t+900 → CLOUD_STALE, one anomaly, no NM. Local 10 → existing CRITICAL (discriminator).
 - **Verify:** local 17 (delta exactly 2) → existing CRITICAL.
 - **Verify:** local unavailable → existing CRITICAL (INV-R3).
+  - *Narrowed 2026-11-01 for the reversion-sweep site only:* after a witnessed landing with the cloud unchanged since the first confirmation, local unavailable → CLOUD_STALE, not CRITICAL. See `PLANNING_ec_reserve_false_revert_fixup.md` §2.3 (INV-F1/F2).
 - **Verify:** sweep with commanded 15, cloud 10, local 15, desire 15 → no `write_reverted`; with a pending episode active → existing suppression, no CLOUD_STALE row, episode state untouched.
 - **Verify:** alternating nudge/plain schedules (11, 10, 11) under one desire → one anomaly total.
 - **Verify:** three same-value self-heals with local matching → no starvation NM; with local not matching → existing NM.

@@ -81,3 +81,44 @@ Sum of additions: SPAN 9.85 kWh, Vue 10.36 kWh = 20.2 kWh.
 
 ## 4. Estimated coverage after changes (10-31 basis)
 Unique attributed 87.93 kWh + additions 20.2 = 108.1 of 114.12 kWh = ~94.7% (unattributed ~6.0 kWh, ~5%). The remainder is plausibly water heaters, `balance` and untagged Vue circuits (unverified). Caveats: (a) removing the two double counts first makes the sensor WORSE (23% unattributed) before the additions land; (b) additions use 10-31 deltas for one day and will vary; (c) rooms listed with new sensors must have multi-sensor `energy_sensors` set, which supersedes the singular `energy_sensor` (coordinator.py:4817-4822), so keep any wanted singular value inside the list.
+
+## Applied 2026-11-01 (operator-approved config; no restart, no parent reload)
+Backup: `~/.ura-backups/20261101T_pre_power_coverage_core.config_entries.json (kept out of git: contains secrets)`. Each change made via the room `energy` options step or the integration `energy_sensors` step (ha_set_integration), then diffed against the backup. Only intended fields changed. The room step also writes its own current-value defaults (`electricity_rate`, `notify_daily_energy_summary`, `power_sensors`) into options (+4 keys, or +1 where they were already in options). The singular `energy_sensor` stays in `entry.data` (the flow can't clear it), but a non-empty options `energy_sensors` supersedes it (coordinator.py:4816-4821, merge = `{**data, **options}`).
+
+### Step 0 location map (coverage-feeding fields only)
+- Rooms tier: 30 rooms with `energy_sensor(s)`. Zones tier: 3 zone AC circuits (ac1, ac_2, ac_3). House tier: Garage A/B EVSE + pool. Whole house: Envoy lifetime net consumption.
+- EC options (`energy_circuit_extra_entities` = Vue balance POWER + Vue 3 mains POWER, `energy_evse_*`, grid/mains) do NOT feed coverage (they feed the EC circuit/load view). No double count with coverage.
+- Double counts found: Garage A EVSE (room + house), Receiving/Living plugs (2 rooms), and NEW (missed by audit): `shelly2pmg3_e4b323135af8_switch_0_energy` in both Laundry Closet and Laundry.
+- `sub_panel_vue_balance_energy_today` was in no coverage location. Sub-panel mains (`sub_panel_vue_3_energy_today`, `span_panel_subpanel_*`) are in no coverage location, so balance + circuits does not double count the mains.
+
+### Changes (field `energy_sensors` unless noted; before = effective)
+| Entry | Before → After |
+|---|---|
+| Garage A | garage_a_evse → [garage_plugs_energy_today] (EVSE kept at house tier only) |
+| Living Room | receiving_living_room_plugs → [entry_living_hall_lights]; power: dropped dining_receiving_lights_power |
+| Receiving Room | plugs (unchanged); power: dropped dining_receiving_lights_power |
+| Dining Room | + dining_receiving_lights |
+| Laundry | − e4b323135af8_switch_0 (kept on Laundry Closet); + utility_refridgerator |
+| Garage Hallway | back_hallway_cooling_energy_last_month → [garage_hall_lights_energy_today] |
+| Jaya Bedroom | mmwave existence_energy → [sub_panel_vue_3_b_energy_today_3] |
+| Guest Bedroom 2 Bathroom | overhead_energy_returned → [upguestbathroom_overhead_energy, _sconce_energy] |
+| Oji Vanity | − ojivanity_energy_returned |
+| Master Bedroom | + master_lights, master_plugs |
+| Kitchen | + fridge, freezer, double_oven, range, warming_drawer |
+| Butler Pantry | + wine_cooler |
+| AV Closet | + unknown_consumed_energy_2, a_v |
+| Study A Closet | + unknown_consumed_energy (plug 2); power: smart_plug_pm → span_panel_office_closet_power |
+| Patio | (none) → [patio_plugs] |
+| Media | + sub_panel_vue_3_b_energy_today_5 |
+| Ziri Bedroom | + bedroom_5_lights_energy_today |
+| Integration `house_device_energy_sensors` | + furnace, study_a_b_a_v_closet_lts, grinder_pump, generator_trickle_charge, sub_panel_vue_3_b_energy_today_2, sub_panel_vue_balance_energy_today |
+
+### Skipped
+- `kitchen_and_pantry_lights_energy_today`: Kitchen Pantry inovelli dimmer is likely downstream (double count).
+- `sub_panel_vue_3_b_energy_today_9` (Laundry + landscape): washer/dishwasher channels are likely downstream.
+- Media Room Closet (`media_room_closet_energy_today` = unknown): no verified replacement; left as is.
+- Garage B `em_shelly_wifi_garageb_energy` may overlap the house-tier Garage B EVSE (its power list includes the EVSE). Unverified; not changed.
+- Pool VSF, sub-panel mains, mains balance (`mainw_vue_balance_*`), downstream plugs: not added, per section C.
+
+### Estimated coverage (10-31 basis)
+87.93 unique + 9.83 SPAN + 9.57 Vue (incl. Jaya/garage-hall replacements) + 10.03 balance ≈ 117.4 of 114.1 kWh (>100%). Without balance: ≈107.3 kWh (~94%). Exceeding 100% means the balance probably overlaps counted circuits. Likely cause: the Vue 3 balance also covers the Vue 3B channels, or 3B is not subtracted (parentage unverified). Check tomorrow's full-day `energy_coverage_delta`. If it goes materially negative, remove `sub_panel_vue_balance_energy_today` from house devices (one-field undo). Today's per-room totals restart from the change time, so 11-01 is not a valid baseline.
