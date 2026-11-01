@@ -59,6 +59,7 @@ class _Store:
         self.payload = payload
         self.raises = raises
         self.saves: list = []
+        self.flushes: list = []
 
     async def async_load(self):
         if self.raises:
@@ -67,6 +68,9 @@ class _Store:
 
     def async_delay_save(self, fn, delay):
         self.saves.append((fn(), delay))
+
+    async def async_save(self, data):
+        self.flushes.append(data)
 
 
 @pytest.fixture
@@ -347,3 +351,69 @@ def test_first_refresh_sees_restored_ring(fx, monkeypatch):
     assert got is fx.coord
     assert seen["floor"] == 31
     assert fx.coord._fleet_memory[0] == (_d(1), 62)
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up (C MEDIUM 2, C LOW 3/5, B LOW)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("remembered,floor", [(61, 31), (7, 4), (5, 3)])
+def test_odd_fleet_ceil_boundary(fx, remembered, floor):
+    """ceil, not floor: R=61 -> 31 (floor would give 30), R=7 -> 4 (not 3);
+    R=5 -> ceil 3 = abs min 3."""
+    _load(fx, ring=[[_d(1), remembered]])
+    _counts(fx, floor - 1, remembered)
+    _upkeep(fx)
+    assert fx.coord._effective_floor == floor
+    assert fx.coord._fleet_healthy_since is None
+    _counts(fx, floor, remembered)
+    _upkeep(fx)
+    assert fx.coord._fleet_healthy_since is not None
+
+
+def test_local_date_midnight_non_utc(fx, monkeypatch):
+    """03:00Z on 10-25 is 22:00 on 10-24 at UTC-5. A slot dated 10-24 is
+    TODAY locally (cold -> 30), though the UTC date would call it a prior
+    day (warm -> 31)."""
+    from datetime import datetime, timezone
+
+    tz = timezone(timedelta(hours=-5))
+    now = datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
+
+    class _LocalClock:
+        def now(self):
+            return now
+
+        def utcnow(self):
+            return now
+
+        def as_local(self, dt):
+            return dt.astimezone(tz)
+
+    monkeypatch.setattr(fx.env.pc, "dt_util", _LocalClock())
+    _load(fx, ring=[["2026-10-24", 62]])
+    _counts(fx, 30, 62)
+    fx.coord._ensure_proxy_listener(now)
+    assert fx.coord._effective_floor == 30
+    assert fx.coord._fleet_memory == [("2026-10-24", 62)]
+
+
+def test_corrupt_ring_good_then_bad_entry_gives_empty_ring(fx):
+    _load(fx, ring=[[_d(1), 62], [_d(2), "bad"]])
+    assert fx.coord._fleet_memory == []
+    _counts(fx, 30, 62)
+    _upkeep(fx)
+    assert fx.coord._effective_floor == 30
+
+
+def test_teardown_flushes_pending_save(fx):
+    _load(fx, ring=[[_d(1), 62]])
+    asyncio.run(fx.coord.async_teardown())
+    assert fx.store.flushes == []                    # nothing pending
+    _counts(fx, 40, 60)
+    _upkeep(fx)                                      # schedules a delayed save
+    asyncio.run(fx.coord.async_teardown())
+    assert fx.store.flushes == [{"ring": [[_d(1), 62], [_d(0), 60]]}]
+    asyncio.run(fx.coord.async_teardown())
+    assert len(fx.store.flushes) == 1                # flushed once

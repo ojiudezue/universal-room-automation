@@ -244,6 +244,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._fleet_memory: list[tuple[str, int]] = []
         self._fleet_store: Any = None
         self._effective_floor: int = BLE_LEADS_MIN_ACTIVE_PROXIES
+        # A delayed save is pending (flushed by async_teardown on unload so a
+        # reload within the 60 s delay does not read a stale file).
+        self._fleet_save_pending: bool = False
 
     # =========================================================================
     # PATH-ALPHA D2a (rev-3.5.1) — UNIFIED MATRIX CLASSIFIER
@@ -532,14 +535,16 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             ring = []
         self._fleet_memory = ring
 
+    def _fleet_payload(self) -> dict:
+        return {"ring": [list(e) for e in self._fleet_memory]}
+
     def _save_fleet_memory(self) -> None:
         store = self._get_fleet_store()
         if store is None:
             return
         try:
-            store.async_delay_save(
-                lambda: {"ring": [list(e) for e in self._fleet_memory]}, 60,
-            )
+            store.async_delay_save(self._fleet_payload, 60)
+            self._fleet_save_pending = True
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("BLE leads: fleet memory save failed: %s", err)
 
@@ -808,8 +813,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         return raw_state
 
     async def async_teardown(self) -> None:
-        """Release the proxy listener (called before the unload pop)."""
+        """Release the proxy listener and flush a pending fleet-memory save
+        (called before the unload pop)."""
         self._release_proxy_listener()
+        if self._fleet_save_pending and self._fleet_store is not None:
+            self._fleet_save_pending = False
+            try:
+                await self._fleet_store.async_save(self._fleet_payload())
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("BLE leads: fleet memory flush failed: %s", err)
 
     def _classify_matrix_row(
         self,
