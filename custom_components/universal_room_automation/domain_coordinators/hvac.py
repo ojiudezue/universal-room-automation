@@ -1254,6 +1254,9 @@ class HVACCoordinator(BaseCoordinator):
     @vacancy_sweep_master_enabled.setter
     def vacancy_sweep_master_enabled(self, value: bool) -> None:
         self._vacancy_sweep_master_enabled = bool(value)
+        _zm = getattr(self, "_zone_manager", None)
+        if _zm is not None:
+            _zm.vacancy_sweep_master_enabled = bool(value)
 
     @property
     def energy_offset(self) -> float:
@@ -6793,6 +6796,11 @@ class HVACCoordinator(BaseCoordinator):
             regular = config.get(CONF_LIGHTS, []) or []
             night = config.get(CONF_NIGHT_LIGHTS, []) or []
             lights = list(regular) + [e for e in night if e not in regular]
+            # Full configured light list (before leave-on / hold filtering):
+            # a manual device that is also a configured light belongs to the
+            # lights path only (review A-LOW1 — a person-held light is not
+            # swept through the manual-device loop).
+            _all_lights = set(lights)
             # Lighting review A: "leave on when the room empties" lights
             # are exempt from the zone vacancy sweep (lights only).
             _leave_on = set(config.get("lights_leave_on_when_empty", []) or [])
@@ -6850,9 +6858,13 @@ class HVACCoordinator(BaseCoordinator):
                         exc_info=True,
                     )
             for entity_id in _manual:
-                if not entity_id or entity_id in _leave_on or entity_id in lights:
+                if not entity_id or entity_id in _leave_on or entity_id in _all_lights:
                     continue
                 domain = entity_id.split(".")[0]
+                # Review B-H1 / A-LOW2: fans only go through the fan block
+                # below (pre-arrival exemption, Fan Mode, holds, oracle W8).
+                if domain == "fan" or entity_id in (fans or []):
+                    continue
                 state = self.hass.states.get(entity_id)
                 if state and state.state == "on":
                     try:

@@ -418,3 +418,82 @@ def test_manual_device_leave_on_exempt():
     rc.config_entry.data["lights_leave_on_when_empty"] = ["switch.relay_a"]
     _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
     assert "switch.relay_a" not in _offs(log)
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up: fans never via the manual-device loop (B-H1 / A-LOW2);
+# full light list compare (A-LOW1); effective status attribute (A-LOW3)
+# ---------------------------------------------------------------------------
+
+_CEIL = "fan.master_ceiling_fan_2"
+
+
+def _fan_in_both(coord, room="FreeRoom"):
+    rc = _with_manual(coord, room, "manual_devices", [_CEIL])
+    rc.config_entry.data["fans"] = [_CEIL]
+    return rc
+
+
+def test_fan_in_manual_and_fans_kept_under_pre_arrival():
+    coord, log, _, _ = _coord()
+    _fan_in_both(coord)
+    coord._pre_arrival_zones = {"zone_1"}
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"], zone_id="zone_1")))
+    assert _CEIL not in _offs(log)
+
+
+def test_fan_in_manual_and_fans_kept_under_fan_mode_room():
+    coord, log, _, _ = _coord()
+    rc = _fan_in_both(coord)
+    rc.config_entry.options["room_fan_mode"] = "room"
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert _CEIL not in _offs(log)
+
+
+def test_switch_listed_as_fan_kept_under_pre_arrival():
+    coord, log, _, _ = _coord()
+    rc = _with_manual(coord, "FreeRoom", "manual_devices", ["switch.fan_relay"])
+    rc.config_entry.data["fans"] = ["switch.fan_relay"]
+    coord._pre_arrival_zones = {"zone_1"}
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"], zone_id="zone_1")))
+    assert "switch.fan_relay" not in _offs(log)
+
+
+def test_fan_only_in_manual_devices_not_swept_by_manual_loop():
+    coord, log, _, _ = _coord()
+    _with_manual(coord, "FreeRoom", "manual_devices", ["fan.loose_fan"])
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert "fan.loose_fan" not in _offs(log)
+
+
+def test_held_light_also_in_manual_devices_not_swept():
+    coord, log, _, _ = _coord()
+    rc = _with_manual(coord, "FreeRoom", "manual_devices", ["light.freeroom"])
+    rc.automation = SimpleNamespace(
+        light_hold_allowed=lambda ids, _a: [i for i in ids if i != "light.freeroom"],
+    )
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert "light.freeroom" not in _offs(log)
+
+
+def test_zone_status_attr_is_master_and_zone():
+    from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (  # noqa: E501
+        ZoneManager, ZoneState,
+    )
+    zm = ZoneManager(MagicMock())
+    zm._zones["zone_1"] = ZoneState(
+        zone_id="zone_1", zone_name="Z", climate_entity="climate.z", rooms=[],
+    )
+    assert zm.get_zone_status_attrs("zone_1")["vacancy_sweep_enabled"] is True
+    zm.vacancy_sweep_master_enabled = False
+    assert zm.get_zone_status_attrs("zone_1")["vacancy_sweep_enabled"] is False
+    zm.vacancy_sweep_master_enabled = True
+    zm._zones["zone_1"].vacancy_sweep_enabled = False
+    assert zm.get_zone_status_attrs("zone_1")["vacancy_sweep_enabled"] is False
+
+
+def test_coordinator_setter_mirrors_master_to_zone_manager():
+    coord, _, _, _ = _coord()
+    coord._zone_manager = SimpleNamespace(vacancy_sweep_master_enabled=True)
+    coord.vacancy_sweep_master_enabled = False
+    assert coord._zone_manager.vacancy_sweep_master_enabled is False
