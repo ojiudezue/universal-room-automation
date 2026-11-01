@@ -33323,7 +33323,8 @@ cards:
 - id: GARAGE-COVER-FLAP-1
   title: "cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day"
   thread: security
-  status: inbox
+  status: done
+  refuted_2026_11_01: "REFUTED: not flapping. ~2,300 rows/7 d are position-tick rows (~1/s for ~12 s per move) from a Konnected GDO blaQ (ESPHome, Security+ bus, no reed/tilt input). Collapsed real transitions 6-40/day = 8-20 genuine open/close cycles a day (normal family use, incl. one mid-travel reversal). URA chatter detector ignores same-value repeats. No fix needed."
   tier: 1
   created: "2026-11-01"
   why: "Seen in AUDIT_security_sweep_and_mopup.md (10-26, 10-27). Cause unknown; could be a bouncing contact sensor on the Konnected board. The security sweep acts on 'open' state."

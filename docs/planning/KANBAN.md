@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T11:46:46-06:00_ - _Data commit: `f7be0270b28f`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T12:03:19-06:00_ - _Data commit: `8d107816a5f7`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 12 |
@@ -19,9 +19,9 @@ _Generated: 2026-11-01T11:46:46-06:00_ - _Data commit: `f7be0270b28f`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 6 |
 | 🅿️ Parked | 107 |
-| ✅ Done | 394 |
+| ✅ Done | 395 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -31,14 +31,6 @@ _created 2026-11-01_
 - **Next:** Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases.
 - **Forensic keys (1):**
   - `tier`: 2
-
-### `GARAGE-COVER-FLAP-1` - cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **security** - status: **inbox**
-_created 2026-11-01_
-- **Why:** Seen in AUDIT_security_sweep_and_mopup.md (10-26, 10-27). Cause unknown; could be a bouncing contact sensor on the Konnected board. The security sweep acts on 'open' state.
-- **Next:** Investigate: which input drives it, transition timing, whether the door physically moves; then fix sensor/debounce.
-- **Forensic keys (1):**
-  - `tier`: 1
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -2747,7 +2739,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (394)
+## ✅ Done (395)
 _closed, evidence in refs_
 
 ### `BAYES-OCCUPANCY-ANOMALY-NEVER-EVALUATES-1` - Room occupancy-anomaly binary sensor never evaluates (async_update on a non-polling CoordinatorEntity), so its alert never fires — _WSJF 10.0 · v5 tc1 u4 /e1_
@@ -9047,6 +9039,15 @@ _created 2026-10-18 · refined_
   - `tier`: 3
   - `operator_instruction_2026_10_18`: Go with A. Be careful. (fix the tracker properly, ship together with the sleep-mask cycle)
   - `folded_into`: PLANNING_house_state_sleep_mask_ble_memory_observability.md Rev 3 D4 (af238dc53); one Tier-3 cycle with the reviewed branch dad3bf6e7.
+
+### `GARAGE-COVER-FLAP-1` - cover.konnected_f0f5bd523b00_garage_door logs ~230 opening/closing transitions a day — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **done**
+_created 2026-11-01_
+- **Why:** Seen in AUDIT_security_sweep_and_mopup.md (10-26, 10-27). Cause unknown; could be a bouncing contact sensor on the Konnected board. The security sweep acts on 'open' state.
+- **Next:** Investigate: which input drives it, transition timing, whether the door physically moves; then fix sensor/debounce.
+- **Forensic keys (2):**
+  - `refuted_2026_11_01`: REFUTED: not flapping. ~2,300 rows/7 d are position-tick rows (~1/s for ~12 s per move) from a Konnected GDO blaQ (ESPHome, Security+ bus, no reed/tilt input). Collapsed real transitions 6-40/day = 8-20 genuine open/close cycles a day (n...
+  - `tier`: 1
 
 ## 🅿️ Parked ideas (top-level list)
 
