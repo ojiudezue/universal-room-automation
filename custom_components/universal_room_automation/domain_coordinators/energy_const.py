@@ -582,6 +582,12 @@ RESERVE_DISPATCH_DEADBAND_PCT: Final = 2
 # Kill switch: False = the local Envoy reserve sensor is never trusted
 # (rule T off, D3 cloud-stale classification off, D4 sees no witness).
 RESERVE_LOCAL_WITNESS_ENABLED: Final = True
+# Kill switch (EC reserve false-revert fix-up D1): False = the reversion
+# sweep's D3 gate uses only the live local confirm (pre-fix-up). True = a
+# remembered witnessed landing also classifies CLOUD_STALE while the Envoy
+# reserve sensor is unavailable and the cloud still reads the value seen at
+# the first confirmation. Rung 1: trust change on a CRITICAL path.
+RESERVE_WITNESS_MEMORY_ENABLED: Final = True
 # Kill switch: False = rule L (landed-request send term) off.
 RESERVE_LEDGER_SEND_ENABLED: Final = True
 # Kill switch: False = always emit the plain target (the integration's
