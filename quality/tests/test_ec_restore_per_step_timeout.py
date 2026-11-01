@@ -491,3 +491,141 @@ async def test_reload_task_cancelled_on_teardown(fast_budgets):
 def test_constants_are_rung1_values():
     assert _live_const().EC_RESTORE_STEP_TIMEOUT_S == 10.0
     assert _live_const().EC_RESTORE_TOTAL_BUDGET_S == 45.0
+
+
+# ---------------------------------------------------------------------------
+# Review fix-ups
+# ---------------------------------------------------------------------------
+class _MidnightDB:
+    """Today's midnight row; the provenance read can hang."""
+
+    def __init__(self, hang_provenance=True):
+        self.hang_provenance = hang_provenance
+
+    async def restore_midnight_snapshot(self):
+        from homeassistant.util import dt as dt_util
+        return {
+            "snapshot_date": dt_util.now().date().isoformat(),
+            "lifetime_consumption": 10.0, "lifetime_production": 20.0,
+            "lifetime_net_import": 30.0, "lifetime_net_export": 40.0,
+            "lifetime_battery_charged": 5.0,
+            "lifetime_battery_discharged": 6.0,
+            "net_cost_today": 2.35,
+        }
+
+    async def restore_energy_state(self, key):
+        if key == "lifetime_production_snapshot_entity" and self.hang_provenance:
+            await asyncio.Event().wait()
+        return None
+
+
+SNAP_ATTRS = (
+    "_lifetime_consumption_snapshot", "_lifetime_production_snapshot",
+    "_lifetime_net_import_snapshot", "_lifetime_net_export_snapshot",
+    "_lifetime_battery_charged_snapshot", "_lifetime_battery_discharged_snapshot",
+)
+
+
+def _midnight_shell(db):
+    from unittest.mock import MagicMock
+    s = _shell(db=db)
+    for a in SNAP_ATTRS:
+        setattr(s, a, None)
+    s._last_reset_date = ""
+    s._production_snapshot_poisoned = False
+    s._entity_lifetime_production = "sensor.envoy_production_ct_energy_delivered"
+    s._billing = MagicMock()
+    s._peak_avoidance = MagicMock()
+
+    async def _refresh():
+        return None
+    s._refresh_outage_days_this_cycle = _refresh
+    s.hass.async_create_background_task = lambda coro, name: coro.close()
+    _bind(s, "_restore_midnight_snapshot")
+    return s
+
+
+@pytest.mark.asyncio
+async def test_midnight_cancel_at_provenance_leaves_no_partial_state(fast_budgets):
+    s = _midnight_shell(_MidnightDB(hang_provenance=True))
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s._restore_skipped == ["midnight_snapshot"]
+    # First decision cycle takes the rollover branch (today != "") and
+    # re-seeds all legs together from live values; no snapshot from the
+    # unverified (possibly other-entity) production counter survives.
+    assert s._last_reset_date == ""
+    assert all(getattr(s, a) is None for a in SNAP_ATTRS)
+    s._billing.restore_daily.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_midnight_restore_applies_after_reads(fast_budgets):
+    s = _midnight_shell(_MidnightDB(hang_provenance=False))
+    await s._restore_midnight_snapshot()
+    from homeassistant.util import dt as dt_util
+    assert s._last_reset_date == dt_util.now().date().isoformat()
+    assert s._lifetime_net_import_snapshot == 30.0
+    # provenance absent != current entity -> production baseline poisoned
+    assert s._lifetime_production_snapshot == 0.0
+    assert s._production_snapshot_poisoned is True
+    s._billing.restore_daily.assert_called_once()
+
+
+class _ProfilesDB:
+    def __init__(self):
+        self.saved = 0
+
+    async def save_power_profiles(self, profiles):
+        self.saved += 1
+
+
+def _profiles_shell():
+    from unittest.mock import MagicMock
+    db = _ProfilesDB()
+    s = _shell(hang=("power_profiles",), db=db)
+    s._power_profiles = MagicMock()
+    s._power_profiles.get_all_profiles.return_value = {"r": {}}
+    _bind(s, "_save_power_profiles")
+    return s, db
+
+
+@pytest.mark.asyncio
+async def test_power_profiles_save_blocked_until_restored(fast_budgets):
+    s, db = _profiles_shell()
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    assert s._restore_skipped == ["power_profiles"]
+    await s._save_power_profiles()
+    assert db.saved == 0  # would DELETE the stored history
+    s._restore_power_profiles = _noop_step  # DB answers now
+    await s._retry_skipped_restores("test")
+    await s._save_power_profiles()
+    assert db.saved == 1
+
+
+@pytest.mark.asyncio
+async def test_power_profiles_save_stays_blocked_if_retry_fails(fast_budgets):
+    s, db = _profiles_shell()
+    await asyncio.wait_for(s._restore_all_sequential(None), timeout=3)
+    await asyncio.wait_for(s._retry_skipped_restores("test"), timeout=3)
+    await s._save_power_profiles()
+    assert db.saved == 0
+
+
+@pytest.mark.asyncio
+async def test_power_profiles_save_allowed_after_clean_restore(fast_budgets):
+    s, db = _profiles_shell()
+    s._restore_power_profiles = _noop_step
+    await s._restore_all_sequential(None)
+    await s._save_power_profiles()
+    assert db.saved == 1
+
+
+@pytest.mark.asyncio
+async def test_fired_started_listener_not_unsubscribed_again(fast_budgets):
+    s = _shell()
+    s._restore_skipped = ["power_profiles"]
+    s._schedule_restore_retry()
+    _, cb = s.hass.bus.listeners[0]
+    await cb(None)
+    s._cancel_listeners()
+    assert s.hass.bus.unsubbed == 0

@@ -2873,8 +2873,10 @@ EC_STOP_CYCLE_WAIT_S: Final = 3
 # that times out is logged and retried once after HA has started (only the
 # steps that are safe to re-run late; see _RESTORE_RETRY_SAFE in energy.py).
 EC_RESTORE_STEP_TIMEOUT_S: Final[float] = 10.0
-# Total setup budget for the whole chain. Keeps coordinator setup bounded
-# (14 steps x 10 s would otherwise allow 140 s). A step reached after the
+# Total setup budget for the whole chain. Keeps coordinator setup roughly
+# bounded (14 steps x 10 s would otherwise allow 140 s). Soft bound: a
+# cancelled step's aiosqlite connection can still take up to its own 30 s
+# lock timeout to close, so wall time can exceed this. A step reached after the
 # budget is spent is not run at boot; it is marked skipped and handled like a
 # timed-out step. Each step's own timeout is clipped to the remaining budget.
 EC_RESTORE_TOTAL_BUDGET_S: Final[float] = 45.0

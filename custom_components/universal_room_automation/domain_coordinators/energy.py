@@ -1391,6 +1391,10 @@ class EnergyCoordinator(BaseCoordinator):
                 EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
 
             async def _on_started(_event):
+                # Fired listen_once: drop its handle so teardown does not
+                # unsubscribe it a second time (EC-DB-RESTORE-TIMEOUT-1 B-LOW).
+                if _unsub_started in self._unsub_listeners:
+                    self._unsub_listeners.remove(_unsub_started)
                 await self._span_scope_migration_repass("post_started")
 
             try:
@@ -1617,6 +1621,13 @@ class EnergyCoordinator(BaseCoordinator):
                     name, budget,
                 )
                 self._restore_skipped.append(name)
+        # Review B-MED: save_power_profiles DELETEs the whole table before
+        # inserting, so saving the (empty/partial) in-memory profiles before
+        # they were restored would destroy the stored history. Block saves
+        # until a restore of power_profiles succeeds (retry clears it).
+        self._power_profiles_save_blocked = (
+            "power_profiles" in self._restore_skipped
+        )
         if self._restore_skipped:
             _LOGGER.warning(
                 "Energy DB restore skipped steps at boot: %s",
@@ -1726,13 +1737,21 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
 
+        handle: list = []
+
         async def _on_started(_event):
+            # Review B-LOW: a fired listen_once must not be unsubscribed
+            # again at teardown; drop its handle first.
+            for h in handle:
+                if h in self._unsub_listeners:
+                    self._unsub_listeners.remove(h)
             await self._retry_skipped_restores("post_started")
 
         try:
             unsub = self.hass.bus.async_listen_once(
                 EVENT_HOMEASSISTANT_STARTED, _on_started,
             )
+            handle.append(unsub)
             self._unsub_listeners.append(unsub)
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -1780,6 +1799,8 @@ class EnergyCoordinator(BaseCoordinator):
                     steps[name](), timeout=EC_RESTORE_STEP_TIMEOUT_S,
                 )
                 outcome[name] = "ok"
+                if name == "power_profiles":
+                    self._power_profiles_save_blocked = False
             except asyncio.TimeoutError:
                 outcome[name] = "timed out again"
             except Exception as e:  # noqa: BLE001
@@ -2841,6 +2862,11 @@ class EnergyCoordinator(BaseCoordinator):
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
+        if getattr(self, "_power_profiles_save_blocked", False):
+            # EC-DB-RESTORE-TIMEOUT-1 B-MED: the boot restore of profiles was
+            # skipped; the DELETE+INSERT save would wipe the stored history.
+            _LOGGER.debug("Power profile save skipped: not restored yet")
+            return
         try:
             profiles = self._power_profiles.get_all_profiles()
             if profiles:
@@ -2869,6 +2895,28 @@ class EnergyCoordinator(BaseCoordinator):
             today = dt_util.now().date().isoformat()
 
             if snapshot_date == today:
+                # EC-DB-RESTORE-TIMEOUT-1 review A-MED: do ALL DB reads
+                # first, then apply state with no await in between. A
+                # timeout/cancel at any read then leaves no partial state
+                # (e.g. _last_reset_date=today with an unchecked production
+                # baseline, which would suppress the first-tick rollover).
+                stored_eid = None
+                if snapshot.get("lifetime_production") is not None:
+                    try:
+                        stored_eid = await db.restore_energy_state(
+                            ENERGY_STATE_KEY_PRODUCTION_SNAPSHOT_ENTITY
+                        )
+                    except Exception:  # noqa: BLE001 — unknown = absent
+                        stored_eid = None
+                try:
+                    pa_raw = await db.restore_energy_state(
+                        "peak_avoidance_snapshot"
+                    )
+                except Exception:  # noqa: BLE001
+                    pa_raw = None
+                    _LOGGER.debug(
+                        "peak_avoidance snapshot read failed", exc_info=True,
+                    )
                 # Restore lifetime snapshots for today's consumption tracking
                 self._lifetime_consumption_snapshot = snapshot.get("lifetime_consumption")
                 self._lifetime_production_snapshot = snapshot.get("lifetime_production")
@@ -2891,12 +2939,6 @@ class EnergyCoordinator(BaseCoordinator):
                 # _production_snapshot_poisoned also suppresses the legacy
                 # consumption fallback for the day (see _maybe_reset_daily).
                 if self._lifetime_production_snapshot is not None:
-                    try:
-                        stored_eid = await db.restore_energy_state(
-                            ENERGY_STATE_KEY_PRODUCTION_SNAPSHOT_ENTITY
-                        )
-                    except Exception:  # noqa: BLE001 — unknown = absent
-                        stored_eid = None
                     if stored_eid != self._entity_lifetime_production:
                         _LOGGER.warning(
                             "Production snapshot provenance %r != current "
@@ -2930,11 +2972,8 @@ class EnergyCoordinator(BaseCoordinator):
                 # from the sibling energy_state blob (json). Never fatal.
                 try:
                     import json as _json
-                    raw = await db.restore_energy_state(
-                        "peak_avoidance_snapshot"
-                    )
-                    if raw:
-                        self._peak_avoidance.restore_snapshot(_json.loads(raw))
+                    if pa_raw:
+                        self._peak_avoidance.restore_snapshot(_json.loads(pa_raw))
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug(
                         "peak_avoidance snapshot restore failed",
