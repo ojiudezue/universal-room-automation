@@ -25,3 +25,10 @@ The Energy Coordinator restored 14 things from its DB at boot under one shared 1
 | Counters survive restart | `energy_import_today` / `energy_cost_today` after restart ≈ value before (not 0) |
 | No restore ERROR | No "Energy DB restore timed out" ERROR; any slow step logs a WARNING naming it |
 | Load clean | No URA ERROR after restart |
+
+## Validated 2026-11-01 (restart ~10:18 CDT, house home_day)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Counters survive restart | PASS | `energy_import_today` 48.983 → 49.026, `energy_cost_today` 4.2105 → 4.2142 (read just before restart and at 10:19:40 after) |
+| No restore ERROR | PASS | No "Energy DB restore timed out" and no per-step restore WARNING in the post-boot log (this boot was not slow, so the per-step path was not exercised live; covered in-suite) |
+| Load clean | PASS (boot transients) | Only boot-time WARNINGs: circuit entities not yet loaded, rooms' energy sensors unavailable on the first cycle, one consumption cross-check divergence at 10:19:28 (Envoy "today" not yet settled). None from this change |
