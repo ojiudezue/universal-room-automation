@@ -33307,7 +33307,8 @@ cards:
   why: "Panel heat and power draw on 7 wall panels; likely a card animation/timer/re-render loop restarted on wake."
   rank: {"value": 5, "time_criticality": 4, "effort": 2}
 - id: EC-DB-RESTORE-TIMEOUT-1
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.94
   tier: 2
   title: "Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0"
   thread: energy
