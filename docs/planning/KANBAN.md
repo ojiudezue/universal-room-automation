@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T10:36:41-06:00_ - _Data commit: `a4919220d076`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T10:53:58-06:00_ - _Data commit: `ca3074f54174`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -24,11 +24,11 @@ _Generated: 2026-11-01T10:36:41-06:00_ - _Data commit: `a4919220d076`_ - _last_r
 ## 📥 Inbox (2)
 _raw capture_
 
-### `ZONE-LIVE-POWER-ROLLUP-1` - Live per-zone watts: zone power = roll-up of its rooms' power sensors plus any zone-specific loads (revive the unread zone_power_sensors field) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ZONE-LIVE-POWER-ROLLUP-1` - Zone watts/energy exclude zone-specific loads: ZoneTotalPowerSensor and ZoneEnergyTodaySensor sum rooms only; zone_power_sensors is unread and zone_energy_sensors feeds only house coverage — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **inbox**
 _created 2026-11-01_
-- **Why:** CONF_ZONE_POWER_SENSORS (const.py:340) has no runtime reader; the energy twin zone_energy_sensors feeds the coverage 'zones' tier. Room power_sensors feed only each room's watt readout. No zone watt sensor exists.
-- **Next:** Prior-art scan (aggregation.py zone sensors, house whole_house_power) then a small plan: zone power sensor = sum(room power in zone) + zone_power_sensors, with the same no-double-count rule as energy; one plan review.
+- **Why:** CORRECTED 2026-11-01 (I wrongly said no zone watt sensor exists): aggregation.py:5022 ZoneTotalPowerSensor = sum of each room coordinator's STATE_POWER_CURRENT (live, e.g. sensor.zone_master_suite_total_power 1269 W); aggregation.py:5048...
+- **Next:** Small change (Tier 1-2): ZoneTotalPowerSensor += zone_power_sensors, ZoneEnergyTodaySensor += zone_energy_sensors (skip any entity already in a member room's list); populate zone_power_sensors with the zone AC circuits' power twins.
 - **Forensic keys (1):**
   - `tier`: 2
 
