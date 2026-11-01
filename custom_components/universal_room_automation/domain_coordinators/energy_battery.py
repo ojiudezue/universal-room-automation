@@ -472,6 +472,7 @@ class BatteryStrategy:
         tou_engine: Any = None,
         multi_day_horizon_enabled: bool = False,
         solcast_day_3_entity: str | None = None,
+        stream_max_age_s: int | None = None,
     ) -> None:
         """Initialize battery strategy.
 
@@ -497,6 +498,10 @@ class BatteryStrategy:
         self.hass = hass
         self.reserve_soc = reserve_soc
         self._entities = entity_config or {}
+        # EC-SOURCE-FAILOVER D1.2 — per-house stream max age (rung-2 option
+        # `energy_stream_battery_soc_max_age_s`). None = use the rung-1
+        # DEFAULT_SOC_STREAM_MAX_AGE_S. Typed attr, NOT the entity map.
+        self._stream_max_age_s: int | None = stream_max_age_s
         self._last_mode: str | None = None
         self._last_reason: str = ""
         # EV dead-band fix-up (A-HIGH-1 / B-H3 / D-HIGH-2). Persist the last
@@ -633,13 +638,37 @@ class BatteryStrategy:
         # tick (set by the coordinator's write tap; entry-reset per tick).
         self._grid_charge_withhold_dispatch_failed: bool = False
         # D1 — stream tier trust state machine (persisted, event-saved).
-        self._soc_stream_trust: str = "trusted"
+        # EC-SOURCE-FAILOVER D2: starts `unproven` (earned, never assumed).
+        # States: unproven -> trusted (N agreements vs fresh native);
+        # trusted/unproven -> quarantined (divergence); quarantined ->
+        # unproven (2 agreements, counter reset); trusted -> unproven (lapse).
+        self._soc_stream_trust: str = "unproven"
         self._soc_stream_trust_since: Any = None
         self._stream_div_count: int = 0
         self._stream_agree_count: int = 0
         self._stream_last_compared_at: Any = None
         self._stream_last_delta: float | None = None
         self._d1_stream_div_nm_date: str | None = None
+        # D2 lapse anchor: last agreeing compared sample (not persisted —
+        # restore always yields `unproven`).
+        self._stream_last_agree_at: Any = None
+        # D2 diagnostics: when the stream last entered `unproven`, and the
+        # seconds it has stayed `unproven` while native was fresh.
+        self._stream_unproven_since: Any = None
+        self._stream_unproven_native_fresh_s: float = 0.0
+        self._stream_unproven_acc_at: Any = None
+        # D3 reconnect settle (not persisted).
+        self._stream_settle_until: Any = None
+        self._stream_settle_anchor: Any = None
+        self._stream_settle_first: Any = None
+        self._stream_same_as_native_warned: bool = False
+        self._stream_seen_unavailable: bool = False
+        self._stream_last_read_at: Any = None
+        self._stream_prev_value: float | None = None
+        # D3 slew reference: last value served by the NATIVE tier (written
+        # on the native path even with no stream configured; internal only).
+        self._soc_native_last_value: float | None = None
+        self._soc_native_last_at: Any = None
         # D4 — untrusted-before-boundary page. Wall-clock dwell anchor +
         # per-boundary latches (persisted under `ec_untrusted_page_latch`).
         self._untrusted_since: Any = None
@@ -1084,6 +1113,10 @@ class BatteryStrategy:
         if primary is not None:
             self._soc_lkg = primary
             self._soc_lkg_at = dt_util.utcnow()
+            # EC-SOURCE-FAILOVER D3: slew reference = last NATIVE value
+            # (never the LKG, which served stream reads re-anchor).
+            self._soc_native_last_value = primary
+            self._soc_native_last_at = self._soc_lkg_at
             self._soc_source_last = "envoy"
             try:
                 self._check_soc_source_divergence(primary)
@@ -1516,7 +1549,7 @@ class BatteryStrategy:
         # Pairwise max pp gap over non-None tier values. D1: the stream
         # value (guards + freshness, trust state ignored) joins the set
         # when the tier is enabled and configured; None otherwise.
-        stream_val = self._read_stream_soc(check_trust=False)
+        stream_val = self._read_stream_soc(check_trust=False, now=now)
         vals = [
             v for v in (primary_soc, lkg_val, cloud_val, stream_val)
             if v is not None
@@ -1768,57 +1801,230 @@ class BatteryStrategy:
         from . import energy_const as _ec
         if not _ec.SOC_STREAM_TIER_ENABLED:
             return False
-        return bool(self._entities.get("battery_soc_stream"))
+        stream_eid = self._entities.get("battery_soc_stream")
+        if not stream_eid:
+            return False
+        # Fix-up D2-MED-1: a stream wired to the resolved native SOC entity
+        # (e.g. the serial-derived one the options flow never sees) would
+        # earn trust instantly and serve a frozen native value past the
+        # primary staleness gate → tier disabled, one WARNING.
+        if stream_eid == self._entities.get("battery_soc"):
+            if not self._stream_same_as_native_warned:
+                self._stream_same_as_native_warned = True
+                _LOGGER.warning(
+                    "SOC stream tier DISABLED: the local battery stream %s is "
+                    "the main battery charge sensor itself. Pick a sensor "
+                    "from a different integration.", stream_eid,
+                )
+            return False
+        return True
 
-    def _read_stream_soc(self, *, check_trust: bool = True) -> float | None:
-        """Read the stream SOC; None unless EVERY I-4 guard holds.
+    def _read_stream_soc(
+        self, *, check_trust: bool = True, now: Any = None,
+    ) -> float | None:
+        """Read the stream SOC; None unless EVERY guard holds.
 
         Guards (fail-closed, any one failing → None): kill switch on;
-        entity configured; state numeric, unit exactly ``%``, 0-100;
-        fresh per the configured freshness mode; co-witness live (when
-        configured, and MANDATORY in mode "b"); and — when
-        ``check_trust`` — trust state not ``quarantined``. Never raises.
+        entity configured; state numeric, unit exactly ``%``, 0-100; not
+        inside the reconnect settle window (D3); fresh per the configured
+        freshness mode (per-house max age, D1.2); co-witness live (when
+        configured, and MANDATORY in mode "b"). When ``check_trust`` (the
+        serving read): trust lapse check (D2), state exactly ``trusted``,
+        and the native-referenced slew backstop (D3). The comparison read
+        (``check_trust=False``) skips trust, lapse and slew so a real
+        divergence still reaches quarantine. Never raises.
         """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
         from . import energy_const as _ec
         if not self._stream_tier_configured():
             return None
+        if now is None:
+            now = dt_util.utcnow()
+        prev_read_at = self._stream_last_read_at
+        prev_value = self._stream_prev_value
+        self._stream_last_read_at = now
+        # Fix-up D-HIGH-1: `_stream_prev_value` is the last NUMERIC value
+        # observed (kept across settle / freshness misses) so arm (b) still
+        # sees a jump after a missed read. Junk reads (non-numeric, wrong
+        # unit, out of range) are treated like an observed drop (arm (a)).
         eid = self._entities.get("battery_soc_stream")
         try:
             st = self.hass.states.get(eid)
         except Exception:  # noqa: BLE001
             return None
         if st is None or st.state in ("unknown", "unavailable"):
+            # D3 settle arm (a): an observed drop. The next numeric read
+            # arms the settle window from its `last_changed`.
+            self._stream_settle_until = None
+            self._stream_settle_anchor = None
+            self._stream_seen_unavailable = True
             return None
         try:
             value = float(st.state)
         except (TypeError, ValueError):
+            self._stream_seen_unavailable = True
             return None
         try:
             unit = st.attributes.get("unit_of_measurement")
         except Exception:  # noqa: BLE001
             unit = None
         if unit is None or str(unit).strip() != "%":
+            self._stream_seen_unavailable = True
             return None
         if not (0.0 <= value <= 100.0):
+            self._stream_seen_unavailable = True
             return None
-        max_age = _ec.DEFAULT_SOC_STREAM_MAX_AGE_S
+        # D3 reconnect settle. SETTLE <= 0 → never settles (kill switch).
+        settle = timedelta(seconds=float(_ec.DEFAULT_SOC_STREAM_RECONNECT_SETTLE_S))
+        changed = getattr(st, "last_changed", None)
+        if changed is None or getattr(changed, "tzinfo", None) is None:
+            changed = now
+        until = self._stream_settle_until
+        anchor = self._stream_settle_anchor
+        if self._stream_seen_unavailable:
+            self._stream_seen_unavailable = False
+            self._arm_stream_settle(changed, settle)
+        elif (
+            until is not None
+            and anchor is not None
+            and anchor < changed < until
+        ):
+            # Fix-up D-HIGH-1: a further change INSIDE an active settle
+            # window (a second, unobserved reconnect) extends the window
+            # from that change.
+            self._arm_stream_settle(changed, settle, extend=True)
+        elif (
+            prev_read_at is not None
+            and prev_value is not None
+            and changed > prev_read_at
+            and abs(value - prev_value) > self._soc_slew_bound_pp(
+                (changed - prev_read_at).total_seconds(),
+            )
+        ):
+            # Arm (b): a change since the last read with a jump beyond what
+            # battery physics allows over that interval (+ margin) = a
+            # possible sub-tick reconnect no read observed. Fix-up
+            # B-HIGH-1: physics-scaled, so real discharge between 5-min
+            # decision reads never arms it.
+            self._arm_stream_settle(changed, settle)
+        until = self._stream_settle_until
+        if until is not None:
+            if now < until:
+                # Fix-up D-HIGH-1: keep the observed value as "previous"
+                # so a later jump is still detected after the window.
+                self._stream_prev_value = value
+                return None
+            self._stream_settle_until = None
+            self._stream_settle_anchor = None
+        max_age = self._stream_max_age_s
+        if max_age is None:
+            max_age = _ec.DEFAULT_SOC_STREAM_MAX_AGE_S
         cow_eid = self._entities.get("stream_cowitness")
         if max_age and max_age > 0:
-            # Mode "a": HA refreshes `last_reported` per message. A missing
+            # Mode "a": HA refreshes `last_reported` per report. A missing
             # / naive stamp is NOT a pass-through here (fail-closed).
+            # Fix-up D-HIGH-1: a freshness miss does not null
+            # `_stream_prev_value`, so a junk jump right after a missed read
+            # (long outages) is still caught by arm (b).
             age = _state_age_s(st, stamp="last_reported")
             if age is None or age > max_age:
                 return None
             if cow_eid and not self._stream_cowitness_live(cow_eid):
                 return None
         else:
-            # Mode "b": freshness = not `unavailable` (expire_after) AND a
-            # live co-witness. No co-witness configured → refuse.
+            # Mode "b": freshness = not `unavailable` (the producer expires
+            # itself) AND a live co-witness. No co-witness → refuse.
             if not cow_eid or not self._stream_cowitness_live(cow_eid):
                 return None
-        if check_trust and self._soc_stream_trust == "quarantined":
+        self._stream_prev_value = value
+        if not check_trust:
+            return value
+        # D2 lapse — in the READ path, because the divergence evaluator
+        # abstains while native is down (the outage this bounds).
+        lapse_s = _ec.DEFAULT_SOC_STREAM_TRUST_MAX_AGE_S
+        if self._soc_stream_trust == "trusted" and lapse_s and lapse_s > 0:
+            last_agree = self._stream_last_agree_at
+            try:
+                lapsed = (
+                    last_agree is None
+                    or (now - last_agree).total_seconds() > lapse_s
+                )
+            except Exception:  # noqa: BLE001
+                lapsed = True
+            if lapsed:
+                self._set_stream_trust("unproven", now)
+                return None
+        if self._soc_stream_trust != "trusted":
+            return None
+        if not self._stream_within_slew(value, now):
             return None
         return value
+
+    def _arm_stream_settle(
+        self, changed: Any, settle: Any, *, extend: bool = False,
+    ) -> None:
+        """Arm (or extend) the D3 settle window from ``changed``.
+
+        Fix-up D2-LOW-1: extensions are capped at the first anchor of the
+        window + 2 x SETTLE, so a fast-moving stream cannot stall forever.
+        """
+        until = changed + settle
+        if extend and self._stream_settle_first is not None:
+            until = min(until, self._stream_settle_first + 2 * settle)
+        else:
+            self._stream_settle_first = changed
+        self._stream_settle_until = until
+        self._stream_settle_anchor = changed
+
+    def _soc_slew_bound_pp(self, elapsed_s: float) -> float:
+        """Max plausible |ΔSOC| in pp over ``elapsed_s`` (D3 envelope).
+
+        rate = max(charge, discharge kW) / capacity kWh x 100 / 3600 pp/s,
+        plus DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT. Capacity from the
+        configured capacity entity; None / <= 0 → BATTERY_CAPACITY_KWH.
+        Shared by the slew backstop and settle arm (b).
+        """
+        from . import energy_const as _ec
+        try:
+            cap = self._battery_capacity_kwh()
+        except Exception:  # noqa: BLE001
+            cap = None
+        if cap is None or cap <= 0:
+            cap = float(_ec.BATTERY_CAPACITY_KWH)
+        rate_kw = max(
+            float(_ec.BATTERY_MAX_CHARGE_KW), float(_ec.BATTERY_MAX_DISCHARGE_KW),
+        )
+        rate_pp_s = rate_kw / cap * 100.0 / 3600.0
+        return rate_pp_s * max(0.0, float(elapsed_s)) + float(
+            _ec.DEFAULT_SOC_STREAM_SLEW_MARGIN_PCT
+        )
+
+    def _stream_within_slew(self, value: float, now: Any) -> bool:
+        """D3 coarse physics backstop vs the last NATIVE value.
+
+        Reject when ``|value - native_ref| > rate x elapsed + margin``,
+        rate = max(charge, discharge kW) / capacity kWh x 100 / 3600 pp/s.
+        Capacity from the configured capacity entity; None / <= 0 → the
+        BATTERY_CAPACITY_KWH constant. No native reference this session →
+        abstain (the stream cannot be `trusted` without native anyway).
+        """
+        ref = self._soc_native_last_value
+        ref_at = self._soc_native_last_at
+        if ref is None or ref_at is None:
+            return True
+        try:
+            elapsed = max(0.0, (now - ref_at).total_seconds())
+        except Exception:  # noqa: BLE001
+            return False
+        bound = self._soc_slew_bound_pp(elapsed)
+        if abs(value - ref) > bound:
+            _LOGGER.debug(
+                "SOC stream %.1f outside slew bound %.2f pp of native %.1f "
+                "(%.0fs ago) — refused", value, bound, ref, elapsed,
+            )
+            return False
+        return True
 
     def _stream_cowitness_live(self, eid: str) -> bool:
         """Co-witness changed (``last_updated``) within the max age."""
@@ -1835,10 +2041,36 @@ class BatteryStrategy:
         return age <= _ec.DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S
 
     def stream_trust_state(self) -> str:
-        """D5 attr: ``trusted`` / ``quarantined`` / ``disabled``."""
+        """D5 attr: ``unproven`` / ``trusted`` / ``quarantined`` / ``disabled``."""
         if not self._stream_tier_configured():
             return "disabled"
         return self._soc_stream_trust
+
+    def stream_trust_diag_attrs(self) -> dict[str, Any]:
+        """EC-SOURCE-FAILOVER D1.2 stuck-unproven diagnostics (attrs only).
+
+        ``stream_unproven_since``: ISO time the stream last entered
+        ``unproven`` (None when not unproven / tier not configured).
+        ``stream_unproven_native_fresh_s``: seconds it has stayed
+        ``unproven`` while native was fresh (0 otherwise).
+        """
+        if (
+            not self._stream_tier_configured()
+            or self._soc_stream_trust != "unproven"
+        ):
+            return {
+                "stream_unproven_since": None,
+                "stream_unproven_native_fresh_s": 0,
+            }
+        since = self._stream_unproven_since
+        return {
+            "stream_unproven_since": (
+                since.isoformat() if since is not None else None
+            ),
+            "stream_unproven_native_fresh_s": round(
+                float(self._stream_unproven_native_fresh_s), 1,
+            ),
+        }
 
     def _set_stream_trust(self, state: str, now: Any) -> None:
         """Transition the trust state; event-save on every transition."""
@@ -1846,6 +2078,12 @@ class BatteryStrategy:
             return
         self._soc_stream_trust = state
         self._soc_stream_trust_since = now
+        # D2 diagnostics: entering/leaving `unproven` resets the counters.
+        self._stream_unproven_since = now if state == "unproven" else None
+        self._stream_unproven_native_fresh_s = 0.0
+        self._stream_unproven_acc_at = None
+        if state != "trusted":
+            self._stream_agree_count = 0
         _LOGGER.warning(
             "SOC stream tier trust -> %s (last |native-stream|=%s pp)",
             state, self._stream_last_delta,
@@ -1882,7 +2120,24 @@ class BatteryStrategy:
             _ec.DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
             stamp="last_reported",
         )
-        stream = self._read_stream_soc(check_trust=False)
+        # D2 stuck-unproven diagnostic: accumulate seconds `unproven` while
+        # native is fresh (the window in which trust COULD have earned).
+        if self._soc_stream_trust == "unproven":
+            if self._stream_unproven_since is None:
+                self._stream_unproven_since = now
+            if native is not None:
+                acc_at = self._stream_unproven_acc_at
+                if acc_at is not None:
+                    try:
+                        self._stream_unproven_native_fresh_s += max(
+                            0.0, (now - acc_at).total_seconds(),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                self._stream_unproven_acc_at = now
+            else:
+                self._stream_unproven_acc_at = None
+        stream = self._read_stream_soc(check_trust=False, now=now)
         if native is None or stream is None:
             return
         last = self._stream_last_compared_at
@@ -1910,18 +2165,27 @@ class BatteryStrategy:
                     latch_attr="_d1_stream_div_nm_date",
                     title="Battery stream reading quarantined",
                     message=(
-                        f"Local stream battery level {stream:.0f}% disagrees "
-                        f"with the Envoy {native:.0f}% (by {delta:.1f} pp). "
-                        f"URA stopped using the stream until they agree."
+                        f"Local second-source battery level {stream:.0f}% "
+                        f"disagrees with the Envoy {native:.0f}% (by "
+                        f"{delta:.1f} pp). URA stopped using it until they "
+                        f"agree."
                     ),
                     hazard_type="soc_stream_divergence",
                 )
         else:
             self._stream_agree_count += 1
             self._stream_div_count = 0
-            if (
-                self._stream_agree_count >= ticks
-                and self._soc_stream_trust == "quarantined"
+            self._stream_last_agree_at = now
+            earn = int(_ec.DEFAULT_SOC_STREAM_TRUST_EARN_SAMPLES)
+            if self._soc_stream_trust == "quarantined":
+                # D2.5: leaving quarantine goes through `unproven` (count
+                # reset by the transition), so recovery needs the same N
+                # fresh agreements as the first earn — never easier.
+                if self._stream_agree_count >= ticks:
+                    self._set_stream_trust("unproven", now)
+            elif (
+                self._soc_stream_trust == "unproven"
+                and self._stream_agree_count >= earn
             ):
                 self._set_stream_trust("trusted", now)
 
@@ -1934,13 +2198,18 @@ class BatteryStrategy:
         }
 
     def restore_stream_trust_snapshot(self, snap: Any) -> None:
-        """Restore; anything unreadable → `trusted` (documented default)."""
+        """Restore (EC-SOURCE-FAILOVER D2.2): persisted ``trusted`` →
+        ``unproven`` (trust is re-earned after every restart);
+        ``quarantined`` → ``quarantined``; ``unproven`` → ``unproven``;
+        anything unreadable keeps the init value (``unproven``)."""
         try:
             state = snap.get("state") if isinstance(snap, dict) else None
         except Exception:  # noqa: BLE001
             state = None
-        if state not in ("trusted", "quarantined"):
+        if state not in ("trusted", "quarantined", "unproven"):
             return
+        if state == "trusted":
+            state = "unproven"
         self._soc_stream_trust = state
         try:
             from homeassistant.util import dt as dt_util
@@ -8222,6 +8491,7 @@ class BatteryStrategy:
             # (R2-7: HVAC/DP reads of battery_soc re-stamp it).
             "soc_tier_trusted": soc_tier_trusted(self._tick_soc_source),
             "stream_trust": self.stream_trust_state(),
+            **self.stream_trust_diag_attrs(),
             "grid_charge_withheld_untrusted": bool(
                 self._grid_charge_withheld_untrusted
             ),

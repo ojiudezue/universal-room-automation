@@ -682,6 +682,32 @@ def _energy_coord(entity_config: dict):
     )
 
 
+@pytest.mark.parametrize("raw,expect", [
+    (120, 120), (120.0, 120), (0, None), (None, None),
+])
+def test_stream_max_age_option_reaches_battery_typed_attr(raw, expect) -> None:
+    """EC-SOURCE-FAILOVER D1.2 wire-in: the per-house max-age option reaches
+    BatteryStrategy as a typed attr (not the entity map) and drives mode a."""
+    cfg = {"energy_stream_battery_soc_entity": "sensor.test_stream"}
+    if raw is not None:
+        cfg["energy_stream_battery_soc_max_age_s"] = raw
+    coord = _energy_coord(cfg)
+    assert coord._battery._stream_max_age_s == expect
+    assert coord._battery._entities["battery_soc_stream"] == "sensor.test_stream"
+    assert raw not in coord._battery._entities.values() or raw is None
+
+
+@pytest.mark.asyncio
+async def test_stream_max_age_change_schedules_parent_reload() -> None:
+    """The max age is read only at EnergyCoordinator construction, so a
+    saved change must reload the PARENT (like the stream entity itself)."""
+    before = _pre_options()
+    hass = await _listen(
+        before, {**before, "energy_stream_battery_soc_max_age_s": 120},
+    )
+    hass.config_entries.async_reload.assert_called_once_with("parent-integ")
+
+
 def test_pool_roles_flow_from_options_into_optimizer() -> None:
     coord = _energy_coord({
         "energy_pool_speed_entity": "number.my_pool_speed",
