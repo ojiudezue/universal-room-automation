@@ -85,3 +85,7 @@ dashboard-v3/playwright/.cache/
 docs/planning/backups/
 .venv-test/
 .claude/suite-cache/
+
+# config backups can hold credentials; keep them outside the repo (~/.ura-backups)
+docs/dashboard-prototypes/ura-v8-backups/*configuration.yaml
+docs/dashboard-prototypes/ura-v8-backups/*config_entries*
