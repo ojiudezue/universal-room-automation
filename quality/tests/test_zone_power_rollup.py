@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.universal_room_automation import aggregation as agg
 from custom_components.universal_room_automation.aggregation import (
+    ZoneEnergyCostTodaySensor,
     ZoneCostPerHourSensor,
     ZoneEnergyTodaySensor,
     ZoneTotalPowerSensor,
@@ -292,3 +293,31 @@ def test_energy_init_sets_tracker_state():
     s = ZoneEnergyTodaySensor(hass, entry, ZONE)
     assert s._zone_tier_baselines == {}
     assert s._contrib == {}
+
+
+# ------------------------------------------------------- energy cost today
+
+def test_energy_cost_today_includes_zone_level_energy():
+    hass = _hass({"sensor.ac_today": (4.0, "kWh")},
+                 [_zm_entry(zone_energy=["sensor.ac_today"])])
+    s = _make(ZoneEnergyCostTodaySensor, hass, [_coord(energy=0.0)])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)), \
+         patch.object(agg, "_get_effective_rate_kwh", return_value=(0.25, "t")):
+        # rooms 0 kWh alone -> None; 4 kWh * 0.25 = 1.0
+        assert s.native_value == 1.0
+
+
+def test_energy_cost_today_lifetime_counter_and_overlap():
+    states = {"sensor.ac_total": (5000.0, "kWh"), "sensor.room": (2.0, "kWh")}
+    hass = _hass(states, [_zm_entry(zone_energy=["sensor.ac_total", "sensor.room"])])
+    room = _coord(energy=2.0, energy_sensors=["sensor.room"])
+    s = _make(ZoneEnergyCostTodaySensor, hass, [room])
+    with patch.object(agg.dt_util, "now", return_value=_at(1)), \
+         patch.object(agg, "_get_effective_rate_kwh", return_value=(0.5, "t")):
+        assert s.native_value == 1.0  # room 2 kWh only; counter anchors
+        states["sensor.ac_total"] = (5003.0, "kWh")
+        assert s.native_value == 2.5  # (2 + 3) * 0.5
+
+
+def test_zone_tier_threshold_matches_coverage():
+    assert ZoneEnergyCostTodaySensor._ZONE_TIER_CUMULATIVE_THRESHOLD_KWH == 1000.0
