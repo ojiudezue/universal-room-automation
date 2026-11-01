@@ -347,3 +347,74 @@ async def test_row1_site_skips_sweep_when_lighting_occupied(monkeypatch):
     assert away, "positive control: the HVAC-empty zone still retreats"
     assert calls == []
     assert zone.vacancy_sweep_done is False
+
+
+# ---------------------------------------------------------------------------
+# Manual devices (CONF_MANUAL_DEVICES + legacy CONF_MANUAL_SWITCHES)
+# ---------------------------------------------------------------------------
+
+def _with_manual(coord, room, key, ids, *, on=True):
+    entry = coord.hass.data[DOMAIN][f"entry_{room}"].config_entry
+    entry.data[key] = ids
+    states_get = coord.hass.states.get
+    extra = {}
+    for eid in (ids if isinstance(ids, list) else [ids]):
+        st = MagicMock()
+        st.state = "on" if on else "off"
+        extra[eid] = st
+    coord.hass.states.get = lambda e: extra.get(e) or states_get(e)
+    return coord.hass.data[DOMAIN][f"entry_{room}"]
+
+
+def test_manual_device_swept_and_recorded():
+    coord, log, tasks, alog = _coord()
+    _with_manual(coord, "FreeRoom", "manual_devices", ["switch.relay_a"])
+    _run(coord._maybe_run_vacancy_sweep(_Zone(["FreeRoom"])))
+    _drain(tasks)
+    assert "switch.relay_a" in _offs(log)
+    assert "switch.relay_a" in alog.rows[0]["details"]["turned_off"]
+    # off only, never on
+    assert not [d for (_dm, svc, d) in log if svc == "turn_on"]
+
+
+def test_legacy_manual_switches_key_read():
+    coord, log, _, _ = _coord()
+    _with_manual(coord, "FreeRoom", "manual_switches", "switch.legacy_b")
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert "switch.legacy_b" in _offs(log)
+
+
+def test_manual_device_off_state_not_called():
+    coord, log, _, _ = _coord()
+    _with_manual(coord, "FreeRoom", "manual_devices", ["switch.relay_a"], on=False)
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert "switch.relay_a" not in _offs(log)
+
+
+def test_paused_room_manual_device_not_swept():
+    coord, log, _, _ = _coord()
+    rc = _with_manual(coord, "FreeRoom", "manual_devices", ["switch.relay_a"])
+    rc._is_automation_enabled = lambda: False
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert _offs(log) == []
+
+
+def test_manual_device_registry_guard_applied():
+    coord, log, _, _ = _coord()
+    rc = _with_manual(
+        coord, "FreeRoom", "manual_devices", ["switch.relay_a", "switch.fw_update"],
+    )
+    rc.automation = SimpleNamespace(
+        _actuatable_ids=lambda ids: [i for i in ids if i != "switch.fw_update"],
+    )
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    offs = _offs(log)
+    assert "switch.relay_a" in offs and "switch.fw_update" not in offs
+
+
+def test_manual_device_leave_on_exempt():
+    coord, log, _, _ = _coord()
+    rc = _with_manual(coord, "FreeRoom", "manual_devices", ["switch.relay_a"])
+    rc.config_entry.data["lights_leave_on_when_empty"] = ["switch.relay_a"]
+    _run(coord._execute_vacancy_sweep(_Zone(["FreeRoom"])))
+    assert "switch.relay_a" not in _offs(log)

@@ -6827,6 +6827,44 @@ class HVACCoordinator(BaseCoordinator):
                     except Exception as exc:  # noqa: BLE001
                         _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
+            # HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (operator 2026-11-01):
+            # person-switched relays — the room's manual devices
+            # (CONF_MANUAL_DEVICES + legacy CONF_MANUAL_SWITCHES, read as
+            # `automation._control_manual_switches_off` does), through the
+            # room's `_actuatable_ids` registry guard. OFF only; leave-on
+            # exemption honoured; URA context stamp.
+            from ..const import (  # noqa: PLC0415
+                CONF_MANUAL_DEVICES, CONF_MANUAL_SWITCHES,
+            )
+            _manual = list(config.get(CONF_MANUAL_DEVICES, []) or [])
+            _legacy = config.get(CONF_MANUAL_SWITCHES, []) or []
+            if isinstance(_legacy, str):
+                _legacy = [_legacy]
+            _manual += [e for e in _legacy if e not in _manual]
+            if _room_auto is not None and hasattr(_room_auto, "_actuatable_ids"):
+                try:
+                    _manual = list(_room_auto._actuatable_ids(_manual))
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC: manual-device guard failed for %s", room_name,
+                        exc_info=True,
+                    )
+            for entity_id in _manual:
+                if not entity_id or entity_id in _leave_on or entity_id in lights:
+                    continue
+                domain = entity_id.split(".")[0]
+                state = self.hass.states.get(entity_id)
+                if state and state.state == "on":
+                    try:
+                        await self.hass.services.async_call(
+                            domain, "turn_off",
+                            {"entity_id": entity_id}, blocking=False,
+                            **ura_ctx_kwargs(domain),
+                        )
+                        turned_off.append(entity_id)
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
+
             # FAN-MANUAL-1 (Review B-HIGH-1 fix-up, 2026-08-10): if the
             # operator has a live manual-ON hold on this room's fans
             # (either the room-tier hold, via the automation coordinator,
