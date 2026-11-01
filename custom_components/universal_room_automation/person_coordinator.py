@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.95
+# Universal Room Automation vv5.103.96
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -20,7 +20,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+import math
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.components.person import DOMAIN as PERSON_DOMAIN
@@ -59,6 +60,11 @@ from .const import (
     BLE_LEADS_MIN_ACTIVE_PROXIES,
     BLE_LEADS_ARM_S,
     BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID,
+    # BLE-leads fleet fraction (plan PLANNING_ble_rearm_and_fleet_fraction D2).
+    BLE_LEADS_FLEET_FRACTION,
+    BLE_LEADS_ABS_MIN_PROXIES,
+    BLE_LEADS_FLEET_MEMORY_DAYS,
+    BERMUDA_TOTAL_PROXY_COUNT_UNIQUE_ID,
 )
 
 try:  # Real HA always has it; minimal test stub graphs may not.
@@ -229,6 +235,18 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._proxy_unsub: Any = None
         self._fleet_healthy_since: datetime | None = None
         self._fleet_armed_last: bool = False
+        # D2 fleet fraction (PLANNING_ble_rearm_and_fleet_fraction rev 2
+        # §2.2). `_fleet_memory`: [(local date ISO, max Bermuda total that
+        # day)], date-pruned to the last BLE_LEADS_FLEET_MEMORY_DAYS days,
+        # persisted in a Store (created lazily). `_effective_floor` is the
+        # per-tick cached floor read by BOTH the tick and the edge listener
+        # (`_apply_proxy_state`); legacy 30 until the memory is warm.
+        self._fleet_memory: list[tuple[str, int]] = []
+        self._fleet_store: Any = None
+        self._effective_floor: int = BLE_LEADS_MIN_ACTIVE_PROXIES
+        # A delayed save is pending (flushed by async_teardown on unload so a
+        # reload within the 60 s delay does not read a stale file).
+        self._fleet_save_pending: bool = False
 
     # =========================================================================
     # PATH-ALPHA D2a (rev-3.5.1) — UNIFIED MATRIX CLASSIFIER
@@ -441,22 +459,162 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return True
 
-    def _resolve_proxy_entity_id(self) -> str | None:
-        """Bermuda Active Proxy Count entity_id via the registry unique_id."""
+    def _resolve_bermuda_entity_id(self, unique_id: str) -> str | None:
+        """A Bermuda sensor entity_id via the registry unique_id."""
         try:
             reg = er.async_get(self.hass)
-            eid = reg.async_get_entity_id(
-                "sensor", "bermuda", BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID,
-            )
+            eid = reg.async_get_entity_id("sensor", "bermuda", unique_id)
         except Exception:  # noqa: BLE001 - registry absent / stubbed
             return None
         return eid if isinstance(eid, str) and eid else None
 
+    def _resolve_proxy_entity_id(self) -> str | None:
+        """Bermuda Active Proxy Count entity_id via the registry unique_id."""
+        return self._resolve_bermuda_entity_id(
+            BERMUDA_ACTIVE_PROXY_COUNT_UNIQUE_ID,
+        )
+
+    # --- D2 fleet memory (PLANNING_ble_rearm_and_fleet_fraction §2.2) ------
+
+    @staticmethod
+    def _local_date(now: datetime) -> date:
+        """Local calendar date of `now` (fallback: now's own date)."""
+        try:
+            return dt_util.as_local(now).date()
+        except Exception:  # noqa: BLE001 - stubbed dt_util / naive dt
+            return now.date()
+
+    def _get_fleet_store(self) -> Any:
+        """The fleet-memory Store, created on first use (None if unavailable)."""
+        if self._fleet_store is None:
+            try:
+                from homeassistant.helpers.storage import Store  # noqa: PLC0415
+                self._fleet_store = Store(
+                    self.hass, 1, f"{DOMAIN}.ble_fleet_memory",
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("BLE leads: fleet memory store unavailable: %s", err)
+                return None
+        return self._fleet_store
+
+    def _prune_fleet_memory(self, today: date) -> bool:
+        """Keep slots dated within the last BLE_LEADS_FLEET_MEMORY_DAYS local
+        days (today included; future-dated and undated slots dropped), oldest
+        first. Date-bounded, so slots from before an HA outage age out (one
+        slot per day => at most BLE_LEADS_FLEET_MEMORY_DAYS entries). Returns
+        True if it changed."""
+        cutoff = today - timedelta(days=BLE_LEADS_FLEET_MEMORY_DAYS - 1)
+        kept: list[tuple[str, int]] = []
+        for d_iso, val in self._fleet_memory:
+            try:
+                d = date.fromisoformat(d_iso)
+            except (TypeError, ValueError):
+                continue
+            if cutoff <= d <= today:
+                kept.append((d_iso, val))
+        kept.sort(key=lambda e: e[0])
+        changed = kept != self._fleet_memory
+        self._fleet_memory = kept
+        return changed
+
+    async def async_load_fleet_memory(self) -> None:
+        """Restore the fleet memory ring (called before the first refresh).
+
+        Any error or malformed payload -> empty ring -> cold memory ->
+        legacy floor. Undated / out-of-window slots are dropped by the
+        per-tick prune before any floor is computed.
+        """
+        ring: list[tuple[str, int]] = []
+        try:
+            store = self._get_fleet_store()
+            payload = await store.async_load() if store is not None else None
+            for entry in (payload or {}).get("ring", []):
+                ring.append((str(entry[0]), int(entry[1])))
+        except Exception as err:  # noqa: BLE001 - corrupt / missing store
+            _LOGGER.debug("BLE leads: fleet memory not restored: %s", err)
+            ring = []
+        self._fleet_memory = ring
+
+    def _fleet_payload(self) -> dict:
+        return {"ring": [list(e) for e in self._fleet_memory]}
+
+    def _save_fleet_memory(self) -> None:
+        store = self._get_fleet_store()
+        if store is None:
+            return
+        try:
+            store.async_delay_save(self._fleet_payload, 60)
+            self._fleet_save_pending = True
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("BLE leads: fleet memory save failed: %s", err)
+
+    def _update_fleet_floor(self, now: datetime) -> None:
+        """Per tick: fold the Bermuda total into today's slot, prune by date,
+        recompute the cached effective floor.
+
+        F = max(ABS_MIN, ceil(FRACTION x R)) only when the total entity
+        resolves AND the ring holds a slot from a completed prior local
+        day; otherwise the legacy BLE_LEADS_MIN_ACTIVE_PROXIES. Non-numeric
+        totals never touch the memory (never lower it).
+        """
+        today = self._local_date(now)
+        today_iso = today.isoformat()
+        changed = self._prune_fleet_memory(today)
+        eid = self._resolve_bermuda_entity_id(BERMUDA_TOTAL_PROXY_COUNT_UNIQUE_ID)
+        total: int | None = None
+        if eid is not None:
+            try:
+                total = int(float(self.hass.states.get(eid).state))
+            except Exception:  # noqa: BLE001 - missing / unknown / unavailable
+                total = None
+        if total is not None:
+            for i, (d_iso, val) in enumerate(self._fleet_memory):
+                if d_iso == today_iso:
+                    if total > val:
+                        self._fleet_memory[i] = (d_iso, total)
+                        changed = True
+                    break
+            else:
+                self._fleet_memory.append((today_iso, total))
+                changed = True
+        warm = eid is not None and any(
+            d_iso < today_iso for d_iso, _ in self._fleet_memory
+        )
+        if warm:
+            # Today's slot already holds max(today's reads, current total).
+            remembered = max(v for _, v in self._fleet_memory)
+            floor = max(
+                BLE_LEADS_ABS_MIN_PROXIES,
+                math.ceil(BLE_LEADS_FLEET_FRACTION * remembered),
+            )
+        else:
+            remembered = None
+            floor = BLE_LEADS_MIN_ACTIVE_PROXIES
+        if floor != self._effective_floor:
+            if warm:
+                _LOGGER.info(
+                    "BLE leads: fleet floor %d (fraction %.2f of remembered %d, "
+                    "abs min %d)", floor, BLE_LEADS_FLEET_FRACTION, remembered,
+                    BLE_LEADS_ABS_MIN_PROXIES,
+                )
+            else:
+                _LOGGER.info(
+                    "BLE leads: fleet floor %d (legacy; fleet memory cold)",
+                    floor,
+                )
+            self._effective_floor = floor
+        if changed:
+            self._save_fleet_memory()
+
     def _apply_proxy_state(self, state_str: Any, now: datetime) -> None:
-        """One reading of the proxy count -> update the healthy-since latch."""
+        """One reading of the proxy count -> update the healthy-since latch.
+
+        Compares against the per-tick cached `_effective_floor` so the edge
+        listener and the tick agree.
+        """
         healthy = False
         try:
-            healthy = float(state_str) >= BLE_LEADS_MIN_ACTIVE_PROXIES
+            healthy = float(state_str) >= self._effective_floor
         except (TypeError, ValueError):
             healthy = False
         if not healthy:
@@ -492,6 +650,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         A miss turns the rule off (latch cleared). The tick re-read also
         self-heals a missed listener event.
         """
+        self._update_fleet_floor(now)
         eid = self._resolve_proxy_entity_id()
         if eid is None:
             self._fleet_healthy_since = None
@@ -501,7 +660,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             self._proxy_entity_id = eid
             _LOGGER.info(
                 "BLE leads: fleet guard reads %s (Bermuda active proxy count; "
-                "floor %d, arm %ds)", eid, BLE_LEADS_MIN_ACTIVE_PROXIES,
+                "floor %d, arm %ds)", eid, self._effective_floor,
                 BLE_LEADS_ARM_S,
             )
         if self._proxy_unsub is None and async_track_state_change_event is not None:
@@ -654,8 +813,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         return raw_state
 
     async def async_teardown(self) -> None:
-        """Release the proxy listener (called before the unload pop)."""
+        """Release the proxy listener and flush a pending fleet-memory save
+        (called before the unload pop)."""
         self._release_proxy_listener()
+        if self._fleet_save_pending and self._fleet_store is not None:
+            self._fleet_save_pending = False
+            try:
+                await self._fleet_store.async_save(self._fleet_payload())
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("BLE leads: fleet memory flush failed: %s", err)
 
     def _classify_matrix_row(
         self,

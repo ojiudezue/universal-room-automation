@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.95
+# Universal Room Automation vv5.103.96
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -29,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    BLE_ABSENCE_GRACE_S,
     BLE_CHAIN_HOLD_ENABLED,
     D2_PIR_STALENESS_MULTIPLIER,
     CONF_STUCK_SENSOR_DUTYCYCLE_MIN_TICKS,
@@ -326,6 +327,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # bather who is still moving under the cap keeps their hold;
         # only a stale, purely-BLE-sustained hold gets evicted.
         self._ble_only_hold_since: datetime | None = None
+        # BLE-LOCATION-QUALITY-1 D1 (absence grace). `_ble_absent_since`:
+        # first empty BLE read of the currently open grace (None = no open
+        # grace). `_ble_grace_used`: the one grace of this BLE-only hold
+        # episode has been spent. Both are cleared together with
+        # `_ble_only_hold_since` (episode end) at every site that clears it;
+        # a present BLE read closes an open grace but does NOT reset
+        # `_ble_grace_used`. Not persisted.
+        self._ble_absent_since: datetime | None = None
+        self._ble_grace_used: bool = False
         # Bathroom-exhaust intelligence cycle (FIX 1): snapshot of
         # _became_occupied_time captured ON THE VACANT TICK, BEFORE the live
         # attribute is cleared (see clears at coordinator.py:1548/1554/2133/
@@ -764,6 +774,60 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         return BLE_HOLD_CAP_DURATIONS.get(
             self._room_type, DEFAULT_BLE_HOLD_CAP_SECONDS,
         )
+
+    def _ble_hold_cap_exceeded(self, now: datetime) -> tuple[bool, float, int]:
+        """Return (exceeded, duration_s, cap_s) for the BLE-only hold cap.
+
+        Shared by the BLE present branch (which logs + fires the cap NM)
+        and the absence-grace branch (which only refuses). Fail-open when
+        the cap is disabled for the room or `_ble_only_hold_since` is None.
+        """
+        from .const import (  # noqa: PLC0415
+            CONF_BLE_HOLD_CAP_ENABLED,
+            ROOM_TYPE_BLE_HOLD_CAP_DEFAULT,
+        )
+        cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False)
+        cap_enabled = self._get_config(CONF_BLE_HOLD_CAP_ENABLED, cap_default)
+        if not cap_enabled or self._ble_only_hold_since is None:
+            return False, 0.0, 0
+        cap_seconds = self._get_ble_hold_cap_seconds()
+        duration = (now - self._ble_only_hold_since).total_seconds()
+        return duration > cap_seconds, duration, cap_seconds
+
+    def _ble_absence_grace_applies(self, now: datetime) -> bool:
+        """BLE-LOCATION-QUALITY-1 D1: may an empty BLE read keep the room?
+
+        Called only from the BLE block when no body signal fired, the
+        failsafe has not latched, and `get_persons_in_room` is empty.
+        True iff ALL hold (plan rev 2 §1.3 predicates 3-7):
+          * BLE_CHAIN_HOLD_ENABLED and BLE_ABSENCE_GRACE_S > 0;
+          * chain unbroken (`_last_occupied_state`, prev tick) - so the
+            grace can never create occupancy;
+          * the chain is held by BLE alone (`_ble_only_hold_since` set);
+          * the BLE hold cap is not exceeded (no NM from here);
+          * one grace per episode: an open grace younger than the window,
+            or no grace spent yet (opens one now).
+        Never touches `_ble_only_hold_since`, `_became_occupied_time` or
+        `_last_motion_time`.
+        """
+        if not BLE_CHAIN_HOLD_ENABLED or BLE_ABSENCE_GRACE_S <= 0:
+            return False
+        if not self._last_occupied_state:
+            return False
+        if self._ble_only_hold_since is None:
+            return False
+        exceeded, _dur, _cap = self._ble_hold_cap_exceeded(now)
+        if exceeded:
+            return False
+        if self._ble_absent_since is not None:
+            return (
+                now - self._ble_absent_since
+            ).total_seconds() < BLE_ABSENCE_GRACE_S
+        if self._ble_grace_used:
+            return False
+        self._ble_absent_since = now
+        self._ble_grace_used = True
+        return True
 
     # =========================================================================
     # v3.10.0 TRIGGER DETECTION & AUTOMATION CHAINING
@@ -3942,6 +4006,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # measures freshness FROM the last real corroboration,
             # never from session start.
             self._ble_only_hold_since = None
+            self._ble_absent_since = None
+            self._ble_grace_used = False
             data[STATE_OCCUPIED] = True
             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
             # Determine primary source
@@ -4050,6 +4116,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             # so a camera→BLE handoff does not carry a
                             # stale motion-timeout clock into the cap.
                             self._ble_only_hold_since = None
+                            self._ble_absent_since = None
+                            self._ble_grace_used = False
                             if not self._last_occupied_state:
                                 self._last_occupied_time = now
                             _LOGGER.debug(
@@ -4074,6 +4142,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if person_coordinator:
                 ble_persons = person_coordinator.get_persons_in_room(room_name)
                 if ble_persons:
+                    # BLE-LOCATION-QUALITY-1 D1: a present read closes an
+                    # open absence grace (does NOT reset _ble_grace_used).
+                    self._ble_absent_since = None
                     # Check if this room has direct BLE coverage (Tier 1)
                     # or shared/indirect coverage (Tier 2)
                     direct_ble = person_coordinator.is_room_direct_ble(
@@ -4173,42 +4244,30 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     # the true reason.
                     cap_refused_this_tick = False
                     if ble_allowed:
-                        from .const import (  # noqa: PLC0415
-                            CONF_BLE_HOLD_CAP_ENABLED,
-                            ROOM_TYPE_BLE_HOLD_CAP_DEFAULT,
+                        cap_exceeded, duration, cap_seconds = (
+                            self._ble_hold_cap_exceeded(now)
                         )
-                        cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(
-                            self._room_type, False,
-                        )
-                        cap_enabled = self._get_config(
-                            CONF_BLE_HOLD_CAP_ENABLED, cap_default,
-                        )
-                        if cap_enabled and self._ble_only_hold_since is not None:
-                            cap_seconds = self._get_ble_hold_cap_seconds()
-                            duration = (
-                                now - self._ble_only_hold_since
-                            ).total_seconds()
-                            if duration > cap_seconds:
-                                _LOGGER.info(
-                                    "Room %s: BLE hold cap fired after "
-                                    "%.0f min BLE-only (cap %.0f min) — "
-                                    "refusing BLE extend without body "
-                                    "corroboration",
-                                    room_name, duration / 60,
-                                    cap_seconds / 60,
+                        if cap_exceeded:
+                            _LOGGER.info(
+                                "Room %s: BLE hold cap fired after "
+                                "%.0f min BLE-only (cap %.0f min) — "
+                                "refusing BLE extend without body "
+                                "corroboration",
+                                room_name, duration / 60,
+                                cap_seconds / 60,
+                            )
+                            ble_allowed = False
+                            cap_refused_this_tick = True
+                            # A2/B4: pass the OBSERVED duration so the
+                            # NM diagnosis/title carries the real
+                            # elapsed minutes, not just the cap
+                            # constant.
+                            self.hass.async_create_task(  # noqa: untracked-ok
+                                _fire_ble_hold_cap_nm(
+                                    self.hass, room_name,
+                                    duration, cap_seconds,
                                 )
-                                ble_allowed = False
-                                cap_refused_this_tick = True
-                                # A2/B4: pass the OBSERVED duration so the
-                                # NM diagnosis/title carries the real
-                                # elapsed minutes, not just the cap
-                                # constant.
-                                self.hass.async_create_task(  # noqa: untracked-ok
-                                    _fire_ble_hold_cap_nm(
-                                        self.hass, room_name,
-                                        duration, cap_seconds,
-                                    )
-                                )
+                            )
 
                     if ble_allowed:
                         data[STATE_OCCUPIED] = True
@@ -4270,6 +4329,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                 room_name,
                                 ble_persons,
                             )
+                elif self._ble_absence_grace_applies(now):
+                    # BLE-LOCATION-QUALITY-1 D1: absence grace. The chain
+                    # is held by BLE alone and this tick reads nobody;
+                    # bridge ONE short absence per BLE-only episode
+                    # (bounded by BLE_ABSENCE_GRACE_S) instead of ending
+                    # the session on a one-tick Bermuda blip. Same source
+                    # label "ble" so the failsafe deferral, HVAC evidence
+                    # stamp and ble->body re-entry treat it as the hold it
+                    # continues. No create path: the helper requires the
+                    # unbroken chain.
+                    data[STATE_OCCUPIED] = True
+                    data[STATE_OCCUPANCY_SOURCE] = "ble"
+                    data[STATE_BLE_PERSONS] = []
+                    data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                    data["ble_absence_grace"] = True
+                    _LOGGER.debug(
+                        "Room %s: BLE absence grace %.0fs/%ds",
+                        room_name,
+                        (now - self._ble_absent_since).total_seconds(),
+                        BLE_ABSENCE_GRACE_S,
+                    )
 
         # === mmWave fan-corroboration Tier-3 D2 — DEMOTION consumer ===
         # Passive backstop to the pause-based fan-recheck (v5.23.0).
@@ -4493,6 +4573,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             # vacancy so a stale hours-old value cannot
                             # poison the next occupancy session.
                             self._ble_only_hold_since = None
+                            self._ble_absent_since = None
+                            self._ble_grace_used = False
                             self._mmwave_fan_demoted_last_tick = True
                             self._mmwave_fan_demoted_since = now
                             self._mmwave_fan_demotions_since_boot += 1
@@ -4771,6 +4853,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # HIGH-1: clear BLE-only anchor on true vacancy so a stale
             # hours-old value cannot poison the next occupancy session.
             self._ble_only_hold_since = None
+            self._ble_absent_since = None
+            self._ble_grace_used = False
 
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback
@@ -5179,6 +5263,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # HIGH-1: clear BLE-only anchor on true vacancy so a stale
             # hours-old value cannot poison the next occupancy session.
             self._ble_only_hold_since = None
+            self._ble_absent_since = None
+            self._ble_grace_used = False
 
         # === HVAC fast occupancy response (v5.103.20) — evidence stamp ===
         # ONE stamp site (plan §4.1), after the override switches and before
@@ -5226,6 +5312,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # HIGH-1: clear BLE-only anchor on true vacancy so a
                 # stale hours-old value cannot poison the next session.
                 self._ble_only_hold_since = None
+                self._ble_absent_since = None
+                self._ble_grace_used = False
             _LOGGER.info(
                 "Room %s: First refresh — synced occupancy state to %s "
                 "(skipped automation to prevent false trigger on restart)",
@@ -5697,6 +5785,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # HIGH-1: clear BLE-only anchor on true vacancy so a stale
         # hours-old value cannot poison the next occupancy session.
         self._ble_only_hold_since = None
+        self._ble_absent_since = None
+        self._ble_grace_used = False
         was_occupied = self._last_occupied_state
         self._last_occupied_state = False
         # Review (occupancy-dwell branch): this release sets

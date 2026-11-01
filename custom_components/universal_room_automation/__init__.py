@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.95
+# Universal Room Automation vv5.103.96
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2213,6 +2213,19 @@ def _scan_prefill_detritus(hass: HomeAssistant, entry: ConfigEntry) -> None:
         )
 
 
+async def _async_start_person_coordinator(
+    hass: HomeAssistant, entry: ConfigEntry,
+) -> PersonTrackingCoordinator:
+    """Build the person coordinator, restore its BLE fleet memory, then run
+    the first refresh (PLANNING_ble_rearm_and_fleet_fraction rev 2 §2.2,
+    MEDIUM-2): the load sits between construction and the first refresh so
+    the first tick already sees the restored ring."""
+    person_coordinator = PersonTrackingCoordinator(hass, entry)
+    await person_coordinator.async_load_fleet_memory()
+    await person_coordinator.async_config_entry_first_refresh()
+    return person_coordinator
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     # ROOM-NAME-DESYNC-1 D2 — reconcile pre-cycle options/data desync on
@@ -3083,8 +3096,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 # Now create coordinator with the updated entry
                 _LOGGER.warning("PERSON INIT DIAGNOSTIC: creating PersonTrackingCoordinator...")
-                person_coordinator = PersonTrackingCoordinator(hass, entry)
-                await person_coordinator.async_config_entry_first_refresh()
+                person_coordinator = await _async_start_person_coordinator(
+                    hass, entry,
+                )
                 hass.data[DOMAIN]["person_coordinator"] = person_coordinator
                 _LOGGER.info("Person tracking coordinator initialized for %d persons: %s", len(tracked_persons), tracked_persons)
                 

@@ -192,9 +192,24 @@ sensor), a GPS-led HA `home` is overruled when ALL hold (`_ble_overrules_gps_hom
 - switch **BLE Leads Home/Away** on (`PresenceBleLeadsEnabledSwitch`, `_PresenceKillSwitchBase`, backing
   `PresenceCoordinator._ble_leads_enabled`, default ON; OFF = pre-change behaviour, byte-identical);
 - fleet armed: Bermuda's Active Proxy Count (resolved by registry unique_id
-  `BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT`, never by name) has read ≥ `BLE_LEADS_MIN_ACTIVE_PROXIES` (30)
+  `BERMUDA_GLOBAL_ACTIVE_PROXY_COUNT`, never by name) has read ≥ the fleet floor F
   continuously for ≥ `BLE_LEADS_ARM_S` (360 s), measured from the later of process start and the last
-  below-floor / unknown / unavailable reading (`const.py`, rung 1). `_fleet_healthy_since` starts None
+  below-floor / unknown / unavailable reading (`const.py`, rung 1).
+  **Fleet floor = fraction of the remembered fleet (branch `fix/ble-grace-fleet-fraction`, NOT deployed;
+  plan `docs/planning/PLANNING_ble_rearm_and_fleet_fraction.md` rev 2 D2):** F =
+  max(`BLE_LEADS_ABS_MIN_PROXIES` 3, ceil(`BLE_LEADS_FLEET_FRACTION` 0.5 × R)), R = the max of a ring of
+  (local date, max Bermuda Total Proxy Count that day) over the last `BLE_LEADS_FLEET_MEMORY_DAYS` (7)
+  local days (`person_coordinator._update_fleet_floor`, total resolved by unique_id
+  `BERMUDA_GLOBAL_PROXY_COUNT`; non-numeric totals never touch the ring; date-pruned per tick, so slots
+  from before an outage age out). The total shrinks with an outage, which is why R is remembered. The
+  ring persists in Store `universal_room_automation.ble_fleet_memory` (delayed save 60 s, only when a
+  slot changes), restored by `async_load_fleet_memory` in `__init__._async_start_person_coordinator`
+  between construction and the first refresh. **Cold memory → legacy 30** (`BLE_LEADS_MIN_ACTIVE_PROXIES`):
+  until the ring holds a slot from a completed prior local day AND the total entity resolves (first
+  deploy, store missing / corrupt, total entity missing, only today's slot), so a restart mid-outage
+  cannot arm on a shrunken same-day total. F is cached per tick in `_effective_floor`; the tick and the
+  edge listener both compare against it. This house: R = 62 → F = 31 (D2.0: no active reading in
+  [30, 31) in 7 days, so identical to 30 here). INFO log `BLE leads: fleet floor %d (...)` on change. `_fleet_healthy_since` starts None
   (boot latch). An `async_track_state_change_event` listener on the proxy sensor catches a ~60 s dip
   between 30 s ticks; the tick also re-reads the state. The listener registers on the first tick the
   entity resolves (late Bermuda load) and is released by `entry.async_on_unload` and by
@@ -212,7 +227,7 @@ confidence; `tracker_sources.gps == "home"` shows GPS was overruled. Overruled p
 in a local and assigned once per tick to `_gps_home_overruled` (a frozenset; kept on UpdateFailed), the
 only state `effective_person_state` consults (§1 table). GPS still hastens away (GPS `away` rows
 unchanged) and still holds home when BLE has no opinion or the fleet is unproven. Residuals (plan §9):
-non-Bermuda installs get no rule; a partial outage keeping ≥ 30 proxies but blinding every scanner near
+non-Bermuda installs get no rule; a partial outage keeping ≥ F proxies but blinding every scanner near
 one resident can mark them away; the first 6 min after a restart / proxy drop keep today's behaviour; an
 app user whose BLE stays `not_home` > 360 s after a restart reads away until re-heard (0 of 14 measured).
 
@@ -357,6 +372,31 @@ consecutive miss. This replaces the old built-name-only lookup that fell silentl
 HA's double-prefix slug for new rooms (see §9 corrections).
 
 ---
+
+### 4.6 BLE chain hold and the absence grace
+
+BLE extends a room's occupancy but never creates it (BLE-WARM-CREATE-1): the BLE block in
+`coordinator._async_update_data` (`# === v3.8.8: BLE/Bermuda extends room occupancy ===`) admits a
+BLE-reported person only while the chain is unbroken (`_last_occupied_state`, previous tick) and
+`BLE_CHAIN_HOLD_ENABLED`. `_ble_only_hold_since` marks a hold sustained by BLE alone (seeded on the
+first BLE-only admit, cleared on any body fire, camera admit, D2 demotion, true vacancy, Override
+Vacant, skip-first vacant sync, fan-recheck release); the per-room hold cap
+(`_ble_hold_cap_exceeded`, bathroom/closet default on, 2 h) measures from it and owns the cap NM.
+
+**Absence grace (BLE-LOCATION-QUALITY-1 D1, branch `fix/ble-grace-fleet-fraction`, NOT deployed;
+plan `docs/planning/PLANNING_ble_rearm_and_fleet_fraction.md` rev 2):** when no body signal fired, the
+failsafe has not latched and `get_persons_in_room` is empty, `_ble_absence_grace_applies` keeps the room
+occupied (source `"ble"`, `ble_persons` `[]`, diagnostic key `ble_absence_grace: True`, absent on every
+other tick) iff the chain is unbroken, `_ble_only_hold_since` is set, the cap is not exceeded (no NM from
+this branch), and either an open grace (`_ble_absent_since`) is younger than `BLE_ABSENCE_GRACE_S` (90 s,
+rung 1, 0 = off) or no grace has been spent in this episode (`_ble_grace_used`). ONE grace per BLE-only
+episode: a present read closes an open grace but does not reset `_ble_grace_used`; the second absent
+stretch in the same episode exits. Both fields are cleared together with `_ble_only_hold_since` at all
+seven episode-end sites. It never touches the anchor, `_became_occupied_time` or `_last_motion_time`, so
+the exit row (written up to 90 s later on a real BLE-only exit) keeps its `duration` meaning; a blip
+shorter than the window writes no exit/entry pair. Not persisted. Measured (D1.0, 7 days): 36 BLE-held
+exits, 84 % of short returns ≤ 81 s; replay: 2 of 36 held ≥ 30 min (both person read in-room every
+tick). The K-tick re-arm (rescues 10-29 06:34) is parked (plan §7).
 
 ## 5. Sensor fleet classes (summary — canonical doc is SENSOR_FLEET_CLASSES.md)
 

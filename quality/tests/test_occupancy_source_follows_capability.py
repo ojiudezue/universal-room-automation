@@ -519,6 +519,19 @@ def test_d2_fires_on_combined_sensor_only_tick():
     assert me._mmwave_demoted_latch is True
 
 
+def test_d2_demotion_ends_ble_only_episode():
+    """BLE-LOCATION-QUALITY-1 D1 paired clear at the D2 demotion site: a
+    demotion ends the BLE-only episode, so both absence-grace fields are
+    written (the shim never defines them, so a missing write raises)."""
+    data = {CONST.STATE_OCCUPIED: True,
+            CONST.STATE_OCCUPANCY_SOURCE: "occupancy_sensor", RADAR: True}
+    me = _run_d2(data)
+    assert data[CONST.STATE_OCCUPIED] is False
+    assert me._ble_only_hold_since is None
+    assert me._ble_absent_since is None
+    assert me._ble_grace_used is False
+
+
 def test_d2_does_not_fire_on_mmwave_label_when_not_radar_sole():
     """Sole-source at the D2 gate: label 'mmwave' but a ZV co-fires
     (radar_sole False) -> no demotion."""

@@ -1164,7 +1164,12 @@ class _PersonHarness:
         pc._proxy_unsub = None
         pc._fleet_healthy_since = None
         pc._fleet_armed_last = False
+        # D2 fleet-fraction fields (real __init__ defaults; cold memory).
+        pc._fleet_memory = []
+        pc._fleet_store = None
+        pc._effective_floor = 30
         pc._resolve_proxy_entity_id = lambda: None
+        pc._resolve_bermuda_entity_id = lambda _uid: None
 
         async def _noop(*a, **k):
             return None

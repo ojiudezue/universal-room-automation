@@ -33007,8 +33007,8 @@ cards:
 - id: PERSON-BLE-WINS-OVER-STALE-GPS-1
   title: "Person presence: BLE should win; a stale GPS 'home' held Oji home for hours after leaving (gps home from 14:03 restart + ble silent -> home 0.75, person_coordinator.py:390 row 10)"
   thread: presence
-  status: "done"
-  shipped_version: v5.103.91
+  status: shipped_organic
+  shipped_version: v5.103.96
   tier: 2
   created: "2026-10-24"
   origin: 'Operator 2026-10-24: "I left the house hours ago. It still says I home." then "Ble should win always and app/gps should support if available" and "We also don''t control a user setting it to not send location or not giving iOS permission". Also: companion location is less private; app now connects via the tunnel.'
@@ -33303,7 +33303,8 @@ cards:
   measured_2026_10_29_overnight: "ura overnight recorder read 02:03 CDT (HA MCP history, sensor.iphone_jaya_area + binary_sensor.jaya_bedroom_bedroom_4_occupied, same minute-step method as 10-28). NIGHT B full (10-27 22:00 -> 10-28 08:00): 23 area changes, 0 between 00:00 and 06:00, 0 bed<->bath flips, 1 jump to Garage A (07:23, on her way out). Sleep window 22:00-06:27: 0 changes, 0 vacancy. Vacant-while-BLE-in-suite = 27 min, ALL in one stretch 06:34:29-07:01:52 during wake-up: BLE hopped Jaya Bedroom -> Upstairs Hallway at 06:34:20, back to Jaya Bedroom 06:34:28, room went off 06:34:29 and stayed off 27 min although BLE read Jaya Bedroom for most of it (hops 06:40, 06:49, 06:59). Room re-occupied 07:01:52. NIGHT C partial (10-28 22:00 -> 10-29 02:03): BLE Jaya Bedroom from 21:56:37 with 0 changes; room occupied since 21:57:12; 0 vacancy. VERDICT: met-with-residual. The targeted mechanism (bed<->bath flip withdrawing the hold at night) is gone across 3 nights (flips 2/0/0, night vacancy 1/0/0 min vs 85/71 baseline). The literal close rule (<~10 min in-suite vacancy) failed on night B only because of the 27-min morning stretch, which is a DIFFERENT mechanism (hallway hop; hold not re-asserting when BLE returns) and is not fixed by the scanner_areas design. One morning is not a pattern and it is unknown whether she was in the room (a hallway step at 06:34 is plausible), so parked with a trigger rather than planned."
   title: "BLE room location flaps (Oji 76/h, Jaya 62/h raw Bermuda changes): act on the 10-23 3D-house/trilateration read: full-time proxy scanning, stairs-only floor change, hold last room when quiet; 3D twin parked"
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.96
   tier: 2
   created: "2026-10-25"
   origin: 'Operator 2026-10-23 asked for high-bar livability ideas from jumacabo.com 3D-house + bluetooth-trilateration posts (Reddit). Reply ranked 5 ideas; operator: "Ok on the baseline measurement" and pushed on 3D ("code driven blender model? Lovelace has limits"). Never carded; operator asked 2026-10-25 "Was it carded?"'
