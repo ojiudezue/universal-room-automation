@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "247",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_session",
+  "timestamp": "2026-11-01T17:20:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "OC replacement eval: slice-0 fixture harness rejected; live read-only eval with intercepted writes + vision context pack",
+  "summary": "Slice-0 showed Haiku 5.5 and Sonnet 5.5 failing, but an audit showed the harness was the failure: 59% of tool calls hit NOT_IN_SNAPSHOT because fixtures matched exact guessed names, and honest 'I couldn't read X' was scored as invented evidence. Operator rejected a frozen-copy redesign as too much work for this house; the eval becomes live reads against the real house, active calls intercepted, on 6-8 current incidents with known answers, fed the vision:157 context pack.",
+  "why": "Per-call canned fixtures cannot anticipate an exploring agent's questions, so the score measured fixture-name guessing, not diagnosis (Sonnet got the C01 root cause right and still failed on an absence statement). Live incidents in the 7-day recorder window have known answers and need no snapshot step; the context pack was already decided (vision:157) but never implemented.",
+  "implications": "Operator gave up on the current OC incarnation; Haiku/Sonnet verdicts are void until re-run. Cases expire with the 7-day recorder window and are not exactly repeatable. Cards OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1. Audit: docs/planning/AUDIT_oc_slice0_eval_validity.md.",
+  "revisit_trigger": "If live cases prove too unstable to compare models, revisit frozen snapshots for a small fixed set.",
+  "supersedes": "slice-0 Anthropic report verdict (both models FAIL)"
+}

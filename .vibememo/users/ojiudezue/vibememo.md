@@ -29,6 +29,8 @@
 
 **OC goes agent-first (critical).** Static detectors produced ~90% noise (72 real problems in 5,305 findings over 14 days). In one session, a manual context → reason → fix → verify loop found real faults: the solar counter flap, missing exit rows, and a Foyer BLE pull. So the OC becomes a URA-specialized nightly agent with tiered tools that acts alone only within risk tiers. R0 observes. R1 makes silent, reversible fixes (reloads, rechecks), verified and auto-demoted. R2 makes occupant-visible fixes, only for promoted fix types and never while the house sleeps. R3 never acts alone (restarts, battery/EV, locks, deletes, money). The only static trust machinery is an action log. R2 uses each coordinator's existing paths, because a unified request API would cost ~6 Tier-3 cycles against ~2. → [234](entries/234_oc_agent_first_risk_tiered.json)
 
+**OC eval pivots to live (critical, 11-01).** Slice-0 "both models fail" was a harness artifact: 59% of tool calls hit unmatched fixtures, and honest "couldn't read X" scored as invented evidence. The eval becomes live reads with intercepted writes on 6-8 current known-answer incidents, fed the context pack already specified at vision:157. Model verdicts void until re-run. → [247](entries/247_oc_eval_pivot_live_with_context_pack.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?
@@ -36,5 +38,5 @@
 - Halo S1b/S2: NM delivery and room `alert_lights` through Halo; the start-up delay should apply only on a real HA start.
 - Reserve governor and inclement rebuild: verify freezes versus wind as the outage cause before tuning.
 - Envoy stream add-on A/B/A: do peak battery cutouts return when it is re-enabled? → [167](entries/167_envoy_stream_addon_drives_peak_battery_cutouts.json)
-- Does HA 2026.10.4 (Envoy PR #183172) end the nightly ~23:06 native drop? If so, the stream SOC tier becomes backup only. → [243](entries/243_ec_source_failover_class_stream_soc_tier.json)
+- HA 2026.10.4 did NOT end the nightly Envoy drop (3 nights); stream SOC tier v5.103.93 is live and trusted, first outage test pending. → [243](entries/243_ec_source_failover_class_stream_soc_tier.json)
 - HVAC: the night still-sleeper corroborator, and reducing zones 2/3's Bryant schedules.

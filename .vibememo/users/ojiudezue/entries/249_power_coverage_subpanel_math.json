@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "249",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_session",
+  "timestamp": "2026-11-01T17:20:00Z",
+  "type": "decision",
+  "weight": "notable",
+  "title": "Energy attribution: sub-panel unmonitored = Vue balance \u2212 Vue 3B mains, counted once at house level",
+  "summary": "Coverage sums room energy_sensors + zone_energy_sensors + house_device_energy_sensors against the Envoy total; fields are kWh, nothing de-dups. Applied 11-01: 17 rooms re-mapped, 3 double counts removed, Emporia whole-house mains unused, new template sensor.sub_panel_unmonitored_energy_today at house level.",
+  "why": "The sub-panel sits under one SPAN breaker; Emporia's balance already contains the Vue 3B monitor's load (3B is not a Vue 3 clamp), so adding balance plus 3B circuits double counted ~4.3 kWh/day. Balance \u2212 3B mains is the real unclamped circuits (operator: too many clamps needed).",
+  "implications": "Expected ~94-99% attribution; zone watts/kWh still exclude zone-level loads (ZONE-LIVE-POWER-ROLLUP-1). Audit: docs/planning/AUDIT_power_coverage_unattributed.md.",
+  "revisit_trigger": "Full-day coverage delta below 0 or above ~10%."
+}

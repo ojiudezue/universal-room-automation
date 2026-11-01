@@ -1,0 +1,14 @@
+{
+  "format_version": "2.1",
+  "entry_id": "248",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_session",
+  "timestamp": "2026-11-01T17:20:00Z",
+  "type": "constraint",
+  "weight": "significant",
+  "title": "HA config backups (core.config_entries) never go in git; GitHub secret scanning blocked v5.103.95",
+  "summary": "A pre-change backup of core.config_entries committed under docs/dashboard-prototypes/ura-v8-backups contained API keys; GitHub push protection refused the deploy. The commit was unpushed (not on GitHub or Gitea); it was scrubbed from the unpushed range with filter-branch, refs/original and reflog purged, backup moved to ~/.ura-backups (chmod 600), then v5.103.95 shipped.",
+  "why": "core.config_entries holds every integration's credentials; the backups folder had only held dashboard/automation JSON before, so the habit of committing backups there was unsafe for this file type.",
+  "implications": "Config-entry backups live in ~/.ura-backups only. Also: saving integration-entry (parent) options reloads all of URA; today's reloads recovered cleanly (counters restored ~30 s).",
+  "revisit_trigger": "Any new backup step that copies .storage files into the repo."
+}
