@@ -150,6 +150,23 @@ class _MismatchCounts:
         return len(arr)
 
 
+@dataclass
+class _ReserveWitnessConfirm:
+    """EC reserve false-revert fix-up D1 — remembered witness confirmation.
+
+    A trusted native-Envoy reserve reading strictly within the dispatch
+    deadband of the commanded value ``value``, first seen at ``first_at``
+    (>= the ledger's commanded_at), last re-seen at ``last_at``. The cloud
+    oracle raw value read at the FIRST stamp is ``cloud_at_first`` (V);
+    the sweep gate qualifies only while the cloud still reads V. RAM only.
+    """
+
+    value: float
+    first_at: datetime
+    last_at: datetime
+    cloud_at_first: float
+
+
 class WriteVerifier:
     """Schedule, wait, compare — the delayed reconciliation loop.
 
@@ -259,6 +276,11 @@ class WriteVerifier:
         # cleared when the cloud matches the command.
         self._cloud_stale_check_latch: Optional[tuple] = None
         self._cloud_stale_sweep_latch: Optional[tuple] = None
+        # EC reserve false-revert fix-up D1 — remembered witness
+        # confirmation (RAM only; restart = None) and the ONE per-sweep
+        # witness read `(C, T_c, local, reason)` cached for the D3 gate.
+        self._reserve_witness_confirm: Optional[_ReserveWitnessConfirm] = None
+        self._sweep_witness: Optional[tuple] = None
         # D4 — enforced-vs-effective-desire dwell (RAM only; restart = 0).
         self._enforced_divergence_since: Optional[datetime] = None
         self._enforced_divergence_s: float = 0.0
@@ -585,6 +607,90 @@ class WriteVerifier:
             return abs(local - float(commanded)) < float(
                 _ec.RESERVE_DISPATCH_DEADBAND_PCT
             )
+        except Exception:  # noqa: BLE001
+            return False
+
+    # ------------------------------------------------------------------
+    # EC reserve false-revert fix-up D1 — remembered witness confirmation
+    # (PLANNING_ec_reserve_false_revert_fixup.md rev 2 §3.1 / §5 D1).
+    # ------------------------------------------------------------------
+    def _witness_memory_step(self, battery: Any) -> None:
+        """Stamp / clear the remembered witness confirmation. Runs as the
+        FIRST statement of the reserve `_sweep_surface`, above the STALE
+        fast path, on every sweep. Exactly one `trusted_local_reserve`
+        read; the result is cached on `_sweep_witness` for the gate in the
+        same sweep. Untrusted reasons (incl. "unavailable") neither stamp
+        nor clear. Never raises."""
+        try:
+            self._sweep_witness = None
+            from . import energy_const as _ec  # noqa: PLC0415
+            if not _ec.RESERVE_WITNESS_MEMORY_ENABLED:
+                return
+            cmd, cmd_at = self._commanded_ledger(
+                battery, WRITE_VERIFY_SURFACE_RESERVE,
+            )
+            if cmd is None or cmd_at is None:
+                self._reserve_witness_confirm = None
+                return
+            soc = self._read_soc_via_resolver(battery)
+            local, reason = self.trusted_local_reserve(battery, cmd, soc)
+            self._sweep_witness = (cmd, cmd_at, local, reason)
+            if local is None:
+                return  # untrusted / Envoy down: no change
+            now = dt_util.utcnow()
+            if abs(local - float(cmd)) < float(_ec.RESERVE_DISPATCH_DEADBAND_PCT):
+                mem = self._reserve_witness_confirm
+                if (
+                    mem is None
+                    or mem.value != float(cmd)
+                    or mem.first_at < cmd_at
+                ):
+                    oracle = self._oracle_entity_for(WRITE_VERIFY_SURFACE_RESERVE)
+                    raw = self._read_oracle_raw(oracle) if oracle else None
+                    if raw is None:
+                        return
+                    self._reserve_witness_confirm = _ReserveWitnessConfirm(
+                        value=float(cmd),
+                        first_at=now,
+                        last_at=now,
+                        cloud_at_first=float(raw),
+                    )
+                else:
+                    mem.last_at = now
+                return
+            # Trusted contrary reading (>= deadband away) → clear.
+            self._reserve_witness_confirm = None
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("witness memory step raised", exc_info=True)
+
+    def _witness_confirmed_for(
+        self, commanded: Any, commanded_at: Any, oracle_raw: Any,
+    ) -> bool:
+        """D1 gate: True iff the switch is on, the memory is for
+        (commanded, first_at >= commanded_at), this sweep's cached witness
+        read is for the same ledger with reason "unavailable", and the
+        cloud still reads the value V recorded at the first stamp. Never
+        raises (fails to False)."""
+        try:
+            from . import energy_const as _ec  # noqa: PLC0415
+            if not _ec.RESERVE_WITNESS_MEMORY_ENABLED:
+                return False
+            mem = self._reserve_witness_confirm
+            if mem is None or commanded is None or oracle_raw is None:
+                return False
+            if not isinstance(commanded_at, datetime) or commanded_at.tzinfo is None:
+                return False
+            if mem.value != float(commanded) or mem.first_at < commanded_at:
+                return False
+            sw = self._sweep_witness
+            if sw is None:
+                return False
+            sw_cmd, sw_at, _sw_local, sw_reason = sw
+            if float(sw_cmd) != float(commanded) or sw_at != commanded_at:
+                return False
+            if sw_reason != "unavailable":
+                return False
+            return float(oracle_raw) == mem.cloud_at_first
         except Exception:  # noqa: BLE001
             return False
 
@@ -1013,6 +1119,11 @@ class WriteVerifier:
             _LOGGER.debug("reversion_sweep raised (swallowed)", exc_info=True)
 
     async def _sweep_surface(self, battery: Any, surface: str) -> None:
+        # EC reserve false-revert fix-up D1 — witness memory stamp/clear is
+        # its own step ABOVE the STALE fast path (a contrary reading seen
+        # while the record is STALE must still clear the memory).
+        if surface == WRITE_VERIFY_SURFACE_RESERVE:
+            self._witness_memory_step(battery)
         # v5.17.2 — a STALE record has been retired: strategy's current
         # desire equals oracle, so the old command is no longer wanted.
         # Skip entirely — no re-read, no re-stamp, no mismatch increment,
@@ -1192,7 +1303,14 @@ class WriteVerifier:
         if (
             surface == WRITE_VERIFY_SURFACE_RESERVE
             and not self.is_pending_episode_active(surface)
-            and self._local_confirms(battery, commanded)
+            and (
+                self._local_confirms(battery, commanded)
+                # Fix-up D1: a remembered witnessed landing, Envoy down,
+                # cloud unchanged since the first confirmation.
+                or self._witness_confirmed_for(
+                    commanded, commanded_at, oracle_raw,
+                )
+            )
         ):
             rec.status = STATUS_CLOUD_STALE
             await self._note_cloud_stale("sweep", battery, commanded, oracle_raw)
@@ -2778,6 +2896,18 @@ class WriteVerifier:
         # EC reserve oracle phase 2 D4.
         out["reserve_enforced_divergence_s"] = round(
             float(self._enforced_divergence_s or 0.0)
+        )
+        # EC reserve false-revert fix-up D1 — witness memory (display only).
+        _wm = self._reserve_witness_confirm
+        out["reserve_witness_confirm"] = _wm.value if _wm else None
+        out["reserve_witness_confirm_first_at"] = (
+            _wm.first_at.isoformat() if _wm else None
+        )
+        out["reserve_witness_confirm_last_at"] = (
+            _wm.last_at.isoformat() if _wm else None
+        )
+        out["reserve_witness_cloud_at_first"] = (
+            _wm.cloud_at_first if _wm else None
         )
         # H1 (2026-07-13): expose write_route per surface so the operator
         # can SEE which leg (cloud|local) URA is writing to right now.
