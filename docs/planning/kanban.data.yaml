@@ -33291,6 +33291,16 @@ cards:
   origin: "Operator 2026-11-01: the standing context pack needs iteration; it should feel like the context you have; it should know HA and URA basically - ground truth docs etc."
   why: "Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; CLAUDE.md + feedback memories; ranked goals). The slice-0 eval did NOT implement it: each case got only 2-3 context lines plus tools that answered exact names (AUDIT_oc_slice0_eval_validity.md)."
   next: "Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases."
+- id: URAV8-ZONE-ENERGY-DISPLAY-1
+  title: "ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab"
+  thread: dashboard
+  status: planned
+  tier: 1
+  created: "2026-11-01"
+  origin: "Operator 2026-11-01: maybe add energy to the zone chips under 'rooms' in the ura-v8 dashboard; and a house zone energy use card in the energy tab - chart? pie chart?"
+  depends_on: ZONE-LIVE-POWER-ROLLUP-1
+  why: "Zone energy/power sensors exist (sensor.zone_<name>_energy_today / _total_power) and gain zone-level loads with ZONE-LIVE-POWER-ROLLUP-1. Caution: the Rooms view also renders on wall panels (URA-V8-PANEL-RENDER-SPIN-1, CPU spin) - chips must reuse already-rendered cards/templates, not add auto-entities or heavy templates."
+  next: "After ZONE-LIVE-POWER-ROLLUP-1 ships: back up the dashboard; add kWh today (and W) to each zone chip; add an Energy-tab card with today's kWh per house zone plus an 'unattributed' slice (house total minus zones) - pie for share, bar for comparison; verify on one panel that CPU does not rise."
 - id: BLE-LOCATION-QUALITY-1
   measured_2026_11_01: "Re-measure 10-26..10-31 (6 nights): Jaya BLE in Jaya Bedroom 98.7% of occupied night minutes (10-25 pre-change 71%); 00-06 area changes 17-24/night vs 620-765 baseline. Residual mechanism FOUND (trace 11-01): on 10-28 and 10-29 at ~06:34 the room was held by BLE only (both radars off), an ~8-11 s Upstairs Hallway blip made get_persons_in_room empty for one tick, occupied went off, and BLE could not re-create it (coordinator.py:4154-4155 ble_allowed = _last_occupied_state, BLE-WARM-CREATE-1 extend-only at 4084-4124) until the next radar edge 27-30 min later. 10-30 survived because a radar was on during the blip. Fix candidate (Tier 2, presence): allow BLE to re-arm the chain when the same person returns to the same room within a short window (~120 s) of a BLE-held exit and stays >= ~60 s; keep bleed protections. Operator 11-01: do it (list work)."
   next: "PLANNED: write the re-arm plan (Tier 2, one plan review), build, 3 reviews, deploy."
