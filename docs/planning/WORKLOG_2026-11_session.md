@@ -12,3 +12,4 @@
 **Findings:** OC slice-0 eval measured harness defects (AUDIT_oc_slice0_eval_validity.md); plan = live eval with intercepted writes + vision:157 context pack (OC-CONTEXT-PACK-1) · Jaya 06:34 vacancy = one-tick BLE blip with no re-arm (fix in BLE grace build) · HVAC borrows clean · zone sweep working as designed, card HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 · zone watts exist as room roll-up, zone-level loads excluded (ZONE-LIVE-POWER-ROLLUP-1) · READMEs .86-.88 validated retrospectively.
 - 2026-11-01 11:01 **v5.103.95** — v5.103.95: no false "Envoy write reverted" page at the nightly Envoy drop (cards: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1)
 - 2026-11-01 11:06 **v5.103.96** — v5.103.96: a short Bluetooth blip no longer empties a room; BLE-leads floor scales with the fleet (cards: BLE-LOCATION-QUALITY-1,PERSON-BLE-WINS-OVER-STALE-GPS-1)
+- 2026-11-01 11:46 **v5.103.97** — v5.103.97: zone power and energy include zone-level loads (cards: ZONE-LIVE-POWER-ROLLUP-1)

@@ -33277,7 +33277,8 @@ cards:
 - id: ZONE-LIVE-POWER-ROLLUP-1
   title: "Zone watts/energy exclude zone-specific loads: ZoneTotalPowerSensor and ZoneEnergyTodaySensor sum rooms only; zone_power_sensors is unread and zone_energy_sensors feeds only house coverage"
   thread: energy
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.103.97
   tier: 2
   created: "2026-11-01"
   origin: "Operator 2026-11-01: wants live per-zone watts; base assumption is a roll-up of rooms and maybe anything zone specific."
