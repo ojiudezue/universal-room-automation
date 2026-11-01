@@ -26,3 +26,5 @@ Real revert with the Envoy up; cloud moves during an outage; never-landed comman
 | Load clean | No URA ERROR after restart |
 
 Note: deployed 2026-11-01 without restart (operator); takes effect at the next restart.
+
+Deploy note: first push attempt was refused by GitHub secret scanning (a config backup with API keys had been committed in an unrelated docs commit); that file was removed from the unpushed history and kept outside git before this release was pushed.
