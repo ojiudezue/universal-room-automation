@@ -6067,6 +6067,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
             CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
             CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+            # EC-SOURCE-FAILOVER D1.2 — per-house stream max age (s).
+            CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+            SOC_STREAM_MAX_AGE_MIN_S,
+            # Fix-up D-MED-1: stream != native; > primary max age needs a
+            # heartbeat (REUSED DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S).
+            CONF_ENERGY_BATTERY_SOC_ENTITY,
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
             DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -6164,6 +6171,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # EC-DEGRADED-DATA-POLICY-1 D1 stream tier fields.
                     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
                     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+                    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
                     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                     # D2 detection knobs live in the same section.
                     CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
@@ -6232,6 +6240,74 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "guard_kw_required_when_enabled"
                 )
                 errors.setdefault("base", "guard_kw_required_when_enabled")
+
+            # EC-SOURCE-FAILOVER D1.2 — stream max age: 0 / blank = off
+            # (mode "b"); a non-zero value below SOC_STREAM_MAX_AGE_MIN_S
+            # would make every read stale (trust never earns) → reject.
+            _sm_raw = user_input.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S)
+            if _sm_raw not in (None, ""):
+                try:
+                    _sm_val = float(_sm_raw)
+                except (TypeError, ValueError):
+                    _sm_val = None
+                if _sm_val is None or (
+                    _sm_val != 0 and _sm_val < SOC_STREAM_MAX_AGE_MIN_S
+                ):
+                    errors[CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S] = (
+                        "stream_max_age_too_small"
+                    )
+                    errors.setdefault("base", "stream_max_age_too_small")
+
+            # Fix-up D-MED-1 — effective (merged) stream wiring checks.
+            # (1) the stream must not be the native SOC entity itself: it
+            #     would earn trust instantly and serve a frozen native value
+            #     past the primary staleness gate.
+            # (2) a max age above the native SOC max age needs a heartbeat
+            #     (co-witness), the frozen-source detector.
+            _sf = {
+                **self._config_entry.data, **self._config_entry.options,
+                **user_input,
+            }
+            if isinstance(_cv, dict) and user_input.get(
+                CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+            ) in (None, ""):
+                _sf.pop(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None)
+            _sf_stream = _sf.get(CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY)
+            _sf_native = _sf.get(CONF_ENERGY_BATTERY_SOC_ENTITY)
+            if not _sf_native:
+                # Fix-up D2-MED-1: the native SOC entity is normally derived
+                # from the Envoy serial at setup (same derivation as
+                # __init__.py `derive_envoy_config`), never stored.
+                from .domain_coordinators.energy_const import (
+                    CONF_ENERGY_ENVOY_ENTITY as _ENVOY_KEY,
+                    derive_envoy_config as _derive,
+                    extract_envoy_serial as _serial_of,
+                )
+                _sf_serial = _serial_of(str(_sf.get(_ENVOY_KEY) or ""))
+                if _sf_serial:
+                    _sf_native = _derive(_sf_serial).get(
+                        CONF_ENERGY_BATTERY_SOC_ENTITY,
+                    )
+            if _sf_stream and _sf_native and _sf_stream == _sf_native:
+                errors[CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY] = (
+                    "stream_entity_is_native"
+                )
+                errors.setdefault("base", "stream_entity_is_native")
+            try:
+                _sf_age = float(
+                    _sf.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S) or 0
+                )
+            except (TypeError, ValueError):
+                _sf_age = 0.0
+            if (
+                _sf_stream
+                and _sf_age > DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S
+                and not _sf.get(CONF_ENERGY_STREAM_COWITNESS_ENTITY)
+            ):
+                errors[CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S] = (
+                    "stream_max_age_needs_heartbeat"
+                )
+                errors.setdefault("base", "stream_max_age_needs_heartbeat")
 
             # EC-SOC-LADDER-XVALIDATE-1 — cross-field SOC ladder check at
             # save time. Reject an inverted ladder at the SOURCE with a
@@ -6376,6 +6452,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             saved_options = {**self._config_entry.options, **user_input}
             if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
                 saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+            # Fix-up A/B-LOW (blank max age): same drop-key-on-blank pattern
+            # as the solar override above. A blank (omitted / "") or 0
+            # stream max age removes the key, so blank == 0 == unset (mode
+            # "b") and a 0-vs-unset save is not an option change (no parent
+            # reload). Only when the cloud_verification section was
+            # submitted (absent section = untouched).
+            if isinstance(_cv, dict):
+                _sm_v = user_input.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S)
+                try:
+                    _sm_off = _sm_v in (None, "") or float(_sm_v) == 0
+                except (TypeError, ValueError):
+                    _sm_off = True
+                if _sm_off:
+                    saved_options.pop(
+                        CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None,
+                    )
             # EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 D4: the two statistic
             # ids are clearable like the solar override above: omitted or
             # blank = key removed (feature off), never persisted as "".
@@ -7479,6 +7571,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     },
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
+                ),
+                # EC-SOURCE-FAILOVER D1.2 — optional, NO default: unset/0 =
+                # freshness mode "b" (identical to today); > 0 = mode "a".
+                # Non-zero < SOC_STREAM_MAX_AGE_MIN_S rejected on submit.
+                vol.Optional(
+                    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S, None,
+                        ),
+                    },
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=3600, step=10,
+                        unit_of_measurement="s",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
                 ),
                 # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                 # D2 detection knobs (rung-2). Bounds sanity-checked

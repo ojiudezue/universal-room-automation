@@ -1,0 +1,18 @@
+{
+  "format_version": "2.1",
+  "entry_id": "243",
+  "author": "ojiudezue",
+  "session_id": "claude_20261030_ec_source_failover",
+  "timestamp": "2026-10-30T15:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "EC battery SOC gets a second local source (enphase_realtime stream tier), earned-trust gated; cloud freshness change rejected",
+  "summary": "Every night the native Envoy SOC drops ~13-23 min and EC runs blind 8-17 min (~1.5 h/week), engaging blind hold and the EVSE blind guard. Approved Tier-3 build: enable the existing stream SOC tier fed by enphase_realtime battery_2, trusted only after 3 agreeing samples vs native, lapsing after 6 h, with a 60 s reconnect settle and a slew backstop. Per-house max-age option added for other houses.",
+  "why": "enphase_realtime stayed up through all 7 measured nightly drops, with max 1 pp diff vs native. Operator asked to treat it as a class of failure with configurable fallbacks. Admitting cloud SOC via last_reported was dropped: it re-admits frozen values (10-02 cloud said 10% while true SOC was 29%).",
+  "implications": "With the stream serving, SOC is known, so the EVSE blind guard stands down (operator ruling). A stream entity left unset must behave identically to develop (INV-SF4). The settle window plus slew check replaces the card's payload-timestamp rule, since the realtime integration has no data timestamp. Operator sets the entity, co-witness and 120 s max age in the daytime after deploy.",
+  "revisit_trigger": "HA 2026.10.4 (upstream Envoy PR #183172) ends the nightly drop: the fallback becomes backup only. stream_unproven_native_fresh_s >3600 s: build the parked stuck-unproven NM. Cloud-vs-Envoy p95 <=3 pp over 7 days: revisit the cloud tier.",
+  "refs": {
+    "cards": ["ENVOY-STREAM-SOC-TIER-1", "ENVOY-FLAKINESS-181243-1"],
+    "docs": ["docs/planning/PLANNING_ec_source_failover_class.md", "docs/planning/AUDIT_ec_source_failover_d0_probes_2026_10_29.md", "docs/planning/AUDIT_envoy_stream_fallback_resolver_validity_2026_10_29.md"]
+  }
+}

@@ -56,6 +56,7 @@ from .energy_const import (
     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
     CONF_ENERGY_CLOUD_LAST_SUCCESS_ENTITY,
     CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+    CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S,
     CONF_ENERGY_STREAM_COWITNESS_ENTITY,
     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
     CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
@@ -188,6 +189,20 @@ class _DPSkip(Exception):
     (off_peak-only) is closed. Distinct from generic Exception so the
     broad `except Exception` swallow doesn't emit a spurious debug log
     on the (frequent) gate-closed path."""
+
+
+def _parse_stream_max_age_s(raw: Any) -> int | None:
+    """EC-SOURCE-FAILOVER D1.2 — option value → int seconds or None.
+
+    None / "" / unparseable / <= 0 → None (the rung-1 default, mode "b").
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    return val if val > 0 else None
 
 
 class EnergyCoordinator(BaseCoordinator):
@@ -329,6 +344,11 @@ class EnergyCoordinator(BaseCoordinator):
                 CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED, False
             ),
             solcast_day_3_entity=ec.get(CONF_ENERGY_SOLCAST_DAY_3_ENTITY),
+            # EC-SOURCE-FAILOVER D1.2: numeric option → typed attr (NOT the
+            # entity map, which holds entity ids only).
+            stream_max_age_s=_parse_stream_max_age_s(
+                ec.get(CONF_ENERGY_STREAM_BATTERY_SOC_MAX_AGE_S)
+            ),
         )
         # v5.15.x D1 — Envoy write-verification tripwire. Read-only
         # (invariant W-6). Back-reference on the strategy so
@@ -1837,10 +1857,11 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
             # EC-DEGRADED-DATA-POLICY-1 D1 — stream-tier trust state. A
-            # persisted `quarantined` survives restart; an absent key (or a
-            # row older than STALE_MAX_AGE_HOURS, plan review #1 C1-6)
-            # restores as the default `trusted` — a native comparison
-            # re-quarantines within 2 compared samples.
+            # persisted `quarantined` survives restart; a persisted `trusted`
+            # restores as `unproven`, and an absent key (or a row older than
+            # STALE_MAX_AGE_HOURS, plan review #1 C1-6) keeps the init
+            # `unproven` (EC-SOURCE-FAILOVER D2): trust is re-earned against
+            # native after every restart.
             # D4 / R2-8 — page latches (own key: persists with D1 dormant).
             for _key, _fn in (
                 ("battery_soc_stream_trust", "restore_stream_trust_snapshot"),

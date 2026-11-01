@@ -35,3 +35,15 @@ A: scanner FIX-REQUIRED (decorator misplaced, fixed 7a690736f + test), energy/di
 - No new `tripped_breaker` CRITICAL rows for idle circuits in the first hours.
 - Safety diagnostics `sensors_available` < total while known-dead sensors are dead.
 - The three un-excluded sensors write new recorder rows.
+
+## Validated 2026-10-26 (restart 10:05–10:09 CDT, house away)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| No URA ERROR after restart | FAIL (pre-existing path, not this release) | system_log: one URA ERROR, `energy.py:1255` "Energy DB restore timed out after 15s — starting with defaults" (10:06). energy.py is not in this release's diff. Effect: EC `energy_import_today` 27.3 → 0.0 and `energy_cost_today` 2.35 → 0.0 at 10:06:51; today's counters restart from zero until midnight. The 10-25 17:33 restart restored correctly (55.17 → 55.19). Carded EC-DB-RESTORE-TIMEOUT-1. All other ERRORs are non-URA (BLE desk, Tuya, Lepro, Frigate faces timeout, kiosk websocket backlog at boot) |
+| Whole-house cost today = EC cost today | PASS (weak) | Both 0.0; `cost_source: energy_coordinator_cost_today`. Both read zero because of the restore reset above, so this doesn't show the two track each other under load |
+| Forecast factor < 1.3 | PASS | `sensor.ura_energy_coordinator_energy_forecast_today` `adjustment_factor` 0.927 (was 1.3); forecasted consumption 137.4 kWh (`dow_legacy`; shadow 119.6) |
+| No idle tripped_breaker rows | PASS | anomaly_log `metric_name=energy.circuit_tripped_breaker` rows since restart: 0 (96 in the prior 24 h); circuit_anomaly normal, 49 monitored |
+| Safety available < total | PASS | safety_diagnostics `sensors_available` 88 / `sensors_total` 94 (degraded) |
+| Un-excluded sensors recording | PASS | predicted_energy_today 61.3 (10:07), whole_house_energy_today 0.011 and whole_house_power 5112 W (10:15) |
+| person.wall_kiosk | as expected | state `unknown` |

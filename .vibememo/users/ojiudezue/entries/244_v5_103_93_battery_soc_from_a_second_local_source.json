@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "244",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_150552_ship_v5_103_93",
+  "timestamp": "2026-11-01T15:05:52Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.93 shipped: Battery SOC from a second local source when the main Envoy source drops",
+  "summary": "Battery SOC from a second local source when the main Envoy source drops",
+  "why": "The Envoy coordinator fails nightly around 23:00 when production.json?details=1 hangs, taking native battery SOC unavailable for 30-55 minutes while the realtime battery sensor from another integration keeps reporting. EC falls back to last-known-good SOC in that window. A trusted second local source closes the gap without touching the native path; trust gating, settle and slew bound keep a junk reconnect value out.",
+  "implications": "Shipped ENVOY-STREAM-SOC-TIER-1 at v5.103.93; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.93.md (Live criteria).",
+  "revisit_trigger": "Revisit if the stream serves while native is available, if trust never reaches 3 agreements in daytime, or if the upstream Envoy per-endpoint isolation fix lands and drops stop.",
+  "refs": {
+    "cards": [
+      "ENVOY-STREAM-SOC-TIER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.93.md"
+    ],
+    "release_notes": "Optional local battery stream tier for EC SOC: used only while native SOC is unavailable, after earning trust (3 agreements, 6h freshness), with 60s reconnect settle and slew bound. Unset = no change. Options flow rejects stream==native and max age >300s without heartbeat. Tier 3, reviews A-D, name-diff clean."
+  }
+}

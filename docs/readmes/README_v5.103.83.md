@@ -63,5 +63,8 @@ At the plan's 900 s the same replay gave a house median of 5 fires/day and 11 in
 | Sensor evaluates with attributes | PASS | Study A, weekday 18:00 cell: `expected_share 0.3026`, `cell_days 40`, `cell_samples 466`, `learning_status ok`, `usual_people` Oji; Kitchen: `expected_share 0.1848`, usual people Jaya 0.56 / Oji 0.32 / Ezinne 0.10; both `off` (rooms vacant) |
 | Measures dwell, not arrivals | PASS | Study A weekday share 0.30 at 18:00 (old Bayesian model gave ~0.01) |
 | Exit rows on vacancy | PASS (rate) | occupancy_events today (UTC): 240 entry / 228 exit, normal daily rate; no burst after the restart |
-| NULL-duration exit on fan/failsafe vacate | PENDING | no such vacate since the restart (0 NULL-duration exits so far) |
-| Replay G1-G4 after a week live | PENDING | `scripts/probes/occupancy_dwell_backtest.py --days 7` |
+| NULL-duration exit on fan/failsafe vacate | PASS (2026-10-28) | occupancy_events since 10-21: 1,880 exit rows, 33 with NULL duration (latest 2026-10-28T01:43:47) |
+| Replay G1-G4 after a week live | PASS (2026-10-28) | Probe `--days 7` (10-21..10-27, 47 rooms, writer healthy, null_share 0): at the shipped setting (48-day model, 0.02, 1800 s) the replay gives 0 fires (G1 true); G2 vacuous (no fires); G3 Study A weekday 09-17 share 0.533, 0 daytime fires; G4 47/47 rooms fully learned, weekend cells max 16 days |
+| Live fires (one week) | 0 fires | `anomaly_log` `occupancy.dwell_anomaly`: 0 rows ever. Recorder: 9 enabled `binary_sensor.*_occupancy_anomaly`, 0 `on` states since 10-21. Matches the replay. Sensor is evaluating, not stuck: `binary_sensor.studya_room_device_occupancy_anomaly` `model_status ok`, refreshed 10-28 03:40 CDT, `expected_share 0.594`. No fires = nothing for the operator to judge; it also means the row-shape criterion is still unexercised live |
+
+Note: at 1800 s the sensor is very quiet. The replay fired 7 times in the week at 900 s with threshold 0.02 (max 2 per room, G1 still true), so 900 s is the knob to turn if the operator wants some signal.
