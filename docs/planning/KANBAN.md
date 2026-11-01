@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T09:05:52-06:00_ - _Data commit: `107f1400ed5f`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T10:17:15-06:00_ - _Data commit: `17c097927fb6`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -10,14 +10,14 @@ _Generated: 2026-11-01T09:05:52-06:00_ - _Data commit: `107f1400ed5f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 12 |
+| 📝 Planned | 11 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 1 |
+| 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 107 |
 | ✅ Done | 395 |
 
@@ -26,10 +26,16 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1` - Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-11-01_
+- **Why:** Check 11-01 (prober, recorder 7 d): HVACCoordinator._execute_vacancy_sweep (hvac.py:6716; gates hvac.py:3023-3046, 3099-3121; reset hvac_zones.py:1139-1142) is working as designed with no firing in an occupied zone, but 172 fires in 7 d ...
+- **Next:** MEASURE first: (a) per sweep, which entities were actually ON at fire time and turned off by the sweep (not the room tier) - 'when it worked'; (b) of those, how many belong to rooms whose own automation would have turned them off anyway ...
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -217,7 +223,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (12)
+## 📝 Planned (11)
 _has plan / acceptance_
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#1 · WSJF 5.0 · v2 tc1 u2 /e1_
@@ -284,20 +290,7 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `REFUTED_2026_09_21`: THE CARD'S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python 3.13 such that 10,560 of 10,588 tests ERROR out, and tha...
 
-### `EC-DB-RESTORE-TIMEOUT-1` - Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0 — _#5 · WSJF 3.3 · v5 tc3 u2 /e3_
-thread: **energy** - status: **planned**
-_created 2026-10-26 · updated 2026-10-27 02:03 · refined_
-- **Problem / Solution:**
-  - Problem: when Home Assistant restarts, the Energy Coordinator reloads its saved state in one 14-step chain with a single 15-second time limit. About one restart in eight the chain runs out of time, and every step after the stall is skipp...
-- **Why:** energy_import_today 27.3 -> 0.0 and energy_cost_today 2.35 -> 0.0 at 10:06:51; whole-house cost today (now sourced from EC since v5.103.92) under-reads until midnight. The 10-25 17:33 restart restored fine, so it is intermittent (likely ...
-- **Next:** Me: Tier-2 build at the next pass with review-lane room (WIP cap): per-step timeouts in _restore_all_sequential, log which step stalled, retry skipped steps once on EVENT_HOMEASSISTANT_STARTED (reuse the _span_scope_migration_repass patt...
-- **Forensic keys (4):**
-  - `tier`: 2
-  - `measured_2026_10_27`: Overnight one-shot read-only probe (HA recorder home-assistant_v2.db, events homeassistant_start + states of sensor.ura_energy_coordinator_energy_cost_today / _import_today). 17 HA restarts 10-20 02:08 .. 10-26 10:09. Cost-today 15 min b...
-  - `mechanism_2026_10_27`: Code: energy.py:1250-1257 wraps _restore_all_sequential (energy.py:1552-1572) in ONE asyncio.wait_for(timeout=15.0). Steps in order: cycle, accuracy, peak_import, temp_regression, evse, circuit, energy_baselines, consumption_history, pow...
-  - `gate_2026_10_27`: Validity: STILL-REAL (2 of 17 restarts). Config-first: no knob governs the 15 s budget or the order; no setting fixes it. Prior art: REUSE the existing per-step try/except pattern in the restore methods and the existing post-started repa...
-
-### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#6 · WSJF 3.0 · v8 tc5 u2 /e5_
+### `SAFETY-NO-INITIAL-SENSOR-PASS-1` - After a restart or URA reload, Safety does not know about a smoke/CO/leak detector that is still on — _#5 · WSJF 3.0 · v8 tc5 u2 /e5_
 status: **planned** - approval: **explicit**
 _updated 2026-10-21 22:05_
 - **Why:** Safety learns hazards only from state-change events; _async_periodic_check evaluates no sensors and setup reads no current states (plan review N1). So a detector still ON across a restart leaves _active_hazards empty: no hazard entity, a...
@@ -315,7 +308,7 @@ _updated 2026-10-21 22:05_
   - `related`: SAFETY-NM-REFIRE-UNWIRED-1
   - `groom_2026_10_18_overnight`: Next rewritten: the PICK was answered (operator approved on the board 10-17 22:59 CDT; triage took the recommended defaults). Its blocker (safety re-page merge) has cleared - feature/safety-nm-refire is 0 commits ahead of develop and con...
 
-### `HVAC-COMFORT-DEVIATION-PRODUCER-1` - HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire — _#7 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `HVAC-COMFORT-DEVIATION-PRODUCER-1` - HVAC anomaly comfort_deviation_hours has no producer: build a daily per-zone emit so a long setpoint miss (e.g. zone 2 212 min +8F) becomes an anomaly trip-wire — _#6 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **hvac** - status: **planned**
 _created 2026-10-24 08:00_
 - **Origin:** 2026-10-24 - operator asked what HVAC anomaly partial means; README_v5.103.25 s5 named this card but it was never minted
@@ -325,7 +318,7 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: NEW. Swept board (HVAC-ANOMALY-BLIND-1 done, HVAC-BASELINE-MAXSAMPLES-1 parked, RESTART-SAFETY-DOCTRINE-1 planned = adjacent), BACKLOG, PLANNING_anomaly_detector_blind_metrics/hvac_short_cycle_producer. No existing card.
 
-### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#8 · WSJF 2.3 · v3 tc2 u2 /e3_
+### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#7 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **diagnostics** - status: **planned**
 _created 2026-10-24 08:00_
 - **Origin:** 2026-10-24 - grooming of the five unminted README_v5.103.25 s5 follow-ups
@@ -335,7 +328,7 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#8 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -352,7 +345,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#9 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -372,7 +365,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#10 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -407,7 +400,7 @@ _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#11 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1142,10 +1135,23 @@ _created 2026-10-14 02:50 · updated 2026-10-28 02:03 · refined_
   - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🚀 Shipped (organic open) (1)
+## 🚀 Shipped (organic open) (2)
 _live, awaiting proof_
 
-### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#1 · WSJF 2.6 · v8 tc6 u7 /e8_
+### `EC-DB-RESTORE-TIMEOUT-1` - Energy Coordinator boot restore timed out (15 s) on the 10-26 restart and reset today's import/cost counters to 0 — _#1 · WSJF 3.3 · v5 tc3 u2 /e3_
+thread: **energy** - status: **shipped_organic**
+_created 2026-10-26 · updated 2026-10-27 02:03 · refined_
+- **Problem / Solution:**
+  - Problem: when Home Assistant restarts, the Energy Coordinator reloads its saved state in one 14-step chain with a single 15-second time limit. About one restart in eight the chain runs out of time, and every step after the stall is skipp...
+- **Why:** energy_import_today 27.3 -> 0.0 and energy_cost_today 2.35 -> 0.0 at 10:06:51; whole-house cost today (now sourced from EC since v5.103.92) under-reads until midnight. The 10-25 17:33 restart restored fine, so it is intermittent (likely ...
+- **Next:** Me: Tier-2 build at the next pass with review-lane room (WIP cap): per-step timeouts in _restore_all_sequential, log which step stalled, retry skipped steps once on EVENT_HOMEASSISTANT_STARTED (reuse the _span_scope_migration_repass patt...
+- **Forensic keys (4):**
+  - `tier`: 2
+  - `measured_2026_10_27`: Overnight one-shot read-only probe (HA recorder home-assistant_v2.db, events homeassistant_start + states of sensor.ura_energy_coordinator_energy_cost_today / _import_today). 17 HA restarts 10-20 02:08 .. 10-26 10:09. Cost-today 15 min b...
+  - `mechanism_2026_10_27`: Code: energy.py:1250-1257 wraps _restore_all_sequential (energy.py:1552-1572) in ONE asyncio.wait_for(timeout=15.0). Steps in order: cycle, accuracy, peak_import, temp_regression, evse, circuit, energy_baselines, consumption_history, pow...
+  - `gate_2026_10_27`: Validity: STILL-REAL (2 of 17 restarts). Config-first: no knob governs the 15 s budget or the order; no setting fixes it. Prior art: REUSE the existing per-step try/except pattern in the restore methods and the existing post-started repa...
+
+### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#2 · WSJF 2.6 · v8 tc6 u7 /e8_
 thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-09-25 18:00 · updated 2026-10-31 02:14 · refined ×2_
 - **Problem / Solution:**
