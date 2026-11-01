@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-30T02:01:59-05:00_ - _Data commit: `f973c26b8542`_ - _last_reconciled: 2026-10-31_
+_Generated: 2026-10-31T02:04:31-05:00_ - _Data commit: `b4a149c03930`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -464,7 +464,7 @@ _created 2026-10-25 02:08 · updated 2026-10-29 02:05 · initial_
 
 ### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **hvac** - status: **review** - approval: **implied**
-_created 2026-10-23 02:05 · updated 2026-10-29 02:05 · refined_
+_created 2026-10-23 02:05 · updated 2026-11-01 02:05 · refined_
 - **Problem / Solution:**
   - Problem: two AC-ramp savings sensors say they count 'since the feature was turned on', but they only add up the last 30 days, because old rows are deleted from the database each night. So they go DOWN every midnight. They also show 0 for...
 - **Origin:** 2026-10-23 - overnight pass: HA system_log warning 'ura_hvac_coordinator_ac_kwh_avoided_total ... total_increasing, but its state is not strictly increasing (382.871, previous 402.521)' at 00:00:59 CDT
@@ -472,7 +472,8 @@ _created 2026-10-23 02:05 · updated 2026-10-29 02:05 · refined_
 - **Tags:** found-during-probe, measure-before-build, no-fabrication-verify
 - **Parsimony:** [SIMPLIFY] Two sensors declared as cumulative totals drop every midnight and read 0 at every restart, corrupting HA long-term statistics
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/hvac_override.py:656,2048-2170,5054; custom_components/universal_room_automation/database.py:9100-9140,9237; custom_components/universal_room_automation/sensor.py:13828-13880,14023-14040; docs/planning/PLANNING_hvac_kwh_avoided_savings.md:59
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `mergeprep_2026_11_01_overnight`: Merge-prep re-check 02:03 CST 11-01: integ/overnight-2026-10-27 (28 behind develop) and feature/ec-stream-soc-tier (4 behind) both merge clean (git merge-tree); develop has no custom_components/ or quality/ changes since either merge-bas...
   - `mergeprep_2026_10_29_overnight`: integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validati...
   - `tier`: 1
   - `built_2026_10_26`: Built (fix/hvac-kwh-avoided-restart-zero 1d87a8c48, ura-builder, worktree). One shared check _ACRampImpactSensorMixin._get_refreshed_cache() returns the cache only after last_refresh_ts is set; all 9 impact sensors read through it. Befor...
@@ -516,7 +517,7 @@ _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
 thread: **security** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-07 03:05 · updated 2026-10-29 02:05 · initial_
+_created 2026-10-07 03:05 · updated 2026-11-01 02:05 · initial_
 - **Problem / Solution:**
   - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
 - **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
@@ -525,7 +526,8 @@ _created 2026-10-07 03:05 · updated 2026-10-29 02:05 · initial_
 - **Tags:** config-only
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
-- **Forensic keys (23):**
+- **Forensic keys (24):**
+  - `reverified_2026_11_01_overnight`: STILL-REAL 02:01 CST 11-01 (live ha_get_state): lock.doorlock_kwikset_zwave_frontentry unavailable since 10-30 06:23 (the last restart); kitchen smoke binary_sensor.smoke_sensor_s1_smoke unavailable; BP1_B distance sensor unavailable; sw...
   - `verified_2026_10_27`: Still needed. 02:05 CDT: lock.doorlock_kwikset_zwave_frontentry unavailable since 10-26 10:09, sensor.node_3_node_status dead since 10-26 10:06. Battery swap still outstanding.
   - `verify_2026_10_23`: Overnight re-check 02:01: lock.doorlock_kwikset_zwave_frontentry unavailable, sensor.node_3_node_status dead (since 10-21 18:25). URA Security logs 'Periodic lock check: 1 device(s) unavailable' (31x since restart). Batteries still not s...
   - `verify_2026_10_22`: Overnight re-check 02:0x: still blocked. lock.doorlock_kwikset_zwave_frontentry = unavailable and sensor.node_3_node_status = dead (both since the 10-21 18:25 restart). Batteries not yet swapped; the operator action is still needed.
@@ -779,13 +781,14 @@ _created 2026-10-18 · updated 2026-10-21 22:05 · refined_
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#14 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
-_created 2026-09-21 · updated 2026-10-31 02:06 · refined ×1_
+_created 2026-09-21 · updated 2026-11-01 02:05 · refined ×1_
 - **Problem / Solution:**
   - Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy background tasks _async_try_refr...
 - **Why:** the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.
 - **Next:** DO: fill firmware + pyenphase version into Revision 2 of docs/planning/DRAFT_envoy_upstream_issue.md and post it on core#181243 (or as a new issue 'one hung endpoint blanks all enphase_envoy data'). -> I track the thread; local mitigatio...
 - **Tags:** energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `instance_2026_10_31_overnight`: Nightly drop recurred again on HA 2026.10.4 (recorder read 02:0x CST 11-01): local reserve sensor unavailable 23:07:10-23:33:53 CDT 10-31 (~27 min); sensor.ura_energy_coordinator_envoy_status offline 23:11:32 -> stale 23:36:09. Third con...
   - `triage_2026_10_17`: Default taken: I draft the upstream HA report; operator posts it.
   - `draft_2026_10_14`: Operator picked (A). Draft at docs/planning/DRAFT_envoy_upstream_issue.md (not posted): recommends a COMMENT on open core#181243 rather than a new issue. pyenphase EnvoyClientClosedError(RuntimeError) at exceptions.py:103; core coordinat...
   - `instance_2026_10_03_overnight`: Recorder count of sensor.envoy_482543015950_battery 'unavailable' rows per day: 09-29 19 / 09-30 11 / 10-01 44 / 10-02 3 (00:10, ..., 14:15) / 10-03 1 (00:42 = restart boot). The '~23:05 nightly drop' named on 10-01 did NOT recur on 10-0...
@@ -979,10 +982,11 @@ _created 2026-10-24 · updated 2026-10-25 02:08 · refined_
 
 ### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **waiting_operator** - approval: **explicit**
-_created 2026-10-04 01:00 · updated 2026-10-31 02:24_
+_created 2026-10-04 01:00 · updated 2026-11-01 02:05_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
-- **Next:** APPROVE a Tier-3 fix-up of phase 2 (the false-page leak; now 3 false CRITICAL pages in 7 days, latest 10-30 23:06, all at the nightly Envoy drop) -> I write the small plan (one rule: in the reversion sweep, when the live Envoy reserve is...
-- **Forensic keys (18):**
+- **Next:** APPROVE a Tier-3 fix-up of phase 2 (the false-page leak; now 4 false CRITICAL pages in 8 days, latest 10-31 23:11, all at the nightly Envoy drop) -> I write the small plan (one rule: in the reversion sweep, when the live Envoy reserve is...
+- **Forensic keys (19):**
+  - `INSTANCE_2026_10_31_2311_reverted_page`: FOURTH false CRITICAL (overnight read 02:0x CST 11-01; URA DB notification_log 25101-25105 + HA recorder). 4 channels (pushover/companion/whatsapp/imessage) at 23:11:31 CDT 10-31. Message: 'URA commanded reserve_soc=15 earlier, but the E...
   - `INSTANCE_2026_10_23_reserve_stuck_98`: Operator APPROVED planning 10-23 (Tier 3: 2 plan reviews, 4 build reviews, pre-deploy checkpoint). EVSE hold wrote reserve 98 via cloud 19:35Z; gateway enforced 98 in 16 s; cloud number stuck at 10.0; release to 10 deadbanded against the...
   - `INSTANCE_2026_10_22_stale_cloud_false_critical`: From the EC-SELFHEAL-UNEXPLAINED-RESENDS-1 soak exit (overnight 10-22). The write verifier still pages CRITICAL off a STALLED cloud reading after the dead-local-witness fix (v5.103.74). At 10-22 01:21 CDT it sent 'Envoy write not applied...
   - `recount_2026_10_17`: Interim recount (governor shipped; Ethernet + GC freeze in place): short blips fell 6.8/day -> ~1.7/day, but DOWNTIME did not fall (923 min pre vs 1,304 min post) because of long outages 586 min (10-15/16) and 714 min (10-16), and anothe...
@@ -1232,7 +1236,8 @@ _created 2026-09-28 22:50 · updated 2026-10-29 02:02_
 - **Why:** Audit finding: sensor.ura_energy_coordinator_energy_forecast_today = -73.7 kWh (Solcast minus predicted consumption). The prediction swung 55 -> 500 kWh today and read 1,234-2,274 kWh on earlier days, against about 185-225 kWh/day real. ...
 - **Next:** PARKED (default A taken 2026-10-29 overnight, no veto). Revival trigger: an energy_daily row that is NULL, has solar_production_kwh 0 on a sunny day, or consumption above 240 kWh -> then re-plan Option F + last-known-good seeding (Tier 2...
 - **Tags:** energy, forecast, data-integrity, found-during-audit
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `trigger_check_2026_11_01_overnight`: Revival trigger NOT fired (URA DB energy_daily 10-23..10-31, read 02:1x CST 11-01): no NULL rows, solar 18.9-103.1 kWh (no zero day), consumption 61.5-129.4 kWh (none above 240). The 'Consumption cross-check divergence' WARNING (energy.p...
   - `verify_2026_10_28`: Overnight re-check 02:00 CDT. CALL (1) DONE: select.ura_energy_coordinator_dp_house_load_source = live_span since 2026-10-26 10:06 CDT (operator-approved during the HOUSE-SENSOR-CORRECTNESS-1 config pass); the 10-25 next still listed it ...
   - `verify_2026_10_23`: Overnight re-check 02:01: select.ura_energy_coordinator_dp_house_load_source still max_span_r1, so pick (1) is still open. system_log energy.py:3557 'Consumption cross-check divergence: Envoy today=33060 kWh, our lifetime delta=105 kWh' ...
   - `links_added_2026_10_21`: related+EC-SOLAR-LIFETIME-COUNTER-FLAP-1,EC-FORECAST-TRUTH-GAPS-1: EC-SOLAR-LIFETIME-COUNTER-FLAP-1 (v5.103.82) fixed the same lifetime-counter flap for daily solar; EC-FORECAST-TRUTH-GAPS-1 is the truth-row gap the poisoned days create.
