@@ -100,3 +100,20 @@ states guard each turns specific tests RED.
   publish a NET-based value. A source switch yields one no-data cycle (debug log
   "whole-house source switched"), then TOTAL reads against a baseline anchored at
   the switch.
+
+## Validated 2026-11-01 (retrospective)
+
+Evaluated once on 2026-11-01 (HA/URA v5.103.93 loaded; URA DB and recorder read-only via `ssh ha`; timestamps UTC). HA core log is not available to the probe (`/config/home-assistant.log` absent, `.log.1` empty), so log criteria are not exercised.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| 1. `cycle_ok` rows: one after restart, then none until description changes or 24 h (was 1 per 5 min) | PASS | `optimization_findings` (dimension `meta`, description `cycle_ok`): 1 row/day 10-25..10-31 (e.g. 10-30 11:26:06, 10-31 11:26:09), 2 on 11-01 (11:26:12 and 15:17:48 = the 11-01 restart). Old behaviour would be ~288/day. |
+| 1. `prediction_accuracy` rows only when text changes; no write-tripwire warnings | NOT EXERCISED | `optimization_findings` has 0 rows with dimension `prediction_accuracy` ever, so the filter is untested live. (The repeating `occupancy_accuracy` Master Bedroom finding, 40 rows 11-01 with 1 distinct description, is a different dimension and is not in `OPTIMIZER_PERSIST_ON_CHANGE_DIMENSIONS`, const.py:4457.) Tripwire warnings: no log access. |
+| 1. Discriminator (boot with no `cycle_ok` row) | PASS | Boot at 11-01 15:17:48 wrote a `cycle_ok` row. |
+| 2. Restart-pending repair appears when installed != loaded | NOT EXERCISED | No recorder state of `restart_pending: true` for any entity (0 `state_attributes` rows match). The pre-restart window of a deploy was not captured. |
+| 2. After restart issue gone, `loaded_version == installed_version`, `restart_pending: false` | PASS | `sensor.ura_coordinator_manager_coordinator_manager` (11-01 15:12:56): loaded 5.103.93, installed 5.103.93, restart_pending 0. |
+| 3. Coverage `whole_house_source` = `ec_total` | PASS | `sensor.universal_room_automation_energy_coverage_delta` attr `whole_house_source: ec_total` on every recorded state 10-31..11-01. |
+| 3. `delta_percent` does not walk steadily negative 14:00-23:00 | PASS | Hourly min/max `delta_percent` 10-31 (UTC hr 11 to 23): 22.6/23.4, ... peak 34.9/45.2 at 16, then falling 25.5, 20.9, 16.5, 14.7, 14.5. Never negative (old bug: -10% to -59%). Caveat: sustained positive 15-45% unattributed is a separate coverage question. |
+| 3. `whole_house` tracks `lifetime_energy_consumption`, not NET | NOT EXERCISED | Attribute rises monotonically through the day (3.31 to 19.5 kWh 10-31), but not diffed against the Envoy sensor. |
+| 3. `whole_house_cost_today` unchanged (NET-based) | NOT EXERCISED | Now 4.2081 USD, `cost_source: energy_coordinator_cost_today`; no pre-ship comparison made. |
+| 3. After CM reload `ec_total` returns, no NET value published; one no-data cycle | PARTIAL | After the 11-01 restart `whole_house_source: ec_total`, `post_restart_window: true`; the debug log line is not checkable. |

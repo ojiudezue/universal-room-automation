@@ -15,3 +15,15 @@ Cards: EC-PREDICTOR-SOLCAST-UNWIRED-1, REGIME-NEXT-ROOM-ACCURACY-JSON-COMPARE-1,
 - **Live:** the regime check fires only in the weekly digest; none expected now (top-1 is above the usual-room baseline per v5.103.85). In-suite proof: a JSON row whose `top` equals `actual_value` counts as a hit.
 - **Live:** this deploy appends a `v5.103.87` line under "Release index" in `WORKLOG_2026-10_session.md`.
 - **Discriminator:** under the old wiring the forecast stays `unknown`/blank; a different failure (Solcast itself stale) would show a number that disagrees with `sensor.solcast_pv_forecast_forecast_today`.
+
+## Validated 2026-11-01 (retrospective)
+
+Evaluated once on 2026-11-01 (v5.103.93 loaded; read-only; times UTC).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `energy_forecast_today` numeric | PASS | `sensor.ura_energy_coordinator_energy_forecast_today` = -42.0 (11-01 15:12:56), `predicted_production_kwh` 83.3826. |
+| `battery_full_time` no longer `missing_input=solcast` | PASS (new gap seen) | attrs `battery_full_time: null`, `basis: unavailable`, `missing_input: soc` (not solcast). A separate missing SOC input is a different issue; worth a look if not already carded. |
+| Forecast agrees with Solcast (discriminator) | PASS | `sensor.solcast_pv_forecast_forecast_today` = 83.3826, identical to `predicted_production_kwh`. |
+| Regime next-room check fires only in the weekly digest; none expected | PASS (weak) | `regime_event_notification_log` 0 rows, `regime_weekly_digest_queue` 0 rows. Absence only; the JSON-compare behaviour is proven in-suite. |
+| Deploy appends `v5.103.87` under "Release index" | PASS | `docs/planning/WORKLOG_2026-10_session.md:241`: "2026-10-24 07:04 **v5.103.87** ...". |

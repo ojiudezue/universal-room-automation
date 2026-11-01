@@ -25,3 +25,14 @@ Full multi-alert tracking: a held-back alert is not re-paged after the life-safe
 - **Live:** the next perimeter CRITICAL while NM is idle behaves exactly as before (takes the slot, repeats at its cadence).
 - **Live, organic:** the first ack after deploy marks every channel row of that alert acknowledged (`notification_log` rows with the same coordinator/hazard/location all `acknowledged=1`).
 - **In-suite only:** smoke + perimeter overlap (no life-safety CRITICAL has fired in 30 days; not to be staged on the live house).
+
+## Validated 2026-11-01 (retrospective)
+
+Evaluated once on 2026-11-01 (v5.103.93 loaded; URA DB read-only; times UTC). The deploy installed 2026-10-24 ~12:44 UTC; the exact restart that loaded it was not pinned, so "since deploy" uses 2026-10-24T13:00.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| No NM ERROR in log after restart; NM state recovers | NOT EXERCISED | No HA core log available to the probe. Indirect: NM kept writing `notification_log` rows through 11-01 (latest 2026-11-01T14:19:08, 590 CRITICAL rows since 10-24 12:00). |
+| Perimeter CRITICAL while idle behaves as before | PASS (indirect) | `perimeter_alert` `exterior_person` 1007 rows since 10-24, delivered on pushover/companion/whatsapp/imessage. No cadence check made. |
+| First ack marks every channel row of that alert acknowledged | PASS | 442 acknowledged rows since 10-24T13:00; 0 (hazard, location, minute) groups containing a mix of acked and unacked rows. Example ack 2026-10-24T20:08:30 covering 4 channel rows of `exterior_person` back_yard and 4 of `envoy_write_verification`. |
+| In-suite only: smoke + perimeter overlap | NOT EXERCISED (by design) | Observed instead: a real Kitchen smoke CRITICAL 2026-10-24T21:42:15 (ids 23810-23814), all four channel rows acked 21:47:50. Row 23814 (aggregate channel `companion,imessage,pushover,whatsapp`) stayed `acknowledged=0`; row 23815 (imessage repeat) acked=1 with no `ack_time`. Minor, possibly worth a look. |
