@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.96
+# Universal Room Automation vv5.103.97
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.96"
+VERSION: Final = "v5.103.97"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -354,8 +354,8 @@ CONF_WHOLE_HOUSE_POWER_SENSORS: Final = "whole_house_power_sensors"  # v4.1.0: p
 CONF_WHOLE_HOUSE_ENERGY_SENSORS: Final = "whole_house_energy_sensors"  # v4.1.0: plural
 
 # v4.1.0: Zone-level and house-level energy attribution
-CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
-CONF_ZONE_ENERGY_SENSORS: Final = "zone_energy_sensors"
+CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"  # Added to the zone Total Power + Cost Per Hour sensors (skips entities already in a member room). Options form shows it only in Advanced mode or when set.
+CONF_ZONE_ENERGY_SENSORS: Final = "zone_energy_sensors"  # Read by the zone Energy Today sensor and the house coverage zone tier.
 CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 CONF_HOUSE_DEVICE_ENERGY_SENSORS: Final = "house_device_energy_sensors"
 

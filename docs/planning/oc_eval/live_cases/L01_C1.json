@@ -1,0 +1,29 @@
+{
+  "id": "L01",
+  "source_case": "C1",
+  "title": "Nightly Envoy battery/production unavailable window",
+  "split": "dev",
+  "held_out": false,
+  "task": "Most nights around 23:00 the Envoy battery and production entities go unavailable for about 30-40 minutes. Why, and what should be done?",
+  "trigger": "operator_question",
+  "house_state": "home_evening",
+  "allowed_tools": "all",
+  "incident_window": "nightly; newest in recorder 2026-10-31 23:07-23:33 CDT (window grows nightly; the 11-01 night has not happened yet at probe time)",
+  "expires": "rolling: oldest night in the 7-day recorder window is 2026-10-28; export holds 10-28..10-31",
+  "incident_commit": "e47c7082 (v5.103.92, committed 2026-10-26 10:04 CDT; deployed build for every incident below until v5.103.93 on 2026-11-01 09:05 CST)",
+  "served_from_export": false,
+  "evidence_dir": "live_cases/L01_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)"
+  ],
+  "d0_notes": [
+    "ha_get_logs cannot return the 'socket timeouts on /production.json' lines: journald is not reachable over 'ssh ha' (no journalctl; 'ha host logs' / 'ha core logs' return 401) and ha-mcp log windows are ~2 min. That item is therefore nice_to_mention, not must_mention."
+  ]
+}

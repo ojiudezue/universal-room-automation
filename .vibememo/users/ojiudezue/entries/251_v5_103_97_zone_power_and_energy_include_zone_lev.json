@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "251",
+  "author": "ojiudezue",
+  "session_id": "claude_20261101_174646_ship_v5_103_97",
+  "timestamp": "2026-11-01T17:46:46Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.97 shipped: Zone power and energy include zone-level loads",
+  "summary": "Zone power and energy include zone-level loads",
+  "why": "Zone sensors summed only rooms, so zone-level loads such as the zone AC circuits counted toward house coverage but never toward the zone's own watts or kWh. Adding them with a single no-double-count rule makes zone figures match what the house total already attributes, and restoring baselines prevents a mid-day restart from dropping a total_increasing value that the recorder would book as a meter reset.",
+  "implications": "Shipped ZONE-LIVE-POWER-ROLLUP-1 at v5.103.97; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.97.md (Live criteria).",
+  "revisit_trigger": "Revisit if a zone energy value drops mid-day, if a zone-level entity is counted in two places, or if house coverage and zone totals disagree beyond overlap.",
+  "refs": {
+    "cards": [
+      "ZONE-LIVE-POWER-ROLLUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.97.md"
+    ],
+    "release_notes": "Zone total power, cost per hour, energy today and energy cost today add the zone's own loads on top of rooms, counting each entity once; zone energy survives mid-day restarts. Review SHIP after fix-up, name-diff clean."
+  }
+}

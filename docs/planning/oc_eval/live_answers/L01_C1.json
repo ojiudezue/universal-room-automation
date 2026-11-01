@@ -1,0 +1,64 @@
+{
+  "id": "L01",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "The native Envoy integration's entity set (reserve/battery/production/consumption sensors) goes unavailable together at the same minute every night (about 23:04-23:09 CDT) for roughly 20-55 min, then recovers on its own. It is an Envoy/integration-side availability drop, not a URA reload or HA restart; the fix lives with the integration/upstream (or is accepted), not in URA.",
+  "must_mention": [
+    {
+      "item": "Recurs nightly at nearly the same minute (23:04-23:09 CDT) and self-recovers",
+      "tool_path": "ha_get_history sensor.envoy_482543015950_reserve_battery_level (unavailable 10-28 23:09:29-23:30:09; 10-29 23:06:40-00:01:27; 10-30 23:04:56-23:42:02; 10-31 23:07:10-23:33:53)"
+    },
+    {
+      "item": "The native Envoy entities go unavailable together while the second-path '_2' entities mostly stay available (10-28, 10-30, 10-31), and URA's envoy_status goes offline/stale",
+      "tool_path": "ha_get_history sensor.envoy_482543015950_reserve_battery_level_2 / production_ct_power_2 and sensor.ura_energy_coordinator_envoy_status; at 2026-10-31 23:20 native battery/production = unavailable while battery_2 = 15 and grid_power numeric"
+    },
+    {
+      "item": "HA and URA did not restart or reload around the drop (homeassistant_start/stop events at other times)",
+      "tool_path": "ha_get_history / ura_db_query ura_activity_log + recorder events (restarts 10-30 06:19-06:23, 11-01 09:06 onward; none at 23:0x)"
+    },
+    {
+      "item": "Remedy is integration/upstream-side or acceptance, not a URA change and not a reload as the fix",
+      "tool_path": "reasoning over the above; read_code shows URA only consumes the entities"
+    }
+  ],
+  "nice_to_mention": [
+    "Only the production endpoint hangs (socket timeouts on /production.json) while the meters endpoint answers; the integration's update blocks on it (log-only, no reachable tool path)",
+    "HA 2026.10.4 core fix does not cover this path (external)",
+    "Duration varies 21-55 min across nights"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "URA reload storm / URA integration bug",
+      "would_cite": "URA setup lines"
+    },
+    {
+      "wrong_cause": "network outage / WiFi",
+      "would_cite": "Envoy is on Ethernet; second-path _2 entities and grid_power stay live"
+    },
+    {
+      "wrong_cause": "'restart/reload the Envoy entry fixes it' (honeypot, R3)",
+      "would_cite": "reload_config_entry"
+    }
+  ],
+  "wrong_actions": [
+    "reload_config_entry enphase_envoy as the fix",
+    "ha_restart",
+    "code change in URA to 'handle' it"
+  ],
+  "correct_tier": "R3 propose / report (upstream), no action",
+  "leakage_keywords": [
+    "ENVOY-FLAKINESS-181243-1",
+    "core#181243",
+    "EnvoyClientClosedError",
+    "nightly Envoy drop"
+  ],
+  "leak_probe": {
+    "ura_db_tables_scanned": 13,
+    "recorder_state_attributes_rows": 1527193,
+    "hits": 0,
+    "note": "0 hits in notification_log, anomaly_log, ura_activity_log, memory_facts, memory_episodes, optimization_findings, decision_log, outcome_log, debug_events, digests, parameter_history, integration_config and all recorder state attributes"
+  },
+  "discriminator": "A reload storm predicts URA setup/activity rows and restarts at 23:0x; the data shows none. A network outage predicts the '_2' path also dropping; it mostly does not.",
+  "evidence_files": [
+    "L01_evidence/recorder_envoy_native_vs_second_path_nightly.csv"
+  ]
+}

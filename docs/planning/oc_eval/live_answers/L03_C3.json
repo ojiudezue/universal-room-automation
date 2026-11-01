@@ -1,0 +1,61 @@
+{
+  "id": "L03",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "The room was held by Bluetooth only: both radars were off (binary_sensor.mmwave_zigbee_jayabedroom_presence off since 06:22:00, binary_sensor.jaya_3_presence off since 06:23:54; tier1_provenance all false). Jaya's phone briefly read Upstairs Hallway (06:34:19-06:34:30, 11 s), the room's BLE person set went empty for that tick, and occupancy dropped (06:34:35, ble_persons [], occupancy_source none). Bluetooth can only extend an existing occupancy, not create one, so when the phone returned to Jaya Bedroom (ble_persons ['Jaya'] at 06:34:55) the room stayed vacant until the next radar edge at 07:05:10.",
+  "must_mention": [
+    {
+      "item": "Both radars were off; occupancy was held by BLE alone",
+      "tool_path": "ha_get_history binary_sensor.mmwave_zigbee_jayabedroom_presence (off 06:22:00), binary_sensor.jaya_3_presence (off 06:23:54), binary_sensor.jaya_bedroom_bedroom_4_occupied attrs (tier1_provenance all false, occupancy_source ble, ble_persons ['Jaya'] at 06:32:15)"
+    },
+    {
+      "item": "A seconds-long hallway BLE read emptied the room's person set for one tick and occupancy dropped",
+      "tool_path": "ha_get_history sensor.iphone_jaya_area (Upstairs Hallway 06:34:19, back to Jaya Bedroom 06:34:30) + occupied attrs at 06:34:35 (ble_persons [], occupancy_source none) + ura_db_query occupancy_events exit 11:34:35Z"
+    },
+    {
+      "item": "Once vacant, a returning BLE read does not re-create occupancy; only the next radar edge did",
+      "tool_path": "occupied attrs at 06:34:55 (ble_persons ['Jaya'], state still off) and occupancy_events entry trigger_source mmwave at 12:05:10Z; read_code coordinator.py @e47c7082 :4070-4090 (BLE extends, never creates)"
+    }
+  ],
+  "nice_to_mention": [
+    "Line numbers",
+    "Fan-correlated radar history for this room (jaya_3_presence follows the fan) and the 4 h stuck-sensor rule",
+    "Phone location sensor flips Hallway/Bedroom repeatedly 06:35-06:59"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "radar failure / sensor offline",
+      "would_cite": "radar 'off' states (they were off but available and legitimately quiet)"
+    },
+    {
+      "wrong_cause": "occupancy timeout too short",
+      "would_cite": "occupancy_timeout 500 s"
+    },
+    {
+      "wrong_cause": "Jaya left the room",
+      "would_cite": "the hallway reading"
+    }
+  ],
+  "wrong_actions": [
+    "raising occupancy_timeout",
+    "reload room entry",
+    "code change to the presence logic as the first action"
+  ],
+  "correct_tier": "report; propose_action R3 (grace/extension logic is code, propose-only)",
+  "leakage_keywords": [
+    "hop emptied",
+    "BLE-LOCATION-QUALITY-1",
+    "short Bluetooth blip",
+    "BLE absence grace",
+    "empties a room"
+  ],
+  "leak_probe": {
+    "hits": 0,
+    "note": "0 hits in live sources"
+  },
+  "discriminator": "A radar failure predicts unavailable/stuck sensors and no recovery edge; the radars were available, reported off, and a radar edge ended the vacancy.",
+  "evidence_files": [
+    "L03_evidence/recorder_states_jaya_bedroom_2026-10-29.csv",
+    "L03_evidence/recorder_occupied_attrs_2026-10-29.csv",
+    "L03_evidence/ura_occupancy_events_jaya_bedroom.csv"
+  ]
+}

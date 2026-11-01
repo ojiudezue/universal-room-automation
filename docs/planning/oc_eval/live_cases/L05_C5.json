@@ -1,0 +1,31 @@
+{
+  "id": "L05",
+  "source_case": "C5",
+  "title": "After a restart, today's energy import and cost counters read 0",
+  "split": "dev",
+  "held_out": false,
+  "task": "After a restart, today's energy import and cost counters read 0. Why?",
+  "trigger": "operator_question",
+  "house_state": "home_day",
+  "allowed_tools": "all",
+  "incident_window": "2026-10-26 10:06:51 CDT (the only instance left in the recorder; the 10-21 18:28 instance is already purged: states table starts 2026-10-25 05:12)",
+  "expires": "2026-11-02 (recorder purge). EXPORTED -> serve from export (served_from_export) or retire. The fix shipped v5.103.94 on 2026-11-01 10:17 so NO new live instances are expected",
+  "incident_commit": "e47c7082 (v5.103.92, committed 2026-10-26 10:04 CDT; deployed build for every incident below until v5.103.93 on 2026-11-01 09:05 CST)",
+  "served_from_export": true,
+  "evidence_dir": "live_cases/L05_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)"
+  ],
+  "d0_notes": [
+    "The plan's journald ERROR 'restore timed out' has NO reachable tool path: journald is not readable over 'ssh ha'; the card itself records 0 log lines retained. The log line exists only as source text at e47c7082 energy.py:1255-1256 ('Energy DB restore timed out after 15s - starting with defaults'). Log item moved to nice_to_mention; the must-mention mechanism is reachable through read_code @e47c7082 plus the recorder timing.",
+    "energy_midnight_snapshot (URA DB) holds only the current day's row, so it cannot show the old restore state.",
+    "Because the case is export-served, tool results come from L05_evidence, not live data. Only one instance survives; consider retiring after 11-02 if a single-instance case is too thin."
+  ]
+}

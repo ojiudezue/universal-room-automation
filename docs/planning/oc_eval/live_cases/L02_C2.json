@@ -1,0 +1,31 @@
+{
+  "id": "L02",
+  "source_case": "C2",
+  "title": "Was the 23:06 CRITICAL 'Envoy write reverted' page real?",
+  "split": "held-out (secondary; answer reachable via repo docs unless leak_paths denied)",
+  "held_out": true,
+  "task": "At 23:06 on 10-30 a CRITICAL 'Envoy write reverted: reserve_soc' page went to four channels. Was it real?",
+  "trigger": "operator_question",
+  "house_state": "home_evening",
+  "allowed_tools": "all",
+  "incident_window": "2026-10-30 23:04-23:09 CDT; second identical instance 2026-10-31 23:11 CDT",
+  "expires": "2026-11-06 (recorder purge of 10-30 instance); notification/activity rows persist longer",
+  "incident_commit": "e47c7082 (v5.103.92, committed 2026-10-26 10:04 CDT; deployed build for every incident below until v5.103.93 on 2026-11-01 09:05 CST)",
+  "served_from_export": false,
+  "evidence_dir": "live_cases/L02_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)",
+    "docs/planning/AUDIT_envoy_reserve_*"
+  ],
+  "d0_notes": [
+    "Fix shipped as v5.103.95 (dbe25e9e) on 2026-11-01; read_code MUST serve git show e47c7082:<path>, not HEAD.",
+    "Page text says 'someone or something else changed it' and does not state the conclusion; leak_paths/list_changes_since subjects ('No false Envoy write reverted page') must be hidden."
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "L07",
+  "source_case": "C7",
+  "title": "HVAC zone vacancy sweep fired many times; what did it do?",
+  "split": "held-out (secondary)",
+  "held_out": true,
+  "task": "The HVAC zone vacancy sweep fired many times in the last week. What did it actually do?",
+  "trigger": "operator_question",
+  "house_state": "home_day",
+  "allowed_tools": "all",
+  "incident_window": "rolling 7 days ending now (probe: 2026-10-25 .. 2026-11-01 ~12:00 CST, 187 fires)",
+  "expires": "rolling; recorder 7-day window. Edge list exported.",
+  "incident_commit": "e47c7082 (v5.103.92) for most of the window; hvac.py sweep gating and switch.py:4039 identical to HEAD",
+  "served_from_export": false,
+  "evidence_dir": "live_cases/L07_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)",
+    "docs/planning/AUDIT_zone_sweep_effectiveness.md"
+  ],
+  "d0_notes": [
+    "Data source that records a sweep's effect: NONE directly. The sweep writes no activity-log row (confirmed in the audit; INFO line unreachable). Effect is inferred from the recorder: zone status attribute vacancy_sweep_done False->True edges + swept entities' on->off transitions within +15 s (probe script and output in L07_evidence). Independent re-derivation: 187 fires, 10 with an on->off in the swept set (5.3%), 4 carrying the URA context mark; the audit counted 173 fires / 10 attributable.",
+    "'No firing in occupied zones' is true in the LIGHTING denomination (any_room_occupied = 0 at 187/187 fire edges; code gate hvac.py:3036 _sweep_light_ok). Two edges show zone_presence_state 'occupied' with any_room_hvac_occupied 1 (HVAC tail), not lighting-occupied.",
+    "Per-zone opt-out overwritten: switch.py:4039 `zone.vacancy_sweep_enabled = self._is_on` runs for ALL zones from async_added_to_hass (switch.py:4067 _update_zones) and on every toggle, overwriting the per-zone config value read at hvac_zones.py:509/573. Code-only claim; no live-data path (config key zone_vacancy_sweep_enabled).",
+    "Probe caveat: zone_3 live_rooms was empty in some states, so swept-set sizes are 0 for those; counts of ON->OFF are unaffected for rooms that were listed."
+  ]
+}

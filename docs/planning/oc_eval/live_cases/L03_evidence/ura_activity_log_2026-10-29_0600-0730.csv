@@ -1,0 +1,6 @@
+id,timestamp,coordinator,action,room,zone,importance,description,details_json,entity_id
+327650,2026-10-29T11:21:14.816482+00:00,room,occupancy_entry,"Jaya Bathroom",,info,"Room occupied (source: motion)","{""source"": ""motion""}",
+327655,2026-10-29T11:39:48.752684+00:00,room,occupancy_exit,"Jaya Bathroom",,info,"Room vacated","{""source"": ""none""}",
+327663,2026-10-29T12:02:23.120481+00:00,room,occupancy_entry,"Jaya Bathroom",,info,"Room occupied (source: motion)","{""source"": ""motion""}",
+327687,2026-10-29T12:27:51.753065+00:00,room,occupancy_exit,"Jaya Bathroom",,info,"Room vacated","{""source"": ""none""}",
+327693,2026-10-29T12:29:24.913133+00:00,transit,anomaly,,,notable,"Invalid transit Jaya Garage A→Jaya Bedroom z=n/a confidence_delta=-0.15","{""type"": ""transit.path_implausible"", ""from_room"": ""Garage A"", ""to_room"": ""Jaya Bedroom"", ""path_method"": ""path_implausible""}",
