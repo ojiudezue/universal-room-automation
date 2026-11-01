@@ -1,0 +1,30 @@
+{
+  "id": "L08",
+  "source_case": "C8",
+  "title": "CONTROL: Guest Bedroom 1 light has not come on",
+  "split": "control",
+  "held_out": false,
+  "task": "Guest Bedroom 1's light has not come on since Friday night. Is something broken?",
+  "trigger": "operator_question",
+  "house_state": "home_day",
+  "allowed_tools": "all",
+  "incident_window": "2026-10-30 19:35 CDT (last room exit) -> 2026-11-01 ~11:30 CST",
+  "expires": "2026-11-06 (recorder 7-day window); re-pick a healthy room after that",
+  "incident_commit": "e47c7082 (v5.103.92, committed 2026-10-26 10:04 CDT; deployed build for every incident below until v5.103.93 on 2026-11-01 09:05 CST)",
+  "served_from_export": false,
+  "evidence_dir": "live_cases/L08_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)"
+  ],
+  "d0_notes": [
+    "Healthy situation verified: room entry 01KE2CP30H1251F10K5R1YJRCC; lights = switch.switch_shelly2pmgen3_wifi_dnguestroom_light.",
+    "Distractors that are NOT faults: the light switch flapped unavailable->off briefly at 10-31 19:25, 11-01 08:27 and during restarts (returned off each time); restart blips on the presence sensors. No R1+ action is warranted."
+  ]
+}

@@ -1,0 +1,2 @@
+id,snapshot_date,lifetime_consumption,lifetime_production,lifetime_net_import,lifetime_net_export,lifetime_battery_charged,lifetime_battery_discharged,import_kwh_today,export_kwh_today,import_cost_today,export_credit_today,net_cost_today,updated_at,counter_import_last,counter_export_last,billing_source_today
+1,2026-11-01,34.049428,21.489101,15.662879,3.102563,7.584494,6.10731,49.079,0.034,4.2187,0.0015,4.2172,2026-11-01T17:23:35.670525+00:00,48.974536333399499,0.0340162168574333,counters

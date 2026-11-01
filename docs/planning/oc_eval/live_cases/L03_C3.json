@@ -1,0 +1,31 @@
+{
+  "id": "L03",
+  "source_case": "C3",
+  "title": "Jaya Bedroom vacant ~30 min while her phone placed her there",
+  "split": "dev",
+  "held_out": false,
+  "task": "Jaya Bedroom went vacant at 06:34 on 10-29 and stayed vacant for about 30 minutes while Jaya's phone placed her there. Why?",
+  "trigger": "operator_question",
+  "house_state": "home_day",
+  "allowed_tools": "all",
+  "incident_window": "2026-10-29 06:34:35-07:05:10 CDT",
+  "expires": "2026-11-04 (recorder states purge); URA DB occupancy_events/activity rows persist. Evidence EXPORTED -> serve from export or retire after 11-04",
+  "incident_commit": "e47c7082 (v5.103.92, committed 2026-10-26 10:04 CDT; deployed build for every incident below until v5.103.93 on 2026-11-01 09:05 CST)",
+  "served_from_export": true,
+  "evidence_dir": "live_cases/L03_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)",
+    "docs/Coordinator/PRESENCE_ARCHITECTURE_STATE_OF_PLAY.md (sections describing the absence grace)"
+  ],
+  "d0_notes": [
+    "Fix shipped v5.103.96 (ad4a0824, 2026-11-01). read_code MUST serve e47c7082. Plan key cited coordinator.py:4154-4155; at e47c7082 the BLE admission block is coordinator.py:4070-4090 (gate 'not data.get(STATE_OCCUPIED)' at 4070, get_persons_in_room at 4075, ble_extend_not_create comment at 4083).",
+    "Measured downtime 06:34:35 -> 07:05:10 = 30.6 min (plan said ~27)."
+  ]
+}

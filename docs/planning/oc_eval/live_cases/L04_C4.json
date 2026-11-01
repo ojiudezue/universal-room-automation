@@ -1,0 +1,31 @@
+{
+  "id": "L04",
+  "source_case": "C4",
+  "title": "Zone 2 pre-arrival pre-conditioning ends by timing out",
+  "split": "dev",
+  "held_out": false,
+  "task": "Zone 2's pre-arrival pre-conditioning often ends by timing out even though Jaya does come home. Why?",
+  "trigger": "operator_question",
+  "house_state": "home_evening",
+  "allowed_tools": "all",
+  "incident_window": "instances 2026-10-25 .. 2026-10-31 (zone_2 pre_arrival_timeout started 10-25 19:46Z, 10-25 23:08Z, 10-28 00:43Z, 10-28 23:57Z, 10-30 01:17Z, 10-31 22:03Z)",
+  "expires": "hvac_excursion_events/ura_activity_log rows persist (no near expiry); recorder state windows exported for all 6 timeouts; newest instances roll in",
+  "incident_commit": "dbb80f8f (v5.103.91) for 10-25 instances; e47c7082 (v5.103.92) for later ones. hvac.py clear logic is byte-identical at both (7308-7324)",
+  "served_from_export": true,
+  "evidence_dir": "live_cases/L04_evidence",
+  "leak_paths": [
+    "docs/planning/**",
+    "docs/readmes/**",
+    "docs/reviews/**",
+    "docs/planning/kanban.data.yaml",
+    "docs/planning/KANBAN.md",
+    ".vibememo/**",
+    "git log subjects/bodies after the incident (list_changes_since: versions+dates only)",
+    "kanban_search (card text states the answers)"
+  ],
+  "d0_notes": [
+    "HVAC SoP read completely; its 10 corrections-ledger entries do not contradict this key. SoP section 1/9d agree pre-arrival ends on HVAC arrival (zone any_room_hvac_occupied) / timeout.",
+    "Plan said 'kitchen/living rooms (other zones) for 19-35 min'; measured on 10-31: Kitchen/Powder/Patio/Breakfast Nook for ~48 min before Media (zone_2) at 17:51. Numbers removed from must-mention.",
+    "Whole-run counts verified live: zone_2 39 events = 20 arrived + 15 timeout + 3 max_age + 1 human_interrupt (15/39 holds)."
+  ]
+}

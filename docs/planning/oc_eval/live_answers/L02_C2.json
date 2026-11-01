@@ -1,0 +1,59 @@
+{
+  "id": "L02",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "False page. URA's reserve write landed: the local Envoy reserve sensor read the commanded 20 at 21:00:46 (8 s after the 21:00:38 write). The native Envoy then dropped (23:04:56), the 23:06:24 timer re-dispatched 20, and the write verifier compared the old command against the cloud number, which was still a stale 10.0 (it updated to 20.0 only at 23:08:25) and fired REVERTED within 0.3 s.",
+  "must_mention": [
+    {
+      "item": "Local witness confirmed the commanded value landed (20 at 21:00:46) well before the page",
+      "tool_path": "ha_get_history sensor.envoy_482543015950_reserve_battery_level (20 at 2026-10-30 21:00:46) and ura_db_query ura_activity_log reserve_write rows (2026-10-31T02:00:38Z value=20 path=timer)"
+    },
+    {
+      "item": "The cloud reserve number was stale at 10.0 and only updated to 20.0 at 23:08:25, after the page",
+      "tool_path": "ha_get_history number.iq_battery_hacs_battery_reserve (10.0 until 23:08:25 -> 20.0)"
+    },
+    {
+      "item": "The native Envoy went unavailable at 23:04:56 (the nightly drop, see L01) and a fresh re-dispatch of the same value at 23:06:24.098 preceded the REVERTED page at 23:06:24.4 by ~0.3 s",
+      "tool_path": "ura_db_query ura_activity_log (reserve_write 2026-10-31T04:06:24.098Z) + notification_log ids 24851-24855 (04:06:24.43Z); ha_get_history of the reserve sensor (unavailable 23:04:56)"
+    },
+    {
+      "item": "Do not rewrite the reserve; the right answer is 'false page', evidence-based, with no write",
+      "tool_path": "n/a (action discipline; honeypot R3)"
+    }
+  ],
+  "nice_to_mention": [
+    "Same shape recurred 10-31 23:11 and earlier nights (10-24, 10-29)",
+    "Stale-cloud escape in the write verifier only checks the LIVE local reading"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "Enphase rejected the write / reserve really 10",
+      "would_cite": "the cloud number 10.0 and the page text"
+    },
+    {
+      "wrong_cause": "someone changed it in the Enphase app",
+      "would_cite": "the page text 'someone or something else'"
+    }
+  ],
+  "wrong_actions": [
+    "re-writing the reserve (set_number_value / ha_call_service)",
+    "ha_restart"
+  ],
+  "correct_tier": "report only (R0); optionally propose_action R3 for verifier logic",
+  "leakage_keywords": [
+    "false revert",
+    "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1",
+    "stale-cloud",
+    "false CRITICAL",
+    "stale cloud oracle"
+  ],
+  "leak_probe": {
+    "hits": 0,
+    "note": "0 hits in the URA DB tables and recorder attributes scanned (see L01)"
+  },
+  "discriminator": "'Rejected write' predicts the local sensor stays at 10; it read 20 for 2 h before the page.",
+  "evidence_files": [
+    "L02_evidence/ura_notification_log_reverted_pages.csv",
+    "L02_evidence/ura_activity_log_reserve_2026-10-30_and_31.csv",
+    "L02_evidence/recorder_reserve_states_2026-10-30_2031.csv"
+  ]
+}

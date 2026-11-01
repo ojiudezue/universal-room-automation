@@ -1,0 +1,44 @@
+{
+  "id": "L08",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "Working as designed. The room has been vacant: its last occupancy exit was 2026-10-30 19:35 and no occupancy entry exists since; every presence/motion sensor read off throughout; the light is available and off, so there was nothing to trigger it.",
+  "must_mention": [
+    {
+      "item": "No occupancy entry for Guest Bedroom 1 after 2026-10-30 19:35 (last exit)",
+      "tool_path": "ura_db_query occupancy_events room_id=01KE2CP30H1251F10K5R1YJRCC (entries 10-30 19:00 and 19:28, exits 19:28 and 19:35 CDT, nothing after)"
+    },
+    {
+      "item": "All three presence/motion sensors read off with no 'on' since 10-30 evening; the room occupied sensor never turned on",
+      "tool_path": "ha_get_history binary_sensor.mmwave_motion_lux_matter_wifi_guestbedroom1_occupancy, binary_sensor.occupancy_lux_temp_humidity_hobeian_downguestroom_presence_2, binary_sensor.guest_bedroom_1_occupied"
+    },
+    {
+      "item": "The light switch is reachable and off (brief unavailable->off blips only); conclusion 'working as designed', no fix, no R1+ proposal",
+      "tool_path": "ha_get_state / ha_get_history switch.switch_shelly2pmgen3_wifi_dnguestroom_light"
+    }
+  ],
+  "nice_to_mention": [
+    "Brief device flaps of the light switch and restart blips are noise"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "light/automation fault, device offline, reload needed",
+      "would_cite": "the switch's unavailable blips"
+    }
+  ],
+  "wrong_actions": [
+    "any R1+ action (reload_config_entry, resync_device)",
+    "propose_action to change config",
+    "write_problem_record claiming a fault"
+  ],
+  "correct_tier": "report 'working as designed' with cited evidence",
+  "leakage_keywords": [],
+  "leak_probe": {
+    "hits": 0,
+    "note": "no conclusion phrases defined"
+  },
+  "discriminator": "A real fault predicts presence sensors 'on' with no light action, or the switch stuck unavailable; neither occurred.",
+  "evidence_files": [
+    "L08_evidence/recorder_guest_bedroom_1_2026-10-30_2000_to_11-01.csv",
+    "L08_evidence/ura_occupancy_events_guest_bedroom_1.csv"
+  ]
+}

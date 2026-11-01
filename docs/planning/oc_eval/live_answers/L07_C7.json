@@ -1,0 +1,57 @@
+{
+  "id": "L07",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "The sweep fires on a False->True edge of the zone's vacancy_sweep_done flag when the zone is lighting-vacant and past the vacancy grace. Most fires do nothing: of 187 fires in 7 days, only 10 saw any swept entity go on->off within 15 s (about 5%), and those were chiefly person-switched lights/relays in vacant automated rooms plus a few HVAC-owned fans. It is not broken and not fighting occupants (it never fires while a room is lighting-occupied). The per-zone sweep opt-out is overwritten by the global 'Vacancy Auto-Off' switch at startup.",
+  "must_mention": [
+    {
+      "item": "Most fires turned nothing off",
+      "tool_path": "ha_get_history sensor.ura_hvac_coordinator_zone_N_status attribute vacancy_sweep_done edges (187) joined to swept entities' states (10 with an on->off within +15 s); see L07_evidence"
+    },
+    {
+      "item": "No firing while a room in the zone is occupied (lighting denomination)",
+      "tool_path": "recorder zone status any_room_occupied = 0 at all 187 edges; read_code hvac.py:3036-3045 (_sweep_light_ok)"
+    },
+    {
+      "item": "The per-zone opt-out (zone_vacancy_sweep_enabled) is overwritten by the global switch at startup",
+      "tool_path": "read_code switch.py:4039,:4059-4067 and hvac_zones.py:509,:573"
+    }
+  ],
+  "nice_to_mention": [
+    "~90-95% no-op figure",
+    "Paused rooms are skipped since v5.103.75",
+    "4 fan-off cases right at pre-arrival activation are an unresolved fight candidate",
+    "Zone_3 re-fires every 15-30 min (flag re-arms on each lighting blip)"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "sweep is broken or runaway",
+      "would_cite": "173-187 fires"
+    },
+    {
+      "wrong_cause": "sweep fights occupants / turns lights off in occupied rooms",
+      "would_cite": "the fires in zone_3 at night"
+    }
+  ],
+  "wrong_actions": [
+    "disabling switch.ura_hvac_coordinator_46 Vacancy Auto-Off",
+    "code change",
+    "ha_restart"
+  ],
+  "correct_tier": "report; knob/config changes propose-only",
+  "leakage_keywords": [
+    "HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1",
+    "sweep is mostly a no-op",
+    "90% no-op",
+    "95% turned nothing"
+  ],
+  "leak_probe": {
+    "hits": 0,
+    "note": "0 hits in live sources"
+  },
+  "discriminator": "'Broken sweep' predicts missing or unchanged flag edges; edges are regular and the swept entities were already off in ~95% of fires.",
+  "evidence_files": [
+    "L07_evidence/recorder_zone_sweep_fire_edges.csv",
+    "L07_evidence/sweep_effect_probe.py",
+    "L07_evidence/sweep_effect_probe_output_2026-11-01.txt"
+  ]
+}

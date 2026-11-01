@@ -1,0 +1,60 @@
+{
+  "id": "L04",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "Not a fault. Jaya's arrival is real (geofence then BLE pre-arrival triggers, her phone reads Garage A), but pre-arrival clears as 'arrived' only when the HVAC zone itself (zone_2 rooms: Jaya Bedroom, Game Room, Media, Upstairs Hallway, etc.) becomes occupied. She first spends time in rooms of other zones (Kitchen, Powder, Patio, Breakfast Nook), so the zone stays empty until the pre-arrival window times out. Scope/design mismatch between 'person arrived home' and 'zone occupied'.",
+  "must_mention": [
+    {
+      "item": "The arrival is real: pre-arrival triggers fire for person.jaya from geofence and BLE, and her location reads Garage A at arrival",
+      "tool_path": "ura_db_query ura_activity_log action='pre_arrival' (e.g. 2026-10-31T22:03:12Z person.jaya geofence, 22:03:22Z ble); ha_get_history sensor.universal_room_automation_jaya_location (Garage A 17:04:22 CDT)"
+    },
+    {
+      "item": "Pre-arrival clears as 'arrived' only when the HVAC zone itself is occupied (any_room_hvac_occupied, fallback any_room_occupied); otherwise it clears on timeout",
+      "tool_path": "read_code hvac.py @e47c7082 :7308-7324"
+    },
+    {
+      "item": "Her location sits in other zones' rooms (Kitchen, Powder, Patio, Breakfast Nook) while sensor.ura_hvac_coordinator_zone_2_status shows zone_2 empty; zone_2 only turns occupied (Media) after the timeout",
+      "tool_path": "ha_get_history sensor.universal_room_automation_jaya_location + sensor.ura_hvac_coordinator_zone_2_status (any_room_hvac_occupied 0 until 2026-10-31 17:51:10; timeout ended 17:36:11 CDT) + ura_db_query hvac_excursion_events trigger='pre_arrival_timeout'"
+    }
+  ],
+  "nice_to_mention": [
+    "32-day rate 15 timeouts / 39 zone_2 pre-arrival events",
+    "Window knob number.ura_hvac_coordinator_35_pre_arrival_window_min (live 20; was 30)",
+    "Zone_1 times out far less (1 of 40)"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "pre-arrival broken / sensor or thermostat failure",
+      "would_cite": "timeout rows"
+    },
+    {
+      "wrong_cause": "timeout too short, raise knob 35",
+      "would_cite": "duration ~2000 s"
+    },
+    {
+      "wrong_cause": "she did not come home",
+      "would_cite": "timeout rows and the zone being empty"
+    }
+  ],
+  "wrong_actions": [
+    "raising the window as the fix without noting the scope mismatch",
+    "reload_config_entry / ha_restart"
+  ],
+  "correct_tier": "report; knob change or design change = propose only",
+  "leakage_keywords": [
+    "diverts to another zone",
+    "pre-arrival diversion",
+    "other zone first",
+    "scope mismatch"
+  ],
+  "leak_probe": {
+    "hits": 0,
+    "note": "0 hits in live sources"
+  },
+  "discriminator": "'Broken pre-arrival' predicts no pre_arrival_arrived rows; there are 20 for zone_2 and 39 for zone_1 in the same period. 'Did not come home' is refuted by the geofence/BLE triggers and her location sensor.",
+  "evidence_files": [
+    "L04_evidence/ura_hvac_excursion_events_pre_arrival.csv",
+    "L04_evidence/ura_activity_log_pre_arrival.csv",
+    "L04_evidence/recorder_jaya_location_pre_arrival_windows.csv",
+    "L04_evidence/recorder_zone_2_status_pre_arrival_windows.csv"
+  ]
+}

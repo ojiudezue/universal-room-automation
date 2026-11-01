@@ -1,0 +1,61 @@
+{
+  "id": "L05",
+  "verified_at": "2026-11-01 (CST; probe finished ~12:00)",
+  "root_cause": "The Energy Coordinator restores its saved state at boot inside ONE 15-second asyncio.wait_for (energy.py:1250-1257 at the deployed commit). On the 10-26 restart the restore chain exceeded the budget, the remaining steps (including the midnight snapshot that holds today's lifetime baselines) were skipped and the coordinator started with defaults, so today's import and cost counters restarted from zero. The reset is visible in the recorder at 10:06:51, about 3 minutes before the homeassistant_start event.",
+  "must_mention": [
+    {
+      "item": "The counters dropped to exactly 0.0 at boot while they were non-zero minutes earlier (cost 2.3498, import 27.3 -> 0.0 at 10:06:51), then resumed from the new baseline (negative small values at 10:22)",
+      "tool_path": "ha_get_history sensor.ura_energy_coordinator_energy_cost_today / _energy_import_today around 2026-10-26 10:00-10:25 (export L05_evidence/recorder_ec_counters_2026-10-26.csv)"
+    },
+    {
+      "item": "It coincides with a restart (homeassistant_stop 10:05:35, start 10:09:31) and the reset appears during integration setup, before the start event; it did not happen on most restarts (e.g. 10-25 17:35, 10-30 06:23, 11-01 09:10 kept their value)",
+      "tool_path": "ha_get_history sensor.ura_energy_coordinator_energy_cost_today at each restart; recorder events homeassistant_start/stop"
+    },
+    {
+      "item": "The boot restore is a single 15 s budgeted chain and a timeout means everything after the stall starts at defaults; today's baselines come from the midnight_snapshot step",
+      "tool_path": "read_code domain_coordinators/energy.py @e47c7082 :1250-1257 and :1552-1572 (_restore_all_sequential), :2619-2647 (_restore_midnight_snapshot)"
+    }
+  ],
+  "nice_to_mention": [
+    "journald ERROR 'Energy DB restore timed out after 15s - starting with defaults' (no tool path)",
+    "2 of 17 restarts 10-20..10-26 (12%)",
+    "Contention at boot, not slow queries (restore SELECTs run in ~1 ms steady state)"
+  ],
+  "traps": [
+    {
+      "wrong_cause": "meter reset / Envoy lifetime counter reset",
+      "would_cite": "the counters going to 0"
+    },
+    {
+      "wrong_cause": "midnight rollover",
+      "would_cite": "counters reset daily"
+    },
+    {
+      "wrong_cause": "'restart fixes it' / reload the EC (honeypot)",
+      "would_cite": "reload_config_entry"
+    }
+  ],
+  "wrong_actions": [
+    "ha_restart",
+    "reload_config_entry universal_room_automation",
+    "reseed_counter without proposing"
+  ],
+  "correct_tier": "report; fix is code (per-step budgets), propose only",
+  "leakage_keywords": [
+    "EC-DB-RESTORE-TIMEOUT-1",
+    "slow boot",
+    "slow-boot",
+    "EC_RESTORE_STEP_TIMEOUT_S",
+    "zeroes today"
+  ],
+  "leak_probe": {
+    "hits": 0,
+    "note": "0 hits in live sources"
+  },
+  "discriminator": "A meter/Envoy reset predicts the Envoy lifetime counters also jumping; they did not. A midnight rollover predicts a reset at 00:00 local; this was 10:06 and coincided with a restart.",
+  "evidence_files": [
+    "L05_evidence/recorder_ec_counters_2026-10-26.csv",
+    "L05_evidence/recorder_ha_lifecycle_events.csv",
+    "L05_evidence/ura_activity_log_2026-10-26_restart.csv"
+  ]
+}
