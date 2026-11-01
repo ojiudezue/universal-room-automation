@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T10:17:15-06:00_ - _Data commit: `17c097927fb6`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T10:36:41-06:00_ - _Data commit: `a4919220d076`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 11 |
@@ -21,10 +21,24 @@ _Generated: 2026-11-01T10:17:15-06:00_ - _Data commit: `17c097927fb6`_ - _last_r
 | 🅿️ Parked | 107 |
 | ✅ Done | 395 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (2)
 _raw capture_
 
-_(none)_
+### `ZONE-LIVE-POWER-ROLLUP-1` - Live per-zone watts: zone power = roll-up of its rooms' power sensors plus any zone-specific loads (revive the unread zone_power_sensors field) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **inbox**
+_created 2026-11-01_
+- **Why:** CONF_ZONE_POWER_SENSORS (const.py:340) has no runtime reader; the energy twin zone_energy_sensors feeds the coverage 'zones' tier. Room power_sensors feed only each room's watt readout. No zone watt sensor exists.
+- **Next:** Prior-art scan (aggregation.py zone sensors, house whole_house_power) then a small plan: zone power sensor = sum(room power in zone) + zone_power_sensors, with the same no-double-count rule as energy; one plan review.
+- **Forensic keys (1):**
+  - `tier`: 2
+
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **optimization** - status: **inbox**
+_created 2026-11-01_
+- **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
+- **Next:** Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases.
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
