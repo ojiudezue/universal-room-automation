@@ -1,0 +1,164 @@
+{
+ "type": "grid",
+ "cards": [
+  {
+   "type": "heading",
+   "heading": "Battery Strategy Detail",
+   "heading_style": "title",
+   "icon": "mdi:strategy"
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Mode",
+   "icon": "mdi:battery-sync",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var m=entity.attributes.mode; return m ? String(m).replace(/_/g,' ') : '\u2014'; ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Phase",
+   "icon": "mdi:swap-vertical",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var p=entity.attributes.arbitrage_phase; return (p===null||p===undefined) ? '\u2014' : String(p).replace(/_/g,' '); ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "SOC",
+   "icon": "mdi:battery",
+   "variables": {
+    "color": "[[[ var a=entity.attributes; if(a.soc===null||a.soc===undefined) return 'orange'; return Number(a.soc) < Number(a.reserve_soc) ? 'red' : 'green'; ]]]"
+   },
+   "custom_fields": {
+    "v": "[[[ var s=entity.attributes.soc; return (s===null||s===undefined)?'\u2014':Math.round(s)+'%'; ]]]",
+    "s": "[[[ return 'reserve '+entity.attributes.reserve_soc+'%'; ]]]"
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Grid charge to",
+   "icon": "mdi:transmission-tower-import",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var t=entity.attributes.arbitrage_target; return (t===null||t===undefined)?'\u2014':t+'%'; ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Peak buffer",
+   "icon": "mdi:shield-half-full",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var t=entity.attributes.peak_buffer_target; return (t===null||t===undefined)?'\u2014':t+'%'; ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Saved today",
+   "icon": "mdi:currency-usd",
+   "variables": {
+    "color": "green"
+   },
+   "custom_fields": {
+    "v": "[[[ var v=Number(entity.attributes.arbitrage_savings_today); return isNaN(v)?'\u2014':'$'+v.toFixed(2); ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Net power",
+   "icon": "mdi:flash",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var v=Number(entity.attributes.net_power); return isNaN(v)?'\u2014':v.toFixed(2)+' kW'; ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "custom:button-card",
+   "template": "stat",
+   "entity": "sensor.ura_energy_coordinator_battery_strategy",
+   "name": "Charge window",
+   "icon": "mdi:clock-start",
+   "variables": {
+    "color": "blue"
+   },
+   "custom_fields": {
+    "v": "[[[ var c=entity.attributes.charge_window_opens_at; if(!c) return '\u2014'; var d=new Date(c); return d.toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}); ]]]",
+    "s": ""
+   },
+   "grid_options": {
+    "columns": 6,
+    "rows": "auto"
+   }
+  },
+  {
+   "type": "markdown",
+   "content": "<small>{{ state_attr('sensor.ura_energy_coordinator_battery_strategy','threshold_position') }}</small>",
+   "grid_options": {
+    "columns": "full",
+    "rows": "auto"
+   }
+  }
+ ],
+ "column_span": 2
+}

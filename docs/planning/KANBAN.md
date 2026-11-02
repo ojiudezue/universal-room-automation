@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T12:03:19-06:00_ - _Data commit: `8d107816a5f7`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T14:05:41-06:00_ - _Data commit: `effc626a3596`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-11-01T12:03:19-06:00_ - _Data commit: `8d107816a5f7`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 12 |
+| 📝 Planned | 13 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
@@ -230,7 +230,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (12)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#1 · WSJF 5.0 · v2 tc1 u2 /e1_
@@ -323,7 +323,16 @@ _created 2026-11-01_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-COST-AND-FORECAST-MATH-1` - EC money numbers wrong: arbitrage 'saved today' uses mismatched rates (~$0.01 vs ~$0.79), grid cost/hr uses base not effective rate (~33% low), Net Tomorrow uses UTC weekday + partial-day temp filter and prices the whole day at one rate — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **planned**
+_created 2026-11-01_
+- **Why:** Audit docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md. (1) arbitrage_savings_today energy.py:4283 off-peak=effective 0.085957 vs displaced=base mid-peak 0.086442 -> spread 0.000485 not 0.043; also accrues at charge, not discharg...
+- **Next:** Plan (Tier 2, cost-impacting display + savings ledger): same-basis rates for savings and decide charge-time vs discharge-time accrual; effective rate for cost/hr; local-date weekday, whole-day temp filter, per-period pricing and solar-aw...
+- **Forensic keys (2):**
+  - `tier`: 2
+  - `decision_2026-11-01`: Operator picked A: saved today = rate spread on battery energy discharged during mid-peak/peak, accrued at discharge. Net Tomorrow + related sensors fixed in code, with a better design and options.
+
+### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **planned**
 _created 2026-11-01_
 - **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
@@ -331,7 +340,7 @@ _created 2026-11-01_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -348,7 +357,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#11 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -368,7 +377,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#12 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -403,7 +412,7 @@ _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**

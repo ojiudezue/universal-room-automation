@@ -33303,6 +33303,16 @@ cards:
   depends_on: ZONE-LIVE-POWER-ROLLUP-1
   why: "Zone energy/power sensors exist (sensor.zone_<name>_energy_today / _total_power) and gain zone-level loads with ZONE-LIVE-POWER-ROLLUP-1. Caution: the Rooms view also renders on wall panels (URA-V8-PANEL-RENDER-SPIN-1, CPU spin) - chips must reuse already-rendered cards/templates, not add auto-entities or heavy templates."
   next: "After ZONE-LIVE-POWER-ROLLUP-1 ships: back up the dashboard; add kWh today (and W) to each zone chip; add an Energy-tab card with today's kWh per house zone plus an 'unattributed' slice (house total minus zones) - pie for share, bar for comparison; verify on one panel that CPU does not rise."
+- id: EC-COST-AND-FORECAST-MATH-1
+  title: "EC money numbers wrong: arbitrage 'saved today' uses mismatched rates (~$0.01 vs ~$0.79), grid cost/hr uses base not effective rate (~33% low), Net Tomorrow uses UTC weekday + partial-day temp filter and prices the whole day at one rate"
+  thread: energy
+  status: planned
+  tier: 2
+  created: "2026-11-01"
+  origin: "Operator 2026-11-01: is saved today accurate? check the cost maths and the prediction sensors like Net Tomorrow"
+  why: "Audit docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md. (1) arbitrage_savings_today energy.py:4283 off-peak=effective 0.085957 vs displaced=base mid-peak 0.086442 -> spread 0.000485 not 0.043; also accrues at charge, not discharge. (2) current_grid_cost_per_hour uses base rate. (3) predicted energy/cost tomorrow: UTC weekday after 18:00 CST, temp filter per 15-min row, cost at the current rate for the whole day, ignores Solcast. energy_cost_today and import cost verified CORRECT. Display-only part (units on Net Tomorrow) done on ura-v8."
+  decision_2026-11-01: "Operator picked A: saved today = rate spread on battery energy discharged during mid-peak/peak, accrued at discharge. Net Tomorrow + related sensors fixed in code, with a better design and options."
+  next: "Plan (Tier 2, cost-impacting display + savings ledger): same-basis rates for savings and decide charge-time vs discharge-time accrual; effective rate for cost/hr; local-date weekday, whole-day temp filter, per-period pricing and solar-aware net for tomorrow; log predictions to measure accuracy."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
