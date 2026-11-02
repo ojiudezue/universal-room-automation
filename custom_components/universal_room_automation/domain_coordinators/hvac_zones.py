@@ -295,6 +295,9 @@ class ZoneManager:
         """Initialize zone manager."""
         self.hass = hass
         self._zones: dict[str, ZoneState] = {}
+        # HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 (A-LOW3): mirror of the HVAC
+        # coordinator's master sweep gate, for the zone status attribute.
+        self.vacancy_sweep_master_enabled: bool = True
         # HVAC-ZONE-CONDITIONING-DEMAND-1 D1 (2026-09-16): per-room state for
         # the HVAC-occupancy tail-hold producer. `_hvac_armed[room]` latches
         # True on a rising `STATE_OCCUPIED` edge and rides purely on grace-held
@@ -1239,7 +1242,11 @@ class ZoneManager:
             # v3.17.0: Zone Intelligence attributes
             "zone_presence_state": zone.zone_presence_state,
             "vacancy_sweep_done": zone.vacancy_sweep_done,
-            "vacancy_sweep_enabled": zone.vacancy_sweep_enabled,
+            # Effective: per-zone opt-out AND the global master switch.
+            "vacancy_sweep_enabled": bool(
+                zone.vacancy_sweep_enabled
+                and getattr(self, "vacancy_sweep_master_enabled", True)
+            ),
             # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): renamed
             # operator-facing attribute from `runtime_exceeded` to
             # `energy_shed_cap_reached`. Internal field name kept for

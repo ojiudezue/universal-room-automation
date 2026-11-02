@@ -72,6 +72,9 @@ class _RestoreEntity:
     async def async_get_last_state(self):
         return getattr(self, "_last_state_stub", None)
 
+    def async_on_remove(self, _unsub):
+        return None
+
 
 def _load_class(class_name: str):
     """Compile and return the REAL class body from switch.py under mocked bases."""
@@ -94,6 +97,12 @@ def _load_class(class_name: str):
         "EntityCategory": MagicMock(),
         "HomeAssistant": MagicMock,
         "ConfigEntry": MagicMock,
+        "callback": lambda fn: fn,
+        # HVACZoneSweepSwitch subscribes to SIGNAL_HVAC_COORDINATOR_READY
+        # via a method-local relative import — give the exec'd body a
+        # package so it resolves.
+        "__name__": "custom_components.universal_room_automation.switch",
+        "__package__": "custom_components.universal_room_automation",
     }
     exec(compile(src, f"switch_{class_name}", "exec"), ns)
     return ns[class_name]
