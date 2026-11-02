@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: "2026-11-01"
+  last_reconciled: "2026-11-02"
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -33306,7 +33306,8 @@ cards:
 - id: EC-COST-AND-FORECAST-MATH-1
   title: "EC money numbers wrong: arbitrage 'saved today' uses mismatched rates (~$0.01 vs ~$0.79), grid cost/hr uses base not effective rate (~33% low), Net Tomorrow uses UTC weekday + partial-day temp filter and prices the whole day at one rate"
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.98
   tier: 2
   created: "2026-11-01"
   origin: "Operator 2026-11-01: is saved today accurate? check the cost maths and the prediction sensors like Net Tomorrow"
