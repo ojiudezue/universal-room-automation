@@ -42,13 +42,31 @@ CHI = ZoneInfo("America/Chicago")
 
 @pytest.fixture(autouse=True)
 def _chicago():
-    """Local time = America/Chicago for every test; restored after."""
-    prev = dt_util.get_default_time_zone()
-    dt_util.set_default_time_zone(CHI)
+    """Local time = America/Chicago for every test; restored after.
+
+    Full-suite collection leaves SEVERAL live copies of the real
+    ``homeassistant.util.dt`` module (e.g. test_hvac_excursion_d1_observability
+    purges + re-imports homeassistant.* at collection, rebinding
+    ``homeassistant.util.dt``). This file binds copy A at import, while
+    production's call-time ``from homeassistant.util import dt`` resolves the
+    package attribute (copy B). Setting the zone on copy A only left
+    production in UTC -> wrong local date. Pin every reachable copy.
+    """
+    import sys
+
+    copies = {}
+    hu = sys.modules.get("homeassistant.util")
+    for mod in (dt_util, sys.modules.get("homeassistant.util.dt"),
+                getattr(hu, "dt", None) if hu is not None else None):
+        if mod is not None and hasattr(mod, "set_default_time_zone"):
+            copies[id(mod)] = (mod, mod.get_default_time_zone())
+    for mod, _prev in copies.values():
+        mod.set_default_time_zone(CHI)
     try:
         yield
     finally:
-        dt_util.set_default_time_zone(prev)
+        for mod, prev in copies.values():
+            mod.set_default_time_zone(prev)
 
 
 def _run(coro):
