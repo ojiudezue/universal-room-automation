@@ -200,9 +200,16 @@ def fit() -> dict:
 
     mae_e1, mae_e2 = mae(y_h, p_e1), mae(y_h, p_e2)
     chosen_name = "E1" if mae_e1 <= mae_e2 else "E2"
+    mae_v1_pre = mae(y_h, [predict(v1_consts(), r["date"], r["temp_mid_f"])
+                           for r in hold])
+    if min(mae_e1, mae_e2) >= mae_v1_pre:
+        # v2 FAILS its ship gate: it is only a logged record arm, so the
+        # simpler E1 (no EV input; E2 would need a new per-house EV
+        # statistic role key) is emitted. Both MAEs are printed.
+        chosen_name = "E1"
     chosen = c_e1 if chosen_name == "E1" else c_e2
     p_chosen = p_e1 if chosen_name == "E1" else p_e2
-    mae_v2 = min(mae_e1, mae_e2)
+    mae_v2 = mae_e1 if chosen_name == "E1" else mae_e2
     mae_v1 = mae(y_h, p_v1)
     chosen = dict(
         chosen,
@@ -283,12 +290,13 @@ def main() -> int:
     print(f"# holdout MAE v2 E2 (EV split + trailing EV mean)  = {r['mae_e2']:.2f}")
     print(f"# holdout MAE v1-shape refit, hourly-mean temp     = "
           f"{r['mae_v1shape_meantemp']:.2f}")
-    print(f"# chosen EV variant: {r['chosen']}; ship v2 (beats v1): {r['ship_v2']}")
+    print(f"# emitted EV variant: {r['chosen']} (E1 when v2 fails its gate); "
+          f"ship v2 (beats v1): {r['ship_v2']}")
     for k, (m, n) in hz["by_base"].items():
         print(f"# hvac_zone base={k}: holdout MAE = "
               f"{'n/a' if m is None else f'{m:.2f}'} over n={n}")
     best = hz["best"]
-    v2m = min(r["mae_e1"], r["mae_e2"])
+    v2m = r["consts"]["holdout_mae_kwh"]
     gain = (v2m - hz["by_base"][best][0]) if best else None
     verdict = ("SHIP" if gain is not None and gain >= HVAC_ZONE_ARM_MIN_GAIN_KWH
                else "DO NOT SHIP")

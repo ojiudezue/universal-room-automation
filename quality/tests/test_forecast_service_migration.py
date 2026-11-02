@@ -233,15 +233,15 @@ def test_forecast_fetch_is_cached():
 
 def test_predicted_async_updates_call_refresh():
     src = _agg_src()
+    # EC-COST-AND-FORECAST-MATH-1: the today/tomorrow energy+cost sensors no
+    # longer read the aggregation forecast cache (EC forecast_today / D3 +
+    # D8 date-keyed helper); they are covered behaviourally in
+    # test_ec_forecast_build2.py.
     for cls in (
-        "PredictedEnergyTodaySensor",
         "PredictedEnergyWeekSensor",
         "PredictedEnergyMonthSensor",
-        "PredictedEnergyTomorrowSensor",
-        "PredictedCostTodaySensor",
         "PredictedCostWeekSensor",
         "PredictedCostMonthSensor",
-        "PredictedCostTomorrowSensor",
         "PredictedCoolingNeedSensor",
         "PredictedHeatingNeedSensor",
     ):

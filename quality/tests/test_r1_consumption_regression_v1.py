@@ -231,6 +231,8 @@ def test_estimator_shadow_only_gates_consumer(monkeypatch):
         p._consumption_history[dow_i].extend([200.0])
     now = dt.datetime(2026, 7, 15, 12, 0)
     temp = 82.0
+    # D8: the regression arm reads the forecast (high+low)/2 shadow temp.
+    p.set_shadow_temp(temp)
 
     consumed = p._estimate_consumption(now, temp)
     v1_expected, _, _, _ = p._compute_v1(now, temp)
@@ -256,6 +258,8 @@ def test_source_marker_v1_when_shadow_off(monkeypatch):
     p = _make_predictor()
     now = dt.datetime(2026, 7, 15, 12, 0)
     temp = 82.0
+    # D8: the regression arm reads the forecast (high+low)/2 shadow temp.
+    p.set_shadow_temp(temp)
 
     consumed = p._estimate_consumption(now, temp)
     v1_expected, _, _, _ = p._compute_v1(now, temp)

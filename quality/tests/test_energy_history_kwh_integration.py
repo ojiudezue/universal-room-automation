@@ -134,6 +134,10 @@ def test_predict_energy_tomorrow_is_kwh(db, monkeypatch):
             return datetime(2026, 10, 18, 12, 0, 0)
 
     monkeypatch.setattr(dbmod, "datetime", _FakeDT)
+    # D3b: the target weekday is the LOCAL date's (Sunday local -> Monday).
+    from datetime import timezone as _tz
+    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: dbmod.dt_util.as_local(
+        datetime(2026, 10, 18, 12, 0, 0, tzinfo=_tz.utc)))
 
     async def _days():
         return 30

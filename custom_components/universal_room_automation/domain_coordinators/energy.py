@@ -141,6 +141,11 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _r(v, nd: int = 1):
+    """Round a possibly-None float (forecast attrs)."""
+    return None if v is None else round(float(v), nd)
+
+
 class ServiceDispatchResult(NamedTuple):
     """B2 — outcome of one `_execute_service_action` call."""
 
@@ -7823,6 +7828,13 @@ class EnergyCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
 
+            # D8: today's forecast (high+low)/2 -> predictor SHADOW arm only.
+            try:
+                from homeassistant.util import dt as _d8_dtu
+                await self._set_predictor_shadow_temp(_d8_dtu.now())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("D8 shadow temp refresh failed", exc_info=True)
+
             # E5: Daily prediction (generates once per day, no-ops after)
             self._predictor.generate_prediction()
 
@@ -7834,6 +7846,14 @@ class EnergyCoordinator(BaseCoordinator):
 
             # E6: Fetch forecast temps (async service call, cached for property)
             await self._update_forecast_temps()
+
+            # EC-COST-AND-FORECAST-MATH-1 D3/D4/D5: tomorrow forecast + log
+            # (display-only; a fault never touches the decision tick).
+            try:
+                from homeassistant.util import dt as _d3_dtu
+                await self._async_refresh_tomorrow_forecast(_d3_dtu.now())
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("tomorrow forecast refresh failed", exc_info=True)
 
             # E6: Load shedding evaluation (before constraint so shed level is current)
             if not self._observation_mode:
@@ -8815,6 +8835,353 @@ class EnergyCoordinator(BaseCoordinator):
                 )
         except Exception as exc:
             _LOGGER.warning("Failed to fetch weather forecast for %s: %s", weather_eid, exc)
+
+    # =================================================================
+    # EC-COST-AND-FORECAST-MATH-1 Build 2: D8 / D3 / D4 / D5 / D9 runtime
+    # =================================================================
+
+    async def _fetch_daily_forecast_list(self, entity_id: str) -> list | None:
+        """Full ``weather.get_forecasts`` daily list (bounded). The WPM
+        keeps only ``forecasts[0]``, so D8 fetches the list itself."""
+        from .energy_const import FORECAST_FETCH_TIMEOUT_S
+        try:
+            async with asyncio.timeout(FORECAST_FETCH_TIMEOUT_S):
+                response = await self.hass.services.async_call(
+                    "weather", "get_forecasts",
+                    {"entity_id": entity_id, "type": "daily"},
+                    blocking=True, return_response=True,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D8 forecast list fetch failed for %s", entity_id,
+                          exc_info=True)
+            return None
+        forecasts = ((response or {}).get(entity_id) or {}).get("forecast")
+        return forecasts if isinstance(forecasts, list) else None
+
+    async def async_forecast_temps_for_date(self, target) -> tuple[float, float] | None:
+        """D8: (high, low) of the active provider's daily entry whose
+        datetime is LOCAL ``target``; None when absent (no fallback: never
+        index-based, never forecast[0], never the current temperature).
+
+        The full list is cached per provider for FORECAST_DATE_CACHE_TTL_S
+        and every target date resolves from that one fetch.
+        """
+        import time as _time
+        from .energy_const import FORECAST_DATE_CACHE_TTL_S
+        from .energy_forecast_tomorrow import select_forecast_for_date
+        eid = self._get_active_weather_entity()
+        if not eid:
+            return None
+        cache = getattr(self, "_forecast_list_cache", None)
+        now_m = _time.monotonic()
+        if (cache is None or cache[0] != eid
+                or now_m - cache[1] >= FORECAST_DATE_CACHE_TTL_S):
+            forecasts = await self._fetch_daily_forecast_list(eid)
+            if forecasts is None and cache is not None and cache[0] == eid:
+                forecasts = cache[2]  # keep the last good list on a failed fetch
+            self._forecast_list_cache = (eid, now_m, forecasts or [])
+            cache = self._forecast_list_cache
+        return select_forecast_for_date(cache[2], target)
+
+    async def _set_predictor_shadow_temp(self, now) -> None:
+        """D8: feed today's forecast (high+low)/2 to the predictor's SHADOW
+        arm only (INV-SHADOW-1: ``temp``/legacy/consumed untouched)."""
+        from homeassistant.util import dt as _dtu
+        from .energy_forecast_tomorrow import temp_feature
+        hl = await self.async_forecast_temps_for_date(_dtu.as_local(now).date())
+        self._predictor.set_shadow_temp(temp_feature(hl))
+
+    # --- recorder daily inputs (hvac_zone) -------------------------------
+    def _forecast_input_statistic_ids(self) -> tuple[set[str], set[str]]:
+        from .energy_const import HVAC_ZONE_REGRESSION_V1
+        energy = {z["energy"] for z in HVAC_ZONE_REGRESSION_V1["zones"]}
+        temps = {z["indoor"] for z in HVAC_ZONE_REGRESSION_V1["zones"]}
+        return energy, temps
+
+    async def _query_forecast_input_statistics(self, start_utc):
+        """Hourly change/max/min rows on the RECORDER executor (the
+        _query_utility_statistics pattern; recorder is lazy-imported)."""
+        from homeassistant.components.recorder import (  # noqa: PLC0415
+            get_instance as _recorder_get_instance,
+        )
+        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
+            statistics_during_period,
+        )
+        energy, temps = self._forecast_input_statistic_ids()
+        return await _recorder_get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass, start_utc, None, energy | temps, "hour",
+            {"energy": "kWh", "temperature": "°F"},
+            {"change", "max", "min"},
+        )
+
+    def _bucket_forecast_inputs(self, result) -> dict[str, dict]:
+        """{statistic_id: {local_date: kWh | (high+low)/2}}; days with fewer
+        than FORECAST_MIN_HOURS_PER_DAY hourly rows are dropped."""
+        from datetime import datetime as _dt, timezone as _tz
+        from homeassistant.util import dt as _dtu
+        from .energy_const import FORECAST_MIN_HOURS_PER_DAY
+        energy, temps = self._forecast_input_statistic_ids()
+        out: dict[str, dict] = {}
+        for sid, rows in (result or {}).items():
+            agg: dict = {}
+            for row in rows or []:
+                st = row.get("start")
+                if isinstance(st, (int, float)):
+                    st = _dt.fromtimestamp(st, _tz.utc)
+                if st is None:
+                    continue
+                d = _dtu.as_local(st).date()
+                a = agg.setdefault(d, [0.0, None, None, 0])
+                if sid in energy:
+                    ch = row.get("change")
+                    if ch is None or ch < 0:
+                        continue
+                    a[0] += float(ch)
+                else:
+                    mx, mn = row.get("max"), row.get("min")
+                    if mx is None or mn is None:
+                        continue
+                    a[1] = mx if a[1] is None else max(a[1], mx)
+                    a[2] = mn if a[2] is None else min(a[2], mn)
+                a[3] += 1
+            out[sid] = {
+                d: (a[0] if sid in energy else (a[1] + a[2]) / 2.0)
+                for d, a in agg.items()
+                if a[3] >= FORECAST_MIN_HOURS_PER_DAY
+                and (sid in energy or a[1] is not None)
+            }
+        return out
+
+    def _schedule_forecast_inputs_refresh(self, now) -> None:
+        """Tracked background refresh of the recorder daily inputs, at most
+        every FORECAST_DAILY_INPUTS_REFRESH_S; cancelled at teardown."""
+        from datetime import timedelta as _td
+        from .energy_const import FORECAST_DAILY_INPUTS_REFRESH_S
+        if getattr(self, "_forecast_inputs_inflight", False):
+            return
+        components = getattr(getattr(self.hass, "config", None), "components", ())
+        if "recorder" not in components:
+            return
+        last = getattr(self, "_forecast_inputs_last_run", None)
+        if last is not None and (now - last) < _td(seconds=FORECAST_DAILY_INPUTS_REFRESH_S):
+            return
+        self._forecast_inputs_inflight = True
+        self._forecast_inputs_last_run = now
+        coro = self._async_refresh_forecast_inputs(now)
+        try:
+            _bg = getattr(self.hass, "async_create_background_task", None)
+            task = (_bg(coro, "ura_ec_forecast_inputs_refresh") if _bg
+                    else self.hass.async_create_task(coro))
+        except Exception:  # noqa: BLE001
+            coro.close()
+            self._forecast_inputs_inflight = False
+            raise
+        self._forecast_inputs_task = task
+
+    async def _async_refresh_forecast_inputs(self, now) -> None:
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+        try:
+            start = _dtu.as_utc(_dtu.start_of_local_day(
+                _dtu.as_local(now) - _td(days=16)))
+            result = await self._query_forecast_input_statistics(start)
+            self._forecast_daily_inputs = self._bucket_forecast_inputs(result)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("forecast daily inputs refresh failed", exc_info=True)
+        finally:
+            self._forecast_inputs_inflight = False
+
+    # --- D4 period mix ---------------------------------------------------
+    async def _refresh_period_mix(self, now) -> None:
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+        from .energy_const import FORECAST_PERIOD_MIX_DAYS
+        from .energy_forecast_tomorrow import (
+            bucket_period_mix, local_day_bounds_utc_naive,
+        )
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        today = _dtu.as_local(now).date()
+        since, _ = local_day_bounds_utc_naive(
+            today - _td(days=FORECAST_PERIOD_MIX_DAYS))
+        _, until = local_day_bounds_utc_naive(today - _td(days=1))
+        rows = await database.get_energy_history_kwh_rows(since)
+        rows = [r for r in rows if r[0] < until]  # whole local days only
+        self._period_mix, self._period_mix_days = bucket_period_mix(rows, self._tou)
+
+    def price_net_kwh(self, net_kwh: float, day) -> tuple[float, dict]:
+        """D4 public pricer: per-period kWh shares x live TOU rates for
+        local ``day`` (INV-FC-2 / INV-RATE-1)."""
+        from .energy_const import FORECAST_PERIOD_MIX_MIN_DAYS
+        from .energy_forecast_tomorrow import price_net_kwh
+        return price_net_kwh(
+            net_kwh, getattr(self, "_period_mix", None), self._tou, day,
+            FORECAST_PERIOD_MIX_MIN_DAYS, getattr(self, "_period_mix_days", 0),
+        )
+
+    # --- D3 / D9 arms ------------------------------------------------------
+    def _consumption_arms(self, target, temp, daily_rows) -> dict[str, dict]:
+        """Every consumption arm for LOCAL ``target`` (no adjustment factor
+        except dow_legacy, which mirrors what the EC consumes)."""
+        from datetime import datetime as _dt, time as _time
+        from homeassistant.util import dt as _dtu
+        from .energy_const import (
+            CONSUMPTION_REGRESSION_V1, CONSUMPTION_REGRESSION_V2,
+            HVAC_ZONE_REGRESSION_V1,
+        )
+        from .energy_forecast import compute_consumption_regression
+        from .energy_forecast_tomorrow import hvac_zone_consumption, trailing_mean
+
+        inputs = getattr(self, "_forecast_daily_inputs", None) or {}
+        arms: dict[str, dict] = {}
+        v1 = compute_consumption_regression(target, temp, CONSUMPTION_REGRESSION_V1)[0]
+        arms["v1"] = {"kwh": v1, "missing": None if v1 is not None else "forecast_temp"}
+        v2 = compute_consumption_regression(target, temp, CONSUMPTION_REGRESSION_V2)[0]
+        missing = None if v2 is not None else "forecast_temp"
+        arms["v2"] = {"kwh": v2, "missing": missing}
+
+        zones = HVAC_ZONE_REGRESSION_V1["zones"]
+        indoor = [trailing_mean(inputs.get(z["indoor"]) or {}, target,
+                                HVAC_ZONE_REGRESSION_V1["indoor_trailing_days"])
+                  for z in zones]
+        cons_by_date = {}
+        for r in daily_rows:
+            try:
+                d = _dt.strptime(r["date"], "%Y-%m-%d").date()
+            except (TypeError, ValueError, KeyError):
+                continue
+            c = r.get("consumption_kwh")
+            ac = [(inputs.get(z["energy"]) or {}).get(d) for z in zones]
+            if c is not None and all(a is not None for a in ac):
+                cons_by_date[d] = float(c) - sum(ac)
+        base = trailing_mean(cons_by_date, target,
+                             HVAC_ZONE_REGRESSION_V1["base_trailing_days"])
+        hz = hvac_zone_consumption(HVAC_ZONE_REGRESSION_V1, temp, indoor, base)
+        arms["hvac_zone"] = {"kwh": hz, "missing": None if hz is not None else (
+            "forecast_temp" if temp is None else "hvac_zone_history")}
+
+        noon = _dt.combine(target, _time(12), tzinfo=_dtu.get_default_time_zone())
+        legacy, _src = self._predictor._compute_legacy(noon, temp)
+        arms["dow_legacy"] = {
+            "kwh": max(0.1, legacy * self._predictor._adjustment_factor),
+            "missing": None,
+        }
+        from datetime import timedelta as _td
+        week_ago = (target - _td(days=7)).isoformat()
+        wp = next((r.get("consumption_kwh") for r in daily_rows
+                   if r.get("date") == week_ago), None)
+        arms["weekly_persistence"] = {
+            "kwh": float(wp) if wp is not None else None,
+            "missing": None if wp is not None else "history",
+        }
+        return arms
+
+    async def _async_refresh_tomorrow_forecast(self, now) -> None:
+        """D3 Option A + D5 log. Rate-limited to FORECAST_TOMORROW_REFRESH_S;
+        display-only (no decision consumer)."""
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+        from .energy_const import (
+            CONSUMPTION_REGRESSION_ACTIVE, FORECAST_LOG_LOCAL_HOUR,
+            FORECAST_NET_BIAS_DAYS, FORECAST_TOMORROW_REFRESH_S,
+        )
+        from .energy_forecast_tomorrow import net_bias, predict_net, temp_feature
+
+        last = getattr(self, "_tomorrow_forecast_last", None)
+        if last is not None and (now - last) < _td(seconds=FORECAST_TOMORROW_REFRESH_S):
+            return
+        self._tomorrow_forecast_last = now
+        self._schedule_forecast_inputs_refresh(now)
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        local_now = _dtu.as_local(now)
+        target = local_now.date() + _td(days=1)  # INV-FC-1: LOCAL tomorrow
+
+        hl = await self.async_forecast_temps_for_date(target)
+        temp = temp_feature(hl)
+        solar = self._battery.solcast_tomorrow
+        rows = (await database.get_energy_daily_balance_recent(30)
+                if database is not None else [])
+        bias = net_bias(rows, FORECAST_NET_BIAS_DAYS)
+        await self._refresh_period_mix(now)
+        arms = self._consumption_arms(target, temp, rows)
+
+        for name, a in arms.items():
+            net = predict_net(a["kwh"], solar, bias)
+            a["net_kwh"] = net
+            a["cost"] = (self.price_net_kwh(net, target)[0]
+                         if net is not None else None)
+        sel = arms[CONSUMPTION_REGRESSION_ACTIVE]
+        missing = ("forecast_temp" if temp is None else
+                   "solcast" if solar is None else sel["missing"])
+        cost_meta = (self.price_net_kwh(sel["net_kwh"], target)[1]
+                     if sel["net_kwh"] is not None else {})
+        self._tomorrow_forecast = {
+            "target_date": target.isoformat(),
+            "consumption_kwh": _r(sel["kwh"]),
+            "solar_kwh": _r(solar),
+            "bias_kwh": round(bias, 1),
+            "raw_net_kwh": _r(sel["net_kwh"]),
+            "cost": None if sel["cost"] is None else round(sel["cost"], 2),
+            "temp_used": _r(temp),
+            "forecast_high": hl[0] if hl else None,
+            "forecast_low": hl[1] if hl else None,
+            "model_arm": CONSUMPTION_REGRESSION_ACTIVE,
+            "method": "v1_solcast",
+            "missing_input": missing if sel["net_kwh"] is None else None,
+            "arms": {k: {"consumption_kwh": _r(v["kwh"]),
+                         "net_kwh": _r(v["net_kwh"]),
+                         "missing_input": v["missing"]}
+                     for k, v in arms.items()},
+            **cost_meta,
+        }
+
+        if (database is not None and local_now.hour >= FORECAST_LOG_LOCAL_HOUR
+                and getattr(self, "_forecast_logged_for", None) != target):
+            made_at = _dtu.as_utc(now).isoformat()
+            batch = [
+                (target.isoformat(), name, made_at, a["kwh"], solar,
+                 a["net_kwh"], a["cost"], temp,
+                 1 if name == self._consumed_arm_name() else 0)
+                for name, a in arms.items()
+            ]
+            if await database.log_forecast_batch(batch):
+                self._forecast_logged_for = target
+        await self._refresh_forecast_accuracy(now)
+
+    def _consumed_arm_name(self) -> str:
+        """The arm the EC actually consumes (D5 ``consumed=1``)."""
+        from .energy_const import CONF_R1_ESTIMATOR_SHADOW_ONLY
+        return "dow_legacy" if CONF_R1_ESTIMATOR_SHADOW_ONLY else "v1"
+
+    async def _refresh_forecast_accuracy(self, now) -> None:
+        """D5 per-arm accuracy from energy_forecast_log JOIN energy_daily."""
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+        from .energy_const import CONSUMPTION_REGRESSION_ACTIVE
+        from .energy_forecast_tomorrow import forecast_accuracy
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        today = _dtu.as_local(now).date()
+        rows = await database.get_forecast_log_joined(
+            (today - _td(days=30)).isoformat())
+        self._forecast_accuracy_by_arm = forecast_accuracy(
+            rows, today, CONSUMPTION_REGRESSION_ACTIVE)
+
+    @property
+    def tomorrow_forecast(self) -> dict[str, Any]:
+        """D3 snapshot (+ D5 accuracy attrs)."""
+        out = dict(getattr(self, "_tomorrow_forecast", None) or {})
+        acc = getattr(self, "_forecast_accuracy_by_arm", None)
+        if acc:
+            out["accuracy"] = acc
+        return out
 
     async def _async_evaluate_dynamic_presets(self) -> None:
         """Evaluate dynamic-preset overrides for all opted-in canonical HVAC zones.
@@ -12591,6 +12958,11 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _cancel_utility_refresh(self) -> None:
         """Cancel an in-flight utility refresh task (teardown)."""
+        # EC-COST-AND-FORECAST-MATH-1 D9: forecast-inputs refresh task.
+        _fi = getattr(self, "_forecast_inputs_task", None)
+        if _fi is not None and not _fi.done():
+            _fi.cancel()
+        self._forecast_inputs_task = None
         try:
             task = getattr(self, "_utility_stats_task", None)
             if task is not None and not task.done():

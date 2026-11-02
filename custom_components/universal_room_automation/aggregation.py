@@ -110,10 +110,8 @@ from .const import (
     CONF_ZONE_ENERGY_SENSORS,
     CONF_ELECTRICITY_RATE,
     CONF_DELIVERY_RATE,
-    CONF_EXPORT_REIMBURSEMENT_RATE,
     DEFAULT_ELECTRICITY_RATE,
     DEFAULT_DELIVERY_RATE,
-    DEFAULT_EXPORT_REIMBURSEMENT_RATE,
     # Energy confidence levels
     ENERGY_CONFIDENCE_HIGH,
     ENERGY_CONFIDENCE_MEDIUM,
@@ -814,6 +812,41 @@ def _predicted_import_rate(hass, get_config) -> tuple[float, str]:
     if source == "ec_tou":
         return rate, source
     return rate + get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE), source
+
+
+def _get_ec(hass):
+    """The Energy Coordinator, or None."""
+    manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+    if manager is None:
+        return None
+    return manager.coordinators.get("energy")
+
+
+def _price_predicted(hass, net_kwh, day, get_config=None) -> tuple[float | None, dict]:
+    """EC-COST-AND-FORECAST-MATH-1 D4: price a predicted net kWh (import -
+    export) on local ``day`` as per-period kWh shares x live TOU rates (EC
+    ``price_net_kwh``). Never an instant rate (INV-FC-2); the export side
+    uses the engine's export rates (INV-RATE-1).
+
+    No EC (non-TOU install): import is priced at the flat static rate +
+    configured delivery (``_predicted_import_rate``, a flat rate so INV-FC-2
+    holds); export has no engine rate -> None."""
+    if net_kwh is None:
+        return None, {}
+    ec = _get_ec(hass)
+    if ec is None:
+        if net_kwh < 0:
+            return None, {"rate_source": "no_export_rate"}
+        if get_config is None:
+            return None, {}
+        rate, src = _predicted_import_rate(hass, get_config)
+        return round(float(net_kwh) * rate, 2), {"rate_source": src}
+    try:
+        cost, meta = ec.price_net_kwh(float(net_kwh), day)
+        return round(float(cost), 2), dict(meta)
+    except Exception:  # noqa: BLE001 — display-only; never raise to HA
+        _LOGGER.debug("predicted cost pricing failed", exc_info=True)
+        return None, {}
 
 
 def _get_confidence_level(confidence: int) -> str:
@@ -2214,6 +2247,16 @@ class PersonTrackingDiagnosticSensor(AggregationEntity, SensorEntity):
 # v3.1.6: ENERGY PREDICTION SENSORS
 # ============================================================================
 
+def _ec_today_net_import(hass) -> float | None:
+    """-(EC forecast_today.predicted_net_kwh): today's net grid kWh (import -
+    export) from the EC predictor (D4). None when the EC or value is absent."""
+    ec = _get_ec(hass)
+    if ec is None:
+        return None
+    v = (ec.forecast_today or {}).get("predicted_net_kwh")
+    return None if v is None else round(-float(v), 1)
+
+
 class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted net energy for today."""
     
@@ -2272,7 +2315,7 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "today",
-            "method": "historical_pattern",
+            "method": "ec_forecast_today",
             "last_updated": self._cache_time.isoformat() if self._cache_time else None,
         }
 
@@ -2297,12 +2340,11 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
 
-        await self._refresh_forecast_cache()
-        forecast_temp = self._get_forecast_temp()
-        value, confidence = await db.predict_energy("day", forecast_temp)
-
-        self._cached_value = value
-        self._cached_confidence = confidence
+        # EC-COST-AND-FORECAST-MATH-1 D4 (operator Q3): today = the EC
+        # forecast. EC predicted_net_kwh is solar - consumption (+ = export);
+        # this sensor's raw net is import - export, so the sign flips.
+        self._cached_value = _ec_today_net_import(self.hass)
+        self._cached_confidence = 0
         self._cache_time = now
 
 
@@ -2453,6 +2495,25 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
         self._cache_time = now
 
 
+async def _predicted_net_tomorrow(hass, db) -> tuple[float | None, int, dict]:
+    """D3: (raw net kWh, confidence, snapshot) for LOCAL tomorrow.
+
+    NET_TOMORROW_MODEL "v1_solcast" (Option A, D0 gate passed) reads the EC
+    snapshot (consumption - Solcast tomorrow + bias; no fallback: a missing
+    input is None + ``missing_input``). "historical" = D3b, the same-weekday
+    history (local target weekday) keyed on the D8 forecast high."""
+    from .domain_coordinators.energy_const import NET_TOMORROW_MODEL
+    ec = _get_ec(hass)
+    snap = dict(getattr(ec, "tomorrow_forecast", None) or {}) if ec else {}
+    if NET_TOMORROW_MODEL == "v1_solcast":
+        return snap.get("raw_net_kwh"), 0, snap
+    value, confidence = await db.predict_energy(
+        "tomorrow", snap.get("forecast_high"))
+    snap = {"target_date": snap.get("target_date"), "method": "historical",
+            "temp_used": snap.get("forecast_high")}
+    return value, confidence, snap
+
+
 class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted net energy for tomorrow.
 
@@ -2494,6 +2555,7 @@ class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return prediction details."""
+        snap = getattr(self, "_snapshot", None) or {}
         attrs = {
             "value": (
                 max(self._cached_value, 0.0)
@@ -2502,13 +2564,23 @@ class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
             ),
             "raw_net_kwh": self._cached_value,
             "unit": "kWh",
-            "confidence": self._cached_confidence,
-            "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "tomorrow",
-            "method": "historical_pattern_tomorrow_weekday_and_forecast_temp",
             "forecast_temp_tomorrow": self._cached_forecast_temp,
             "last_updated": self._cache_time.isoformat() if self._cache_time else None,
         }
+        # D3: consumption_kwh, solar_kwh, bias_kwh, target_date, temp_used,
+        # model_arm, method, missing_input, per-arm values; D5 accuracy.
+        for k in ("target_date", "consumption_kwh", "solar_kwh", "bias_kwh",
+                  "temp_used", "model_arm", "method", "missing_input",
+                  "arms", "accuracy"):
+            if k in snap:
+                attrs[k] = snap[k]
+        acc = (snap.get("accuracy") or {}).get(snap.get("model_arm")) or {}
+        if (acc.get("log_rows") or 0) >= 7:
+            attrs["backtest_mae_kwh"] = acc.get("net_mae_30d_kwh")
+        if snap.get("method") == "historical":
+            attrs["confidence"] = self._cached_confidence
+            attrs["confidence_level"] = _get_confidence_level(self._cached_confidence)
         if self._cached_value is not None:
             display_val = max(self._cached_value, 0.0)
             attrs["display"] = f"{display_val} kWh ({_get_confidence_level(self._cached_confidence)})"
@@ -2521,26 +2593,23 @@ class PredictedEnergyTomorrowSensor(AggregationEntity, SensorEntity):
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if not db:
             return
-        # Cache 15 minutes (same cadence as Today sibling; tomorrow's forecast
-        # can shift intraday as the weather integration refreshes).
         now = dt_util.now()
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
-        await self._refresh_forecast_cache()
-        forecast_temp = self._get_forecast_temp_tomorrow()
-        value, confidence = await db.predict_energy("tomorrow", forecast_temp)
+        value, confidence, snap = await _predicted_net_tomorrow(self.hass, db)
         self._cached_value = value
         self._cached_confidence = confidence
-        self._cached_forecast_temp = forecast_temp
+        self._snapshot = snap
+        self._cached_forecast_temp = snap.get("temp_used")
         self._cache_time = now
 
 
 class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted energy cost for tomorrow.
 
-    Trivial mirror of PredictedCostTodaySensor — same rate/delivery/export
-    pipeline, only difference is db.predict_energy("tomorrow", tomorrow_temp).
-    Cost stays signed (negative cost = valid export credit)."""
+    EC-COST-AND-FORECAST-MATH-1 D4: the D3 net kWh priced as per-period kWh
+    shares x live TOU rates (never one instant rate). Cost stays signed
+    (negative cost = export credit at the engine's export rates)."""
 
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -2562,19 +2631,11 @@ class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        rate, rate_source = _get_effective_rate_kwh(self.hass)
-        delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
-        export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
         attrs = {
             "value": self._cached_value,
             "raw_net_kwh": self._cached_raw_net_kwh,
-            "confidence": self._cached_confidence,
-            "confidence_level": _get_confidence_level(self._cached_confidence),
-            "electricity_rate": rate,
-            "delivery_rate": delivery,
-            "export_rate": export_rate,
             "period": "tomorrow",
-            "rate_source": rate_source,
+            **(getattr(self, "_price_meta", None) or {}),
         }
         if self._cached_value is not None:
             attrs["display"] = f"${self._cached_value:.2f} ({_get_confidence_level(self._cached_confidence)})"
@@ -2589,19 +2650,14 @@ class PredictedCostTomorrowSensor(AggregationEntity, SensorEntity):
         now = dt_util.now()
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
-        await self._refresh_forecast_cache()
-        forecast_temp = self._get_forecast_temp_tomorrow()
-        energy_kwh, confidence = await db.predict_energy("tomorrow", forecast_temp)
+        energy_kwh, confidence, snap = await _predicted_net_tomorrow(self.hass, db)
         self._cached_raw_net_kwh = energy_kwh
-        if energy_kwh is None:
-            self._cached_value = None
-        else:
-            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
-            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-            if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * import_rate, 2)
-            else:
-                self._cached_value = round(energy_kwh * export_rate, 2)
+        target = snap.get("target_date")
+        day = (datetime.strptime(target, "%Y-%m-%d").date() if target
+               else dt_util.now().date() + timedelta(days=1))
+        # D4: per-period kWh shares x live TOU rates for the TARGET day.
+        self._cached_value, self._price_meta = _price_predicted(
+            self.hass, energy_kwh, day, self._get_config)
         self._cached_confidence = confidence
         self._cache_time = now
 
@@ -2641,20 +2697,12 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return cost calculation details."""
-        rate, rate_source = _get_effective_rate_kwh(self.hass)
-        delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
-        export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-
         attrs = {
             "value": self._cached_value,
             "raw_net_kwh": self._cached_raw_net_kwh,
-            "confidence": self._cached_confidence,
-            "confidence_level": _get_confidence_level(self._cached_confidence),
-            "electricity_rate": rate,
-            "delivery_rate": delivery,
-            "export_rate": export_rate,
             "period": "today",
-            "rate_source": rate_source,
+            "method": "ec_forecast_today",
+            **(getattr(self, "_price_meta", None) or {}),
         }
 
         # Add friendly display text
@@ -2681,20 +2729,13 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
-        await self._refresh_forecast_cache()
-        forecast_temp = self._get_forecast_temp()
-        energy_kwh, confidence = await db.predict_energy("day", forecast_temp)
+        # D4: today's net = the EC forecast (operator Q3), priced as
+        # per-period kWh shares x live TOU rates.
+        energy_kwh = _ec_today_net_import(self.hass)
         self._cached_raw_net_kwh = energy_kwh
-        if energy_kwh is None:
-            self._cached_value = None
-        else:
-            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
-            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-            if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * import_rate, 2)
-            else:
-                self._cached_value = round(energy_kwh * export_rate, 2)
-        self._cached_confidence = confidence
+        self._cached_value, self._price_meta = _price_predicted(
+            self.hass, energy_kwh, now.date(), self._get_config)
+        self._cached_confidence = 0
         self._cache_time = now
 
 
@@ -2722,13 +2763,12 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
-        _rate, rate_source = _get_effective_rate_kwh(self.hass)
         attrs = {
+            **(getattr(self, "_price_meta", None) or {}),
             "value": self._cached_value,
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "week",
-            "rate_source": rate_source,
         }
 
         # Add friendly display text
@@ -2751,15 +2791,9 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         energy_kwh, confidence = await db.predict_energy("week", forecast_temp)
-        if energy_kwh is None:
-            self._cached_value = None
-        else:
-            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
-            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-            if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * import_rate, 2)
-            else:
-                self._cached_value = round(energy_kwh * export_rate, 2)
+        # D4: per-period kWh shares x live TOU rates (INV-FC-2).
+        self._cached_value, self._price_meta = _price_predicted(
+            self.hass, energy_kwh, now.date(), self._get_config)
         self._cached_confidence = confidence
         self._cache_time = now
 
@@ -2788,13 +2822,12 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
-        _rate, rate_source = _get_effective_rate_kwh(self.hass)
         attrs = {
+            **(getattr(self, "_price_meta", None) or {}),
             "value": self._cached_value,
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "month",
-            "rate_source": rate_source,
         }
 
         # Add friendly display text
@@ -2817,15 +2850,9 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         await self._refresh_forecast_cache()
         forecast_temp = self._get_forecast_temp()
         energy_kwh, confidence = await db.predict_energy("month", forecast_temp)
-        if energy_kwh is None:
-            self._cached_value = None
-        else:
-            import_rate, _src = _predicted_import_rate(self.hass, self._get_config)
-            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-            if energy_kwh >= 0:
-                self._cached_value = round(energy_kwh * import_rate, 2)
-            else:
-                self._cached_value = round(energy_kwh * export_rate, 2)
+        # D4: per-period kWh shares x live TOU rates (INV-FC-2).
+        self._cached_value, self._price_meta = _price_predicted(
+            self.hass, energy_kwh, now.date(), self._get_config)
         self._cached_confidence = confidence
         self._cache_time = now
 
