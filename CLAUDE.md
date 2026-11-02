@@ -116,7 +116,7 @@ When the operator says "we have X" — treat it as a verification task before re
 ## Data Source Verification — CRITICAL
 - **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).
-- If the Samba mount is stale or down, remount before querying: `mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config`
+- If the Samba mount is stale or down, remount before querying: `mount_smbfs "//homeassistant:$(security find-generic-password -a homeassistant -s ura-samba -w | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read().strip(),safe=""))')@192.168.13.13/config" /Users/okosisi/ha-config`
 
 ## Troubleshooting — "room automation broke" / light didn't turn on or off
 

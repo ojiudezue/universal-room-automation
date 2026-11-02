@@ -187,7 +187,7 @@ Live config lives on the Samba mount:
 # Verify mount is fresh (per CLAUDE.md "Data Source Verification"):
 ls -la /Users/okosisi/ha-config/.HA_VERSION 2>&1 | head -3
 # If stale/missing, remount (copy verbatim from CLAUDE.md — do NOT retype from memory):
-# mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config
+# mount_smbfs "//homeassistant:$(security find-generic-password -a homeassistant -s ura-samba -w | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read().strip(),safe=""))')@192.168.13.13/config" /Users/okosisi/ha-config
 ```
 
 Live probes via MCP `home-assistant`:

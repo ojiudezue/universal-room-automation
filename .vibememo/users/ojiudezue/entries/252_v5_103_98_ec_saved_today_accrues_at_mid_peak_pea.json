@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "252",
+  "author": "ojiudezue",
+  "session_id": "claude_20261102_063325_ship_v5_103_98",
+  "timestamp": "2026-11-02T06:33:25Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.98 shipped: EC saved-today accrues at mid-peak/peak discharge; cost/hr on effective rate",
+  "summary": "EC saved-today accrues at mid-peak/peak discharge; cost/hr on effective rate",
+  "why": "The 11-01 audit found saved-today at 0.01 dollars because the spread mixed a base rate with an effective rate, and it accrued at charge time. The operator chose option A: credit energy when the battery displaces mid-peak and peak import, valued against what that stored energy cost (B2: solar at the export credit given up). Rates must come from the TOU engine so a tariff change flows through without code. Display only; no battery decision input changes.",
+  "implications": "Shipped EC-COST-AND-FORECAST-MATH-1 at v5.103.98; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.98.md (Live criteria).",
+  "revisit_trigger": "Revisit if saved-today after a full mid-peak discharge is outside roughly 0.5 to 2 dollars, if the inventory exceeds SOC times capacity, or when Build 2 (forecast) ships.",
+  "refs": {
+    "cards": [
+      "EC-COST-AND-FORECAST-MATH-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.98.md"
+    ],
+    "release_notes": "Saved today now counts battery energy used at mid-peak and peak against the cost of that stored energy (grid at off-peak effective rate, solar at export credit forgone); off-peak discharge earns 0; all rates live from the TOU engine; peak avoidance no longer credits the battery; cost per hour on the effective rate; forecasted import physics fixed."
+  }
+}

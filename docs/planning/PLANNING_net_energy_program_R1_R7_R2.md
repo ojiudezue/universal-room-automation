@@ -1,5 +1,63 @@
 # PLANNING — Net-Energy Classification Program (R1 → R7 → R2)
 
+## REV 2 — 2026-11-01 (planner refresh; the July text below is kept as history)
+
+### What changed since July
+- **Shipped:** R1 v1 estimator (v5.18.0) in shadow, `CONF_R1_ESTIMATOR_SHADOW_ONLY=True` `energy_const.py:170`, never flipped. R7 `EnergyProjector` shipped v5.18.0 and is live at five battery sites (`energy_battery.py:4268, 4339, 4436, 5438, 6261`). **R2 never built.**
+- **No shadow value is persisted.** `energy_daily.predicted_consumption_kwh` is always the legacy arm while the gate is on; `shadow_predicted_consumption_kwh` is attrs-only (`energy_forecast.py:831`). July's "R1 shadow scoring" was never measurable from the DB. Rev-2 fix: the EC cycle's D5 prediction log records both arms.
+- **Temperature input bug:** `_compute_v1` is fed the weather entity's current temperature at prediction time (`energy_forecast.py:~182-198, :399`, run ~midnight + sunrise), while the fit used daily-mean outdoor temperature (`scripts/energy/fit_consumption_regression.py:159-166`). Correct input = target-day forecast daily mean, the same feature as the fit.
+- **Legacy predictor is broken, not just weak:** 19 legacy predictions of 350–2274 kWh/day between 06-26 and 10-04 (e.g. 2274 on 09-10). Any trust-hierarchy argument that "legacy is the safe incumbent" is false.
+- **EV reality:** Envoy, Emporia and SPAN totals all include EV load (kanban correction_2026_10_03), so consumption actuals already contain EV. The 18.58 kWh/day constant is **unvalidated**. SPAN Garage A/B EVSE energy counters are unusable (Garage B jumps ~1e5–1e6 Wh/day Mar–Aug); hourly power sums give 2–3 kWh/day Mar–Sep, Oct 7.2 ± 8.7. `enphase_ev` and Emporia EV sessions not yet checked.
+
+### Consumer evidence: who reads predicted consumption (re-run 2026-11-01)
+| Consumer | file:line | Kind |
+|---|---|---|
+| `predicted_net_kwh` sensor | `sensor.py:12098` | display |
+| forecast attrs incl. shadow | `sensor.py:12154` | display |
+| `predicted_consumption_kwh` sensor | `sensor.py:12193`, `energy.py:12803` | display |
+| `predicted_import_kwh` | `energy.py:12782` → `sensor.py:12142` | display |
+| `energy_daily` write + error % | `energy.py:3569-3622`, `database.py:5060-5120` | DB record (persisted) |
+| `battery_full_time` flat fallback | `energy_forecast.py:698` | display (no decision reader; `energy_projector.py:46` marks it out-of-family) |
+| **DP drain-pause `house_load_kw`** | `energy.py:5216` via `_dp_house_load_kw` → real-tick `energy.py:5585` and shadow `:5336` | **DECISION input when source ∈ {`max_span_r1` (code default, `energy_const.py:2248`), `r1_base`}.** Live config: `energy_dp_enable=true`, `energy_dp_house_load_source="live_span"` → not consumed live today. |
+| Battery class / arbitrage / attain / drain | `energy_battery.py:2667-2962` | **solar-only** (Solcast vs monthly thresholds); does NOT read predicted consumption. This is exactly what R2 would change. |
+
+**Conclusion:** flipping R1 out of shadow changes display, the DB record, and one latent decision input (DP house load) that is dark in this install but live under the code default. Nothing in battery reserve / arbitrage / attain / drain / HVAC / EVSE gating reads it until R2. So: **R1-flip + temp fix + EC display work = Tier 2-DB is defensible, provided the DP path is fenced.** R2 (and any PV10 weighting) stays Tier 3.
+
+### Backtest (one-shot, 2026-11-01; actuals from `energy_daily`, temp = daily mean of `sensor.thermostat_bryant_wifi_backhallway_outdoor_temperature`; 133 usable days)
+MAE / bias (pred − actual), kWh/day:
+
+| Month | n | legacy (raw) | v1 @ `avg_temperature`* | v1 @ daily mean | v1 @ daily max |
+|---|---|---|---|---|---|
+| Mar | 4 | 70.5 / −70.5 | 41.9 / +41.9 | 51.9 / +51.9 | 93.5 / +93.5 |
+| Apr | 9 | 56.8 / −51.9 | 22.4 / +22.4 | 28.4 / +28.4 | 51.3 / +51.3 |
+| May | 22 | 40.4 / −25.0 | 22.9 / +11.1 | 23.5 / +17.7 | 51.6 / +51.6 |
+| Jun | 26 | 52.8 / −14.8 | 19.5 / +3.5 | 16.7 / +9.7 | 39.3 / +38.1 |
+| Jul | 17 | 85.6 / +43.8 | 39.6 / +5.5 | 36.0 / +24.1 | 57.5 / +55.9 |
+| Aug | 13 | 77.6 / +45.4 | 29.9 / +11.2 | 32.3 / +7.9 | 48.2 / +48.0 |
+| Sep | 13 | 688 / +630 | 50.5 / −23.4 | 45.4 / −14.7 | 33.2 / +26.8 |
+| Oct | 29 | 209 / +209 | 16.7 / +11.9 | 21.2 / +16.5 | 56.4 / +56.4 |
+
+\* `energy_daily.avg_temperature`; NOT confirmed to equal the prediction-time temperature, so this column is not a true "as-run live" reconstruction. True live temps (00:05 / sunrise weather state) were not recovered.
+
+Refit (OLS, CDD+HDD+intercept, train Mar–Sep n=104, test Oct n=29): Oct MAE 14.1 (base 60/62), 14.5 (65), 15.2 (68); bias ≈ −3. CDD slope ≈ 4.3 kWh/°F vs v1's 2.20. HDD terms unstable (one cool month). Balance point barely matters on this data.
+
+Readings: (1) v1 beats legacy every month. (2) Daily max is the wrong feature; daily mean is right (it matches the fit). (3) v1 runs **positive-biased** (+8 to +24 most months with daily mean); the 2025-fit intercept/season/EV constants are stale, not just the temp input. (4) A 2026 refit cuts Oct MAE to ~14 with near-zero bias. Mean actuals: 90 (Mar) → 181 (Sep) → 120 (Oct) kWh/day.
+
+### Revised R1 scope (for the merged cycle)
+1. Feed `_compute_v1` the **target-day forecast daily mean** (`AggregationEntity._get_forecast_temp` `aggregation.py:1187` gives high/low; mean ≈ (high+low)/2 unless hourly forecast is available; plan reviewer to verify which fields the configured weather entity exposes).
+2. **Re-fit** `CONSUMPTION_REGRESSION_V1` → `_V2` on 2025-06..2026-10 daily-mean data with the fit script; fitted balance point (research §2); EV folded into the base until an EV series is trustworthy (constant EV term dropped or re-estimated, not assumed). Keep V1 constants for one release (kill-switch revert).
+3. Flip `CONF_R1_ESTIMATOR_SHADOW_ONLY` → False only after the D5 log shows v2 MAE ≤ legacy (trivially true) AND v2 |bias| ≤ 10 kWh/day over ≥14 days in shadow. Until then both arms are logged.
+4. **DP fence:** before the flip, either pin `_dp_house_load_kw` to `live_span` semantics for the R1 term or add an explicit test that `max_span_r1` behaviour is a declared, reviewed decision change. Recommended: keep `max_span_r1` reading v1 but require the D-reviewer to price it (max() with a live value means v1 only matters when it exceeds live load — bounded upside).
+
+### R2 still worth it?
+Not re-measured (solar-only vs net misclassification probe skipped this pass). July's B0 said solar-only was wrong on 65% of days, direction undercharge (~$120/yr). With a corrected estimator that number needs re-running on Aug–Oct data **before** R2 is planned — that probe is R2's D0 gate. R2 remains Tier 3 and absorbs the PV10 pessimism weight idea (research §5).
+
+### Program structure, rev 2
+- **Cycle α (Tier 2-DB, merged with EC-COST-AND-FORECAST-MATH-1):** EC savings/cost D1–D7 + R1 temp fix + v2 refit + both-arm prediction log + guarded shadow flip. See `PLANNING_ec_savings_and_tomorrow_forecast.md` §12.
+- **Cycle β (Tier 3, unchanged discipline):** R2 widener + PV10 weight, gated on the re-run misclassification probe and ≥14 days of α's log.
+
+---
+
 **Filed:** 2026-07-16 · **Author:** planner (ura-planner framing) · **Program owner:** Energy Coordinator (EC)
 **Tier (program-wide, operator-mandated):** **AUTO TIER 3** for every phase.
 Operator directive: *"very sensitive work that needs x-checking at all stages; EC is the most important IP we have next to HC."*

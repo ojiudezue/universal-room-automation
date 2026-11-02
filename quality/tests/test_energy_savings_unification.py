@@ -75,7 +75,6 @@ def test_peak_avoidance_credits_solar_during_peak():
             # solar (4) - load (2) => 2 kW export
             net_import_kw=-2.0,
             effective_rate=_PEAK_RATE,
-            displaced_rate=_PEAK_RATE,
             period="peak",
         )
 
@@ -100,7 +99,6 @@ def test_peak_avoidance_zero_at_night_no_battery():
             battery_power_kw=0.0,
             net_import_kw=1.5,  # 1.5 kW grid import
             effective_rate=_OFF_RATE,
-            displaced_rate=_MID_RATE,
             period="off_peak",
         )
 
@@ -125,7 +123,6 @@ def test_peak_avoidance_partial_battery_supplement():
             battery_power_kw=-1.0,  # discharging 1 kW
             net_import_kw=0.0,  # balanced
             effective_rate=_PEAK_RATE,
-            displaced_rate=_PEAK_RATE,
             period="peak",
         )
 
@@ -137,7 +134,11 @@ def test_peak_avoidance_partial_battery_supplement():
 
 
 def test_peak_avoidance_partial_battery_shoulder_no_guard():
-    """Same shape but during off-peak — guard does NOT apply, full credit."""
+    """Same shape but during off-peak.
+
+    EC-COST-AND-FORECAST-MATH-1 D2 (operator 2026-11-01): off-peak battery
+    discharge earns $0 too, so only the solar-served kWh are credited.
+    """
     tracker = _mk_tracker()
     base = datetime(2026, 7, 15, 2, 0, tzinfo=timezone.utc)
 
@@ -148,12 +149,11 @@ def test_peak_avoidance_partial_battery_shoulder_no_guard():
             battery_power_kw=-1.0,
             net_import_kw=0.0,
             effective_rate=_OFF_RATE,
-            displaced_rate=_MID_RATE,
             period="off_peak",
         )
 
-    # 2 kWh × off-peak rate = 2 × 0.06 = $0.12
-    assert tracker.peak_avoidance_today == pytest.approx(0.12, abs=0.005)
+    # solar-served 1 kWh × off-peak 0.06 = $0.06; battery-served 1 kWh = $0.
+    assert tracker.peak_avoidance_today == pytest.approx(0.06, abs=0.0005)
 
 
 def test_below_noise_floor_is_skipped():
@@ -169,7 +169,6 @@ def test_below_noise_floor_is_skipped():
             battery_power_kw=0.0,
             net_import_kw=0.0,
             effective_rate=_PEAK_RATE,
-            displaced_rate=_PEAK_RATE,
             period="peak",
         )
     assert tracker.peak_avoidance_today == 0.0
@@ -192,7 +191,6 @@ def test_net_import_none_produces_zero_credit():
             battery_power_kw=0.0,
             net_import_kw=None,  # Envoy blind
             effective_rate=_PEAK_RATE,
-            displaced_rate=_PEAK_RATE,
             period="peak",
         )
     assert tracker.peak_avoidance_today == 0.0
@@ -209,7 +207,7 @@ def test_lifetime_survives_restart():
         tracker.accumulate(
             now=_tick_5min(base, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     pre_lifetime = tracker.peak_avoidance_lifetime_delta
     pre_kwh = tracker.kwh_avoided_lifetime_delta
@@ -239,7 +237,7 @@ def test_today_cycle_survive_restart():
         tracker.accumulate(
             now=_tick_5min(base, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     pre_today = tracker.peak_avoidance_today
     pre_cycle = tracker.peak_avoidance_cycle
@@ -269,7 +267,7 @@ def test_pop_lifetime_delta_for_rollup_is_idempotent():
         tracker.accumulate(
             now=_tick_5min(base, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     first = tracker.pop_lifetime_delta_for_rollup("2026-07-15")
     assert first is not None
@@ -293,7 +291,7 @@ def test_savings_family_scopes_reset_correctly():
         tracker.accumulate(
             now=_tick_5min(base, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     day1_today = tracker.peak_avoidance_today
     day1_cycle = tracker.peak_avoidance_cycle
@@ -307,7 +305,7 @@ def test_savings_family_scopes_reset_correctly():
         tracker.accumulate(
             now=_tick_5min(day2, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     # After crossing midnight AND cycle-day boundary, today and cycle both
     # reset — they now reflect only day 2 accumulation.
@@ -330,7 +328,7 @@ def test_total_savings_is_component_sum():
         tracker.accumulate(
             now=_tick_5min(base, i),
             solar_kw=4.0, battery_power_kw=0.0, net_import_kw=-2.0,
-            effective_rate=_PEAK_RATE, displaced_rate=_PEAK_RATE, period="peak",
+            effective_rate=_PEAK_RATE, period="peak",
         )
     arbitrage_today = 0.42  # imagined DB rollup value
     total = round(arbitrage_today + tracker.peak_avoidance_today, 2)
