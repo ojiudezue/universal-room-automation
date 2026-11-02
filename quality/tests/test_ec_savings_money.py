@@ -916,3 +916,265 @@ def test_lifetime_sensor_mixed_history_attrs():
     assert scope_today == pytest.approx(0.5)
     assert (today["cycles_today"], today["discharge_ticks_today"]) == (1, 6)
     assert (cyc["cycles_this_cycle"], cyc["discharge_ticks_this_cycle"]) == (2, 11)
+
+
+# ---------------------------------------------------------------------------
+# Review C (test authority) — sites whose per-site source mutation left the
+# suite GREEN. Each test names the mutation it kills.
+# ---------------------------------------------------------------------------
+
+
+def test_rc_pa_effective_rate_is_read_at_tick_now(monkeypatch):
+    """[kills: PA tick calls get_effective_import_rate() without `now`]
+    INV-RATE-1: the rate is the live rate AT the tick's `now`."""
+    seen: list = []
+
+    class _Rec:
+        def __init__(self, eng):
+            self._e = eng
+
+        def get_effective_import_rate(self, *a, **k):
+            seen.append((a, k))
+            return self._e.get_effective_import_rate(*a, **k)
+
+        def __getattr__(self, name):
+            return getattr(self._e, name)
+
+    c = _mk_ec(db=_FakeDB(), soc=100.0, tou=_Rec(_engine()),
+               inventory=ArbitrageInventory(5.0, 0.4))
+    _drive_pa(c, monkeypatch, _MID, solar_w=1000.0, battery_w=0.0,
+              net_kw=0.0, period="mid_peak")
+    pa_calls = [s for s in seen if s != ((), {})]
+    assert pa_calls, "PA path must pass `now` to get_effective_import_rate"
+    assert seen[0][0] == (_MID,) or seen[0][1].get("now") == _MID
+
+
+def test_rc_restore_passes_inventory_max_age():
+    """[kills: restore age gate disabled / constant changed] a persisted
+    inventory older than 12 h is reseeded, so the age arg must be 12."""
+    got: dict = {}
+
+    class _AgeDB(_FakeDB):
+        async def restore_energy_state_with_age(self, key, max_age_hours=10.0):
+            got["key"], got["age"] = key, max_age_hours
+            return None
+
+    c = _mk_ec(db=_AgeDB(), soc=40.0, cap=40.0)
+    _run(c._ensure_arbitrage_inventory_loaded(_OFF))
+    assert got == {"key": "arbitrage_inventory", "age": 12}
+
+
+def test_rc_save_refused_until_loaded():
+    """[kills: _save_arbitrage_inventory loaded-guard removed] an unloaded
+    (restore-pending) empty inventory must never overwrite the stored row,
+    incl. via the unload save."""
+    db = _FakeDB({"arbitrage_inventory": json.dumps(
+        {"kwh": 5.0, "cost_usd": 0.3, "updated_at": "x"})})
+    c = _mk_ec(db=db)
+    assert c._arb_inventory_loaded is False
+    _run(c._save_arbitrage_inventory())
+    assert db.saves == []
+    assert json.loads(db.state["arbitrage_inventory"])["kwh"] == 5.0
+
+
+def test_rc_discharge_only_ticks_count_toward_persist_cadence():
+    """[kills: changed-tick gate drops discharge_kwh] a pure-discharge
+    stretch must still persist every 3rd changed tick."""
+    db = _FakeDB()
+    c = _mk_ec(db=db, soc=100.0, inventory=ArbitrageInventory(20.0, 1.6))
+    for _ in range(3):
+        _run(c._apply_arbitrage_tick(
+            _tick(discharge_kwh=0.1), "off_peak", "shoulder", _OFF))
+    assert db.saves.count("arbitrage_inventory") == 1
+
+
+def test_rc_fresh_coordinator_inventory_starts_unloaded():
+    """[kills: __init__ default _arb_inventory_loaded=True] the REAL
+    constructor leaves the inventory unloaded so the first tick restores."""
+    hass = MagicMock()
+    hass.data = {_DOMAIN: {}}
+    hass.config_entries.async_entries = lambda *_a, **_k: []
+    c = EnergyCoordinator(
+        hass=hass, reserve_soc=20, decision_interval=10,
+        entity_config={}, tou_engine=MagicMock(name="tou_engine"),
+    )
+    assert c._arb_inventory_loaded is False
+    assert c._arb_inventory.kwh == 0.0
+    assert c._arb_inventory_changed_ticks == 0
+
+
+def test_rc_kill_switch_false_restores_legacy_charge_row(monkeypatch):
+    """[kills: kill-switch ignored at the charge site / the apply site]
+    ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED=False: the discharge accrual is a
+    no-op AND the legacy charge-time row is written again."""
+    # Resolve the energy_const production actually imports (a sibling test
+    # may have rebound the package attribute), not a collection-time copy.
+    ec_const = sys.modules[
+        EnergyCoordinator.__module__.rsplit(".", 1)[0] + ".energy_const"
+    ]
+    monkeypatch.setattr(ec_const, "ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED", False)
+    db = _FakeDB()
+    c = _mk_ec(db=db, soc=100.0, inventory=ArbitrageInventory(5.0, 0.4))
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=1.0, battery_served_kwh=1.0), "mid_peak",
+        "shoulder", _MID))
+    assert db.rows == []
+    assert c._arb_inventory.kwh == 5.0
+    c._get_displaced_rate = lambda season: 0.128918
+    c._arbitrage_prev_soc = 40.0
+    _run(c._account_arbitrage_cycle(
+        {"arbitrage_phase": "charge", "soc": 45.0}, "off_peak", "shoulder"))
+    assert len(db.rows) == 1 and db.rows[0]["kwh_charged"] > 0
+
+
+def test_rc_inventory_class_invariants():
+    """[kills: ctor clamps, add/drain/cap guards, drain-to-empty cost reset,
+    to_dict cost]"""
+    inv = ArbitrageInventory(-3.0, 5.0)
+    assert (inv.kwh, inv.cost_usd) == (0.0, 0.0)           # clamp + empty=>no cost
+    inv = ArbitrageInventory(2.0, 0.2)
+    inv.add(-1.0, 0.5)                                      # negative add ignored
+    assert (inv.kwh, inv.cost_usd) == (2.0, 0.2)
+    inv.drain(5.0)                                          # over-drain empties both
+    assert (inv.kwh, inv.cost_usd) == (0.0, 0.0)
+    inv = ArbitrageInventory(2.0, 0.2)
+    assert inv.cap(-1.0) is False                           # negative cap ignored
+    assert (inv.kwh, inv.cost_usd) == (2.0, 0.2)
+    assert inv.to_dict("t")["cost_usd"] == pytest.approx(0.2)
+    # avg_basis honours the min-kWh floor boundary (knob 0.1)
+    assert ArbitrageInventory(0.05, 0.01).avg_basis(0.1) is None
+    assert ArbitrageInventory(1.0, 0.06).avg_basis(0.1) == pytest.approx(0.06)
+
+
+def test_rc_discharge_savings_rte_guard():
+    """[kills: rte<=0 guard] zero RTE must not divide by zero."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_billing import (
+        discharge_savings_usd,
+    )
+    assert discharge_savings_usd(1.0, 0.13, 0.06, 0.0) == 0.0
+    assert discharge_savings_usd(1.0, 0.13, 0.06, -1.0) == 0.0
+
+
+def test_rc_small_inventory_above_min_uses_inventory_basis():
+    """[kills: ARBITRAGE_INVENTORY_MIN_KWH raised] 1 kWh @0.06 is a real
+    inventory (>= 0.1), not the empty fallback."""
+    db = _FakeDB()
+    c = _mk_ec(db=db, soc=100.0, inventory=ArbitrageInventory(1.0, 0.06))
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=0.2, battery_served_kwh=0.2), "mid_peak",
+        "shoulder", _MID))
+    assert db.rows[0]["basis_source"] == "inventory"
+    assert db.rows[0]["off_peak_rate"] == pytest.approx(0.06)
+
+
+def test_rc_battery_served_excludes_solar_served():
+    """[kills: battery_served_kwh = total served_kw] 3 kW solar + 2 kW
+    battery served: only 2 kW x 1 h is battery-served (arbitrage base)."""
+    t = PeakAvoidanceTracker(MagicMock())
+    base = datetime(2026, 11, 2, 18, 0, tzinfo=timezone.utc)
+    last = None
+    for i in range(2):
+        last = t.accumulate(
+            now=base + timedelta(minutes=30 * i), solar_kw=3.0,
+            battery_power_kw=-2.0, net_import_kw=0.0, effective_rate=0.13,
+            period="mid_peak")
+    assert last["battery_served_kwh"] == pytest.approx(1.0)   # 2 kW x 0.5 h
+    assert last["discharge_kwh"] == pytest.approx(1.0)
+
+
+def test_rc_pa_exception_returns_none_not_a_tick():
+    """[kills: except-path returns {} instead of None] a failed tick must
+    not look like a valid (empty) tick to the inventory."""
+    t = PeakAvoidanceTracker(MagicMock())
+    base = datetime(2026, 11, 2, 18, 0, tzinfo=timezone.utc)
+    t.accumulate(now=base, solar_kw=1.0, battery_power_kw=0.0,
+                 net_import_kw=0.0, effective_rate=0.13, period="mid_peak")
+    out = t.accumulate(now=base + timedelta(minutes=5), solar_kw="boom",
+                       battery_power_kw=0.0, net_import_kw=0.0,
+                       effective_rate=0.13, period="mid_peak")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_rc_local_day_modifier_follows_local_offset(monkeypatch):
+    """[kills: _local_day_modifier hard-wired to UTC] two rows 02:00 and
+    23:00 UTC on one UTC date are TWO local days at UTC-5 (21:00 prior day
+    vs 18:00 same day)."""
+    import tempfile
+    tz = timezone(timedelta(hours=-5))
+    from homeassistant.util import dt as _live
+    monkeypatch.setattr(_live, "now", lambda *a, **k: datetime(2026, 11, 3, 12, 0, tzinfo=tz))
+    with tempfile.TemporaryDirectory() as tmp:
+        import pathlib
+        db = await _real_db(pathlib.Path(tmp))
+        try:
+            for ts in ("2026-11-02T02:00:00+00:00", "2026-11-02T23:00:00+00:00"):
+                await db.save_arbitrage_cycle(
+                    timestamp=ts, soc_before=None, soc_after=None,
+                    kwh_charged=0.0, off_peak_rate=0.07, displaced_rate=0.13,
+                    round_trip_efficiency=0.9, savings=0.01, season="shoulder",
+                    accrual="discharge", kwh_discharged=0.2,
+                    basis_source="inventory")
+            await _drain(db)
+            got = await db.query_arbitrage_savings_since(
+                "2026-11-01T00:00:00+00:00", accrual="discharge")
+            assert (got["cycles"], got["rows"]) == (2, 2)
+        finally:
+            await db.stop_write_worker()
+
+
+@pytest.mark.asyncio
+async def test_rc_migration_guard_skips_existing_columns(tmp_path, monkeypatch):
+    """[kills: guarded ALTER made unconditional] second initialize must not
+    attempt to re-ADD existing columns (would log a migration failure)."""
+    import logging
+    db = await _real_db(tmp_path)
+    await db.stop_write_worker()
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    from runtime_harness import StubHass
+    warnings: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            warnings.append(record.getMessage())
+
+    h = _H(level=logging.WARNING)
+    lg = logging.getLogger("custom_components.universal_room_automation.database")
+    lg.addHandler(h)
+    try:
+        db2 = UniversalRoomDatabase(StubHass(config_dir=str(tmp_path)))
+        assert await db2.initialize()
+    finally:
+        lg.removeHandler(h)
+    assert not [w for w in warnings if "arbitrage_cycles migration failed" in w]
+
+
+def test_rc_sensor_discharge_attrs_wired():
+    """[kills: today/cycle kwh_discharged and last_cycle basis_source /
+    kwh_discharged attrs dropped]"""
+    status = {
+        "total": {}, "pace": {},
+        "today": {"savings": 0.1, "kwh_discharged": 0.5, "cycles": 1, "rows": 6},
+        "cycle": {"savings": 0.2, "kwh_discharged": 0.9, "cycles": 2, "rows": 11},
+        "last_cycle": {"timestamp": "t", "kwh_discharged": 0.3,
+                       "basis_source": "inventory", "off_peak_rate": 0.07,
+                       "displaced_rate": 0.13, "round_trip_efficiency": 0.9,
+                       "savings": 0.01},
+    }
+    energy = SimpleNamespace(arbitrage_status=status,
+                             arbitrage_round_trip_efficiency=0.9)
+    hass = SimpleNamespace(data={_DOMAIN: {"coordinator_manager": SimpleNamespace(
+        coordinators={"energy": energy})}})
+    with _real_sensor_module() as sm:
+        def _mk(cls):
+            s = cls.__new__(cls)
+            s.hass = hass
+            return s
+        today = _mk(sm.EnergyArbitrageSavingsTodaySensor).extra_state_attributes
+        cyc = _mk(sm.EnergyArbitrageSavingsCycleSensor).extra_state_attributes
+    assert today["kwh_discharged_today"] == 0.5
+    assert today["last_cycle_basis_source"] == "inventory"
+    assert today["last_cycle_kwh_discharged"] == 0.3
+    assert cyc["kwh_discharged_this_cycle"] == 0.9
