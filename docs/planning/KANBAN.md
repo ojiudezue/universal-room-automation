@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-01T14:05:41-06:00_ - _Data commit: `effc626a3596`_ - _last_reconciled: 2026-11-01_
+_Generated: 2026-11-01T21:53:40-06:00_ - _Data commit: `ca3a0eb6e93a`_ - _last_reconciled: 2026-11-01_
 
 
 ## Columns
@@ -328,8 +328,9 @@ thread: **energy** - status: **planned**
 _created 2026-11-01_
 - **Why:** Audit docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md. (1) arbitrage_savings_today energy.py:4283 off-peak=effective 0.085957 vs displaced=base mid-peak 0.086442 -> spread 0.000485 not 0.043; also accrues at charge, not discharg...
 - **Next:** Plan (Tier 2, cost-impacting display + savings ledger): same-basis rates for savings and decide charge-time vs discharge-time accrual; effective rate for cost/hr; local-date weekday, whole-day temp filter, per-period pricing and solar-aw...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
+  - `todo_after_build2`: Operator 2026-11-01: after the prediction build, check the ura-v8 NOW tab for data that overlaps the Energy tab and de-duplicate.
   - `decision_2026-11-01`: Operator picked A: saved today = rate spread on battery energy discharged during mid-peak/peak, accrued at discharge. Net Tomorrow + related sensors fixed in code, with a better design and options.
 
 ### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_

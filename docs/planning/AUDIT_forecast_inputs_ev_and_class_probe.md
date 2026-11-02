@@ -124,3 +124,20 @@ Live `supported_features` and forecast day count; circuit-to-zone physical wirin
 old car_charger circuit; recorder coverage of `zone_*_avg_temperature`; 65% vs 73% reproduction gap (B0 script not available).
 Scripts: scratchpad `p1.py`, `p2.py`, `p4.py` under
 `/private/tmp/claude-501/-Users-okosisi-Code-universal-room-automation/75cc297f-1426-4620-b7aa-da058bc0fab0/scratchpad/`.
+
+## SPAN AC circuit to HVAC zone pairing probe (2026-11-01, read-only)
+Source: recorder, 14d, 1-min grid, forward-filled. Power `sensor.span_panel_ac1_power`, `sensor.span_panel_ac_2_power`, `sensor.span_panel_ac_3_power`; hvac_action of `climate.thermostat_bryant_wifi_studyb_zone_1`, `climate.up_hallway_zone_2`, `climate.back_hallway_zone_3`. Cells: P(power>500W | cooling) / P(power>500W | idle).
+
+| thermostat | ac1 | ac_2 | ac_3 |
+|---|---|---|---|
+| zone 1 (4-ton) | 0.97 / 0.01 | 0.40 / 0.24 | 0.03 / 0.03 |
+| zone 2 (3-ton) | 0.62 / 0.31 | 0.44 / 0.27 | 0.05 / 0.03 |
+| zone 3 (3-ton) | 0.50 / 0.35 | 0.25 / 0.30 | 0.30 / 0.00 |
+
+Running power (median while on): ac1 686 W (z1 cooling), ac_2 ~960 W, ac_3 ~810-960 W; peaks 3357 / 2499 / 2512 W. Tonnage ordering holds at peak (ac1 highest).
+Verdict: zone1=ac1 CONFIRMED. zone2=ac_2 and zone3=ac_3 UNCLEAR: ac_3 has no discriminating link to zone 2, and zone 3 is cleanest with ac_3 (0.00 idle) but only 0.30 on-while-cooling; ac_2 is on often regardless of thermostat. Cooling minutes are few and the data is November (heating season, shared cycles), so z2/z3 are not separable.
+
+### Follow-up (2026-11-01): August re-run and heating minutes
+- August 2026 matrix NOT producible: recorder `states` begins 2026-10-25 10:12 (retention ~7 days); climate hvac_action has no August history (long-term statistics exist for the SPAN power sensors only, with no cooling labels). Verdict stays as above; z2/z3 UNCLEAR.
+- hvac_action minutes in the window (the 14-day query actually returned only ~7 days of data; None = no state): z1 cooling 4168 / idle 7017; z2 cooling 1754 / idle 9417 / off 9; z3 cooling 1032 / idle 10151. Zero "heating" minutes in any zone, so no heat-pump heating seen; the furnace has its own SPAN circuit (`sensor.span_panel_furnace_power`).
+- Unresolved: why cooling occurs in late Oct and why ac_2/ac_3 do not track it. Needs a cooling-season window from another source (URA DB or HA long-term statistics plus URA hvac logs).
