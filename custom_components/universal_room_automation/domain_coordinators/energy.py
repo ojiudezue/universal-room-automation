@@ -7216,6 +7216,12 @@ class EnergyCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
 
+            # EC-COST-AND-FORECAST-MATH-1 Build 2 (D8 shadow temp, D3/D4/D5
+            # tomorrow forecast + log). Display-only; runs BEFORE the E5
+            # generate_prediction below so the shadow arm sees today's
+            # forecast. Never raises into the tick.
+            await self._forecast_tick(dt_util.now())
+
             # C1: EVSE battery hold — if any EVSE is charging, override battery
             # reserve to captured SOC so battery doesn't discharge to cover EV load.
             # Capture SOC once when hold starts to avoid ratchet-down effect.
@@ -7828,13 +7834,6 @@ class EnergyCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
 
-            # D8: today's forecast (high+low)/2 -> predictor SHADOW arm only.
-            try:
-                from homeassistant.util import dt as _d8_dtu
-                await self._set_predictor_shadow_temp(_d8_dtu.now())
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("D8 shadow temp refresh failed", exc_info=True)
-
             # E5: Daily prediction (generates once per day, no-ops after)
             self._predictor.generate_prediction()
 
@@ -7846,14 +7845,6 @@ class EnergyCoordinator(BaseCoordinator):
 
             # E6: Fetch forecast temps (async service call, cached for property)
             await self._update_forecast_temps()
-
-            # EC-COST-AND-FORECAST-MATH-1 D3/D4/D5: tomorrow forecast + log
-            # (display-only; a fault never touches the decision tick).
-            try:
-                from homeassistant.util import dt as _d3_dtu
-                await self._async_refresh_tomorrow_forecast(_d3_dtu.now())
-            except Exception:  # noqa: BLE001
-                _LOGGER.warning("tomorrow forecast refresh failed", exc_info=True)
 
             # E6: Load shedding evaluation (before constraint so shed level is current)
             if not self._observation_mode:
@@ -8839,6 +8830,18 @@ class EnergyCoordinator(BaseCoordinator):
     # =================================================================
     # EC-COST-AND-FORECAST-MATH-1 Build 2: D8 / D3 / D4 / D5 / D9 runtime
     # =================================================================
+
+    async def _forecast_tick(self, now) -> None:
+        """Per-tick Build-2 hooks, each isolated: a failure never touches
+        the decision tick (display-only values)."""
+        try:
+            await self._set_predictor_shadow_temp(now)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D8 shadow temp refresh failed", exc_info=True)
+        try:
+            await self._async_refresh_tomorrow_forecast(now)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("tomorrow forecast refresh failed", exc_info=True)
 
     async def _fetch_daily_forecast_list(self, entity_id: str) -> list | None:
         """Full ``weather.get_forecasts`` daily list (bounded). The WPM
