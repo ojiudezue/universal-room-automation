@@ -872,11 +872,11 @@ class CostTracker:
 #   served_locally_kW = max(0, solar + battery_discharge - battery_charge - grid_export)
 #   credit_$ = served_locally_kW × Δh × get_effective_import_rate(now)
 #
-# Double-count guard (operator decision #4): battery-discharged kWh already
-# get their off-peak-to-displaced delta booked by arbitrage. To avoid double
-# credit, the battery portion of served_locally during displaced-rate periods
-# (peak / mid_peak) is credited at only `max(0, effective_rate - displaced_rate)`
-# per kWh; the solar portion is credited at the full effective_rate.
+# Double-count guard (EC-COST-AND-FORECAST-MATH-1 D2, INV-SAV-1): the
+# battery portion of served_locally earns ZERO here in every period. In
+# peak / mid_peak arbitrage books it at discharge time; off-peak discharge
+# earns $0 (operator decision 2026-11-01). The solar portion is credited at
+# the full effective_rate.
 #
 # This class is intentionally isolated from CostTracker so a fault here cannot
 # touch `cost_today` / `cost_this_cycle` (the shared billing hot-path). It is
@@ -884,6 +884,79 @@ class CostTracker:
 # snapshot each tick, which makes it directly unit-testable end-to-end.
 
 _DISPLACED_PERIODS = ("peak", "mid_peak")
+
+
+class ArbitrageInventory:
+    """B2 cost-basis inventory of energy stored in the battery.
+
+    EC-COST-AND-FORECAST-MATH-1 D1 (§4.1). Two numbers only: ``kwh`` and
+    ``cost_usd``; the average basis is cost/kWh. Charge adds kWh at the rate
+    of its charge tick (grid kWh at the effective import rate, solar kWh at
+    the export rate — both read live from the TOU engine by the caller);
+    discharge removes kWh at the current average, so a drain never moves the
+    average. No midnight reset: this is physical stored energy.
+
+    Rates are never cached here — the caller passes the rate of the tick.
+    """
+
+    def __init__(self, kwh: float = 0.0, cost_usd: float = 0.0) -> None:
+        self.kwh = max(0.0, float(kwh))
+        self.cost_usd = max(0.0, float(cost_usd)) if self.kwh > 0 else 0.0
+
+    def add(self, kwh: float, rate: float) -> None:
+        """Add ``kwh`` stored at ``rate`` $/kWh (ignored when kwh <= 0)."""
+        if kwh <= 0:
+            return
+        self.kwh += kwh
+        self.cost_usd += kwh * rate
+
+    def avg_basis(self, min_kwh: float) -> float | None:
+        """Average $/kWh, or None below ``min_kwh`` (empty inventory)."""
+        if self.kwh < min_kwh:
+            return None
+        return self.cost_usd / self.kwh
+
+    def drain(self, kwh: float) -> None:
+        """Remove ``kwh`` at the current average basis (floored at empty)."""
+        if kwh <= 0 or self.kwh <= 0:
+            return
+        if kwh >= self.kwh:
+            self.kwh = 0.0
+            self.cost_usd = 0.0
+            return
+        avg = self.cost_usd / self.kwh
+        self.kwh -= kwh
+        self.cost_usd -= kwh * avg
+
+    def cap(self, max_kwh: float | None) -> bool:
+        """Cap kWh at ``max_kwh`` (SOC x capacity), scaling cost by the same
+        ratio so the average basis is kept. Returns True when it capped."""
+        if max_kwh is None or max_kwh < 0 or self.kwh <= max_kwh:
+            return False
+        if self.kwh <= 0:
+            return False
+        ratio = max_kwh / self.kwh
+        self.kwh = max_kwh
+        self.cost_usd *= ratio
+        return True
+
+    def to_dict(self, updated_at: str) -> dict[str, Any]:
+        return {
+            "kwh": round(self.kwh, 6),
+            "cost_usd": round(self.cost_usd, 6),
+            "updated_at": updated_at,
+        }
+
+
+def discharge_savings_usd(
+    served_kwh: float, displaced_rate: float, basis: float, rte: float,
+) -> float:
+    """Savings for ``served_kwh`` discharged at ``displaced_rate`` with an
+    inventory ``basis`` and round-trip efficiency ``rte``: served ×
+    (displaced − basis/rte), clamped ≥ 0 (INV-SAV-1)."""
+    if served_kwh <= 0 or rte <= 0:
+        return 0.0
+    return max(0.0, served_kwh * (displaced_rate - basis / rte))
 
 
 class PeakAvoidanceTracker:
@@ -974,72 +1047,95 @@ class PeakAvoidanceTracker:
         battery_power_kw: float | None,  # + charging, - discharging
         net_import_kw: float | None,  # + importing, - exporting
         effective_rate: float,
-        displaced_rate: float,
-        period: str | None,
-    ) -> None:
+        period: str | None = None,
+    ) -> dict[str, float] | None:
         """Accumulate one tick of peak-avoidance value.
 
         All inputs are already in kW / $/kWh. Guarded — a bad input silently
         skips this tick rather than propagating any exception up into the
         decision cycle.
+
+        EC-COST-AND-FORECAST-MATH-1 D1/D2: this is the SINGLE per-tick
+        integrator for battery energy. It returns the tick's battery kWh so
+        the EC applies them to the arbitrage inventory (no second
+        integration):
+
+          * ``charge_kwh_grid`` / ``charge_kwh_solar`` — the charge split
+            (solar serves the house first, so grid = min(charge, net import)).
+          * ``charge_kwh_unsplit`` — charge kWh when net is unknown (booked at
+            the off-peak basis by the EC).
+          * ``discharge_kwh`` — total discharge (inventory drain).
+          * ``battery_served_kwh`` — discharge that served house load
+            (arbitrage savings base).
+
+        The split is computed AFTER the time gates (no valid elapsed = no kWh)
+        but BEFORE the net-None and served-noise-floor returns (§4.1 F1), so
+        an overnight grid charge (served = 0) still fills the inventory.
+        Returns None when no kWh can be integrated this tick.
+
+        D2: battery-served kWh earn ZERO peak-avoidance credit in every
+        period (arbitrage owns displaced-period discharge; off-peak discharge
+        earns $0 per operator decision). ``period`` is accepted for caller
+        compatibility; the credit no longer depends on it.
         """
-        # Derive elapsed from the passed-in `now` (test-friendly — a fake
-        # clock is threaded through by advancing `now`). Production always
-        # supplies dt_util.now(); a None `now` is treated as a no-op tick
-        # (mirrors the net_import guard below — never fabricate time).
-        # LOW-1 (fix-up): removed the wall-clock fallback branch (dead;
-        # never exercised in production and would have inflated elapsed
-        # across a restart).
         if now is None:
-            return
+            return None
         now_ts = now.timestamp()
         self._maybe_reset(now)
 
         if self._last_accumulate_ts is None:
             self._last_accumulate_ts = now_ts
-            return
+            return None
         elapsed_h = (now_ts - self._last_accumulate_ts) / 3600.0
         self._last_accumulate_ts = now_ts
         if elapsed_h <= 0 or elapsed_h > 1:
-            return
+            return None
 
         try:
             solar_kw = max(0.0, float(solar_kw or 0.0))
             bp = float(battery_power_kw) if battery_power_kw is not None else 0.0
             discharge_kw = max(0.0, -bp)
             charge_kw = max(0.0, bp)
-            # A-HIGH-1 (fix-up): mirror CostTracker.accumulate's None-guard
-            # (energy_billing.py ~:244-246). Treating unknown grid flow as 0
-            # would credit real EXPORT as served-locally during Envoy blind
-            # windows (up to 50% over-credit). Skip the tick instead.
+            tick: dict[str, float] = {
+                "elapsed_h": elapsed_h,
+                "charge_kwh_grid": 0.0,
+                "charge_kwh_solar": 0.0,
+                "charge_kwh_unsplit": 0.0,
+                "discharge_kwh": discharge_kw * elapsed_h,
+                "battery_served_kwh": 0.0,
+            }
+            # A-HIGH-1 (fix-up): mirror CostTracker.accumulate's None-guard.
+            # Treating unknown grid flow as 0 would credit real EXPORT as
+            # served-locally during Envoy blind windows. No PA credit and no
+            # grid/solar split; the charge kWh go back unsplit.
             if net_import_kw is None:
-                return
+                tick["charge_kwh_unsplit"] = charge_kw * elapsed_h
+                return tick
             net = float(net_import_kw)
             export_kw = max(0.0, -net)
+
+            # §4.1 charge split: house = solar + net - charge, so the solar
+            # surplus into the battery is charge - net; grid is the rest.
+            grid_charge_kw = min(charge_kw, max(net, 0.0))
+            tick["charge_kwh_grid"] = grid_charge_kw * elapsed_h
+            tick["charge_kwh_solar"] = (charge_kw - grid_charge_kw) * elapsed_h
 
             served_kw = max(
                 0.0,
                 solar_kw + discharge_kw - charge_kw - export_kw,
             )
             if served_kw < PEAK_AVOIDANCE_MIN_SERVED_KW:
-                return
+                return tick
 
             # Attribute the served-locally kW between battery-discharge and
-            # solar. Battery gets attributed first (bounded by discharge_kw)
-            # because that's the portion the double-count guard applies to.
+            # solar. Battery first (bounded by discharge_kw).
             battery_served_kw = min(served_kw, discharge_kw)
             solar_served_kw = served_kw - battery_served_kw
+            tick["battery_served_kwh"] = battery_served_kw * elapsed_h
 
             rate = float(effective_rate or 0.0)
-            if period in _DISPLACED_PERIODS:
-                # Decision #4 guard: arbitrage-discharged kWh already booked
-                # the (displaced - off_peak) delta. Credit only the residual
-                # (effective_rate - displaced_rate), clamped >= 0.
-                battery_credit_per_kwh = max(
-                    0.0, rate - float(displaced_rate or 0.0)
-                )
-            else:
-                battery_credit_per_kwh = rate
+            # D2 guard: zero battery credit in ALL periods (INV-SAV-1).
+            battery_credit_per_kwh = 0.0
 
             energy_kwh = served_kw * elapsed_h
             battery_energy_kwh = battery_served_kw * elapsed_h
@@ -1050,7 +1146,7 @@ class PeakAvoidanceTracker:
                 + battery_energy_kwh * battery_credit_per_kwh
             )
             if credit < 0:
-                return  # defensive — should never happen with the clamps
+                return tick  # defensive — should never happen with the clamps
 
             self._pa_today += credit
             self._pa_cycle += credit
@@ -1058,8 +1154,10 @@ class PeakAvoidanceTracker:
             self._kwh_avoided_today += energy_kwh
             self._kwh_avoided_cycle += energy_kwh
             self._kwh_avoided_lifetime_delta += energy_kwh
+            return tick
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("PeakAvoidanceTracker.accumulate skipped: %s", exc)
+            return None
 
     # -- read-side ---------------------------------------------------------
 
@@ -1091,10 +1189,10 @@ class PeakAvoidanceTracker:
         "Peak-avoidance counterfactual: for each decision tick, credit "
         "served_locally_kW × Δh × effective_import_rate(now), where "
         "served_locally = max(0, solar + battery_discharge - battery_charge "
-        "- grid_export). Double-count guard: during peak/mid_peak, the "
-        "battery-served portion is credited only at max(0, effective_rate - "
-        "displaced_rate) since arbitrage already booked the "
-        "(displaced - off_peak) delta on that kWh. Ticks below "
+        "- grid_export). Double-count guard: the battery-served portion "
+        "earns $0 here in every period (arbitrage books displaced-period "
+        "discharge at discharge time; off-peak discharge earns $0). "
+        "Ticks below "
         f"{PEAK_AVOIDANCE_MIN_SERVED_KW} kW served-locally are ignored as "
         "noise floor. Display-only; not billing-grade."
     )

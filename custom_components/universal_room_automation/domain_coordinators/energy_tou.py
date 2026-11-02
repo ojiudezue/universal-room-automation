@@ -556,6 +556,20 @@ class TOURateEngine:
         base = self.get_current_rate(now)
         return base + self._fixed["delivery_per_kwh"] + self._fixed["transmission_per_kwh"]
 
+    def get_offpeak_effective_import_rate(
+        self, now: datetime | None = None,
+    ) -> float:
+        """Effective import rate of the season's CHEAPEST period at ``now``.
+
+        EC-COST-AND-FORECAST-MATH-1 D1: the empty-inventory / B1 arbitrage
+        cost basis. Season's lowest distinct base import rate + delivery +
+        transmission, read live from the schedule (INV-RATE-1).
+        """
+        if now is None:
+            now = dt_util.now()
+        base = self._season_distinct_rates(self.get_season(now))[0]
+        return base + self._fixed["delivery_per_kwh"] + self._fixed["transmission_per_kwh"]
+
     def get_next_transition(self, now: datetime | None = None) -> dict[str, Any]:
         """Return info about the next TOU period transition.
 

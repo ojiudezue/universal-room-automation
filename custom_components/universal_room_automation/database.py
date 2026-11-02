@@ -32,6 +32,17 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# EC-COST-AND-FORECAST-MATH-1 D1: columns added to arbitrage_cycles by the
+# guarded ALTER after its CREATE TABLE. accrual: 'charge' (legacy charge-time
+# rows) | 'discharge' (discharge-time rows). basis_source: 'inventory' |
+# 'empty_fallback' | 'offpeak_effective'. All audit-readable; sums read
+# `savings` only.
+ARBITRAGE_CYCLES_ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("accrual", "TEXT NOT NULL DEFAULT 'charge'"),
+    ("kwh_discharged", "REAL"),
+    ("basis_source", "TEXT"),
+)
+
 
 def _render_ledger_exemption(actions: tuple[str, ...]) -> str:
     """EC-OUTAGE-LEDGER D-L0: render the prune exemption to a SQL literal.
@@ -1631,6 +1642,28 @@ class UniversalRoomDatabase:
                     ON arbitrage_cycles(timestamp)""",
                 ]):
                     failed_tables.append("arbitrage_cycles")
+                else:
+                    # EC-COST-AND-FORECAST-MATH-1 D1: discharge-time accrual
+                    # columns. Idempotent guarded ALTER (pattern of the
+                    # ac_ramp_events block). Legacy rows read accrual='charge'.
+                    try:
+                        cursor = await db.execute(
+                            "PRAGMA table_info(arbitrage_cycles)"
+                        )
+                        arb_columns = {
+                            row[1] for row in await cursor.fetchall()
+                        }
+                        for _col, _decl in ARBITRAGE_CYCLES_ADDED_COLUMNS:
+                            if _col not in arb_columns:
+                                await db.execute(
+                                    "ALTER TABLE arbitrage_cycles "
+                                    f"ADD COLUMN {_col} {_decl}"
+                                )
+                        await db.commit()
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "arbitrage_cycles migration failed: %s", e,
+                        )
 
                 # -- Energy Savings Unification (cycle #7) ---------------------
                 # Baseline snapshot per savings component. One row per
@@ -6308,16 +6341,25 @@ class UniversalRoomDatabase:
         round_trip_efficiency: float,
         savings: float,
         season: str | None,
+        accrual: str = "charge",
+        kwh_discharged: float | None = None,
+        basis_source: str | None = None,
     ) -> None:
-        """Persist a single arbitrage cycle's accounting row."""
+        """Persist a single arbitrage cycle's accounting row.
+
+        EC-COST-AND-FORECAST-MATH-1 D1: discharge-time rows pass
+        ``accrual='discharge'``, ``kwh_charged=0.0``, ``kwh_discharged`` and
+        ``basis_source``. ``off_peak_rate`` / ``displaced_rate`` are AUDIT
+        ONLY (INV-RATE-1): no reader re-prices from them.
+        """
         try:
             async with self._db() as db:
                 await db.execute(
                     """INSERT INTO arbitrage_cycles
                     (timestamp, soc_before, soc_after, kwh_charged,
                      off_peak_rate, displaced_rate, round_trip_efficiency,
-                     savings, season)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     savings, season, accrual, kwh_discharged, basis_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         timestamp,
                         float(soc_before) if soc_before is not None else None,
@@ -6328,36 +6370,53 @@ class UniversalRoomDatabase:
                         float(round_trip_efficiency),
                         float(savings),
                         season,
+                        accrual,
+                        float(kwh_discharged) if kwh_discharged is not None else None,
+                        basis_source,
                     ),
                 )
                 await db.commit()
         except Exception as err:
             _LOGGER.warning("Failed to save arbitrage cycle: %s", err)
 
-    async def query_arbitrage_savings_since(self, since_iso: str) -> dict:
+    async def query_arbitrage_savings_since(
+        self, since_iso: str, accrual: str | None = None,
+    ) -> dict:
         """Return aggregate savings + cycle count + total kWh since a UTC ISO ts.
 
         Used by ROI sensors (today / cycle / total) and the PredictedBill
         counterfactual.
+
+        EC-COST-AND-FORECAST-MATH-1 D1: ``accrual='discharge'`` restricts the
+        sum to discharge-time rows (today/cycle after the cutover). Sums read
+        ``savings`` only — never re-priced from the stored rate columns.
         """
         try:
             async with self._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT COALESCE(SUM(savings), 0.0),
-                              COALESCE(SUM(kwh_charged), 0.0),
-                              COUNT(*)
-                       FROM arbitrage_cycles WHERE timestamp >= ?""",
-                    (since_iso,),
+                sql = (
+                    "SELECT COALESCE(SUM(savings), 0.0), "
+                    "COALESCE(SUM(kwh_charged), 0.0), COUNT(*), "
+                    "COALESCE(SUM(kwh_discharged), 0.0) "
+                    "FROM arbitrage_cycles WHERE timestamp >= ?"
                 )
+                params: tuple = (since_iso,)
+                if accrual is not None:
+                    sql += " AND accrual = ?"
+                    params = (since_iso, accrual)
+                cursor = await db.execute(sql, params)
                 row = await cursor.fetchone()
                 return {
                     "savings": float(row[0]) if row else 0.0,
                     "kwh_charged": float(row[1]) if row else 0.0,
                     "cycles": int(row[2]) if row else 0,
+                    "kwh_discharged": float(row[3]) if row else 0.0,
                 }
         except Exception as err:
             _LOGGER.warning("query_arbitrage_savings_since failed: %s", err)
-            return {"savings": 0.0, "kwh_charged": 0.0, "cycles": 0}
+            return {
+                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0,
+                "kwh_discharged": 0.0,
+            }
 
     async def query_arbitrage_savings_total(self) -> dict:
         """Lifetime savings + cycle count + kWh."""
@@ -6366,7 +6425,8 @@ class UniversalRoomDatabase:
                 cursor = await db.execute(
                     """SELECT COALESCE(SUM(savings), 0.0),
                               COALESCE(SUM(kwh_charged), 0.0),
-                              COUNT(*)
+                              COUNT(*),
+                              COALESCE(SUM(kwh_discharged), 0.0)
                        FROM arbitrage_cycles""",
                 )
                 row = await cursor.fetchone()
@@ -6374,24 +6434,37 @@ class UniversalRoomDatabase:
                     "savings": float(row[0]) if row else 0.0,
                     "kwh_charged": float(row[1]) if row else 0.0,
                     "cycles": int(row[2]) if row else 0,
+                    "kwh_discharged": float(row[3]) if row else 0.0,
                 }
         except Exception as err:
             _LOGGER.warning("query_arbitrage_savings_total failed: %s", err)
-            return {"savings": 0.0, "kwh_charged": 0.0, "cycles": 0}
+            return {
+                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0,
+                "kwh_discharged": 0.0,
+            }
 
-    async def query_arbitrage_last_cycle(self) -> dict | None:
+    async def query_arbitrage_last_cycle(
+        self, accrual: str | None = None,
+    ) -> dict | None:
         """Return the most recent cycle's full row for audit attributes.
 
-        Returns None if no cycles persisted.
+        Returns None if no cycles persisted. ``accrual`` filters by row kind
+        (EC-COST-AND-FORECAST-MATH-1 D1: 'discharge' after the cutover).
         """
         try:
             async with self._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT timestamp, soc_before, soc_after, kwh_charged,
-                              off_peak_rate, displaced_rate,
-                              round_trip_efficiency, savings, season
-                       FROM arbitrage_cycles ORDER BY id DESC LIMIT 1""",
+                sql = (
+                    "SELECT timestamp, soc_before, soc_after, kwh_charged, "
+                    "off_peak_rate, displaced_rate, round_trip_efficiency, "
+                    "savings, season, kwh_discharged, accrual, basis_source "
+                    "FROM arbitrage_cycles"
                 )
+                params: tuple = ()
+                if accrual is not None:
+                    sql += " WHERE accrual = ?"
+                    params = (accrual,)
+                sql += " ORDER BY id DESC LIMIT 1"
+                cursor = await db.execute(sql, params)
                 row = await cursor.fetchone()
                 if row is None:
                     return None
@@ -6405,12 +6478,19 @@ class UniversalRoomDatabase:
                     "round_trip_efficiency": float(row[6]),
                     "savings": float(row[7]),
                     "season": row[8],
+                    "kwh_discharged": (
+                        float(row[9]) if row[9] is not None else None
+                    ),
+                    "accrual": row[10],
+                    "basis_source": row[11],
                 }
         except Exception as err:
             _LOGGER.warning("query_arbitrage_last_cycle failed: %s", err)
             return None
 
-    async def query_arbitrage_pace_recent(self, days: int = 7) -> dict:
+    async def query_arbitrage_pace_recent(
+        self, days: int = 7, accrual: str | None = None,
+    ) -> dict:
         """Avg savings/day + total cycles over the last N days.
 
         Used to project remaining savings for the bill cycle on
@@ -6427,11 +6507,17 @@ class UniversalRoomDatabase:
         since = (_dtu.utcnow() - _td(days=days)).isoformat()
         try:
             async with self._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT timestamp, savings FROM arbitrage_cycles
-                       WHERE timestamp >= ?""",
-                    (since,),
+                # EC-COST-AND-FORECAST-MATH-1 D1: accrual='discharge' keeps
+                # legacy charge-time cents from diluting the pace.
+                sql = (
+                    "SELECT timestamp, savings FROM arbitrage_cycles "
+                    "WHERE timestamp >= ?"
                 )
+                params: tuple = (since,)
+                if accrual is not None:
+                    sql += " AND accrual = ?"
+                    params = (since, accrual)
+                cursor = await db.execute(sql, params)
                 rows = await cursor.fetchall()
                 total_savings = 0.0
                 local_dates: set[str] = set()

@@ -9374,7 +9374,10 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         current_rate = 0.0
         grid_cost_per_hour: float | None = None
         try:
-            current_rate = float(energy.tou_rate)
+            # EC-COST-AND-FORECAST-MATH-1 D6: the EFFECTIVE import rate
+            # (base + delivery + transmission, live from the TOU engine),
+            # not the base `tou_rate` (33% low in mid-peak).
+            current_rate = float(energy.current_effective_rate)
         except (AttributeError, TypeError, ValueError):
             pass
         try:
@@ -11402,6 +11405,11 @@ class EnergyArbitrageSavingsTodaySensor(AggregationEntity, SensorEntity):
         last = (energy.arbitrage_status or {}).get("last_cycle") if energy else None
         attrs: dict[str, Any] = {
             "cycles_today": int(today.get("cycles", 0)),
+            # EC-COST-AND-FORECAST-MATH-1 D1: discharge-era scope. The
+            # legacy kwh_charged_today stays one release (legacy rows only).
+            "kwh_discharged_today": round(
+                float(today.get("kwh_discharged", 0.0)), 3,
+            ),
             "kwh_charged_today": round(float(today.get("kwh_charged", 0.0)), 3),
             # v4.3.0 Review M9-C: honest disclosure of the optimism bias.
             # The savings figure assumes the charged kWh is later consumed at
@@ -11409,16 +11417,20 @@ class EnergyArbitrageSavingsTodaySensor(AggregationEntity, SensorEntity):
             # If sun overproduces and the battery doesn't actually discharge
             # during peak, real savings are lower than reported.
             "methodology": (
-                "v4.5.0: late-charge window + forecast re-check + HOLD "
-                "preserves buffer to the displaced rate window. Counterfactual "
-                "assumes the locked buffer is fully discharged at peak/mid_peak. "
-                "Estimate accuracy ±10% on typical days."
+                "Accrued at discharge: each kWh the battery serves to the "
+                "house in peak/mid_peak earns effective_rate(now) − "
+                "basis/RTE, where basis is the stored-energy average (grid "
+                "kWh at the effective import rate, solar kWh at the export "
+                "rate). Off-peak discharge earns $0."
             ),
         }
         if last is not None:
             attrs.update({
                 "last_cycle_at": last.get("timestamp"),
-                "last_cycle_kwh_charged": round(float(last.get("kwh_charged", 0.0)), 3),
+                "last_cycle_kwh_discharged": round(
+                    float(last.get("kwh_discharged") or 0.0), 3,
+                ),
+                "last_cycle_basis_source": last.get("basis_source"),
                 "last_cycle_off_peak_rate": last.get("off_peak_rate"),
                 "last_cycle_displaced_rate": last.get("displaced_rate"),
                 "last_cycle_round_trip_efficiency": last.get("round_trip_efficiency"),
@@ -11466,6 +11478,10 @@ class EnergyArbitrageSavingsCycleSensor(AggregationEntity, SensorEntity):
         pace = (energy.arbitrage_status or {}).get("pace") or {}
         return {
             "cycles_this_cycle": int(cycle.get("cycles", 0)),
+            "kwh_discharged_this_cycle": round(
+                float(cycle.get("kwh_discharged", 0.0)), 3,
+            ),
+            # Legacy (charge-time rows only); kept one release.
             "kwh_charged_this_cycle": round(float(cycle.get("kwh_charged", 0.0)), 3),
             "avg_savings_per_day_7d": round(
                 float(pace.get("avg_savings_per_day", 0.0)), 4,
@@ -11522,6 +11538,9 @@ class EnergyArbitrageSavingsTotalSensor(AggregationEntity, SensorEntity):
         return {
             "total_cycles": int(total.get("cycles", 0)),
             "total_kwh_charged": round(float(total.get("kwh_charged", 0.0)), 3),
+            "total_kwh_discharged": round(
+                float(total.get("kwh_discharged", 0.0)), 3,
+            ),
             "round_trip_efficiency_assumption": energy.arbitrage_round_trip_efficiency,
             "methodology": (
                 "v4.5.0: lifetime projected savings; each cycle assumes the "
@@ -11562,7 +11581,10 @@ def _arb_kwh_scope(hass: HomeAssistant, scope: str) -> float:
     if ec is None:
         return 0.0
     data = (ec.arbitrage_status or {}).get(scope) or {}
-    return float(data.get("kwh_charged", 0.0))
+    # EC-COST-AND-FORECAST-MATH-1 D1: today/cycle are discharge-era scopes;
+    # lifetime keeps the historical charged kWh.
+    key = "kwh_charged" if scope == "total" else "kwh_discharged"
+    return float(data.get(key, 0.0))
 
 
 class _SavingsSensorBase(AggregationEntity, SensorEntity):
