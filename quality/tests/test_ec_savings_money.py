@@ -618,7 +618,9 @@ async def test_arbitrage_readers_discharge_rows(tmp_path):
         today = await db.query_arbitrage_savings_since(since, accrual="discharge")
         assert today["savings"] == pytest.approx(0.035)
         assert today["kwh_discharged"] == pytest.approx(0.7)
-        assert today["cycles"] == 2
+        # A1/B3: two discharge rows on ONE local day = 1 cycle, 2 ticks.
+        assert today["cycles"] == 1
+        assert today["rows"] == 2
         unfiltered = await db.query_arbitrage_savings_since(since)
         assert unfiltered["savings"] == pytest.approx(0.0356)
         total = await db.query_arbitrage_savings_total()
@@ -764,3 +766,125 @@ def test_predicted_import_no_battery_cancellation():
     assert c.predicted_import_kwh == 0.0
     pred["predicted_production_kwh"] = None
     assert c.predicted_import_kwh is None
+
+
+# ---------------------------------------------------------------------------
+# Review fix-ups: B1 (no seed-overwrite on transient restore failure),
+# A1/B3 (cycles = distinct local days), A2 (lifetime mixed-history attrs)
+# ---------------------------------------------------------------------------
+
+
+class _FlakyReadDB(_FakeDB):
+    def __init__(self, *a, fail_reads=1, **k):
+        super().__init__(*a, **k)
+        self.fail_reads = fail_reads
+
+    async def restore_energy_state_with_age(self, key, max_age_hours=10.0):
+        if self.fail_reads > 0:
+            self.fail_reads -= 1
+            raise RuntimeError("database is locked")
+        return await super().restore_energy_state_with_age(key, max_age_hours)
+
+
+def test_inventory_restore_read_failure_retries_not_overwrites():
+    """B1: a failed restore READ leaves the inventory unloaded, the tick
+    saves nothing (stored row intact), and the next tick restores it."""
+    good = json.dumps({"kwh": 7.5, "cost_usd": 0.6, "updated_at": "x"})
+    db = _FlakyReadDB({"arbitrage_inventory": good}, fail_reads=1)
+    c = _mk_ec(db=db, soc=40.0, cap=40.0)
+    c._arb_inventory_changed_ticks = -1  # next change would hit save cadence
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=0.1), "off_peak", "shoulder", _OFF,
+    ))
+    assert c._arb_inventory_loaded is False
+    assert "arbitrage_inventory" not in db.saves
+    assert db.state["arbitrage_inventory"] == good
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=0.1), "off_peak", "shoulder", _OFF,
+    ))
+    assert c._arb_inventory_loaded is True
+    assert c._arb_inventory.kwh == pytest.approx(7.4)  # restored 7.5 - 0.1
+
+
+def test_inventory_unknown_soc_defers_seed_and_save():
+    """B1: no stored row + SOC unknown -> stay unloaded (no 0-kWh seed);
+    the tick books/saves nothing; once SOC is known the seed happens."""
+    db = _FakeDB()
+    c = _mk_ec(db=db, soc=None, cap=40.0)
+    c._arb_inventory_changed_ticks = -1  # next change would hit save cadence
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=1.0, battery_served_kwh=1.0), "mid_peak",
+        "shoulder", _MID,
+    ))
+    assert c._arb_inventory_loaded is False
+    assert "arbitrage_inventory" not in db.saves
+    assert db.rows == []
+    c._battery.battery_soc = 40.0
+    _run(c._ensure_arbitrage_inventory_loaded(_OFF))
+    assert c._arb_inventory_loaded is True
+    assert c._arb_inventory.kwh == pytest.approx(16.0)
+
+
+@pytest.mark.asyncio
+async def test_arbitrage_cycles_count_distinct_local_days(tmp_path):
+    """A1/B3: 3 discharge rows over 2 local days -> cycles 2, rows 3
+    (since + total)."""
+    now = dt_util.utcnow()
+    db = await _real_db(tmp_path)
+    try:
+        for ts in (now - timedelta(days=3), now - timedelta(days=3, minutes=-5),
+                   now - timedelta(minutes=10)):
+            await db.save_arbitrage_cycle(
+                timestamp=ts.isoformat(), soc_before=None, soc_after=None,
+                kwh_charged=0.0, off_peak_rate=0.075, displaced_rate=0.128918,
+                round_trip_efficiency=0.9, savings=0.01, season="shoulder",
+                accrual="discharge", kwh_discharged=0.2,
+                basis_source="inventory",
+            )
+        await _drain(db)
+        since = (now - timedelta(days=5)).isoformat()
+        got = await db.query_arbitrage_savings_since(since, accrual="discharge")
+        assert (got["cycles"], got["rows"]) == (2, 3)
+        tot = await db.query_arbitrage_savings_total()
+        assert (tot["cycles"], tot["rows"]) == (2, 3)
+    finally:
+        await db.stop_write_worker()
+
+
+def test_lifetime_sensor_mixed_history_attrs():
+    """A2: lifetime attrs split charge-time vs discharge-time credited kWh;
+    total credited = 4.4 + 0.7 = 5.1; _arb_kwh_scope('total') agrees;
+    today/cycle expose discharge_ticks_*."""
+    status = {
+        "total": {"savings": 1.0, "kwh_charged": 4.4, "kwh_discharged": 0.7,
+                  "cycles": 9, "rows": 40},
+        "today": {"savings": 0.1, "kwh_discharged": 0.5, "cycles": 1,
+                  "rows": 6},
+        "cycle": {"savings": 0.2, "kwh_discharged": 0.9, "cycles": 2,
+                  "rows": 11},
+        "pace": {},
+        "last_cycle": None,
+    }
+    energy = SimpleNamespace(arbitrage_status=status,
+                             arbitrage_round_trip_efficiency=0.9)
+    hass = SimpleNamespace(data={_DOMAIN: {"coordinator_manager": SimpleNamespace(
+        coordinators={"energy": energy})}})
+    with _real_sensor_module() as sm:
+        def _mk(cls):
+            s = cls.__new__(cls)
+            s.hass = hass
+            return s
+        tot = _mk(sm.EnergyArbitrageSavingsTotalSensor).extra_state_attributes
+        today = _mk(sm.EnergyArbitrageSavingsTodaySensor).extra_state_attributes
+        cyc = _mk(sm.EnergyArbitrageSavingsCycleSensor).extra_state_attributes
+        scope_total = sm._arb_kwh_scope(hass, "total")
+        scope_today = sm._arb_kwh_scope(hass, "today")
+    assert tot["total_kwh_charged_credited"] == 4.4
+    assert tot["total_kwh_discharged_credited"] == 0.7
+    assert tot["total_kwh_credited"] == 5.1
+    assert (tot["total_cycles"], tot["total_accrual_rows"]) == (9, 40)
+    assert "cutover" in tot["methodology"]
+    assert scope_total == pytest.approx(5.1)
+    assert scope_today == pytest.approx(0.5)
+    assert (today["cycles_today"], today["discharge_ticks_today"]) == (1, 6)
+    assert (cyc["cycles_this_cycle"], cyc["discharge_ticks_this_cycle"]) == (2, 11)

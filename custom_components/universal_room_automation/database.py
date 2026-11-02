@@ -6379,6 +6379,19 @@ class UniversalRoomDatabase:
         except Exception as err:
             _LOGGER.warning("Failed to save arbitrage cycle: %s", err)
 
+    @staticmethod
+    def _local_day_modifier() -> str:
+        """SQLite DATE() modifier shifting a UTC ISO ts to the local day.
+
+        Uses the CURRENT local UTC offset (a DST change shifts the day
+        boundary by an hour for rows on the far side of it — arbitrage rows
+        land in afternoon peak windows, nowhere near midnight).
+        """
+        from homeassistant.util import dt as _dtu
+        off = _dtu.now().utcoffset()
+        secs = int(off.total_seconds()) if off is not None else 0
+        return f"{secs:+d} seconds"
+
     async def query_arbitrage_savings_since(
         self, since_iso: str, accrual: str | None = None,
     ) -> dict:
@@ -6396,25 +6409,32 @@ class UniversalRoomDatabase:
                 sql = (
                     "SELECT COALESCE(SUM(savings), 0.0), "
                     "COALESCE(SUM(kwh_charged), 0.0), COUNT(*), "
-                    "COALESCE(SUM(kwh_discharged), 0.0) "
+                    "COALESCE(SUM(kwh_discharged), 0.0), "
+                    "COUNT(DISTINCT DATE(timestamp, ?)) "
                     "FROM arbitrage_cycles WHERE timestamp >= ?"
                 )
-                params: tuple = (since_iso,)
+                mod = self._local_day_modifier()
+                params: tuple = (mod, since_iso)
                 if accrual is not None:
                     sql += " AND accrual = ?"
-                    params = (since_iso, accrual)
+                    params = (mod, since_iso, accrual)
                 cursor = await db.execute(sql, params)
                 row = await cursor.fetchone()
                 return {
                     "savings": float(row[0]) if row else 0.0,
                     "kwh_charged": float(row[1]) if row else 0.0,
-                    "cycles": int(row[2]) if row else 0,
+                    # A1/B3: ``cycles`` = distinct LOCAL days with an
+                    # accrual row (one arbitrage cycle = one day's charge ->
+                    # displaced-window discharge); ``rows`` = raw row count
+                    # (per-tick since the discharge cutover).
+                    "cycles": int(row[4]) if row else 0,
+                    "rows": int(row[2]) if row else 0,
                     "kwh_discharged": float(row[3]) if row else 0.0,
                 }
         except Exception as err:
             _LOGGER.warning("query_arbitrage_savings_since failed: %s", err)
             return {
-                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0,
+                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0, "rows": 0,
                 "kwh_discharged": 0.0,
             }
 
@@ -6426,20 +6446,23 @@ class UniversalRoomDatabase:
                     """SELECT COALESCE(SUM(savings), 0.0),
                               COALESCE(SUM(kwh_charged), 0.0),
                               COUNT(*),
-                              COALESCE(SUM(kwh_discharged), 0.0)
+                              COALESCE(SUM(kwh_discharged), 0.0),
+                              COUNT(DISTINCT DATE(timestamp, ?))
                        FROM arbitrage_cycles""",
+                    (self._local_day_modifier(),),
                 )
                 row = await cursor.fetchone()
                 return {
                     "savings": float(row[0]) if row else 0.0,
                     "kwh_charged": float(row[1]) if row else 0.0,
-                    "cycles": int(row[2]) if row else 0,
+                    "cycles": int(row[4]) if row else 0,
+                    "rows": int(row[2]) if row else 0,
                     "kwh_discharged": float(row[3]) if row else 0.0,
                 }
         except Exception as err:
             _LOGGER.warning("query_arbitrage_savings_total failed: %s", err)
             return {
-                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0,
+                "savings": 0.0, "kwh_charged": 0.0, "cycles": 0, "rows": 0,
                 "kwh_discharged": 0.0,
             }
 

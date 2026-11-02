@@ -4505,7 +4505,6 @@ class EnergyCoordinator(BaseCoordinator):
             ARBITRAGE_INVENTORY_MAX_AGE_H,
             ARBITRAGE_INVENTORY_STATE_KEY,
         )
-        self._arb_inventory_loaded = True
         database = self.hass.data.get(_DOMAIN, {}).get("database")
         restored: ArbitrageInventory | None = None
         if database is not None:
@@ -4514,6 +4513,13 @@ class EnergyCoordinator(BaseCoordinator):
                     ARBITRAGE_INVENTORY_STATE_KEY,
                     max_age_hours=ARBITRAGE_INVENTORY_MAX_AGE_H,
                 )
+            except Exception:  # noqa: BLE001
+                # B1: a transient READ failure is not "absent" — stay
+                # unloaded (no save can fire) and retry next tick, so a good
+                # stored row is never overwritten by a fresh seed.
+                _LOGGER.debug("arbitrage inventory restore failed", exc_info=True)
+                return
+            try:
                 if raw:
                     data = _json.loads(raw)
                     kwh = float(data["kwh"])
@@ -4534,13 +4540,18 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("arbitrage cutover key write failed", exc_info=True)
         if restored is None:
-            cap = self._arb_soc_cap_kwh() or 0.0
+            cap = self._arb_soc_cap_kwh()
+            if cap is None:
+                # B1: SOC unknown — seeding 0 would later be saved over the
+                # stored row. Stay unloaded; retry next tick.
+                return
             restored = ArbitrageInventory(cap, cap * self._arb_offpeak_basis(now))
             _LOGGER.info(
                 "Arbitrage inventory seeded from SOC: %.2f kWh at off-peak "
                 "effective basis", cap,
             )
         self._arb_inventory = restored
+        self._arb_inventory_loaded = True
 
     async def _save_arbitrage_inventory(self) -> None:
         """Persist the inventory (energy_state, via the write queue)."""
@@ -4580,6 +4591,8 @@ class EnergyCoordinator(BaseCoordinator):
             return
         from .energy_billing import _DISPLACED_PERIODS, discharge_savings_usd
         await self._ensure_arbitrage_inventory_loaded(now)
+        if not getattr(self, "_arb_inventory_loaded", False):
+            return  # B1: restore pending (read failed / SOC unknown)
         inv = self._arb_inventory
         offpeak = self._arb_offpeak_basis(now)
 

@@ -11404,7 +11404,10 @@ class EnergyArbitrageSavingsTodaySensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy") if manager else None
         last = (energy.arbitrage_status or {}).get("last_cycle") if energy else None
         attrs: dict[str, Any] = {
+            # A1/B3: cycles = distinct local days with discharge accrual
+            # (0/1 today); discharge_ticks = raw per-tick accrual rows.
             "cycles_today": int(today.get("cycles", 0)),
+            "discharge_ticks_today": int(today.get("rows", 0)),
             # EC-COST-AND-FORECAST-MATH-1 D1: discharge-era scope. The
             # legacy kwh_charged_today stays one release (legacy rows only).
             "kwh_discharged_today": round(
@@ -11478,6 +11481,7 @@ class EnergyArbitrageSavingsCycleSensor(AggregationEntity, SensorEntity):
         pace = (energy.arbitrage_status or {}).get("pace") or {}
         return {
             "cycles_this_cycle": int(cycle.get("cycles", 0)),
+            "discharge_ticks_this_cycle": int(cycle.get("rows", 0)),
             "kwh_discharged_this_cycle": round(
                 float(cycle.get("kwh_discharged", 0.0)), 3,
             ),
@@ -11536,18 +11540,28 @@ class EnergyArbitrageSavingsTotalSensor(AggregationEntity, SensorEntity):
             return {}
         total = (energy.arbitrage_status or {}).get("total") or {}
         return {
+            # A1/B3: distinct local days with any accrual row (both eras).
             "total_cycles": int(total.get("cycles", 0)),
-            "total_kwh_charged": round(float(total.get("kwh_charged", 0.0)), 3),
-            "total_kwh_discharged": round(
+            "total_accrual_rows": int(total.get("rows", 0)),
+            # A2: mixed history - legacy rows credited kWh at CHARGE time,
+            # post-cutover rows credit kWh at DISCHARGE time.
+            "total_kwh_charged_credited": round(
+                float(total.get("kwh_charged", 0.0)), 3,
+            ),
+            "total_kwh_discharged_credited": round(
                 float(total.get("kwh_discharged", 0.0)), 3,
             ),
+            "total_kwh_credited": round(_arb_total_kwh_credited(total), 3),
             "round_trip_efficiency_assumption": energy.arbitrage_round_trip_efficiency,
             "methodology": (
-                "v4.5.0: lifetime projected savings; each cycle assumes the "
-                "locked buffer is fully discharged at the displaced rate. "
-                "Phased state machine (CHARGE → HOLD) preserves the buffer "
-                "until the high-rate window — minimizing pre-arbitrage waste. "
-                "Estimate accuracy ±10% per cycle; lifetime drift bounded."
+                "Mixed history. Before the discharge-accrual cutover, each "
+                "grid-charged kWh was credited at CHARGE time as "
+                "displaced − off-peak rate (× RTE), assuming later discharge "
+                "in the high-rate window (total_kwh_charged_credited). Since "
+                "the cutover, each kWh the battery serves in peak/mid_peak is "
+                "credited at DISCHARGE time as effective_rate(now) − "
+                "basis/RTE (total_kwh_discharged_credited). Total = sum of "
+                "both eras' rows."
             ),
         }
 
@@ -11576,15 +11590,23 @@ def _arb_scope(hass: HomeAssistant, scope: str) -> float:
     return float(data.get("savings", 0.0))
 
 
+def _arb_total_kwh_credited(total: dict) -> float:
+    """Lifetime credited kWh across the charge->discharge accrual cutover."""
+    return float(total.get("kwh_charged", 0.0)) + float(
+        total.get("kwh_discharged", 0.0)
+    )
+
+
 def _arb_kwh_scope(hass: HomeAssistant, scope: str) -> float:
     ec = _ec(hass)
     if ec is None:
         return 0.0
     data = (ec.arbitrage_status or {}).get(scope) or {}
     # EC-COST-AND-FORECAST-MATH-1 D1: today/cycle are discharge-era scopes;
-    # lifetime keeps the historical charged kWh.
-    key = "kwh_charged" if scope == "total" else "kwh_discharged"
-    return float(data.get(key, 0.0))
+    # lifetime (A2) = charge-time-credited legacy kWh + discharge-time kWh.
+    if scope == "total":
+        return _arb_total_kwh_credited(data)
+    return float(data.get("kwh_discharged", 0.0))
 
 
 class _SavingsSensorBase(AggregationEntity, SensorEntity):
@@ -12131,11 +12153,11 @@ class EnergyForecastTodaySensor(AggregationEntity, SensorEntity):
 
 
 class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
-    """Predicted grid draw today accounting for battery buffering.
+    """Predicted grid import today: ``max(consumption − production, 0)``.
 
-    On sunny days with a full battery, this is near zero because the
-    battery covers nighttime consumption.  On cloudy days the shortfall
-    comes from the grid.
+    EC-COST-AND-FORECAST-MATH-1 D7: no usable-battery subtraction - over a
+    whole day the battery cannot cancel a deficit unless SOC ends lower,
+    and the solar that refills it is already counted in production.
 
     Entity: sensor.ura_energy_forecasted_import
     Device: URA: Energy Coordinator
