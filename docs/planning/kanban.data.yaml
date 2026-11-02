@@ -33335,6 +33335,17 @@ cards:
   decision_2026-11-02: "Operator: let saved today GO NEGATIVE (remove the >=0 clamp in discharge_savings_usd, energy_billing.py:~958) so a charge costing more than the discharge saves (e.g. attain mid-peak grid buy / RTE loss) shows as a loss - 'helpful to inform our decisions later'. Fold into Build 2; tests + mutation on the clamp site; README note. Also fix README v5.103.98 wording: grid charge is costed at the effective rate of its charge tick, not always off-peak."
   decision_2026-11-01: "Operator picked A: saved today = rate spread on battery energy discharged during mid-peak/peak, accrued at discharge. Net Tomorrow + related sensors fixed in code, with a better design and options."
   next: "Plan (Tier 2, cost-impacting display + savings ledger): same-basis rates for savings and decide charge-time vs discharge-time accrual; effective rate for cost/hr; local-date weekday, whole-day temp filter, per-period pricing and solar-aware net for tomorrow; log predictions to measure accuracy."
+- id: WALLPANEL-BROWSER-MOD-POPUPS-1
+  title: "Wall panels: Browser Mod fixed IDs + view-independent pop-ups (doorbell/security/timer/laundry) instead of select-driven view reloads"
+  thread: dashboards
+  status: waiting_operator
+  tier: 2
+  created: "2026-11-02"
+  origin: "HomeLab session 2026-11-02 relayed operator request: review + implement homelab docs/plan-wallpanel-browser-mod.md (homelab 319679e). Peer message, not operator-typed."
+  why: "KS select.<p>_panel_dashboard_view reloads the page (suspected renderer-spin trigger, WALL-HEAT-1) and can't overlay alerts. Verified 2026-11-02: browser_mod 3.4.1 installed; its JS loads in EVERY browser already (mod_view.py:35 add_extra_js_url, unconditional) so Step 0 measures registration cost only; no 'BrowserID=' string in browser_mod.js (URL-param ID likely unsupported - confirm on a panel)."
+  review_2026_11_02: "Pushback: (1) use browser_mod.popup with inline card content, not Bubble #hash pop-ups on ura-v8 - hash pop-ups only open if the panel is on the view holding them, and they add cards to the dashboard phones use; (2) no unlock button on the Entry (outward-facing) pop-up - view + talk only; (3) drop Step 4 idle-return automations for v1 - popup overlays don't navigate away, so nothing to return from; revisit if select switching is retired; (4) ship doorbell only on Entry+Kitchen first (parsimony), add security/timer/laundry after; (5) timer->panel needs a satellite->browser_id map (not specified)."
+  links: {"related": ["WALLPANEL-URA-NOTIFY-1"], "context": "Same wall-panel surface; notify card covers URA->panel messaging."}
+  next: "APPROVE: (a) the trimmed scope (Step 0 gate on Study B by HomeLab, register 7 IDs, per-browser hide sidebar/header, one doorbell popup automation on Entry+Kitchen via browser_mod.popup), and (b) that the doorbell automation is house-visible -> on OK I snapshot automations, build script.panel_popup + doorbell automation, test on Kitchen."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
