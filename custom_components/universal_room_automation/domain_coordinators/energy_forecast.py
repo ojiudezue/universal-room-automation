@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import date, datetime, timedelta
+from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -17,7 +18,9 @@ from homeassistant.util import dt as dt_util
 
 from .energy_const import (
     CONF_R1_ESTIMATOR_SHADOW_ONLY,
+    CONSUMPTION_REGRESSION_ACTIVE,
     CONSUMPTION_REGRESSION_V1,
+    CONSUMPTION_REGRESSION_V2,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
     DEFAULT_WEATHER_ENTITY,
@@ -72,6 +75,42 @@ def _factor_pct_error(predicted: float | None, actual: float | None) -> float | 
             return None
     pct = (actual - predicted) / predicted * 100.0
     return max(-FACTOR_PCT_ERROR_CLAMP, min(FACTOR_PCT_ERROR_CLAMP, pct))
+
+def _season_of(d: date) -> str:
+    m = d.month
+    if m in (12, 1, 2):
+        return "winter"
+    if m in (3, 4, 5):
+        return "spring"
+    if m in (6, 7, 8):
+        return "summer"
+    return "fall"
+
+
+def compute_consumption_regression(
+    target_date: date, temp_feature: float | None, consts: Mapping[str, Any],
+) -> tuple[float | None, float | None, float, str]:
+    """(total_kwh, base_kwh, ev_kwh, source) for LOCAL ``target_date``.
+
+    EC-COST-AND-FORECAST-MATH-1 D9 (F3): season and EV era come from
+    ``target_date``; coefficients only from ``consts``. Missing temp ->
+    (None, None, 0.0, FALLBACK). Pure: no adjustment factor, no shadow gate.
+    """
+    if temp_feature is None:
+        return None, None, 0.0, PRED_CONSUMPTION_SOURCE_FALLBACK
+    c = consts
+    cdd = max(temp_feature - c["cdd_base_f"], 0.0)
+    hdd = max(c["hdd_base_f"] - temp_feature, 0.0)
+    base_kwh = (
+        c["base"]
+        + c["cdd_coeff"] * cdd
+        + c["hdd_coeff"] * hdd
+        + c["season_" + _season_of(target_date)]
+    )
+    ev_era = datetime.strptime(c["ev_era_start"], "%Y-%m-%d").date()
+    ev_kwh = c["ev_term_kwh"] if target_date >= ev_era else 0.0
+    return base_kwh + ev_kwh, base_kwh, ev_kwh, PRED_CONSUMPTION_SOURCE_V1_REGRESSION
+
 
 # Comfort midpoint for temperature regression (°F)
 COMFORT_MIDPOINT_F = 72.0
@@ -147,6 +186,12 @@ class DailyEnergyPredictor:
         self._shadow_predicted_consumption_kwh: float | None = None
         self._shadow_predicted_base_kwh: float | None = None
         self._shadow_predicted_ev_kwh: float | None = None
+        # D8: forecast (high+low)/2 for the shadow arm only (set by the EC
+        # before each prediction); never the legacy/consumed temp.
+        self._shadow_temp: float | None = None
+        self._shadow_temp_used: float | None = None
+        self._shadow_model_arm: str | None = None
+        self._shadow_missing_input: str | None = None
 
         # Historical baselines (day_of_week -> consumption kWh list)
         self._consumption_history: dict[int, deque] = {
@@ -304,40 +349,37 @@ class DailyEnergyPredictor:
     ) -> tuple[float | None, float | None, float, str]:
         """Return (total_kwh, base_kwh, ev_kwh, source).
 
-        Returns (None, None, 0.0, FALLBACK) when temp is missing — the v1 arm
-        requires temp; the caller decides fallback semantics.
+        Thin wrapper (D9 F3): season and EV era from ``now``'s LOCAL date,
+        coefficients from CONSUMPTION_REGRESSION_V1. Returns
+        (None, None, 0.0, FALLBACK) when temp is missing.
         """
-        if temp is None:
-            return None, None, 0.0, PRED_CONSUMPTION_SOURCE_FALLBACK
-
-        c = CONSUMPTION_REGRESSION_V1
-        cdd = max(temp - c["cdd_base_f"], 0.0)
-        hdd = max(c["hdd_base_f"] - temp, 0.0)
-        m = now.month
-        if m in (12, 1, 2):
-            season_dummy = c["season_winter"]
-        elif m in (3, 4, 5):
-            season_dummy = c["season_spring"]
-        elif m in (6, 7, 8):
-            season_dummy = c["season_summer"]
-        else:
-            season_dummy = c["season_fall"]
-
-        base_kwh = (
-            c["base"]
-            + c["cdd_coeff"] * cdd
-            + c["hdd_coeff"] * hdd
-            + season_dummy
+        return compute_consumption_regression(
+            dt_util.as_local(now).date(), temp, CONSUMPTION_REGRESSION_V1,
         )
 
-        # EV term — single reviewed constant, gated by ev_era_start date.
-        # Parsimony per operator directive 2026-07-16: no per-session /
-        # plan-aware modeling in R1. Richer term is R8-era.
-        ev_era = datetime.strptime(c["ev_era_start"], "%Y-%m-%d").date()
-        ev_kwh = c["ev_term_kwh"] if now.date() >= ev_era else 0.0
+    def set_shadow_temp(self, temp: float | None) -> None:
+        """D8: today's forecast (high+low)/2 for the SHADOW arm only.
 
-        total = base_kwh + ev_kwh
-        return total, base_kwh, ev_kwh, PRED_CONSUMPTION_SOURCE_V1_REGRESSION
+        Never reaches ``temp`` (legacy arm, consumed value,
+        ``_prediction_temperature``) — INV-SHADOW-1.
+        """
+        self._shadow_temp = temp
+
+    def _compute_shadow_arm(
+        self, now: datetime,
+    ) -> tuple[float | None, float | None, float, str]:
+        """Shadow arm = the CONSUMPTION_REGRESSION_ACTIVE regression on the
+        D8 ``shadow_temp``. Missing temp -> unavailable (no fallback)."""
+        consts = (CONSUMPTION_REGRESSION_V2
+                  if CONSUMPTION_REGRESSION_ACTIVE == "v2"
+                  else CONSUMPTION_REGRESSION_V1)
+        temp = getattr(self, "_shadow_temp", None)
+        self._shadow_temp_used = temp
+        self._shadow_model_arm = CONSUMPTION_REGRESSION_ACTIVE
+        self._shadow_missing_input = "forecast_temp" if temp is None else None
+        return compute_consumption_regression(
+            dt_util.as_local(now).date(), temp, consts,
+        )
 
     # -----------------------------------------------------------------
     # Legacy estimator (shadow-phase fallback ONLY).
@@ -395,8 +437,10 @@ class DailyEnergyPredictor:
         = v1 is consumed and legacy is unreachable except as a fallback when
         v1 has no temperature.
         """
-        # 1. v1 arm — always compute so shadow scoring has a number.
-        v1_total, v1_base, v1_ev, v1_source = self._compute_v1(now, temp)
+        # 1. Regression arm — always compute so shadow scoring has a number.
+        #    D8: fed the forecast (high+low)/2 ``shadow_temp``, NOT ``temp``
+        #    (``temp`` stays the legacy arm's input; INV-SHADOW-1).
+        v1_total, v1_base, v1_ev, v1_source = self._compute_shadow_arm(now)
 
         # 2. Legacy arm — computed while shadow gate is on OR when v1 has no
         #    temp signal (fallback).
@@ -831,6 +875,10 @@ class DailyEnergyPredictor:
             "shadow_predicted_consumption_kwh": self._shadow_predicted_consumption_kwh,
             "shadow_predicted_base_kwh": self._shadow_predicted_base_kwh,
             "shadow_predicted_ev_kwh": self._shadow_predicted_ev_kwh,
+            # D8/D9: shadow arm inputs.
+            "shadow_temp_used": getattr(self, "_shadow_temp_used", None),
+            "shadow_model_arm": getattr(self, "_shadow_model_arm", None),
+            "shadow_missing_input": getattr(self, "_shadow_missing_input", None),
         }
 
 

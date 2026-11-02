@@ -467,9 +467,15 @@ caches a rate, so a tariff edit applies on the next tick.
 - Known limits: on the cutover night the lifetime total counts pre-deploy charge once at charge
   time and again at discharge. Discharge to export is not removed from the inventory; the SOC
   cap corrects it.
-- **Pending (Build 2, operator 2026-11-02): savings may go NEGATIVE.** Today each tick is clamped
-  at ≥ 0, so a charge that cost more than the discharge saved books $0. Build 2 removes the
-  clamp so losses (e.g. an attain mid-peak buy plus RTE loss) show.
+- **Savings are SIGNED (Build 2, operator 2026-11-02).** `discharge_savings_usd`
+  (`energy_billing.py:951`) has no clamp: a mid-peak/peak discharge whose basis / RTE exceeds
+  the effective rate (e.g. an attain mid-peak grid buy plus RTE loss) books a NEGATIVE row
+  (`energy.py:4632` writes any non-zero amount). Today/cycle/lifetime sums carry losses
+  (`SUM(savings)`). The predicted-bill counterfactual takes a negative pace
+  (`sensor.py:11326`, bill without arbitrage < predicted). Lifetime = the live table sum; the
+  seeded baseline is only the fallback when the table reads empty (`_arb_lifetime`,
+  `sensor.py:11810`; the old `max(baseline, live)` hid net losses). Off-peak discharge still
+  books nothing. The legacy charge-time path (kill switch False) keeps its own `< 0` guard.
 
 **Forecasted import today** (`predicted_import_kwh`, `energy.py:13000`): `max(consumption −
 production, 0)`. No battery subtraction: over a whole day the battery can't cancel a deficit
@@ -477,22 +483,55 @@ unless it ends the day lower, and the solar that refills it is already counted i
 
 **Energy cost today** was audited CORRECT and is unchanged.
 
-**Consumption forecast / Net tomorrow — Build 2 (in build 2026-11-02, NOT live).** Today's
-defects: the weekday is the UTC date after 18:00 CST, the temperature filter is per 15-min row,
-the whole day is priced at one instant's rate, there's no Solcast, and `_compute_v1`
-(`energy_forecast.py:302`) uses the CURRENT temperature where the fit used the daily mean. R1
-estimator still in shadow (`CONF_R1_ESTIMATOR_SHADOW_ONLY=True`, `energy_const.py:170`).
-Build 2 plan (D0, D8, D9, D3, D4, D5):
-- D8: date-keyed forecast temperature = (high + templow)/2 from `weather.phalanxmadrone` daily
-  entries, with no fallback.
-- D9: refit through 2026-10. The EV term is dropped: the 18.58 constant double-counted, and
-  measured EV use is ~10.5 kWh/day. Adds a per-HVAC-zone AC arm.
-- D3/D4: per-period pricing and solar-aware net.
-- D5: per-arm prediction log for accuracy.
+**Consumption forecast / Net tomorrow / predicted cost — Build 2 (built 2026-11-02, branch
+`fix/ec-forecast-build2`, NOT yet live).** All display/log only; INV-SHADOW-1 holds (the consumed
+`predicted_consumption_kwh`, `_prediction_temperature`, DP house load and battery_full_time are
+unchanged while `CONF_R1_ESTIMATOR_SHADOW_ONLY=True`).
+- **D0 (gate, measured):** inputs `data/energy_fit/ec_forecast_daily_inputs.csv` from
+  `scripts/probes/ec_forecast_daily_extract.py` (energy_daily + recorder hourly stats; Solcast
+  "tomorrow" state at the end of the previous evening's 20:00 hour). Backtest
+  `scripts/probes/ec_tomorrow_forecast_backtest.py`, 44 target days 09-17..10-31, temp = ACTUAL
+  (high+low)/2 (no forecast history; upper bound): Option A net MAE **35.84** (v1 arm) vs
+  Option B (same-weekday history) **41.62** → A ships. Per-arm A net MAE: v2 35.37, hvac_zone 28.02,
+  trailing-14 33.13, weekly persistence 43.10. All arms biased high in October.
+- **D8:** `select_forecast_for_date` (`energy_forecast_tomorrow.py:39`) picks the daily entry whose
+  datetime is the LOCAL target date; feature = (temperature + templow)/2; missing → None, never
+  `forecast[0]` or the current temp. EC `async_forecast_temps_for_date` (`energy.py:8866`) fetches
+  the full list (TTL `FORECAST_DATE_CACHE_TTL_S` 900 s). Today's value feeds ONLY the predictor's
+  shadow arm (`set_shadow_temp` / `_compute_shadow_arm`, `energy_forecast.py:360/368`).
+- **D9:** pure `compute_consumption_regression(target_date, temp, consts)`
+  (`energy_forecast.py:90`; `_compute_v1` is a wrapper). v2 refit (`fit_consumption_regression.py
+  --version v2`): window 2026-03-21..09-30 (energy_daily starts 03-06, no winter data), Oct holdout.
+  **v2 FAILED its gate**: holdout MAE E1 47.40 / E2 41.67 vs v1 27.33 (fall dummy learned from a hot
+  September; a v1-shape refit with hourly-mean temp scores 34.91, so the window drives it).
+  `CONSUMPTION_REGRESSION_ACTIVE = "v1"` (`energy_const.py:211`); `CONSUMPTION_REGRESSION_V2`
+  (`:184`, E1 coefficients, logged only). Contradiction: the earlier "2026 refit, October holdout
+  14.1" note in this section is not reproduced by the committed script and data; code wins.
+  **hvac_zone arm PASSED** (`HVAC_ZONE_REGRESSION_V1`, `energy_const.py:225`): zone kWh = a +
+  b·max(out − in, 0) (no heating slope fit), in = zone thermostat trailing 7-day mean, + trailing
+  14-day (consumption − ΣAC). Coefs a/b: Z1 10.4088/1.8013, Z2 8.1831/1.4297, Z3 3.7732/1.0803.
+  Holdout 20.75 (n=27); caveat: plain trailing-14 consumption scores 22.19. Recorder inputs come
+  from a tracked background task (`FORECAST_DAILY_INPUTS_REFRESH_S` 3600 s), cancelled at teardown.
+- **D3:** `_async_refresh_tomorrow_forecast` (`energy.py:9088`, every `FORECAST_TOMORROW_REFRESH_S`
+  900 s, called from `_forecast_tick`, `energy.py:7223/8834`): target = LOCAL today + 1; net =
+  consumption(ACTIVE arm, D8 temp) − Solcast tomorrow + bias, bias = mean of the newest
+  `FORECAST_NET_BIAS_DAYS` (14) energy_daily (import − export) − (consumption − solar). No fallback
+  (`missing_input`). `sensor.*_predicted_energy_tomorrow` reads it (`aggregation.py:2498`);
+  `NET_TOMORROW_MODEL = "historical"` (`energy_const.py:247`) = D3b (local-weekday history).
+- **D4:** cost = Σ_p share_p · net · rate_p(t_p) (`price_net_kwh`, `energy_forecast_tomorrow.py:195`):
+  shares from the last `FORECAST_PERIOD_MIX_DAYS` (14) whole local days of energy_history
+  (kW × dt_h, bucketed by local time + `_period_at`), t_p = first hour-midpoint of period p on the
+  priced day, import at the effective rate, export at the engine export rate. < 3 days of mix →
+  the day's hour-weighted rate. Never an instant rate; `CONF_EXPORT_REIMBURSEMENT_RATE` is no
+  longer read by aggregation. Predicted energy/cost TODAY = −(EC `predicted_net_kwh`) (sign: the
+  sensor is import − export). Week/month kWh keep the history model with LOCAL boundaries.
+- **D5:** table `energy_forecast_log` (PK target_date, arm; `database.py:81`), one batch per day at
+  ≥ `FORECAST_LOG_LOCAL_HOUR` (21) local: arms v1, v2, hvac_zone, dow_legacy, weekly_persistence;
+  `consumed=1` on dow_legacy while shadow is on. Accuracy (`forecast_accuracy`,
+  `energy_forecast_tomorrow.py:263`) → tomorrow sensor attr `accuracy` (per arm mae_7d/30d,
+  bias_30d; the D3 arm adds net_mae_30d, cost_mae_30d, log_rows).
 
-The D10 shadow flip and R2 are later Tier-3 cycles. Backtest MAE (kWh/day): legacy broken
-(350–2274 on some days); v1 on the daily mean 16.7–21.2, biased high; 2026 refit with an
-October holdout 14.1 (CDD slope ~4.3 vs 2.20 in v1).
+The D10 shadow flip and R2 are later Tier-3 cycles.
 
 **AC inputs (SPAN panel integration, wiring operator-confirmed 2026-11-02):**
 | Unit | Power | HVAC zone thermostat |
@@ -726,6 +765,7 @@ Tuning one does not move the other.
 | v5.21.0 | BAEC control surface: options-flow section (live-apply both directions), cognitive-simplicity renames, device slim-down, shadow eval, D2 detection knobs promoted to options. **BAEC ACTIVATED by operator 2026-07-17 ~20:47.** |
 | v5.18.0 | R1 consumption estimator v1 in SHADOW (regression + EV term; 14-day observation; `predicted_consumption_source` marker). R7 projection unification (single `EnergyProjector`; kill switch; no behavior change). |
 | v5.103.98 | Saved today accrues at mid-peak/peak discharge against a B2 cost inventory; cost/hr on the effective rate; forecasted import = max(consumption − production, 0). See §4.3. |
+| v5.103.x (Build 2, pending ship) | Signed arbitrage savings (losses book negative); tomorrow forecast Option A (local date, Solcast, bias), date-keyed forecast temp, per-period pricing on live TOU rates, per-arm prediction log; v2 refit failed its gate (v1 stays), hvac_zone arm logged. See §4.3. |
 | (unreleased — EC daylight horizon + poor-night floor) | Rung projections extrapolate the observed rate only in daylight (no night rung-1 EV pause/resume loop, 10-01 incident). Arbitrage WAIT holds the poor/very_poor drain floor (park only, no grid charge); drain sliders = `reserve_soc` restore the old WAIT. Plan: `PLANNING_ec_daylight_horizon_and_poor_night_floor.md`. |
 
 ## Charge-onset & the turn-on surface (v3 funnel — SHIP DORMANT)

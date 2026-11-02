@@ -10,7 +10,8 @@ Covers:
       - scope resets (today / billing_cycle)
   * savings_lifetime_baseline DAO (real production DDL from database.py):
       - written once (INSERT OR IGNORE)
-      - lifetime survives row prune (max(baseline, live) semantics)
+      - (lifetime-vs-prune test retired 2026-11-02: lifetime is now the signed
+        live table SUM; see test_ec_forecast_build2_mutation_gaps.py)
   * Total-savings component-sum invariant expressed at the tracker layer.
   * Byte-identity guards for the two primitives this cycle promised NOT to
     modify: `_get_displaced_rate` (energy.py) and `CostTracker.accumulate`
@@ -396,31 +397,10 @@ def test_lifetime_baseline_written_once(real_schema_db):
     assert row2["first_recorded_iso"] == row1["first_recorded_iso"]
 
 
-def test_lifetime_survives_row_prune(real_schema_db):
-    """Sensor-layer max(baseline, live_total) survives an arbitrage_cycles prune.
-
-    Mirrors `EnergySavingsTotalLifetimeSensor._arb_lifetime`: take
-    max(baseline_usd, arbitrage_status.total.savings) so a DB prune that
-    shrinks the live rollup cannot shrink the lifetime number below baseline.
-    """
-    conn = real_schema_db
-    conn.execute(
-        "INSERT INTO savings_lifetime_baseline "
-        "(component, baseline_usd, baseline_kwh, first_recorded_iso) "
-        "VALUES (?, ?, ?, ?)",
-        ("arbitrage", 50.0, 100.0, "2026-07-26T00:00:00+00:00"),
-    )
-    # Simulate live rollup rows (before prune).
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS _t (savings REAL)"""
-    )
-    # After prune, live_total = 0.
-    live_total_after_prune = 0.0
-    baseline = conn.execute(
-        "SELECT baseline_usd FROM savings_lifetime_baseline WHERE component = ?",
-        ("arbitrage",),
-    ).fetchone()["baseline_usd"]
-    assert max(baseline, live_total_after_prune) == 50.0
+# test_lifetime_survives_row_prune (hollow: re-implemented the retired
+# max(baseline, live) on literals) was replaced by
+# test_ec_forecast_build2_mutation_gaps.py::
+# test_signed_savings_flow_through_real_table_to_lifetime_sensor.
 
 
 # --------------------------------------------------------------------------

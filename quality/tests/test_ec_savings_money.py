@@ -219,24 +219,42 @@ def test_arbitrage_discharge_grid_only_basis_discriminates_b1():
     assert db.rows[0]["savings"] == pytest.approx(0.013916, abs=1e-5)
 
 
-def test_arbitrage_base_rate_spread_clamps_no_row():
-    """A base-rate-vs-effective mix (basis above displaced/RTE) clamps to 0
-    and writes no row."""
+def test_arbitrage_loss_books_negative_row():
+    """Operator 2026-11-02: a mid-peak discharge whose basis/RTE exceeds the
+    displaced rate is a LOSS and books a NEGATIVE row (no clamp).
+    Inventory avg 0.12 -> 0.5 x (0.128918 - 0.12/0.9) = -0.002208."""
     db = _FakeDB()
     c = _mk_ec(db=db, soc=100.0, inventory=ArbitrageInventory(10.0, 10.0 * 0.12))
     _run(c._apply_arbitrage_tick(
         _tick(discharge_kwh=0.5, battery_served_kwh=0.5), "mid_peak",
         "shoulder", _MID,
     ))
+    assert len(db.rows) == 1
+    assert db.rows[0]["savings"] == pytest.approx(-0.0022077, abs=1e-6)
+    assert db.rows[0]["accrual"] == "discharge"
+    assert c._arb_inventory.kwh == pytest.approx(9.5)
+
+
+def test_arbitrage_offpeak_discharge_never_books_even_at_loss_basis():
+    """Off-peak discharge books nothing even when the basis would be a loss."""
+    db = _FakeDB()
+    c = _mk_ec(db=db, soc=100.0, inventory=ArbitrageInventory(10.0, 10.0 * 0.12))
+    _run(c._apply_arbitrage_tick(
+        _tick(discharge_kwh=0.5, battery_served_kwh=0.5), "off_peak",
+        "shoulder", _OFF,
+    ))
     assert db.rows == []
     assert c._arb_inventory.kwh == pytest.approx(9.5)
 
 
-def test_discharge_savings_clamped_at_zero():
+def test_discharge_savings_signed_not_clamped():
+    """Fails if the >=0 clamp is restored."""
     from custom_components.universal_room_automation.domain_coordinators.energy_billing import (
         discharge_savings_usd,
     )
-    assert discharge_savings_usd(1.0, 0.10, 0.12, 0.9) == 0.0
+    # 1.0 x (0.10 - 0.12/0.9) = -0.0333333
+    assert discharge_savings_usd(1.0, 0.10, 0.12, 0.9) == pytest.approx(
+        -0.0333333, abs=1e-6)
     assert discharge_savings_usd(1.0, 0.128918, 0.06, 0.9) == pytest.approx(
         0.128918 - 0.06 / 0.9)
 
@@ -916,6 +934,53 @@ def test_lifetime_sensor_mixed_history_attrs():
     assert scope_today == pytest.approx(0.5)
     assert (today["cycles_today"], today["discharge_ticks_today"]) == (1, 6)
     assert (cyc["cycles_this_cycle"], cyc["discharge_ticks_this_cycle"]) == (2, 11)
+
+
+def _hass_for(energy):
+    return SimpleNamespace(data={_DOMAIN: {"coordinator_manager": SimpleNamespace(
+        coordinators={"energy": energy})}})
+
+
+def test_lifetime_arbitrage_net_loss_not_masked_by_baseline():
+    """Operator 2026-11-02 (signed savings): lifetime = live table sum even
+    when it falls BELOW the seeded baseline (the old max(baseline, live)
+    would show 5.00). Empty table (rows 0) still falls back to baseline."""
+    status = {"total": {"savings": 3.25, "rows": 12}}
+    energy = SimpleNamespace(
+        arbitrage_status=status,
+        savings_baselines={"arbitrage": {"baseline_usd": 5.0},
+                           "peak_avoidance": {"baseline_usd": 0.0}},
+        peak_avoidance_status={"peak_avoidance_lifetime_delta": 0.0},
+    )
+    with _real_sensor_module() as sm:
+        s = sm.EnergySavingsTotalLifetimeSensor.__new__(
+            sm.EnergySavingsTotalLifetimeSensor)
+        s.hass = _hass_for(energy)
+        assert s._arb_lifetime() == pytest.approx(3.25)
+        assert s.native_value == pytest.approx(3.25)
+        energy.arbitrage_status = {"total": {"savings": 0.0, "rows": 0}}
+        assert s._arb_lifetime() == pytest.approx(5.0)
+
+
+def test_predicted_bill_counterfactual_carries_arbitrage_loss():
+    """A negative cycle pace flows into the counterfactual: bill without
+    arbitrage = 100 + (-1.0 + -0.1 x 20) = 97.00 (arbitrage cost $3)."""
+    energy = SimpleNamespace(
+        billing_status={"days_in_cycle": 10, "days_remaining": 20},
+        utility_meter_divergence=None,
+        arbitrage_status={"cycle": {"savings": -1.0},
+                          "pace": {"avg_savings_per_day": -0.1}},
+        predicted_bill=100.0,
+        peak_avoidance_status={},
+    )
+    with _real_sensor_module() as sm:
+        s = sm.EnergyPredictedBillSensor.__new__(sm.EnergyPredictedBillSensor)
+        s.hass = _hass_for(energy)
+        attrs = s.extra_state_attributes
+    assert attrs["arbitrage_savings_this_cycle"] == -1.0
+    assert attrs["arbitrage_savings_projected_cycle_total"] == -3.0
+    assert attrs["predicted_bill_without_arbitrage"] == 97.0
+    assert attrs["arbitrage_savings_pct"] == pytest.approx(-3.1, abs=0.05)
 
 
 # ---------------------------------------------------------------------------

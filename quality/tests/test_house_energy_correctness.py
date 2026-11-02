@@ -189,10 +189,16 @@ def _db_returning(kwh):
     "PredictedCostWeekSensor", "PredictedCostMonthSensor",
 ])
 def test_predicted_cost_does_not_double_count_delivery(cls_name):
-    """EC rate 0.128918 already includes delivery: 48.3 kWh -> $6.23
-    (48.3 x 0.128918 = 6.2267). The old path added 0.05 again -> $8.64."""
+    """EC-COST-AND-FORECAST-MATH-1 D4: with an EC every predicted cost is
+    priced ONLY by the EC pricer (effective rates already include
+    delivery): 48.3 kWh at 0.128918 -> $6.23. The configured delivery 0.05
+    is never added (old double count -> $8.64)."""
     agg = _agg()
     hass = _hass_with_ec(rate=0.128918)
+    ec = hass.data["universal_room_automation"]["coordinator_manager"].coordinators["energy"]
+    ec.price_net_kwh = lambda net, day: (net * 0.128918, {"rate_source": "t"})
+    ec.forecast_today = {"predicted_net_kwh": -48.3}   # EC sign: + = export
+    ec.tomorrow_forecast = {"raw_net_kwh": 48.3, "target_date": "2026-11-03"}
     hass.data["universal_room_automation"]["database"] = _db_returning(48.3)
     s = _make(getattr(agg, cls_name), hass, {agg.CONF_DELIVERY_RATE: 0.05})
     asyncio.new_event_loop().run_until_complete(s.async_update())
@@ -200,7 +206,8 @@ def test_predicted_cost_does_not_double_count_delivery(cls_name):
 
 
 def test_predicted_cost_static_rate_keeps_delivery():
-    """No EC: static bare rate 0.10 + delivery 0.05 -> 10 kWh = $1.50."""
+    """No EC: static bare rate 0.10 + delivery 0.05 -> 10 kWh = $1.50
+    (week sensor: today/tomorrow need the EC forecast)."""
     agg = _agg()
     hass = MagicMock()
     integ = MagicMock()
@@ -208,7 +215,7 @@ def test_predicted_cost_static_rate_keeps_delivery():
     integ.data = {}
     hass.data = {"universal_room_automation": {
         "integration": integ, "database": _db_returning(10.0)}}
-    s = _make(agg.PredictedCostTodaySensor, hass, {agg.CONF_DELIVERY_RATE: 0.05})
+    s = _make(agg.PredictedCostWeekSensor, hass, {agg.CONF_DELIVERY_RATE: 0.05})
     asyncio.new_event_loop().run_until_complete(s.async_update())
     assert s._cached_value == pytest.approx(1.50, abs=1e-9)
 
@@ -255,6 +262,10 @@ def _freeze(monkeypatch, now):
         def utcnow(cls):
             return now
     monkeypatch.setattr(dbmod, "datetime", _FakeDT)
+    # D3b/D4: week/month boundaries and the tomorrow weekday are LOCAL.
+    from datetime import timezone as _tz
+    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: dbmod.dt_util.as_local(
+        now.replace(tzinfo=_tz.utc)))
 
 
 def test_similar_days_excludes_today_partial(db, monkeypatch):
@@ -287,6 +298,26 @@ def test_week_forecast_excludes_current_partial_week(db, monkeypatch):
     # +0.25: the pre-existing inclusive BETWEEN counts the next period's
     # 00:00 sample once per window (168.25 -> round 168.2).
     assert value == pytest.approx(168.2, abs=0.05)
+
+
+def test_week_and_month_windows_use_local_midnight(db, monkeypatch):
+    """EC-COST-AND-FORECAST-MATH-1 D4: week/month windows start at LOCAL
+    midnight (America/Chicago), stored as naive UTC: Monday 10-12 00:00 CDT
+    = 05:00Z; Sep 1 00:00 CDT = 05:00Z (UTC midnight would skew 5 h)."""
+    from zoneinfo import ZoneInfo
+    import homeassistant.util.dt as hdt
+    prev = hdt.get_default_time_zone()
+    hdt.set_default_time_zone(ZoneInfo("America/Chicago"))
+    try:
+        _freeze(monkeypatch, datetime(2026, 10, 21, 12, 0, 0))
+        weeks = _run(db.get_recent_weeks_energy(2))
+        months = _run(db.get_recent_months_energy(1))
+    finally:
+        hdt.set_default_time_zone(prev)
+    assert [w["week_start"] for w in weeks] == [
+        "2026-10-12T05:00:00", "2026-10-05T05:00:00"]
+    assert months[0]["month_start"] == "2026-09-01T05:00:00"
+    assert months[0]["month_end"] == "2026-10-01T05:00:00"
 
 
 def test_month_forecast_excludes_current_partial_month(db, monkeypatch):
