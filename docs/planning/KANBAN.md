@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-02T02:27:06-06:00_ - _Data commit: `81a6b7216b18`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-02T06:26:43-06:00_ - _Data commit: `3a19d7475ca6`_ - _last_reconciled: 2026-11-02_
 
 
 ## Columns
@@ -1196,9 +1196,10 @@ thread: **energy** - status: **shipped_organic**
 _created 2026-11-01_
 - **Why:** Audit docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md. (1) arbitrage_savings_today energy.py:4283 off-peak=effective 0.085957 vs displaced=base mid-peak 0.086442 -> spread 0.000485 not 0.043; also accrues at charge, not discharg...
 - **Next:** Plan (Tier 2, cost-impacting display + savings ledger): same-basis rates for savings and decide charge-time vs discharge-time accrual; effective rate for cost/hr; local-date weekday, whole-day temp filter, per-period pricing and solar-aw...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 2
   - `todo_after_build2`: Operator 2026-11-01: after the prediction build, check the ura-v8 NOW tab for data that overlaps the Energy tab and de-duplicate.
+  - `decision_2026-11-02_wiring`: Operator confirmed AC circuit wiring as named: ac1=zone 1, ac2=zone 2, ac3=zone 3. Build 2 unblocked; dispatched.
   - `decision_2026-11-02`: Operator: let saved today GO NEGATIVE (remove the >=0 clamp in discharge_savings_usd, energy_billing.py:~958) so a charge costing more than the discharge saves (e.g. attain mid-peak grid buy / RTE loss) shows as a loss - 'helpful to info...
   - `decision_2026-11-01`: Operator picked A: saved today = rate spread on battery energy discharged during mid-peak/peak, accrued at discharge. Net Tomorrow + related sensors fixed in code, with a better design and options.
 
