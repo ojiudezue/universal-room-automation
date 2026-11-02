@@ -240,11 +240,15 @@ class _Stop(Exception):
     pass
 
 
-def test_decision_cycle_body_calls_forecast_tick():
-    """Enclosing-method anchor: the REAL _decision_cycle_body reaches
-    _forecast_tick, which runs BOTH hooks. Deleting the call -> RED."""
-    c = EnergyCoordinator.__new__(EnergyCoordinator)
-    c.hass = SimpleNamespace(data={})
+class _BlockingServices(_Services):
+    """weather.get_forecasts that never returns (until cancelled)."""
+
+    async def async_call(self, *a, **k):
+        self.calls.append(a)
+        await asyncio.Event().wait()
+
+
+def _body_ec(c):
     c._maybe_reset_daily = lambda: None
     c._tou = SimpleNamespace(get_current_period=lambda *a: "off_peak",
                              get_season=lambda *a: "shoulder",
@@ -263,22 +267,120 @@ def test_decision_cycle_body_calls_forecast_tick():
         return None
     c._account_arbitrage_cycle = _noop
     c._refresh_arbitrage_status_cache = _noop
-    seen = []
+    return c
 
-    async def _shadow(now):
-        seen.append("shadow")
 
-    async def _tomorrow(now):
-        seen.append("tomorrow")
-    c._set_predictor_shadow_temp = _shadow
-    c._async_refresh_tomorrow_forecast = _tomorrow
+def test_decision_cycle_body_never_awaits_weather_and_reads_cache():
+    """Review B1 enclosing-method anchor: the REAL _decision_cycle_body
+    reaches the EVSE step (past the forecast site) while the weather
+    service would block forever, and sets today's shadow temp from the
+    cached list only. Neutering the cache-read call -> shadow stays unset
+    (RED); re-inserting an awaited fetch -> wait_for times out (RED)."""
+    import time as _t
+    c = _body_ec(_ec())
+    c.hass.services = _BlockingServices([])
+    now = dt_util.now()
+    # older than the 900 s fetch TTL (any fetch path would hit the blocking
+    # service) but younger than the 21600 s max age (cache read serves it)
+    c._forecast_list_cache = ("weather.x", _t.monotonic() - 1000, [
+        {"datetime": datetime.combine(dt_util.as_local(now).date(),
+                                      datetime.min.time(), tzinfo=CHI)
+         .replace(hour=12).isoformat(),
+         "temperature": 80, "templow": 61}])
+    c._predictor.set_shadow_temp(None)
 
     def _halt():
         raise _Stop
     c._is_any_evse_charging = _halt
-    with contextlib.suppress(_Stop):
-        _run(c._decision_cycle_body())
-    assert seen == ["shadow", "tomorrow"]
+
+    async def _go():
+        with contextlib.suppress(_Stop):
+            await asyncio.wait_for(c._decision_cycle_body(), 2)
+    _run(_go())
+    assert c.hass.services.calls == []
+    assert c._predictor._shadow_temp == 70.5
+
+
+def test_decision_cycle_schedules_forecast_refresh_off_tick():
+    """Review B1 wire-in: the REAL _async_decision_cycle schedules ONE
+    tracked background task (single-flight) that runs _forecast_tick, and
+    returns while that task is still blocked; teardown cancels it."""
+    c = EnergyCoordinator.__new__(EnergyCoordinator)
+    c._enabled = True
+    c._ec_stopping = False
+    c._cycle_in_flight = False
+    c._tou_boundary_unsub = object()
+    c._push_bill_forecast_inputs = lambda: None
+    c._maybe_schedule_utility_refresh = lambda: None
+
+    async def _body():
+        return None
+    c._decision_cycle_body = _body
+    gate = asyncio.Event()
+    ran = []
+
+    async def _tick(now):
+        ran.append(now)
+        await gate.wait()
+    c._forecast_tick = _tick
+    tasks = []
+
+    def _bg(coro, name):
+        t = asyncio.ensure_future(coro)
+        tasks.append((name, t))
+        return t
+    c.hass = SimpleNamespace(async_create_background_task=_bg)
+
+    async def _go():
+        await asyncio.wait_for(c._async_decision_cycle(), 2)
+        await asyncio.sleep(0)
+        await asyncio.wait_for(c._async_decision_cycle(), 2)  # in flight
+        assert [n for n, _ in tasks] == ["ura_ec_forecast_refresh"]
+        assert len(ran) == 1 and not tasks[0][1].done()
+        c._cancel_utility_refresh()
+        await asyncio.wait({tasks[0][1]}, timeout=1)
+        assert tasks[0][1].cancelled()
+        assert c._forecast_tick_inflight is False
+    _run(_go())
+
+
+def test_forecast_refresh_not_scheduled_when_stopping():
+    """Review B3: no forecast task and no recorder-inputs task once
+    teardown has started."""
+    c = _ec()
+    c._ec_stopping = True
+    c.hass.config.components = {"recorder"}
+    made = []
+    c.hass.async_create_background_task = lambda coro, name: made.append(
+        coro.close() or name)
+    c._maybe_schedule_forecast_refresh(dt_util.now())
+    c._schedule_forecast_inputs_refresh(dt_util.now())
+    assert made == []
+    c._ec_stopping = False
+    c._schedule_forecast_inputs_refresh(dt_util.now())
+    assert made == ["ura_ec_forecast_inputs_refresh"]
+
+
+def test_failed_fetch_does_not_restamp_and_list_ages_out(monkeypatch):
+    """Review B4: a failed re-fetch keeps the old list's ORIGINAL stamp;
+    once older than 21600 s it is never served (no stale fallback)."""
+    import time as _t
+    clock = [1000.0]
+    monkeypatch.setattr(_t, "monotonic", lambda: clock[0])
+    c = _ec(forecasts=[_entry("2026-11-02T18:00:00+00:00", 80, 60)])
+    assert _run(c.async_forecast_temps_for_date(date(2026, 11, 2))) == (80.0, 60.0)
+
+    async def _fail(eid):
+        return None
+    c._fetch_daily_forecast_list = _fail
+    clock[0] = 1000.0 + 901
+    assert _run(c.async_forecast_temps_for_date(date(2026, 11, 2))) == (80.0, 60.0)
+    assert c._forecast_list_cache[1] == 1000.0
+    clock[0] = 1000.0 + 21599
+    assert _run(c.async_forecast_temps_for_date(date(2026, 11, 2))) == (80.0, 60.0)
+    clock[0] = 1000.0 + 21600
+    assert _run(c.async_forecast_temps_for_date(date(2026, 11, 2))) is None
+    assert c._cached_forecast_temps_for_date(date(2026, 11, 2)) is None
 
 
 def test_forecast_tick_isolates_failures():
@@ -701,7 +803,7 @@ async def _real_db(tmp_path):
 @pytest.mark.asyncio
 async def test_forecast_log_table_ddl_from_production(tmp_path):
     """The production init creates the table; the PK keeps one row per
-    (target_date, arm) under INSERT OR REPLACE."""
+    (target_date, arm) and the FIRST row wins (INSERT OR IGNORE, B2)."""
     db = await _real_db(tmp_path)
     try:
         assert await db.log_forecast_batch([
@@ -711,7 +813,7 @@ async def test_forecast_log_table_ddl_from_production(tmp_path):
         con = sqlite3.connect(db.db_file)
         rows = con.execute("SELECT target_date, arm, made_at FROM energy_forecast_log").fetchall()
         con.close()
-        assert rows == [("2026-11-02", "v1", "t2")]
+        assert rows == [("2026-11-02", "v1", "t1")]
     finally:
         await db.stop_write_worker()
 
@@ -844,3 +946,48 @@ def test_tomorrow_refresh_schedules_recorder_inputs_task():
     assert c._forecast_daily_inputs["sensor.span_panel_ac1_consumed_energy"] == {
         date(2026, 10, 31): 12.0}
     assert c._forecast_inputs_inflight is False
+
+
+def test_incomplete_prediction_not_logged_and_retried():
+    """Review B2: at 22:10 after a restart the weather list is empty (temp
+    None -> active arm net None): nothing logged, not marked logged; the
+    next refresh with the forecast back logs the day."""
+    db = _FakeDB(daily=_daily())
+    c = _ec(db=db, forecasts=[])
+    _run(c._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 22, 10, tzinfo=CHI)))
+    assert db.batches == []
+    assert getattr(c, "_forecast_logged_for", None) is None
+    c._forecast_list_cache = None
+    c.hass.services = _Services(_FL)
+    _run(c._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 22, 30, tzinfo=CHI)))
+    assert len(db.batches) == 1 and {r[0] for r in db.batches[0]} == {"2026-11-02"}
+
+
+@pytest.mark.asyncio
+async def test_restart_2210_does_not_overwrite_complete_rows(tmp_path):
+    """Review B2 repro on the REAL DB: 21:05 logs complete rows; HA restarts
+    (fresh EC, in-memory guard lost); 22:10 refresh with no forecast logs
+    nothing; 22:30 refresh with a DIFFERENT forecast re-logs but the 21:05
+    values survive (first complete prediction wins)."""
+    db = await _real_db(tmp_path)
+    try:
+        c1 = _ec(db=db, forecasts=_FL)
+        await c1._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 21, 5, tzinfo=CHI))
+        con = sqlite3.connect(db.db_file)
+        before = dict(con.execute(
+            "SELECT arm, pred_consumption_kwh FROM energy_forecast_log").fetchall())
+        assert before["v1"] == pytest.approx(123.9953, abs=1e-4)
+        c2 = _ec(db=db, forecasts=[])
+        await c2._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 22, 10, tzinfo=CHI))
+        assert dict(con.execute(
+            "SELECT arm, pred_consumption_kwh FROM energy_forecast_log").fetchall()) == before
+        c2._forecast_list_cache = None
+        c2.hass.services = _Services([_entry("2026-11-02T18:00:00+00:00", 95, 75)])
+        await c2._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 22, 30, tzinfo=CHI))
+        after = dict(con.execute(
+            "SELECT arm, pred_consumption_kwh FROM energy_forecast_log").fetchall())
+        temps = {r[0] for r in con.execute("SELECT temp_used FROM energy_forecast_log")}
+        con.close()
+        assert after == before and temps == {70.0}
+    finally:
+        await db.stop_write_worker()

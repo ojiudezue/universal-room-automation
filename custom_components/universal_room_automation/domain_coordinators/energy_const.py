@@ -261,6 +261,9 @@ FORECAST_TOMORROW_REFRESH_S: Final[int] = 900
 FORECAST_DAILY_INPUTS_REFRESH_S: Final[int] = 3600
 # D8: the full daily forecast list is re-fetched at most this often (s).
 FORECAST_DATE_CACHE_TTL_S: Final[int] = 900
+# D8 (review B4): a cached forecast list older than this (s) is dropped,
+# never served; a failed re-fetch does NOT refresh the list's timestamp.
+FORECAST_DATE_CACHE_MAX_AGE_S: Final[int] = 21600
 # Recorder days with fewer hourly rows than this are dropped (partial day).
 FORECAST_MIN_HOURS_PER_DAY: Final[int] = 20
 

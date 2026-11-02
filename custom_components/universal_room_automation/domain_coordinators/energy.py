@@ -7089,6 +7089,16 @@ class EnergyCoordinator(BaseCoordinator):
                     "utility stats refresh scheduling raised (swallowed)",
                     exc_info=True,
                 )
+            # EC-COST-AND-FORECAST-MATH-1 Build 2 review B1: forecast fetch,
+            # tomorrow refresh, DB reads and the 21:00 log run OFF the tick
+            # as a single-flight tracked background task (INV-2 sibling).
+            try:
+                self._maybe_schedule_forecast_refresh()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "forecast refresh scheduling raised (swallowed)",
+                    exc_info=True,
+                )
             # v5.17.3 D1: self-heal the boundary listener from the periodic
             # path too — if a prior `_arm_tou_boundary_listener` failed
             # (transient exception, HA not-yet-running edge), each periodic
@@ -7216,11 +7226,15 @@ class EnergyCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
 
-            # EC-COST-AND-FORECAST-MATH-1 Build 2 (D8 shadow temp, D3/D4/D5
-            # tomorrow forecast + log). Display-only; runs BEFORE the E5
-            # generate_prediction below so the shadow arm sees today's
-            # forecast. Never raises into the tick.
-            await self._forecast_tick(dt_util.now())
+            # EC-COST-AND-FORECAST-MATH-1 Build 2 D8: feed the shadow arm
+            # today's forecast temp from the CACHE only (sync, no await) so
+            # the E5 generate_prediction below sees it. The fetch + D3/D4/D5
+            # refresh + log run as a tracked background task scheduled in
+            # _async_decision_cycle's finally (review B1: never on the tick).
+            try:
+                self._apply_cached_shadow_temp(dt_util.now())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("D8 cached shadow temp failed", exc_info=True)
 
             # C1: EVSE battery hold — if any EVSE is charging, override battery
             # reserve to captured SOC so battery doesn't discharge to cover EV load.
@@ -8831,9 +8845,60 @@ class EnergyCoordinator(BaseCoordinator):
     # EC-COST-AND-FORECAST-MATH-1 Build 2: D8 / D3 / D4 / D5 / D9 runtime
     # =================================================================
 
+    def _maybe_schedule_forecast_refresh(self, now=None) -> None:
+        """Schedule (never await) the Build-2 forecast refresh
+        (``_forecast_tick``) as a single-flight tracked background task;
+        cancelled at teardown by ``_cancel_utility_refresh``. Each hook
+        rate-limits itself (list TTL / FORECAST_TOMORROW_REFRESH_S)."""
+        if not getattr(self, "_enabled", True):
+            return
+        if getattr(self, "_ec_stopping", False) is True:
+            return
+        if getattr(self, "_forecast_tick_inflight", False):
+            return
+        if now is None:
+            from homeassistant.util import dt as _dtu
+            now = _dtu.now()
+        self._forecast_tick_inflight = True
+        coro = self._forecast_tick_bg(now)
+        try:
+            _bg = getattr(self.hass, "async_create_background_task", None)
+            task = (_bg(coro, "ura_ec_forecast_refresh") if _bg
+                    else self.hass.async_create_task(coro))
+        except Exception:  # noqa: BLE001
+            coro.close()
+            self._forecast_tick_inflight = False
+            raise
+        self._forecast_tick_task = task
+
+    async def _forecast_tick_bg(self, now) -> None:
+        try:
+            await self._forecast_tick(now)
+        finally:
+            self._forecast_tick_inflight = False
+
+    def _apply_cached_shadow_temp(self, now) -> None:
+        """D8 inline (decision tick): today's shadow temp from the cached
+        list only; never fetches. No cache / aged out -> None."""
+        from homeassistant.util import dt as _dtu
+        from .energy_forecast_tomorrow import temp_feature
+        hl = self._cached_forecast_temps_for_date(_dtu.as_local(now).date())
+        self._predictor.set_shadow_temp(temp_feature(hl))
+
+    def _cached_forecast_temps_for_date(self, target):
+        import time as _time
+        from .energy_const import FORECAST_DATE_CACHE_MAX_AGE_S
+        from .energy_forecast_tomorrow import select_forecast_for_date
+        cache = getattr(self, "_forecast_list_cache", None)
+        eid = self._get_active_weather_entity()
+        if (not eid or cache is None or cache[0] != eid
+                or _time.monotonic() - cache[1] >= FORECAST_DATE_CACHE_MAX_AGE_S):
+            return None
+        return select_forecast_for_date(cache[2], target)
+
     async def _forecast_tick(self, now) -> None:
-        """Per-tick Build-2 hooks, each isolated: a failure never touches
-        the decision tick (display-only values)."""
+        """Build-2 hooks (background task, review B1), each isolated: a
+        failure never touches the decision tick (display-only values)."""
         try:
             await self._set_predictor_shadow_temp(now)
         except Exception:  # noqa: BLE001
@@ -8872,7 +8937,9 @@ class EnergyCoordinator(BaseCoordinator):
         and every target date resolves from that one fetch.
         """
         import time as _time
-        from .energy_const import FORECAST_DATE_CACHE_TTL_S
+        from .energy_const import (
+            FORECAST_DATE_CACHE_MAX_AGE_S, FORECAST_DATE_CACHE_TTL_S,
+        )
         from .energy_forecast_tomorrow import select_forecast_for_date
         eid = self._get_active_weather_entity()
         if not eid:
@@ -8882,10 +8949,15 @@ class EnergyCoordinator(BaseCoordinator):
         if (cache is None or cache[0] != eid
                 or now_m - cache[1] >= FORECAST_DATE_CACHE_TTL_S):
             forecasts = await self._fetch_daily_forecast_list(eid)
-            if forecasts is None and cache is not None and cache[0] == eid:
-                forecasts = cache[2]  # keep the last good list on a failed fetch
-            self._forecast_list_cache = (eid, now_m, forecasts or [])
+            if forecasts is not None:
+                self._forecast_list_cache = (eid, now_m, forecasts)
+            elif cache is None or cache[0] != eid:
+                self._forecast_list_cache = (eid, now_m, [])
+            # else (review B4): failed fetch keeps the old list WITH ITS
+            # ORIGINAL timestamp, so it ages out below; never re-stamped.
             cache = self._forecast_list_cache
+        if now_m - cache[1] >= FORECAST_DATE_CACHE_MAX_AGE_S:
+            return None  # aged out: no stale fallback
         return select_forecast_for_date(cache[2], target)
 
     async def _set_predictor_shadow_temp(self, now) -> None:
@@ -8963,6 +9035,8 @@ class EnergyCoordinator(BaseCoordinator):
         every FORECAST_DAILY_INPUTS_REFRESH_S; cancelled at teardown."""
         from datetime import timedelta as _td
         from .energy_const import FORECAST_DAILY_INPUTS_REFRESH_S
+        if getattr(self, "_ec_stopping", False) is True:
+            return  # review B3: never schedule on a torn-down EC
         if getattr(self, "_forecast_inputs_inflight", False):
             return
         components = getattr(getattr(self.hass, "config", None), "components", ())
@@ -9144,7 +9218,12 @@ class EnergyCoordinator(BaseCoordinator):
             **cost_meta,
         }
 
+        # Review B2: an incomplete prediction (active arm's net None, e.g.
+        # weather not yet serving after a restart) is NOT logged and not
+        # marked logged, so a later refresh retries; the DB keeps the first
+        # complete rows (INSERT OR IGNORE).
         if (database is not None and local_now.hour >= FORECAST_LOG_LOCAL_HOUR
+                and sel["net_kwh"] is not None
                 and getattr(self, "_forecast_logged_for", None) != target):
             made_at = _dtu.as_utc(now).isoformat()
             batch = [
@@ -12962,10 +13041,11 @@ class EnergyCoordinator(BaseCoordinator):
     def _cancel_utility_refresh(self) -> None:
         """Cancel an in-flight utility refresh task (teardown)."""
         # EC-COST-AND-FORECAST-MATH-1 D9: forecast-inputs refresh task.
-        _fi = getattr(self, "_forecast_inputs_task", None)
-        if _fi is not None and not _fi.done():
-            _fi.cancel()
-        self._forecast_inputs_task = None
+        for _slot in ("_forecast_inputs_task", "_forecast_tick_task"):
+            _fi = getattr(self, _slot, None)
+            if _fi is not None and not _fi.done():
+                _fi.cancel()
+            setattr(self, _slot, None)
         try:
             task = getattr(self, "_utility_stats_task", None)
             if task is not None and not task.done():

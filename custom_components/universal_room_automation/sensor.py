@@ -11821,6 +11821,11 @@ class EnergySavingsTotalLifetimeSensor(_SavingsSensorBase):
         # hide a net loss. The live sum wins whenever any row exists; the
         # baseline is only the fallback when the table reads empty (failed
         # query or a wiped table).
+        # FENCE (Build 2 review A3): this "live sum when rows exist" rule is
+        # correct ONLY while nothing ever deletes from arbitrage_cycles.
+        # Adding ANY prune/retention of that table silently drops lifetime
+        # savings: restore a max/baseline roll-up (fold pruned rows into the
+        # baseline) BEFORE adding the prune.
         total = (ec.arbitrage_status or {}).get("total") or {}
         if int(total.get("rows", 0) or 0) > 0:
             return float(total.get("savings", 0.0))

@@ -5317,8 +5317,10 @@ class UniversalRoomDatabase:
             return []
 
     async def log_forecast_batch(self, rows: list[tuple]) -> int:
-        """INSERT OR REPLACE the day's forecast rows in ONE write-queue
-        round-trip (D5). Row tuple order = ENERGY_FORECAST_LOG columns
+        """INSERT OR IGNORE the day's forecast rows in ONE write-queue
+        round-trip (D5). First complete prediction wins: a later re-log
+        (e.g. after a restart past 21:00) never overwrites existing rows
+        (review B2). Row tuple order = ENERGY_FORECAST_LOG columns
         (target_date, arm, made_at, pred_consumption_kwh, pred_solar_kwh,
         pred_net_kwh, pred_cost, temp_used, consumed)."""
         if not rows:
@@ -5326,7 +5328,7 @@ class UniversalRoomDatabase:
         try:
             async with self._db() as db:
                 await db.executemany(
-                    """INSERT OR REPLACE INTO energy_forecast_log
+                    """INSERT OR IGNORE INTO energy_forecast_log
                        (target_date, arm, made_at, pred_consumption_kwh,
                         pred_solar_kwh, pred_net_kwh, pred_cost, temp_used,
                         consumed)
@@ -6476,6 +6478,10 @@ class UniversalRoomDatabase:
         ``basis_source``. ``off_peak_rate`` / ``displaced_rate`` are AUDIT
         ONLY (INV-RATE-1): no reader re-prices from them.
         """
+        # FENCE (Build 2 review A3): the lifetime-savings sensor
+        # (sensor.py _arb_lifetime) sums the WHOLE arbitrage_cycles table.
+        # Adding any prune/DELETE of this table breaks lifetime totals:
+        # restore a max/baseline roll-up first.
         try:
             async with self._db() as db:
                 await db.execute(
