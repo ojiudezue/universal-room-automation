@@ -33346,6 +33346,17 @@ cards:
   review_2026_11_02: "Pushback: (1) use browser_mod.popup with inline card content, not Bubble #hash pop-ups on ura-v8 - hash pop-ups only open if the panel is on the view holding them, and they add cards to the dashboard phones use; (2) no unlock button on the Entry (outward-facing) pop-up - view + talk only; (3) drop Step 4 idle-return automations for v1 - popup overlays don't navigate away, so nothing to return from; revisit if select switching is retired; (4) ship doorbell only on Entry+Kitchen first (parsimony), add security/timer/laundry after; (5) timer->panel needs a satellite->browser_id map (not specified)."
   links: {"related": ["WALLPANEL-URA-NOTIFY-1"], "context": "Same wall-panel surface; notify card covers URA->panel messaging."}
   next: "APPROVE: (a) the trimmed scope (Step 0 gate on Study B by HomeLab, register 7 IDs, per-browser hide sidebar/header, one doorbell popup automation on Entry+Kitchen via browser_mod.popup), and (b) that the doorbell automation is house-visible -> on OK I snapshot automations, build script.panel_popup + doorbell automation, test on Kitchen."
+- id: URAV8-ZONE-AC-FORECAST-1
+  title: "Per-HVAC-zone AC energy forecast on ura-v8 (e.g. 'Upstairs AC ~12 kWh tomorrow') once the hvac_zone arm proves accurate"
+  thread: dashboards
+  status: parked
+  tier: 1
+  created: "2026-11-02"
+  origin: "Operator 2026-11-02: 'Card this - Better, later: a per-zone forecast, like Upstairs AC ~12 kWh tomorrow' (after Net Tomorrow was swapped off the Rooms hero for grid-today vs predicted)."
+  why: "Rooms tab is 'right now' context; a per-zone AC forecast would make a forecast belong there. v5.103.100 D9 already computes a per-HVAC-zone model (AC 1-3 = zones 1-3, SPAN circuits) but only LOGS it (energy_forecast_log, backtest MAE 20.8 kWh/day whole-house; trailing 14-day mean 22.2, so most gain is the baseline term). Display only per-zone values the model actually produces; HVAC zones != house zones (map zone_N to its house zones by thermostat, see project_house_zones_vs_hvac_zones)."
+  revisit_trigger: "~30 days of energy_forecast_log rows (from 2026-11-02) show the hvac_zone arm beats v1 and the trailing mean on MAE, and per-zone AC kWh error is reasonable vs SPAN ac1/ac_2/ac_3 actuals."
+  links: {"related": ["EC-COST-AND-FORECAST-MATH-1", "URAV8-ZONE-ENERGY-DISPLAY-1"], "context": "Producer is Build 2 D9 hvac_zone arm; display sibling of zone energy display card."}
+  next: "On trigger: expose per-zone predicted AC kWh as an attribute (if not already), add to Rooms zone tiles / Residence hero; else park again with evidence."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
