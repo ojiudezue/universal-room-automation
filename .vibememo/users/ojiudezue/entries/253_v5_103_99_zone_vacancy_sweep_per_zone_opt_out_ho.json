@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "253",
+  "author": "ojiudezue",
+  "session_id": "claude_20261102_125216_ship_v5_103_99",
+  "timestamp": "2026-11-02T12:52:16Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.99 shipped: Zone vacancy sweep: per-zone opt-out honoured, pre-arrival fans kept, manual devices swept, real sweeps recorded",
+  "summary": "Zone vacancy sweep: per-zone opt-out honoured, pre-arrival fans kept, manual devices swept, real sweeps recorded",
+  "why": "The 7-day sweep audit found the sweep does real work in only ~6% of fires, and that work is a narrow backstop: lights a person switched on in automated rooms. It also found defects: the master Vacancy Auto-Off switch overwrote each zone's opt-out, the sweep turned off fans that pre-arrival had turned on under a minute earlier, vacancy_sweeps_today counted no-ops, and nothing recorded what was swept. Keep it as a narrow backstop, fix those, and add manual devices (off only).",
+  "implications": "Shipped HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1 at v5.103.99; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.99.md (Live criteria).",
+  "revisit_trigger": "If vacancy_sweep rows show lights a person just turned on, or pre-arrival fans still drop",
+  "refs": {
+    "cards": [
+      "HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.99.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.99.md"
+  }
+}

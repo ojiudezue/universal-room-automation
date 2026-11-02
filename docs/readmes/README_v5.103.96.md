@@ -27,3 +27,11 @@ Cards: BLE-LOCATION-QUALITY-1 (D1), PERSON-BLE-WINS-OVER-STALE-GPS-1 residual fl
 | Load clean | No URA ERROR after restart |
 
 Deployed 2026-11-01 without restart (operator); takes effect at the next restart.
+
+## Validated 2026-11-02 (partial; overnight read-only pass, live since the 11-01 14:04 restart)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Floor | PASS | `.storage/universal_room_automation.ble_fleet_memory` ring = [["2026-11-01", 62], ["2026-11-02", 62]]: a completed prior day is remembered, so the floor is max(3, ceil(0.5 × 62)) = 31 (person_coordinator.py `_update_fleet_floor`). Derived from the Store and the code. The INFO "BLE leads: fleet floor 31" log line fell outside the log window and was not read |
+| Load clean | PASS | `ha_get_logs source=system` (in-memory since the 14:04 restart), filtered to universal_room_automation: no ERROR. 3 WARNINGs only, none from this change: a census "all camera platforms unavailable" at 02:00 during a Frigate host blip, an Envoy consumption cross-check divergence, and rooms holding occupancy for 60 s with all sensors unavailable at 01:58-02:00 (the same blip) |
+| Blip survives | PENDING | Needs a BLE-only hold with a sub-90 s gap (the 06:34 Jaya Bedroom shape). Not looked for in this pass. Proven in-suite (`test_ble_absence_grace.py`, 52 mutation drills) |
+| Real exit still clears | PENDING | Same: needs one observed BLE-only exit. In-suite only so far |

@@ -1054,25 +1054,10 @@ def test_f4_row10_comfort_delay_uses_shared_helper_source_shape():
     )
 
 
-def test_vacancy_sweep_call_decoupled_from_hvac_denomination():
-    """A-HIGH/B-CRIT-1 fix-up round 2: the vacancy sweep CALL SITE is
-    gated on the LIGHTING denomination (`any_room_occupied`), not the
-    HVAC-fused signal. A standing hallway occupant makes the zone
-    HVAC-empty but lighting-occupied — hallway lights must stay ON.
-
-    Source guard: the sweep-call blocks in hvac.py must reference
-    `zone.any_room_occupied` (lighting-fused) NOT `zone.any_room_hvac_
-    occupied` in their guard predicate.
-    """
-    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
-        src = fh.read()
-    # There are exactly two sweep call sites (row-1 retreat + D6 stale
-    # branch). Anchor on the shared decouple comment + the lighting-
-    # fused read used to gate both.
-    assert "sweep call from the HVAC-denomination retreat" in src
-    assert "_sweep_light_ok = not getattr(" in src
-    # Both sweep-call `if` blocks should be gated by _sweep_light_ok.
-    assert src.count("_sweep_light_ok") >= 4  # 2 decls + 2 uses
+# test_vacancy_sweep_call_decoupled_from_hvac_denomination (a source grep)
+# was converted to a behavioural test by HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1:
+# test_hvac_zone_sweep_cleanup.py::test_row1_site_skips_sweep_when_lighting_occupied
+# drives _apply_house_state_presets with an HVAC-empty, lighting-occupied zone.
 
 
 # TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (runtime slice): put back every

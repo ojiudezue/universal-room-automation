@@ -86,7 +86,9 @@ When a zone becomes unoccupied, the HVAC preset stays on `home`. Lights and fans
 | Normal (no energy constraint) | 15 min | Brief absences (bathroom, kitchen trip) |
 | Energy constrained (coast/shed) | 5 min | Peak TOU / load shedding — save fast |
 
-**Zone sweep scope:** Only entities explicitly configured in URA room entries (`CONF_LIGHT_ENTITIES`, `CONF_FANS`, `CONF_SWITCHES`). NOT a blanket entity search. This prevents turning off non-URA devices (e.g., always-on night lights, security cameras on smart plugs).
+**Zone sweep scope:** Only entities explicitly configured in URA room entries (`CONF_LIGHT_ENTITIES`, `CONF_FANS`, `CONF_SWITCHES`). NOT a blanket entity search.
+
+> **CORRECTED 2026-11-01 (HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1):** as built, the sweep never read `CONF_SWITCHES`. It sweeps a room's `lights` + `night_lights` (minus `lights_leave_on_when_empty` and lights under a person's hold) and its `fans` (Fan Mode Follow thermostat only). A `switch.*` is swept only when it is listed in the room's lights or night lights. Current gates: `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §4.2c. This prevents turning off non-URA devices (e.g., always-on night lights, security cameras on smart plugs).
 
 **Override toggle per zone:** New boolean on Zone Manager zone config: `CONF_ZONE_VACANCY_SWEEP_ENABLED` (default: True). Some zones (e.g., utility zones with always-on equipment) should opt out.
 

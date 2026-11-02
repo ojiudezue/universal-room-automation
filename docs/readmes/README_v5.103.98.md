@@ -11,7 +11,7 @@ Audit `docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md`:
 
 ## Fix (operator decisions 2026-11-01)
 - Savings accrue at DISCHARGE, in mid-peak and peak only: battery kWh served × (live effective rate − cost of that stored energy). Off-peak discharge earns $0.
-- Cost of stored energy (B2): a running inventory (kWh, $). Grid share of each charge = min(charge, grid import), priced at the off-peak effective rate; the rest is solar, priced at the export credit forgone. Capped at SOC × capacity; restored after restart (retries if the read fails or SOC is unknown); empty → off-peak effective rate.
+- Cost of stored energy (B2): a running inventory (kWh, $). Grid share of each charge = min(charge, grid import), priced at the effective import rate of that charge tick (off-peak for the normal overnight charge; mid-peak/peak if attain buys then); the rest is solar, priced at the export credit forgone. Capped at SOC × capacity; restored after restart (retries if the read fails or SOC is unknown); empty → off-peak effective rate.
 - Every rate is read live from the TOU engine (new `get_offpeak_effective_import_rate`); a tariff change applies on the next tick.
 - Peak avoidance gives the battery zero credit in any period. Cost per hour uses the effective rate. Forecasted import = max(consumption − production, 0).
 - `arbitrage_cycles` gains 3 columns (guarded migration; old rows read as charge-time). Today and cycle totals use discharge rows only. `cycles_*` = distinct local days with savings; raw tick counts in `discharge_ticks_*`. Lifetime attrs split old charge-time and new discharge-time kWh.

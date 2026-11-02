@@ -4,7 +4,8 @@
 **Scope:** what the Energy Coordinator (EC) does day to day, the knobs
 you can turn (and where they live), the surfaces you can watch, and how
 to intervene safely.
-**Current through:** URA v5.18.0 (deploying 2026-07-16).
+**Current through:** URA v5.18.0 (deploying 2026-07-16); money and forecast maths (§4.3) current
+through v5.103.98 + Build 2 in flight (2026-11-02).
 
 This is NOT a code walkthrough. For architecture, see
 `ENERGY_COORDINATOR_DESIGN_v2.3.md` (historical design spec).
@@ -389,7 +390,7 @@ driving decisions. Attributes to watch:
 | `charge_window_opens_at` | When the arbitrage grid-charge window will open. |
 | `forecast_outlook` | Plain-English one-liner ("expect ~28 kWh solar; peak buffer target 60%"). |
 | `optimization_summary` | One-sentence "why the battery is doing what it's doing right now" (v4.7.x D4). |
-| `current_grid_cost_per_hour` | Live $/hr from current import (0 when exporting). |
+| `current_grid_cost_per_hour` | Live $/hr = net import kW × the EFFECTIVE import rate (base + delivery adders) from the TOU engine; 0 when exporting. Before v5.103.98 it used the base rate (~33% low). |
 | `next_decision_boundary` | Next TOU transition + expected action. |
 | `current_holds_active` | Any active holds: `evse_battery_hold`, `arbitrage_compound_load`, `grid_import_cap`, inclement `partial_hold`, blind-hold, etc. |
 | `evse_paused_by_arbitrage` | Which EVSE switches are currently paused by EC. |
@@ -404,7 +405,8 @@ Other sensors:
   battery decision as a discrete record (arbitrage phase transitions,
   reserve moves, mode changes).
 - `sensor.ura_energy_coordinator_arbitrage_savings_today` /
-  `_cycle` / `_total` — dollars saved by arbitrage.
+  `_cycle` / `_total` — dollars saved by battery discharge at mid-peak/peak
+  (v5.103.98 maths: see §4.3).
 - `sensor.ura_energy_coordinator_energy_battery_full_time` —
   projected time-to-full at current charge rate.
 - `sensor.ura_energy_daily` — daily energy totals; carries the
@@ -427,6 +429,83 @@ values + ages, `divergence_pp`/`divergence_active`, and
 `cloud_settings_lag_s`/`_active`. Both detection legs validated live
 2026-07-17 (Envoy dropout → cloud_fallback; cloud lag 2777s → lag
 alert active).
+
+### 4.3 Money and forecast maths — ground truth (updated 2026-11-02)
+
+Card EC-COST-AND-FORECAST-MATH-1. Audit `docs/planning/AUDIT_ec_savings_and_cost_forecast_math.md`;
+plan `docs/planning/PLANNING_ec_savings_and_tomorrow_forecast.md` rev 5. Code at the cited
+file:line wins over this section; fix the section in the same commit when they disagree.
+
+**Rule INV-RATE-1:** every rate is read live from the TOU engine on each tick
+(`energy_tou.py:546` export, `:554` effective import, `:559` off-peak effective import). Nothing
+caches a rate, so a tariff edit applies on the next tick.
+
+**Saved today (v5.103.98, live after restart).**
+- Accrues at DISCHARGE, in mid-peak and peak only. Off-peak discharge earns $0.
+- Per tick: `served_kWh × (effective import rate now − basis / RTE)`, RTE = 0.90
+  (`energy.py:4136`, `discharge_savings_usd` in `energy_billing.py`). `served_kWh` = battery
+  discharge that served house load (not export).
+- **Basis = B2 cost inventory** (`ArbitrageInventory`, `energy_billing.py:888`; applied in
+  `_apply_arbitrage_tick`, `energy.py:4574`). Each charge tick adds kWh at its own price:
+  - the grid share (min(charge, grid import)) at the effective import rate of THAT tick. Normal
+    overnight charge is off-peak; an attain grid buy at mid-peak/peak is costed at that rate;
+  - the solar share at the export credit forgone;
+  - unsplit charge at the off-peak effective rate.
+
+  Discharge removes kWh at the running average, so it never moves the basis. The inventory is
+  capped at SOC × capacity (cost scaled with it), persisted (saved every 3 changed ticks and at
+  unload), and restored at boot. If the restore fails or SOC is unknown it retries. It is seeded
+  from SOC at the off-peak rate on first run. Below 0.1 kWh the basis falls back to the off-peak
+  effective rate (`basis_source=empty_fallback`).
+- Knobs (reviewed constants, `energy_const.py:218-230`): `ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED`
+  (kill switch), `ARBITRAGE_COST_BASIS_MODE` (`inventory` | off-peak), `ARBITRAGE_INVENTORY_MIN_KWH`,
+  `ARBITRAGE_INVENTORY_SAVE_EVERY_TICKS`.
+- Rows: `arbitrage_cycles` discharge rows (`kwh_discharged`, `off_peak_rate`=basis,
+  `displaced_rate`, `savings`, `basis_source`). Today/cycle totals read discharge rows only.
+  `cycles_*` = distinct local days with savings; raw tick counts are `discharge_ticks_*`.
+- Peak avoidance gives the battery zero credit, so energy is never counted twice with arbitrage.
+- Known limits: on the cutover night the lifetime total counts pre-deploy charge once at charge
+  time and again at discharge. Discharge to export is not removed from the inventory; the SOC
+  cap corrects it.
+- **Pending (Build 2, operator 2026-11-02): savings may go NEGATIVE.** Today each tick is clamped
+  at ≥ 0, so a charge that cost more than the discharge saved books $0. Build 2 removes the
+  clamp so losses (e.g. an attain mid-peak buy plus RTE loss) show.
+
+**Forecasted import today** (`predicted_import_kwh`, `energy.py:13000`): `max(consumption −
+production, 0)`. No battery subtraction: over a whole day the battery can't cancel a deficit
+unless it ends the day lower, and the solar that refills it is already counted in production.
+
+**Energy cost today** was audited CORRECT and is unchanged.
+
+**Consumption forecast / Net tomorrow — Build 2 (in build 2026-11-02, NOT live).** Today's
+defects: the weekday is the UTC date after 18:00 CST, the temperature filter is per 15-min row,
+the whole day is priced at one instant's rate, there's no Solcast, and `_compute_v1`
+(`energy_forecast.py:302`) uses the CURRENT temperature where the fit used the daily mean. R1
+estimator still in shadow (`CONF_R1_ESTIMATOR_SHADOW_ONLY=True`, `energy_const.py:170`).
+Build 2 plan (D0, D8, D9, D3, D4, D5):
+- D8: date-keyed forecast temperature = (high + templow)/2 from `weather.phalanxmadrone` daily
+  entries, with no fallback.
+- D9: refit through 2026-10. The EV term is dropped: the 18.58 constant double-counted, and
+  measured EV use is ~10.5 kWh/day. Adds a per-HVAC-zone AC arm.
+- D3/D4: per-period pricing and solar-aware net.
+- D5: per-arm prediction log for accuracy.
+
+The D10 shadow flip and R2 are later Tier-3 cycles. Backtest MAE (kWh/day): legacy broken
+(350–2274 on some days); v1 on the daily mean 16.7–21.2, biased high; 2026 refit with an
+October holdout 14.1 (CDD slope ~4.3 vs 2.20 in v1).
+
+**AC inputs (SPAN panel integration, wiring operator-confirmed 2026-11-02):**
+| Unit | Power | HVAC zone thermostat |
+|---|---|---|
+| AC 1 | `sensor.span_panel_ac1_power` / `_ac1_consumed_energy` | zone 1 (`climate.thermostat_bryant_wifi_studyb_zone_1`) |
+| AC 2 | `sensor.span_panel_ac_2_power` / `_ac_2_consumed_energy` | zone 2 (`climate.up_hallway_zone_2`) |
+| AC 3 | `sensor.span_panel_ac_3_power` / `_ac_3_consumed_energy` | zone 3 (`climate.back_hallway_zone_3`) |
+
+- Hourly statistics run from 2025-03 (Wh, converted to kWh).
+- The furnace is on its own circuit (`sensor.span_panel_furnace_power`).
+- Use thermostat temperatures, not house-zone averages, because house zones ≠ HVAC zones.
+- EV source series: `span_panel_car_charger_consumed_energy`, then `garage_a_evse`.
+  `garage_b_evse` is junk.
 
 ### 4.1 Observability WebSocket (v5.17.0)
 
@@ -646,6 +725,7 @@ Tuning one does not move the other.
 | v5.20.0 | Cloud-reliance D2 (soc_resolution tiers, divergence + cloud-lag detection) + Battery-Aware EV Charging shipped dormant (Tier-3: 2 CRIT + 7 HIGH found/fixed pre-deploy). Dead-accumulator recorder exclusion. |
 | v5.21.0 | BAEC control surface: options-flow section (live-apply both directions), cognitive-simplicity renames, device slim-down, shadow eval, D2 detection knobs promoted to options. **BAEC ACTIVATED by operator 2026-07-17 ~20:47.** |
 | v5.18.0 | R1 consumption estimator v1 in SHADOW (regression + EV term; 14-day observation; `predicted_consumption_source` marker). R7 projection unification (single `EnergyProjector`; kill switch; no behavior change). |
+| v5.103.98 | Saved today accrues at mid-peak/peak discharge against a B2 cost inventory; cost/hr on the effective rate; forecasted import = max(consumption − production, 0). See §4.3. |
 | (unreleased — EC daylight horizon + poor-night floor) | Rung projections extrapolate the observed rate only in daylight (no night rung-1 EV pause/resume loop, 10-01 incident). Arbitrage WAIT holds the poor/very_poor drain floor (park only, no grid charge); drain sliders = `reserve_soc` restore the old WAIT. Plan: `PLANNING_ec_daylight_horizon_and_poor_night_floor.md`. |
 
 ## Charge-onset & the turn-on surface (v3 funnel — SHIP DORMANT)
