@@ -42,3 +42,4 @@
 | Front lock | new locks coming (operator) |
 - 2026-11-02 00:33 **v5.103.98** — v5.103.98: "Saved today" counts battery energy used at mid-peak and peak; cost per hour on the full rate (cards: EC-COST-AND-FORECAST-MATH-1)
 - 2026-11-02 06:52 **v5.103.99** — v5.103.99: zone vacancy sweep honours per-zone opt-out, keeps pre-arrival fans, and turns off manual devices (cards: HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1)
+- 2026-11-02 07:49 **v5.103.100** — v5.103.100: savings can go negative; tomorrow's forecast on the local date with Solcast and per-period pricing; forecast accuracy log (cards: EC-COST-AND-FORECAST-MATH-1)
