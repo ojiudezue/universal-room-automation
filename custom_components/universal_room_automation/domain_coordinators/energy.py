@@ -4622,7 +4622,9 @@ class EnergyCoordinator(BaseCoordinator):
             savings = discharge_savings_usd(
                 served_kwh, displaced, basis, self._ARBITRAGE_RTE,
             )
-            if savings > 0:
+            # Signed (operator 2026-11-02): a loss books a negative row so
+            # today/cycle/lifetime sums carry it. Exactly 0 writes nothing.
+            if savings != 0:
                 row = {
                     "kwh_discharged": served_kwh,
                     "off_peak_rate": basis,
