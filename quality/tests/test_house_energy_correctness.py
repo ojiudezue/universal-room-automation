@@ -300,6 +300,26 @@ def test_week_forecast_excludes_current_partial_week(db, monkeypatch):
     assert value == pytest.approx(168.2, abs=0.05)
 
 
+def test_week_and_month_windows_use_local_midnight(db, monkeypatch):
+    """EC-COST-AND-FORECAST-MATH-1 D4: week/month windows start at LOCAL
+    midnight (America/Chicago), stored as naive UTC: Monday 10-12 00:00 CDT
+    = 05:00Z; Sep 1 00:00 CDT = 05:00Z (UTC midnight would skew 5 h)."""
+    from zoneinfo import ZoneInfo
+    import homeassistant.util.dt as hdt
+    prev = hdt.get_default_time_zone()
+    hdt.set_default_time_zone(ZoneInfo("America/Chicago"))
+    try:
+        _freeze(monkeypatch, datetime(2026, 10, 21, 12, 0, 0))
+        weeks = _run(db.get_recent_weeks_energy(2))
+        months = _run(db.get_recent_months_energy(1))
+    finally:
+        hdt.set_default_time_zone(prev)
+    assert [w["week_start"] for w in weeks] == [
+        "2026-10-12T05:00:00", "2026-10-05T05:00:00"]
+    assert months[0]["month_start"] == "2026-09-01T05:00:00"
+    assert months[0]["month_end"] == "2026-10-01T05:00:00"
+
+
 def test_month_forecast_excludes_current_partial_month(db, monkeypatch):
     """Now 10-03. Jul (31 d), Aug (31 d), Sep (30 d) at 1 kW -> 744, 744,
     720 kWh, mean 736. Oct partial (2 days, 48 kWh) must not be averaged

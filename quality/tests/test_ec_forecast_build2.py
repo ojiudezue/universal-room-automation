@@ -652,12 +652,13 @@ def test_predicted_cost_tomorrow_prices_target_day():
     def _price(net, day):
         seen.append(day)
         return net * 0.2, {}
+    # a target far from the wall clock (never coincides with today+1)
     ec = SimpleNamespace(tomorrow_forecast={"raw_net_kwh": 10.0,
-                                            "target_date": "2026-11-02"},
+                                            "target_date": "2031-06-15"},
                          price_net_kwh=_price)
     s = _sensor(agg.PredictedCostTomorrowSensor, ec)
     _run(s.async_update())
-    assert s._cached_value == 2.0 and seen == [date(2026, 11, 2)]
+    assert s._cached_value == 2.0 and seen == [date(2031, 6, 15)]
 
 
 # ===========================================================================
@@ -771,3 +772,75 @@ def test_forecast_accuracy_excludes_today_and_unscored():
              "consumption_kwh": None}]
     acc = eft.forecast_accuracy(rows, date(2026, 11, 2), "v2")
     assert acc["v1"]["mae_30d_kwh"] is None
+
+
+def test_consumption_arms_values():
+    """Arms for target 11-02 at 70 F (shadow-on house):
+    v1 123.9953; v2 84.932 + 2.6431*5 + 42.7358 = 140.8833;
+    dow_legacy: empty history -> 45 x 0.9 (55 < 70 <= 75) x adj 1.0 = 40.5;
+    weekly_persistence = consumption on 10-26 (123.0, other days 100);
+    hvac_zone None without recorder inputs."""
+    c = _ec(db=_FakeDB())
+    daily = [dict(r, consumption_kwh=123.0) if r["date"] == "2026-10-26" else r
+             for r in _daily()]
+    arms = c._consumption_arms(date(2026, 11, 2), 70.0, daily)
+    assert arms["v1"]["kwh"] == pytest.approx(123.9953, abs=1e-4)
+    assert arms["v2"]["kwh"] == pytest.approx(140.8833, abs=1e-4)
+    assert arms["dow_legacy"]["kwh"] == pytest.approx(40.5)
+    assert arms["weekly_persistence"]["kwh"] == 123.0
+    assert arms["hvac_zone"] == {"kwh": None, "missing": "hvac_zone_history"}
+
+
+def test_consumption_arms_hvac_zone_from_recorder_inputs():
+    """Recorder inputs: indoor 76/77/78 every day, AC 10/8/2 kWh/day,
+    consumption 100 -> base_nonhvac 80. 85 F: zones (constants
+    HVAC_ZONE_REGRESSION_V1) 26.6205 + 19.6207 + 11.3353 = 57.5765 + 80."""
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        HVAC_ZONE_REGRESSION_V1 as H,
+    )
+    days = [date(2026, 11, 1) - timedelta(days=k) for k in range(14)]
+    z = H["zones"]
+    c = _ec(db=_FakeDB())
+    c._forecast_daily_inputs = {
+        z[0]["indoor"]: {d: 76.0 for d in days}, z[1]["indoor"]: {d: 77.0 for d in days},
+        z[2]["indoor"]: {d: 78.0 for d in days},
+        z[0]["energy"]: {d: 10.0 for d in days}, z[1]["energy"]: {d: 8.0 for d in days},
+        z[2]["energy"]: {d: 2.0 for d in days},
+    }
+    arms = c._consumption_arms(date(2026, 11, 2), 85.0, _daily())
+    assert arms["hvac_zone"]["kwh"] == pytest.approx(137.5765, abs=1e-4)
+
+
+def test_tomorrow_refresh_schedules_recorder_inputs_task():
+    """Wire-in: the tomorrow refresh schedules ONE background recorder
+    query (recorder loaded) whose result lands, bucketed, in
+    _forecast_daily_inputs; a second refresh inside the interval does not
+    re-query."""
+    c = _ec(db=_FakeDB(daily=_daily()), forecasts=_FL)
+    c.hass.config.components = {"recorder"}
+    tasks, queries = [], []
+
+    def _bg(coro, name):
+        t = asyncio.ensure_future(coro)
+        tasks.append(t)
+        return t
+    c.hass.async_create_background_task = _bg
+    start = datetime(2026, 10, 31, 5, 0, tzinfo=timezone.utc)
+
+    async def _q(start_utc):
+        queries.append(start_utc)
+        return {"sensor.span_panel_ac1_consumed_energy": [
+            {"start": start + timedelta(hours=h), "change": 0.5} for h in range(24)]}
+    c._query_forecast_input_statistics = _q
+
+    async def _go():
+        await c._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 10, tzinfo=CHI))
+        await asyncio.gather(*tasks)
+        c._tomorrow_forecast_last = None
+        await c._async_refresh_tomorrow_forecast(datetime(2026, 11, 1, 10, 30, tzinfo=CHI))
+        await asyncio.gather(*tasks)
+    _run(_go())
+    assert len(queries) == 1
+    assert c._forecast_daily_inputs["sensor.span_panel_ac1_consumed_energy"] == {
+        date(2026, 10, 31): 12.0}
+    assert c._forecast_inputs_inflight is False

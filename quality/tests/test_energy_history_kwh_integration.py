@@ -130,14 +130,16 @@ def test_predict_energy_tomorrow_is_kwh(db, monkeypatch):
     class _FakeDT(datetime):
         @classmethod
         def utcnow(cls):
-            # Sunday -> tomorrow is Monday (weekday 0)
-            return datetime(2026, 10, 18, 12, 0, 0)
+            # 02:00Z Mon 10-19 = 21:00 CDT Sun 10-18: UTC "tomorrow" would be
+            # Tuesday; LOCAL tomorrow is Monday (weekday 0).
+            return datetime(2026, 10, 19, 2, 0, 0)
 
     monkeypatch.setattr(dbmod, "datetime", _FakeDT)
     # D3b: the target weekday is the LOCAL date's (Sunday local -> Monday).
     from datetime import timezone as _tz
-    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: dbmod.dt_util.as_local(
-        datetime(2026, 10, 18, 12, 0, 0, tzinfo=_tz.utc)))
+    from zoneinfo import ZoneInfo
+    monkeypatch.setattr(dbmod.dt_util, "now", lambda *a, **k: datetime(
+        2026, 10, 18, 21, 0, 0, tzinfo=ZoneInfo("America/Chicago")))
 
     async def _days():
         return 30
