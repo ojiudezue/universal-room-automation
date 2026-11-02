@@ -754,6 +754,12 @@ class EnergyCoordinator(BaseCoordinator):
         # Lifetime baseline cache (loaded lazily on first accumulate).
         self._savings_baselines: dict[str, dict] = {}
         self._savings_baselines_loaded: bool = False
+        # EC-COST-AND-FORECAST-MATH-1 D1: B2 arbitrage inventory (restored
+        # lazily from energy_state before the first applied tick).
+        from .energy_billing import ArbitrageInventory
+        self._arb_inventory: ArbitrageInventory = ArbitrageInventory()
+        self._arb_inventory_loaded: bool = False
+        self._arb_inventory_changed_ticks: int = 0
 
         # E5: Forecasting + prediction
         # v4.1.1 B4 L2: Room power profiles + occupancy weighting
@@ -4278,6 +4284,22 @@ class EnergyCoordinator(BaseCoordinator):
 
         capacity_kwh = self._get_battery_capacity_kwh()
         kwh_charged = (delta_soc / 100.0) * capacity_kwh
+
+        # EC-COST-AND-FORECAST-MATH-1 D1: savings now accrue at DISCHARGE
+        # time (_apply_arbitrage_tick). Charge ticks write no savings row;
+        # the SOC log line stays. INV-SAV-1: no charge-time row after the
+        # cutover.
+        from .energy_const import ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED
+        if ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED:
+            prev_soc_for_log = self._arbitrage_prev_soc
+            self._arbitrage_prev_soc = soc_now
+            _LOGGER.info(
+                "Arbitrage charge: SOC %.1f→%.1f (Δ%.1f), %.3f kWh charged "
+                "(savings accrue at discharge)",
+                prev_soc_for_log, soc_now, delta_soc, kwh_charged,
+            )
+            return
+
         off_peak_rate = self._tou.get_effective_import_rate()
         displaced_rate = self._get_displaced_rate(season)
         savings = kwh_charged * (displaced_rate - off_peak_rate) * self._ARBITRAGE_RTE
@@ -4429,23 +4451,218 @@ class EnergyCoordinator(BaseCoordinator):
             net_kw = self._billing._get_net_power()
         except Exception:  # noqa: BLE001
             net_kw = None
+        now = _dtu.now()
         try:
-            effective_rate = self._tou.get_effective_import_rate(_dtu.now())
+            effective_rate = self._tou.get_effective_import_rate(now)
         except Exception:  # noqa: BLE001
             return
-        try:
-            displaced_rate = self._get_displaced_rate(season)
-        except Exception:  # noqa: BLE001
-            displaced_rate = effective_rate
 
-        self._peak_avoidance.accumulate(
-            now=_dtu.now(),
+        # D2: `displaced_rate` dropped — battery-served kWh earn no PA
+        # credit in any period. D1: the tracker is the single integrator;
+        # its per-tick battery kWh feed the arbitrage inventory.
+        tick = self._peak_avoidance.accumulate(
+            now=now,
             solar_kw=(solar_w / 1000.0) if solar_w is not None else None,
             battery_power_kw=(battery_w / 1000.0) if battery_w is not None else None,
             net_import_kw=net_kw,
             effective_rate=effective_rate,
-            displaced_rate=displaced_rate,
             period=period,
+        )
+        await self._apply_arbitrage_tick(tick, period, season, now)
+
+    # =========================================================================
+    # EC-COST-AND-FORECAST-MATH-1 D1: discharge-time arbitrage savings (B2)
+    # =========================================================================
+
+    def _arb_offpeak_basis(self, now) -> float:
+        """Season's off-peak effective rate, live from the TOU engine."""
+        return float(self._tou.get_offpeak_effective_import_rate(now))
+
+    def _arb_soc_cap_kwh(self) -> float | None:
+        """SOC × capacity (kWh), or None when SOC is unknown."""
+        try:
+            soc = self._battery.battery_soc
+        except Exception:  # noqa: BLE001
+            soc = None
+        if soc is None:
+            return None
+        return max(0.0, float(soc)) / 100.0 * self._get_battery_capacity_kwh()
+
+    async def _ensure_arbitrage_inventory_loaded(self, now) -> None:
+        """One-shot restore of the B2 inventory + cutover key (§4.1, D1).
+
+        Missing / corrupt / older than ARBITRAGE_INVENTORY_MAX_AGE_H →
+        seed ``SOC × capacity`` at the off-peak effective basis. Writes the
+        cutover key once (never overwritten).
+        """
+        if getattr(self, "_arb_inventory_loaded", False):
+            return
+        import json as _json
+        from homeassistant.util import dt as _dtu
+        from .energy_billing import ArbitrageInventory
+        from .energy_const import (
+            ARBITRAGE_DISCHARGE_CUTOVER_STATE_KEY,
+            ARBITRAGE_INVENTORY_MAX_AGE_H,
+            ARBITRAGE_INVENTORY_STATE_KEY,
+        )
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        restored: ArbitrageInventory | None = None
+        if database is not None:
+            try:
+                raw = await database.restore_energy_state_with_age(
+                    ARBITRAGE_INVENTORY_STATE_KEY,
+                    max_age_hours=ARBITRAGE_INVENTORY_MAX_AGE_H,
+                )
+            except Exception:  # noqa: BLE001
+                # B1: a transient READ failure is not "absent" — stay
+                # unloaded (no save can fire) and retry next tick, so a good
+                # stored row is never overwritten by a fresh seed.
+                _LOGGER.debug("arbitrage inventory restore failed", exc_info=True)
+                return
+            try:
+                if raw:
+                    data = _json.loads(raw)
+                    kwh = float(data["kwh"])
+                    cost = float(data["cost_usd"])
+                    if kwh >= 0 and cost >= 0:
+                        restored = ArbitrageInventory(kwh, cost)
+            except Exception:  # noqa: BLE001 — corrupt = absent
+                restored = None
+            try:
+                existing = await database.restore_energy_state(
+                    ARBITRAGE_DISCHARGE_CUTOVER_STATE_KEY
+                )
+                if not existing:
+                    await database.save_energy_state(
+                        ARBITRAGE_DISCHARGE_CUTOVER_STATE_KEY,
+                        _dtu.utcnow().isoformat(),
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("arbitrage cutover key write failed", exc_info=True)
+        if restored is None:
+            cap = self._arb_soc_cap_kwh()
+            if cap is None:
+                # B1: SOC unknown — seeding 0 would later be saved over the
+                # stored row. Stay unloaded; retry next tick.
+                return
+            restored = ArbitrageInventory(cap, cap * self._arb_offpeak_basis(now))
+            _LOGGER.info(
+                "Arbitrage inventory seeded from SOC: %.2f kWh at off-peak "
+                "effective basis", cap,
+            )
+        self._arb_inventory = restored
+        self._arb_inventory_loaded = True
+
+    async def _save_arbitrage_inventory(self) -> None:
+        """Persist the inventory (energy_state, via the write queue)."""
+        if not getattr(self, "_arb_inventory_loaded", False):
+            return
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        import json as _json
+        from homeassistant.util import dt as _dtu
+        from .energy_const import ARBITRAGE_INVENTORY_STATE_KEY
+        try:
+            await database.save_energy_state(
+                ARBITRAGE_INVENTORY_STATE_KEY,
+                _json.dumps(self._arb_inventory.to_dict(_dtu.utcnow().isoformat())),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("arbitrage inventory save failed", exc_info=True)
+
+    async def _apply_arbitrage_tick(
+        self, tick: dict[str, float] | None, period: str | None, season: str,
+        now,
+    ) -> None:
+        """Apply one tracker tick to the inventory; book discharge savings.
+
+        Order: charge adds → displaced-period savings at the current average
+        (drain at average never moves it) → drain total discharge → SOC cap.
+        Every rate is read live from the TOU engine (INV-RATE-1).
+        """
+        from .energy_const import (
+            ARBITRAGE_COST_BASIS_MODE,
+            ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED,
+            ARBITRAGE_INVENTORY_MIN_KWH,
+            ARBITRAGE_INVENTORY_SAVE_EVERY_TICKS,
+        )
+        if not ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED or tick is None:
+            return
+        from .energy_billing import _DISPLACED_PERIODS, discharge_savings_usd
+        await self._ensure_arbitrage_inventory_loaded(now)
+        if not getattr(self, "_arb_inventory_loaded", False):
+            return  # B1: restore pending (read failed / SOC unknown)
+        inv = self._arb_inventory
+        offpeak = self._arb_offpeak_basis(now)
+
+        grid_kwh = tick.get("charge_kwh_grid", 0.0)
+        solar_kwh = tick.get("charge_kwh_solar", 0.0)
+        unsplit_kwh = tick.get("charge_kwh_unsplit", 0.0)
+        discharge_kwh = tick.get("discharge_kwh", 0.0)
+        served_kwh = tick.get("battery_served_kwh", 0.0)
+
+        if grid_kwh > 0:
+            inv.add(grid_kwh, float(self._tou.get_effective_import_rate(now)))
+        if solar_kwh > 0:
+            inv.add(solar_kwh, float(self._tou.get_export_rate(now)))
+        if unsplit_kwh > 0:
+            inv.add(unsplit_kwh, offpeak)
+
+        row: dict[str, Any] | None = None
+        if period in _DISPLACED_PERIODS and served_kwh > 0:
+            if ARBITRAGE_COST_BASIS_MODE == "inventory":
+                basis = inv.avg_basis(ARBITRAGE_INVENTORY_MIN_KWH)
+                source = "inventory"
+                if basis is None:
+                    basis, source = offpeak, "empty_fallback"
+            else:
+                basis, source = offpeak, "offpeak_effective"
+            displaced = float(self._tou.get_effective_import_rate(now))
+            savings = discharge_savings_usd(
+                served_kwh, displaced, basis, self._ARBITRAGE_RTE,
+            )
+            if savings > 0:
+                row = {
+                    "kwh_discharged": served_kwh,
+                    "off_peak_rate": basis,
+                    "displaced_rate": displaced,
+                    "savings": savings,
+                    "basis_source": source,
+                }
+
+        inv.drain(discharge_kwh)
+        inv.cap(self._arb_soc_cap_kwh())
+
+        if grid_kwh > 0 or solar_kwh > 0 or unsplit_kwh > 0 or discharge_kwh > 0:
+            self._arb_inventory_changed_ticks = (
+                getattr(self, "_arb_inventory_changed_ticks", 0) + 1
+            )
+            if (
+                self._arb_inventory_changed_ticks
+                % ARBITRAGE_INVENTORY_SAVE_EVERY_TICKS == 0
+            ):
+                await self._save_arbitrage_inventory()
+
+        if row is None:
+            return
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        from homeassistant.util import dt as _dtu
+        await database.save_arbitrage_cycle(
+            timestamp=_dtu.as_utc(now).isoformat(),
+            soc_before=None,
+            soc_after=None,
+            kwh_charged=0.0,
+            off_peak_rate=row["off_peak_rate"],
+            displaced_rate=row["displaced_rate"],
+            round_trip_efficiency=self._ARBITRAGE_RTE,
+            savings=row["savings"],
+            season=season,
+            accrual="discharge",
+            kwh_discharged=row["kwh_discharged"],
+            basis_source=row["basis_source"],
         )
 
     @property
@@ -4532,11 +4749,22 @@ class EnergyCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
 
-            today = await database.query_arbitrage_savings_since(today_utc_iso)
-            cycle = await database.query_arbitrage_savings_since(cycle_start_iso)
+            # EC-COST-AND-FORECAST-MATH-1 D1: today / cycle / last / pace
+            # read discharge-time rows only (legacy charge-time cents drop
+            # out); lifetime = baseline + ALL rows (history kept).
+            from .energy_const import ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED
+            accrual = "discharge" if ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED else None
+            today = await database.query_arbitrage_savings_since(
+                today_utc_iso, accrual=accrual,
+            )
+            cycle = await database.query_arbitrage_savings_since(
+                cycle_start_iso, accrual=accrual,
+            )
             total = await database.query_arbitrage_savings_total()
-            last_cycle = await database.query_arbitrage_last_cycle()
-            pace = await database.query_arbitrage_pace_recent(days=7)
+            last_cycle = await database.query_arbitrage_last_cycle(accrual=accrual)
+            pace = await database.query_arbitrage_pace_recent(
+                days=7, accrual=accrual,
+            )
 
             self._arbitrage_status_cache = {
                 "today": today,
@@ -11269,6 +11497,8 @@ class EnergyCoordinator(BaseCoordinator):
         await self._save_envoy_cache()
         await self._save_midnight_snapshot()
         await self._save_load_shedding_level()
+        # EC-COST-AND-FORECAST-MATH-1 D1: unload save of the B2 inventory.
+        await self._save_arbitrage_inventory()
 
     async def _async_persist_on_stop(self) -> None:
         """Stage-1 shutdown job: stop the decision timer, then persist.
@@ -12768,36 +12998,22 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def predicted_import_kwh(self) -> float | None:
-        """Predicted net grid exchange today (positive=import, negative=export).
+        """Predicted grid import today (kWh, >= 0).
 
-        Simple energy balance: solar powers the house and charges the battery.
-        Battery is a buffer — it absorbs surplus solar and covers deficit.
-
-        - Net producer (solar > consumption): battery absorbs up to its
-          usable capacity, remainder exports.  Result is negative.
-        - Net consumer (solar < consumption): battery covers the deficit
-          up to its usable capacity, remainder imports.  Result is positive.
+        EC-COST-AND-FORECAST-MATH-1 D7: ``max(consumption − production, 0)``.
+        No usable-battery subtraction: over a whole day the battery cannot
+        cancel a deficit unless SOC ends lower, and the solar that refills
+        it is already counted in production. Reads the CONSUMED
+        ``predicted_consumption_kwh`` unchanged (INV-SHADOW-1). The plan's
+        bias term (trailing import−export vs consumption−solar) is a Build-2
+        (D3) producer and is not applied here yet.
         """
         forecast = self._predictor._get_current_prediction()
         consumption = forecast.get("predicted_consumption_kwh")
         production = forecast.get("predicted_production_kwh")
         if consumption is None or production is None:
             return None
-
-        capacity = self._predictor._get_battery_capacity_kwh()
-        reserve = self._battery.reserve_soc
-        usable_battery = capacity * (1.0 - reserve / 100.0)
-
-        if production >= consumption:
-            # Surplus day — battery absorbs some, rest exports to grid
-            surplus = production - consumption
-            battery_absorbs = min(usable_battery, surplus)
-            return round(-(surplus - battery_absorbs), 1)
-        else:
-            # Deficit day — battery covers some, rest imports from grid
-            deficit = consumption - production
-            battery_provides = min(usable_battery, deficit)
-            return round(deficit - battery_provides, 1)
+        return round(max(float(consumption) - float(production), 0.0), 1)
 
     @property
     def predicted_consumption_kwh(self) -> float | None:

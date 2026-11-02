@@ -378,7 +378,7 @@ def test_utility_refresh_task_cancelled_on_unload(aware_now):
     for n in ("_save_evse_state", "_save_circuit_state", "_save_energy_baselines",
               "_save_envoy_cache", "_save_midnight_snapshot",
               "_save_load_shedding_level", "_save_peak_import_history",
-              "_save_power_profiles"):
+              "_save_power_profiles", "_save_arbitrage_inventory"):
         setattr(s, n, AsyncMock())
     s._write_verifier = None
     s._dp_eval_last_task = None
@@ -760,7 +760,7 @@ def test_teardown_sets_closed_before_awaits(aware_now):
     for n in ("_save_circuit_state", "_save_energy_baselines",
               "_save_envoy_cache", "_save_midnight_snapshot",
               "_save_load_shedding_level", "_save_peak_import_history",
-              "_save_power_profiles"):
+              "_save_power_profiles", "_save_arbitrage_inventory"):
         setattr(s, n, AsyncMock())
     s._save_evse_state = _cycle_during_save
 

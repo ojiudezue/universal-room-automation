@@ -210,6 +210,28 @@ PEAK_AVOIDANCE_MIN_SERVED_KW: Final = 0.05
 # here so the new savings-family sensors can label their methodology.
 ARBITRAGE_RTE: Final = 0.90
 
+# EC-COST-AND-FORECAST-MATH-1 D1 (PLANNING_ec_savings_and_tomorrow_forecast.md
+# §4.1 / §7). Arbitrage savings accrue at DISCHARGE time in peak/mid_peak, on
+# a B2 inventory cost basis. All rung 1 (reviewed code; display-only values).
+# Kill switch: False restores the legacy charge-time rows (and unfiltered
+# today/cycle sums).
+ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED: Final = True
+# "inventory" = B2 average basis (grid kWh at the effective import rate of
+# its charge tick, solar kWh at the export rate of its charge tick).
+# "offpeak_effective" = B1 rollback (always the season's off-peak effective
+# rate).
+ARBITRAGE_COST_BASIS_MODE: Final = "inventory"
+# Below this many kWh the inventory average is noise -> off-peak fallback.
+ARBITRAGE_INVENTORY_MIN_KWH: Final = 0.1
+# A persisted inventory older than this is reseeded from SOC.
+ARBITRAGE_INVENTORY_MAX_AGE_H: Final = 12
+# Persist the inventory on every Nth changed tick (~15 min at 5-min ticks;
+# <= 96 writes/day through the write queue) and at unload.
+ARBITRAGE_INVENTORY_SAVE_EVERY_TICKS: Final = 3
+# energy_state keys (REUSED energy_state table; no new table).
+ARBITRAGE_INVENTORY_STATE_KEY: Final = "arbitrage_inventory"
+ARBITRAGE_DISCHARGE_CUTOVER_STATE_KEY: Final = "arbitrage_discharge_cutover_ts"
+
 # Battery storage mode values (Enphase Enpower)
 BATTERY_MODE_SELF_CONSUMPTION: Final = "self_consumption"
 BATTERY_MODE_SAVINGS: Final = "savings"
