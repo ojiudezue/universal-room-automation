@@ -231,27 +231,9 @@ def test_forecast_fetch_is_cached():
 # 4. Source-level: every predicted-* async_update refreshes the cache
 # ---------------------------------------------------------------------------
 
-def test_predicted_async_updates_call_refresh():
-    src = _agg_src()
-    # EC-COST-AND-FORECAST-MATH-1: the today/tomorrow energy+cost sensors no
-    # longer read the aggregation forecast cache (EC forecast_today / D3 +
-    # D8 date-keyed helper); they are covered behaviourally in
-    # test_ec_forecast_build2.py.
-    for cls in (
-        "PredictedEnergyWeekSensor",
-        "PredictedEnergyMonthSensor",
-        "PredictedCostWeekSensor",
-        "PredictedCostMonthSensor",
-        "PredictedCoolingNeedSensor",
-        "PredictedHeatingNeedSensor",
-    ):
-        idx = src.find(f"class {cls}")
-        assert idx != -1, f"missing class {cls}"
-        end = src.find("\nclass ", idx + 1)
-        body = src[idx:end if end != -1 else len(src)]
-        assert "await self._refresh_forecast_cache()" in body, (
-            f"{cls} must refresh the forecast cache via async_update"
-        )
+# test_predicted_async_updates_call_refresh (a source grep, bug class #62) was
+# replaced by a behavioural test in test_ec_forecast_build2_mutation_gaps.py
+# (test_predicted_async_update_refreshes_forecast_cache_behaviourally).
 
 
 def test_no_stale_forecast_attribute_reads():
