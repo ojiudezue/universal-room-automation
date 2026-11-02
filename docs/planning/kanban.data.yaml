@@ -33284,7 +33284,8 @@ cards:
   verify_2026_11_02_overnight: "CARD-WAS-WRONG on lane (02:04 CST, git + pytest, read-only). The card said 'investigating / MEASURE first', but the measurement (measured_2026_11_01) and the build are done: branch fix/zone-sweep-cleanup (worktree .claude/worktrees/agent-a2b457c740a9785df) holds 6e70d194 (per-zone opt-out honoured, real sweeps only, ledger row, pre-arrival fans kept), 2a6c790a (sweep also turns off the room's manual devices) and 553b15d0 (review fix-up: fans never via manual devices, full pre-hold light list, effective sweep attr). Review A (docs/reviews/code-review/zone_sweep_cleanup_review_A.md) = SHIP with 1 MEDIUM + 4 LOW; Review B = FIX-REQUIRED on B-H1 (fans in the manual-device loop), which 553b15d0 addresses (not independently re-reviewed tonight). Tonight: targeted tests in the worktree test_hvac_zone_sweep_cleanup.py + test_restore_guard_52_sweep.py = 46 passed; git merge-tree vs develop = clean (branch is 26 commits behind develop). No README_v*.md for it yet, no full-suite name-diff yet. Not merged or deployed (overnight pass never deploys)."
   title: "Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs"
   thread: hvac
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.99
   tier: 1
   created: "2026-11-01"
   origin: "Operator 2026-11-01 after the zone-sweep correctness check: card the issues incl. doc changes; we need to know when it worked; understand whether it fundamentally fights URA room automation and whether its true purpose is to catch energy loss (turn off) in unautomated rooms; switches power lights, so it should sweep lights and switches."
