@@ -21,6 +21,7 @@ import contextlib
 import importlib
 import json
 import sys
+import types
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -149,7 +150,12 @@ def _drive_pa(c, monkeypatch, now, *, solar_w, battery_w, net_kw, period):
     c._battery.solar_production_w = solar_w
     c._battery.battery_power_w = battery_w
     c._billing = SimpleNamespace(_get_net_power=lambda: net_kw)
-    monkeypatch.setattr(dt_util, "now", lambda *a, **k: now)
+    # Resolve dt exactly as production does AT CALL TIME
+    # (`from homeassistant.util import dt`): a sibling file may have rebound
+    # homeassistant.util.dt after this module's top-level import, so patching
+    # the collection-time `dt_util` would miss the object production reads.
+    from homeassistant.util import dt as _live_dtu
+    monkeypatch.setattr(_live_dtu, "now", lambda *a, **k: now)
     _run(c._accumulate_peak_avoidance(period, "shoulder"))
 
 
@@ -705,6 +711,18 @@ def _real_sensor_module():
     every URA module for the duration, then put sys.modules back exactly.
     """
     saved = dict(sys.modules)
+    # Re-importing binds FRESH submodules as attributes on surviving parent
+    # packages (e.g. `custom_components.universal_room_automation`), and
+    # `import a.b.c as m` resolves through those attributes -- so a later
+    # test would monkeypatch the fresh module while its fixtures use the
+    # restored one. Snapshot every package's module-valued attributes and
+    # put them back exactly.
+    pkg_attrs = {
+        id(pkg): (pkg, {k: v for k, v in vars(pkg).items()
+                        if isinstance(v, types.ModuleType)})
+        for pkg in saved.values()
+        if pkg is not None and hasattr(pkg, "__path__")
+    }
     try:
         for name, mod in list(sys.modules.items()):
             if name.startswith("custom_components.universal_room_automation") or (
@@ -722,6 +740,16 @@ def _real_sensor_module():
             if name not in saved:
                 del sys.modules[name]
         sys.modules.update(saved)
+        for pkg, attrs in pkg_attrs.values():
+            try:
+                for k, v in list(vars(pkg).items()):
+                    if isinstance(v, types.ModuleType) and attrs.get(k) is not v:
+                        if k in attrs:
+                            setattr(pkg, k, attrs[k])
+                        else:
+                            delattr(pkg, k)
+            except (AttributeError, TypeError):
+                pass
 
 
 def test_grid_cost_per_hour_uses_effective_rate():
