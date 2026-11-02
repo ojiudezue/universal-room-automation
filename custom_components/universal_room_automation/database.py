@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.99
+# Universal Room Automation vv5.103.100
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -77,6 +77,20 @@ class DBShuttingDown(RuntimeError):
     ``except Exception`` arm.
     """
 
+# EC-COST-AND-FORECAST-MATH-1 D5: per-arm daily forecast log.
+ENERGY_FORECAST_LOG_DDL = """CREATE TABLE IF NOT EXISTS energy_forecast_log (
+    target_date TEXT NOT NULL,
+    arm TEXT NOT NULL,
+    made_at TEXT NOT NULL,
+    pred_consumption_kwh REAL,
+    pred_solar_kwh REAL,
+    pred_net_kwh REAL,
+    pred_cost REAL,
+    temp_used REAL,
+    consumed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (target_date, arm)
+)"""
+
 # ENERGY-HISTORY-KW-SUMMED-AS-KWH-1: energy_history power columns
 # (grid_import, solar_export, solar_production, ...) hold INSTANTANEOUS kW
 # snapshots written every ~15 min (energy.py _log_energy_history_snapshot).
@@ -112,6 +126,15 @@ _ENERGY_HISTORY_KWH_CTE = """
         FROM eh_raw
     )
 """
+
+
+def _local_midnight_utc_naive(day) -> datetime:
+    """Local midnight of ``day`` as a naive-UTC datetime (energy_history
+    timestamps are naive UTC ISO)."""
+    tz = dt_util.get_default_time_zone()
+    return dt_util.as_utc(
+        datetime.combine(day, datetime.min.time(), tzinfo=tz)
+    ).replace(tzinfo=None)
 
 
 def _energy_history_kwh_params() -> tuple[float, float]:
@@ -1664,6 +1687,15 @@ class UniversalRoomDatabase:
                         _LOGGER.warning(
                             "arbitrage_cycles migration failed: %s", e,
                         )
+
+                # -- EC-COST-AND-FORECAST-MATH-1 D5: forecast prediction log --
+                # One row per LOCAL target date per arm, written once a day
+                # in one batch (INSERT OR REPLACE). Actuals JOIN energy_daily
+                # on date at read time; nothing here is re-priced.
+                if not await self._create_table_safe(
+                    db, "energy_forecast_log", [ENERGY_FORECAST_LOG_DDL],
+                ):
+                    failed_tables.append("energy_forecast_log")
 
                 # -- Energy Savings Unification (cycle #7) ---------------------
                 # Baseline snapshot per savings component. One row per
@@ -3262,17 +3294,19 @@ class UniversalRoomDatabase:
         """Get weekly energy totals for recent weeks."""
         try:
             results = []
-            now = datetime.utcnow()
-            
+            # EC-COST-AND-FORECAST-MATH-1 D4: LOCAL week boundaries (Monday
+            # local midnight), converted to the naive-UTC energy_history
+            # timestamp format (was UTC midnight: a 5-6 h skew).
+            today = dt_util.now().date()
+
             # AUDIT_house_sensors_correctness_2026_10_25 P3: start at the
             # previous week so the current partial week is not averaged in
             # as if it were a whole week.
             for week_offset in range(1, num_weeks + 1):
-                # Calculate week start/end
-                week_start = now - timedelta(days=now.weekday() + (week_offset * 7))
-                week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-                week_end = week_start + timedelta(days=7)
-                
+                monday = today - timedelta(days=today.weekday() + week_offset * 7)
+                week_start = _local_midnight_utc_naive(monday)
+                week_end = _local_midnight_utc_naive(monday + timedelta(days=7))
+
                 data = await self.get_energy_for_date_range(week_start, week_end)
                 data['week_start'] = week_start.isoformat()
                 data['week_end'] = week_end.isoformat()
@@ -3287,8 +3321,8 @@ class UniversalRoomDatabase:
         """Get monthly energy totals for recent months."""
         try:
             results = []
-            now = datetime.utcnow()
-            
+            now = dt_util.now()  # D4: LOCAL month boundaries
+
             # AUDIT_house_sensors_correctness_2026_10_25 P4: start at the
             # previous month (exclude the partial current month).
             for month_offset in range(1, num_months + 1):
@@ -3299,12 +3333,13 @@ class UniversalRoomDatabase:
                     month += 12
                     year -= 1
                 
-                month_start = datetime(year, month, 1)
+                from datetime import date as _date
+                month_start = _local_midnight_utc_naive(_date(year, month, 1))
                 if month == 12:
-                    month_end = datetime(year + 1, 1, 1)
+                    month_end = _local_midnight_utc_naive(_date(year + 1, 1, 1))
                 else:
-                    month_end = datetime(year, month + 1, 1)
-                
+                    month_end = _local_midnight_utc_naive(_date(year, month + 1, 1))
+
                 data = await self.get_energy_for_date_range(month_start, month_end)
                 data['month_start'] = month_start.isoformat()
                 data['month_end'] = month_end.isoformat()
@@ -3348,7 +3383,15 @@ class UniversalRoomDatabase:
                 if forecast_temp is None:
                     forecast_temp = 70  # Default assumption
 
-                target_day = (now + timedelta(days=1)).weekday() if period == "tomorrow" else now.weekday()
+                # EC-COST-AND-FORECAST-MATH-1 D3b (Bug A): the target
+                # weekday is the LOCAL date's (utcnow() made "tomorrow" the
+                # day-after from 18:00 CST). Residual (documented): stored
+                # energy_history.day_of_week is the UTC weekday of each row.
+                local_today = dt_util.now().date()
+                target_day = (
+                    (local_today + timedelta(days=1)).weekday()
+                    if period == "tomorrow" else local_today.weekday()
+                )
 
                 historical = await self.get_energy_for_similar_days(
                     day_of_week=target_day,
@@ -5238,6 +5281,89 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error querying recent energy daily: %s", e)
             return []
 
+    async def get_energy_daily_balance_recent(self, days: int = 30) -> list[dict]:
+        """Newest ``days`` energy_daily rows with the four balance columns
+        (EC-COST-AND-FORECAST-MATH-1 D3 bias + weekly persistence), ordered
+        by date ascending. Rows are LOCAL dates."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT date, consumption_kwh, solar_production_kwh,
+                           import_kwh, export_kwh
+                    FROM energy_daily
+                    ORDER BY date DESC
+                    LIMIT ?
+                """, (days,))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in reversed(rows)]
+        except Exception as e:
+            _LOGGER.error("Error querying energy daily balance: %s", e)
+            return []
+
+    async def get_energy_history_kwh_rows(self, since_utc_naive_iso: str) -> list[tuple]:
+        """(timestamp, grid_import kW, solar_export kW, dt_h) since a naive-UTC
+        ISO ts, through the shared interval CTE (D4 period mix). Read-only,
+        one query."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(_ENERGY_HISTORY_KWH_CTE + """
+                    SELECT timestamp, grid_import, solar_export, dt_h
+                    FROM eh WHERE timestamp >= ?
+                """, (*_energy_history_kwh_params(), since_utc_naive_iso))
+                return [tuple(r) for r in await cursor.fetchall()]
+        except Exception as e:
+            _LOGGER.error("Error querying energy history kWh rows: %s", e)
+            return []
+
+    async def log_forecast_batch(self, rows: list[tuple]) -> int:
+        """INSERT OR IGNORE the day's forecast rows in ONE write-queue
+        round-trip (D5). First complete prediction wins: a later re-log
+        (e.g. after a restart past 21:00) never overwrites existing rows
+        (review B2). Row tuple order = ENERGY_FORECAST_LOG columns
+        (target_date, arm, made_at, pred_consumption_kwh, pred_solar_kwh,
+        pred_net_kwh, pred_cost, temp_used, consumed)."""
+        if not rows:
+            return 0
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT OR IGNORE INTO energy_forecast_log
+                       (target_date, arm, made_at, pred_consumption_kwh,
+                        pred_solar_kwh, pred_net_kwh, pred_cost, temp_used,
+                        consumed)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+                await db.commit()
+                return len(rows)
+        except DBShuttingDown:
+            return 0
+        except Exception as e:
+            _LOGGER.warning("log_forecast_batch failed: %s", e)
+            return 0
+
+    async def get_forecast_log_joined(self, since_date: str) -> list[dict]:
+        """Forecast-log rows with target_date >= ``since_date`` LEFT JOINed
+        to energy_daily actuals (consumption, import, export, net_cost)."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT f.target_date, f.arm, f.pred_consumption_kwh,
+                           f.pred_net_kwh, f.pred_cost, f.consumed,
+                           d.consumption_kwh, d.import_kwh, d.export_kwh,
+                           d.net_cost
+                    FROM energy_forecast_log f
+                    LEFT JOIN energy_daily d ON d.date = f.target_date
+                    WHERE f.target_date >= ?
+                    ORDER BY f.target_date
+                """, (since_date,))
+                return [dict(r) for r in await cursor.fetchall()]
+        except Exception as e:
+            _LOGGER.error("Error querying forecast log: %s", e)
+            return []
+
     async def get_energy_temp_pairs(self, min_days: int = 30) -> list[tuple]:
         """Get consumption-temperature pairs for regression fitting.
 
@@ -6352,6 +6478,10 @@ class UniversalRoomDatabase:
         ``basis_source``. ``off_peak_rate`` / ``displaced_rate`` are AUDIT
         ONLY (INV-RATE-1): no reader re-prices from them.
         """
+        # FENCE (Build 2 review A3): the lifetime-savings sensor
+        # (sensor.py _arb_lifetime) sums the WHOLE arbitrage_cycles table.
+        # Adding any prune/DELETE of this table breaks lifetime totals:
+        # restore a max/baseline roll-up first.
         try:
             async with self._db() as db:
                 await db.execute(

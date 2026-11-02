@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "254",
+  "author": "ojiudezue",
+  "session_id": "claude_20261102_134911_ship_v5_103_100",
+  "timestamp": "2026-11-02T13:49:11Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.100 shipped: Saved today can go negative; tomorrow forecast on local date with Solcast and per-period pricing; forecast accuracy log",
+  "summary": "Saved today can go negative; tomorrow forecast on local date with Solcast and per-period pricing; forecast accuracy log",
+  "why": "Build 2 of the EC money arc. The operator asked for losses to show in saved today so bad arbitrage decisions are visible later, and the tomorrow forecast was wrong in structure: UTC weekday after 18:00, one-instant pricing for the whole day, no Solcast. The v2 refit failed its accuracy gate (no winter history) so v1 stays active and the new models are logged for measurement only. Reviews A/B/C SHIP after fix-ups.",
+  "implications": "Shipped EC-COST-AND-FORECAST-MATH-1 at v5.103.100; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.100.md (Live criteria).",
+  "revisit_trigger": "If energy_forecast_log shows the active arm MAE worse than the trailing 14-day mean after 30 days, or saved today shows a loss pattern from attain buys",
+  "refs": {
+    "cards": [
+      "EC-COST-AND-FORECAST-MATH-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.100.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.100.md"
+  }
+}

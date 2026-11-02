@@ -953,10 +953,15 @@ def discharge_savings_usd(
 ) -> float:
     """Savings for ``served_kwh`` discharged at ``displaced_rate`` with an
     inventory ``basis`` and round-trip efficiency ``rte``: served ×
-    (displaced − basis/rte), clamped ≥ 0 (INV-SAV-1)."""
+    (displaced − basis/rte) (INV-SAV-1).
+
+    SIGNED (operator 2026-11-02, Build 2): a displaced-period discharge whose
+    stored-energy cost (basis/rte) exceeds the displaced rate is a real LOSS
+    and books a NEGATIVE amount. No clamp. Off-peak discharge never reaches
+    this function (the caller gates on the displaced periods)."""
     if served_kwh <= 0 or rte <= 0:
         return 0.0
-    return max(0.0, served_kwh * (displaced_rate - basis / rte))
+    return served_kwh * (displaced_rate - basis / rte)
 
 
 class PeakAvoidanceTracker:

@@ -1,0 +1,25 @@
+# EC forecast Build 2 — Review B (async / lifecycle / signal chain / shadow integrity)
+
+Branch `fix/ec-forecast-build2` @ 5a58c6d7, base develop 12e979b7 (merge-base verified, three-dot diff).
+Targeted tests: test_ec_forecast_build2 + test_r1_consumption_regression_v1 + test_predicted_energy_tomorrow = 62 passed.
+
+## Findings
+
+| # | Sev | Class | Site | Finding |
+|---|---|---|---|---|
+| B1 | MEDIUM | Display work on the decision path / boundary-tick loss | energy.py:7223 | `_forecast_tick` is AWAITED inside `_decision_cycle_body`, before EVSE hold + action execution. On a cache miss (every 900 s) it awaits `weather.get_forecasts` (up to FORECAST_FETCH_TIMEOUT_S=20 s), 3 DB reads, and at ≥21:00 a write-queue round trip (`log_forecast_batch`). While it is in flight `_cycle_in_flight` is True, so the at-boundary TOU tick (`_on_tou_boundary`, +5 s) is SKIPPED as re-entrant (energy.py:7064) and peak-start actuation lags to the next periodic tick. The sibling utility refresh was deliberately moved off the cycle (INV-2, energy.py:7081-7091). Fix: keep only a cache-read for D8 inline; run the D3/D5 refresh as a tracked background task scheduled in the `finally` beside `_maybe_schedule_utility_refresh`. |
+| B2 | MEDIUM | Restart / data integrity of the D5 log | energy.py:9147-9157, database.py `log_forecast_batch` | Dedup is correct (PK target_date,arm + INSERT OR REPLACE: no duplicate rows, DST-safe since hour/target are local). But `_forecast_logged_for` is in-memory, so an HA restart between 21:00 and 24:00 re-logs and REPLACES the good rows. Repro: restart at 22:10, weather entity not yet serving forecasts on the first refresh → temp None → v1/v2/hvac_zone `pred_*` written NULL over the 21:00 values; that night's accuracy record for those arms is lost. Same applies on any first-after-21:00 refresh with a missing input (no retry, since logged_for is then set). Fix: skip the log when the active arm's net is None, and/or INSERT OR IGNORE (first complete prediction wins), or upsert only non-null columns. |
+| B3 | LOW | Untracked task after teardown (#untracked-bg) | energy.py:9103 / 8961-8985 | A tick suspended in the D8 weather await when `async_teardown` runs resumes and calls `_schedule_forecast_inputs_refresh` AFTER `_cancel_utility_refresh` (12967) cancelled the slot: a fresh recorder task is created on the dead coordinator. Harmless (read-only, writes an attribute) but violates the tracked-task contract. Fix: early-return when `_ec_stopping`. |
+| B4 | LOW | Stale data source (#7) | energy.py:8886 | On a failed fetch the last good list is kept AND re-stamped with `now_m`, so a weather outage keeps serving an arbitrarily old list (date-keyed, so it still resolves dates within its horizon for days). Contradicts "no fallback" in spirit; display-only. Fix: keep the original timestamp and drop the list after e.g. 6 h. |
+| B5 | LOW | Provider date semantics (A-lane, noted only) | energy_forecast_tomorrow.py `select_forecast_for_date` | Entries stamped 00:00Z map to the previous LOCAL day in CST (provider-dependent). Not verified against the live provider; flag for Review A / live check of `forecast_high` vs provider. |
+
+## Cleared (holds because)
+- Recorder call off the loop: `statistics_during_period` via `get_instance(hass).async_add_executor_job` (recorder executor), lazy import, gated on `"recorder" in hass.config.components`; inflight flag reset in `finally`; CancelledError re-raised.
+- Teardown cancel: `_forecast_inputs_task` cancelled in `_cancel_utility_refresh`, called from teardown (energy.py:12016). `async_create_background_task` also cancelled by HA at stop.
+- Tick isolation: `_forecast_tick` swallows Exception per arm; CancelledError propagates (correct). Rate limits stamp before work, so a failure retries after 900 s, no storm.
+- INV-SHADOW-1: `CONF_R1_ESTIMATOR_SHADOW_ONLY` still True (energy_const.py:271, unchanged in diff). `set_shadow_temp` only feeds `_compute_shadow_arm`; consumed value stays legacy (energy_forecast.py:454-456) and legacy still uses `temp` from `_get_current_temperature`. Consumers of `predicted_consumption_kwh` (energy.py:3589, 5450, 13340) unchanged. New values (`tomorrow_forecast`, `price_net_kwh`, `_forecast_daily_inputs`, `_period_mix`, accuracy) are read only by aggregation.py:845/2507 display sensors and the log; no battery/drain/EVSE/HVAC reader (grep). `_consumption_arms` reads predictor internals without mutation.
+- Weather unavailable: fetch → None → temp None → shadow/regression arms None with `missing_input="forecast_temp"`; dow_legacy/weekly_persistence still computed; consumed path unaffected.
+- Note (not a defect today): when R1 is later flipped False, the consumed v1 now runs on the FORECAST temp and falls back to legacy when the forecast is missing; record this in the R2-flip prerequisites.
+
+## Verdict
+**SHIP with fix-ups recommended** (no CRITICAL/HIGH). Must-fix before deploy per fix-LOWs-in-cycle: B2 (cheap: skip/IGNORE on incomplete), B1 (move D3/D5 off the cycle), B3 (stopping guard). B4/B5 optional.

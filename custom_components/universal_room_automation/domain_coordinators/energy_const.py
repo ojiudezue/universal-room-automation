@@ -163,6 +163,110 @@ CONSUMPTION_REGRESSION_V1: Final[dict] = {
     "holdout_mae_base_only_kwh": 23.67,
 }
 
+# ============================================================================
+# EC-COST-AND-FORECAST-MATH-1 Build 2 (D9) — v2 refit + per-HVAC-zone arm
+# ============================================================================
+# Pasted verbatim from `python3 scripts/energy/fit_consumption_regression.py
+# --version v2` (inputs: data/energy_fit/ec_forecast_daily_inputs.csv, from
+# scripts/probes/ec_forecast_daily_extract.py). Rung 1: a fitted model must
+# stay reproducible from the script. Temp feature = (high + low) / 2.
+# energy_daily starts 2026-03-06, so there is NO winter in the window;
+# spring is the season baseline and winter reuses it.
+#
+# SHIP GATE FAILED (2026-11-02): Oct holdout MAE E1 47.40 / E2 41.67 vs v1
+# 27.33 (the fall dummy is learned from September only, which was hot, so it
+# over-predicts October; the v1-shape refit with hourly-mean temp scores
+# 34.91, so the WINDOW, not the temp proxy, drives the loss). Per plan D9:
+# ACTIVE stays "v1". Because v2 is a logged record arm only, the script
+# emits the simpler E1 (no EV input): E2 would need a per-house EV
+# statistic, which has no role key (a literal here would break the
+# multi-home G1 rule). D5 logs arm "v2" so the next refit has a record.
+CONSUMPTION_REGRESSION_V2: Final[dict] = {
+    "base": 84.932,
+    "cdd_coeff": 2.6431,
+    "hdd_coeff": 4.1804,
+    "season_spring": 0.0,
+    "season_summer": 15.0078,
+    "season_fall": 42.7358,
+    "season_winter": 0.0,
+    "hdd_base_f": 65.0,
+    "cdd_base_f": 65.0,
+    "ev_term_kwh": 0.0,
+    "ev_era_start": "2026-03-01",
+    "fit_date": "2026-11-02",
+    "train_span": "2026-03-21..2026-09-30",
+    "holdout_span": "2026-10-01..2026-10-31",
+    "temp_feature": "(daily_high + daily_low) / 2",
+    "n_train": 97,
+    "n_holdout": 28,
+    "ev_variant": "E1",
+    "train_mae_kwh": 22.56,
+    "holdout_mae_kwh": 47.4,
+    "v1_holdout_mae_kwh": 27.33,
+}
+
+# Rung 1 selector of the consumption arm used by D3 (tomorrow) and the EC
+# today predictor's SHADOW arm. "v1" | "v2". "v1" because v2 failed its
+# ship gate (above).
+CONSUMPTION_REGRESSION_ACTIVE: Final[str] = "v1"
+
+# Per-HVAC-zone arm (`hvac_zone`), fit by the same script. Zone kWh =
+# a + b_cool*max(out - in, 0) + c_heat*max(in - out, 0) (no heating slope
+# was fit: c_heat 0); in = zone THERMOSTAT (max+min)/2 trailing
+# indoor_trailing_days mean (HVAC zones, never house-zone averages);
+# base_nonhvac = trailing base_trailing_days mean of (consumption - sum AC).
+# Circuits: ac1 = zone 1, ac_2 = zone 2, ac_3 = zone 3 (operator 2026-11-02).
+# SHIP GATE PASSED: Oct holdout MAE 20.75 (n=27) vs v2 47.40 / v1 27.33
+# (gate: >= HVAC_ZONE_ARM_MIN_GAIN_KWH 2.0 better than v2). Caveat: a plain
+# trailing-14-day consumption mean scores 22.19 on the same days, so most of
+# the gain is the recent-base term. Display/log only (D5 arm "hvac_zone");
+# not consumed by any decision. House-specific entity ids by design (a
+# fitted model of THIS house, like V1).
+HVAC_ZONE_REGRESSION_V1: Final[dict] = {
+    "zones": (
+        {"energy": "sensor.span_panel_ac1_consumed_energy",
+         "indoor": "sensor.office_b_zone_1_temperature",
+         "a": 10.4088, "b_cool": 1.8013, "c_heat": 0.0},
+        {"energy": "sensor.span_panel_ac_2_consumed_energy",
+         "indoor": "sensor.up_hallway_zone_2_temperature",
+         "a": 8.1831, "b_cool": 1.4297, "c_heat": 0.0},
+        {"energy": "sensor.span_panel_ac_3_consumed_energy",
+         "indoor": "sensor.back_hallway_zone_3_temperature",
+         "a": 3.7732, "b_cool": 1.0803, "c_heat": 0.0},
+    ),
+    "indoor_trailing_days": 7,
+    "base_trailing_days": 14,
+    "fit_date": "2026-11-02",
+    "holdout_mae_kwh": 20.75,
+}
+
+# D3 / D4 / D5 knobs (rung 1, reviewed code; none is tuned by watching a
+# dashboard).
+# Tomorrow model: "v1_solcast" = Option A (D0 gate PASSED 2026-11-02: net
+# MAE 35.84 vs Option B 41.62 over 44 days); "historical" = D3b.
+NET_TOMORROW_MODEL: Final[str] = "v1_solcast"
+# Bias window (trailing energy_daily rows); 0 disables the bias term.
+FORECAST_NET_BIAS_DAYS: Final[int] = 14
+# Per-period kWh mix window over energy_history (D4) and the minimum
+# distinct local days before the mix is trusted over the hour-weighted
+# day rate.
+FORECAST_PERIOD_MIX_DAYS: Final[int] = 14
+FORECAST_PERIOD_MIX_MIN_DAYS: Final[int] = 3
+# Local hour at/after which the day's forecast rows are logged (D5); after
+# the Solcast evening refresh.
+FORECAST_LOG_LOCAL_HOUR: Final[int] = 21
+# Tomorrow-forecast recompute cadence inside the EC tick (s), and the
+# recorder daily-input refresh cadence (s; hvac_zone / EV inputs).
+FORECAST_TOMORROW_REFRESH_S: Final[int] = 900
+FORECAST_DAILY_INPUTS_REFRESH_S: Final[int] = 3600
+# D8: the full daily forecast list is re-fetched at most this often (s).
+FORECAST_DATE_CACHE_TTL_S: Final[int] = 900
+# D8 (review B4): a cached forecast list older than this (s) is dropped,
+# never served; a failed re-fetch does NOT refresh the list's timestamp.
+FORECAST_DATE_CACHE_MAX_AGE_S: Final[int] = 21600
+# Recorder days with fewer hourly rows than this are dropped (partial day).
+FORECAST_MIN_HOURS_PER_DAY: Final[int] = 20
+
 # rung-2: shadow-mode gate. True = new v1 estimator computes + logs alongside
 # the legacy DOW+fallback estimator, but the CONSUMED (published) value stays
 # on the legacy path. Flipped False as R2 prerequisite after the 14-day

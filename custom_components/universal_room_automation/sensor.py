@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.99
+# Universal Room Automation vv5.103.100
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -11321,7 +11321,9 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
         attrs["arbitrage_savings_projected_cycle_total"] = round(full_cycle_pace, 2)
 
         predicted = self.native_value  # already accounts for arbitrage having run
-        if predicted is not None and full_cycle_pace > 0:
+        # Signed (operator 2026-11-02): arbitrage can lose money, so a
+        # negative pace flows through (bill without arbitrage < predicted).
+        if predicted is not None and full_cycle_pace != 0:
             without_arb = float(predicted) + full_cycle_pace
             attrs["predicted_bill_without_arbitrage"] = round(without_arb, 2)
             if without_arb > 0:
@@ -11812,14 +11814,22 @@ class EnergySavingsTotalLifetimeSensor(_SavingsSensorBase):
         baseline = float(
             (ec.savings_baselines.get("arbitrage") or {}).get("baseline_usd", 0.0)
         )
-        # Existing arbitrage_status['total'] queries the FULL arbitrage_cycles
-        # table (which includes pre-baseline rows). To honor baseline
-        # semantics AND survive prune, take max(baseline, live_total): while
-        # rows are intact live_total >= baseline (baseline was seeded from
-        # live_total); after a prune live_total drops but max() preserves
-        # baseline. This is the "min-guarantee" shape the plan calls for.
-        live_total = _arb_scope(self.hass, "total")
-        return max(baseline, live_total)
+        # arbitrage_status['total'] sums the FULL arbitrage_cycles table
+        # (pre-baseline rows included; nothing prunes that table). Savings
+        # are SIGNED since 2026-11-02 (a displaced-period discharge can lose
+        # money), so the old max(baseline, live_total) "min-guarantee" would
+        # hide a net loss. The live sum wins whenever any row exists; the
+        # baseline is only the fallback when the table reads empty (failed
+        # query or a wiped table).
+        # FENCE (Build 2 review A3): this "live sum when rows exist" rule is
+        # correct ONLY while nothing ever deletes from arbitrage_cycles.
+        # Adding ANY prune/retention of that table silently drops lifetime
+        # savings: restore a max/baseline roll-up (fold pruned rows into the
+        # baseline) BEFORE adding the prune.
+        total = (ec.arbitrage_status or {}).get("total") or {}
+        if int(total.get("rows", 0) or 0) > 0:
+            return float(total.get("savings", 0.0))
+        return baseline
 
     @property
     def native_value(self) -> float | None:

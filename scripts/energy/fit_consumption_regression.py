@@ -423,6 +423,11 @@ def format_const_block(r: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:2] == ["--version", "v2"]:
+        # EC-COST-AND-FORECAST-MATH-1 D9: v2 refit + hvac_zone arm.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import fit_consumption_regression_v2
+        return fit_consumption_regression_v2.main()
     mask = True
     if "--no-mask" in argv:
         mask = False

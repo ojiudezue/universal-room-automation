@@ -60,20 +60,9 @@ def test_predicted_energy_tomorrow_registers():
     assert 'f"{DOMAIN}_predicted_cost_tomorrow"' in src
 
 
-def test_predicted_energy_tomorrow_uses_tomorrow_forecast_helper():
-    """Sensor async_update must source temp via _get_forecast_temp_tomorrow
-    (NOT the today helper) and call db.predict_energy with period='tomorrow'."""
-    src = _agg_src()
-    # Isolate the class body.
-    idx = src.find("class PredictedEnergyTomorrowSensor")
-    end = src.find("\nclass ", idx + 1)
-    body = src[idx:end]
-    assert "_get_forecast_temp_tomorrow()" in body, (
-        "must use the tomorrow forecast helper, not the today one"
-    )
-    assert 'db.predict_energy("tomorrow"' in body
-    # Sanity: does NOT accidentally call the today path.
-    assert 'db.predict_energy("day"' not in body
+# test_predicted_energy_tomorrow_uses_tomorrow_forecast_helper (a source
+# grep) was replaced by behavioural D3 tests in test_ec_forecast_build2.py:
+# the sensor now reads the EC Option-A snapshot (D8 date-keyed temp).
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +115,9 @@ def test_predict_energy_tomorrow_targets_tomorrows_weekday(tmp_path):
 
     assert value is not None, "3 seeded similar days should yield a prediction"
     assert confidence > 0
-    expected_dow = (datetime.utcnow() + timedelta(days=1)).weekday()
+    # D3b (Bug A): LOCAL tomorrow's weekday, not UTC's.
+    from homeassistant.util import dt as _dtu
+    expected_dow = (_dtu.now().date() + timedelta(days=1)).weekday()
     assert captured["day_of_week"] == expected_dow, (
         f"predict_energy('tomorrow') must key on tomorrow's weekday "
         f"({expected_dow}), got {captured['day_of_week']}"
@@ -166,4 +157,5 @@ def test_predict_energy_day_still_uses_today_weekday(tmp_path):
     db.get_energy_for_similar_days = _fake_similar
 
     _run(db.predict_energy("day", forecast_temp=75.0))
-    assert captured["day_of_week"] == datetime.utcnow().weekday()
+    from homeassistant.util import dt as _dtu
+    assert captured["day_of_week"] == _dtu.now().date().weekday()
