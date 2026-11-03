@@ -614,6 +614,7 @@ from .const import (
     CONF_ZONE_THERMOSTAT,
     CONF_SHARED_SPACE,
     CONF_SHARED_SPACE_AUTO_OFF_HOUR,
+    CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
     CONF_SHARED_SPACE_WARNING,
     CONF_WATER_LEAK_SENSOR,
     CONF_ALERT_LIGHTS,
@@ -624,6 +625,7 @@ from .const import (
     ALERT_COLOR_GREEN,
     ALERT_COLOR_WHITE,
     DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR,
+    DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
     # v3.3.1: Music following
     CONF_ROOM_MEDIA_PLAYER,
     CONF_MUSIC_FOLLOWING_ENABLED,
@@ -12640,6 +12642,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             )
+            # SHARED-SPACE-AUTO-OFF-FAILSAFE-1: end of the vacancy-gated
+            # night window (exclusive). Equal to the auto-off hour = the
+            # one-hour window (old behaviour).
+            schema_fields[vol.Optional(
+                CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
+                default=self._get_current(
+                    CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
+                    DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
+                )
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1,
+                    unit_of_measurement="hour (0-23)",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+            # Retired — no effect (SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4).
             schema_fields[vol.Optional(
                 CONF_SHARED_SPACE_WARNING,
                 default=self._get_current(CONF_SHARED_SPACE_WARNING, True)

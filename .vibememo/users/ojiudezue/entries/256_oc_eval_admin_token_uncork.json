@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "256",
+  "author": "ojiudezue",
+  "session_id": "claude_20261103_oc_uncork",
+  "timestamp": "2026-11-03T22:51:48Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "OC live eval uncorked with an ADMIN HA token (logs choice B); read-only now rests on the harness client alone",
+  "summary": "Operator chose log access, so the oc_eval keychain token is admin. Harness reads it from the keychain at runtime, never exposes it to the model, scrubs it, fails closed. Read-only is enforced by GET-only allowlisted REST, ssh -readonly SQL, a write interceptor and an egress allowlist test with mutation drills (all red on mutation). Also: forecast input CSV untracked from the public repo (no history rewrite).",
+  "why": "Logs are the evidence for several eval cases; the non-admin user the plan assumed could not read them. The trade is a larger blast radius if the client allowlist were bypassed, accepted because D5 tests make any write path fail the suite. CSV untracked because it is a household usage pattern in a public repo.",
+  "implications": "Plan \u00a79 safety must record the admin-token assumption. Case evidence expires 11-04 (L03) and 11-06 (L02, L08), so dev and full rounds are time-boxed.",
+  "revisit_trigger": "Any new tool added to the eval REGISTRY, or the eval moving toward production agent runs: switch to a scoped non-admin token first.",
+  "refs": {
+    "cards": [
+      "OC-CONTEXT-PACK-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_oc_live_eval_and_context_pack.md"
+    ]
+  }
+}

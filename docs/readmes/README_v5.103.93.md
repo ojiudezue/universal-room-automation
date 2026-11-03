@@ -38,3 +38,15 @@ Options → cloud verification: Local battery stream = `sensor.envoy_48254301595
 | Serves during a drop | Next native Envoy outage: EC SOC source label = stream tier, value tracks `battery_2`, not LKG |
 | Returns to native | When native recovers, source label returns to native within one tick |
 | No false serve | No stream serve while native is available |
+
+## Validated 2026-11-03 (overnight pass, nightly native Envoy outage 2026-11-02 23:07–23:38 CST)
+
+Source: recorder history of `sensor.ura_energy_coordinator_battery_strategy` (attributes `soc_resolution.tier`, `soc_source`, `envoy_available`, `soc`) at the 30 s tick, cross-read against `sensor.envoy_482543015950_battery_2`.
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Serves during a drop | PASS | First tick with `envoy_available=False` (23:07:03) → `tier=local_stream`, `soc_source=stream`, `soc_tier_trusted=True`. SOC stepped 24→23→…→18 during the outage and matched `battery_2` (e.g. `battery_2`→18 at 23:33:10, EC `soc`=18 at 23:33:33). `lkg_age_s=0` throughout, so it was live stream data, not last-known-good. |
+| Returns to native | PASS | First tick with `envoy_available=True` (23:38:34) → `tier=primary_envoy`, `soc_source=envoy`, `primary_envoy_soc=17`. Switch-back was on the very first recovered tick. |
+| No false serve | PASS | 22:30–23:07:02 and 23:38:34–01:00: `tier=primary_envoy` on every tick while native was available. |
+| Tier disagreement | as expected | The stale cloud value sat at 26 while the stream read 19 (`tier_disagreement_pp` peaked at 8 at 23:33), then dropped to 1 once the cloud refreshed at 23:34. The stream was right and the cloud was stale. |
+| Load clean / Unset no-op / Trust earned | not re-checked tonight | Already implied: trust was earned (`soc_tier_trusted=True` the moment the stream tier engaged). No separate post-restart log read in this pass. |

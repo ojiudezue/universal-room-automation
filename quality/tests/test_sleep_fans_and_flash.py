@@ -11,7 +11,7 @@ Covers three deliverables:
   D2 — Warning flash extended to switch-based lighting (off/on cycles
        for switch.* entries; light.* dim-restore path preserved).
 
-  D3 — check_auto_off_warning ``lights_on`` check counts switch.* states
+  D3 — (retired) check_auto_off_warning ``lights_on`` check counts switch.* states
        (previously silently False for switch-only rooms).
 
 Each test drives PRODUCTION functions (no string-only anchors for
@@ -793,7 +793,7 @@ class TestD2_WarningFlash:
 
 
 # ==========================================================================
-# D3 — check_auto_off_warning: lights_on check counts switches
+# D3 — check_auto_off_warning: REMOVED (SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4)
 # ==========================================================================
 # Mutation anchor: filter `lights` to `light.*` before the any(...) —
 # the switch-on test must RED (warning would not fire).
@@ -837,7 +837,7 @@ def _autom_mod():
     # URA eviction (oc_pillar_b_admin_surface) can leave a DIFFERENT
     # automation module in sys.modules than the one bound at collection.
     if _RoomAutomation is not None:
-        return _D7GlobalsView(_RoomAutomation.check_auto_off_warning.__globals__)
+        return _D7GlobalsView(_RoomAutomation.check_scheduled_auto_off.__globals__)
     return sys.modules[_AUTOMATION_NAME]
 
 
@@ -1120,129 +1120,9 @@ class TestFixup_BootEdgeAndRunning_RoomTier:
                 assert entity_id != "fan.ziri"
 
 
-# ==========================================================================
-# C-M3 — check_auto_off_warning production-driving test
-# ==========================================================================
-
-
-@_skip_no_automation
-class TestFixup_CheckAutoOffWarning_Drive:
-    """C-M3: drive real check_auto_off_warning with mocked hass.states
-    where only a switch.* light is on at the warning minute → assert
-    _warning_flash invoked. This replaces the source-grep half of the
-    original D3 test with a production-driving fixture."""
-
-    def test_switch_only_room_triggers_warning_flash(self, monkeypatch):
-        # Test-suite pollution guard: some sibling tests stub
-        # homeassistant.const to MagicMocks, which mangles STATE_ON,
-        # CONF_* keys, and (transitively) the module-level bindings this
-        # test drives production against. In isolation the test drives
-        # the full check_auto_off_warning path; in a polluted full-suite
-        # run, skip cleanly rather than assert a false-negative on the
-        # cycle's actual guarantee (the test still fires as an anchor in
-        # every fresh-process run, and the mutation M8 red is
-        # reproducible from the isolated test file).
-        _autom_probe = _autom_mod()
-        if not isinstance(getattr(_autom_probe, "STATE_ON", None), str):
-            pytest.skip(
-                "Skipped under polluted homeassistant.const stubs "
-                "(STATE_ON not a string); run this file in isolation "
-                "for the full drive."
-            )
-        hass = _make_room_hass()
-        coordinator = MagicMock()
-        coordinator.entry = MagicMock()
-        # Use the automation module's OWN CONF_* references as dict keys.
-        # Under test-suite pollution the module may have been loaded with
-        # stubbed const values (MagicMocks) — a real string literal here
-        # would not match the module's config.get(...) lookup.
-        _autom = _autom_mod()
-        config = {
-            _autom.CONF_ROOM_NAME: "Kitchen",
-            _autom.CONF_LIGHTS: ["switch.kitchen_main"],
-            _autom.CONF_SHARED_SPACE: True,
-            _autom.CONF_SHARED_SPACE_WARNING: True,
-            _autom.CONF_SHARED_SPACE_AUTO_OFF_HOUR: 23,  # 11 PM
-        }
-        room = _RoomAutomation(hass, config, coordinator)
-        # Bypass config-driven predicates directly on the instance so this
-        # test is pollution-immune. We're driving the WARNING-FLASH
-        # DECISION (lights_on + dedup + _warning_flash invocation) — not
-        # the shared-space or hour-lookup config reads (those are
-        # exercised by other tests).
-        room.is_shared_space = lambda: True
-        room.should_warn_before_auto_off = lambda: True
-        room.get_auto_off_hour = lambda: 23
-
-        # Force the lights list read to return our switch entity even if
-        # the CONF_LIGHTS key resolves to a MagicMock at import time.
-        # Subclass dict so .get() can be overridden per-instance.
-        class _ConfigDict(dict):
-            def get(self, key, default=None):  # noqa: D401
-                # Match on either the string "lights" (real const key),
-                # any string ending in "lights", or a MagicMock whose
-                # spec/name mentions LIGHTS (test-pollution: const may
-                # resolve as a MagicMock at automation.py import time).
-                if key == "lights" or "lights" in str(key).lower():
-                    return ["switch.kitchen_main"]
-                mock_name = getattr(key, "_mock_name", "") or ""
-                if "light" in str(mock_name).lower():
-                    return ["switch.kitchen_main"]
-                return super().get(key, default)
-        room.config = _ConfigDict(config)
-
-        # states.get for switch is ON. Under test-suite pollution
-        # automation.STATE_ON may be a MagicMock (not the string "on") —
-        # comparing an inequal MagicMock to `st.state="on"` silently
-        # returns False. Neutralize by pinning automation.STATE_ON to
-        # the real "on" string for this test's duration.
-        autom_pre = _autom_mod()
-        orig_state_on = autom_pre.STATE_ON
-        autom_pre.STATE_ON = "on"
-
-        def _get(entity_id):
-            st = MagicMock()
-            st.state = "on" if entity_id.startswith("switch.") else "off"
-            return st
-        hass.states.get = _get
-
-        # Wall-clock at 22:55 (warning window for 23:00 auto-off). Patch
-        # the module attribute directly — pollution-robust (some sibling
-        # tests replace dt_util on the module wholesale). Save + restore
-        # rather than rely on monkeypatch introspecting a possibly-
-        # replaced object.
-        autom = _autom_mod()
-        orig_dt_util = autom.dt_util
-
-        class _FakeDT:
-            @staticmethod
-            def now():
-                from datetime import datetime as _dt
-                try:
-                    from zoneinfo import ZoneInfo
-                    return _dt(2026, 8, 3, 22, 55, 0, tzinfo=ZoneInfo("UTC"))
-                except Exception:
-                    return _dt(2026, 8, 3, 22, 55, 0)
-
-        autom.dt_util = _FakeDT
-
-        called = {"n": 0}
-
-        async def _fake_flash():
-            called["n"] += 1
-
-        room._warning_flash = _fake_flash
-
-        try:
-            _run(room.check_auto_off_warning())
-        finally:
-            autom.dt_util = orig_dt_util
-            autom_pre.STATE_ON = orig_state_on
-
-        assert called["n"] == 1, (
-            "check_auto_off_warning must invoke _warning_flash for "
-            "switch-only rooms at the warning minute"
-        )
+# C-M3 — check_auto_off_warning drive test REMOVED with the T-5 warning
+# flash (SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4). The no-flash behaviour is
+# pinned in test_shared_space_auto_off_failsafe.py.
 
 
 if __name__ == "__main__":

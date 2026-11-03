@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "255",
+  "author": "ojiudezue",
+  "session_id": "claude_20261103_auto_off_failsafe",
+  "timestamp": "2026-11-03T22:51:48Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "11pm shared-space auto-off becomes a vacancy-gated failsafe that ignores leave-on; warning flash dropped",
+  "summary": "Kitchen overhead stayed on 21:16-05:01 because the 23:00 sweep exempted leave-on lights. Operator: the sweep is the failsafe, so it now sweeps everything (minus manual holds) at the first vacant tick between 23:00 and a 05:00 cutoff knob, once per night, after boot settle.",
+  "why": "Leave-on means 'keep on when the room empties in the evening', not 'never sweep'; the earlier review made it a blanket exemption. Vacancy gate protects people present; operator accepted that a false-occupied sensor means no sweep that night (stuck exclusion is inactive in SLEEP/HOME_NIGHT, coordinator.py:2961). Flash dropped because a sweep never fires on an occupied room, so it would warn of nothing.",
+  "implications": "Applies to all 30 shared_space rooms incl. bathrooms/closets. Zone sweep and vacancy exit still honour leave-on. New knob CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR (cutoff==start = old one-hour behaviour).",
+  "revisit_trigger": "A room left lit overnight because a sensor read occupied all night; or complaints of lights going off on someone present.",
+  "refs": {
+    "cards": [
+      "SHARED-SPACE-AUTO-OFF-FAILSAFE-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_shared_space_auto_off_failsafe.md",
+      "docs/reviews/code-review/shared_space_auto_off_plan_review.md"
+    ]
+  }
+}

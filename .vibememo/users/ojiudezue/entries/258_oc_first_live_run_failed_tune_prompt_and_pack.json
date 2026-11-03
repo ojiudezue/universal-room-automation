@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "258",
+  "author": "ojiudezue",
+  "session_id": "claude_20261103_oc_first_run",
+  "timestamp": "2026-11-03T23:14:27Z",
+  "type": "observation",
+  "weight": "significant",
+  "title": "First OC live run (Sonnet, L03) failed: picked the decoy root cause and cited facts it never read; prompts AND pack will be tuned on dev cases only",
+  "summary": "Harness worked (12% tool errors, all guards held). Agent saw radars go quiet and concluded 'correct vacancy, she left' instead of 'phone held the room, a BLE hop emptied it, BLE cannot re-create'. Judge flagged invented ZK/LD2410 and adjacency claims. Cost $1.62. Also: macOS `security -w` prompt truncates at 128 chars; HA tokens need -w \"$(pbpaste)\".",
+  "why": "Operator asked why not tune prompts: agreed. The plan only forbids tuning on held-out cases; the 526-char system prompt is under-optimised. Dev loop now edits both pack (occupancy composition rules) and prompt (every claim from a tool result, read the code path before concluding), each with a general rationale in PACK_CHANGELOG.",
+  "implications": "Held-out cases stay the control; no tuning after freeze. L02/L08 evidence expires 11-06.",
+  "revisit_trigger": "If dev-round gains come only from case-specific wording, the freeze result is invalid.",
+  "refs": {
+    "cards": [
+      "OC-CONTEXT-PACK-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_oc_live_eval_and_context_pack.md"
+    ]
+  }
+}

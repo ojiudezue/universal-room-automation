@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.100
+# Universal Room Automation vv5.103.101
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.100"
+VERSION: Final = "v5.103.101"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -79,7 +79,15 @@ CONF_ZONE_IS_OUTDOOR: Final = "zone_is_outdoor"
 DEFAULT_ZONE_IS_OUTDOOR: Final = False
 CONF_SHARED_SPACE: Final = "shared_space"
 CONF_SHARED_SPACE_AUTO_OFF_HOUR: Final = "shared_space_auto_off_hour"
+# SHARED-SPACE-AUTO-OFF-FAILSAFE-1: retired — no effect. The T-5 warning
+# flash was removed because the night sweep now fires only on a VACANT
+# room, so a flash would warn of nothing. Key kept so stored options load.
 CONF_SHARED_SPACE_WARNING: Final = "shared_space_warning"
+# SHARED-SPACE-AUTO-OFF-FAILSAFE-1 (rung 2, options flow): the night
+# failsafe retries on every vacant-check tick from the auto-off hour until
+# this hour (exclusive; may wrap midnight, e.g. 23 -> 5). Setting it EQUAL
+# to the auto-off hour gives the one-hour window (old behaviour).
+CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR: Final = "shared_space_auto_off_cutoff_hour"
 
 # ============================================================================
 # v3.3.1 MUSIC FOLLOWING CONFIGURATION
@@ -129,6 +137,7 @@ SLEEP_WINDOW_ALERT_THRESHOLD: Final = 5  # During sleep for shared/egress
 
 # Shared space defaults
 DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR: Final = 23  # 11 PM
+DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR: Final = 5  # 5 AM (window 23 -> 5)
 
 # Aggregation sensor entity IDs (base names)
 AGGREGATION_ANYONE_HOME: Final = "anyone_home"
@@ -4627,6 +4636,21 @@ CAMERA_INPUT_DEGRADED_CLEAR_THRESHOLD: Final = 0.25
 # cycle cadence changes, this must stay strictly below it.
 CAMERA_INPUT_DEGRADED_DWELL_S: Final = 270
 BOOT_SETTLE_S: Final = 180
+
+# CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (PLANNING_camera_detector_hung_tripwire.md
+# Rev 2). A hung Frigate detector leaves every person sensor available but the
+# fleet detection_fps stat stops changing. D0 probe (10-13..10-21): longest
+# healthy same-value run 5.0 min, so 3x = 900 s. Module const (rung 1): a fitted
+# number, retune via reviewed change. Kill switch: <= 0 disables the check.
+CAMERA_DETECTOR_FROZEN_S: Final = 900
+# Max time a hung-detector alert may be deferred by NM quiet hours before it is
+# sent anyway (discharge for an all-day schedule or a house stuck in sleep).
+# Rung 1 (reviewed change). <= 0 = no cap, i.e. defer indefinitely.
+CAMERA_DETECTOR_QUIET_DEFER_MAX_S: Final = 43200
+# Registry match key for the Frigate fleet detection_fps sensor. Live registry
+# (2026-10-21): unique_id "<frigate_entry_id>:sensor_fps:detection"; per-camera
+# fps sensors end "..._detection" (no colon) and so do not match.
+CAMERA_DETECTOR_FPS_UNIQUE_ID_SUFFIX: Final = ":sensor_fps:detection"
 
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated

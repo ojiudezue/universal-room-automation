@@ -25,3 +25,12 @@ Zone sensors (`sensor.zone_<name>_total_power`, `_energy_today`, `_cost_per_hour
 | No double count | `zone_level_skipped_room_overlap` lists any entity also in a room |
 | Restart safe | Zone energy today after a restart ≥ value before |
 | Load clean | No URA ERROR after restart |
+
+## Validated 2026-11-03 02:02 CST (overnight pass, live entity reads)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Zone-level loads counted | PASS (power + attributes) / FAIL (energy state, pre-existing) | `sensor.zone_master_suite_total_power` = 1342.8 = `rooms_power_w` 1331.6 + `zone_level_power_w` 11.2 (`sensor.span_panel_ac1_power`). `sensor.zone_master_suite_energy_today` attrs `zone_level_energy_kwh` 1.373 (`span_panel_ac1_consumed_energy`) and back_hallway 0.009 (`span_panel_ac_3_consumed_energy`). **But the energy_today state reads 34.45, not 3.066 + 1.373 = 4.44.** It froze at 00:00:03. The same happens on other zones and on `rooms_energy_total`, and on 11-02 too (frozen 00:00:05–06:56). Cause: the pre-existing (2026-06-09) one-reset-per-day guard is used up by the first post-midnight sample. Not caused by this release. Carded as ENERGY-TODAY-MIDNIGHT-FREEZE-1. |
+| No double count | PASS | `zone_level_skipped_room_overlap: []`, `zone_level_unavailable: []` on every zone read |
+| Restart safe | not exercised | No restart in the read window |
+| Load clean | not re-read tonight | — |

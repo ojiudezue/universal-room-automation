@@ -57,6 +57,7 @@ explicitly caveated.
 1. **Fixed 30-min projection** (`× AC_KWH_AVOIDED_PROJECTION_CAP_MIN/60`) — assumes the avoided load would have run exactly the capped window. Coarse but conservative. **Keep** (operator: not billing-grade).
 2. **`delta` uses `post_min`** (trailing-window minimum) → mild **optimism bias**. Bounded by the `effective` gate + <0.3 kW signal floor. **Optional** honesty tweak below.
 3. **Restart-persistence is already correct** — total re-derives from the DB (`days=None` sum) with a RestoreEntity bridge; today re-derives since local-midnight. Unlike the #7 peak-avoidance bug, there is **nothing to fix** here.
+   **WRONG (2026-10-26, HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1):** `days=None` sums only the 30 days `cleanup_ac_ramp_events` keeps, so the "total" drops every midnight, and the sensors published the arrester's seeded 0 for ~1 min after each restart (now guarded; the sensors are relabelled "(30 days)").
 
 ---
 
