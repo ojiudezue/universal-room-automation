@@ -106,6 +106,13 @@ def _room(*, start=23, cutoff=5, shared=True, settle_done=True,
         return True
 
     auto._safe_service_call = _svc
+    # Order-independence: the prefill-detritus guard reads the LIVE entity
+    # registry (``homeassistant.helpers.entity_registry.async_get``). Alone
+    # that read raises on a MagicMock hass and passes ids through; after a
+    # sibling file stubs the registry it can reject ``switch.*`` ids. The
+    # guard is not under test here (test_room_create_prefill_filter.py owns
+    # it), so pin it to pass-through on this instance.
+    auto._actuatable_ids = lambda ids: list(ids or [])
     return SimpleNamespace(auto=auto, log=log, logger=logger, presence=presence)
 
 
