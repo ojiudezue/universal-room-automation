@@ -33378,6 +33378,15 @@ cards:
   revisit_trigger: "~30 days of energy_forecast_log rows (from 2026-11-02) show the hvac_zone arm beats v1 and the trailing mean on MAE, and per-zone AC kWh error is reasonable vs SPAN ac1/ac_2/ac_3 actuals."
   links: {"related": ["EC-COST-AND-FORECAST-MATH-1", "URAV8-ZONE-ENERGY-DISPLAY-1"], "context": "Producer is Build 2 D9 hvac_zone arm; display sibling of zone energy display card."}
   next: "On trigger: expose per-zone predicted AC kWh as an attribute (if not already), add to Rooms zone tiles / Residence hero; else park again with evidence."
+- id: SHARED-SPACE-AUTO-OFF-FAILSAFE-1
+  title: "11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on"
+  thread: lighting
+  status: in_progress
+  tier: 2
+  created: "2026-11-03"
+  origin: "Operator 2026-11-03: 'We have an 11pm lights sweep. But I woke up early to find the kitchen lights on. Tell me why' -> option A approved: 'Its meant to be the fail safe. It should check for vacancy... stuck sensor aware'; retry-until-vacant w/ 05:00 cutoff OK; accept false-occupied trade; flash only if occupied."
+  why: "light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23, occupancy-blind. 30 rooms carry shared_space."
+  next: "Build: from auto-off hour, sweep at first VACANT tick (occupancy already stuck-sensor-excluded, coordinator.py:2908), include leave-on, keep light_hold_allowed; give up at new cutoff knob (default 05:00); 22:55 warning flash only when occupied. Tier 2: plan review + 2 reviews."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security

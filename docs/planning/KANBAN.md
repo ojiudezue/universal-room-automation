@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-03T02:05:30-06:00_ - _Data commit: `30e4c61aab48`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-03T02:07:50-06:00_ - _Data commit: `8f7b088644e4`_ - _last_reconciled: 2026-11-02_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-11-03T02:05:30-06:00_ - _Data commit: `30e4c61aab48`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 14 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 32 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -443,10 +443,16 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `SHARED-SPACE-AUTO-OFF-FAILSAFE-1` - 11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **lighting** - status: **in_progress**
+_created 2026-11-03_
+- **Why:** light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23...
+- **Next:** Build: from auto-off hour, sweep at first VACANT tick (occupancy already stuck-sensor-excluded, coordinator.py:2908), include leave-on, keep light_hold_allowed; give up at new cutoff knob (default 05:00); 22:55 warning flash only when oc...
+- **Forensic keys (1):**
+  - `tier`: 2
 
 ## 🔍 Review (4)
 _under review_

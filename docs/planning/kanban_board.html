@@ -212,17 +212,17 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-03T02:05:30-06:00</b></span>
-<span>data <b>30e4c61aab48</b></span>
+<span>generated <b>2026-11-03T02:07:50-06:00</b></span>
+<span>data <b>8f7b088644e4</b></span>
 <span>reconciled <b>2026-11-02</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">10<span class="den"> / 176</span></span>
+<span class="metric">7<span class="den"> / 177</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 47 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 40 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
 <li class="" data-fid="FRONT-DOOR-LOCK-OFFLINE-1@2026-11-03T02:08:00" data-card="FRONT-DOOR-LOCK-OFFLINE-1">
 <span class="oc measured">measured</span>
@@ -504,55 +504,6 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <button type="button" class="ack" data-fid="PERIMETER-DETECTION-WENT-DARK-1@2026-10-28T02:03:00">✓ ack</button>
 </li>
 <li class="decision-row" data-card="PERIMETER-DETECTION-WENT-DARK-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for PERIMETER-DETECTION-WENT-DARK-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-27T02:28:00" data-card="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1">
-<span class="oc built-to-review">built-to-review</span>
-<span class="fhd">AC-ramp savings sensors that read 0 after a restart: validated and in review, not deployed. Full suite clean once I fixed one order-dependent test. At deploy you&#x27;ll need to clear one statistic by hand once.<br><span class="ft">2026-10-27T02:28:00</span>
-</span>
-<button type="button" class="ack" data-fid="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-27T02:28:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="NM-ACK-TTS-IGNORES-DISABLE-1@2026-10-27T02:28:00" data-card="NM-ACK-TTS-IGNORES-DISABLE-1">
-<span class="oc built-to-review">built-to-review</span>
-<span class="fhd">Acknowledging an alert no longer tries to speak when spoken alerts are off. Validated (full suite clean) and in review; ships at the next attended deploy.<br><span class="ft">2026-10-27T02:28:00</span>
-</span>
-<button type="button" class="ack" data-fid="NM-ACK-TTS-IGNORES-DISABLE-1@2026-10-27T02:28:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="NM-ACK-TTS-IGNORES-DISABLE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for NM-ACK-TTS-IGNORES-DISABLE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-10-27T02:28:00" data-card="CAMERA-SILENT-PRODUCER-TRIPWIRE-1">
-<span class="oc built-to-review">built-to-review</span>
-<span class="fhd">Camera &#x27;detector hung&#x27; alarm: reviews passed and full suite clean; in review. It ships at an attended deploy, followed by your daytime test that pauses the detector to watch it fire.<br><span class="ft">2026-10-27T02:28:00</span>
-</span>
-<button type="button" class="ack" data-fid="CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-10-27T02:28:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="CAMERA-SILENT-PRODUCER-TRIPWIRE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for CAMERA-SILENT-PRODUCER-TRIPWIRE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="EC-DB-RESTORE-TIMEOUT-1@2026-10-27T02:08:00" data-card="EC-DB-RESTORE-TIMEOUT-1">
-<span class="oc measured">measured</span>
-<span class="fhd">Energy boot restore: 2 of the last 17 restarts (10-21 18:28, 10-26 10:09) ran out of the 15 s limit and zeroed today&#x27;s cost/import. The queries themselves take ~1 ms, so it is boot-time contention. Worse than the title said: a timeout also skips the reload of load-shedding level, solar-follow state and the bill ledger. Planned as Tier 2 (per-step limits + retry after startup); not built tonight because of the review-lane cap.<br><span class="ft">2026-10-27T02:08:00</span>
-</span>
-<button type="button" class="ack" data-fid="EC-DB-RESTORE-TIMEOUT-1@2026-10-27T02:08:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="EC-DB-RESTORE-TIMEOUT-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for EC-DB-RESTORE-TIMEOUT-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="URA-ENTITY-COUNT-REDUCTION-1@2026-10-27T02:08:00" data-card="URA-ENTITY-COUNT-REDUCTION-1">
-<span class="oc parked">parked</span>
-<span class="fhd">Entity-count cleanup parked: URA is 3,110 of 17,890 enabled entities (17%); disabling all its diagnostics would trim 4.4%, and the panel test already showed frontend cuts didn&#x27;t reduce the spin. Comes back only if the panel bisect shows entity count drives CPU.<br><span class="ft">2026-10-27T02:08:00</span>
-</span>
-<button type="button" class="ack" data-fid="URA-ENTITY-COUNT-REDUCTION-1@2026-10-27T02:08:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="URA-ENTITY-COUNT-REDUCTION-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for URA-ENTITY-COUNT-REDUCTION-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="URA-V8-PANEL-RENDER-SPIN-1@2026-10-27T02:08:00" data-card="URA-V8-PANEL-RENDER-SPIN-1">
-<span class="oc escalated">escalated</span>
-<span class="fhd">Wall-panel spin moved to your queue: the measurements are done, and what&#x27;s left is your PICK (explicit lists instead of wildcard cards on panel views, Media Room first: recommended) plus a HomeLab screensaver test for the new screen-off spin.<br><span class="ft">2026-10-27T02:08:00</span>
-</span>
-<button type="button" class="ack" data-fid="URA-V8-PANEL-RENDER-SPIN-1@2026-10-27T02:08:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="URA-V8-PANEL-RENDER-SPIN-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for URA-V8-PANEL-RENDER-SPIN-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="FRONT-DOOR-LOCK-OFFLINE-1@2026-10-27T02:08:00" data-card="FRONT-DOOR-LOCK-OFFLINE-1">
-<span class="oc measured">measured</span>
-<span class="fhd">Re-checked 5 cards waiting on you; all still need you: front lock still offline (Z-Wave node dead), kitchen smoke sensor still offline, BLE proxy BP1_B still off, Ollama .62 still not answering. Frigate is healthy (40 fps).<br><span class="ft">2026-10-27T02:08:00</span>
-</span>
-<button type="button" class="ack" data-fid="FRONT-DOOR-LOCK-OFFLINE-1@2026-10-27T02:08:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="FRONT-DOOR-LOCK-OFFLINE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for FRONT-DOOR-LOCK-OFFLINE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
 </ul></details>
 </section>
 <div class="summary">
@@ -560,7 +511,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Investigating <b>0</b></span>
 <span>Pre-planning <b>13</b></span>
 <span>Planned <b>14</b></span>
-<span>In progress <b>0</b></span>
+<span>In progress <b>1</b></span>
 <span>Review <b>4</b></span>
 <span>Waiting on operator <b>32</b></span>
 <span>Waiting on me (Claude) <b>1</b></span>
@@ -617,8 +568,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">0</span><span class="hint">being built</span></h2>
-<div class="none">(none)</div>
+<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
+<div class="cards">
+<details class="card" data-id="SHARED-SPACE-AUTO-OFF-FAILSAFE-1" draggable="true"><summary><span class="id">SHARED-SPACE-AUTO-OFF-FAILSAFE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on</span><div class="tagline">lighting</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-11-03</div><dt>Why</dt><dd>light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -&gt; 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23...</dd><dt>Next</dt><dd>Build: from auto-off hour, sweep at first VACANT tick (occupancy already stuck-sensor-excluded, coordinator.py:2908), include leave-on, keep light_hold_allowed; give up at new cutoff knob (default 05:00); 22:55 warning flash only when oc...</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>tier</code>: 2</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div><div class="instruct"><input type="text" placeholder="comment / instruction for the agent…" aria-label="operator instruction"><button type="button" data-action="instruct">send</button></div></div></details>
+</div>
 </section>
 <section class="lane" data-col="review">
 <h2>Review <span class="count">4</span><span class="hint">under review</span></h2>
@@ -1218,7 +1171,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>30e4c61aab48</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>8f7b088644e4</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
