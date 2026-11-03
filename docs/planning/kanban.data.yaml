@@ -33381,6 +33381,16 @@ cards:
   revisit_trigger: "~30 days of energy_forecast_log rows (from 2026-11-02) show the hvac_zone arm beats v1 and the trailing mean on MAE, and per-zone AC kWh error is reasonable vs SPAN ac1/ac_2/ac_3 actuals."
   links: {"related": ["EC-COST-AND-FORECAST-MATH-1", "URAV8-ZONE-ENERGY-DISPLAY-1"], "context": "Producer is Build 2 D9 hvac_zone arm; display sibling of zone energy display card."}
   next: "On trigger: expose per-zone predicted AC kWh as an attribute (if not already), add to Rooms zone tiles / Residence hero; else park again with evidence."
+- id: ENERGY-TODAY-STATS-STEPPED-RESET-1
+  title: "Staggered midnight room resets reach HA long-term statistics as 2-3 partial drops, each read as a meter reset, so part of yesterday's energy is counted again"
+  thread: energy
+  status: inbox
+  tier: 1
+  created: "2026-11-03"
+  origin: "Review of ENERGY-TODAY-MIDNIGHT-FREEZE-1 (docs/reviews/code-review/energy_today_midnight_freeze_review.md), MEDIUM: pre-existing, not a regression."
+  why: "HA recorder reset_detected (sensor/recorder.py:452) treats a drop below 90% of the previous value as a reset and adds the new value to sum. The fix publishes 34.45 -> 20 -> 4.4, so each partial step re-counts. The old code had about the same overcount, in one step before freezing."
+  links: {"related": ["ENERGY-TODAY-MIDNIGHT-FREEZE-1"]}
+  next: "Measure first: compare the long-term statistics sum change against the per-room sums for 2 nights. If it matters, hold the published value until every room has reset (or set last_reset explicitly) inside the window."
 - id: SHARED-SPACE-AUTO-OFF-FAILSAFE-1
   title: "11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on"
   thread: lighting

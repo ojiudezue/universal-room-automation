@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-03T17:10:10-06:00_ - _Data commit: `435c206297f8`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-03T17:14:32-06:00_ - _Data commit: `bfe1afa60397`_ - _last_reconciled: 2026-11-02_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -15,7 +15,7 @@ _Generated: 2026-11-03T17:10:10-06:00_ - _Data commit: `435c206297f8`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 14 |
@@ -27,7 +27,7 @@ _Generated: 2026-11-03T17:10:10-06:00_ - _Data commit: `435c206297f8`_ - _last_r
 | 🅿️ Parked | 108 |
 | ✅ Done | 403 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -37,6 +37,14 @@ _created 2026-11-01_
 - **Next:** Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases.
 - **Forensic keys (1):**
   - `tier`: 2
+
+### `ENERGY-TODAY-STATS-STEPPED-RESET-1` - Staggered midnight room resets reach HA long-term statistics as 2-3 partial drops, each read as a meter reset, so part of yesterday's energy is counted again — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **inbox**
+_created 2026-11-03_
+- **Why:** HA recorder reset_detected (sensor/recorder.py:452) treats a drop below 90% of the previous value as a reset and adds the new value to sum. The fix publishes 34.45 -> 20 -> 4.4, so each partial step re-counts. The old code had about the ...
+- **Next:** Measure first: compare the long-term statistics sum change against the per-room sums for 2 nights. If it matters, hold the published value until every room has reset (or set last_reset explicitly) inside the window.
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
