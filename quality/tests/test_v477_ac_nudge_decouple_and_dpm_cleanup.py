@@ -1147,6 +1147,36 @@ class TestB2SkipReasonBehavioral:
     callable returning a fixed dict.
     """
 
+    @pytest.fixture(autouse=True)
+    def _summer_clock(self):
+        """TEST-DPM-WINTER-MONTH-COUPLED-1: pin DPM's local month to July.
+
+        The Nov-Feb winter gate in evaluate_with_reason reads
+        ``dt_util.now().month``; pin ``now`` on every reachable dt copy
+        (DPM's binding, sys.modules, the package attribute) and restore.
+        """
+        import sys
+        import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as dp
+        hu = sys.modules.get("homeassistant.util")
+        mods = {}
+        for mod in (getattr(dp, "dt_util", None),
+                    sys.modules.get("homeassistant.util.dt"),
+                    getattr(hu, "dt", None) if hu is not None else None):
+            if mod is not None and hasattr(mod, "now"):
+                mods[id(mod)] = mod
+        saved = [(m, m.now) for m in mods.values()]
+
+        def _july(orig):
+            return lambda *a, **k: orig(*a, **k).replace(month=7)
+
+        try:
+            for m, orig in saved:
+                m.now = _july(orig)
+            yield
+        finally:
+            for m, orig in saved:
+                m.now = orig
+
     def _make_source(self, options=None):
         # Lazy import — avoids module-load cost on collection.
         from custom_components.universal_room_automation.domain_coordinators.dynamic_preset import (

@@ -62,6 +62,8 @@ from test_v47x_dynamic_preset import (  # noqa: F401
     _load_submod,
     _dc_path,
     _dc,
+    # TEST-DPM-WINTER-MONTH-COUPLED-1: autouse July clock (winter gate).
+    _dpm_summer_clock,
 )
 
 from custom_components.universal_room_automation.domain_coordinators.dynamic_preset import (

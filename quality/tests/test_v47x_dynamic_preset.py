@@ -179,6 +179,55 @@ from custom_components.universal_room_automation.domain_coordinators.dynamic_pre
     _passed_boundary_with_buffer,
     SLEEP_FLOOR_F,
 )
+import contextlib as _contextlib
+
+
+def _dpm_dt_copies():
+    """Every reachable ``homeassistant.util.dt`` copy DPM could read.
+
+    TEST-DPM-WINTER-MONTH-COUPLED-1: ``evaluate_with_reason`` skips Nov-Feb
+    via ``dt_util.now().month``. Full-suite collection can leave several
+    live copies of the dt module (this file's mock, the real one, a
+    re-imported one), so pin ``now`` on all of them (same idea as the
+    ``_chicago`` fixture in test_ec_forecast_build2.py).
+    """
+    import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as _dp
+    hu = sys.modules.get("homeassistant.util")
+    found = {}
+    for mod in (getattr(_dp, "dt_util", None),
+                sys.modules.get("homeassistant.util.dt"),
+                getattr(hu, "dt", None) if hu is not None else None):
+        if mod is not None and hasattr(mod, "now"):
+            found[id(mod)] = mod
+    return list(found.values())
+
+
+@_contextlib.contextmanager
+def _dpm_clock(make_now):
+    """Replace ``now`` on every dt copy with ``make_now(original_now)``."""
+    saved = [(m, m.now) for m in _dpm_dt_copies()]
+    try:
+        for m, orig in saved:
+            m.now = make_now(orig)
+        yield
+    finally:
+        for m, orig in saved:
+            m.now = orig
+
+
+def _july(orig):
+    # Keep the real day/time (time still advances); only the month moves.
+    # Every day 1-31 exists in July.
+    return lambda *a, **k: orig(*a, **k).replace(month=7)
+
+
+@pytest.fixture(autouse=True)
+def _dpm_summer_clock():
+    """Pin DPM's local month to July so the winter gate stays out of the way."""
+    with _dpm_clock(_july):
+        yield
+
+
 from custom_components.universal_room_automation.domain_coordinators.preset_overrides import (
     OverrideEngine,
     PresetOverride,
@@ -447,6 +496,28 @@ class TestEvaluateAndEmit:
         assert result[0].preset == "home"
         assert result[0].source == OVERRIDE_SOURCE_DYNAMIC_PRESET
         assert result[0].cool_high is not None
+
+    def test_winter_month_skips(self):
+        """November -> no overrides, reason 'winter_season' (the Nov-Feb gate)."""
+        source = _make_source()
+        zone_data = _default_zone_data()
+        november = datetime(2026, 11, 15, 12, 0, 0)
+        with _dpm_clock(lambda _orig: (lambda *a, **k: november)):
+            overrides, reason = source.evaluate_with_reason(
+                "zone_1", zone_data, delta=10.0, house_state="home_day")
+        assert overrides == []
+        assert reason == "winter_season"
+
+    def test_summer_month_same_inputs_emit(self):
+        """Control for test_winter_month_skips: July, same inputs -> an override."""
+        source = _make_source()
+        zone_data = _default_zone_data()
+        july = datetime(2026, 7, 15, 12, 0, 0)
+        with _dpm_clock(lambda _orig: (lambda *a, **k: july)):
+            overrides, reason = source.evaluate_with_reason(
+                "zone_1", zone_data, delta=10.0, house_state="home_day")
+        assert len(overrides) == 1
+        assert reason is None
 
     def test_extreme_bucket_example(self):
         """δ=+19 → extreme bucket label. v4.7.17.2: see class docstring."""
