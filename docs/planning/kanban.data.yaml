@@ -33486,7 +33486,8 @@ cards:
   verified_2026_10_27: "Still needed. 02:04 CDT: http://192.168.13.62:11434/api/tags gave no response (5 s timeout)."
   title: "Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models"
   thread: optimization
-  status: waiting_operator
+  status: "done"
+  resolved_2026_11_03: "Ollama API answers at 192.168.13.62:11434 (models listed); ICMP ping blocked, which is why ping failed. OC eval can use it."
   tier: 1
   created: "2026-10-26"
   origin: "Operator 2026-10-26: remind operator the .62 fix was due within 2 days (set 10-24); once awake re-run OC slice-0 eval for the three local models."
