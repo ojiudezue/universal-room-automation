@@ -89,3 +89,6 @@ docs/planning/backups/
 # config backups can hold credentials; keep them outside the repo (~/.ura-backups)
 docs/dashboard-prototypes/ura-v8-backups/*configuration.yaml
 docs/dashboard-prototypes/ura-v8-backups/*config_entries*
+
+# Household energy data: local only (operator 2026-11-03)
+data/energy_fit/*.csv
