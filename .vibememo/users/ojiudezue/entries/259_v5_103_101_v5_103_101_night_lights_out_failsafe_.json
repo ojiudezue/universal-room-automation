@@ -1,0 +1,28 @@
+{
+  "format_version": "2.1",
+  "entry_id": "259",
+  "author": "ojiudezue",
+  "session_id": "claude_20261103_232423_ship_v5_103_101",
+  "timestamp": "2026-11-03T23:24:23Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.101 shipped: v5.103.101: night lights-out failsafe; hung camera detector alarm; ack respects speech off; AC savings and energy-today totals fixed at restart and midnight",
+  "summary": "v5.103.101: night lights-out failsafe; hung camera detector alarm; ack respects speech off; AC savings and energy-today totals fixed at restart and midnight",
+  "why": "Kitchen overhead stayed on all night because the 11pm shared-space sweep skipped leave-on lights; it is now a vacancy-gated failsafe. The overnight batch (hung detector alarm, ack speech gate, AC savings totals) was reviewed and waiting. Energy-today totals froze at midnight 2 nights out of 2.",
+  "implications": "Shipped SHARED-SPACE-AUTO-OFF-FAILSAFE-1, CAMERA-SILENT-PRODUCER-TRIPWIRE-1, NM-ACK-TTS-IGNORES-DISABLE-1, HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1, TEST-DPM-WINTER-MONTH-COUPLED-1, ENERGY-TODAY-MIDNIGHT-FREEZE-1 at v5.103.101; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.101.md (Live criteria).",
+  "revisit_trigger": "Kitchen swept after 23:00 tonight with one activity row; totals match their room sums at 00:20; no camera_detector_hung false page in 7 days.",
+  "refs": {
+    "cards": [
+      "SHARED-SPACE-AUTO-OFF-FAILSAFE-1",
+      "CAMERA-SILENT-PRODUCER-TRIPWIRE-1",
+      "NM-ACK-TTS-IGNORES-DISABLE-1",
+      "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1",
+      "TEST-DPM-WINTER-MONTH-COUPLED-1",
+      "ENERGY-TODAY-MIDNIGHT-FREEZE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.101.md"
+    ],
+    "release_notes": "See docs/readmes/README_v5.103.101.md"
+  }
+}

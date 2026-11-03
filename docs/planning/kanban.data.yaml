@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: "2026-11-02"
+  last_reconciled: "2026-11-03"
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -85,7 +85,8 @@ cards:
 - id: HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1
   mergeprep_2026_11_02_overnight: "Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). fix/hvac-kwh-avoided-restart-zero merges clean on its own (git merge-tree). integ/overnight-2026-10-27 (99 behind, 13 ahead) merged into a temp worktree off develop: py_compile OK. Full suite merged = 30 failed / 18872 passed. Plain develop = 30 failed / 18804 passed. The failing-name lists are IDENTICAL, so the branch adds 68 passing tests and no new failure. The 30 are pre-existing on develop: 21 calendar-coupled (TEST-DPM-WINTER-MONTH-COUPLED-1) + 9 order-dependent. Temp worktrees removed. Still ready for the attended deploy."
   mergeprep_2026_11_01_overnight: "Merge-prep re-check 02:03 CST 11-01: integ/overnight-2026-10-27 (28 behind develop) and feature/ec-stream-soc-tier (4 behind) both merge clean (git merge-tree); develop has no custom_components/ or quality/ changes since either merge-base, so the 10-27 suite validation still stands. Review lane = 4 cards (WIP cap reached), so no new builds tonight."
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.101
   updated: "2026-11-03 02:07"
   mergeprep_2026_10_29_overnight: "integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validation still describes current develop; ready to ship as-is at the next attended deploy."
   title: "The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh"
@@ -29084,7 +29085,8 @@ cards:
   recheck_2026_10_25_overnight: "Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built)."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   mergeprep_2026_11_02_overnight: "Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). feat/camera-detector-hung-tripwire-v2 merges clean on its own (git merge-tree). integ/overnight-2026-10-27 (99 behind, 13 ahead) merged into a temp worktree off develop: py_compile OK. Full suite merged = 30 failed / 18872 passed. Plain develop = 30 failed / 18804 passed. The failing-name lists are IDENTICAL, so the branch adds 68 passing tests and no new failure. The 30 are pre-existing on develop: 21 calendar-coupled (TEST-DPM-WINTER-MONTH-COUPLED-1) + 9 order-dependent. Temp worktrees removed. Still ready for the attended deploy."
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.101
   updated: "2026-11-03 02:07"
   mergeprep_2026_10_29_overnight: "integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validation still describes current develop; ready to ship as-is at the next attended deploy."
   triage_2026_10_17: "Default taken: redo the trip-wire as the card proposes, then both reviews again."
@@ -33273,7 +33275,8 @@ cards:
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: NM-ACK-TTS-IGNORES-DISABLE-1
   mergeprep_2026_11_02_overnight: "Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). fix/nm-ack-tts-gate merges clean on its own (git merge-tree). integ/overnight-2026-10-27 (99 behind, 13 ahead) merged into a temp worktree off develop: py_compile OK. Full suite merged = 30 failed / 18872 passed. Plain develop = 30 failed / 18804 passed. The failing-name lists are IDENTICAL, so the branch adds 68 passing tests and no new failure. The 30 are pre-existing on develop: 21 calendar-coupled (TEST-DPM-WINTER-MONTH-COUPLED-1) + 9 order-dependent. Temp worktrees removed. Still ready for the attended deploy."
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.101
   updated: "2026-11-03 02:07"
   mergeprep_2026_10_29_overnight: "integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validation still describes current develop; ready to ship as-is at the next attended deploy."
   title: "Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors)"
@@ -33394,7 +33397,8 @@ cards:
 - id: SHARED-SPACE-AUTO-OFF-FAILSAFE-1
   title: "11pm shared-space auto-off skipped Kitchen overhead (leave-on list) and it stayed on all night: make it a vacancy-gated failsafe that ignores leave-on"
   thread: lighting
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.101
   tier: 2
   created: "2026-11-03"
   origin: "Operator 2026-11-03: 'We have an 11pm lights sweep. But I woke up early to find the kitchen lights on. Tell me why' -> option A approved: 'Its meant to be the fail safe. It should check for vacancy... stuck sensor aware'; retry-until-vacant w/ 05:00 cutoff OK; accept false-occupied trade; flash only if occupied."
@@ -33545,7 +33549,8 @@ cards:
 - id: TEST-DPM-WINTER-MONTH-COUPLED-1
   title: "21 dynamic-preset tests went red on Nov 1 because the code skips dynamic presets in winter months and the tests read the real calendar"
   thread: "test-hygiene"
-  status: "planned"
+  status: shipped_organic
+  shipped_version: v5.103.101
   tier: 1
   created: "2026-11-02 02:24"
   updated: "2026-11-03 02:07"
@@ -33565,7 +33570,8 @@ cards:
 - id: ENERGY-TODAY-MIDNIGHT-FREEZE-1
   title: "Zone and rooms 'energy today' totals freeze at midnight: the first post-midnight sample uses up the day's one allowed reset, so the real reset is then refused and the total holds a stale number for hours"
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.101
   tier: 1
   created: "2026-11-03 02:02"
   updated: "2026-11-03 02:02"
