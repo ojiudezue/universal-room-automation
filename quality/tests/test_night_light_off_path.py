@@ -12,7 +12,8 @@ Sites under test:
 - D1: automation.py::_control_lights_exit
 - D2a/D2b: actuator_reconciler.py::_resolve_light (see test_reconcile_on_return.py)
 - D3a: automation.py::_shared_space_turn_off_all
-- D3b: automation.py::check_auto_off_warning + _warning_flash (+ A2-gate)
+- D3b: automation.py::_warning_flash (+ A2-gate); the T-5 trigger was
+  removed by SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4
 - D5: hvac.py::_execute_vacancy_sweep (see test_hvac_vacancy_sweep_manual_on_guard.py)
 - D6: coordinator.py::_get_builtin_target_entities(TRIGGER_EXIT)
 
@@ -250,70 +251,9 @@ def test_D3a_shared_space_SLEEP_night_only_ALSO_gets_turn_off():
 # ===========================================================================
 
 
-def _prime_warning_time(room):
-    """Configure the room so check_auto_off_warning enters the T-5 branch.
-
-    Sets last_warning_date_hour to a different value, get_auto_off_hour
-    to return a value that when combined with `dt_util.now()` triggers
-    the "warning_hour minute >= 55" branch. Simplest: monkey-patch
-    check_auto_off_warning's now source to a fixed time and set
-    auto_off_hour so warning_hour == now.hour with minute=55.
-    """
-    import custom_components.universal_room_automation.automation as _auto_mod
-
-    fixed = datetime(2026, 9, 1, 22, 55, 0)
-    # dt_util.now is imported at module top as `dt_util`; monkey-patch its
-    # `now` attribute for the duration of the call.
-    room.get_auto_off_hour = lambda: 23  # warning_hour = 22
-    room._last_warning_date_hour = None
-    orig_now = _auto_mod.dt_util.now
-    _auto_mod.dt_util.now = lambda: fixed
-    return orig_now, _auto_mod
-
-
-def _restore_dt(orig_now, mod):
-    mod.dt_util.now = orig_now
-
-
-def test_D3b_check_auto_off_warning_fires_for_night_only_on_light():
-    """D3b: shared-space warning fires when the ONLY on-light is a night-only
-    entity (previously silently missed because lights_on scanned CONF_LIGHTS
-    only). Neutering the widen back to CONF_LIGHTS turns this RED.
-    """
-    room, calls = _make_room(
-        {
-            CONF_LIGHTS: [],
-            CONF_NIGHT_LIGHTS: ["light.night_a"],
-        },
-        sleep=False,
-    )
-    # Prime the night entity as ON.
-    st = MagicMock()
-    st.state = "on"
-    room._test_states["light.night_a"] = st
-
-    # Stub _warning_flash so we OBSERVE it fires without needing the full
-    # dt_util-driven flash body.
-    flash_calls: list = []
-
-    async def _flash():
-        flash_calls.append(1)
-
-    room._warning_flash = _flash
-    room.is_shared_space = lambda: True
-    room.should_warn_before_auto_off = lambda: True
-
-    orig_now, mod = _prime_warning_time(room)
-    try:
-        _run(room.check_auto_off_warning())
-    finally:
-        _restore_dt(orig_now, mod)
-
-    assert flash_calls, (
-        "D3b: check_auto_off_warning MUST detect the night-only ON entity "
-        "and fire the warning flash. Neuter the widen (revert to "
-        "CONF_LIGHTS) and this test goes RED."
-    )
+# check_auto_off_warning (the T-5 trigger) was REMOVED by
+# SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4; the retired _warning_flash body is
+# still pinned below.
 
 
 def test_D3b_A2_gate_warning_flash_EXCLUDES_light_domain_night_only():

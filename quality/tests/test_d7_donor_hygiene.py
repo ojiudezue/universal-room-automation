@@ -266,7 +266,6 @@ DONOR_VICTIMS: dict[str, list[str]] = {
     ],
     "test_oc_pillar_b_admin_surface.py": [
         "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
-        "test_sleep_fans_and_flash.py::TestFixup_CheckAutoOffWarning_Drive::test_switch_only_room_triggers_warning_flash",
     ],
     "test_optimization_coordinator.py": [
         "test_perimeter_alert_nm_routing.py::test_snapshot_id_ttl_expires",
