@@ -188,6 +188,117 @@ from .domain_coordinators._units import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# ENERGY-TODAY-MIDNIGHT-FREEZE-1: minutes after local midnight during which
+# an energy-today total may DROP. Rung 1 (module constant): a protocol window
+# that should change only by reviewed code. Room coordinators reset their
+# energy_today on their own ~30 s ticks, so a composed total resets in several
+# staggered steps over the first minute or two; 15 min covers that with margin.
+# Outside the window a drop is only accepted across a date change (restart
+# after a missed midnight); any other mid-day dip (a room going unavailable)
+# is held, which is the C-H1 protection (342caccf).
+ENERGY_TODAY_RESET_ACCEPT_WINDOW_MIN = 15
+
+
+def _accept_energy_today(entity: Any, current: float) -> float:
+    """Monotonic-per-day guard shared by the composed energy-today totals.
+
+    Reads/writes ``entity._last_valid_value`` and ``entity._last_accepted_date``.
+    A decrease is accepted when the last accepted value is from an earlier
+    local date OR the local time is inside the post-midnight reset window.
+    The previous rule ("one decrease per date") was consumed by the first
+    post-midnight sample, so later staggered room resets were refused and
+    the total froze until the next restart.
+    """
+    now = dt_util.now()
+    today = now.date()
+    last_value = getattr(entity, "_last_valid_value", None)
+    last_date = getattr(entity, "_last_accepted_date", None)
+    if last_value is not None and last_date is not None and current < last_value:
+        in_window = (now.hour * 60 + now.minute) < ENERGY_TODAY_RESET_ACCEPT_WINDOW_MIN
+        if last_date == today and not in_window:
+            return last_value
+    entity._last_accepted_date = today
+    entity._last_valid_value = current
+    return current
+
+
+class _ZoneEnergyRestoreMixin(RestoreEntity):
+    """ZONE-LIVE-POWER-ROLLUP-1 review MEDIUM: survive a mid-day restart.
+
+    Persists (via RestoreEntity extra data) the zone-tier per-sensor
+    baselines and, for the energy sensor, the last accepted value and its
+    local date. On restore: same local day -> reseed; any other day ->
+    start fresh (nothing restored). Without this, a restart re-anchors
+    lifetime counters to 0 and the TOTAL_INCREASING value drops, which
+    the recorder books as a meter reset (statistics overcount).
+
+    ENERGY-TODAY-MIDNIGHT-FREEZE-1: also mixed into RoomsEnergyTotalSensor
+    (no baselines there; only the last value/date round-trip) so a boot
+    sample taken before the rooms have loaded is held, not booked as a reset.
+    """
+
+    _RESTORE_VERSION = 1
+
+    @property
+    def extra_restore_state_data(self):
+        from homeassistant.helpers.restore_state import RestoredExtraData
+        baselines = {}
+        for eid, entry in (getattr(self, "_zone_tier_baselines", None) or {}).items():
+            anchor = entry.get("anchor_date")
+            baselines[eid] = {
+                "scope": entry.get("scope"),
+                "baseline_kwh": entry.get("baseline_kwh"),
+                "anchor_date": anchor.isoformat() if anchor else None,
+            }
+        last_date = getattr(self, "_last_accepted_date", None)
+        return RestoredExtraData({
+            "v": self._RESTORE_VERSION,
+            "last_valid_value": getattr(self, "_last_valid_value", None),
+            "last_accepted_date": last_date.isoformat() if last_date else None,
+            "baselines": baselines,
+        })
+
+    def _apply_restore(self, data: dict | None) -> None:
+        """Reseed same-day state from restored extra data."""
+        if not isinstance(data, dict):
+            return
+        today = dt_util.now().date()
+        today_iso = today.isoformat()
+        if (
+            hasattr(self, "_last_accepted_date")
+            and data.get("last_accepted_date") == today_iso
+            and isinstance(data.get("last_valid_value"), (int, float))
+        ):
+            self._last_accepted_date = today
+            self._last_valid_value = float(data["last_valid_value"])
+        restored = {}
+        for eid, entry in (data.get("baselines") or {}).items():
+            if not isinstance(entry, dict) or entry.get("anchor_date") != today_iso:
+                continue
+            if entry.get("scope") not in ("today_native", "today_derived"):
+                continue
+            try:
+                base = float(entry.get("baseline_kwh") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            restored[eid] = {
+                "scope": entry["scope"], "baseline_kwh": base,
+                "anchor_date": today,
+            }
+        if restored:
+            self._zone_tier_baselines = restored
+            # Already re-evaluated today: do not re-anchor on first read.
+            self._zone_tier_reclassify_date = today
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        try:
+            extra = await self.async_get_last_extra_data()
+            self._apply_restore(extra.as_dict() if extra else None)
+        except Exception as err:  # noqa: BLE001 — restore must never brick setup
+            _LOGGER.debug("Zone '%s': energy restore failed: %s",
+                          getattr(self, "zone", "?"), err)
+
 # v4.7.13 fix-up MEDIUM-2 (interim): Track zones for which the sleep-state
 # person fallback was unavailable so we WARN at most once per boot per zone.
 # Module-level intentionally: cleared on HA process restart, persists across
@@ -3049,20 +3160,7 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         if current is None:
             return None
 
-        today = dt_util.now().date()
-        if not hasattr(self, "_last_accepted_date") or self._last_accepted_date is None:
-            self._last_accepted_date = today
-            self._last_valid_value = current
-            return current
-        if self._last_valid_value is not None and current < self._last_valid_value:
-            if self._last_accepted_date != today:
-                self._last_accepted_date = today
-                self._last_valid_value = current
-                return current
-            return self._last_valid_value
-        self._last_accepted_date = today
-        self._last_valid_value = current
-        return current
+        return _accept_energy_today(self, current)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -3153,7 +3251,7 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
         }
 
 
-class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
+class RoomsEnergyTotalSensor(_ZoneEnergyRestoreMixin, AggregationEntity, SensorEntity):
     """Sensor: Sum of energy from all configured room sensors."""
 
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -3188,21 +3286,7 @@ class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
 
         current = round(total, 2)
 
-        # Fix-up pass C-H1: date-based day-reset acceptance.
-        today = dt_util.now().date()
-        if self._last_accepted_date is None:
-            self._last_accepted_date = today
-            self._last_valid_value = current
-            return current
-        if self._last_valid_value is not None and current < self._last_valid_value:
-            if self._last_accepted_date != today:
-                self._last_accepted_date = today
-                self._last_valid_value = current
-                return current
-            return self._last_valid_value
-        self._last_accepted_date = today
-        self._last_valid_value = current
-        return current
+        return _accept_energy_today(self, current)
     
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -5266,80 +5350,6 @@ class ZoneTotalPowerSensor(ZoneSensorBase, SensorEntity):
         return dict(getattr(self, "_contrib", {}) or {})
 
 
-class _ZoneEnergyRestoreMixin(RestoreEntity):
-    """ZONE-LIVE-POWER-ROLLUP-1 review MEDIUM: survive a mid-day restart.
-
-    Persists (via RestoreEntity extra data) the zone-tier per-sensor
-    baselines and, for the energy sensor, the last accepted value and its
-    local date. On restore: same local day -> reseed; any other day ->
-    start fresh (nothing restored). Without this, a restart re-anchors
-    lifetime counters to 0 and the TOTAL_INCREASING value drops, which
-    the recorder books as a meter reset (statistics overcount).
-    """
-
-    _RESTORE_VERSION = 1
-
-    @property
-    def extra_restore_state_data(self):
-        from homeassistant.helpers.restore_state import RestoredExtraData
-        baselines = {}
-        for eid, entry in (getattr(self, "_zone_tier_baselines", None) or {}).items():
-            anchor = entry.get("anchor_date")
-            baselines[eid] = {
-                "scope": entry.get("scope"),
-                "baseline_kwh": entry.get("baseline_kwh"),
-                "anchor_date": anchor.isoformat() if anchor else None,
-            }
-        last_date = getattr(self, "_last_accepted_date", None)
-        return RestoredExtraData({
-            "v": self._RESTORE_VERSION,
-            "last_valid_value": getattr(self, "_last_valid_value", None),
-            "last_accepted_date": last_date.isoformat() if last_date else None,
-            "baselines": baselines,
-        })
-
-    def _apply_restore(self, data: dict | None) -> None:
-        """Reseed same-day state from restored extra data."""
-        if not isinstance(data, dict):
-            return
-        today = dt_util.now().date()
-        today_iso = today.isoformat()
-        if (
-            hasattr(self, "_last_accepted_date")
-            and data.get("last_accepted_date") == today_iso
-            and isinstance(data.get("last_valid_value"), (int, float))
-        ):
-            self._last_accepted_date = today
-            self._last_valid_value = float(data["last_valid_value"])
-        restored = {}
-        for eid, entry in (data.get("baselines") or {}).items():
-            if not isinstance(entry, dict) or entry.get("anchor_date") != today_iso:
-                continue
-            if entry.get("scope") not in ("today_native", "today_derived"):
-                continue
-            try:
-                base = float(entry.get("baseline_kwh") or 0.0)
-            except (TypeError, ValueError):
-                continue
-            restored[eid] = {
-                "scope": entry["scope"], "baseline_kwh": base,
-                "anchor_date": today,
-            }
-        if restored:
-            self._zone_tier_baselines = restored
-            # Already re-evaluated today: do not re-anchor on first read.
-            self._zone_tier_reclassify_date = today
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        try:
-            extra = await self.async_get_last_extra_data()
-            self._apply_restore(extra.as_dict() if extra else None)
-        except Exception as err:  # noqa: BLE001 — restore must never brick setup
-            _LOGGER.debug("Zone '%s': energy restore failed: %s",
-                          getattr(self, "zone", "?"), err)
-
-
 class ZoneEnergyTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
     """Sensor: Total energy today in zone."""
     
@@ -5394,20 +5404,7 @@ class ZoneEnergyTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntit
 
         current = round(rooms_kwh + zone_kwh, 2)
 
-        today = dt_util.now().date()
-        if self._last_accepted_date is None:
-            self._last_accepted_date = today
-            self._last_valid_value = current
-            return current
-        if self._last_valid_value is not None and current < self._last_valid_value:
-            if self._last_accepted_date != today:
-                self._last_accepted_date = today
-                self._last_valid_value = current
-                return current
-            return self._last_valid_value
-        self._last_accepted_date = today
-        self._last_valid_value = current
-        return current
+        return _accept_energy_today(self, current)
 
 
 class ZoneEnergyCostTodaySensor(_ZoneEnergyRestoreMixin, ZoneSensorBase, SensorEntity):
