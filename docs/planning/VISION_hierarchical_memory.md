@@ -190,3 +190,16 @@ implementation is diffed against.
   not an edge case.
 - Added §7 non-goals after noticing v1 could be read as proposing
   federation and ML — both out of scope for a single-install product.
+
+
+## 8. Next stage (operator 2026-11-03): room-to-room agentic layer — PARKED until OC is proven
+
+**What it is.** Today memory is read-only history behind one query interface. No node writes another node's memory, and there is no bus between rooms. The operator's idea (2026-10-07: "memory allows room to room communication and optimization") is the next stage. Rooms, zones and the house would act on their own and each other's memory through an agent loop, the same shape as the Optimization Coordinator (OC) agent. Every node would run the same cycle: observe its memory, spot a problem, propose a bounded action and check back.
+
+**What does not change.** The memory interface stays read-only. P8 stays parked: memory never feeds safety, security, occupancy creation/release or reserve-floor decisions. Any agent action goes through the same tiers, write interception and check-back as OC.
+
+**Why it is parked.** OC is the first test of one agent working on the whole house (live eval: docs/planning/PLANNING_oc_live_eval_and_context_pack.md). Many room agents talking to each other multiply that agent's failure modes: invented claims, wrong root causes and runaway actions. Prove the single loop first.
+
+**Revisit trigger.** The OC live-eval full round passes and the first OC production slice ships. Then write the design: whether a message bus or shared memory is the channel, which decisions belong to rooms versus the house, and how conflicts are arbitrated. Card: ROADMAP-STALE-AGENTIC-LAYER-1.
+
+**What is still open in memory today.** The `outcome()` verb is a stub. Four episode types have no writer. The zone_phantom writer is parked. None of these blocks OC.

@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-03T16:34:42-06:00_ - _Data commit: `e3bace92b826`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-03T16:46:55-06:00_ - _Data commit: `4737f3e77c80`_ - _last_reconciled: 2026-11-02_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.101.md (2026-11-03) is newer than last_reconciled (2026-11-02)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -1562,7 +1568,9 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
 - **Next:** ANSWER: is the room-to-room agentic layer a near-term priority? YES -> I scope a VISION/epic doc. NO -> I close this card, because the roadmap refresh half is already done.
 - **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
-- **Forensic keys (7):**
+- **Forensic keys (9):**
+  - `operator_decision_2026_11_03`: Add room-to-room agentic layer to the room memory vision; PARK until the OC agent loop is proven (OC live eval passes + first production slice). Recorded in VISION_hierarchical_memory.md section 8.
+  - `revisit_trigger`: OC live-eval full round passes AND the first OC production slice ships.
   - `triage_2026_10_17`: Roadmap half closed (docs/ROADMAP_v12.md exists). Agentic layer parked; revival trigger = operator asks for room-to-room agentic work.
   - `operator_answer_2026_10_16`: YES: "bingo. Draft one for me to review" -> drafting the room-to-room agentic layer vision doc.
   - `evidence_2026_10_08_overnight`: Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_tr...

@@ -10118,6 +10118,8 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT DEAD (gate expired). RETIRED -> done, folded into CHATTER-OBSERVE-CONTROL-D7-1.'
 - id: ROADMAP-STALE-AGENTIC-LAYER-1
+  operator_decision_2026_11_03: "Add room-to-room agentic layer to the room memory vision; PARK until the OC agent loop is proven (OC live eval passes + first production slice). Recorded in VISION_hierarchical_memory.md section 8."
+  revisit_trigger: "OC live-eval full round passes AND the first OC production slice ships."
   triage_2026_10_17: "Roadmap half closed (docs/ROADMAP_v12.md exists). Agentic layer parked; revival trigger = operator asks for room-to-room agentic work."
   operator_answer_2026_10_16: 'YES: "bingo. Draft one for me to review" -> drafting the room-to-room agentic layer vision doc.'
   evidence_2026_10_08_overnight: "Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_transitions history (362k per-person room moves, the same data the memory facade's room-neighbour view is meant to expose, memory_facade.py:_compose_locality, still unpopulated) can vouch for residents at the garage door (60% of unnamed garage crossings vs 10% by chance). If that counts as a near-term priority, populating the facade's neighbour view is a natural first slice of the room-to-room layer."
