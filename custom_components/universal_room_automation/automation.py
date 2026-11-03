@@ -4491,6 +4491,25 @@ class RoomAutomation:
             day = day - timedelta(days=1)
         return day.isoformat()
 
+    def _failsafe_boot_settle_done(self) -> bool:
+        """Boot-settle gate for the night failsafe ONLY — fails CLOSED.
+
+        Unlike ``_away_boot_settle_done`` (fail-open), a presence coordinator
+        that is not registered yet means settle is unknown, so the sweep is
+        skipped this tick and retried on the next one (review B-LOW-1).
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = (
+                getattr(mgr, "coordinators", {}).get("presence")
+                if mgr is not None else None
+            )
+            if presence is None:
+                return False
+            return bool(getattr(presence, "_boot_settle_done", False))
+        except Exception:  # noqa: BLE001 — fail-closed
+            return False
+
     async def check_scheduled_auto_off(self, occupied: bool) -> None:
         """Shared-space night failsafe (SHARED-SPACE-AUTO-OFF-FAILSAFE-1).
 
@@ -4517,7 +4536,7 @@ class RoomAutomation:
             return
         if occupied:
             return
-        if not self._away_boot_settle_done():
+        if not self._failsafe_boot_settle_done():
             return
 
         fired_at = now.strftime("%H:%M")
@@ -4661,7 +4680,8 @@ class RoomAutomation:
         # vacancy exit, reconciler, resolver and zone sweep still honour
         # leave-on independently.
         # Slice C D2: the scheduled auto-off does not undo a person's ON
-        # hold (a hold noted while vacant can still be live here).
+        # hold. A real vacancy transition releases ON holds first, so in
+        # practice this only bites if a hold is live on the sweep tick.
         lights = self.light_hold_allowed(lights, "off")
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]

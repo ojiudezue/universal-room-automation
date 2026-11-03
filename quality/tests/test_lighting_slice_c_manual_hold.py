@@ -440,6 +440,8 @@ def test_h5b_failsafe_sweep_via_check_scheduled_auto_off_spares_held_light(monke
     person(room, "light.a", "on")
     assert holds(room)["light.a"]["on_hold_until"] is not None
     room.auto._last_auto_off_date = None  # make_room builds via __new__
+    room.hass.data["universal_room_automation"]["coordinator_manager"] = SimpleNamespace(
+        coordinators={"presence": SimpleNamespace(_boot_settle_done=True)})
     room.hass.services.calls.clear()
     _run(room.auto.check_scheduled_auto_off(False))
     off = _targets(room.hass, "turn_off")

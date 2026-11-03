@@ -188,6 +188,23 @@ def test_boot_settle_blocks_then_retries(monkeypatch):
     assert _offs(r.log) == ALL_OFF
 
 
+@pytest.mark.parametrize("data_entry", ["no_manager", "no_presence"])
+def test_boot_settle_unknown_fails_closed(monkeypatch, data_entry):
+    """B-LOW-1: presence not registered yet -> skip this tick, retry later."""
+    r = _room()
+    if data_entry == "no_manager":
+        del r.auto.hass.data[DOMAIN]["coordinator_manager"]
+    else:
+        r.auto.hass.data[DOMAIN]["coordinator_manager"] = SimpleNamespace(
+            coordinators={})
+    _tick(monkeypatch, r, datetime(2026, 11, 2, 23, 30), occupied=False)
+    assert r.log == []
+    r.auto.hass.data[DOMAIN]["coordinator_manager"] = SimpleNamespace(
+        coordinators={"presence": r.presence})
+    _tick(monkeypatch, r, datetime(2026, 11, 2, 23, 31), occupied=False)
+    assert _offs(r.log) == ALL_OFF
+
+
 def test_activity_row_names_actual_fire_time(monkeypatch):
     r = _room()
     _tick(monkeypatch, r, datetime(2026, 11, 3, 1, 37), occupied=False)
@@ -269,3 +286,36 @@ def test_cutoff_default_is_five():
     r = _room()
     r.auto.config.pop(C.CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR)
     assert r.auto.get_auto_off_cutoff_hour() == 5
+
+
+# ---------------------------------------------------------------------------
+# Wire-in anchor — the coordinator hands this tick's occupancy to the sweep
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("occupied", [False, True])
+def test_coordinator_helper_passes_tick_occupancy(occupied):
+    co = importlib.import_module(f"{_PKG}.coordinator")
+    seen: list = []
+
+    async def _check(occ):
+        seen.append(occ)
+
+    fake = SimpleNamespace(
+        automation=SimpleNamespace(check_scheduled_auto_off=_check))
+    _run(co.UniversalRoomCoordinator._run_shared_space_failsafe(
+        fake, {C.STATE_OCCUPIED: occupied}))
+    assert seen == [occupied]
+
+
+def test_coordinator_helper_missing_occupancy_reads_vacant_false():
+    co = importlib.import_module(f"{_PKG}.coordinator")
+    seen: list = []
+
+    async def _check(occ):
+        seen.append(occ)
+
+    fake = SimpleNamespace(
+        automation=SimpleNamespace(check_scheduled_auto_off=_check))
+    _run(co.UniversalRoomCoordinator._run_shared_space_failsafe(fake, {}))
+    assert seen == [False]

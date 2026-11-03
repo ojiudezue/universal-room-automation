@@ -27,4 +27,6 @@ Room options, Basic setup, shown when Shared Space is on: **Auto-Off Give-Up Hou
 | No URA errors | log scan for `universal_room_automation` ERROR | pending |
 
 ## Known gap
-The coordinator call that passes the room's occupancy into the sweep (`coordinator.py`, the periodic automation block in `_async_update_data`) has no behavioural test. Nothing in the suite drives the room coordinator's full update. The live criteria above cover it: if the call were wrong, no activity row would appear, or a row would appear while the room was occupied.
+The occupancy hand-off now lives in a small coordinator helper (`_run_shared_space_failsafe`), which has its own test. The single line in `_async_update_data` that calls that helper is still untested, because nothing in the suite drives the room coordinator's full update. The live criteria above cover it: if the call were missing, no activity row would appear.
+
+A restart in the window also skips the sweep until the presence coordinator is registered and settled (fails closed), then retries on the next update.

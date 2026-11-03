@@ -3289,6 +3289,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Check if OverrideVacant switch forces room vacant."""
         return self._get_room_switch_state("override_vacant") is True
     
+    async def _run_shared_space_failsafe(self, data: dict[str, Any]) -> None:
+        """SHARED-SPACE-AUTO-OFF-FAILSAFE-1: hand this tick's occupancy to
+        the shared-space night failsafe (called from the periodic block of
+        ``_async_update_data``)."""
+        await self.automation.check_scheduled_auto_off(
+            data.get(STATE_OCCUPIED, False)
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors."""
         now = dt_util.now()
@@ -5430,9 +5438,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # failsafe — occupancy is this tick's data[STATE_OCCUPIED]
                 # (same source as the temperature fan handler above). The
                 # T-5 warning flash call is removed (D4).
-                await self.automation.check_scheduled_auto_off(
-                    data.get(STATE_OCCUPIED, False)
-                )
+                await self._run_shared_space_failsafe(data)
 
                 # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
                 # v3.20.0: Gated by CoverAutomationSwitch
