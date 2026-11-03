@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-02T10:00:36-06:00_ - _Data commit: `4f18c8aeaad8`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-03T02:05:30-06:00_ - _Data commit: `30e4c61aab48`_ - _last_reconciled: 2026-11-02_
 
 
 ## Columns
@@ -244,7 +244,7 @@ _created 2026-11-03 02:02 · initial_
 
 ### `TEST-DPM-WINTER-MONTH-COUPLED-1` - 21 dynamic-preset tests went red on Nov 1 because the code skips dynamic presets in winter months and the tests read the real calendar — _#2 · WSJF 7.0 · v6 tc6 u2 /e2_
 thread: **test-hygiene** - status: **planned** - approval: **implied**
-_created 2026-11-02 02:24 · initial_
+_created 2026-11-02 02:24 · updated 2026-11-03 02:07 · initial_
 - **Problem / Solution:**
   - Problem: since 1 November the develop test suite has 21 failing tests in the dynamic-preset area. They are not a code regression. The production code deliberately turns dynamic presets off from November to February, and these tests were ...
 - **Origin:** 2026-11-02 - Overnight merge-prep full-suite run (develop vs develop+integ/overnight-2026-10-27) found 30 identical failures on both; 21 trace to the DPM winter-month gate.
@@ -253,8 +253,9 @@ _created 2026-11-02 02:24 · initial_
 - **Tags:** tier-1, no-fabrication-verify
 - **Parsimony:** [BUILD] 21 DPM tests fail from Nov to Feb because they read the real month.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/dynamic_preset.py:597; quality/tests/test_v47x_dynamic_preset.py:445; .claude/tmp/devbase-1102.out
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 1
+  - `verified_2026_11_03_overnight`: STILL-REAL: the 9 DPM test files on develop @30e4c61a give 21 failed, 347 passed, 22 skipped. Not built tonight because the WIP cap applies (4 cards in review).
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **dashboarding** - status: **planned**
@@ -393,9 +394,9 @@ _updated 2026-10-15 02:14_
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#13 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
-_created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
+_created 2026-08-19 07:45 · updated 2026-11-03 02:07 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
-- **Forensic keys (29):**
+- **Forensic keys (30):**
   - `arc_cut_v5_103_71`: parent test-harness arc is actively in progress (Test Wave 2 D7 slices)
   - `SUITE_GREEN_2026_10_23`: Develop full suite is GREEN: 18136 passed, 0 failed (develop 9f8ef656e). Baseline before (57d4d3dc4, docs/planning/suite_baseline_develop_2026_10_23.txt) was 12 failing in 3 files, all stale tests, no production bug: census switches (han...
   - `INSTANCE_2026_10_17_import_time_stubs`: Found by TEST-BAYES-B2-CLOCK-SKEW-1 (overnight 10-17): test_bayesian_predictor.py, test_envoy_auto_derive.py and test_hvac_fan_control.py each still replace the signals module with a small stub at import time and replace the custom_compo...
@@ -425,6 +426,7 @@ _created 2026-08-19 07:45 · updated 2026-10-18 02:06 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
+  - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#14 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
@@ -466,14 +468,14 @@ _created 2026-10-21 20:10 · updated 2026-10-28 02:03_
 
 ### `NM-ACK-TTS-IGNORES-DISABLE-1` - Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors) — _#2 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **notifications** - status: **review** - approval: **implied**
-_created 2026-10-25 02:08 · updated 2026-11-02 02:24 · initial_
+_created 2026-10-25 02:08 · updated 2026-11-03 02:07 · initial_
 - **Problem / Solution:**
   - Problem: when someone acknowledges an alert, the notification manager announces the acknowledgement out loud on the configured speakers without checking whether spoken alerts are switched on. Spoken alerts are off in this house, yet at 0...
 - **Origin:** 2026-10-25 - Overnight pass log read (ha_get_logs source=system): notification_manager.py:3924 ERROR 'TTS ack announcement failed: at least one of entity_id, device_id, area_id, floor_id, label_id is required' at 00:39:32 CDT, same secon...
 - **Why:** Code: _announce_ack (notification_manager.py:3897-3924) checks only CONF_NM_TTS_SPEAKERS and the dry-run gate; it never checks CONF_NM_TTS_ENABLED, whereas the alert path gates TTS through _channel_ready('tts', ...) (notification_manager...
 - **Next:** APPROVE at the next attended deploy: ship branch fix/nm-ack-tts-gate (in integ/overnight-2026-10-27). The engine-target residual stays a later PICK on this card.
 - **Parsimony:** [SIMPLIFY: gate the ack announce on CONF_NM_TTS_ENABLED now (Tier 1); park the engine-target fix as a PICK.] With TTS disabled, an acknowledgement still issues tts.speak to 5 speakers (it errors today only because the call lacks an engine target).
-- **Forensic keys (8):**
+- **Forensic keys (9):**
   - `mergeprep_2026_11_02_overnight`: Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). fix/nm-ack-tts-gate merges clean on its own (git merge-tree). integ/overnight-2026...
   - `mergeprep_2026_10_29_overnight`: integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validati...
   - `tier`: 1
@@ -482,10 +484,11 @@ _created 2026-10-25 02:08 · updated 2026-11-02 02:24 · initial_
   - `adjacency`: Swept board (grep tts/TTS/_announce_ack): only the NM config description card mentions TTS disabled; no card on this. BACKLOG/plans: no TTS-target item. NEW.
   - `residual_engine_target`: Latent, TTS disabled so no live effect: tts.speak needs a tts.* entity target. PICK later: A add an options-flow TTS engine picker (recommended) or B pick tts.home_assistant_cloud by default.
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
+  - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1: merges clean; test_notification_manager.py has no new failures on the merge vs develop.
 
 ### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **hvac** - status: **review** - approval: **implied**
-_created 2026-10-23 02:05 · updated 2026-11-02 02:24 · refined_
+_created 2026-10-23 02:05 · updated 2026-11-03 02:07 · refined_
 - **Problem / Solution:**
   - Problem: two AC-ramp savings sensors say they count 'since the feature was turned on', but they only add up the last 30 days, because old rows are deleted from the database each night. So they go DOWN every midnight. They also show 0 for...
 - **Origin:** 2026-10-23 - overnight pass: HA system_log warning 'ura_hvac_coordinator_ac_kwh_avoided_total ... total_increasing, but its state is not strictly increasing (382.871, previous 402.521)' at 00:00:59 CDT
@@ -493,7 +496,7 @@ _created 2026-10-23 02:05 · updated 2026-11-02 02:24 · refined_
 - **Tags:** found-during-probe, measure-before-build, no-fabrication-verify
 - **Parsimony:** [SIMPLIFY] Two sensors declared as cumulative totals drop every midnight and read 0 at every restart, corrupting HA long-term statistics
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/hvac_override.py:656,2048-2170,5054; custom_components/universal_room_automation/database.py:9100-9140,9237; custom_components/universal_room_automation/sensor.py:13828-13880,14023-14040; docs/planning/PLANNING_hvac_kwh_avoided_savings.md:59
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `mergeprep_2026_11_02_overnight`: Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). fix/hvac-kwh-avoided-restart-zero merges clean on its own (git merge-tree). integ/...
   - `mergeprep_2026_11_01_overnight`: Merge-prep re-check 02:03 CST 11-01: integ/overnight-2026-10-27 (28 behind develop) and feature/ec-stream-soc-tier (4 behind) both merge clean (git merge-tree); develop has no custom_components/ or quality/ changes since either merge-bas...
   - `mergeprep_2026_10_29_overnight`: integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validati...
@@ -505,10 +508,11 @@ _created 2026-10-23 02:05 · updated 2026-11-02 02:24 · refined_
   - `measured_2026_10_23_overnight`: Read-only. (1) PRODUCER: hvac_override.py _refresh_impact_cache computes kwh_avoided_total and savings_lifetime with get_ac_ramp_kwh_avoided(days=None) / get_ac_ramp_savings(days=None), which sum ac_ramp_events. cleanup_ac_ramp_events(re...
   - `adjacency_2026_10_23`: Swept: board (AC-RAMP-SAVINGS-OVERSTATED-1 is DONE and is about magnitude: operator ruled 'directionally accurate, not forensic'. This is a different problem: scope and monotonicity, not precision. ADJACENT, not duplicate), BACKLOG.md:91...
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
+  - `mergeprep_2026_11_03_overnight`: Merge-prep re-run: integ/overnight-2026-10-27 is now 129 commits behind develop, this time with real code drift (v5.103.93-100 touched hvac.py, sensor.py, aggregation.py and the energy_* files). git merge-tree onto develop = clean. In a ...
 
 ### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#4 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **review** - approval: **implied**
-_created 2026-09-17 02:20 · updated 2026-11-02 02:24 · refined_
+_created 2026-09-17 02:20 · updated 2026-11-03 02:07 · refined_
 - **Problem / Solution:**
   - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
 - **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
@@ -517,7 +521,7 @@ _created 2026-09-17 02:20 · updated 2026-11-02 02:24 · refined_
 - **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
 - **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
-- **Forensic keys (16):**
+- **Forensic keys (17):**
   - `mergeprep_2026_11_02_overnight`: Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). feat/camera-detector-hung-tripwire-v2 merges clean on its own (git merge-tree). in...
   - `mergeprep_2026_10_29_overnight`: integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validati...
   - `triage_2026_10_17`: Default taken: redo the trip-wire as the card proposes, then both reviews again.
@@ -534,13 +538,14 @@ _created 2026-09-17 02:20 · updated 2026-11-02 02:24 · refined_
   - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
   - `build_record_2026_10_25`: CAPTURE GAP CLOSED: the 10-21 overnight pass planned (docs/planning/PLANNING_camera_detector_hung_tripwire.md Rev 2, plan-reviewed) AND built this card on feat/camera-detector-hung-tripwire (b499108d8, frozen detection_fps stat check, CA...
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
+  - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1 (integ/overnight-2026-10-27 merges clean onto develop @30e4c61a, 129 commits of drift; test_camera_detector_hung.py all green on the merge; 0 new failures in neighbouring files).
 
 ## ⏸️ Waiting on operator (32)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
 thread: **security** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-07 03:05 · updated 2026-11-02 02:04 · initial_
+_created 2026-10-07 03:05 · updated 2026-11-03 02:08 · initial_
 - **Problem / Solution:**
   - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
 - **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
@@ -549,7 +554,7 @@ _created 2026-10-07 03:05 · updated 2026-11-02 02:04 · initial_
 - **Tags:** config-only
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
-- **Forensic keys (27):**
+- **Forensic keys (28):**
   - `operator_note_2026_11_01`: New locks are being installed soon (relayed via FRONT-LOCK-OFFLINE-1).
   - `reverified_2026_11_02_overnight`: STILL-REAL 02:01 CST (ha_get_state): lock unavailable; kitchen smoke binary_sensor.smoke_sensor_s1_smoke unavailable (since the 11-01 14:04 restart); BP1_B unavailable; switch.ura_nm_panel_channel off; Ollama 192.168.13.62:11434 no answe...
   - `DEDUPE_2026_11_02`: Folded in FRONT-LOCK-OFFLINE-1 (11-01 duplicate). Carried verbatim: why 'lock.doorlock_kwikset_zwave_frontentry unavailable for the full 7-day recorder window; battery sensor statistics stop 2026-05-08 (last reads 20%, 0%, 100%, 0%).' an...
@@ -577,6 +582,7 @@ _created 2026-10-07 03:05 · updated 2026-11-02 02:04 · initial_
   - `reverified_2026_10_21_overnight`: Still waiting on you (live 02:0x CDT): lock.doorlock_kwikset_zwave_frontentry unavailable, sensor.node_3_node_status = dead.
   - `reverified_2026_10_24_overnight`: STILL WAITING (2026-10-24 02:08, ha-mcp): lock.doorlock_kwikset_zwave_frontentry = unavailable. Battery swap still needed.
   - `recheck_2026_10_25_overnight`: STILL-REAL: lock.doorlock_kwikset_zwave_frontentry unavailable at 02:10 CDT; Security periodic lock check warns x4 since the 21:20 restart. Your DO stands.
+  - `reverified_2026_11_03_overnight`: STILL-REAL 02:07 CST (ha_get_state): lock.doorlock_kwikset_zwave_frontentry unavailable and node_3 dead since the 11-02 09:07 restart; binary_sensor.smoke_sensor_s1_smoke unavailable; switch.ura_nm_panel_channel off; BP1_B distance senso...
 
 ### `OLLAMA-WORKSTATION-62-WAKE-1` - Ollama workstation 192.168.13.62 down; fix was due within 2 days of 10-24; then re-run OC slice-0 eval on the three local models — _#2 · WSJF 10.0 · v4 tc4 u2 /e1_
 thread: **optimization** - status: **waiting_operator**
