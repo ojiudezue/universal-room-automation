@@ -28,3 +28,11 @@ Real revert with the Envoy up; cloud moves during an outage; never-landed comman
 Note: deployed 2026-11-01 without restart (operator); takes effect at the next restart.
 
 Deploy note: first push attempt was refused by GitHub secret scanning (a config backup with API keys had been committed in an unrelated docs commit); that file was removed from the unpushed history and kept outside git before this release was pushed.
+
+## Validated (partial) 2026-11-03 ~02:05 CST (overnight pass; fix became active at the 2026-11-02 06:56 restart)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| No false page at the nightly drop | NOT YET DISCRIMINATING | Night of 11-02: native Envoy dropped 23:07–23:38 and there was no `write_reverted` anomaly or "reverted" NM (URA DB `anomaly_log` / `notification_log`). The last false pages were 10-30, 10-31 and 11-01 04:0x Z. **But the trap was not armed:** the evening command was reserve **10** (`pending_write_stuck_state.reserve_soc.commanded_value 10`, commanded 23:00:37Z), and the stale cloud also read 10. With no commanded-vs-cloud divergence, the old code would not have paged either. A discriminating night needs an evening command ≠ the stale cloud value (previous false pages: commanded 30/20/15 vs cloud 10). |
+| Memory recorded | PASS | `battery_strategy` attrs: `reserve_witness_confirm` 10, `reserve_witness_confirm_first_at` 23:02:58Z (~2 min after the 23:00:37Z command), `last_at` kept refreshing (04:27Z → 05:02Z → 06:07Z), `reserve_witness_cloud_at_first` 10. |
+| Load clean | PASS | ha_get_logs source=system, level ERROR, search `universal_room_automation`: 0 entries at 02:03 CST. |

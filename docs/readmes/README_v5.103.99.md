@@ -31,3 +31,13 @@ Card: HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1. Audit: `docs/planning/AUDIT_zone_swee
 | Pre-arrival fans kept | On the next arriving → home transition, pre-arrival fans stay on through the sweep |
 | Opt-out honoured | `vacancy_sweep_enabled` attr = master AND zone setting |
 | Load clean | No URA ERROR after restart |
+
+## Validated 2026-11-03 ~02:04 CST (overnight pass; deploy 2026-11-02 06:52)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Real sweeps recorded | PASS | URA DB `ura_activity_log` `action LIKE '%sweep%'`: exactly 1 row since deploy, at 2026-11-03T01:32:59Z (19:32 CST): zone_1 "Entertainment + Master Suite empty — turned off 1: fan.towerfan_dreopilotmaxs_wifi_livingroom", details `{"turned_off": [...], "house_state": "home_evening", "pre_arrival_fans_kept": false}`. No rows for no-op flips. |
+| Count is real | PASS (doc correction) | The counter is house-level, not per-zone. It is `total_vacancy_sweeps_today` on `sensor.ura_hvac_coordinator_hvac_zone_intelligence` (sensor.py:14242) and `sweeps_today` on the sweep switch (switch.py:4094). It is not on `zone_N_status` as the prospective table said. 1 real sweep in ~19 h, against ~25 flag flips/day before. |
+| Pre-arrival fans kept | not exercised live | No pre-arrival was active during a sweep in the window (the one sweep had `pre_arrival_fans_kept: false`, a non-arrival case). Covered in-suite by `test_hvac_zone_sweep_cleanup.py`. |
+| Opt-out honoured | PASS | `vacancy_sweep_enabled: true` on zone_1/2/3 status (master on, zones on). |
+| Load clean | PASS | ha_get_logs source=system, level ERROR, search `universal_room_automation`: 0 entries. |
