@@ -420,6 +420,32 @@ def test_h5_shared_space_auto_off_spares_held_light():
     assert "light.b" in off and "light.a" not in off
 
 
+def test_h5b_failsafe_sweep_via_check_scheduled_auto_off_spares_held_light(monkeypatch):
+    """SHARED-SPACE-AUTO-OFF-FAILSAFE-1 (plan-review MEDIUM-3): drive the
+    vacancy-gated entry point with a live hold oracle state. A real vacancy
+    transition releases ON holds first (automation.py release_light_holds_
+    on_vacancy), so this does NOT claim a hold survives vacancy; it proves
+    the sweep still consults ``light_hold_allowed`` (hold noted while
+    occupied, sweep entry driven with occupied=False and no transition),
+    while the leave-on light IS swept."""
+    const = _c()
+    fixed = datetime(2026, 11, 3, 1, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(M["automation"], "dt_util",
+                        SimpleNamespace(now=lambda: fixed, utcnow=lambda: fixed))
+    room = make_room({const.CONF_SHARED_SPACE: True,
+                      const.CONF_SHARED_SPACE_AUTO_OFF_HOUR: 23,
+                      const.CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR: 5,
+                      const.CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: ["light.b"]})
+    room.hass.set_state("light.a", "off")
+    person(room, "light.a", "on")
+    assert holds(room)["light.a"]["on_hold_until"] is not None
+    room.auto._last_auto_off_date = None  # make_room builds via __new__
+    room.hass.services.calls.clear()
+    _run(room.auto.check_scheduled_auto_off(False))
+    off = _targets(room.hass, "turn_off")
+    assert "light.b" in off and "light.a" not in off
+
+
 def test_h6_reconciler_does_not_undo_person_on():
     """Sleep + non-night light: the reconciler would assert OFF — the hold
     keeps a person's ON."""

@@ -5425,9 +5425,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # site below, so the safety cap can fire under master-off /
                 # ManualMode / toggle-#3-off.
 
-                # v3.1.0: Shared space scheduled auto-off check
-                await self.automation.check_scheduled_auto_off()
-                await self.automation.check_auto_off_warning()
+                # v3.1.0: Shared space scheduled auto-off check.
+                # SHARED-SPACE-AUTO-OFF-FAILSAFE-1: vacancy-gated night
+                # failsafe — occupancy is this tick's data[STATE_OCCUPIED]
+                # (same source as the temperature fan handler above). The
+                # T-5 warning flash call is removed (D4).
+                await self.automation.check_scheduled_auto_off(
+                    data.get(STATE_OCCUPIED, False)
+                )
 
                 # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
                 # v3.20.0: Gated by CoverAutomationSwitch

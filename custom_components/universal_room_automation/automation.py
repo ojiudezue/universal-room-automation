@@ -195,12 +195,13 @@ from .const import (
     # v3.1.0: Shared space and alerts
     CONF_SHARED_SPACE,
     CONF_SHARED_SPACE_AUTO_OFF_HOUR,
-    CONF_SHARED_SPACE_WARNING,
+    CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
     CONF_ALERT_LIGHTS,
     CONF_ALERT_LIGHT_COLOR,
     ALERT_COLOR_RGB,
     ALERT_COLOR_AMBER,
     DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR,
+    DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
     # v3.18.1: HVAC deconfliction
     CONF_ROOM_NAME,
     # v4.7.16.2: bedroom gate for sleep-state occupied fan trust
@@ -542,13 +543,14 @@ class RoomAutomation:
         # Teardown handles for the per-fan state_change listeners
         # registered in :meth:`_register_humidity_fan_manual_off_listeners`.
         self._humidity_fan_unsub_listeners: list = []
-        # v3.1.0: Shared space - track last auto-off to prevent repeated triggers
+        # v3.1.0: Shared space - track last auto-off to prevent repeated triggers.
+        # SHARED-SPACE-AUTO-OFF-FAILSAFE-1: holds the NIGHT key (the date the
+        # window opened), not the calendar date. In memory only: a restart
+        # after a sweep can re-fire once on a vacant room (idempotent offs).
         self._last_auto_off_date: str | None = None
         # v3.1.0: Alert light state tracking
         self._alert_lights_active: bool = False
         self._alert_light_original_states: dict[str, dict] = {}
-        # Warning flash dedup
-        self._last_warning_date_hour: str | None = None
         # Timed cover open/close dedup
         self._last_timed_open_date: str | None = None
         self._last_timed_close_date: str | None = None
@@ -4457,118 +4459,94 @@ class RoomAutomation:
         """Get the hour for scheduled auto-off (0-23)."""
         return int(self.config.get(CONF_SHARED_SPACE_AUTO_OFF_HOUR, DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR))
 
-    def should_warn_before_auto_off(self) -> bool:
-        """Check if warning flash is enabled before auto-off."""
-        return self.config.get(CONF_SHARED_SPACE_WARNING, True)
+    def get_auto_off_cutoff_hour(self) -> int:
+        """Hour (0-23) the night failsafe gives up (exclusive end of window)."""
+        return int(self.config.get(
+            CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
+            DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
+        ))
 
-    async def check_scheduled_auto_off(self) -> None:
-        """Check if it's time for scheduled auto-off.
-        
-        This implements time-based "lights out" for shared spaces:
-        - At the configured hour (default 11 PM), turn off all devices
-        - Catches devices people forgot about
-        - Only triggers once per day (prevents repeated triggers if called multiple times)
-        
-        Called by coordinator on each update cycle.
+    @staticmethod
+    def _auto_off_night_key(now: datetime, start: int, cutoff: int) -> str | None:
+        """Night key for the shared-space failsafe window, or None outside it.
+
+        S = start (auto-off hour), C = cutoff, h = local hour:
+          * S == C: window is h == S only (the pre-failsafe one-hour rule).
+          * S <  C: S <= h < C.
+          * S >  C: wraps midnight, h >= S or h < C.
+        The key is the date the window OPENED: in the wrap case with h < C it
+        is yesterday's date, so one night never fires twice across midnight.
+        """
+        h = now.hour
+        if start == cutoff:
+            in_window, wraps = h == start, False
+        elif start < cutoff:
+            in_window, wraps = start <= h < cutoff, False
+        else:
+            in_window, wraps = (h >= start or h < cutoff), True
+        if not in_window:
+            return None
+        day = now.date()
+        if wraps and h < cutoff:
+            day = day - timedelta(days=1)
+        return day.isoformat()
+
+    async def check_scheduled_auto_off(self, occupied: bool) -> None:
+        """Shared-space night failsafe (SHARED-SPACE-AUTO-OFF-FAILSAFE-1).
+
+        From the auto-off hour until the cutoff hour, the first tick that sees
+        the room VACANT turns off everything in it (leave-on lights included;
+        manual-on holds still respected). Fires at most once per night. An
+        occupied tick never sweeps; a room occupied all night is not swept.
+
+        ``occupied`` is the coordinator tick's ``data[STATE_OCCUPIED]``.
+        Skipped while the presence boot-settle window is open, so a restart
+        inside the window cannot sweep a room whose sensors are settling.
+        Called by the coordinator on each update cycle.
         """
         if not self.is_shared_space():
             return
-        
-        now = dt_util.now()
-        current_hour = now.hour
-        current_date = now.strftime("%Y-%m-%d")
-        auto_off_hour = self.get_auto_off_hour()
-        
-        # Check if we've already triggered today
-        if self._last_auto_off_date == current_date:
-            return
-        
-        # Check if it's the auto-off hour
-        if current_hour == auto_off_hour:
-            _LOGGER.info(
-                "Shared space scheduled auto-off triggered at %d:00",
-                auto_off_hour
-            )
-            await self._shared_space_turn_off_all()
-            self._last_auto_off_date = current_date
-            # feature/sleep-fans-and-flash: observability write for the
-            # scheduled auto-off (previously logged only). Mirror of the
-            # room-tier fan_off activity write at automation.py:1780.
-            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-            if activity_logger is not None:
-                room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
-                self.hass.async_create_task(activity_logger.log(
-                    coordinator="room",
-                    action="shared_space_auto_off",
-                    description=(
-                        f"Shared space scheduled auto-off at {auto_off_hour}:00"
-                    ),
-                    room=room_name,
-                ))
 
-    async def check_auto_off_warning(self) -> None:
-        """Check if it's time to warn before auto-off (5 minutes before).
-        
-        Flashes lights briefly to warn occupants that auto-off is coming.
-        Called by coordinator on each update cycle.
-        """
-        if not self.is_shared_space():
-            return
-        
-        if not self.should_warn_before_auto_off():
-            return
-        
         now = dt_util.now()
-        auto_off_hour = self.get_auto_off_hour()
-        
-        # Warning at 5 minutes before the hour (e.g., 10:55 PM for 11 PM auto-off)
-        warning_hour = auto_off_hour - 1 if auto_off_hour > 0 else 23
-        
-        if now.hour == warning_hour and now.minute >= 55:
-            # Dedup: only warn once per hour window
-            warning_key = f"{now.date()}-{warning_hour}"
-            if self._last_warning_date_hour == warning_key:
-                return
-            # Check if lights are actually on. feature/sleep-fans-and-flash:
-            # switch.* entries in CONF_LIGHTS are lighting relays by
-            # definition of the config field (see live Kitchen / Game Room
-            # configs). The prior "actual light.* only" check silently
-            # suppressed the warning + flash for rooms whose lights are
-            # entirely on switches — extend to include switch-as-light
-            # states so the warning path fires there too.
-            # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D3b): unconditional union
-            # so the T-5 warning fires for rooms whose ONLY on-lights are
-            # night-only entities.
-            _regular = self.config.get(CONF_LIGHTS, []) or []
-            _night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
-            lights = list(_regular) + [e for e in _night if e not in _regular]
-            lights_on = any(
-                (s := self.hass.states.get(lid)) is not None and s.state == STATE_ON
-                for lid in lights
-            )
-            if lights_on:
-                _LOGGER.info("Shared space auto-off warning - flashing lights")
-                self._last_warning_date_hour = warning_key
-                await self._warning_flash()
-                # feature/sleep-fans-and-flash: observability write for the
-                # warning-flash fire (auto-off path is otherwise invisible
-                # in ura_activity_log). Mirror of the room-tier fan_off
-                # activity write at automation.py:1780.
-                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                if activity_logger is not None:
-                    room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
-                    self.hass.async_create_task(activity_logger.log(
-                        coordinator="room",
-                        action="auto_off_warning_flash",
-                        description=(
-                            f"Auto-off warning flash "
-                            f"(warning at {warning_hour}:55, "
-                            f"auto-off at {auto_off_hour}:00)"
-                        ),
-                        room=room_name,
-                        entity_id=lights[0] if lights else None,
-                    ))
+        night_key = self._auto_off_night_key(
+            now, self.get_auto_off_hour(), self.get_auto_off_cutoff_hour(),
+        )
+        if night_key is None:
+            return
+        if self._last_auto_off_date == night_key:
+            return
+        if occupied:
+            return
+        if not self._away_boot_settle_done():
+            return
 
+        fired_at = now.strftime("%H:%M")
+        _LOGGER.info(
+            "Shared space night failsafe auto-off fired at %s (room vacant)",
+            fired_at,
+        )
+        await self._shared_space_turn_off_all()
+        self._last_auto_off_date = night_key
+        # feature/sleep-fans-and-flash: observability write for the
+        # scheduled auto-off. Mirror of the room-tier fan_off activity write.
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger is not None:
+            room_name = self.config.get(CONF_ROOM_NAME, "Unknown")
+            self.hass.async_create_task(activity_logger.log(
+                coordinator="room",
+                action="shared_space_auto_off",
+                description=(
+                    f"Shared space night failsafe auto-off at {fired_at} "
+                    f"(room vacant)"
+                ),
+                room=room_name,
+            ))
+
+    # SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D4: the T-5 warning flash
+    # (check_auto_off_warning) is REMOVED — the sweep now fires only on a
+    # vacant room, so a flash would warn of nothing. ``_warning_flash`` below
+    # is retired (no production caller) — available if a "failsafe armed"
+    # cue is ever revisited.
     async def _warning_flash(self) -> None:
         """Flash lights briefly to warn of upcoming auto-off.
 
@@ -4677,11 +4655,13 @@ class RoomAutomation:
         regular = self.config.get(CONF_LIGHTS, []) or []
         night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
         lights = list(regular) + [e for e in night_ if e not in regular]
-        # Review A MEDIUM: leave-on lights are exempt from this sweep too.
-        _leave_on = set(self.config.get("lights_leave_on_when_empty", []) or [])
-        lights = [e for e in lights if e not in _leave_on]
+        # SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D2: this is the night failsafe —
+        # leave-on lights are NOT exempt here (sole production caller is
+        # check_scheduled_auto_off, which only fires on a vacant room). The
+        # vacancy exit, reconciler, resolver and zone sweep still honour
+        # leave-on independently.
         # Slice C D2: the scheduled auto-off does not undo a person's ON
-        # while the room is still occupied (the hold ends when it empties).
+        # hold (a hold noted while vacant can still be live here).
         lights = self.light_hold_allowed(lights, "off")
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]

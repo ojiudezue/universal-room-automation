@@ -42,6 +42,7 @@ from const import (  # noqa: E402
     CONF_ROOM_TYPE,
     CONF_SHARED_SPACE,
     CONF_SHARED_SPACE_AUTO_OFF_HOUR,
+    CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR,
     CONF_SHARED_SPACE_WARNING,
     CONF_OVERRIDE_NOTIFICATIONS,
     CONF_NOTIFY_SERVICE,
@@ -729,6 +730,7 @@ class TestD4ConditionalFields:
         keys = _schema_keys(result)
         assert CONF_SHARED_SPACE in keys
         assert CONF_SHARED_SPACE_AUTO_OFF_HOUR not in keys
+        assert CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR not in keys
 
     @pytest.mark.asyncio
     async def test_options_basic_setup_shows_shared_space_when_on(self):
@@ -741,6 +743,16 @@ class TestD4ConditionalFields:
         keys = _schema_keys(result)
         assert CONF_SHARED_SPACE_AUTO_OFF_HOUR in keys
         assert CONF_SHARED_SPACE_WARNING in keys
+        # SHARED-SPACE-AUTO-OFF-FAILSAFE-1 D3: cutoff knob next to the hour,
+        # default 5 (literal, not the imported default).
+        assert CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR in keys
+        ordered = [str(k) for k in result["data_schema"].schema]
+        assert ordered.index(CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR) == (
+            ordered.index(CONF_SHARED_SPACE_AUTO_OFF_HOUR) + 1
+        )
+        for k in result["data_schema"].schema:
+            if str(k) == CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR:
+                assert k.default() == 5
 
     @pytest.mark.asyncio
     async def test_options_notifications_no_override_fields_when_off(self):

@@ -79,7 +79,15 @@ CONF_ZONE_IS_OUTDOOR: Final = "zone_is_outdoor"
 DEFAULT_ZONE_IS_OUTDOOR: Final = False
 CONF_SHARED_SPACE: Final = "shared_space"
 CONF_SHARED_SPACE_AUTO_OFF_HOUR: Final = "shared_space_auto_off_hour"
+# SHARED-SPACE-AUTO-OFF-FAILSAFE-1: retired — no effect. The T-5 warning
+# flash was removed because the night sweep now fires only on a VACANT
+# room, so a flash would warn of nothing. Key kept so stored options load.
 CONF_SHARED_SPACE_WARNING: Final = "shared_space_warning"
+# SHARED-SPACE-AUTO-OFF-FAILSAFE-1 (rung 2, options flow): the night
+# failsafe retries on every vacant-check tick from the auto-off hour until
+# this hour (exclusive; may wrap midnight, e.g. 23 -> 5). Setting it EQUAL
+# to the auto-off hour gives the one-hour window (old behaviour).
+CONF_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR: Final = "shared_space_auto_off_cutoff_hour"
 
 # ============================================================================
 # v3.3.1 MUSIC FOLLOWING CONFIGURATION
@@ -129,6 +137,7 @@ SLEEP_WINDOW_ALERT_THRESHOLD: Final = 5  # During sleep for shared/egress
 
 # Shared space defaults
 DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR: Final = 23  # 11 PM
+DEFAULT_SHARED_SPACE_AUTO_OFF_CUTOFF_HOUR: Final = 5  # 5 AM (window 23 -> 5)
 
 # Aggregation sensor entity IDs (base names)
 AGGREGATION_ANYONE_HOME: Final = "anyone_home"
