@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "257",
+  "author": "ojiudezue",
+  "session_id": "claude_20261103_room_agents_parked",
+  "timestamp": "2026-11-03T23:14:27Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Room-to-room agentic layer written into the memory vision as the next stage, parked until OC is proven",
+  "summary": "Memory stays a read-only, per-node history (no bus, no cross-writes). The operator's room-to-room communication idea becomes a parked next stage modelled on the OC agent loop; revisit after the OC live eval passes and the first OC production slice ships.",
+  "why": "The first OC live run failed on root cause and invented citations. Many agents talking to each other would multiply exactly those failure modes, so the single-agent loop has to be proven first. Nothing open in memory (outcome() stub, 4 writer-less episode types, zone_phantom) blocks OC.",
+  "implications": "No memory build work queued. P8 (memory feeding safety/occupancy/reserve decisions) stays parked permanently even for room agents.",
+  "revisit_trigger": "OC live-eval full round passes AND first OC production slice ships.",
+  "refs": {
+    "cards": [
+      "ROADMAP-STALE-AGENTIC-LAYER-1"
+    ],
+    "docs": [
+      "docs/planning/VISION_hierarchical_memory.md"
+    ]
+  }
+}

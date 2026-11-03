@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-03T16:46:55-06:00_ - _Data commit: `4737f3e77c80`_ - _last_reconciled: 2026-11-02_
+_Generated: 2026-11-03T17:10:10-06:00_ - _Data commit: `435c206297f8`_ - _last_reconciled: 2026-11-02_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -20,12 +20,12 @@ _Generated: 2026-11-03T16:46:55-06:00_ - _Data commit: `4737f3e77c80`_ - _last_r
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 14 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 4 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 3 |
 | 🅿️ Parked | 108 |
-| ✅ Done | 402 |
+| ✅ Done | 403 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -460,25 +460,10 @@ _created 2026-11-03_
 - **Forensic keys (1):**
   - `tier`: 2
 
-## 🔍 Review (4)
+## 🔍 Review (3)
 _under review_
 
-### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _#1 · WSJF 6.5 · v5 tc6 u2 /e2_
-thread: **dashboard** - status: **review**
-_created 2026-10-21 20:10 · updated 2026-10-28 02:03_
-- **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...
-- **Next:** REVIEW: look at the status chips on the ura-v8 room tiles (live since 10-22 on all 47 tiles) and say keep / change. -> On keep I close this card and fold the stale-chip fix (chips that read other entities need them in triggers_update, IN...
-- **Forensic keys (8):**
-  - `groom_2026_10_28`: Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live t...
-  - `INSTANCE_2026_10_26_stale_chip_triggers`: Side finding from the panel-spin audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md): ura-v8 room_card chips read other entities via states[...] without triggers_update, so a chip can show a stale value until its own entit...
-  - `links_added_2026_10_21`: related+DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1,WALLPANEL-URA-NOTIFY-1: Same v8 dashboard batch (People table fix); Halo panels show the same per-room status.
-  - `rerank_2026_10_21`: unscored -> v5 t6 e2: operator approved 10-21; Tier 1 dashboard work, ready to drive
-  - `built_2026_10_22`: Chips live on all 47 ura-v8 tiles (room_card template JS field) + detail popup cards (status/control, unusual, who's here, offline, window+HVAC). Backup docs/dashboard-prototypes/ura-v8-backups/20261022T212645Z_pre_room_status_chips.json...
-  - `tier`: 1
-  - `constraint_operator`: Operator caveat (binding): 'A chip means that on detail card open, the thing can be seen or controlled' - fan chip -> fan can be turned on/off in the room detail; who's-here chip -> presence details visible in detail; same rule for every...
-  - `adjacency`: Swept dashboard cards (DASH-V8-*): NEW; related to the 10-20 ura-v8 tile restyle.
-
-### `NM-ACK-TTS-IGNORES-DISABLE-1` - Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors) — _#2 · WSJF 5.0 · v4 tc4 u2 /e2_
+### `NM-ACK-TTS-IGNORES-DISABLE-1` - Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors) — _#1 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **notifications** - status: **review** - approval: **implied**
 _created 2026-10-25 02:08 · updated 2026-11-03 02:07 · initial_
 - **Problem / Solution:**
@@ -498,7 +483,7 @@ _created 2026-10-25 02:08 · updated 2026-11-03 02:07 · initial_
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
   - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1: merges clean; test_notification_manager.py has no new failures on the merge vs develop.
 
-### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **hvac** - status: **review** - approval: **implied**
 _created 2026-10-23 02:05 · updated 2026-11-03 02:07 · refined_
 - **Problem / Solution:**
@@ -522,7 +507,7 @@ _created 2026-10-23 02:05 · updated 2026-11-03 02:07 · refined_
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
   - `mergeprep_2026_11_03_overnight`: Merge-prep re-run: integ/overnight-2026-10-27 is now 129 commits behind develop, this time with real code drift (v5.103.93-100 touched hvac.py, sensor.py, aggregation.py and the energy_* files). git merge-tree onto develop = clean. In a ...
 
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#4 · WSJF 4.0 · v9 tc9 u2 /e5_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#3 · WSJF 4.0 · v9 tc9 u2 /e5_
 thread: **perimeter** - status: **review** - approval: **implied**
 _created 2026-09-17 02:20 · updated 2026-11-03 02:07 · refined_
 - **Problem / Solution:**
@@ -2741,7 +2726,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (402)
+## ✅ Done (403)
 _closed, evidence in refs_
 
 ### `HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1` - Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2860,6 +2845,22 @@ _created 2026-10-20 19:30 · updated 2026-10-28 10:40 · refined_
   - `d0_result_2026_10_21_overnight`: D0 measurement is DONE (docs/planning/AUDIT_occupancy_anomaly_rate_2026_10_20.md, committed 23699c0b0) and it contradicts 'make the sensor work' as a wiring fix. The model behind the sensor scores where people ARRIVE (room-transition cou...
   - `due_checks_2026_10_21`: SHIPPED v5.103.83 10-21 (live-validated: model built, Study A weekday 18:00 share 0.30). DUE 10-28 10:20: 7-day replay G1-G4 + operator judges each real fire; confirm a NULL-duration exit row exists -> close or tune.
   - `week_check_2026_10_28`: DONE. Replay --days 7 at shipped setting (48d, 0.02, 1800 s): 0 fires; G1-G4 all PASS (G3 Study A 09-17 share 0.533, 0 daytime fires; G4 47/47 learned). Live: 0 occupancy.dwell_anomaly rows ever, 0 on-states across 9 enabled sensors sinc...
+
+### `DASH-V8-ROOM-STATUS-CHIPS-1` - ura-v8 room tiles: conditional status chips (lights on, fan on, paused/override, unusual for this hour, who's here, device offline, window open while HVAC runs), each backed by the room detail card — _WSJF 6.5 · v5 tc6 u2 /e2_
+thread: **dashboard** - status: **done**
+_created 2026-10-21 20:10 · updated 2026-10-28 02:03_
+- **Why:** Chips are absent when the condition is false. Sources: room config control_lights/control_fans (binary_sensor.<room>_occupied attributes), automation mode/override + paused state, occupancy anomaly sensor (v5.103.83), ble_persons/current...
+- **Next:** REVIEW: look at the status chips on the ura-v8 room tiles (live since 10-22 on all 47 tiles) and say keep / change. -> On keep I close this card and fold the stale-chip fix (chips that read other entities need them in triggers_update, IN...
+- **Forensic keys (9):**
+  - `groom_2026_10_28`: Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live t...
+  - `INSTANCE_2026_10_26_stale_chip_triggers`: Side finding from the panel-spin audit (docs/planning/AUDIT_ura_v8_panel_render_spin_2026_10_26.md): ura-v8 room_card chips read other entities via states[...] without triggers_update, so a chip can show a stale value until its own entit...
+  - `links_added_2026_10_21`: related+DASH-V8-PEOPLE-TABLE-ZIRI-NO-BLE-1,WALLPANEL-URA-NOTIFY-1: Same v8 dashboard batch (People table fix); Halo panels show the same per-room status.
+  - `rerank_2026_10_21`: unscored -> v5 t6 e2: operator approved 10-21; Tier 1 dashboard work, ready to drive
+  - `closed_2026_11_03`: Operator: Keep. Stale-chip fix applied live: triggers_update on all 47 room_card tiles (529 entity refs, built from each room's live control_* attributes + tile variables). Backup docs/dashboard-prototypes/ura-v8-backups/20261103T_pre_ch...
+  - `built_2026_10_22`: Chips live on all 47 ura-v8 tiles (room_card template JS field) + detail popup cards (status/control, unusual, who's here, offline, window+HVAC). Backup docs/dashboard-prototypes/ura-v8-backups/20261022T212645Z_pre_room_status_chips.json...
+  - `tier`: 1
+  - `constraint_operator`: Operator caveat (binding): 'A chip means that on detail card open, the thing can be seen or controlled' - fan chip -> fan can be turned on/off in the room detail; who's-here chip -> presence details visible in detail; same rule for every...
+  - `adjacency`: Swept dashboard cards (DASH-V8-*): NEW; related to the 10-20 ura-v8 tile restyle.
 
 ### `HOUSE-SENSOR-CORRECTNESS-1` - House-level sensor correctness fixes from the 10-25 audit: forecast factor poison, cost today, delivery double count, partial periods, false tripped-breaker CRITICALs, next-state ETA, safety available count; scanner_areas own area — _WSJF 6.5 · v6 tc5 u2 /e2_
 thread: **energy** - status: **done**
