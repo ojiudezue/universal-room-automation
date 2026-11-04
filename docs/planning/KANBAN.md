@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-04T02:12:25-06:00_ - _Data commit: `eec11764941d`_ - _last_reconciled: 2026-11-03_
+_Generated: 2026-11-04T02:14:56-06:00_ - _Data commit: `4b7f3201f92a`_ - _last_reconciled: 2026-11-03_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-11-04T02:12:25-06:00_ - _Data commit: `eec11764941d`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 13 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 12 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -223,7 +223,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (13)
+## 📝 Planned (12)
 _has plan / acceptance_
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#1 · WSJF 5.0 · v2 tc1 u2 /e1_
@@ -330,15 +330,7 @@ _created 2026-10-24 08:00_
 - **Forensic keys (1):**
   - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
 
-### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **security** - status: **planned**
-_created 2026-11-01_
-- **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
-- **Next:** Cap failed attempts per device per episode (e.g. 3), then one NM notification and stop until the device changes state; reset on success/state change. Tests + drill.
-- **Forensic keys (1):**
-  - `tier`: 1
-
-### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URAV8-ZONE-ENERGY-DISPLAY-1` - ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboard** - status: **planned**
 _created 2026-11-01 · updated 2026-11-03 02:02_
 - **Why:** Zone energy/power sensors exist (sensor.zone_<name>_energy_today / _total_power) and gain zone-level loads with ZONE-LIVE-POWER-ROLLUP-1. Caution: the Rooms view also renders on wall panels (URA-V8-PANEL-RENDER-SPIN-1, CPU spin) - chips ...
@@ -346,7 +338,7 @@ _created 2026-11-01 · updated 2026-11-03 02:02_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -363,7 +355,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#11 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -383,7 +375,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#12 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-11-03 02:07 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -419,7 +411,7 @@ _created 2026-08-19 07:45 · updated 2026-11-03 02:07 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -434,23 +426,33 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **optimizer** - status: **in_progress** - approval: **implied**
-_created 2026-11-04 02:11 · initial_
+_created 2026-11-04 02:11 · updated 2026-11-04 02:21 · initial_
 - **Problem / Solution:**
   - Problem: about every two to three days the optimizer's AI layer sends a CRITICAL alert to Pushover, WhatsApp, the companion app and iMessage saying the house is 'running blind' because its list of recent findings was cut off. The cut-off...
 - **Origin:** 2026-11-04 - Overnight pass 11-04, found during the v5.103.101 ack-check: the only page since 11-03 noon was a 21:07 CRITICAL 'URA Optimizer — meta' to 4 channels.
 - **Why:** Measured (URA DB notification_log, pushover rows, 10-05..11-04): 9 CRITICAL 'URA Optimizer — meta' + 1 CRITICAL sensor_health; all 9 meta messages are corpus-truncation complaints (10-20 x2, 10-23 x2, 10-26, 10-28, 10-29, 10-31, 11-04; e...
-- **Next:** Me: ura-builder on fix/optimizer-meta-never-pages (worktree) -> one review (Tier 1) -> targeted tests -> review lane. No deploy overnight.
+- **Next:** Me: one serial full-suite name-diff (with the lock retry-cap branch) -> review lane. Then APPROVE at the next attended deploy.
 - **Tags:** tier-1, found-during-probe, measure-before-build, mutation-drill
 - **Parsimony:** [BUILD] Every LLM-emitted critical META finding pages 4 channels, and 9/9 in 30 days were false.
 - **Refs:** domain_coordinators/optimization.py _notify_if_severe; domain_coordinators/optimization_llm.py to_prompt_body
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `build_2026_11_04`: Built on fix/optimizer-meta-never-pages (03d34c87, fix-up 37df2956, README draft e1dc68f0). Tier-1 review SHIP (docs/reviews/code-review/optimizer_meta_never_pages_review.md on the branch): 0 CRIT/HIGH/MED, 2 LOW both fixed (allowlist kn...
   - `tier`: 1
   - `adjacency_2026_11_04`: NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_op...
+
+### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **in_progress**
+_created 2026-11-01 · updated 2026-11-04 02:21_
+- **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
+- **Next:** Me: Tier-1 review (running) -> fix-ups -> one serial full-suite name-diff with OPTIMIZER-META-NEVER-PAGES-1 -> review lane. No deploy overnight.
+- **Forensic keys (2):**
+  - `verify_2026_11_04_overnight`: STILL-REAL (02:14): _evaluate_lock_check (security.py ~1678-1760) had no retry cap / backoff; only the unavailable-device notice was deduped. Gate: Tier 1, BUILD (simplest cap + one notice), no config-only fix (no knob existed). Built 02...
+  - `tier`: 1
 
 ## 🔍 Review (0)
 _under review_

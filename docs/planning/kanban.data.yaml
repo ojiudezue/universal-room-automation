@@ -52,12 +52,13 @@ meta:
   - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-31T02:10:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-10-31T02:10:00", "outcome": "measured", "headline": "Waiting-lane re-check (live states 02:0x): front-door lock still unavailable (Z-Wave node dead), kitchen smoke detector still unavailable, BP1_B proxy still offline, Ollama .62 unreachable, panel channel still off. Frigate healthy (71 detections/s, camera-dark off). No card's blocker has cleared, so no asks changed.", "acknowledged": false}
 cards:
 - id: OPTIMIZER-META-NEVER-PAGES-1
+  build_2026_11_04: "Built on fix/optimizer-meta-never-pages (03d34c87, fix-up 37df2956, README draft e1dc68f0). Tier-1 review SHIP (docs/reviews/code-review/optimizer_meta_never_pages_review.md on the branch): 0 CRIT/HIGH/MED, 2 LOW both fixed (allowlist knob comment; HIGH test made discriminating). Orchestrator re-drill: guard -> 'if False and ...' gives 4 RED, restored clean. Targeted tests 21 passed. The source-grep test test_optimizer_consumer_wired_to_should_defer_helper was replaced by a behavioural, mutation-anchored test."
   title: "The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding"
   thread: optimizer
   status: in_progress
   tier: 1
   created: "2026-11-04 02:11"
-  updated: "2026-11-04 02:11"
+  updated: "2026-11-04 02:21"
   refinement_status: initial
   approval: implied
   tags: [tier-1, found-during-probe, measure-before-build, mutation-drill]
@@ -80,7 +81,7 @@ cards:
     related: [OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1, OC-SHADOW-SAMPLES-EMPTY-1]
     context: "OPTIMIZER-PAGING-PRIMITIVE-1 B1 (v5.101.1) added the truncation notice this card measured as ineffective (residual with its own fix, so a new card). The OC redesign owns the corpus-shape fix parked above."
   adjacency_2026_11_04: "NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_optimization_coordinator.md / OC v2 agentic mention META display only)."
-  next: "Me: ura-builder on fix/optimizer-meta-never-pages (worktree) -> one review (Tier 1) -> targeted tests -> review lane. No deploy overnight."
+  next: "Me: one serial full-suite name-diff (with the lock retry-cap branch) -> review lane. Then APPROVE at the next attended deploy."
   refs: [domain_coordinators/optimization.py _notify_if_severe, domain_coordinators/optimization_llm.py to_prompt_body]
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
@@ -33446,14 +33447,16 @@ cards:
   why: "light.dimmer_tapo_wifi_matter_kitchenoverhead on 21:16 -> 05:01 (11-02/03). Kitchen lights_leave_on_when_empty = [overhead]; _shared_space_turn_off_all exempts leave-on (automation.py:4681). check_scheduled_auto_off fires only in hour 23, occupancy-blind. 30 rooms carry shared_space."
   next: "PICK: (A, recommended) let the night failsafe run in paused rooms too. It is a once-a-night, vacancy-gated safety net, not daytime occupancy automation, so it does not undo why you paused them; Tier 1, one guard moved, plus a test. (B) turn switch.kitchen_automation back on (Kitchen then gets normal occupancy lights AND the failsafe; no code). (C) leave it: the Kitchen stays manual at night. -> On A I build it to review; on B you flip the switch and I re-check the next night's Kitchen row; on C I close this card."
 - id: SECURITY-LOCK-SWEEP-RETRY-CAP-1
+  verify_2026_11_04_overnight: "STILL-REAL (02:14): _evaluate_lock_check (security.py ~1678-1760) had no retry cap / backoff; only the unavailable-device notice was deduped. Gate: Tier 1, BUILD (simplest cap + one notice), no config-only fix (no knob existed). Built 02:14-02:21 on fix/security-lock-sweep-retry-cap @25bc49bb (worktree): SECURITY_LOCK_RETRY_CAP = 3 in const.py (rung 1 module constant, 0 = unlimited), episode keyed on the state's last_changed, reset on locked/closed, one NM notice after N failures. Emission sites: periodic lock loop + garage loop capped; lockdown (_generate_lockdown_actions 1642-1672) is one-shot per alert, left uncapped. The 46/day in March fits the 30-min interval then (max 48/day), so no hidden second path. 6 tests drive the real _evaluate_lock_check; 7 mutation drills RED. In review (one Tier-1 pass, safety-posture framing)."
+  updated: "2026-11-04 02:21"
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
-  status: planned
+  status: "in_progress"
   tier: 1
   created: "2026-11-01"
   origin: "Operator 2026-11-01: does the security sweep close doors, does it check the lock is closed before acting; suspicion it tired batteries."
   why: "AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no backoff: when a lock command fails it re-sends every interval (Mar 8-12: 74 lock commands, 116/133 rows still unlocked after). Battery causality unproven (battery already 20% before the burst)."
-  next: "Cap failed attempts per device per episode (e.g. 3), then one NM notification and stop until the device changes state; reset on success/state change. Tests + drill."
+  next: "Me: Tier-1 review (running) -> fix-ups -> one serial full-suite name-diff with OPTIMIZER-META-NEVER-PAGES-1 -> review lane. No deploy overnight."
 - id: FRONT-LOCK-OFFLINE-1
   updated: "2026-11-02 02:04"
   DEDUPE_2026_11_02: "DUPLICATE of FRONT-DOOR-LOCK-OFFLINE-1 (same entity lock.doorlock_kwikset_zwave_frontentry, same operator action). Created 11-01 by an attended session that missed the older card. Its evidence and the operator's 11-01 note (new locks being installed soon) were copied onto the survivor verbatim. Closed here."
