@@ -1432,6 +1432,10 @@ CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY: Final = "energy_lifetime_net_export_enti
 CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "energy_lifetime_battery_charged_entity"
 CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = "energy_lifetime_battery_discharged_entity"
 CONF_ENERGY_CONSUMPTION_TODAY_ENTITY: Final = "energy_consumption_today_entity"
+# Consumption cross-check: an Envoy "today" reading at or above this fraction
+# of the lifetime counter is a firmware fault (today reporting lifetime), not
+# a divergence. Module constant: a protocol bound, not an operator policy.
+ENVOY_TODAY_LIFETIME_RATIO_MAX: Final = 0.5
 
 # Solar classification modes
 SOLAR_CLASS_MODE_AUTOMATIC: Final = "automatic"
