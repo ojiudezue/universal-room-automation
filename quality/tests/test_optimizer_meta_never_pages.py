@@ -51,7 +51,14 @@ async def test_meta_critical_does_not_page():
 
 
 @pytest.mark.asyncio
-async def test_meta_high_does_not_page():
+async def test_meta_high_does_not_page(monkeypatch):
+    # Review L2: force the HIGH->digest defer gate OFF (as if an operator
+    # had allowlisted "meta"), so only the META guard can stop the page.
+    from custom_components.universal_room_automation.domain_coordinators import (
+        _nm_cycle_a,
+    )
+    monkeypatch.setattr(
+        _nm_cycle_a, "should_defer_high_to_digest", lambda hass, f: False)
     nm = _BindingNM()
     await _coord(nm)._notify_if_severe(
         _finding(OptimizationDimension.META, "high", "llm_meta_h"))
