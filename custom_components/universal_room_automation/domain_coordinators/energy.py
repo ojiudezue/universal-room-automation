@@ -45,6 +45,7 @@ from .energy_forecast import AccuracyTracker, DailyEnergyPredictor, RoomPowerPro
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
 from ..const import DOMAIN as _DOMAIN  # v4.2.5: Module-level for lambda closures
 from .energy_const import (
+    ENVOY_TODAY_LIFETIME_RATIO_MAX,
     EC_STOP_CYCLE_WAIT_S,
     EC_STOP_SAVE_TIMEOUT_S,
     CONF_ENERGY_ARBITRAGE_ENABLED,
@@ -3850,6 +3851,21 @@ class EnergyCoordinator(BaseCoordinator):
         our_delta_kwh = (current_lifetime - self._lifetime_consumption_snapshot) * 1000.0
 
         self._last_crosscheck_hour = now.hour
+
+        # ENVOY-FLAKINESS-181243-1: some Envoy firmware reports the LIFETIME
+        # counter on the "today" sensor (34,412 kWh "today" vs 34.41 MWh
+        # lifetime). A day's total can never approach the lifetime total, so
+        # that input is unusable: skip the comparison and clear any flag it
+        # raised instead of reporting the Envoy as stale.
+        if envoy_today_kwh >= current_lifetime * 1000.0 * ENVOY_TODAY_LIFETIME_RATIO_MAX:
+            _LOGGER.debug(
+                "Consumption cross-check skipped: Envoy today=%.2f kWh is "
+                "lifetime-scale (lifetime %.3f MWh); input unusable.",
+                envoy_today_kwh,
+                current_lifetime,
+            )
+            self._envoy_data_anomaly_at = None
+            return
 
         # Skip early morning when both values are near zero
         if envoy_today_kwh < 1.0 and our_delta_kwh < 1.0:
