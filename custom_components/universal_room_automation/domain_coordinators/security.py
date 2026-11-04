@@ -59,6 +59,7 @@ from ..const import (
     DOMAIN,
     SECURITY_AUTO_FOLLOW_ARM_DELAY_S,
     SECURITY_LOCK_RETRY_CAP,
+    SECURITY_LOCK_RETRY_REARM_S,
 )
 from .base import (
     BaseCoordinator,
@@ -1681,30 +1682,42 @@ class SecurityCoordinator(BaseCoordinator):
     # Periodic lock check (req #8 — armed-independent)
     # =========================================================================
 
-    def _lock_retry_allows(
-        self, entity_id: str, state: Any, retry_capped: list[str]
-    ) -> bool:
+    def _lock_retry_allows(self, entity_id: str, retry_capped: list[str]) -> bool:
         """Retry cap gate for one unlocked/open device (RETRY-CAP-1).
 
-        Called only when the device is unlocked/open. Returns True if the
-        sweep should send another command (and counts it). An episode is keyed
-        on the state's ``last_changed``: a failed command leaves it unchanged,
-        while any real state change (manual lock then unlock, etc.) starts a
-        fresh episode. Devices that are locked/closed have their episode
-        dropped by the caller. Unavailable devices never reach here.
+        Called only when the device is seen unlocked/open. Returns True if the
+        sweep should send another command. The episode starts at the first
+        unlocked/open sighting and ends ONLY when the caller sees the device
+        ``locked`` / ``closed`` (transient locking/jammed/opening/closing
+        states continue it). After SECURITY_LOCK_RETRY_CAP counted commands it
+        returns False and queues ONE cap notice. SECURITY_LOCK_RETRY_REARM_S
+        after capping, a fresh episode starts.
+
+        Observation mode (bug class #23): evaluate() drops every action, so
+        nothing is counted and no notice is marked sent while it is on.
         In memory only: restart = fresh episode.
         """
-        changed = getattr(state, "last_changed", None)
+        now = dt_util.utcnow()
         ep = self._lock_retry_episodes.get(entity_id)
-        if ep is None or ep["changed"] != changed:
-            ep = {"attempts": 0, "changed": changed, "notified": False}
+        if (
+            ep is not None
+            and ep["capped_at"] is not None
+            and SECURITY_LOCK_RETRY_REARM_S > 0
+            and (now - ep["capped_at"]).total_seconds() >= SECURITY_LOCK_RETRY_REARM_S
+        ):
+            ep = None
+        if ep is None:
+            ep = {"attempts": 0, "notified": False, "capped_at": None}
             self._lock_retry_episodes[entity_id] = ep
         if SECURITY_LOCK_RETRY_CAP > 0 and ep["attempts"] >= SECURITY_LOCK_RETRY_CAP:
-            if not ep["notified"]:
+            if ep["capped_at"] is None:
+                ep["capped_at"] = now
+            if not ep["notified"] and not self.observation_mode:
                 ep["notified"] = True
                 retry_capped.append(entity_id)
             return False
-        ep["attempts"] += 1
+        if not self.observation_mode:
+            ep["attempts"] += 1
         return True
 
     async def _evaluate_lock_check(self) -> list[CoordinatorAction]:
@@ -1715,6 +1728,9 @@ class SecurityCoordinator(BaseCoordinator):
         unavailable: list[str] = []
         # Devices that just hit SECURITY_LOCK_RETRY_CAP (notify once each).
         retry_capped: list[str] = []
+        # Every device seen unlocked/open (incl. capped ones) for the sensor;
+        # ``unlocked`` below is the subset actually commanded this sweep.
+        found: list[str] = []
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
@@ -1723,9 +1739,12 @@ class SecurityCoordinator(BaseCoordinator):
                 self._lock_compliance[lock_id] = "unavailable"
                 continue
             self._lock_compliance[lock_id] = state.state
-            if state.state != "unlocked":
+            if state.state == "locked":
                 self._lock_retry_episodes.pop(lock_id, None)
-            elif self._lock_retry_allows(lock_id, state, retry_capped):
+            elif state.state == "unlocked":
+                found.append(lock_id)
+                if not self._lock_retry_allows(lock_id, retry_capped):
+                    continue
                 unlocked.append(lock_id)
                 actions.append(
                     ServiceCallAction(
@@ -1745,9 +1764,12 @@ class SecurityCoordinator(BaseCoordinator):
                 self._lock_compliance[garage_id] = "unavailable"
                 continue
             self._lock_compliance[garage_id] = state.state
-            if state.state != "open":
+            if state.state == "closed":
                 self._lock_retry_episodes.pop(garage_id, None)
-            elif self._lock_retry_allows(garage_id, state, retry_capped):
+            elif state.state == "open":
+                found.append(garage_id)
+                if not self._lock_retry_allows(garage_id, retry_capped):
+                    continue
                 unlocked.append(garage_id)
                 actions.append(
                     ServiceCallAction(
@@ -1851,8 +1873,12 @@ class SecurityCoordinator(BaseCoordinator):
         # depends on CoordinatorManager conflict resolution.
         self._last_lock_sweep = {
             "timestamp": dt_util.utcnow().isoformat(),
-            "found_unlocked": unlocked,
+            "found_unlocked": found,
             "lock_actions_sent": unlocked.copy(),
+            "retry_capped": sorted(
+                eid for eid, ep in self._lock_retry_episodes.items()
+                if ep["capped_at"] is not None
+            ),
             "unavailable": unavailable,
             "checks_today": self._lock_checks_today.value,
         }

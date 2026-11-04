@@ -1,9 +1,10 @@
 """SECURITY-LOCK-SWEEP-RETRY-CAP-1: periodic lock check stops retrying a device
 that will not lock/close after N commands in one episode, notifies once, and
-re-arms when the device changes state.
+re-arms only when the device is seen locked/closed (or after the re-arm
+window).
 
-Drives the real SecurityCoordinator._evaluate_lock_check with a real-ish
-state store (SimpleNamespace states carrying ``state`` + ``last_changed``).
+Drives the real SecurityCoordinator (evaluate / _evaluate_lock_check) with a
+SimpleNamespace state store. dt_util.utcnow is patched, never slept on.
 Cap values are hardcoded literals in assertions (not the imported constant).
 """
 from __future__ import annotations
@@ -32,6 +33,7 @@ sys.modules.update(_SAVED)
 # have re-imported base.py, and isinstance against a different copy is False.
 NotificationAction = security_mod.NotificationAction
 ServiceCallAction = security_mod.ServiceCallAction
+Intent = security_mod.Intent
 
 
 LOCK = "lock.front"
@@ -43,8 +45,8 @@ class _States:
     def __init__(self):
         self._d: dict[str, SimpleNamespace] = {}
 
-    def set(self, eid, state, changed):
-        self._d[eid] = SimpleNamespace(state=state, last_changed=changed)
+    def set(self, eid, state):
+        self._d[eid] = SimpleNamespace(state=state)
 
     def get(self, eid):
         return self._d.get(eid)
@@ -63,9 +65,19 @@ def _make(locks=(LOCK,), garages=()):
     return coord, states
 
 
-def _run(coord):
-    with patch.object(security_mod, "async_dispatcher_send", lambda *a, **k: None):
+def _run(coord, now=T0):
+    with patch.object(security_mod, "async_dispatcher_send", lambda *a, **k: None), \
+            patch.object(security_mod.dt_util, "utcnow", lambda: now):
         return asyncio.run(coord._evaluate_lock_check())
+
+
+def _run_evaluate(coord, now=T0):
+    """Drive the full evaluate() path (incl. the observation-mode drop)."""
+    intent = Intent(source="periodic_lock_check", entity_id="", data={},
+                    coordinator_id="security")
+    with patch.object(security_mod, "async_dispatcher_send", lambda *a, **k: None), \
+            patch.object(security_mod.dt_util, "utcnow", lambda: now):
+        return asyncio.run(coord.evaluate([intent], {}))
 
 
 def _cmds(actions, eid):
@@ -85,7 +97,7 @@ def _cap_notes(actions):
 
 def test_lock_stays_unlocked_exactly_cap_commands_then_one_notify():
     coord, states = _make()
-    states.set(LOCK, "unlocked", T0)
+    states.set(LOCK, "unlocked")
     cmd_count = 0
     notes = []
     for _ in range(8):
@@ -100,36 +112,45 @@ def test_lock_stays_unlocked_exactly_cap_commands_then_one_notify():
 
 def test_lock_becomes_locked_resets_counter_fresh_cap():
     coord, states = _make()
-    states.set(LOCK, "unlocked", T0)
+    states.set(LOCK, "unlocked")
     for _ in range(4):
         _run(coord)
     assert _cmds(_run(coord), LOCK) == []  # capped
-    # Locks, observed locked at a check (counter reset) ...
-    states.set(LOCK, "locked", T0 + timedelta(hours=1))
+    states.set(LOCK, "locked")
     _run(coord)
-    # ... then unlocked again with the SAME last_changed as the original
-    # episode would be impossible live, so isolate the reset: reuse T0.
-    states.set(LOCK, "unlocked", T0)
-    total = sum(len(_cmds(_run(coord), LOCK)) for _ in range(6))
-    assert total == 3
+    states.set(LOCK, "unlocked")
+    acts = [_run(coord) for _ in range(6)]
+    assert sum(len(_cmds(a, LOCK)) for a in acts) == 3
+    assert sum(len(_cap_notes(a)) for a in acts) == 1
 
 
-def test_state_change_between_checks_rearms_episode():
+def test_bounce_through_locking_still_caps():
     coord, states = _make()
-    states.set(LOCK, "unlocked", T0)
-    for _ in range(5):
-        _run(coord)
-    # manual lock + unlock between checks: last_changed advances
-    states.set(LOCK, "unlocked", T0 + timedelta(hours=2))
-    total = sum(len(_cmds(_run(coord), LOCK)) for _ in range(6))
+    total = 0
+    for i in range(10):
+        states.set(LOCK, "locking" if i % 2 else "unlocked")
+        total += len(_cmds(_run(coord), LOCK))
     assert total == 3
 
 
-def test_garage_cover_capped_same_way():
+def test_jammed_not_commanded_and_continues_episode():
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    for _ in range(2):
+        _run(coord)
+    states.set(LOCK, "jammed")
+    for _ in range(3):
+        assert _cmds(_run(coord), LOCK) == []
+    states.set(LOCK, "unlocked")
+    total = sum(len(_cmds(_run(coord), LOCK)) for _ in range(5))
+    assert total == 1  # 2 already spent before the jam
+
+
+def test_garage_cover_capped_and_bounce_through_closing():
     coord, states = _make(locks=(), garages=(GARAGE,))
-    states.set(GARAGE, "open", T0)
     cmds, notes = 0, 0
-    for _ in range(7):
+    for i in range(9):
+        states.set(GARAGE, "closing" if i % 3 == 2 else "open")
         acts = _run(coord)
         c = _cmds(acts, GARAGE)
         assert all(a.service == "cover.close_cover" for a in c)
@@ -137,16 +158,16 @@ def test_garage_cover_capped_same_way():
         notes += len(_cap_notes(acts))
     assert cmds == 3
     assert notes == 1
-    states.set(GARAGE, "closed", T0 + timedelta(minutes=5))
+    states.set(GARAGE, "closed")
     _run(coord)
-    states.set(GARAGE, "open", T0)
+    states.set(GARAGE, "open")
     assert sum(len(_cmds(_run(coord), GARAGE)) for _ in range(5)) == 3
 
 
 def test_cap_zero_is_unlimited(monkeypatch):
     monkeypatch.setattr(security_mod, "SECURITY_LOCK_RETRY_CAP", 0)
     coord, states = _make()
-    states.set(LOCK, "unlocked", T0)
+    states.set(LOCK, "unlocked")
     acts_all = [_run(coord) for _ in range(10)]
     assert sum(len(_cmds(a, LOCK)) for a in acts_all) == 10
     assert sum(len(_cap_notes(a)) for a in acts_all) == 0
@@ -154,11 +175,71 @@ def test_cap_zero_is_unlimited(monkeypatch):
 
 def test_unavailable_not_counted_as_failure():
     coord, states = _make()
-    states.set(LOCK, "unavailable", T0)
+    states.set(LOCK, "unavailable")
     for _ in range(6):
         acts = _run(coord)
         assert _cmds(acts, LOCK) == []
         assert _cap_notes(acts) == []
-    states.set(LOCK, "unlocked", T0)
+    states.set(LOCK, "unlocked")
     total = sum(len(_cmds(_run(coord), LOCK)) for _ in range(6))
     assert total == 3
+
+
+def test_observation_mode_does_not_spend_retries():
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    coord.observation_mode = True
+    for _ in range(5):
+        assert _run_evaluate(coord) == []
+    coord.observation_mode = False
+    acts = [_run_evaluate(coord) for _ in range(5)]
+    assert len(_cmds(acts[0], LOCK)) == 1
+    assert acts[0][[isinstance(a, ServiceCallAction) for a in acts[0]].index(True)].service == "lock.lock"
+    assert sum(len(_cmds(a, LOCK)) for a in acts) == 3
+    assert sum(len(_cap_notes(a)) for a in acts) == 1
+
+
+def test_capped_device_still_in_found_unlocked():
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    for _ in range(4):
+        _run(coord)
+    sweep = coord._last_lock_sweep
+    assert sweep["found_unlocked"] == [LOCK]
+    assert sweep["lock_actions_sent"] == []
+    assert sweep["retry_capped"] == [LOCK]
+
+
+def test_rearm_after_24h():
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    for i in range(4):
+        _run(coord, T0 + timedelta(minutes=60 * i))
+    capped_at = T0 + timedelta(hours=3)
+    # 1 s before the window: still capped
+    assert _cmds(_run(coord, capped_at + timedelta(seconds=86399)), LOCK) == []
+    acts = [_run(coord, capped_at + timedelta(seconds=86400 + 60 * i)) for i in range(5)]
+    assert len(_cmds(acts[0], LOCK)) == 1  # exactly at the window boundary
+    assert sum(len(_cmds(a, LOCK)) for a in acts) == 3
+    assert sum(len(_cap_notes(a)) for a in acts) == 1
+
+
+def test_rearm_zero_never_rearms(monkeypatch):
+    monkeypatch.setattr(security_mod, "SECURITY_LOCK_RETRY_REARM_S", 0)
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    for _ in range(4):
+        _run(coord)
+    assert _cmds(_run(coord, T0 + timedelta(days=30)), LOCK) == []
+
+
+def test_cap_notice_not_lost_to_observation_mode():
+    coord, states = _make()
+    states.set(LOCK, "unlocked")
+    for _ in range(3):
+        _run_evaluate(coord)  # 3 real commands, obs off
+    coord.observation_mode = True
+    assert _run_evaluate(coord) == []  # cap sweep while observing: dropped
+    coord.observation_mode = False
+    notes = sum(len(_cap_notes(_run_evaluate(coord))) for _ in range(3))
+    assert notes == 1

@@ -3432,6 +3432,10 @@ SECURITY_AUTO_FOLLOW_ARM_DELAY_S: Final = 30
 # Kill switch: 0 disables the cap (unlimited retries, the pre-cap behaviour).
 # Numbers-Get-Knobs rung 1 (module constant): security-adjacent, review-gated.
 SECURITY_LOCK_RETRY_CAP: Final = 3
+# Seconds after a device hits the retry cap before a fresh episode starts
+# (fresh N tries + one fresh notice) while it is still unlocked/open.
+# 0 = never re-arm (stay capped until the device is seen locked/closed).
+SECURITY_LOCK_RETRY_REARM_S: Final = 86400
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"
