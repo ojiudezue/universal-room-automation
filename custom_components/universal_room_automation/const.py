@@ -3424,6 +3424,15 @@ CONF_SECURITY_DELEGATE_LIGHTS_TO_NM: Final = "security_delegate_lights_to_nm"
 # should require code review. Not exposed as an operator knob.
 SECURITY_AUTO_FOLLOW_ARM_DELAY_S: Final = 30
 
+# SECURITY-LOCK-SWEEP-RETRY-CAP-1: the periodic lock check re-sends
+# lock.lock / cover.close_cover every interval while a device stays
+# unlocked/open. After this many FAILED attempts in one episode (device still
+# unlocked/open at the next check) the sweep stops commanding that device and
+# sends ONE notification. The episode re-arms when the device changes state.
+# Kill switch: 0 disables the cap (unlimited retries, the pre-cap behaviour).
+# Numbers-Get-Knobs rung 1 (module constant): security-adjacent, review-gated.
+SECURITY_LOCK_RETRY_CAP: Final = 3
+
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"
 ZONE_MODE_OCCUPIED: Final = "occupied"

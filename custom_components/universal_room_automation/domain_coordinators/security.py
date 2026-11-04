@@ -58,6 +58,7 @@ from ..const import (
     CONF_SECURITY_LOCK_ENTITIES,
     DOMAIN,
     SECURITY_AUTO_FOLLOW_ARM_DELAY_S,
+    SECURITY_LOCK_RETRY_CAP,
 )
 from .base import (
     BaseCoordinator,
@@ -611,6 +612,11 @@ class SecurityCoordinator(BaseCoordinator):
         self._last_lock_sweep: dict[str, Any] = {}
         # NM Cycle A A3: per-entity unavailability dedup (unix ts of last emit).
         self._lock_unavailable_last_notified: dict[str, float] = {}
+        # SECURITY-LOCK-SWEEP-RETRY-CAP-1: per-device retry episode for the
+        # periodic lock check. entity_id -> {"attempts": int, "changed": the
+        # state's last_changed when the episode started, "notified": bool}.
+        # In memory only: an HA restart starts a fresh episode by design.
+        self._lock_retry_episodes: dict[str, dict[str, Any]] = {}
 
         # Sub-components
         self._sanction_checker = SanctionChecker(hass)
@@ -1675,12 +1681,40 @@ class SecurityCoordinator(BaseCoordinator):
     # Periodic lock check (req #8 — armed-independent)
     # =========================================================================
 
+    def _lock_retry_allows(
+        self, entity_id: str, state: Any, retry_capped: list[str]
+    ) -> bool:
+        """Retry cap gate for one unlocked/open device (RETRY-CAP-1).
+
+        Called only when the device is unlocked/open. Returns True if the
+        sweep should send another command (and counts it). An episode is keyed
+        on the state's ``last_changed``: a failed command leaves it unchanged,
+        while any real state change (manual lock then unlock, etc.) starts a
+        fresh episode. Devices that are locked/closed have their episode
+        dropped by the caller. Unavailable devices never reach here.
+        In memory only: restart = fresh episode.
+        """
+        changed = getattr(state, "last_changed", None)
+        ep = self._lock_retry_episodes.get(entity_id)
+        if ep is None or ep["changed"] != changed:
+            ep = {"attempts": 0, "changed": changed, "notified": False}
+            self._lock_retry_episodes[entity_id] = ep
+        if SECURITY_LOCK_RETRY_CAP > 0 and ep["attempts"] >= SECURITY_LOCK_RETRY_CAP:
+            if not ep["notified"]:
+                ep["notified"] = True
+                retry_capped.append(entity_id)
+            return False
+        ep["attempts"] += 1
+        return True
+
     async def _evaluate_lock_check(self) -> list[CoordinatorAction]:
         """Check all locks and garage doors, lock any that are unlocked."""
         self._lock_checks_today.increment()
         actions: list[CoordinatorAction] = []
         unlocked: list[str] = []
         unavailable: list[str] = []
+        # Devices that just hit SECURITY_LOCK_RETRY_CAP (notify once each).
+        retry_capped: list[str] = []
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
@@ -1689,7 +1723,9 @@ class SecurityCoordinator(BaseCoordinator):
                 self._lock_compliance[lock_id] = "unavailable"
                 continue
             self._lock_compliance[lock_id] = state.state
-            if state.state == "unlocked":
+            if state.state != "unlocked":
+                self._lock_retry_episodes.pop(lock_id, None)
+            elif self._lock_retry_allows(lock_id, state, retry_capped):
                 unlocked.append(lock_id)
                 actions.append(
                     ServiceCallAction(
@@ -1709,7 +1745,9 @@ class SecurityCoordinator(BaseCoordinator):
                 self._lock_compliance[garage_id] = "unavailable"
                 continue
             self._lock_compliance[garage_id] = state.state
-            if state.state == "open":
+            if state.state != "open":
+                self._lock_retry_episodes.pop(garage_id, None)
+            elif self._lock_retry_allows(garage_id, state, retry_capped):
                 unlocked.append(garage_id)
                 actions.append(
                     ServiceCallAction(
@@ -1769,6 +1807,27 @@ class SecurityCoordinator(BaseCoordinator):
                     "(%d entities within %ds window)",
                     len(unavailable), int(dedup_s),
                 )
+
+        if retry_capped:
+            _LOGGER.warning(
+                "Periodic lock check: retry cap (%d) reached, stopped "
+                "commanding: %s",
+                SECURITY_LOCK_RETRY_CAP,
+                ", ".join(retry_capped),
+            )
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=Severity.MEDIUM,
+                    message=(
+                        f"Lock check: {', '.join(retry_capped)} did not "
+                        f"lock/close after {SECURITY_LOCK_RETRY_CAP} tries. "
+                        "URA has stopped retrying until it changes state."
+                    ),
+                    channels=["security"],
+                    description="Lock check retry cap notification",
+                )
+            )
 
         if unlocked:
             _LOGGER.info(
