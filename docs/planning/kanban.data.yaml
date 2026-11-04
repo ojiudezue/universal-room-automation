@@ -30959,7 +30959,8 @@ cards:
     all-fresh ages should read data_anomaly_age_seconds first.'
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
-  status: "waiting_operator"
+  status: shipped_organic
+  shipped_version: v5.103.102
   update_2026_10_15: "Draft done 2026-10-14: docs/planning/DRAFT_envoy_upstream_issue.md (comment on core #181243). DO: add firmware, pyenphase version and a debug log, then post. Measured 2026-10-15: 0 dropouts on 10-15 to 16:51 vs 4-13/day; inconclusive whether stall-related (53% of 17 dropouts had a >=1 s stall within 60 s vs 28% base rate; confounded by Wi-Fi 10-13, GC freeze 10-14, SPAN 10-14)."
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
