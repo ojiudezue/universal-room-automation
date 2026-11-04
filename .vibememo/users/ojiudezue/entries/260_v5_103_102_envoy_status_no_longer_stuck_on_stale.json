@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "260",
+  "author": "ojiudezue",
+  "session_id": "claude_20261104_033517_ship_v5_103_102",
+  "timestamp": "2026-11-04T03:35:17Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.102 shipped: Envoy status no longer stuck on stale",
+  "summary": "Envoy status no longer stuck on stale",
+  "why": "The Envoy firmware puts its lifetime consumption counter (34,412 kWh) on the consumption-today sensor. URA's hourly cross-check compared that to its own daily total, saw a 99.7 percent gap, and held envoy_status on stale for weeks although every reading was fresh. Skipping lifetime-scale readings removes a false alarm without hiding real divergence.",
+  "implications": "Shipped ENVOY-FLAKINESS-181243-1 at v5.103.102; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.102.md (Live criteria).",
+  "revisit_trigger": "If Enphase fixes the today counter, the guard becomes inert; no removal needed.",
+  "refs": {
+    "cards": [
+      "ENVOY-FLAKINESS-181243-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.102.md"
+    ],
+    "release_notes": "The Envoy reports its lifetime counter on the consumption-today sensor; the hourly cross-check now ignores that impossible reading instead of marking the Envoy stale."
+  }
+}
