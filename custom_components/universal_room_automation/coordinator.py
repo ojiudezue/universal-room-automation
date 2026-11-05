@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.103
+# Universal Room Automation vv5.103.104
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -60,10 +60,8 @@ from .const import (
     CONF_POWER_SENSORS,
     CONF_ENERGY_SENSOR,
     CONF_ENERGY_SENSORS,
-    CONF_ELECTRICITY_RATE,
     DEFAULT_OCCUPANCY_TIMEOUT,
     DEFAULT_OCCUPANCY_DEBOUNCE,
-    DEFAULT_ELECTRICITY_RATE,
     STATE_OCCUPIED,
     STATE_MOTION_DETECTED,
     STATE_PRESENCE_DETECTED,
@@ -1499,19 +1497,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         # Use integration defaults
         return self._get_global_config(key, default)
-    
-    def _get_electricity_rate(self) -> float:
-        """Get electricity rate with proper fallback chain.
-        
-        1. Room-level rate (if set)
-        2. Integration-level default rate
-        3. Constant default
-        """
-        room_rate = self._get_config(CONF_ELECTRICITY_RATE)
-        if room_rate is not None:
-            return room_rate
-        
-        return self._get_global_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
     
     async def async_config_entry_first_refresh(self) -> None:
         """Perform first refresh and set up event listeners.
@@ -5623,8 +5608,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 data[STATE_ENERGY_MONTHLY] = self._cached_predictions[STATE_ENERGY_MONTHLY]
 
             # Energy costs (computed fresh from cached energy values)
-            # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
-            electricity_rate, _rate_src = _get_effective_rate_kwh(self.hass, room_entry=self.entry)
+            # v4.6.8: Use TOU-aware rate via helper (EC first, then global, default).
+            electricity_rate, _rate_src = _get_effective_rate_kwh(self.hass)
             if data.get(STATE_ENERGY_WEEKLY) is not None:
                 data[STATE_ENERGY_COST_WEEKLY] = round(data[STATE_ENERGY_WEEKLY] * electricity_rate, 2)
             if data.get(STATE_ENERGY_MONTHLY) is not None:

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.103
+# Universal Room Automation vv5.103.104
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.103"
+VERSION: Final = "v5.103.104"
 
 # EC-LOADED-VS-INSTALLED-VERSION-1 — how often the on-disk manifest is re-read
 # to detect an installed-but-not-restarted deploy. Rung 1 (module constant):
@@ -502,9 +502,10 @@ ROOM_TYPE_INFRASTRUCTURE: Final = "infrastructure"  # v4.2.0: Always-on equipmen
 ROOM_TYPE_HALLWAY: Final = "hallway"
 
 # ROOM-TYPE-TRIMMED-MENU-1 (rung 1): room options menu steps, in render
-# order, and the steps each room type shows by default in Simple mode.
-# A hidden step still appears when it holds a non-default value, and
-# "More settings" / HA Advanced mode always shows every step
+# order, and the steps each room type shows by default.
+# Applies in Simple AND Advanced mode (2026-11-05); Advanced mode only
+# reveals Advanced fields inside steps. A hidden step still appears when it
+# holds a non-default value, and "More settings" shows every step
 # (config_flow.py async_step_init room branch).
 ROOM_MENU_STEPS_ALL: Final = (
     "basic_setup", "sensors", "devices",

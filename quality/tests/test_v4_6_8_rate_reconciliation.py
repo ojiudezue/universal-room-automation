@@ -88,19 +88,18 @@ class TestD2EffectiveRateHelper:
         assert rate == 0.21
         assert isinstance(rate, float)
 
-    def test_effective_rate_falls_back_to_room_override(self):
-        """Helper returns room entry's electricity_rate when EC absent."""
-        hass = self._make_hass_no_ec()
-        room_entry = MockConfigEntry(
-            data={},
-            options={"electricity_rate": 0.15},
+    def test_effective_rate_ignores_room_override(self):
+        """ROOM-TYPE-TRIMMED-MENU-1 D2: the room tier is gone. With EC absent
+        the real helper returns DEFAULT (0.15) even though a room stores
+        0.11; the helper takes no room entry at all."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_billing import (
+            _get_effective_rate_kwh,
         )
-        # No EC → room override
-        manager = hass.data.get("universal_room_automation", {}).get("coordinator_manager")
-        assert manager is None  # Confirmed no EC
-
-        room_rate = room_entry.options.get("electricity_rate", room_entry.data.get("electricity_rate"))
-        assert room_rate == 0.15
+        hass = self._make_hass_no_ec()
+        assert _get_effective_rate_kwh(hass) == (0.15, "static_config")
+        with pytest.raises(TypeError):
+            _get_effective_rate_kwh(hass, room_entry=MockConfigEntry(
+                data={}, options={"electricity_rate": 0.11}))
 
     def test_effective_rate_falls_back_to_default(self):
         """Helper returns DEFAULT_ELECTRICITY_RATE when EC absent and no room override."""

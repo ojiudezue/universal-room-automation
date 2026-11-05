@@ -435,13 +435,11 @@
         "data": {
           "power_sensors": "Power Sensors",
           "energy_sensors": "Energy Sensors",
-          "electricity_rate": "Room Fallback Rate Override",
           "notify_daily_energy_summary": "Daily Summary"
         },
         "data_description": {
           "power_sensors": "Sensors showing current power draw (watts)",
           "energy_sensors": "Sensors showing cumulative energy usage (kWh). Select multiple for rooms with separate circuits.",
-          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
           "notify_daily_energy_summary": "Send daily energy usage summary notification"
         }
       },
@@ -2168,13 +2166,11 @@
         "data": {
           "power_sensors": "Power Sensors",
           "energy_sensors": "Energy Sensors",
-          "electricity_rate": "Fallback Electricity Rate",
           "notify_daily_energy_summary": "Daily Summary Notification"
         },
         "data_description": {
           "power_sensors": "Power (W or kW) sensors for this room. Used for room-level energy monitoring.",
           "energy_sensors": "Cumulative energy (kWh) sensors for this room. Used for room-level energy monitoring.",
-          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
           "notify_daily_energy_summary": "Send a daily summary notification with this room's energy use."
         }
       },

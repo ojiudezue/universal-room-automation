@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "262",
+  "author": "ojiudezue",
+  "session_id": "claude_20261105_214145_ship_v5_103_104",
+  "timestamp": "2026-11-05T21:41:45Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.104 shipped: Room menu trims by room type in Advanced mode; room cost uses house rate",
+  "summary": "Room menu trims by room type in Advanced mode; room cost uses house rate",
+  "why": "Operator saw full closet menus; the cause was HA forcing show_advanced_options=True (deprecated, removed 2027.6), so a trim gated on Simple mode never ran. Chose trimming purely by room type (More settings one click away) over waiting for the HA replacement. Replay also found stored room rate 0.11 vs default 0.15 revealing Energy in most closets, while room cost already used the EC TOU rate first - the room rate was a dead fallback, so we removed it rather than adding a fixed/TOU switch. Review C found the weekly/monthly cost site untested; fixed in-cycle with a mutation-verified test. Advanced-only field hiding is still off live; tracked on HA-2027-DEPRECATIONS-URA-1.",
+  "implications": "Shipped ROOM-TYPE-TRIMMED-MENU-1 at v5.103.104; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.104.md (Live criteria).",
+  "revisit_trigger": "Stair Closet options menu via REST shows the closet steps plus show_all_settings (not 12); room cost sensors still compute from the EC TOU rate",
+  "refs": {
+    "cards": [
+      "ROOM-TYPE-TRIMMED-MENU-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.104.md"
+    ],
+    "release_notes": "The room options menu now shows only the steps a room type needs (plus More settings) whether or not Advanced mode is on - HA now always reports Advanced mode, so the trim had never run live. The per-room electricity rate is removed from the room Energy step; room cost uses the Energy Coordinator TOU rate, then the house-wide rate. Stored room rates are kept but no longer read or used to reveal the Energy step."
+  }
+}
