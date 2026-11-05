@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-04T02:14:56-06:00_ - _Data commit: `4b7f3201f92a`_ - _last_reconciled: 2026-11-03_
+_Generated: 2026-11-04T02:24:22-06:00_ - _Data commit: `d2d0720184d9`_ - _last_reconciled: 2026-11-03_
 
 
 ## Columns
@@ -12,14 +12,14 @@ _Generated: 2026-11-04T02:14:56-06:00_ - _Data commit: `4b7f3201f92a`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 12 |
+| 📝 Planned | 13 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 4 |
 | 🅿️ Parked | 109 |
-| ✅ Done | 407 |
+| ✅ Done | 408 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -223,7 +223,7 @@ _updated 2026-10-21 22:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (12)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#1 · WSJF 5.0 · v2 tc1 u2 /e1_
@@ -338,7 +338,15 @@ _created 2026-11-01 · updated 2026-11-03 02:02_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1` - Zone slug cleanup removes URA zone devices without checking they have 0 entities — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **devices** - status: **planned**
+_created 2026-11-04_
+- **Why:** __init__.py:~4928 calls dev_reg.async_remove_device for any zone_* identifier not in raw_zone_ids. If raw_zone_ids is transiently incomplete (load order, a config read error), a live zone device and its entity customizations are deleted....
+- **Next:** Add a 0-entity guard (er.async_entries_for_device(..., include_disabled_entities=True) empty) before removing; log and skip otherwise. Behavioral test: a zone device with an entity survives when its id is missing from raw_zone_ids; mutat...
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#10 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -355,7 +363,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#11 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-10-15 02:14_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -375,7 +383,7 @@ _updated 2026-10-15 02:14_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#11 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#12 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-11-03 02:07 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
@@ -411,7 +419,7 @@ _created 2026-08-19 07:45 · updated 2026-11-03 02:07 · refined_
   - `INSTANCE_2026_10_18_unload_hygiene_order`: Overnight build observation: test_unload_symmetry_task_hygiene.py::test_room_name_desync_retry_registers_on_unload_when_loaded and ::test_room_name_desync_retry_cancels_inline_when_not_loaded fail with AttributeError when run together wi...
   - `INSTANCE_2026_11_03_optimization_isolation`: Found during overnight merge-prep. quality/tests/test_optimization_coordinator.py run ALONE on develop @30e4c61a gives 10 failed (registration, arrester_via_coordinator_manager, handshake_suppresses_hvac, handshake_veto, kill_switch_abor...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#12 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#13 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -2689,7 +2697,7 @@ _created 2026-10-03 02:40 · updated 2026-10-12 02:06 · initial_
   - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
   - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
 
-## ✅ Done (407)
+## ✅ Done (408)
 _closed, evidence in refs_
 
 ### `HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1` - The 'AC kWh avoided (total)' and 'AC ramp savings lifetime' sensors are not totals: they drop every midnight (30-day window) and read 0 for about a minute after every restart, which has pushed HA's long-term sum to about 212,000 kWh — _WSJF 4.5 · v4 tc3 u2 /e2_
@@ -2762,6 +2770,15 @@ _created 2026-11-03 02:02 · updated 2026-11-04 02:11 · initial_
   - `tier`: 1
   - `consumers`: Display and HA long-term statistics only (state_class total_increasing). The PWA Rooms view reads rooms_energy_total, the ura-v8 zone chips are planned (URAV8-ZONE-ENERGY-DISPLAY-1) and the zone cost-today sensors multiply zone energy. T...
   - `gate_2026_11_03`: Validity: STILL-REAL (live read above). Config-first: no knob governs the guard. Prior-art: REUSE the existing _last_accepted_date guard and fix it in place in one shared helper for all three sensors (do not add a fourth copy). Parsimony...
+
+### `OC-LOCAL-MODEL-SLIM-PACK-1` - OC eval: can a small local model (<=9B / MoE) do L03 on a slim ~16k-token pack at 32k context? — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **optimization** - status: **done**
+_created 2026-11-04_
+- **Why:** On the full 53k pack at 96k context every local model failed L03: qwen3.5:9b score 0 (decoy), gemma4:12b empty replies after 1 call in 29 min, glm4:9b text-only, qwen3.5:27b/deepseek-r1:14b would not load. Sonnet 5.5 scored 0.5. Slim pac...
+- **Next:** One L03 run each started 2026-11-04 for qwen3.5:4b, gemma4:e4b, granite4:tiny-h. Revive (unpark) only if any one submits a report with score >0 and no trap hit; otherwise close done with the table.
+- **Forensic keys (2):**
+  - `tier`: 1
+  - `result_2026-11-04`: No model met the bar; closed. qwen3.5:4b: 24 calls, then an empty reply, no report (38 min). gemma4:e4b: report, score 0, 3 bad citations, unsupported claims (36 min). granite4:tiny-h: 3 calls, then text with no report (16 min). Runs: sc...
 
 ### `HVAC-ZONE-SWEEP-PURPOSE-AND-FIXES-1` - Zone vacancy sweep: prove when it actually turns things off, decide whether it fights room automation or covers unautomated rooms, sweep lights AND switches, fix per-zone opt-out and docs — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **done**

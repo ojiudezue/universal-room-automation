@@ -32046,6 +32046,18 @@ cards:
     context: 'BOOT-EVENT-LOOP-FREEZE-1 shipped the watchdog (v5.103.26/.28); this is a teardown defect in it, found while disposing that card.'
   rank: {value: 3, time_criticality: 2, effort: 2}
   refs: [custom_components/universal_room_automation/domain_coordinators/_loop_stall_watchdog.py:249-292]
+- id: ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1
+  title: "Zone slug cleanup removes URA zone devices without checking they have 0 entities"
+  thread: devices
+  status: planned
+  tier: 1
+  created: "2026-11-04"
+  updated: "2026-11-04"
+  origin: "Device-tree re-review vs HA 2026.11 child devices (operator 2026-11-04: 'we still have some gaps in our implementation'); flagged earlier in DEVICE_ENTITY_DEFRAG_POSTMORTEM.md, never carded."
+  links:
+    related: [HA-2027-DEPRECATIONS-URA-1]
+  why: "__init__.py:~4928 calls dev_reg.async_remove_device for any zone_* identifier not in raw_zone_ids. If raw_zone_ids is transiently incomplete (load order, a config read error), a live zone device and its entity customizations are deleted. Audit: docs/planning/AUDIT_device_tree_vs_ha_2026_11_child_devices.md."
+  next: "Add a 0-entity guard (er.async_entries_for_device(..., include_disabled_entities=True) empty) before removing; log and skip otherwise. Behavioral test: a zone device with an entity survives when its id is missing from raw_zone_ids; mutation-verify the guard."
 - id: HA-2027-DEPRECATIONS-URA-1
   triage_2026_10_17: "Default A taken: collapsible Advanced sections."
   DEDUPE_2026_10_14: "Folded in URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1 (created 10-13, a duplicate of this card's device-registry half; my adjacency sweep missed it). Carried over verbatim (the union): STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boot) warns for __init__.py:5227 (devices as mapping, breaks 2027.9) and __init__.py:5305 + _devices.py:607 (async_get_device, breaks 2027.8). HA 2026.10.1 source (github raw helpers/device_registry.py, read 10-14): async_get_device(identifiers=, connections=) now report_usage ERROR, breaks_in_ha_version 2027.8.0 (:2039-2066). Replacements are async_get_device_by_identifier(identifier: tuple, config_entry_id: str) (:2091), async_get_device_by_connection(connection, config_entry_id) (:2119) and async_get_devices(*, identifiers=, connections=, config_entry_id=) -> list (:2132). The new lookups REQUIRE a config_entry_id. The `devices` property is now a backwards-compat view (iterate it; mapping use is deprecated, 2027.9). DeviceEntry.config_entries / primary_config_entry are deprecated in favour of a single config_entry_id (2027.10, :393/:433/:625). Old multi-entry devices are split into per-entry \"composite\" devices (:2070-2085). Sites (grep 10-14, 21): __init__.py:1404,1410,1441,5218-5227,5305; entity.py:80; button.py:302; _devices.py:228,238,267,297,319,341,345,438,492,607; config_flow.py:10742,11934. TEST CONSTRAINT: .venv-ha runs HA 2026.2.3 (homeassistant.const.__version__), so the 2026.10 replacement APIs do not exist in the local test environment. The plan must decide between upgrading the venv and version-guarded code + fakes. NEW vs the 10-05 gate: (a) DeviceEntry.config_entries / primary_config_entry are also deprecated (2027.10), and URA's _devices.py ownership checks compare device.config_entries == {parent_entry_id}, so the migration changes semantics, not just call names; (b) 2026.10 splits old multi-entry devices into per-entry composites. The device half stays PARKED behind TEST-HARNESS-REAL-HA-DEFAULT-1 (venv still HA 2026.2.3 on 10-14). First break 2027.8."
@@ -33365,6 +33377,19 @@ cards:
   origin: "Operator 2026-11-01: the standing context pack needs iteration; it should feel like the context you have; it should know HA and URA basically - ground truth docs etc."
   why: "Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; CLAUDE.md + feedback memories; ranked goals). The slice-0 eval did NOT implement it: each case got only 2-3 context lines plus tools that answered exact names (AUDIT_oc_slice0_eval_validity.md)."
   next: "Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases."
+- id: OC-LOCAL-MODEL-SLIM-PACK-1
+  title: "OC eval: can a small local model (<=9B / MoE) do L03 on a slim ~16k-token pack at 32k context?"
+  thread: optimization
+  status: done
+  tier: 1
+  created: "2026-11-04"
+  updated: "2026-11-04"
+  origin: "Operator 2026-11-04: 'Park and card. But maybe we can run them now in parallel' + 'Meaning a slim pack for the small models'."
+  links:
+    parent: OC-CONTEXT-PACK-1
+  why: "On the full 53k pack at 96k context every local model failed L03: qwen3.5:9b score 0 (decoy), gemma4:12b empty replies after 1 call in 29 min, glm4:9b text-only, qwen3.5:27b/deepseek-r1:14b would not load. Sonnet 5.5 scored 0.5. Slim pack = same builder, ollama_pack_tokens_max 16000 (keeps sections 1, 2, 7 longest), ollama_num_ctx 32768 (worktree commit 11289ce6)."
+  next: "One L03 run each started 2026-11-04 for qwen3.5:4b, gemma4:e4b, granite4:tiny-h. Revive (unpark) only if any one submits a report with score >0 and no trap hit; otherwise close done with the table."
+  result_2026-11-04: "No model met the bar; closed. qwen3.5:4b: 24 calls, then an empty reply, no report (38 min). gemma4:e4b: report, score 0, 3 bad citations, unsupported claims (36 min). granite4:tiny-h: 3 calls, then text with no report (16 min). Runs: scripts/oc_eval/runs/live_20261104T1604{01,03,05}. Revive only if a newer local model or a faster GPU appears."
 - id: URAV8-ZONE-ENERGY-DISPLAY-1
   title: "ura-v8: show energy on the zone chips under Rooms, and a house zone-energy breakdown card (pie/bar) on the Energy tab"
   thread: dashboard
