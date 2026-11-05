@@ -31901,13 +31901,16 @@ cards:
   shipped_version: "5.103.35"
   title: Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape
   thread: ux
-  status: "parked"
+  status: "in_progress"
   created: '2026-09-29 22:55'
   origin: 'Operator 2026-09-29: "We had suggested a mini room at some point. Like a regular room but limited scope, like a hallway or closet. Or maybe we attenuate the configuration once the room type is set? Limit the options?"'
   why: 'Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type instead of a new entry kind (no second setup path, no migrations); hidden steps keep stored values and keep working; a "Show all settings" choice escapes. Behaviour unchanged - menu logic only. Adjacent: ROOM-LIGHTING-SETUP-REDESIGN-1 (same dialog cleanup arc).'
   next: "PARKED (Soak Exit, 10-14): the discriminator is your read of the dialog, which no data source can answer, and it is past its ~1-week window. Shipped and validated at deploy. Revive when a small room type (closet, etc.) shows an option that does not belong, or say \"trimmed menu OK\" (-> close)."
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
+  reopened_2026_11_05: "Operator: Stair Closet shows the full menu. Verified via REST options flow (Simple mode): Stair, Master, Laundry Closet all show all 12 steps, no show_all_settings. Advanced mode ruled out; suspect the non-default-value reveal (each closet stores sleep/cover/fan/night-light keys). Probe running."
+  resolved_2026_11_05: "Not a bug: operator profile has showAdvanced=true; Advanced mode shows the full menu by design (const.py:505-508). Offline replay with Advanced off trims closets to 6-9 steps. Real defect found: stored room electricity_rate 0.11 vs DEFAULT 0.15 reveals the energy step in most closets, though room cost already uses EC TOU first (energy_billing.py:41-80) so the room rate is a dead fallback."
+  decision_2026_11_05: "Operator: build (1) trim by room type in Advanced mode too; (2) drop per-room electricity rate from the room energy step, keep the house-wide fallback. Tier 2."
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
   operator_instruction_2026_10_15: "Can't recal but sounds ood"
   disposition_2026_10_14: "done: discriminator met live."
