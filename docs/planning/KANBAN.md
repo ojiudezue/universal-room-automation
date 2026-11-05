@@ -2,18 +2,18 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-05T02:19:20-06:00_ - _Data commit: `f6ed1dc5a918`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-05T02:39:22-06:00_ - _Data commit: `94e7e47c8740`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 12 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -21,16 +21,10 @@ _Generated: 2026-11-05T02:19:20-06:00_ - _Data commit: `f6ed1dc5a918`_ - _last_r
 | 🅿️ Parked | 110 |
 | ✅ Done | 408 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **optimization** - status: **inbox**
-_created 2026-11-01_
-- **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
-- **Next:** Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases.
-- **Forensic keys (1):**
-  - `tier`: 2
+_(none)_
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
@@ -427,10 +421,17 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **optimization** - status: **in_progress**
+_created 2026-11-01 · updated 2026-11-05 02:40_
+- **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
+- **Next:** Build the pack as specified at vision:157 for the live eval (live reads, intercepted writes, 6-8 current incidents with known answers); iterate the pack by reading failed transcripts, not by tuning prompts on held-out cases.
+- **Forensic keys (2):**
+  - `verify_2026_11_05_overnight`: CARD-WAS-WRONG on lane (02:40 CST, git read-only). The card sat in inbox, but the pack is being built: plan docs/planning/PLANNING_oc_live_eval_and_context_pack.md (rev 2, 51c81530, plan reviews 1+2 folded), branch feature/oc-live-eval (...
+  - `tier`: 2
 
 ## 🔍 Review (3)
 _under review_
