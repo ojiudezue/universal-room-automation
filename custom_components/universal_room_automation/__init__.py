@@ -2226,6 +2226,61 @@ async def _async_start_person_coordinator(
     return person_coordinator
 
 
+def _remove_orphan_zone_devices(
+    hass: HomeAssistant,
+    dev_reg: Any,
+    config_entry_id: str,
+    is_orphan: Any,
+    label: str,
+) -> int:
+    """Remove URA ``zone_*`` devices judged orphaned — but only if empty.
+
+    ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1: ``is_orphan(identifier)`` decides from a
+    freshly computed zone-name set, which can be transiently incomplete (load
+    order, config read error, zone entry not yet loaded). Removing a device
+    deletes its entities' registry customisations, so a device that still has
+    ANY entity (disabled included) is kept — same guard as the D1
+    music-following cleanup. ``zone_manager`` is never removed. Identifiers
+    are iterated without tuple-unpacking (3-tuple identifiers from other
+    integrations; DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1). Returns the number
+    of devices removed.
+    """
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    ent_reg = er.async_get(hass)
+    removed = 0
+    for device in list(dr.async_entries_for_config_entry(dev_reg, config_entry_id)):
+        for ident_tuple in device.identifiers:
+            if len(ident_tuple) < 2:
+                continue
+            ident_domain = ident_tuple[0]
+            identifier = ident_tuple[1]
+            if (
+                ident_domain != DOMAIN
+                or not isinstance(identifier, str)
+                or not identifier.startswith("zone_")
+                or identifier == "zone_manager"
+                or not is_orphan(identifier)
+            ):
+                continue
+            remaining = er.async_entries_for_device(
+                ent_reg, device.id, include_disabled_entities=True,
+            )
+            if not remaining:
+                dev_reg.async_remove_device(device.id)
+                removed += 1
+                _LOGGER.info("Removed orphaned %s: %s", label, identifier)
+            else:
+                _LOGGER.info(
+                    "Orphaned %s removal SKIPPED for %s — device still has %d "
+                    "entities (zone set may be transiently incomplete)",
+                    label, identifier, len(remaining),
+                )
+            break  # one decision per device; never remove twice
+    return removed
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     # ROOM-NAME-DESYNC-1 D2 — reconcile pre-cycle options/data desync on
@@ -2388,26 +2443,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if zn:
                         active_zone_names.add(zn.lower())
 
-            for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-                # D2 (DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, 2026-09-08):
-                # iterate WITHOUT tuple-unpacking. Other integrations
-                # (e.g. `bond` = (domain, hubid, deviceid); `homekit`
-                # bridges) register 3-element identifiers, and
-                # `for (dom, ident) in ...` raises
-                # ValueError("too many values to unpack") on the FIRST
-                # such non-URA device — aborting the loop before it
-                # reaches any URA device (v5.94.3 bug pattern; see
-                # _devices.py:227-234 defensive pattern).
-                for ident_tuple in device.identifiers:
-                    if len(ident_tuple) < 2:
-                        continue
-                    ident_domain = ident_tuple[0]
-                    identifier = ident_tuple[1]
-                    if ident_domain == DOMAIN and identifier.startswith("zone_"):
-                        zone_name_from_id = identifier[5:]
-                        if zone_name_from_id.lower() not in active_zone_names:
-                            dev_reg.async_remove_device(device.id)
-                            _LOGGER.info("Removed orphaned zone device: %s", identifier)
+            _remove_orphan_zone_devices(
+                hass,
+                dev_reg,
+                entry.entry_id,
+                lambda ident: ident[5:].lower() not in active_zone_names,
+                "zone device",
+            )
         except Exception as e:
             _LOGGER.warning("Zone orphan cleanup failed (non-fatal): %s", e)
 
@@ -4909,26 +4951,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             merged_zm = {**entry.data, **entry.options}
             raw_zone_ids = {f"zone_{zn}" for zn in merged_zm.get("zones", {})}
-            for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-                # D2 (DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, 2026-09-08):
-                # iterate WITHOUT tuple-unpacking — 3-tuple identifiers
-                # (bond/homekit) raise ValueError and abort the whole
-                # cleanup (mirrors _devices.py:227-234 pattern).
-                for ident_tuple in device.identifiers:
-                    if len(ident_tuple) < 2:
-                        continue
-                    ident_domain = ident_tuple[0]
-                    identifier = ident_tuple[1]
-                    if (
-                        ident_domain == DOMAIN
-                        and identifier.startswith("zone_")
-                        and identifier != "zone_manager"
-                        and identifier not in raw_zone_ids
-                    ):
-                        dev_reg.async_remove_device(device.id)
-                        _LOGGER.info(
-                            "Removed orphaned slugified zone device: %s", identifier
-                        )
+            _remove_orphan_zone_devices(
+                hass,
+                dev_reg,
+                entry.entry_id,
+                lambda ident: ident not in raw_zone_ids,
+                "slugified zone device",
+            )
         except Exception as e:
             _LOGGER.warning("Zone slug cleanup failed (non-fatal): %s", e)
 
