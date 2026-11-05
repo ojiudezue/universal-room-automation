@@ -1779,11 +1779,14 @@ def test_d2_init_orphan_cleanup_no_two_unpack():
         "— 3-tuple identifiers (bond, homekit) will raise ValueError and "
         "abort the enclosing cleanup loop"
     )
-    # And the defensive pattern must be present (both sites converted).
-    # We look for at least two occurrences of the len>=2 guard in the file.
+    # And the defensive pattern must be present. Since
+    # ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1 both zone cleanup sites share
+    # _remove_orphan_zone_devices (one guard); the 3-tuple behaviour is
+    # driven by test_zone_orphan_device_guard.py::
+    # test_three_tuple_identifiers_do_not_crash.
     count = src.count("if len(ident_tuple) < 2:")
-    assert count >= 2, (
-        f"D2: expected >=2 defensive len>=2 guards in __init__.py, got {count}"
+    assert count >= 1, (
+        f"D2: expected >=1 defensive len>=2 guard in __init__.py, got {count}"
     )
 
 
