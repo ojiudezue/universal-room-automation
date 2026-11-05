@@ -149,3 +149,50 @@ def test_room_cost_today_uses_house_rate_not_stored_room_rate():
 
 def test_room_cost_today_uses_ec_rate():
     assert _cost_sensor(0.11, _hass(ec_rate=0.2, house_rate=0.13)).native_value == 2.0
+
+
+# --- D2 room coordinator weekly/monthly/per-hour cost (coordinator.py) -----
+
+def _room_coordinator_tick(ec_rate=None):
+    """Drive the REAL UniversalRoomCoordinator._async_update_data once.
+
+    Room stores electricity_rate 0.11, house-wide rate 0.13; DB energy for
+    the week and month is 10 kWh; one power sensor reads 1000 W.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import homeassistant.helpers.frame as _frame
+    from custom_components.universal_room_automation import coordinator as co
+
+    db = MagicMock()
+    db.get_energy_for_period = AsyncMock(return_value=10.0)
+    db.get_next_occupancy_prediction = AsyncMock(return_value=None)
+    db.get_occupancy_percentage = AsyncMock(return_value=None)
+    db.get_peak_occupancy_hour = AsyncMock(return_value=None)
+    hass = MagicMock()
+    hass.data = {DOMAIN: dict(_hass(ec_rate=ec_rate, house_rate=0.13).data[DOMAIN],
+                              database=db)}
+    hass.states.get = lambda eid: (
+        SimpleNamespace(state="1000", attributes={"unit_of_measurement": "W"},
+                        entity_id=eid)
+        if eid == "sensor.closet_power" else None)
+    entry = MagicMock()
+    entry.data = {"room_name": "Closet", "room_type": "closet",
+                  "entry_type": "room", "power_sensors": ["sensor.closet_power"]}
+    entry.options = {"electricity_rate": 0.11}
+    entry.entry_id = "E1"
+    with patch.object(_frame, "report_usage", lambda *a, **k: None):
+        c = co.UniversalRoomCoordinator(hass, entry)
+    c._last_prediction_query = None  # force the 5-min cache refresh
+    data = run(c._async_update_data())
+    return (data[co.STATE_ENERGY_COST_WEEKLY], data[co.STATE_ENERGY_COST_MONTHLY],
+            data[co.STATE_COST_PER_HOUR])
+
+
+def test_room_coordinator_costs_use_house_rate_not_stored_room_rate():
+    # 10 kWh * 0.13 = 1.30 ; 1.0 kW * 0.13 = 0.13 (room's 0.11 would give 1.10 / 0.11)
+    assert _room_coordinator_tick() == (1.3, 1.3, 0.13)
+
+
+def test_room_coordinator_costs_use_ec_rate():
+    assert _room_coordinator_tick(ec_rate=0.2) == (2.0, 2.0, 0.2)
