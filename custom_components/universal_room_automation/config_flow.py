@@ -116,15 +116,15 @@ def _room_type_phrase(label: str) -> str:
 
 def room_menu_hint(room_type_label: str, trimmed: bool, show_advanced: bool) -> str:
     """Hint line for the room options menu (ROOM-TYPE-TRIMMED-MENU-1 D8.3)."""
-    if show_advanced:
-        return ADVANCED_HINT_SHOWN
+    # The section trim applies in both modes; Advanced mode only controls
+    # the rarely-used fields inside each section.
     if trimmed:
         return (
             f"Showing the settings {_room_type_phrase(room_type_label)} "
             "usually needs. "
-            "Pick More settings for the rest. " + ADVANCED_HINT_HIDDEN
+            "Pick More settings for the rest. " + advanced_hint(show_advanced)
         )
-    return ADVANCED_HINT_HIDDEN
+    return advanced_hint(show_advanced)
 
 
 def _value_is_non_default(value, factory_default) -> bool:
@@ -3683,9 +3683,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_ENERGY_SENSORS, default=area_energy or vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
-            vol.Optional(CONF_ELECTRICITY_RATE, default=DEFAULT_ELECTRICITY_RATE): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.01, max=1.00, step=0.01, unit_of_measurement="USD/kWh", mode=selector.NumberSelectorMode.BOX)
-            ),
+            # ROOM-TYPE-TRIMMED-MENU-1 D2: no per-room electricity rate.
             vol.Optional(CONF_NOTIFY_DAILY_ENERGY, default=False): selector.BooleanSelector(),
         })
 
@@ -4385,30 +4383,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # keeps the historical order (basic_setup, sensors, devices,
             # options_lighting_behaviour, options_covers, automation_chaining,
             # ai_rules, climate, sleep_protection, music_following, energy,
-            # notifications). Advanced mode => full menu. Simple mode => the
-            # room type's steps, plus any hidden step holding a non-default
-            # value (I1), plus "More settings" when trimmed.
+            # notifications). The menu shows the room type's steps, plus any
+            # hidden step holding a non-default value (I1), plus "More
+            # settings" when trimmed. 2026-11-05: this applies in Advanced
+            # mode too; Advanced mode only reveals Advanced FIELDS inside
+            # steps (_filter_advanced), not hidden steps.
             show_adv = self._show_adv()
-            if show_adv:
-                menu = list(ROOM_MENU_STEPS_ALL)
-                room_type = ""
-            else:
-                merged = self._merged_entry_config()
-                room_type = merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC
-                visible = set(
-                    ROOM_MENU_STEPS_BY_TYPE.get(room_type, ROOM_MENU_STEPS_ALL)
-                )
-                for step in ROOM_MENU_STEPS_ALL:
-                    if step in visible:
-                        continue
-                    if await self._step_has_non_default_values(step):
-                        _LOGGER.debug(
-                            "room menu: entry_id=%s step %s revealed (holds a "
-                            "non-default value)",
-                            self._config_entry.entry_id, step,
-                        )
-                        visible.add(step)
-                menu = [s for s in ROOM_MENU_STEPS_ALL if s in visible]
+            merged = self._merged_entry_config()
+            room_type = merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC
+            visible = set(
+                ROOM_MENU_STEPS_BY_TYPE.get(room_type, ROOM_MENU_STEPS_ALL)
+            )
+            for step in ROOM_MENU_STEPS_ALL:
+                if step in visible:
+                    continue
+                if await self._step_has_non_default_values(step):
+                    _LOGGER.debug(
+                        "room menu: entry_id=%s step %s revealed (holds a "
+                        "non-default value)",
+                        self._config_entry.entry_id, step,
+                    )
+                    visible.add(step)
+            menu = [s for s in ROOM_MENU_STEPS_ALL if s in visible]
             trimmed = len(menu) != len(ROOM_MENU_STEPS_ALL)
             if trimmed:
                 menu.append("show_all_settings")
@@ -14884,12 +14880,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
-            vol.Optional(
-                CONF_ELECTRICITY_RATE, 
-                default=self._get_current(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0.01, max=1.00, step=0.01, unit_of_measurement="USD/kWh", mode=selector.NumberSelectorMode.BOX)
-            ),
+            # ROOM-TYPE-TRIMMED-MENU-1 D2 (2026-11-05): no per-room
+            # electricity rate. Room cost uses the Energy Coordinator's TOU
+            # rate, else the house-wide rate (energy_billing). A stored room
+            # value is left in place but no longer read or shown.
             vol.Optional(
                 CONF_NOTIFY_DAILY_ENERGY, 
                 default=self._get_current(CONF_NOTIFY_DAILY_ENERGY, False)

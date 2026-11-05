@@ -81,12 +81,13 @@ def test_simple_menu_snapshot_per_type(room_type):
 
 
 @pytest.mark.parametrize("room_type", ALL_TYPES)
-def test_advanced_mode_full_menu(room_type):
+def test_advanced_mode_menu_is_trimmed_too(room_type):
+    """2026-11-05: Advanced mode no longer bypasses the room-type trim; it
+    only reveals Advanced fields inside steps."""
     flow = make_flow(room_type, adv=True)
     result = run(flow.async_step_init())
-    assert result["menu_options"] == list(ROOM_MENU_STEPS_ALL)
-    assert "show_all_settings" not in result["menu_options"]
-    assert result["description_placeholders"]["menu_hint"] == "Advanced settings shown."
+    assert result["menu_options"] == _expected(room_type)
+    assert "Advanced settings shown." in result["description_placeholders"]["menu_hint"]
 
 
 def test_trimmed_hint_names_room_type():

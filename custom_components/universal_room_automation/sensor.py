@@ -953,10 +953,8 @@ class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
         energy = self.coordinator.data.get(STATE_ENERGY_TODAY)
         if energy is None:
             return None
-        # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
-        rate, _source = _get_effective_rate_kwh(
-            self.coordinator.hass, room_entry=self.coordinator.entry
-        )
+        # v4.6.8: Use TOU-aware rate via helper (EC first, then global, default).
+        rate, _source = _get_effective_rate_kwh(self.coordinator.hass)
         return round(energy * rate, 2)
 
 
