@@ -49,3 +49,4 @@
 - 2026-11-03 21:35 **v5.103.102** — v5.103.102: Envoy status no longer stuck on "stale" (cards: ENVOY-FLAKINESS-181243-1)
 - 2026-11-05 14:46 **v5.103.103** — v5.103.103 — Zone orphan-device cleanup no longer deletes devices that still have entities (cards: ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1)
 - 2026-11-05 15:41 **v5.103.104** — v5.103.104 — Room menu trimmed in Advanced mode too; per-room electricity rate removed (cards: ROOM-TYPE-TRIMMED-MENU-1)
+- 2026-11-05 15:55 **v5.103.105** — v5.103.105 — Config-flow timing logs: DEBUG by default, WARNING only for slow steps (cards: CONFIG-FLOW-SLOW-ONBOARDING-1)

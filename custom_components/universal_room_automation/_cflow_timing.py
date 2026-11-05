@@ -8,11 +8,20 @@ distinguish handler-time from event-loop-stall (large wall-clock gap
 between one step's EXIT and the next step's ENTRY = loop was blocked
 elsewhere; suspect the CM/parent reload storm).
 
-Log format (WARNING so visible without raising global log level):
+Log format. ENTER/EXIT are DEBUG (every step renders in <20 ms live, so
+per-step WARNING lines were pure noise -- see
+docs/planning/AUDIT_config_flow_performance.md). Enable with
+``logger: logs: custom_components.universal_room_automation._cflow_timing: debug``:
 
     CFLOW-TIMING: ENTER  <class>.<step>            mono=<s.ms> wall=<ISO>
     CFLOW-TIMING: EXIT   <class>.<step>  elapsed_ms=<N>  mono=<s.ms> wall=<ISO>
                      [autodetect_calls=<N> autodetect_ms=<M>]
+
+One WARNING line (visible at default log level) is emitted on exit ONLY
+when the step is slow (elapsed_ms > CFLOW_SLOW_MS):
+
+    CFLOW-TIMING: SLOW   <class>.<step>  elapsed_ms=<N>  threshold_ms=<T>
+                     autodetect_calls=<N> autodetect_ms=<M>
 
 How to read the output:
     * elapsed_ms is the time INSIDE the async_step handler (including
@@ -41,12 +50,19 @@ import inspect
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Final
 
 _LOGGER = logging.getLogger(__name__)
 
 # Master gate. Set False to disable all instrumentation with zero
 # runtime cost beyond the one-shot class decoration at import.
 CONFIG_FLOW_TIMING: bool = True
+
+# Slow-step threshold (ms). A step whose handler time exceeds this logs one
+# WARNING on exit; faster steps log only at DEBUG. Knob ladder rung 1
+# (module constant): a diagnostic threshold, changes should be reviewed.
+# 0 (or negative) = warn on EVERY step (the pre-v5.103.105 visibility).
+CFLOW_SLOW_MS: Final = 250
 
 _STEP_PREFIX = "async_step_"
 _AUTODETECT_HELPERS = ("_get_area_entities", "_rank_area_candidates")
@@ -71,7 +87,7 @@ def _wrap_step(cls_name: str, method):
             return await method(self, user_input)
         _reset_autodetect(self)
         t0 = time.monotonic()
-        _LOGGER.warning(
+        _LOGGER.debug(
             "CFLOW-TIMING: ENTER  %s.%s  mono=%.3f wall=%s user_input=%s",
             cls_name,
             method.__name__,
@@ -85,17 +101,29 @@ def _wrap_step(cls_name: str, method):
             t1 = time.monotonic()
             ad_ms = getattr(self, "_cflow_autodetect_ms", 0.0)
             ad_calls = getattr(self, "_cflow_autodetect_calls", 0)
-            _LOGGER.warning(
+            elapsed_ms = (t1 - t0) * 1000.0
+            _LOGGER.debug(
                 "CFLOW-TIMING: EXIT   %s.%s  elapsed_ms=%.1f  mono=%.3f wall=%s"
                 "  autodetect_calls=%d autodetect_ms=%.1f",
                 cls_name,
                 method.__name__,
-                (t1 - t0) * 1000.0,
+                elapsed_ms,
                 t1,
                 _now_wall(),
                 ad_calls,
                 ad_ms,
             )
+            if CFLOW_SLOW_MS <= 0 or elapsed_ms > CFLOW_SLOW_MS:
+                _LOGGER.warning(
+                    "CFLOW-TIMING: SLOW   %s.%s  elapsed_ms=%.1f  threshold_ms=%s"
+                    "  autodetect_calls=%d autodetect_ms=%.1f",
+                    cls_name,
+                    method.__name__,
+                    elapsed_ms,
+                    CFLOW_SLOW_MS,
+                    ad_calls,
+                    ad_ms,
+                )
 
     return wrapper
 
@@ -148,7 +176,7 @@ def instrument_flow(cls):
             setattr(cls, name, _wrap_autodetect(attr))
 
     cls._cflow_timing_instrumented = True
-    _LOGGER.warning(
+    _LOGGER.debug(
         "CFLOW-TIMING: instrumented %s (%d step handlers)",
         cls.__name__,
         wrapped,
