@@ -31895,6 +31895,18 @@ cards:
   next: "PARKED (Soak Exit, 10-14): the discriminator is your read of the dialog, which no data source can answer, and it is past its ~1-week window. Shipped and validated at deploy. Revive when you open House options (Simple or Advanced) and something reads wrong, or say \"house menus OK\" (-> close). The per-coordinator dialog pass stays a separate residual if you want it."
   links: {related: [ZONE-DIALOGS-CLEANUP-1, CM-CONFIG-FLOW-UX-1, ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
+- id: CONFIG-FLOW-ADVANCED-FIELDS-ALWAYS-SHOWN-1
+  title: "HA forces show_advanced_options=True (deprecated, removed 2027.6): every URA Advanced-only field/step is shown to everyone live"
+  thread: onboarding
+  status: planned
+  tier: 2
+  created: "2026-11-05"
+  updated: "2026-11-05"
+  origin: "Config-flow perf audit + builder verification 2026-11-05 (operator: audit config flow for performance)."
+  links:
+    related: [ROOM-TYPE-TRIMMED-MENU-1]
+  why: "contributors.home-assistant.io/core/integrations/flow-steps/: 'show_advanced_options ... is deprecated and will be removed in Home Assistant 2027.6. Until then it always returns True.' Live REST options flow returns full content with true or false. Test venv HA 2026.2.3 still honours it, so tests pass in Simple mode while live never hides anything. Consumers (config_flow.py): advanced_hint 63, advanced_hint_for 93, _filter_advanced_schema 163, _hidden_advanced_defaults 178, _show_adv 1248/4611, integration_config 1594/1621, global_sensors 4789, energy_sensors 4849, person_tracking 4955, camera_census 5282, perimeter_alerting 5451, room_class 2333, sensors_confirm 2376/2420, devices_confirm 2511, _opts_with_saved 13559/13566, devices 13761, _include_for 13965/14212, options_covers 14359, climate 14741, zone steps 11252/11343/11487/11577/11800."
+  next: "Plan: move rarely used fields into collapsed form sections (HA's suggested replacement) or show-or-hide fields (2026.11 visible=, gated on upgrade); fold into PLANNING_onboarding_simplify_phase2.md amendment (O5 shared schema builder first). Hard deadline: 2027.6 removal will break every getattr(self, 'show_advanced_options') reader? (getattr default False -> fields silently hidden). Verify behaviour after removal."
 - id: ROOM-TYPE-TRIMMED-MENU-1
   updated: "2026-10-14 02:20"
   disposition_2026_10_03: "CARD-WAS-WRONG on lane (overnight verify-before-work): the board said pre_planning, but it SHIPPED in v5.103.35 (README_v5.103.35.md 'ROOM-TYPE-TRIMMED-MENU-1 - room menu trimmed by room type, Simple/Advanced'). Live table: 'pending operator UI - code live, no config-flow exceptions'. Dispose by 2026-10-10 via one UI look."
