@@ -250,5 +250,33 @@ into one Tier-2 cycle with O8. O7 last; low margin.
 **O8:** `hacs.json` carries the minimum; HACS on 2026.10.x refuses the update rather than
 installing a degraded form.
 
+### House / zone / coordinator opportunities (survey 2026-11-05)
+
+Survey of the Coordinator Manager and Zone Manager options steps for parent toggle → dependent
+pairs. Lines are in `config_flow.py` at the time of the survey. All are **gated on 2026.11 + O8**,
+and every row carries the merge hazard above: a hidden dependent keeps its old stored value, so
+each row needs a consumer check that the dependent is never read while the parent is off.
+Energy and HVAC rows sit on the highest-blast-radius surfaces (Tier 3 behaviour behind them), so
+the form change is Tier 2 only if the consumer check proves the parent gate at every read site;
+otherwise that row is dropped, not escalated.
+
+| # | Step | Parent → dependents | Lines |
+|---|---|---|---|
+| O9 | `coordinator_energy` | `CONF_ENERGY_LOAD_SHEDDING_ENABLED` → `_MODE`, `_THRESHOLD`, `_SUSTAINED_MINUTES` | ~7005-7030 |
+| O10 | `coordinator_energy` | `CONF_ENERGY_ARBITRAGE_ENABLED` → `_ARBITRAGE_SOC_TARGET` (NOT `PEAK_BUFFER_TARGET`, which is read outside arbitrage — verify before including) | ~7140-7160 |
+| O11 | `coordinator_energy` | `CONF_ENERGY_EXCESS_SOLAR_ENABLED` → `_EXCESS_SOLAR_SOC`, `_EXCESS_SOLAR_KWH` | ~7178-7195 |
+| O12 | `coordinator_energy` | `CONF_ENERGY_GRID_IMPORT_CAP_ENABLED` → `_GRID_IMPORT_CAP_KW`; `CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED` → `_GUARD_KW` | ~7225-7270 |
+| O13 | `coordinator_energy` | `CONF_ENERGY_TOU_RATE_FILE_ENABLED` → `CONF_ENERGY_TOU_RATE_FILE`; `CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED` → `_ONSET_TIME` | ~6640-6665, ~7300-7320 |
+| O14 | `coordinator_hvac_settings` | `CONF_HVAC_SOLAR_GAIN_COVER_ENABLED` → `CONF_HVAC_COVER_CLOSE_TEMP` (+ cover entities); `CONF_HVAC_ARRESTER_ENABLED` → carrier reload/stale knobs | ~8080-8100, ~8225-8250 |
+| O15 | `hvac_dynamic_preset` / `zone_dynamic_preset` | `CONF_DYNAMIC_PRESET_ENABLED` → relax-ceiling mode and offsets; zone `CONF_ENABLED` → `CONF_OFFSET`, `CONF_SLEEP_ENABLED` | ~8486-8576, ~12440-12460 |
+| O16 | `camera_census` | `CONF_FACE_RECOGNITION_ENABLED` → `CONF_KNOWN_FACE_GUESTS`; `CONF_PERIMETER_ENRICHMENT_ENABLED` → `_PROVIDER` | ~5100-5130, ~5350-5370 |
+| O17 | `coordinator_presence` | `CONF_FAN_RECHECK_ENABLED` → `CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED` (+ its numbers) | ~5682-5781 |
+
+Not surveyed line-by-line: security, music following, notifications sub-steps (quiet hours have
+an obvious enable → window pair; check in O6), optimization, appliance. O6's table should absorb
+these rows and finish the sweep. Recommendation: ship O14-O17 with O2-O4 (comfort/identity only);
+take O9-O13 (energy) as a separate cycle after a consumer audit, because a missed parent gate on
+an energy knob is a money path.
+
 ### Non-goals (amendment)
 No `visible=` use before the house upgrades. No change to stored keys. No new knobs.
