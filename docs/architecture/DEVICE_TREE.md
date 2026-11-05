@@ -91,10 +91,18 @@ the reload boundary; `via_device_id` sets only the visual tree.
 
 ## 3. Home Assistant mechanics this depends on (verified against HA source)
 
-- **`via_device` is imperative, not declarative.** HA **2026.9** made the deprecated declarative
-  `DeviceInfo(via_device=…)` a hard `RuntimeError` ("Error adding entity None"). URA must set
-  nesting only via `dr.async_update_device(device_id, via_device_id=…)`. There must be **zero**
-  `DeviceInfo(via_device=…)` in the codebase. See the v5.92.3 hotfix and the postmortem.
+- **`via_device` is imperative, not declarative.** HA officially lists the declarative
+  `DeviceInfo(via_device=…)` field as deprecated: it still works but logs a deprecation warning,
+  and the field is **removed in Core 2027.8** (replacement: `via_device_id`). Source:
+  https://contributors.home-assistant.io/blog/2026/10/13/device-info-class/ . On our install,
+  though, HA **2026.9** raised a hard `RuntimeError` ("Error adding entity None") on the
+  `async_get_or_create` path URA hit (observed traceback, kanban `HA-2026-9-VIA-DEVICE-COMPAT-1`);
+  treat that as ground truth for that path. Either way, URA sets nesting only via
+  `dr.async_update_device(device_id, via_device_id=…)`, and there must be **zero**
+  `DeviceInfo(via_device=…)` in the codebase. `via_device_id` itself is **not** deprecated; it
+  stays the supported hub/grouping link (2026.11 child devices are for composition, not
+  connectivity — see `docs/planning/AUDIT_device_tree_vs_ha_2026_11_child_devices.md`). See the
+  v5.92.3 hotfix and the postmortem.
   Ref: HA dev docs — [Device registry](https://developers.home-assistant.io/docs/device_registry_index/),
   [`DeviceInfo`](https://developers.home-assistant.io/docs/core/entity/#deviceinfo).
 - **Same identifier → one index slot.** The device registry keys devices by `device.id`, but the
