@@ -48,3 +48,4 @@
 - 2026-11-03 17:24 **v5.103.101** — v5.103.101: night lights-out failsafe; alarm for a hung camera detector; ack no longer speaks when speech is off; AC savings totals survive restarts (cards: SHARED-SPACE-AUTO-OFF-FAILSAFE-1,CAMERA-SILENT-PRODUCER-TRIPWIRE-1,NM-ACK-TTS-IGNORES-DISABLE-1,HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1,TEST-DPM-WINTER-MONTH-COUPLED-1,ENERGY-TODAY-MIDNIGHT-FREEZE-1)
 - 2026-11-03 21:35 **v5.103.102** — v5.103.102: Envoy status no longer stuck on "stale" (cards: ENVOY-FLAKINESS-181243-1)
 - 2026-11-05 14:46 **v5.103.103** — v5.103.103 — Zone orphan-device cleanup no longer deletes devices that still have entities (cards: ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1)
+- 2026-11-05 15:41 **v5.103.104** — v5.103.104 — Room menu trimmed in Advanced mode too; per-room electricity rate removed (cards: ROOM-TYPE-TRIMMED-MENU-1)

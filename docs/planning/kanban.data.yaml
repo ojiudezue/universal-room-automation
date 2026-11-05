@@ -31898,10 +31898,10 @@ cards:
 - id: ROOM-TYPE-TRIMMED-MENU-1
   updated: "2026-10-14 02:20"
   disposition_2026_10_03: "CARD-WAS-WRONG on lane (overnight verify-before-work): the board said pre_planning, but it SHIPPED in v5.103.35 (README_v5.103.35.md 'ROOM-TYPE-TRIMMED-MENU-1 - room menu trimmed by room type, Simple/Advanced'). Live table: 'pending operator UI - code live, no config-flow exceptions'. Dispose by 2026-10-10 via one UI look."
-  shipped_version: "5.103.35"
+  shipped_version: v5.103.104
   title: Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape
   thread: ux
-  status: "in_progress"
+  status: shipped_organic
   created: '2026-09-29 22:55'
   origin: 'Operator 2026-09-29: "We had suggested a mini room at some point. Like a regular room but limited scope, like a hallway or closet. Or maybe we attenuate the configuration once the room type is set? Limit the options?"'
   why: 'Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type instead of a new entry kind (no second setup path, no migrations); hidden steps keep stored values and keep working; a "Show all settings" choice escapes. Behaviour unchanged - menu logic only. Adjacent: ROOM-LIGHTING-SETUP-REDESIGN-1 (same dialog cleanup arc).'
