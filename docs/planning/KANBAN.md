@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-05T02:02:48-06:00_ - _Data commit: `9e74f6be235d`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-05T02:19:20-06:00_ - _Data commit: `f6ed1dc5a918`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-05T02:02:48-06:00_ - _Data commit: `9e74f6be235d`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 12 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 3 |
@@ -427,19 +427,12 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1` - Zone slug cleanup removes URA zone devices without checking they have 0 entities — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **devices** - status: **in_progress** - approval: **implied**
-_created 2026-11-04 · updated 2026-11-05 02:05_
-- **Why:** __init__.py:~4928 calls dev_reg.async_remove_device for any zone_* identifier not in raw_zone_ids. If raw_zone_ids is transiently incomplete (load order, a config read error), a live zone device and its entity customizations are deleted....
-- **Next:** Me: builder (worktree) -> orchestrator re-drill -> Tier-1 review -> join tonight's serial name-diff -> review lane. No deploy overnight.
-- **Forensic keys (2):**
-  - `verify_2026_11_05_overnight`: STILL-REAL (02:04 CST, code read). TWO sites, not one: __init__.py:4904-4930 (Zone Manager slug cleanup, 'identifier not in raw_zone_ids' -> async_remove_device) AND __init__.py:2380-2412 (integration-entry orphan cleanup, 'not in active...
-  - `tier`: 1
+_(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
 ### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -467,6 +460,16 @@ _created 2026-11-01 · updated 2026-11-05 02:18_
 - **Forensic keys (3):**
   - `reviewed_2026_11_05_overnight`: Tier-1 review (docs/reviews/code-review/security_lock_retry_cap_review.md, b52140f9) was FIX-REQUIRED: HIGH-1 observation mode spent the retry budget then silently never locked; MEDIUM-1 transient locking/jammed/closing states re-armed t...
   - `verify_2026_11_04_overnight`: STILL-REAL (02:14): _evaluate_lock_check (security.py ~1678-1760) had no retry cap / backoff; only the unavailable-device notice was deduped. Gate: Tier 1, BUILD (simplest cap + one notice), no config-only fix (no knob existed). Built 02...
+  - `tier`: 1
+
+### `ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1` - Zone slug cleanup removes URA zone devices without checking they have 0 entities — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **devices** - status: **review** - approval: **implied**
+_created 2026-11-04 · updated 2026-11-05 02:39_
+- **Why:** __init__.py:~4928 calls dev_reg.async_remove_device for any zone_* identifier not in raw_zone_ids. If raw_zone_ids is transiently incomplete (load order, a config read error), a live zone device and its entity customizations are deleted....
+- **Next:** APPROVE at the next attended (daytime) deploy; can ride with integ/overnight-2026-11-04 (no file overlap: __init__.py + tests vs optimization.py/security.py/const.py). Live check after restart: no 'Removed orphaned' line for a zone that ...
+- **Forensic keys (3):**
+  - `build_2026_11_05_overnight`: Built on fix/zone-orphan-device-guard (pushed): 8b0eaa41 shared helper _remove_orphan_zone_devices (__init__.py:2229) used by both sites (:2446 integration-entry sweep, :4954 Zone Manager slug sweep); removes a zone device only when er.a...
+  - `verify_2026_11_05_overnight`: STILL-REAL (02:04 CST, code read). TWO sites, not one: __init__.py:4904-4930 (Zone Manager slug cleanup, 'identifier not in raw_zone_ids' -> async_remove_device) AND __init__.py:2380-2412 (integration-entry orphan cleanup, 'not in active...
   - `tier`: 1
 
 ## ⏸️ Waiting on operator (31)
