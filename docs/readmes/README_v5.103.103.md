@@ -1,4 +1,6 @@
-# DRAFT — ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1
+# v5.103.103 — Zone orphan-device cleanup no longer deletes devices that still have entities
+
+Card: ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1. Also: `docs/architecture/DEVICE_TREE.md` now says `via_device` is deprecated and removed in Core 2027.8 (the 2026.9 RuntimeError we hit stays as observed fact).
 
 ## Problem
 Two startup cleanups in `__init__.py` delete URA zone devices whose `zone_*` identifier is missing from a zone-name set computed on the spot:
