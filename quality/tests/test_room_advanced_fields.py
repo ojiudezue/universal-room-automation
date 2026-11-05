@@ -205,7 +205,12 @@ def test_meta_every_step_with_advanced_fields_passes_hint():
 
 
 def test_room_menu_hint_variants():
-    assert cf.room_menu_hint("closet", True, True) == "Advanced settings shown."
+    # 2026-11-05: trim applies in Advanced mode too, so the trimmed hint
+    # keeps its room-type line and ends with the "shown" variant.
+    adv = cf.room_menu_hint("closet", True, True)
+    assert adv == ("Showing the settings a closet usually needs. "
+                   "Pick More settings for the rest. Advanced settings shown.")
+    assert cf.room_menu_hint("bedroom", False, True) == "Advanced settings shown."
     assert cf.room_menu_hint("closet", False, False) == cf.ADVANCED_HINT_HIDDEN
     t = cf.room_menu_hint("closet", True, False)
     assert t.startswith("Showing the settings a closet usually needs.")

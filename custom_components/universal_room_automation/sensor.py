@@ -113,8 +113,6 @@ from .const import (
     CONF_AREA_ID,
     CONF_DISABLE_CAMERA_PRESENCE,
     DEFAULT_DISABLE_CAMERA_PRESENCE,
-    CONF_ELECTRICITY_RATE,
-    DEFAULT_ELECTRICITY_RATE,
     ATTR_CONFIDENCE,
     ATTR_BASED_ON,
     CONF_AI_RULES,
@@ -953,10 +951,8 @@ class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
         energy = self.coordinator.data.get(STATE_ENERGY_TODAY)
         if energy is None:
             return None
-        # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
-        rate, _source = _get_effective_rate_kwh(
-            self.coordinator.hass, room_entry=self.coordinator.entry
-        )
+        # v4.6.8: Use TOU-aware rate via helper (EC first, then global, default).
+        rate, _source = _get_effective_rate_kwh(self.coordinator.hass)
         return round(energy * rate, 2)
 
 
