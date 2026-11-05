@@ -113,3 +113,75 @@ def test_device_with_two_orphan_ids_removed_once(run_cleanup):
     reg, n, _ = run_cleanup([dev], {}, lambda i: True)
     assert reg.removed == ["d1"]
     assert n == 1
+
+
+# --- Wire-in anchors: drive async_setup_entry itself to each cleanup call. ---
+
+
+class _Stop(BaseException):
+    """Escapes setup's ``except Exception`` blocks right after the cleanup."""
+
+
+def _drive_setup(monkeypatch, entry_type, data, options, entities_by_device):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    ura = importlib.import_module("custom_components.universal_room_automation")
+    wd = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators._loop_stall_watchdog"
+    )
+    vc = importlib.import_module("custom_components.universal_room_automation.version_check")
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    reg = _FakeDevReg([
+        _dev("live", (DOMAIN, "zone_Live")),
+        _dev("ghost", (DOMAIN, "zone_Ghost")),
+    ])
+    reg.async_get_or_create = lambda **kw: None
+    monkeypatch.setattr(dr, "async_get", lambda hass: reg)
+    monkeypatch.setattr(
+        dr, "async_entries_for_config_entry", lambda r, eid: list(r.devices.values()),
+    )
+    monkeypatch.setattr(er, "async_get", lambda hass: object())
+    monkeypatch.setattr(
+        er, "async_entries_for_device",
+        lambda _r, did, include_disabled_entities=False: entities_by_device.get(did, []),
+    )
+    monkeypatch.setattr(wd, "install", lambda hass: None)
+    monkeypatch.setattr(vc, "async_start_version_check", AsyncMock())
+
+    async def _stop(*a, **k):
+        raise _Stop
+
+    monkeypatch.setattr(ura, "_migrate_room_cameras_to_integration", _stop)
+    hass = MagicMock()
+    hass.data = {}
+    hass.config_entries.async_entries.return_value = []
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.title = "t"
+    entry.data = {"entry_type": entry_type, **data}
+    entry.options = options
+    try:
+        asyncio.run(ura.async_setup_entry(hass, entry))
+    except _Stop:
+        pass
+    return reg
+
+
+def test_setup_integration_entry_calls_guarded_cleanup(monkeypatch):
+    reg = _drive_setup(
+        monkeypatch, "integration", {"zone_migration_done": True}, {},
+        {"live": [{"entity_id": "sensor.z"}]},
+    )
+    assert reg.removed == ["ghost"]
+
+
+def test_setup_zone_manager_entry_calls_guarded_cleanup(monkeypatch):
+    reg = _drive_setup(
+        monkeypatch, "zone_manager", {}, {"zones": {}},
+        {"live": [{"entity_id": "sensor.z"}]},
+    )
+    assert reg.removed == ["ghost"]
