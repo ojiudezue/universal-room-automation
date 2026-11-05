@@ -83,7 +83,7 @@ def test_wrapped_step_logs_enter_and_exit(caplog):
     Wrapped = instrument_flow(_make_fake_flow_cls())
     inst = Wrapped()
 
-    caplog.set_level(logging.WARNING, logger="custom_components.universal_room_automation._cflow_timing")
+    caplog.set_level(logging.DEBUG, logger="custom_components.universal_room_automation._cflow_timing")
     _run(inst.async_step_foo(None))
 
     msgs = [r.getMessage() for r in caplog.records if "CFLOW-TIMING" in r.getMessage()]
@@ -95,7 +95,7 @@ def test_autodetect_counters_reported_on_exit(caplog):
     Wrapped = instrument_flow(_make_fake_flow_cls())
     inst = Wrapped()
 
-    caplog.set_level(logging.WARNING, logger="custom_components.universal_room_automation._cflow_timing")
+    caplog.set_level(logging.DEBUG, logger="custom_components.universal_room_automation._cflow_timing")
     _run(inst.async_step_foo(None))
 
     exit_msgs = [
@@ -126,3 +126,95 @@ def test_decorator_is_idempotent():
     assert once is twice
     # Only wrapped ONCE (no double ENTER/EXIT).
     assert once.async_step_foo.__wrapped__.__name__ == "async_step_foo"
+
+
+# --- v5.103.105: DEBUG enter/exit + one WARNING only for slow steps --------
+
+_MOD = "custom_components.universal_room_automation._cflow_timing"
+
+
+class _FakeClock:
+    """Deterministic monotonic: each call returns the next scripted value."""
+
+    def __init__(self, *values):
+        self._values = list(values)
+
+    def __call__(self):
+        return self._values.pop(0)
+
+
+def _drive(monkeypatch, caplog, t0, t1, slow_ms=None):
+    import importlib
+
+    mod = importlib.import_module(_MOD)
+    if slow_ms is not None:
+        monkeypatch.setattr(mod, "CFLOW_SLOW_MS", slow_ms)
+    # Replace only the module's ``time`` binding (patching time.monotonic
+    # globally would also skew the asyncio loop clock).
+    import types
+
+    monkeypatch.setattr(mod, "time", types.SimpleNamespace(monotonic=_FakeClock(t0, t1)))
+    Wrapped = instrument_flow(_make_fake_flow_cls())
+    caplog.set_level(logging.DEBUG, logger=_MOD)
+    _run(Wrapped().async_step_bar(None))
+    recs = [r for r in caplog.records if "CFLOW-TIMING" in r.getMessage()]
+    warns = [r for r in recs if r.levelno == logging.WARNING]
+    return recs, warns
+
+
+def test_fast_step_logs_enter_exit_at_debug_and_no_warning(monkeypatch, caplog):
+    # 10 ms step, default threshold 250.
+    recs, warns = _drive(monkeypatch, caplog, 100.000, 100.010)
+    assert warns == [], [r.getMessage() for r in warns]
+    enter = [r for r in recs if "ENTER" in r.getMessage()]
+    exit_ = [r for r in recs if "EXIT" in r.getMessage()]
+    assert len(enter) == 1 and enter[0].levelno == logging.DEBUG
+    assert len(exit_) == 1 and exit_[0].levelno == logging.DEBUG
+
+
+def test_default_threshold_value_is_250():
+    import importlib
+
+    assert importlib.import_module(_MOD).CFLOW_SLOW_MS == 250
+
+
+@pytest.mark.parametrize(
+    ("elapsed_s", "expect_warn"),
+    [(0.249, False), (0.250, False), (0.251, True), (1.5, True)],
+)
+def test_slow_step_boundary_default_threshold(monkeypatch, caplog, elapsed_s, expect_warn):
+    # Hardcoded literals around the 250 ms default (strictly greater warns).
+    _, warns = _drive(monkeypatch, caplog, 10.0, 10.0 + elapsed_s)
+    assert len(warns) == (1 if expect_warn else 0), [r.getMessage() for r in warns]
+
+
+def test_slow_step_logs_exactly_one_warning_with_fields(monkeypatch, caplog):
+    _, warns = _drive(monkeypatch, caplog, 50.0, 50.4)
+    assert len(warns) == 1
+    msg = warns[0].getMessage()
+    assert "SLOW" in msg
+    assert "FakeFlow.async_step_bar" in msg
+    assert "elapsed_ms=400.0" in msg
+    assert "autodetect_calls=0" in msg
+    assert "autodetect_ms=0.0" in msg
+
+
+def test_threshold_zero_warns_on_every_step(monkeypatch, caplog):
+    # Zero elapsed AND zero threshold -> still warns ("0 = warn on every step").
+    _, warns = _drive(monkeypatch, caplog, 7.0, 7.0, slow_ms=0)
+    assert len(warns) == 1
+    _, warns = _drive(monkeypatch, caplog, 7.0, 7.001, slow_ms=0)
+    assert len(warns) == 2  # caplog accumulates: one more
+
+
+def test_silent_shim_logs_nothing(monkeypatch, caplog):
+    import importlib
+
+    mod = importlib.import_module(_MOD)
+    monkeypatch.setattr(mod, "CFLOW_SLOW_MS", 0)
+    inst = instrument_flow(_make_fake_flow_cls())()
+    inst._cflow_timing_silent = True
+    caplog.set_level(logging.DEBUG, logger=_MOD)
+    caplog.clear()
+    _run(inst.async_step_bar(None))
+    assert not [r for r in caplog.records if "CFLOW-TIMING" in r.getMessage()]
