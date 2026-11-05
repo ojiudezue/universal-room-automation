@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "263",
+  "author": "ojiudezue",
+  "session_id": "claude_20261105_215539_ship_v5_103_105",
+  "timestamp": "2026-11-05T21:55:39Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.105 shipped: Config-flow timing logs at debug; warn only on slow steps",
+  "summary": "Config-flow timing logs at debug; warn only on slow steps",
+  "why": "Perf audit measured every config/options step under 20 ms live, so the always-on WARNING enter/exit lines were noise that also hid real slowness. Kept the instrumentation (dead\u2260delete; it is the diagnostic for the original slow-onboarding report) but moved it to DEBUG with one WARNING above a 250 ms module constant (rung 1: a diagnostic threshold should change by reviewed edit). Chose not to add more instrumentation; HA's profiler covers deep dives. Orchestrator review on the small diff; builder mutation-verified the threshold boundary.",
+  "implications": "Shipped CONFIG-FLOW-SLOW-ONBOARDING-1 at v5.103.105; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.105.md (Live criteria).",
+  "revisit_trigger": "After restart, open a room options flow; HA log shows no CFLOW-TIMING WARNING for steps under 250 ms",
+  "refs": {
+    "cards": [
+      "CONFIG-FLOW-SLOW-ONBOARDING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.105.md"
+    ],
+    "release_notes": "Config-flow step timing lines (CFLOW-TIMING) now log at DEBUG; a single WARNING is logged only when a step takes longer than 250 ms (CFLOW_SLOW_MS). Removes per-step warning noise from the HA log."
+  }
+}

@@ -28470,7 +28470,8 @@ cards:
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
   rank: {value: 6, time_criticality: 4, effort: 5}
-  status: parked
+  status: shipped_organic
+  shipped_version: v5.103.105
   revival_trigger: 'The next Add-Entry / room setup the operator reports as slow: read the ENTER/EXIT elapsed_ms timing lines from the core log for that window. Large elapsed_ms = URA-side cost -> plan a fix. A large wall-gap between steps = loop stall -> the restart/reload-storm cards own it.'
   groom_2026_09_29: 'PARTIALLY-DONE -> PARKED. The instrumentation step is DONE: eb2f73094 is an ancestor of develop, and custom_components/universal_room_automation/_cflow_timing.py (instrument_flow, CONFIG_FLOW_TIMING = True) is live code. root_cause_found_2026_09_13 already attributed the 25-min Foyer setup to a mass device outage (6132 unavailable entities, Zigbee/z2m down), not onboarding. What remains is a measurement that can only happen at the next room setup, so the card is parked with a trigger rather than left in planned.'
   groom_2026_09_29_dupkeys: 'HYGIENE: this card carried the key "next" more than once. YAML keeps only the LAST copy, so the earlier text was invisible to the renderer and to every status read. Earlier copies renamed to <key>_prevN (text preserved verbatim). The effective value is unchanged, verified by a before/after parse of status/next/updated for every card.'
