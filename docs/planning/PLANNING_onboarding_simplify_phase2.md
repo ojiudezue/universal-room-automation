@@ -185,3 +185,98 @@ Findings (fix in build brief):
    `finish` are only reachable from `post_integration_setup`.
 6. **LOW — INV-B wording:** S2 adds `room_bulk_create` to `entry_type_select:933` menu options — a menu
    change for existing installs. Not a stored-key change, so INV-B holds; note it as a visible change.
+
+## Amendment 2026-11-04: HA 2026.11 + further opportunities
+
+**Gate:** the house runs HA **2026.10.4**. Anything marked *gated* needs the 2026.11 upgrade AND a
+`homeassistant` minimum in `hacs.json` (today it has none — `hacs.json` carries only name /
+content_in_root / render_readme), because a second home on an older core would get a form that
+shows every field (or fails to build the schema).
+
+**API, as read (No Fabrication):** source = release notes
+(home-assistant.io/blog/2026/11/04/release-202611, "Forms that ask only what they need") and the
+contributor post https://contributors.home-assistant.io/blog/2026/10/21/form-fields-visible/.
+The post shows `data_entry_flow.Required(KEY, default=..., visible={"field": OTHER, "value": X})`
+(also `Optional`). Stated behavior: a hidden field "is not required, and its value is not
+saved." Only the equality form is shown; the post defers other conditions to the Flow steps dev
+doc, which was NOT read. The post's code sample mixes an unimported `probatio` module with
+`data_entry_flow` — the builder must check the real import path against the installed 2026.11
+core before writing any code. Per-integration live logs: a "Show logs" button on the integration
+page while debug logging is on, filtered to that integration plus its libraries. No code needed.
+
+**Hazard the plan must carry (gated items):** "hidden = not saved" meets URA's options merge
+`{**self._config_entry.options, **user_input}` (`config_flow.py:4711`, `:4808`, `:4905`). A
+hidden dependent is absent from `user_input`, so its OLD value survives. That is safe only if
+every consumer gates on the parent toggle. Each gated item below needs a consumer check that the
+dependent is never read when the parent is off. On create paths (no merge) a hidden field lands
+on the consumer fallback, so INV-C (hidden = default) must be re-proved per field.
+
+### Ranked opportunities
+
+| # | Opportunity | Value | Risk | Tier | Gated on 2026.11 | REUSED / NEW |
+|---|---|---|---|---|---|---|
+| O1 | Config-first: use 2026.11 per-integration live logs for config-flow and setup debugging; record in the debugging playbook; no code | M | none | — | yes (upgrade only) | REUSED: `_cflow_timing.py` stays as the timing source |
+| O2 | Sleep protection: show start/end hour, bypass count, block covers only when `CONF_SLEEP_PROTECTION_ENABLED` is on (create `:3610-3620`, Options `:14750`) | M | L | 2 | yes | REUSED keys; NEW `visible=` use |
+| O3 | Covers: show close-time source / hour / sunset offset only when `CONF_TIMED_CLOSE_ENABLED` is on (create `:2943-2952`, Options `:14309`); hour only when source = fixed time, offset only when source = sunset | M | L-M | 2 | yes | REUSED keys |
+| O4 | Fan: replace the hand-rolled `CONF_ROOM_FAN_MODE == FAN_MODE_ROOM_TEMPERATURE` re-routing (`:3435`, `:14373-14377`) with `visible=` on the dependent temperature fields | M | M (changes saved-value semantics) | 2 | yes | REUSED |
+| O5 | Shared schema builders for the 7 step names defined on BOTH create and Options paths (`add_coordinator`, `climate`, `devices`, `energy`, `notifications`, `sensors`, `sleep_protection`); one builder, two defaults sources. Prereq for O2-O4 so each `visible=` lands once | H (halves edit sites, kills create/Options drift — Bug Class #53 shape) | M | 2-DB (INV-1 round-trip) | no | NEW helper per pair; REUSE `_get_current` |
+| O6 | Sweep the remaining 105 of 108 `BooleanSelector()` toggles (`grep -c`) for parent→dependent pairs; table only, no code | M | none | 1 (audit) | no | — |
+| O7 | Retire `advanced`-flag hiding where a `visible=` parent toggle expresses the intent better (keep `_adv:141` for true tuning knobs) | L | L | 2 | yes | REUSED `_adv`, `advanced_hint_for:93` |
+| O8 | Add `"homeassistant": "2026.11.0"` to `hacs.json` when the first gated item ships | prereq | L | 1 | yes | NEW key |
+
+**Recommendation (marginal-benefit):** O1 now (free). O5 and O6 now (not gated; O5 is the
+real simplification and makes O2-O4 one-site edits). O2-O4 after the 2026.11 upgrade, bundled
+into one Tier-2 cycle with O8. O7 last; low margin.
+
+### Acceptance criteria (top items)
+
+**O5 — shared builders**
+- **Verify:** each of the 7 pairs builds its schema from one function; create passes defaults,
+  Options passes `_get_current`.
+- **Test:** `test_options_create_schema_key_parity` (same key set per pair) and the phase-1 INV-1
+  round-trip suite stays green; a mutation that drops a key from the builder turns both RED.
+- **Live:** open Options on one room for each step; same fields as before (screenshot diff).
+
+**O2 / O3 / O4 — conditional fields (after upgrade)**
+- **Verify:** with the parent off, dependents are not rendered; turning it on shows them without
+  a resubmit.
+- **Verify (discriminating):** enable → set hour 22 → disable → save → re-open. The stored
+  hour is still 22 (merge kept it) AND the consumer does not act on it. A missing parent gate in a
+  consumer shows up as action at 22 with the toggle off. That is the failure this test catches.
+- **Test:** `test_sleep_dependents_hidden_not_required`, `test_timed_close_dependents_ignored_when_disabled`,
+  `test_fan_mode_visible_replaces_reroute`.
+- **Live:** on 2026.11, Options → sleep protection on a room with it off shows one toggle only.
+
+**O8:** `hacs.json` carries the minimum; HACS on 2026.10.x refuses the update rather than
+installing a degraded form.
+
+### House / zone / coordinator opportunities (survey 2026-11-05)
+
+Survey of the Coordinator Manager and Zone Manager options steps for parent toggle → dependent
+pairs. Lines are in `config_flow.py` at the time of the survey. All are **gated on 2026.11 + O8**,
+and every row carries the merge hazard above: a hidden dependent keeps its old stored value, so
+each row needs a consumer check that the dependent is never read while the parent is off.
+Energy and HVAC rows sit on the highest-blast-radius surfaces (Tier 3 behaviour behind them), so
+the form change is Tier 2 only if the consumer check proves the parent gate at every read site;
+otherwise that row is dropped, not escalated.
+
+| # | Step | Parent → dependents | Lines |
+|---|---|---|---|
+| O9 | `coordinator_energy` | `CONF_ENERGY_LOAD_SHEDDING_ENABLED` → `_MODE`, `_THRESHOLD`, `_SUSTAINED_MINUTES` | ~7005-7030 |
+| O10 | `coordinator_energy` | `CONF_ENERGY_ARBITRAGE_ENABLED` → `_ARBITRAGE_SOC_TARGET` (NOT `PEAK_BUFFER_TARGET`, which is read outside arbitrage — verify before including) | ~7140-7160 |
+| O11 | `coordinator_energy` | `CONF_ENERGY_EXCESS_SOLAR_ENABLED` → `_EXCESS_SOLAR_SOC`, `_EXCESS_SOLAR_KWH` | ~7178-7195 |
+| O12 | `coordinator_energy` | `CONF_ENERGY_GRID_IMPORT_CAP_ENABLED` → `_GRID_IMPORT_CAP_KW`; `CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_ENABLED` → `_GUARD_KW` | ~7225-7270 |
+| O13 | `coordinator_energy` | `CONF_ENERGY_TOU_RATE_FILE_ENABLED` → `CONF_ENERGY_TOU_RATE_FILE`; `CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED` → `_ONSET_TIME` | ~6640-6665, ~7300-7320 |
+| O14 | `coordinator_hvac_settings` | `CONF_HVAC_SOLAR_GAIN_COVER_ENABLED` → `CONF_HVAC_COVER_CLOSE_TEMP` (+ cover entities); `CONF_HVAC_ARRESTER_ENABLED` → carrier reload/stale knobs | ~8080-8100, ~8225-8250 |
+| O15 | `hvac_dynamic_preset` / `zone_dynamic_preset` | `CONF_DYNAMIC_PRESET_ENABLED` → relax-ceiling mode and offsets; zone `CONF_ENABLED` → `CONF_OFFSET`, `CONF_SLEEP_ENABLED` | ~8486-8576, ~12440-12460 |
+| O16 | `camera_census` | `CONF_FACE_RECOGNITION_ENABLED` → `CONF_KNOWN_FACE_GUESTS`; `CONF_PERIMETER_ENRICHMENT_ENABLED` → `_PROVIDER` | ~5100-5130, ~5350-5370 |
+| O17 | `coordinator_presence` | `CONF_FAN_RECHECK_ENABLED` → `CONF_FAN_RECHECK_FAMILY_SCALING_ENABLED` (+ its numbers) | ~5682-5781 |
+
+Not surveyed line-by-line: security, music following, notifications sub-steps (quiet hours have
+an obvious enable → window pair; check in O6), optimization, appliance. O6's table should absorb
+these rows and finish the sweep. Recommendation: ship O14-O17 with O2-O4 (comfort/identity only);
+take O9-O13 (energy) as a separate cycle after a consumer audit, because a missed parent gate on
+an energy knob is a money path.
+
+### Non-goals (amendment)
+No `visible=` use before the house upgrades. No change to stored keys. No new knobs.

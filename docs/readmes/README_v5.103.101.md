@@ -31,14 +31,15 @@ On the night of 2026-11-02 the Kitchen overhead stayed on from 21:16 to 05:01. T
 ## New setting
 Room options, Basic setup, shown when Shared Space is on: **Auto-Off Give-Up Hour** (`shared_space_auto_off_cutoff_hour`, 0-23, default 5). If you set it to the same value as the Auto-Off Hour, URA checks only during that one hour, as it did before. The window can wrap past midnight (23 to 5 is the normal case).
 
-## Live validation (prospective)
-| Criterion | How to check | Result |
+## Validated 2026-11-04 (overnight read-only pass; live since the 11-03 18:01 restart)
+| Criterion | Result | Evidence |
 |---|---|---|
-| Kitchen swept on the first empty update after 23:00 | `ura_activity_log` row `action=shared_space_auto_off`, `room=Kitchen`, with a time between 23:00 and 05:00 | pending |
-| Kitchen overhead off by morning | `light.dimmer_tapo_wifi_matter_kitchenoverhead` history shows it off before 05:00 | pending |
-| At most one sweep per room per night | no more than one `shared_space_auto_off` row per room per night | pending |
-| No warning flash | no `auto_off_warning_flash` rows after the deploy | pending |
-| No URA errors | log scan for `universal_room_automation` ERROR | pending |
+| Kitchen swept on the first empty update after 23:00 | FAIL (by design, not a code fault) | No Kitchen row. `switch.kitchen_automation` is off (paused on purpose since at least 10-08), and the failsafe runs inside the room's automation-enabled gate (`coordinator.py` `elif self._is_automation_enabled()` :5335 → call :5441), as the old sweep did. Kitchen was vacant 23:13-23:17 with the overhead on. Decision carded on SHARED-SPACE-AUTO-OFF-FAILSAFE-1 (PICK). |
+| Kitchen overhead off by morning | as-observed | Off at 23:18:45, switched by hand (logbook entry with no automation context), not by URA |
+| Failsafe fires in unpaused shared spaces | PASS | 15 `shared_space_auto_off` rows 23:00-23:38: Game Room, Media Room Closet, Breakfast Nook, Guest Bedroom 2 Hallway, Kitchen Hallway, Upstairs Hallway, Stair Closet, Kitchen Pantry, Butler Pantry, Laundry, Laundry Closet, Dining Room (23:00), Powder (23:05), Living Room (23:08), Garage B (23:38) |
+| At most one sweep per room per night | PASS | GROUP BY room: every count = 1 |
+| No warning flash | PASS | 0 `auto_off_warning_flash` rows after the deploy (last 10-31 03:55Z) |
+| No URA errors | PASS | `ha_get_logs source=system` (in-memory since boot) filtered to universal_room_automation: WARNINGs only, no ERROR |
 
 ## Known gap
 The occupancy hand-off now lives in a small coordinator helper (`_run_shared_space_failsafe`), which has its own test. The single line in `_async_update_data` that calls that helper is still untested, because nothing in the suite drives the room coordinator's full update. The live criteria above cover it: if the call were missing, no activity row would appear.
@@ -84,13 +85,13 @@ The fix:
 - The all-rooms total now restores its value at restart, as the zone totals already did, so a boot sample taken before the rooms load is not booked as a reset.
 - One review: SHIP. Its finding about long-term statistics is carded as ENERGY-TODAY-STATS-STEPPED-RESET-1 (pre-existing).
 
-## Live validation (prospective, sections 2-4 and 6)
-| Criterion | How to check | Result |
+## Validated 2026-11-04 (sections 2-4 and 6; overnight read-only pass)
+| Criterion | Result | Evidence |
 |---|---|---|
-| Detector check resolved | `binary_sensor.ura_coordinator_manager_camera_input_dark` attribute `detector_frozen_s` is mostly < 60 and `detector_hung_fired` is false. No `camera_detector_hung_inert_unresolved` log line | pending |
-| Detector check healthy | No `Optimizer evaluator 'camera_detector_hung' raised` warnings | pending |
-| Staged detector pause (operator, daytime only) | Per the camera draft's row L2 | pending, operator |
-| Ack silent with speech off | The next safe-word ack with `nm_tts_enabled` off gives no `tts.speak` call and no `TTS ack announcement failed` error | pending (needs a real ack) |
-| AC sensors at restart | Right after the restart, the AC ramp today/cycle sensors read unknown, not 0. The 30-day kWh keeps its value | pending |
-| Midnight reset (section 6) | At 00:20 tonight, `sensor.universal_room_automation_rooms_energy_total` and each `sensor.zone_*_energy_today` equal their `room_energies` / rooms + zone-level attribute sums (within 0.1 kWh) | pending |
-| Full suite | develop ce8a9543: 9 failed, all in the baseline, 0 new, 22 baseline names now pass. The midnight fix was then merged with targeted tests (132 passed) | PASS |
+| Detector check resolved | PASS | 02:05 11-04: `binary_sensor.ura_coordinator_manager_camera_input_dark` `detector_frozen_s`=0, `detector_hung_fired`=false, `detector_hung_deferred_quiet`=false; `sensor.frigate_detection_fps_2`=30 |
+| Detector check healthy | PASS | system_log since the 18:01 restart: no `camera_detector_hung` and no `Optimizer evaluator 'camera_detector_hung' raised` line. The INFO `inert_unresolved` line cannot be read from system_log (WARNING+); the attributes above show the sensor was resolved |
+| Staged detector pause (operator, daytime only) | pending, operator | Per the camera draft's row L2 |
+| Ack silent with speech off | pending (no ack yet) | No safe-word ack since the restart (`notification_log` has no `ack_time` after it). Proven in-suite |
+| AC sensors at restart | PASS | `ac_kwh_avoided_today` and `ac_ramp_savings_today`: unknown 18:01:43, real value 18:02:51, never 0. `ac_kwh_avoided_total` held 292.27 across the restart, then 281.151 at midnight; hourly statistics sum 0 → -11.119 (honest decrease, no re-add) |
+| Midnight reset (section 6) | PASS | Read 02:02-02:10 (the window where it froze before): rooms total 4.54 vs room_energies sum 4.53; Master Suite 3.44 = 3.34 + 0.098 zone-level; Back Hallway 0.45 = 0.387 + 0.06; Upstairs 0.38 = 0.295 + 0.082; Entertainment 0.08; Outside 0.01 |
+| Full suite | PASS | develop ce8a9543: 9 failed, all in the baseline, 0 new, 22 baseline names now pass. The midnight fix was then merged with targeted tests (132 passed) |

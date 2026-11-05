@@ -20,7 +20,10 @@ Operator action done alongside: the corrupted long-term statistic for
 `sensor.ura_hvac_coordinator_ac_kwh_avoided_total` (sum ~217,000 kWh from pre-v5.103.101 restart
 resets) was cleared via `recorder/clear_statistics`; it rebuilds from the next hour.
 
-## Live validation (prospective)
-- `sensor.ura_energy_coordinator_envoy_status` reads online after restart and stays online past
-  the next hourly cross-check.
-- No new "Consumption cross-check divergence" WARNING in the system log after restart.
+## Validated 2026-11-04 (restart 19:45 CT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Envoy status online after restart | PASS | `sensor.ura_energy_coordinator_envoy_status`: `stale` until 19:40 CT (pre-restart), `not_initialized` 19:46:45, `online` 19:46:56 |
+| Stays online past the next hourly cross-check | PASS | Recorder history through 20:10 CT shows no state change after 19:46:56 (cross-check hour rolled at 20:00) |
+| No new "Consumption cross-check divergence" WARNING | PASS (as far as read) | 0 matches in `/api/error_log` and 0 in `journalctl -u homeassistant` since 19:46; neither source's coverage was independently confirmed |
+| Guard behaviour (lifetime-scale input skipped, flag cleared; real divergence still flags) | In-suite only | `test_envoy_crosscheck_corrupt_today.py`, mutation-verified; a real divergence cannot be induced live |
