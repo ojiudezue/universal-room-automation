@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "261",
+  "author": "ojiudezue",
+  "session_id": "claude_20261105_204640_ship_v5_103_103",
+  "timestamp": "2026-11-05T20:46:40Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.103 shipped: Zone orphan-device cleanup keeps devices that still have entities",
+  "summary": "Zone orphan-device cleanup keeps devices that still have entities",
+  "why": "Removal is the one irreversible device-registry act: deleting a zone device drops its entities' customizations, and the orphan test ran against a zone set computed on the spot that can be briefly incomplete. Chose skip-and-log over removal when entities remain; cost is a truly orphaned device lingering with one INFO line per boot, accepted vs irreversible loss. One shared helper for both sites (the :2409 integration-entry sweep is riskier - its zone set comes from legacy entries that no longer exist). Two builds ran for this card (overnight session and a daytime builder); a second review caught the duplicate, so we shipped the overnight branch (full suite: 0 new failures) plus only the daytime DEVICE_TREE doc fix. Child devices from HA 2026.11 were reviewed and close none of these gaps.",
+  "implications": "Shipped ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1 at v5.103.103; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.103.md (Live criteria).",
+  "revisit_trigger": "After restart: all 5 configured zones still have their zone_<Raw> device with entities in the device registry, and the HA log has no 'Removed orphaned' line for a device that had entities",
+  "refs": {
+    "cards": [
+      "ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.103.md"
+    ],
+    "release_notes": "Both startup zone cleanups now skip removing a zone device that still has entities (logs 'removal SKIPPED'), so a transiently incomplete zone list can no longer delete a live zone device and its entity customizations. DEVICE_TREE.md: via_device deprecated, removed in Core 2027.8."
+  }
+}

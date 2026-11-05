@@ -32055,7 +32055,8 @@ cards:
   verify_2026_11_05_overnight: "STILL-REAL (02:04 CST, code read). TWO sites, not one: __init__.py:4904-4930 (Zone Manager slug cleanup, 'identifier not in raw_zone_ids' -> async_remove_device) AND __init__.py:2380-2412 (integration-entry orphan cleanup, 'not in active_zone_names' -> async_remove_device); neither checks for entities. Gate: config-first none (no knob); prior-art REUSE the 0-entity guard already used by the D1 music-following cleanup (__init__.py:5130-5150, er.async_entries_for_device(..., include_disabled_entities=True)); parsimony BUILD (one guard per site or a shared helper); cost/benefit cheap, Tier 1. CARD-WAS-WRONG on refs: docs/planning/AUDIT_device_tree_vs_ha_2026_11_child_devices.md does not exist in any branch; the original flag is DEVICE_ENTITY_DEFRAG_POSTMORTEM.md:104. Build dispatched 02:05 to worktree .claude/worktrees/zone-orphan-guard (branch fix/zone-orphan-device-guard)."
   title: "Zone slug cleanup removes URA zone devices without checking they have 0 entities"
   thread: devices
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.103
   tier: 1
   created: "2026-11-04"
   updated: "2026-11-05 02:39"
