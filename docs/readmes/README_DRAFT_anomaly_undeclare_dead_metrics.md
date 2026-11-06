@@ -27,6 +27,7 @@ Since v5.103.25, a declared metric with no data counts as blind (`not_wired`). B
 - Removed two source-grep tests whose subject no longer exists. Each file carries a comment pointing at the replacement:
   - `test_v465_observability_gap.py::test_security_metrics_entry_anomaly_score_suppressed`
   - `test_v478_egress_window.py::test_v478_fixup_C_M1_egress_pause_frequency_in_suppressed_set`
+- Fixture fix (`test_unload_symmetry_shutdown_db_hygiene.py` `_hermetic_db_modules`, pre-existing order bug exposed by the new file): teardown now also restores the parent-package attributes (`universal_room_automation.database`, `domain_coordinators.coordinator_diagnostics`). Before, it restored only `sys.modules`, so a later `import ...database as dbmod` got the stale reloaded copy and `test_house_energy_correctness.py::test_similar_days_excludes_today_partial` failed. Drill: neutering the delete-when-absent branch turns that pair RED.
 - Mutation drill:
   - Re-adding `egress_pause_frequency` to `HVAC_METRICS` turns 3 named HVAC tests RED.
   - Re-adding `entry_anomaly_score` to `SECURITY_METRICS` turns 3 named Security tests RED.
