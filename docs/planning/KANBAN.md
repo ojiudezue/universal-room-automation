@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T17:31:38-06:00_ - _Data commit: `9c19f3590eab`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T17:35:01-06:00_ - _Data commit: `dbef257a2f24`_ - _last_reconciled: 2026-11-05_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -621,9 +621,10 @@ thread: **dashboard** - status: **waiting_operator**
 _created 2026-11-06 15:20_
 - **Why:** custom:animated-weather-card (alexsto1an/ha-ani-weather-card, MIT, HACS default, v1.2.0). Source checked: pauses off-screen (IntersectionObserver) and on hidden tab, honors prefers-reduced-motion, animate:false switch. Risk = wall-panel ...
 - **Next:** REVIEW: look at the Now tab on a phone and on a wall panel -> keep (I remove weather_hero) / panels animate:false / roll back from the backup.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `tier`: 1
   - `built_2026_11_06`: Live 15:3x: backup docs/dashboard-prototypes/ura-v8-backups/20261106T_pre_ani_weather_trial.json; HACS v1.2.0 pinned (resource /hacsfiles/ha-ani-weather-card/...); Now view section 0 cards 7-8 = animated-weather-card (weather.phalanxmadr...
+  - `switched_2026_11_06`: Operator: 'Switch it to the main weather provider. And you can use a template for now.' Station overrides removed (2024 Weather Station is an ambient_network public cloud station, not confirmed ours); card reads weather.phalanxmadrone on...
   - `adjacency`: Swept DASH-V8-* + dashboarding workstream: NEW.
 
 ### `ROOM-ENERGY-SENSOR-MISPICKS-1` - Several rooms read their "energy today" from the wrong sensor (a radar field, an export counter, a monthly total, shared circuits) — _#6 · WSJF 7.0 · v3 tc2 u2 /e1_
