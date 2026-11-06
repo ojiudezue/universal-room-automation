@@ -1243,19 +1243,10 @@ def test_v478_fixup_C_H3_en_json_has_egress_translations():
     assert "hvac_egress_paused_zones" in blob
 
 
-def test_v478_fixup_C_M1_egress_pause_frequency_in_suppressed_set(hvac_const_src):
-    """C-M1 (v4.6.3.1 P2 doctrine): silent metrics must be explicitly
-    listed in HVAC_SUPPRESSED_FROM_PERSISTENCE rather than absent.
-    egress_pause_frequency is not yet wired — must be in the suppressed
-    set so the parametric meta-test won't fail when we DO wire it.
-    """
-    # Find HVAC_SUPPRESSED_FROM_PERSISTENCE block.
-    idx = hvac_const_src.find("HVAC_SUPPRESSED_FROM_PERSISTENCE")
-    assert idx >= 0
-    block = hvac_const_src[idx:idx + 600]
-    assert '"egress_pause_frequency"' in block, \
-        "egress_pause_frequency must be in HVAC_SUPPRESSED_FROM_PERSISTENCE " \
-        "per v4.6.3.1 P2 doctrine"
+# test_v478_fixup_C_M1_egress_pause_frequency_in_suppressed_set (a source
+# grep) was removed by ANOMALY-METRIC-DISPOSITION-1 (2026-11-06):
+# egress_pause_frequency is no longer declared. Behavioural replacement:
+# test_anomaly_undeclare_dead_metrics.py.
 
 
 def test_v478_fixup_C_M2_room_egress_inherits_universal_room_entity(binary_sensor_src):
