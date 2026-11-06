@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T02:08:41-06:00_ - _Data commit: `f5ab3b232b0a`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T02:08:55-06:00_ - _Data commit: `ff48c861dff9`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
@@ -1064,13 +1064,14 @@ _live, awaiting proof_
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#1 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **shipped_organic**
-_created 2026-09-21 · updated 2026-11-04 02:11 · refined ×1_
+_created 2026-09-21 · updated 2026-11-06 02:10 · refined ×1_
 - **Problem / Solution:**
   - Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy background tasks _async_try_refr...
 - **Why:** the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.
 - **Next:** DO: fill firmware + pyenphase version into Revision 2 of docs/planning/DRAFT_envoy_upstream_issue.md and post it on core#181243 (or as a new issue 'one hung endpoint blanks all enphase_envoy data'). -> I track the thread; local mitigatio...
 - **Tags:** energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident
-- **Forensic keys (20):**
+- **Forensic keys (21):**
+  - `measured_2026_11_06_overnight`: Nightly drop recurred (HA recorder, read 02:09 CST): sensor.envoy_482543015950_battery unavailable 2026-11-05 23:04:28 -> 23:36:59 CST (32.5 min), its only unavailable spell since 20:00. Same ~23:04 timing as earlier nights. The v5.103.1...
   - `verify_2026_11_04_overnight`: v5.103.102 (the corrupt-today cross-check fix) is INSTALLED but NOT LOADED: HA has not restarted since the 21:35 deploy (restart held while the house sleeps). Evidence: the system_log 'Consumption cross-check divergence: Envoy today=3441...
   - `instance_2026_10_31_overnight`: Nightly drop recurred again on HA 2026.10.4 (recorder read 02:0x CST 11-01): local reserve sensor unavailable 23:07:10-23:33:53 CDT 10-31 (~27 min); sensor.ura_energy_coordinator_envoy_status offline 23:11:32 -> stale 23:36:09. Third con...
   - `triage_2026_10_17`: Default taken: I draft the upstream HA report; operator posts it.
