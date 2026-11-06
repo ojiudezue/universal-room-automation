@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T02:38:00-06:00_ - _Data commit: `6afe81f073af`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T17:31:38-06:00_ - _Data commit: `9c19f3590eab`_ - _last_reconciled: 2026-11-05_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -259,14 +259,15 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
 thread: **platform** - status: **planned**
 _created 2026-10-05 · updated 2026-10-18 02:02_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
-- **Next:** Me: plan A (collapsed Advanced sections per form, replacing every show_advanced_options reader in DEDUPE_2026_11_05's list) ahead of HA 2027.6; Tier 2, one plan review. Device-registry half stays parked behind TEST-HARNESS-REAL-HA-DEFAUL...
+- **Next:** Form half: see FORM-CONDITIONAL-FIELDS-1 (joint A+B plan, after the HA 2026.11.x upgrade). Device-registry half stays parked behind TEST-HARNESS-REAL-HA-DEFAULT-1.
 - **Tags:** tier-1, multi-home
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `triage_2026_10_17`: Default A taken: collapsible Advanced sections.
   - `DEDUPE_2026_10_14`: Folded in URA-DEPRECATED-DEVICE-REGISTRY-CALLS-1 (created 10-13, a duplicate of this card's device-registry half; my adjacency sweep missed it). Carried over verbatim (the union): STILL-REAL. Live HA 2026.10.1 system_log (10-14 01:16 boo...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE (overnight). (1) VALIDITY: STILL-REAL - develop has 20 async_get_device( hits and 9 show_advanced_options refs (config_flow.py:63-98 hint helpers, :1138, :4465, :4500 shim context, :12978); the hiding itself rides HA data_...
   - `operator_pick_2026_11_06`: Operator: 'I think we need A and B for the forms. They solve diff problems.' A (collapsed Advanced sections) = this card's form half: tuning knobs out of the way, works on HA 2026.10 + the 2026.2.3 test pin. B (visible= fields that appea...
+  - `operator_2026_11_06_joint`: Operator: 'Plan A and B together. I don't want them to diverge. Same customer goal and we won't do it till I upgrade. Waiting for the point release.' Form half (A) moved into FORM-CONDITIONAL-FIELDS-1 as one joint plan; this card keeps o...
   - `found_2026_10_05`: MAIN HOUSE log (docker logs since last restart) has ONE URA deprecation: "The deprecated function show_advanced_options was called from universal_room_automation. It will be removed in HA Core 2027.6." -> earlier than the 2027.8-9 window...
   - `wigton_log_2026_10_05`: WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; remov...
   - `sweep_2026_10_05`: ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.
@@ -1542,14 +1543,15 @@ _created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `FORM-CONDITIONAL-FIELDS-1` - Config forms: show dependent fields only when relevant (HA 2026.11 visible=) — _#23 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `FORM-CONDITIONAL-FIELDS-1` - Config forms, one plan: collapsed Advanced sections (A) + fields shown only when relevant (B, HA 2026.11 visible=) — _#23 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **platform** - status: **parked**
 _created 2026-11-06 15:20_
 - **Why:** Fields that only matter once another answer is set (e.g. fan-speed fields once a fan is chosen) should stay hidden until then. Distinct from A (collapsed Advanced sections, HA-2027-DEPRECATIONS-URA-1), which hides tuning knobs. Hidden fi...
-- **Next:** Me, once the trigger fires: enumerate dependent-field pairs per form and plan the visible= wiring; Tier 2.
-- **Forensic keys (3):**
+- **Next:** Me, once the trigger fires: write the joint A+B plan (per-form field triage table), one plan review, then build; Tier 2.
+- **Forensic keys (4):**
   - `tier`: 2
-  - `revisit_trigger`: House on HA >= 2026.11 AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1).
+  - `operator_2026_11_06_joint`: Operator: 'Plan A and B together. I don't want them to diverge. Same customer goal and we won't do it till I upgrade. Waiting for the point release.' One plan covers both: per form, decide which fields are everyday, which fold into a col...
+  - `revisit_trigger`: Operator upgrades the house to an HA 2026.11.x point release AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1).
   - `adjacency`: Swept board (HA-2027-DEPRECATIONS-URA-1, ONBOARDING-SIMPLIFY-1, TEST-HARNESS-REAL-HA-DEFAULT-1) + PLANNING_onboarding_simplify_phase2.md O-items: ADJACENT, carded as sibling because it has its own trigger and acceptance.
 
 ### `ENERGY-TODAY-STATS-STEPPED-RESET-1` - Staggered midnight room resets reach HA long-term statistics as 2-3 partial drops, each read as a meter reset, so part of yesterday's energy is counted again — _#24 · WSJF 2.5 · v2 tc1 u2 /e2_
