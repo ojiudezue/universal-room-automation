@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T02:09:24-06:00_ - _Data commit: `16bfddef60fa`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T02:37:46-06:00_ - _Data commit: `b4b89672b721`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
@@ -362,9 +362,10 @@ _updated 2026-10-15 02:14_
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#10 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
-_created 2026-08-19 07:45 · updated 2026-11-06 02:05 · refined_
+_created 2026-08-19 07:45 · updated 2026-11-06 02:37 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
-- **Forensic keys (32):**
+- **Forensic keys (33):**
+  - `INSTANCE_2026_11_06_hermetic_fixture`: Second leak found tonight, same class: _hermetic_db_modules (test_unload_symmetry_shutdown_db_hygiene.py:77-108) restored sys.modules but not the parent-package attributes, so test_unload_symmetry -> test_house_energy_correctness fails o...
   - `INSTANCE_2026_11_06_zone_orphan_order`: Measured 02:03 CST on develop 7629fc8f: test_notification_manager.py (or test_nm_notify_signature_sites.py) followed by test_zone_orphan_device_guard.py -> 9 failed (AttributeError: module custom_components.universal_room_automation has ...
   - `INSTANCE_2026_11_05_order_dependent_12`: Fresh pre-existing failure list on develop d2d07201 (overnight 11-05 full suite): 12 failed / 19043 passed, down from 30 on 11-02 (the 21 calendar-coupled DPM failures no longer appear). All 12 are order-dependent: test_radar_tuning_phas...
   - `arc_cut_v5_103_71`: parent test-harness arc is actively in progress (Test Wave 2 D7 slices)

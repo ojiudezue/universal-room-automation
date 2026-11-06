@@ -21893,6 +21893,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  INSTANCE_2026_11_06_hermetic_fixture: "Second leak found tonight, same class: _hermetic_db_modules (test_unload_symmetry_shutdown_db_hygiene.py:77-108) restored sys.modules but not the parent-package attributes, so test_unload_symmetry -> test_house_energy_correctness fails on develop (hidden by file order). Fixed test-only on fix/anomaly-undeclare-dead-metrics (015d4e45; the delattr branch is mutation-anchored). Lands with ANOMALY-METRIC-DISPOSITION-1. The NM-stub -> test_zone_orphan_device_guard leak (instance above) is still open."
   INSTANCE_2026_11_06_zone_orphan_order: "Measured 02:03 CST on develop 7629fc8f: test_notification_manager.py (or test_nm_notify_signature_sites.py) followed by test_zone_orphan_device_guard.py -> 9 failed (AttributeError: module custom_components.universal_room_automation has no attribute _remove_orphan_zone_devices). The NM tests stub the URA package in sys.modules at import, and the zone test (shipped v5.103.103) does a plain attribute read off the package. In isolation it passes (9/9). The 11-05 full suite was clean, so the standard runner's order hides it. Same production-stub shadowing class as the other slices."
   INSTANCE_2026_11_05_order_dependent_12: "Fresh pre-existing failure list on develop d2d07201 (overnight 11-05 full suite): 12 failed / 19043 passed, down from 30 on 11-02 (the 21 calendar-coupled DPM failures no longer appear). All 12 are order-dependent: test_radar_tuning_phase_a.py x6, test_energy_today_midnight_freeze.py x3 (three restore tests), test_zone_safety_alert.py::TestCMKnobDriftClosedForNormalLadder x2, test_shared_power_read_staleness.py::TestDOBSBehavioral::test_kill_switch_threshold_zero_disables_stale_flip x1 (fails in a 4-file run, passes alone). test_energy_today_midnight_freeze is not mentioned anywhere else on the board: new polluter victim since v5.103.9x."
   arc_cut_v5_103_71: "parent test-harness arc is actively in progress (Test Wave 2 D7 slices)"
@@ -22004,7 +22005,7 @@ cards:
   shipped_version: v5.103.49
   groom_2026_09_29_rank: 'Added the missing time_criticality 4: the suite pollution costs every cycles name-diff, but nothing live breaks while it waits.'
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: "2026-11-06 02:05"
+  updated: "2026-11-06 02:37"
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
