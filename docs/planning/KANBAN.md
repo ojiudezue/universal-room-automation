@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T02:03:06-06:00_ - _Data commit: `067f97c2824a`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T02:08:41-06:00_ - _Data commit: `f5ab3b232b0a`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
@@ -362,10 +362,10 @@ _updated 2026-10-15 02:14_
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#10 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
-_created 2026-08-19 07:45 · updated 2026-11-06 02:20 · refined_
+_created 2026-08-19 07:45 · updated 2026-11-06 02:05 · refined_
 - **Next:** Epic, open: the next slice (what poisons test_v47x_weather_manager.py in suite order) is the same production-stub shadowing class carried by TEST-SUITE-ORDER-INDEP-PRODSTUBS-1; drive it there. Keep this card as the parent of the test-ord...
 - **Forensic keys (32):**
-  - `INSTANCE_2026_11_06_zone_orphan_order`: Measured 02:10 CST on develop 7629fc8f: test_notification_manager.py (or test_nm_notify_signature_sites.py) followed by test_zone_orphan_device_guard.py -> 9 failed (AttributeError: module custom_components.universal_room_automation has ...
+  - `INSTANCE_2026_11_06_zone_orphan_order`: Measured 02:03 CST on develop 7629fc8f: test_notification_manager.py (or test_nm_notify_signature_sites.py) followed by test_zone_orphan_device_guard.py -> 9 failed (AttributeError: module custom_components.universal_room_automation has ...
   - `INSTANCE_2026_11_05_order_dependent_12`: Fresh pre-existing failure list on develop d2d07201 (overnight 11-05 full suite): 12 failed / 19043 passed, down from 30 on 11-02 (the 21 calendar-coupled DPM failures no longer appear). All 12 are order-dependent: test_radar_tuning_phas...
   - `arc_cut_v5_103_71`: parent test-harness arc is actively in progress (Test Wave 2 D7 slices)
   - `SUITE_GREEN_2026_10_23`: Develop full suite is GREEN: 18136 passed, 0 failed (develop 9f8ef656e). Baseline before (57d4d3dc4, docs/planning/suite_baseline_develop_2026_10_23.txt) was 12 failing in 3 files, all stale tests, no production bug: census switches (han...
@@ -418,14 +418,14 @@ _being built_
 
 ### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#1 · WSJF 2.3 · v3 tc2 u2 /e3_
 thread: **diagnostics** - status: **in_progress**
-_created 2026-10-24 08:00 · updated 2026-11-06 02:20 · refined_
+_created 2026-10-24 08:00 · updated 2026-11-06 02:05 · refined_
 - **Origin:** 2026-10-24 - grooming of the five unminted README_v5.103.25 s5 follow-ups
 - **Why:** Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; S...
 - **Next:** Me (overnight 11-06): build (a)+(b) to review on a worktree branch, Tier 1 review, no deploy. Then (c)/(d) need a Tier-2 plan.
 - **Tags:** anomaly, security, safety, hvac
 - **Forensic keys (3):**
   - `residual_c_d`: Still open after the (a)+(b) slice: (c) reshape security.alert_trigger_frequency (e.g. daily count of non-LOW verdicts); (d) safety.active_hazard_count: sample on the periodic check or retire it. Each needs a producer-shape decision, so ...
-  - `verify_2026_11_06_overnight`: STILL-REAL (02:15 CST, code read). (a) hvac_const.py:1307 still declares egress_pause_frequency in HVAC_METRICS and in the SUPPRESSED (:1348) and UNWIRED (:1361) sets, with no producer. (b) security.py:85 still declares entry_anomaly_sco...
+  - `verify_2026_11_06_overnight`: STILL-REAL (02:04 CST, code read). (a) hvac_const.py:1307 still declares egress_pause_frequency in HVAC_METRICS and in the SUPPRESSED (:1348) and UNWIRED (:1361) sets, with no producer. (b) security.py:85 still declares entry_anomaly_sco...
   - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -442,7 +442,7 @@ _under review_
 
 ### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **optimizer** - status: **review** - approval: **implied**
-_created 2026-11-04 02:11 · updated 2026-11-06 02:20 · initial_
+_created 2026-11-04 02:11 · updated 2026-11-06 02:05 · initial_
 - **Problem / Solution:**
   - Problem: about every two to three days the optimizer's AI layer sends a CRITICAL alert to Pushover, WhatsApp, the companion app and iMessage saying the house is 'running blind' because its list of recent findings was cut off. The cut-off...
 - **Origin:** 2026-11-04 - Overnight pass 11-04, found during the v5.103.101 ack-check: the only page since 11-03 noon was a 21:07 CRITICAL 'URA Optimizer — meta' to 4 channels.
@@ -452,7 +452,7 @@ _created 2026-11-04 02:11 · updated 2026-11-06 02:20 · initial_
 - **Parsimony:** [BUILD] Every LLM-emitted critical META finding pages 4 channels, and 9/9 in 30 days were false.
 - **Refs:** domain_coordinators/optimization.py _notify_if_severe; domain_coordinators/optimization_llm.py to_prompt_body
 - **Forensic keys (5):**
-  - `mergeprep_2026_11_06_overnight`: 02:05-02:12 CST. integ/overnight-2026-11-04 is 29 behind and 8 ahead of develop; git merge-tree = clean. develop changed const.py since (the only file overlap). Merged into a temp worktree: the branch's three test files pass (33 passed) ...
+  - `mergeprep_2026_11_06_overnight`: 02:02-02:03 CST. integ/overnight-2026-11-04 is 29 behind and 8 ahead of develop; git merge-tree = clean. develop changed const.py since (the only file overlap). Merged into a temp worktree: the branch's three test files pass (33 passed) ...
   - `validated_2026_11_05_overnight`: Full-suite name-diff 02:04-02:17 CST 11-05 (serial, one run each, __pycache__ cleared): base = develop d2d07201 worktree base-overnight-2026-11-04 -> 12 failed / 19043 passed; candidate = integ/overnight-2026-11-04 af8fe026 (both branche...
   - `build_2026_11_04`: Built on fix/optimizer-meta-never-pages (03d34c87, fix-up 37df2956, README draft e1dc68f0). Tier-1 review SHIP (docs/reviews/code-review/optimizer_meta_never_pages_review.md on the branch): 0 CRIT/HIGH/MED, 2 LOW both fixed (allowlist kn...
   - `tier`: 1
@@ -460,7 +460,7 @@ _created 2026-11-04 02:11 · updated 2026-11-06 02:20 · initial_
 
 ### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **review**
-_created 2026-11-01 · updated 2026-11-06 02:20_
+_created 2026-11-01 · updated 2026-11-06 02:05_
 - **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
 - **Next:** APPROVE at the next attended (daytime) deploy, together with OPTIMIZER-META-NEVER-PAGES-1 (integ/overnight-2026-11-04; README draft docs/readmes/README_DRAFT_security_lock_retry_cap.md). Note: the only lock in the sweep (front-door Kwiks...
 - **Forensic keys (4):**
@@ -474,7 +474,7 @@ _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
 thread: **security** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-07 03:05 · updated 2026-11-06 02:20 · initial_
+_created 2026-10-07 03:05 · updated 2026-11-06 02:05 · initial_
 - **Problem / Solution:**
   - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
 - **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
@@ -484,7 +484,7 @@ _created 2026-10-07 03:05 · updated 2026-11-06 02:20 · initial_
 - **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
 - **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
 - **Forensic keys (30):**
-  - `recheck_2026_11_06_overnight`: Waiting-lane re-check 02:1x CST. All unchanged since the 11-04 19:46 restart: lock.doorlock_kwikset_zwave_frontentry unavailable (node 3 dead), binary_sensor.smoke_sensor_s1_smoke unavailable, BP1_B distance sensor unavailable, switch.ur...
+  - `recheck_2026_11_06_overnight`: Waiting-lane re-check 02:03 CST. All unchanged since the 11-04 19:46 restart: lock.doorlock_kwikset_zwave_frontentry unavailable (node 3 dead), binary_sensor.smoke_sensor_s1_smoke unavailable, BP1_B distance sensor unavailable, switch.ur...
   - `reverified_2026_11_05_overnight`: STILL-REAL 02:01 CST (ha_get_state, after the 11-04 19:46 restart): lock.doorlock_kwikset_zwave_frontentry unavailable, Z-Wave node 3 'dead', kitchen smoke binary_sensor.smoke_sensor_s1_smoke unavailable, BP1_B distance sensor unavailabl...
   - `operator_note_2026_11_01`: New locks are being installed soon (relayed via FRONT-LOCK-OFFLINE-1).
   - `reverified_2026_11_02_overnight`: STILL-REAL 02:01 CST (ha_get_state): lock unavailable; kitchen smoke binary_sensor.smoke_sensor_s1_smoke unavailable (since the 11-01 14:04 restart); BP1_B unavailable; switch.ura_nm_panel_channel off; Ollama 192.168.13.62:11434 no answe...
@@ -1163,7 +1163,7 @@ _created 2026-09-13 01:00 · updated 2026-09-29 01:05 · initial_
 
 ### `ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1` - Zone slug cleanup removes URA zone devices without checking they have 0 entities — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **devices** - status: **shipped_organic** - approval: **implied**
-_created 2026-11-04 · updated 2026-11-06 02:20_
+_created 2026-11-04 · updated 2026-11-06 02:05_
 - **Why:** __init__.py:~4928 calls dev_reg.async_remove_device for any zone_* identifier not in raw_zone_ids. If raw_zone_ids is transiently incomplete (load order, a config read error), a live zone device and its entity customizations are deleted....
 - **Next:** Me, first overnight pass after the next HA restart: check the HA log for 'Removed orphaned' / 'removal SKIPPED' lines and confirm every configured zone device is still in the device registry, then close. No operator action needed: it is ...
 - **Forensic keys (4):**
@@ -1534,7 +1534,7 @@ _created 2026-11-03 · updated 2026-11-04 02:13_
 
 ### `NM-TTS-ENGINE-TARGET-1` - Spoken alerts would fail if switched on: the speak call names no text-to-speech engine — _#24 · WSJF 2.5 · v2 tc1 u2 /e2_
 thread: **notifications** - status: **parked** - approval: **unreviewed**
-_created 2026-11-06 02:40 · initial_
+_created 2026-11-06 02:08 · initial_
 - **Problem / Solution:**
   - Problem: both places that speak an alert out loud (the alert itself and the acknowledgement) call Home Assistant's speak service without saying which text-to-speech engine to use, so Home Assistant rejects the call. Today nothing is affe...
 - **Origin:** 2026-11-06 - residual_engine_target split off NM-ACK-TTS-IGNORES-DISABLE-1 when that card closed (met-with-residual)
@@ -2715,7 +2715,7 @@ _closed, evidence in refs_
 
 ### `NM-ACK-TTS-IGNORES-DISABLE-1` - Acknowledging an alert tries to speak on 5 house speakers even though spoken alerts are turned off (and the call is malformed, so it errors) — _WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **notifications** - status: **done** - approval: **implied**
-_created 2026-10-25 02:08 · updated 2026-11-06 02:40 · initial_
+_created 2026-10-25 02:08 · updated 2026-11-06 02:08 · initial_
 - **Problem / Solution:**
   - Problem: when someone acknowledges an alert, the notification manager announces the acknowledgement out loud on the configured speakers without checking whether spoken alerts are switched on. Spoken alerts are off in this house, yet at 0...
 - **Origin:** 2026-10-25 - Overnight pass log read (ha_get_logs source=system): notification_manager.py:3924 ERROR 'TTS ack announcement failed: at least one of entity_id, device_id, area_id, floor_id, label_id is required' at 00:39:32 CDT, same secon...
@@ -2723,7 +2723,7 @@ _created 2026-10-25 02:08 · updated 2026-11-06 02:40 · initial_
 - **Next:** DONE. Residual: NM-TTS-ENGINE-TARGET-1 (parked until spoken alerts are wanted).
 - **Parsimony:** [SIMPLIFY: gate the ack announce on CONF_NM_TTS_ENABLED now (Tier 1); park the engine-target fix as a PICK.] With TTS disabled, an acknowledgement still issues tts.speak to 5 speakers (it errors today only because the call lacks an engine target).
 - **Forensic keys (11):**
-  - `organic_evidence_2026_11_06`: VALIDATED live (02:35 CST). Safe-word acknowledgement by iMessage at 2026-11-05 09:55:09 CST (notification_inbound 209545, Oji, CRITICAL) on the fixed code (installed and running since the 11-04 19:46 restart). No media_player changed st...
+  - `organic_evidence_2026_11_06`: VALIDATED live (02:07 CST). Safe-word acknowledgement by iMessage at 2026-11-05 09:55:09 CST (notification_inbound 209545, Oji, CRITICAL) on the fixed code (installed and running since the 11-04 19:46 restart). No media_player changed st...
   - `organic_evidence_2026_11_04`: Shipped v5.103.101 (loaded 11-03 18:01). No safe-word acknowledgement has happened since (notification_log: no ack_time after the restart), so the live row stays pending. CARD-WAS-WRONG on next: it shipped; no APPROVE needed.
   - `mergeprep_2026_11_02_overnight`: Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). fix/nm-ack-tts-gate merges clean on its own (git merge-tree). integ/overnight-2026...
   - `mergeprep_2026_10_29_overnight`: integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validati...
