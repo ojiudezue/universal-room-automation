@@ -25,10 +25,11 @@
 - Updated `test_room_menu_trim.py` (Advanced mode is trimmed too), `test_room_advanced_fields.py` (hint variants), `test_v4_6_8_rate_reconciliation.py` (hollow room-override mirror replaced by a call to the real helper).
 - Mutation drills: five sites, each RED on its own test (see the build report).
 
-## Live validation (prospective)
-
-- **Stair Closet menu via REST, Advanced on:** `POST /api/config/config_entries/options/flow` for the Stair Closet entry with `show_advanced: true` returns `menu_options` = basic_setup, sensors, devices, options_lighting_behaviour, options_covers (plus any section it has values in), then `show_all_settings`. Energy is absent unless the closet has power or energy sensors.
-- **Same with Advanced off:** same menu.
-- **Bedroom:** all 12 sections, no More settings.
-- **Room cost sensors:** a room `sensor.<room>_energy_cost_today` value matches energy today × EC rate; the attribute/rate source stays `ec_tou` (unchanged when EC is up).
-- **Logs:** no config-flow exceptions opening a room's options.
+## Validated 2026-11-06 (restart 14:55 CT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Stair Closet trimmed menu | PASS | REST options flow `menu_options` = basic_setup, sensors, devices, options_lighting_behaviour, options_covers, sleep_protection, energy, show_all_settings (energy shown: closet has a Meross plug; sleep_protection has values) |
+| Advanced on/off same menu | as-expected | HA 2026.10 forces `show_advanced_options` True; only one state reachable live, both proven in-suite |
+| Bedroom keeps all 12 | PASS | Master Bedroom `menu_options` has 12 entries, no show_all_settings |
+| Cost uses EC TOU | PASS | `sensor.zone_*_energy_cost_today` attr `rate_source=ec_tou`; `sensor.master_bedroom_energy_cost_today`=0.29 (room sensor carries no rate attr, so rate proven via zone rollup + suite) |
+| No config-flow exceptions | PASS | 0 URA ERROR lines after boot (2 at 14:55:17 are shutdown-time DB write skips) |

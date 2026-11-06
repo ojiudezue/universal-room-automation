@@ -24,6 +24,8 @@ Tier 1. No config, schema or entity changes.
 - `test_three_tuple_identifiers_do_not_crash`
 - `test_device_with_two_orphan_ids_removed_once`
 
-## Live acceptance
-- After restart, grep the HA log for `Removed orphaned`. No zone device that still has entities is removed; any skip appears as `removal SKIPPED ... still has N entities`.
-- Every configured zone's `URA` zone device is still in the device registry, and its entities keep their customizations.
+## Validated 2026-11-06 (restart 14:55 CT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| No zone device with entities removed | PASS | Core log after restart: 0 `Removed orphaned` lines, 0 `orphan` lines |
+| All zone devices present with entities | PASS | Template over `integration_entities`: Back Hallway 21, Entertainment 21, Master Suite 21, Outside 19, Upstairs 21 |
