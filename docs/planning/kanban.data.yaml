@@ -191,6 +191,33 @@ cards:
   next: 'APPROVE: merge fix/worklog-append-at-ship to develop (no release needed on its own; it takes effect at the next deploy.sh run).'
   rank: {"value": 3, "time_criticality": 2, "effort": 1}
   built_2026_10_24: 'Built overnight to review, NOT deployed (tooling only, no HA restart needed). Branch fix/worklog-append-at-ship (fa285d425 + fix 38baad622). New scripts/worklog_ship.py appends ''- <ts> **v<ver>** - <README title or summary> (cards: ...)'' under a trailing ''Release index (auto-appended at deploy)'' section of docs/planning/WORKLOG_<YYYY-MM>_session.md; idempotent per version (v5.103.7 vs v5.103.70 tested), creates the month file if missing. deploy.sh step 4b: warn-only post-push inside the existing set +e block, staged into the reconcile commit; --dry-run rehearses on a temp copy. Tests: quality/tests/test_worklog_ship.py (6); deploy/kanban_ship tests 36 passed. Tier 1 review: SHIP; LOW fixed in-cycle (worklog path computed once so write and git add cannot straddle a month boundary). Remaining LOW accepted: if both kanban and vibememo writes fail the worklog line is written but not staged (tree already dirty in that case).'
+- id: FORM-CONDITIONAL-FIELDS-1
+  title: "Config forms: show dependent fields only when relevant (HA 2026.11 visible=)"
+  thread: platform
+  status: parked
+  tier: 2
+  created: "2026-11-06 15:20"
+  updated: "2026-11-06 15:20"
+  rank: {value: 4, time_criticality: 2, effort: 3}
+  origin: "Operator 2026-11-06: 'I think we need A and B for the forms. They solve diff problems.' (B of the Advanced-mode replacement choices)."
+  why: "Fields that only matter once another answer is set (e.g. fan-speed fields once a fan is chosen) should stay hidden until then. Distinct from A (collapsed Advanced sections, HA-2027-DEPRECATIONS-URA-1), which hides tuning knobs. Hidden fields are not saved, but URA's options merge keeps the old value. Candidate sites: the simplicity plan amendment O2-O4 + O14-O17 (docs/planning/PLANNING_onboarding_simplify_phase2.md)."
+  links: {"sibling_of": ["HA-2027-DEPRECATIONS-URA-1"], "depends_on": ["TEST-HARNESS-REAL-HA-DEFAULT-1"], "context": "A+B both picked by the operator 11-06; B needs HA 2026.11 on the house and in the test harness."}
+  revisit_trigger: "House on HA >= 2026.11 AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1)."
+  next: "Me, once the trigger fires: enumerate dependent-field pairs per form and plan the visible= wiring; Tier 2."
+  adjacency: "Swept board (HA-2027-DEPRECATIONS-URA-1, ONBOARDING-SIMPLIFY-1, TEST-HARNESS-REAL-HA-DEFAULT-1) + PLANNING_onboarding_simplify_phase2.md O-items: ADJACENT, carded as sibling because it has its own trigger and acceptance."
+- id: DASH-V8-ANI-WEATHER-TRIAL-1
+  title: "ura-v8 Now tab: trial Animated Weather Card next to weather_hero"
+  thread: dashboard
+  status: waiting_operator
+  tier: 1
+  created: "2026-11-06 15:20"
+  updated: "2026-11-06 15:20"
+  rank: {value: 3, time_criticality: 3, effort: 1}
+  origin: "Operator 2026-11-06: liked the trial plan and the exclusions (no AI note, no planes): 'configure most other features so I can see the full payoff'."
+  why: "custom:animated-weather-card (alexsto1an/ha-ani-weather-card, MIT, HACS default, v1.2.0). Source checked: pauses off-screen (IntersectionObserver) and on hidden tab, honors prefers-reduced-motion, animate:false switch. Risk = wall-panel CPU (GSAP + canvas blur); see AUDIT_ura_v8_panel_render_spin_2026_10_26.md."
+  built_2026_11_06: "Live 15:3x: backup docs/dashboard-prototypes/ura-v8-backups/20261106T_pre_ani_weather_trial.json; HACS v1.2.0 pinned (resource /hacsfiles/ha-ani-weather-card/...); Now view section 0 cards 7-8 = animated-weather-card (weather.phalanxmadrone + local 2024_weather_station temp/feels/humidity/pressure/wind speed+dir, 1 decimal, spill particles, auto_pause) + animated-sun-tracker-card. Not configured: AI note, planes (excluded), moon phase (no moon sensor), indoor reading (no house-wide avg sensor)."
+  next: "REVIEW: look at the Now tab on a phone and on a wall panel -> keep (I remove weather_hero) / panels animate:false / roll back from the backup."
+  adjacency: "Swept DASH-V8-* + dashboarding workstream: NEW."
 - id: DASH-V8-ROOM-STATUS-CHIPS-1
   groom_2026_10_28: "Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live tonight (dashboard check needs a browser)."
   updated: "2026-10-28 02:03"
@@ -32094,7 +32121,8 @@ cards:
   updated: "2026-10-18 02:02"
   tags: [tier-1, multi-home]
   why: 'A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-time warnings fall outside the 2000-line error_log window, so absence is not proven. Dev blog removals already announced for 2027.10: DeviceEntry.config_entries (enforced 2026-09-15), configurator, modbus get_hub.'
-  next: "Me (default A taken 10-17): plan the collapsible Advanced sections in each URA form ahead of HA 2027.6; Tier 1-2."
+  operator_pick_2026_11_06: "Operator: 'I think we need A and B for the forms. They solve diff problems.' A (collapsed Advanced sections) = this card's form half: tuning knobs out of the way, works on HA 2026.10 + the 2026.2.3 test pin. B (visible= fields that appear only when another answer makes them relevant) = sibling FORM-CONDITIONAL-FIELDS-1, needs HA 2026.11 + harness pin raise. Section answers come back nested under the section key, so every sectioned step's save path must flatten them and carry a save round-trip test (Tier 2)."
+  next: "Me: plan A (collapsed Advanced sections per form, replacing every show_advanced_options reader in DEDUPE_2026_11_05's list) ahead of HA 2027.6; Tier 2, one plan review. Device-registry half stays parked behind TEST-HARNESS-REAL-HA-DEFAULT-1."
   found_2026_10_05: 'MAIN HOUSE log (docker logs since last restart) has ONE URA deprecation: "The deprecated function show_advanced_options was called from universal_room_automation. It will be removed in HA Core 2027.6." -> earlier than the 2027.8-9 window. Call sites: config_flow.py:1138, :4465, :4500 (shim context), :12974-12978 (getattr(self, "show_advanced_options")). Fix = stop reading the flag; show advanced fields via sections (HA guidance). Wigton warnings (2027.8-9) still unread: no access path (token gone).'
   wigton_log_2026_10_05: 'WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; removal 2027.8 (Wigton site __init__.py:4842). (2) device_registry.devices used as a mapping (.values()) -> iterate dev_reg.devices directly or use async_entries_for_config_entry; removal 2027.9 (Wigton sites __init__.py:4764, _devices.py:438, _devices.py:607). Wigton runs an older URA so line numbers differ. FULL develop sweep (grep): async_get_device at __init__.py:1055, 1061, 1092, 4864; entity.py:80; config_flow.py:10336, 11503 (7 sites). devices.values() at __init__.py:4786; button.py:302; _devices.py:267, 345, 438, 607 (6 sites). Plus show_advanced_options (2027.6) from the main house. Device-registry surgery -> read docs/architecture/DEVICE_TREE.md + DEFRAG postmortem first; same-identifier hazard is exactly why HA deprecated async_get_device. Tier 2 (shared device-tree primitive), not a hotfix.'
   sweep_2026_10_05: 'ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.'
