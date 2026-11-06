@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-06T02:08:55-06:00_ - _Data commit: `ff48c861dff9`_ - _last_reconciled: 2026-11-05_
+_Generated: 2026-11-06T02:09:24-06:00_ - _Data commit: `16bfddef60fa`_ - _last_reconciled: 2026-11-05_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-11-06T02:08:55-06:00_ - _Data commit: `ff48c861dff9`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 11 |
-| 🔨 In progress | 2 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 5 |
@@ -413,22 +413,10 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
-### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#1 · WSJF 2.3 · v3 tc2 u2 /e3_
-thread: **diagnostics** - status: **in_progress**
-_created 2026-10-24 08:00 · updated 2026-11-06 02:05 · refined_
-- **Origin:** 2026-10-24 - grooming of the five unminted README_v5.103.25 s5 follow-ups
-- **Why:** Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; S...
-- **Next:** Me (overnight 11-06): build (a)+(b) to review on a worktree branch, Tier 1 review, no deploy. Then (c)/(d) need a Tier-2 plan.
-- **Tags:** anomaly, security, safety, hvac
-- **Forensic keys (3):**
-  - `residual_c_d`: Still open after the (a)+(b) slice: (c) reshape security.alert_trigger_frequency (e.g. daily count of non-LOW verdicts); (d) safety.active_hazard_count: sample on the periodic check or retire it. Each needs a producer-shape decision, so ...
-  - `verify_2026_11_06_overnight`: STILL-REAL (02:04 CST, code read). (a) hvac_const.py:1307 still declares egress_pause_frequency in HVAC_METRICS and in the SUPPRESSED (:1348) and UNWIRED (:1361) sets, with no producer. (b) security.py:85 still declares entry_anomaly_sco...
-  - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -437,7 +425,7 @@ _created 2026-11-01 · updated 2026-11-05 02:40_
   - `verify_2026_11_05_overnight`: CARD-WAS-WRONG on lane (02:40 CST, git read-only). The card sat in inbox, but the pack is being built: plan docs/planning/PLANNING_oc_live_eval_and_context_pack.md (rev 2, 51c81530, plan reviews 1+2 folded), branch feature/oc-live-eval (...
   - `tier`: 2
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
 ### `OPTIMIZER-META-NEVER-PAGES-1` - The optimizer's AI layer pages CRITICAL on all 4 channels (often at night) to complain that its own input was truncated: never page on a 'meta' finding — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -458,7 +446,21 @@ _created 2026-11-04 02:11 · updated 2026-11-06 02:05 · initial_
   - `tier`: 1
   - `adjacency_2026_11_04`: NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_op...
 
-### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ANOMALY-METRIC-DISPOSITION-1` - Dispose of anomaly metrics that cannot work as built: undeclare hvac.egress_pause_frequency + security.entry_anomaly_score; reshape security.alert_trigger_frequency; fix or retire safety.active_hazard_count — _#2 · WSJF 2.3 · v3 tc2 u2 /e3_
+thread: **diagnostics** - status: **review** - approval: **implied**
+_created 2026-10-24 08:00 · updated 2026-11-06 02:37 · refined_
+- **Origin:** 2026-10-24 - grooming of the five unminted README_v5.103.25 s5 follow-ups
+- **Why:** Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; S...
+- **Next:** APPROVE at the next attended (daytime) deploy; can ride with integ/overnight-2026-11-04 (no file overlap). Live check after restart: the Security anomaly sensor reads nominal (coverage full; alert_trigger_frequency is flagged constant, n...
+- **Tags:** anomaly, security, safety, hvac
+- **Forensic keys (5):**
+  - `build_2026_11_06_overnight`: Slice (a)+(b) built on fix/anomaly-undeclare-dead-metrics (pushed): 26b79e7c undeclares egress_pause_frequency (hvac_const.py HVAC_METRICS/SUPPRESSED/UNWIRED) and entry_anomaly_score (security.py SECURITY_METRICS; SUPPRESSED and UNWIRED ...
+  - `tier`: 1
+  - `residual_c_d`: Still open after the (a)+(b) slice: (c) reshape security.alert_trigger_frequency (e.g. daily count of non-LOW verdicts); (d) safety.active_hazard_count: sample on the periodic check or retire it. Each needs a producer-shape decision, so ...
+  - `verify_2026_11_06_overnight`: STILL-REAL (02:04 CST, code read). (a) hvac_const.py:1307 still declares egress_pause_frequency in HVAC_METRICS and in the SUPPRESSED (:1348) and UNWIRED (:1361) sets, with no producer. (b) security.py:85 still declares entry_anomaly_sco...
+  - `swept_2026_10_24`: DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this...
+
+### `SECURITY-LOCK-SWEEP-RETRY-CAP-1` - Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **review**
 _created 2026-11-01 · updated 2026-11-06 02:05_
 - **Why:** AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no...
