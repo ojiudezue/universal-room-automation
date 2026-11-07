@@ -3487,9 +3487,15 @@ class NotificationManager:
 
     @callback
     def _handle_whatsapp_reply(self, event: Event) -> None:
-        """Handle inbound WhatsApp message via ha-wa-bridge."""
-        phone = event.data.get("phone", "")
-        message = event.data.get("message", "")
+        """Handle inbound WhatsApp message via ha-wa-bridge.
+
+        NM-WA-INBOUND-KEYS-1 (2026-11-07): the installed bridge
+        (custom_components/whatsapp, event ``whatsapp_message_received``)
+        sends ``from`` / ``to`` / ``body`` / ``isGroup`` / ``fromMe`` …, not
+        ``phone`` / ``message``, so every WhatsApp inbound was dropped here.
+        Parsed via ``_parse_whatsapp_event``; legacy keys still accepted.
+        """
+        phone, message = self._parse_whatsapp_event(event.data or {})
         if not message:
             return
         person_id = self._match_person_by_phone(phone)
@@ -3499,6 +3505,41 @@ class NotificationManager:
         self.hass.async_create_task(
             self._process_inbound_reply(person_id, "whatsapp", message)
         )
+
+    @staticmethod
+    def _wa_jid_digits(jid: str) -> str:
+        """'15550001:12@c.us' -> '15550001' (strip @server and :device)."""
+        local = str(jid or "").split("@", 1)[0].split(":", 1)[0]
+        return "".join(ch for ch in local if ch.isdigit())
+
+    def _parse_whatsapp_event(self, data: dict) -> tuple[str, str]:
+        """Return (sender phone digits, text) or ("", "") to ignore.
+
+        - Legacy shape (``phone`` / ``message``) passes through unchanged.
+        - Groups, newsletters and broadcasts are ignored (``isGroup`` or a
+          ``@g.us`` / ``@newsletter`` / ``@broadcast`` from/to): family group
+          chats must never parse as commands.
+        - ``fromMe``: the bridge runs on the operator's own number (NM person
+          phone == bridge ``to``, verified 2026-11-07). An own message is
+          accepted ONLY in the self-chat (from-number == to-number), where the
+          operator talks to the house; an own message to anyone else (e.g.
+          "3" to a family member) is dropped. NM's own sends also land in the
+          self-chat; echo rail 1 (``_is_self_echo``, every ``_send_whatsapp``
+          body is recorded) drops them first in ``_process_inbound_reply``.
+          Recorder 2026-11-07: 0 of 1704 bridge events had fromMe=true, so
+          the bridge may not emit own messages at all today.
+        """
+        if "message" in data or "phone" in data:
+            return str(data.get("phone", "") or ""), str(data.get("message", "") or "")
+        frm = str(data.get("from", "") or "")
+        to = str(data.get("to", "") or "")
+        non_direct = ("@g.us", "@newsletter", "@broadcast")
+        if data.get("isGroup") or frm.endswith(non_direct) or to.endswith(non_direct):
+            return "", ""
+        if data.get("fromMe"):
+            if not to or self._wa_jid_digits(frm) != self._wa_jid_digits(to):
+                return "", ""
+        return self._wa_jid_digits(frm), str(data.get("body", "") or "")
 
     async def _handle_pushover_webhook(
         self, hass: HomeAssistant, webhook_id: str, request
