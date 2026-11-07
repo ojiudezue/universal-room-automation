@@ -530,8 +530,16 @@ entity-name regex).
 
 ## 7. House state transitions — guest / sleep / arriving
 
-- **Guest latch** (v5.16.0 fix). GUEST → SLEEP transition had been missing; the latch now
-  survives the night. See memory `project_presence_guest_latch_and_veto_gap`.
+- **Guest latch** (v5.16.0 fix; corrected 2026-11-07, see §10 #29). There is NO GUEST → SLEEP
+  edge: `VALID_TRANSITIONS[GUEST]` = {HOME_DAY, HOME_EVENING, HOME_NIGHT, AWAY}
+  (`house_state.py:116-121`) and `can_transition` rejects targets outside the table
+  (`house_state.py:219-221`). What v5.16.0 fixed is the EXIT: the GUEST-exit check runs before the
+  sleep-hours branch (`presence.py:1399-1401`), so a guest whose gate has cleared goes
+  GUEST → HOME_NIGHT, then SLEEP on a later tick (`README_v5.16.0.md:12-14`). While the guest
+  gate stays armed, the sleep branch's SLEEP proposal (`presence.py:1404-1408`) is rejected every
+  tick and the house holds GUEST all night. Consumers keyed on SLEEP (e.g. the planned garage
+  lockout, `PLANNING_sc_garage_remote_lockout.md` §4.2) do not fire on such nights. See memory
+  `project_presence_guest_latch_and_veto_gap`.
 - **Guest-mode false-positive gap** (open): LOST-but-away excluded from the trusted
   denominator → phantom unidentified → spurious GUEST
   (`project_guest_mode_false_positive_backlog`).
@@ -772,6 +780,12 @@ fan-susceptibility measurement running 2026-10-11 (verdict to be recorded in
    (`PLANNING_census_ble_over_face.md` §4.3) found every face-only sample in the confirmed-away window
    wrong, and measured the real cost (4 GUEST-eligible runs, ~33 min, on 10-24, third body in one camera
    frame), which the operator accepted (option A). The latch now follows BLE Leads (§1 table).
+
+29. **"GUEST → SLEEP transition had been missing; the latch now survives the night (v5.16.0)."**
+   WRONG (2026-11-07, SC garage lockout plan review 1 M2, re-verified by the planner). The code has
+   no GUEST → SLEEP edge (`house_state.py:116-121`; enforced at `:219-221`). v5.16.0 moved the
+   GUEST exit above the sleep branch (`presence.py:1399-1401`), so a CLEARED guest reaches SLEEP via
+   HOME_NIGHT; an ARMED guest gate holds GUEST overnight. §7 corrected.
 
 ## 11. Read before you touch — agent checklist
 

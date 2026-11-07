@@ -228,6 +228,42 @@ cards:
   oc_followups_2026_11_07: "From reading the L02 judged runs (2026-11-04, sonnet-5.5): M1 1.0/0.5/1.0; every M2 'invented' flag was citation hygiene (true fact cited to the wrong result, unsupported absence claims, 6 s vs 8 s), not fabrication. Follow-ups: (1) re-score L02 splitting miscitation from fabrication; (2) prompt/answer-format change: per-claim citation, say 'not checked' instead of asserting absence, numbers copied from results."
   built_2026_11_07: "Branch feature/nm-diag-text-menu @637b0bb8 (tag pre-review-nm-diag). D0: iMessage is the only live inbound channel (608 rows, all iMessage); SC lock list holds only the front lock (garage hallway + master bedroom absent -> doors answer shows front only until operator adds them in SC options); AC load sensors in W read via OverrideArrester._read_kwh_rate; health covers 21/47 rooms (26 unavailable-entities sensors disabled by default); hvac_action never reports cooling on zones 2/3 (load sensor is the right source); Pushover cap 1024 confirmed. 37/37 mutation drills RED."
   residual_companion_no_reply: "Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix."
+- id: SC-SWEEP-CLOSES-OPEN-GARAGE-1
+  title: "SC hourly lock sweep closes any open garage door regardless of arming or occupancy"
+  thread: security
+  status: parked
+  tier: 2
+  created: "2026-11-07 14:30"
+  updated: "2026-11-07 14:30"
+  rank: {value: 2, time_criticality: 1, effort: 2}
+  origin: "Lockout plan rev 3 (2026-11-07)."
+  why: "Lockout plan review 1 H4 (2026-11-07): security.py:702-709, :1705-1723 close any open garage every sweep with no occupancy check. Prerequisite for lockout Phase 2 (auto-open), at minimum a per-door hold-off after an auto-open. Sequence after SECURITY-LOCK-SWEEP-RETRY-CAP-1 merges."
+  next: "PICK: A keep sweep-close but add per-door hold-off + occupancy check, or B make sweep-close an opt-in knob -> I plan it before lockout Phase 2."
+  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+- id: SC-LOCK-REGIME-DOOR-LOCKS-1
+  title: "Move door-lock policy into the new SC lock regime (arming = alarm only)"
+  thread: security
+  status: parked
+  tier: 2
+  created: "2026-11-07 14:30"
+  updated: "2026-11-07 14:30"
+  rank: {value: 2, time_criticality: 1, effort: 2}
+  origin: "Lockout plan rev 3 (2026-11-07)."
+  why: "Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred."
+  next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships."
+  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+- id: SC-ARMING-ALARM-ONLY-1
+  title: "SC arming auto-follow is weak (off live; Sleep unmapped); redefine arming as alarm-only"
+  thread: security
+  status: parked
+  tier: 2
+  created: "2026-11-07 14:30"
+  updated: "2026-11-07 14:30"
+  rank: {value: 2, time_criticality: 1, effort: 2}
+  origin: "Lockout plan rev 3 (2026-11-07)."
+  why: "Lockout plan audit 2026-11-07: security.py:175-186 mapping leaves Sleep unmapped, auto-follow off live, bridge exits at :1104."
+  next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships."
+  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
