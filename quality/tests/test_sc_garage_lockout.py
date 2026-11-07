@@ -317,6 +317,9 @@ async def test_guest_outside_sleep_window_inert():
     rig = await make_rig(start=datetime(2026, 11, 7, 19, 0, tzinfo=TZ))
     await rig.edge("guest")  # 19:10 local, outside 22-06
     assert rig.locks() == []
+    # Edge site itself is inert (not merely dropped later by the predicate).
+    assert rig.regime.reason == "none"
+    assert rig.regime._backstop_unsub is None
 
 
 @pytest.mark.asyncio
@@ -324,6 +327,8 @@ async def test_guest_night_toggle_off_inert():
     rig = await make_rig(opts=options(security_lockout_engage_on_guest_sleep=False))
     await rig.edge("guest")
     assert rig.locks() == []
+    assert rig.regime.reason == "none"
+    assert rig.regime._backstop_unsub is None
 
 
 @pytest.mark.asyncio
@@ -352,6 +357,7 @@ async def test_guest_clock_does_nothing_if_house_not_guest():
     rig = await make_rig(start=datetime(2026, 11, 7, 20, 0, tzinfo=TZ), house="home_evening")
     await rig.w.advance(2.5 * 3600)
     assert rig.locks() == []
+    assert rig.regime.reason == "none"
 
 
 @pytest.mark.asyncio
@@ -559,8 +565,10 @@ async def test_unknown_blip_while_home_no_release():
     rig = await make_rig(lockouts="locked")
     await rig.person(OJI, "Work")
     await rig.person(OJI, "home")  # real transition seen: blip rule applies
-    rig.w.calls.clear()
     await rig.w.advance(3600)
+    rig.w.set_state(LOCK_A, "locked")  # re-locked (e.g. manually)
+    rig.w.set_state(LOCK_B, "locked")
+    rig.w.calls.clear()
     await rig.person(OJI, "unknown")
     await rig.person(OJI, "home")
     assert rig.unlocks() == []
@@ -592,13 +600,29 @@ async def test_restart_restore_then_unknown_then_home_releases():
     assert rig.unlocks() == [LOCK_A, LOCK_B]
 
 
+class _PersistedEz:
+    """Resident store that already knows Ezinne, so her restore write (old
+    state None) reaches the regime's by-id listener, as in HA after a
+    restart (subscription by id precedes the entity)."""
+
+    async def async_load(self):
+        return {"residents": [EZ]}
+
+    def async_delay_save(self, fn, delay):
+        pass
+
+
 @pytest.mark.asyncio
 async def test_restored_state_counts_after_boot_window():
-    """M-2 (ii): no real transition since setup -> blip edge still counts."""
+    """M-2 (ii): no real transition since setup -> blip edge still counts.
+
+    Restored `not_home` only 700 s old: the blip rule (>= 15 min real away)
+    would reject this edge; only the restored flag admits it."""
     rig = await make_rig(start=datetime(2026, 11, 8, 2, 0, tzinfo=TZ), house="sleep",
                          lockouts="locked", past_boot=False,
-                         persons={OJI: "home", KIOSK: "unknown"})
+                         persons={OJI: "home", KIOSK: "unknown"}, store=_PersistedEz())
     rig.w.set_state(EZ, "not_home")  # restore
+    assert rig.regime._last_real[EZ][2] is True
     await rig.w.advance(700)  # beyond the 600 s boot arrival window
     rig.w.calls.clear()
     await rig.person(EZ, "unknown")
@@ -999,6 +1023,17 @@ async def test_engage_intent_dropped_if_house_left_sleep_before_batch():
     await settle()
     assert rig.locks() == []
     assert rig.regime.last_action["why"] == "house_left_sleep"
+
+
+@pytest.mark.asyncio
+async def test_guest_engage_dropped_if_house_left_guest_before_write():
+    rig = await make_rig()
+    rig.mgr.house_state = "guest"
+    rig.regime.on_house_state_changed({"new_state": "guest"})
+    rig.mgr.house_state = "home_night"  # guest gate cleared before the write
+    await settle()
+    assert rig.locks() == []
+    assert rig.regime.last_action["why"] == "guest_night_ended"
 
 
 @pytest.mark.asyncio
