@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T10:57:31-06:00_ - _Data commit: `11941161f6b2`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T10:58:03-06:00_ - _Data commit: `4000ffdd109c`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
@@ -235,11 +235,12 @@ thread: **security** - status: **planned**
 _created 2026-11-07 12:10_
 - **Why:** lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part s...
 - **Next:** PICK: A (recommended) HA automation: lockout ON at bedtime/house Sleep, OFF at 6 AM, and OFF immediately when a resident's phone arrives home (person -> home), so red-eye returns open with the car remote as usual; or B the same in the UR...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `tier`: 2
   - `adjacency`: Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07.
   - `plan_2026_11_07`: Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night se...
   - `finding_periodic_sweep_2026_11_07`: Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card ...
+  - `operator_2026_11_07_decisions`: Separate arming from locks: arming = security system + alarms; locks = a reasonable locking regime that does not need the alarm armed. Keep lockouts out of the lock sweeps. Accepts planner recommendations (approach zone, hold-until-arriv...
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#3 · WSJF 3.8 · v8 tc5 u6 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
