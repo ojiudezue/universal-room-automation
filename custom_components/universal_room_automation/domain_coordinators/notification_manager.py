@@ -3471,19 +3471,51 @@ class NotificationManager:
             )
         elif action == "STATUS_URA":
             self.hass.async_create_task(
-                self._process_inbound_reply(None, "companion", "status")
+                self._process_inbound_reply(
+                    self._person_for_companion_event(event), "companion", "status",
+                )
             )
         elif action == "SILENCE_URA":
             self.hass.async_create_task(
-                self._process_inbound_reply(None, "companion", "silence")
+                self._process_inbound_reply(
+                    self._person_for_companion_event(event), "companion", "silence",
+                )
             )
         elif action == "ACKNOWLEDGE_URA_CRITICAL":
             # Text input action — the reply text is in event.data
             text = event.data.get("reply_text", event.data.get("textInput", ""))
             if text:
                 self.hass.async_create_task(
-                    self._process_inbound_reply(None, "companion", text)
+                    self._process_inbound_reply(
+                        self._person_for_companion_event(event), "companion", text,
+                    )
                 )
+
+    def _person_for_companion_event(self, event) -> str | None:
+        """NM-COMPANION-STATUS-NO-REPLY-1: person entity for a Companion
+        action, from the event's ``context.user_id``.
+
+        Same lookup as the arrester's ``_resolve_context_user_to_person``
+        (hvac_override.py:880-907): walk ``person.*`` states and match the
+        ``user_id`` attribute. Restricted to NM-configured persons, because
+        ``_send_reply`` can only reach a configured person. Unresolvable ->
+        None (the pre-fix behaviour: processed, no reply). Never raises.
+        """
+        try:
+            user_id = getattr(getattr(event, "context", None), "user_id", None)
+            if not user_id:
+                return None
+            configured = {
+                p.get(CONF_NM_PERSON_ENTITY)
+                for p in self._config.get(CONF_NM_PERSONS, [])
+            }
+            for st in self.hass.states.async_all("person"):
+                attrs = st.attributes or {}
+                if attrs.get("user_id") == user_id and st.entity_id in configured:
+                    return st.entity_id
+        except Exception:  # noqa: BLE001 — never break the action handler
+            _LOGGER.debug("NM: companion person lookup failed", exc_info=True)
+        return None
 
     @callback
     def _handle_whatsapp_reply(self, event: Event) -> None:
