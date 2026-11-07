@@ -327,9 +327,20 @@ NM_RECOVERY_MAX_AGE_H = 24.0
 # read-only "diag" house-status menu over inbound text. Rung-1 constants —
 # they bound a new inbound path next to the CRITICAL-ack parser, so changing
 # them requires review.
-# The ONLY kill switch: False -> no diag token is ever resolved and
-# _process_inbound_reply is byte-identical to the pre-cycle code (I4 oracle).
+# Kill switches on this branch, and what each covers (Review A A4):
+# - NM_DIAG_ENABLED: the diag menu only. False -> no diag token is ever
+#   resolved and _process_inbound_reply is byte-identical to the pre-cycle
+#   code (the I4 oracle diffs exactly this function).
+# - NM_WHATSAPP_INBOUND_ENABLED: WhatsApp inbound ingestion
+#   (_parse_whatsapp_event). False -> every WhatsApp inbound is ignored, as it
+#   effectively was before the bridge-key fix.
+# - Companion person attribution (_person_for_companion_event) has no switch:
+#   it only lets status / silence / text-input replies reach the tapping
+#   person; an unresolvable user keeps the pre-fix no-reply behaviour.
 NM_DIAG_ENABLED: bool = True
+# WhatsApp inbound, self-chat only (rung 1: widening a command trust
+# boundary must require review). Kill switch: False.
+NM_WHATSAPP_INBOUND_ENABLED: bool = True
 # How long after "diag" a bare digit maps to a menu item. 0 -> names only
 # (digits never map; the menu lists words).
 NM_DIAG_MENU_WINDOW_S: int = 120
@@ -2332,8 +2343,15 @@ class NotificationManager:
         snapshot_path: str | None = None,
         *,
         menu_safe: bool = False,
+        reply: bool = False,
     ) -> None:
-        """Send notification via HA Companion App."""
+        """Send notification via HA Companion App.
+
+        ``reply=True`` (only from ``_send_reply``, Review A A2): a text reply
+        carries NO action buttons — the plain Acknowledge button bulk-acks
+        without a safe word and must never sit under a CRITICAL's status
+        reply. Alert pushes keep their buttons.
+        """
         # NM-INBOUND-HOUSE-QUERIES-1 send rail: close every diag menu window
         # (sync, before dry-run return and before any await).
         if not menu_safe:
@@ -2347,7 +2365,9 @@ class NotificationManager:
                 "title": title,
                 "message": message,
             }
-            if is_critical:
+            if reply:
+                pass  # no actions on a reply
+            elif is_critical:
                 data["data"] = {
                     "actions": [
                         {
@@ -3547,31 +3567,38 @@ class NotificationManager:
     def _parse_whatsapp_event(self, data: dict) -> tuple[str, str]:
         """Return (sender phone digits, text) or ("", "") to ignore.
 
-        - Legacy shape (``phone`` / ``message``) passes through unchanged.
+        Review A (A1/A7): SELF-CHAT ONLY. The bridge runs on the operator's
+        own number (NM person phone == bridge ``to``, verified 2026-11-07),
+        so every direct chat from anyone else to that number is personal
+        conversation and is NEVER parsed as a command — configured family
+        members included (they use iMessage). Rules, in order:
+        - ``NM_WHATSAPP_INBOUND_ENABLED`` False -> ignore everything.
         - Groups, newsletters and broadcasts are ignored (``isGroup`` or a
-          ``@g.us`` / ``@newsletter`` / ``@broadcast`` from/to): family group
-          chats must never parse as commands.
-        - ``fromMe``: the bridge runs on the operator's own number (NM person
-          phone == bridge ``to``, verified 2026-11-07). An own message is
-          accepted ONLY in the self-chat (from-number == to-number), where the
-          operator talks to the house; an own message to anyone else (e.g.
-          "3" to a family member) is dropped. NM's own sends also land in the
+          ``@g.us`` / ``@newsletter`` / ``@broadcast`` from/to), for every
+          payload shape (checked before the legacy branch).
+        - Legacy shape (``phone`` / ``message``, no bridge emits it today:
+          0 of 1704 recorder events) passes through for old callers/tests.
+        - Bridge shape: accepted only when from-number == to-number (the
+          self-chat); ``_handle_whatsapp_reply`` then requires that number to
+          be a configured NM person phone. NM's own sends also land in the
           self-chat; echo rail 1 (``_is_self_echo``, every ``_send_whatsapp``
           body is recorded) drops them first in ``_process_inbound_reply``.
           Recorder 2026-11-07: 0 of 1704 bridge events had fromMe=true, so
           the bridge may not emit own messages at all today.
         """
-        if "message" in data or "phone" in data:
-            return str(data.get("phone", "") or ""), str(data.get("message", "") or "")
+        if not NM_WHATSAPP_INBOUND_ENABLED:
+            return "", ""
         frm = str(data.get("from", "") or "")
         to = str(data.get("to", "") or "")
         non_direct = ("@g.us", "@newsletter", "@broadcast")
         if data.get("isGroup") or frm.endswith(non_direct) or to.endswith(non_direct):
             return "", ""
-        if data.get("fromMe"):
-            if not to or self._wa_jid_digits(frm) != self._wa_jid_digits(to):
-                return "", ""
-        return self._wa_jid_digits(frm), str(data.get("body", "") or "")
+        if "message" in data or "phone" in data:
+            return str(data.get("phone", "") or ""), str(data.get("message", "") or "")
+        frm_digits = self._wa_jid_digits(frm)
+        if not frm_digits or frm_digits != self._wa_jid_digits(to):
+            return "", ""  # not the self-chat: personal conversation
+        return frm_digits, str(data.get("body", "") or "")
 
     async def _handle_pushover_webhook(
         self, hass: HomeAssistant, webhook_id: str, request
@@ -3814,7 +3841,10 @@ class NotificationManager:
         is_safe_word, _sw_source = self._match_safe_word(text, person_id)
 
         # NM-INBOUND-HOUSE-QUERIES-1 step 4: synchronous diag resolution (no
-        # await, no I/O). Safe word wins; Companion (person None) skipped;
+        # await, no I/O). Safe word wins; an UNRESOLVED Companion action
+        # (person None) is skipped — a resolved Companion person
+        # (_person_for_companion_event) gets diag, under the same send and
+        # state rails keyed (person, "companion");
         # NM_DIAG_ENABLED=False -> None always (pre-cycle path, I4 oracle).
         diag = (
             None
@@ -4086,7 +4116,7 @@ class NotificationManager:
             return "menu"
         if cmd is not None:
             return cmd  # names resolve regardless of window and alert state
-        if not text.isdigit():
+        if not text.isdecimal():  # A5: "\u00b3".isdigit() is True but int() raises
             return None
         rec = self._diag_windows.get(key)
         if rec is None:
@@ -4400,7 +4430,7 @@ class NotificationManager:
             svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
             if svc:
                 await self._send_companion(
-                    "URA", message, Severity.LOW, svc, menu_safe=True,
+                    "URA", message, Severity.LOW, svc, menu_safe=True, reply=True,
                 )
 
     def _get_person_name(self, person_id: str | None) -> str:

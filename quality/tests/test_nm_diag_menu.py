@@ -351,3 +351,11 @@ def test_closed_notice_only_for_alert_digits(clock):
     _say(nm, "diag")
     _send(nm, "imessage")
     assert _say(nm, "4").startswith("Unknown command")
+
+
+def test_superscript_digit_is_not_a_pick(clock):
+    """A5: protects `text.isdecimal()` — "\u00b3".isdigit() is True but int() raises."""
+    nm = make_nm()
+    nm._notifications_today_count = 1
+    _say(nm, "diag")
+    assert _say(nm, "\u00b3").startswith("Unknown command")

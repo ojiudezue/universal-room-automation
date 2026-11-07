@@ -312,7 +312,7 @@ No config-flow or entity additions (config_flow is a large state machine; nothin
 - No actuation of any kind from text (no lock, unlock, garage, arm, HVAC, fan). Only the existing ack / silence / safe-word effects remain.
 - No free-text / LLM answering (card option B); no OC tool wiring (the module is ready for it; OC side not built).
 - No change to alert bodies, `RESPONSE_DICT_TEXT`, `CRITICAL_RESPONSE_TEXT`, routing, severities, the echo rail 1, or rail 2 for non-diag commands.
-- No fix for iMessage self-send (NM-BB-CHATGUID-SELFSEND-1) or the Companion no-reply gap (new card).
+- No fix for iMessage self-send (NM-BB-CHATGUID-SELFSEND-1). (Superseded in-branch, operator-approved 2026-11-07: the Companion no-reply gap WAS fixed, `3eeb0b7c`, and WhatsApp inbound key parsing was fixed and restricted to the self-chat; see Review A A1-A3. A resolved Companion person now gets diag under the same rails.)
 - No new entities, config-flow fields, DB tables or columns. No persistence of menu windows.
 - No per-room drill-down (`hvac zone 2`, `doors front`); one level only.
 - No change to `_build_status_response` (`2`/`status` stays the alert summary).
