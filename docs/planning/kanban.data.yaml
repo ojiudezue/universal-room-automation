@@ -211,6 +211,18 @@ cards:
   revisit_trigger: "Operator upgrades the house to an HA 2026.11.x point release AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1)."
   next: "Me, once the trigger fires: write the joint A+B plan (per-form field triage table), one plan review, then build; Tier 2."
   adjacency: "Swept board (HA-2027-DEPRECATIONS-URA-1, ONBOARDING-SIMPLIFY-1, TEST-HARNESS-REAL-HA-DEFAULT-1) + PLANNING_onboarding_simplify_phase2.md O-items: ADJACENT, carded as sibling because it has its own trigger and acceptance."
+- id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
+  title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
+  thread: security
+  status: waiting_operator
+  tier: 2
+  created: "2026-11-07 12:10"
+  updated: "2026-11-07 12:10"
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  origin: "Operator 2026-11-07: lockout 'prevents the external keypad from being guessed or bypassed. The SC does not have this concept.' Asked about auto-release ~6 AM and red-eye arrivals at 3 AM; wants Garage B included."
+  why: "lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part shipped 2026-11-07: tiles per garage, and 'Lock all' also engages both lockouts. Unverified: whether myQ still reaches these openers (they run Konnected blaQ / ratgdo) and whether ratgdo's lock also blocks the wireless keypad on this opener model; test physically before relying on it."
+  next: "PICK: A (recommended) HA automation: lockout ON at bedtime/house Sleep, OFF at 6 AM, and OFF immediately when a resident's phone arrives home (person -> home), so red-eye returns open with the car remote as usual; or B the same in the URA Security coordinator (lockout becomes part of arming, Tier 2 build) -> I build A first as a house-visible automation once you OK it."
+  adjacency: "Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07."
 - id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
   title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
   thread: config_flow
