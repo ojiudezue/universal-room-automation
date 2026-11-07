@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "265",
+  "author": "ojiudezue",
+  "session_id": "claude_20261107_75cc297f",
+  "timestamp": "2026-11-07T22:00:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Security: arming (alarm) is separated from locks (a locking regime); the garage remote lockout is built on the regime with release-biased fail-safes",
+  "summary": "The operator wants the garage remote lockout (blocks the external keypad and car remotes) on at night or on vacation and released for family arrivals; SC had no such concept.",
+  "why": "Operator: 'Arming = security system and alarms. Locks = reasonable locking regime. Alarm does not need to be armed.' The audit found SC's arming auto-follow weak (off live, Sleep unmapped), so building on it would inherit dead paths. The design is biased toward RELEASE: a locked-out 3 AM family arrival is worse than an unlocked garage, so releases bypass observation mode and the manager batch, and the SC-off switch releases. Guest nights engage in sleep hours (toggle) instead of adding a GUEST->SLEEP presence edge, which would ripple into HVAC and fans. Auto-open on approach is a Tier-3 Phase 2 in shadow first, because it is the first SC action that makes the house more open. Five plan reviews found real defects; review B found that every timer and tracker callback lacked @callback and would have silently stranded residents (Bug Class #64).",
+  "implications": "Door-lock policy (the master bedroom rule) and sweep exclusion are the queued follow-ups on the regime. The arming path stays byte-identical. Phase 2 needs SC-SWEEP-CLOSES-OPEN-GARAGE-1 first.",
+  "revisit_trigger": "Live: a lockout fails to release on a real arrival, or the keypad/HA-app physical tests show the lockout does not block the keypad.",
+  "refs": {
+    "cards": [
+      "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1",
+      "SC-LOCK-REGIME-DOOR-LOCKS-1",
+      "SC-LOCK-SWEEP-EXCLUDE-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_sc_garage_remote_lockout.md",
+      "docs/QUALITY_CONTEXT.md"
+    ]
+  }
+}

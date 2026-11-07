@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "266",
+  "author": "ojiudezue",
+  "session_id": "claude_20261107_75cc297f",
+  "timestamp": "2026-11-07T22:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Ask-the-house by text: a deterministic diag menu first; free-text LLM answers wait for the OC eval; WhatsApp accepts self-chat only",
+  "summary": "The operator wants to query house state and run diagnostics over iMessage/WhatsApp, and asked whether this should be the OC.",
+  "why": "A deterministic menu cannot invent a diagnosis; the OC agent still fails its eval on diagnosis depth. The query functions are a shared read-only house_status layer that OC can later call as tools, so the menu is not throwaway. The digits 1/2/3 already mean ack/status/silence, so the menu uses windowed numbers with two guards (alert-active check and close-on-send). WhatsApp inbound had been silently dead (wrong payload keys). The bridge runs on the operator's own number, so only self-chat is trusted; otherwise family chats would become commands.",
+  "implications": "Shipped as a merge to develop (dea1b7e3), deploy pending restart as v5.104.0. iMessage is the live channel; WhatsApp from the operator may stay dark if the bridge never forwards fromMe.",
+  "revisit_trigger": "The OC eval passes on held-out cases (then enable free text), or the WhatsApp self-chat live check shows no rows.",
+  "refs": {
+    "cards": [
+      "NM-INBOUND-HOUSE-QUERIES-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_nm_diag_text_menu.md",
+      "docs/readmes/README_v5.104.0.md"
+    ]
+  }
+}

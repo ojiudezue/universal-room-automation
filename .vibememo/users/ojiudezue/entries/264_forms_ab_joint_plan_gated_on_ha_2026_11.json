@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "264",
+  "author": "ojiudezue",
+  "session_id": "claude_20261107_75cc297f",
+  "timestamp": "2026-11-07T22:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Config forms: collapsed sections (A) + visible= conditional fields (B) as one plan, gated on HA 2026.11 point release",
+  "summary": "Advanced mode goes away (show_advanced_options forced True since 2026.10, removed 2027.6), so ~81 advanced fields need a new home.",
+  "why": "A and B solve different problems: sections hide rarely used power, while visible= hides fields that do not apply. The operator wanted them planned together so they do not diverge. B needs HA 2026.11 plus a 2026.11 test harness, which does not exist yet, so nothing is built until the operator upgrades. Performance is a goal: a move-only save must cause zero reloads (INV-P). A build would have shipped one half and re-litigated the other.",
+  "implications": "The plan is reviewed (rev 2, e8348bf8) and parked. INV-2 forbids hiding a value that still acts at runtime (sleep hours stay visible).",
+  "revisit_trigger": "Operator upgrades to HA 2026.11.x and the pytest-homeassistant pin reaches 2026.11.",
+  "refs": {
+    "cards": [
+      "FORM-CONDITIONAL-FIELDS-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_config_forms_sections_and_conditional_fields.md"
+    ]
+  }
+}
