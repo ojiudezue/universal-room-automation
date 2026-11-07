@@ -2716,6 +2716,33 @@ PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 4. Verify test passes
 5. Add test to test_regressions.py
 
+### Bug Class #64 — Executor-typed HA callback (sync handler without `@callback`) ⚠️
+
+**Symptom.** A plain (non-`async`, non-`@callback`) method passed to
+`async_call_later`, `async_track_state_change_event`, `async_track_*`, or
+`async_dispatcher_connect` is classified by HA (`core.py:347-360`, HA 2026.2.3)
+as an EXECUTOR job and runs on a worker thread. Anything loop-only inside it
+(`hass.async_create_task`, `async_call`, mutating loop-owned state) raises or
+races. The failure is silent: the callback's work never happens, and any
+"in-flight" latch set before the failing step stays set.
+
+**Exemplar.** Lockout Phase 1 (2026-11-07, review B B-C1): none of the ten
+timer/tracker callbacks in `security_lock_regime.py` had `@callback`, so every
+arrival/backstop/proximity release raised in `_spawn` and poisoned
+`_release_inflight` — a resident would be locked out all day. The suite stayed
+green because the test fakes invoked callbacks directly on the loop.
+
+**Detection.** For every callable handed to an HA scheduling/tracking helper:
+is it `async def`, or decorated `@callback`? A lambda wrapping a coroutine call
+is executor-typed too.
+
+**Anchor pattern.** Test fakes for `async_call_later` / `async_track_*` must
+assert `HassJob(cb).job_type == HassJobType.Callback` at registration; add one
+test that enumerates every registered callback; add one real-HA test (real
+helpers) proving the work happens on the loop. Beware: several test files
+replace `homeassistant.core.callback` with a no-op at import, so a decorator
+check must not depend on the patched name.
+
 ### Bug Class Prevention
 
 **After discovering new bug class:**

@@ -50,3 +50,4 @@
 - 2026-11-05 14:46 **v5.103.103** — v5.103.103 — Zone orphan-device cleanup no longer deletes devices that still have entities (cards: ZONE-ORPHAN-DEVICE-REMOVE-GUARD-1)
 - 2026-11-05 15:41 **v5.103.104** — v5.103.104 — Room menu trimmed in Advanced mode too; per-room electricity rate removed (cards: ROOM-TYPE-TRIMMED-MENU-1)
 - 2026-11-05 15:55 **v5.103.105** — v5.103.105 — Config-flow timing logs: DEBUG by default, WARNING only for slow steps (cards: CONFIG-FLOW-SLOW-ONBOARDING-1)
+- 2026-11-07 14:00 **v5.104.0** — v5.104.0 — Ask the house by text: `diag` menu over iMessage / WhatsApp / HA app (cards: NM-INBOUND-HOUSE-QUERIES-1)

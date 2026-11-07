@@ -31,6 +31,16 @@
 
 **OC eval pivots to live (critical, 11-01).** Slice-0 "both models fail" was a harness artifact: 59% of tool calls hit unmatched fixtures, and honest "couldn't read X" scored as invented evidence. The eval becomes live reads with intercepted writes on 6-8 current known-answer incidents, fed the context pack already specified at vision:157. Model verdicts void until re-run. → [247](entries/247_oc_eval_pivot_live_with_context_pack.json)
 
+## 2026-11-06/07: locks, text queries, OC honesty
+
+**Arming and locks split (critical).** SC arming now means only the alarm. A separate lock regime owns locking policy, and the garage remote lockout (blocks the keypad and car remotes at night or on vacation, released when family arrive) is its first user. The design is release-biased: a locked-out 3 AM arrival is worse than an unlocked garage, so releases bypass observation mode and the action batch. Five plan reviews and three code reviews found real defects, the worst being callbacks without `@callback` running on worker threads and silently stranding residents (Bug Class #64). Auto-open on approach is a separate Tier-3 phase that runs in shadow first. → [265](entries/265_arming_vs_locks_split_garage_lockout_release_biased.json)
+
+**Ask the house by text, deterministic first.** A `diag` menu over iMessage answers from a shared read-only `house_status` layer that OC can reuse as tools. Free-text answers wait for the OC eval. WhatsApp inbound had been dead for months because of wrong payload keys, and it now trusts only the operator's self-chat. → [266](entries/266_text_diag_menu_deterministic_first.json)
+
+**OC eval: honest, not passing.** The harness was manufacturing false evidence: expired history came back as "nothing happened". After fixing it and the judge, the remaining failure is diagnosis depth, and Haiku is not viable. → [267](entries/267_oc_eval_blocker_is_diagnosis_depth_haiku_not_viable.json)
+
+**Forms A+B planned together, parked on HA 2026.11.** → [264](entries/264_forms_ab_joint_plan_gated_on_ha_2026_11.json)
+
 ## Open questions
 
 - OC agent: which fix types earn R1 first, and what promotion evidence lifts one to R2?

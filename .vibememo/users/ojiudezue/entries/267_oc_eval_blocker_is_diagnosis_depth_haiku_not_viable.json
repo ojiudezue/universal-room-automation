@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "267",
+  "author": "ojiudezue",
+  "session_id": "claude_20261107_75cc297f",
+  "timestamp": "2026-11-07T22:00:00Z",
+  "type": "observation",
+  "weight": "significant",
+  "title": "OC eval round 2: harness and judge fixed, still not passing; the blocker is diagnosis depth; Haiku 5.5 is not viable",
+  "summary": "$40.31 of a $50 operator budget spent iterating the live OC eval with Anthropic harness guidance.",
+  "why": "Two harness bugs were making cases impossible: out-of-retention history returned 'ok, empty' (false evidence), and relative dates had drifted. Quote-then-claim plus a not_checked list and a v2 judge (citation slips are soft; fabrication, contradiction and wrong conclusion stay hard) removed the citation problem. The remaining failures are wrong instance or mechanism. Haiku fails on conclusions, not format, so its 3.4x price advantage does not help.",
+  "implications": "Free-text house questions stay off. Next levers are one fact per claim, a harness check that the discriminating read was made, and fresh held-out cases.",
+  "revisit_trigger": "A later model or harness change passes the held-out cases by majority.",
+  "refs": {
+    "cards": [
+      "OC-CONTEXT-PACK-1"
+    ],
+    "docs": [
+      "docs/planning/oc_eval/ITERATIONS_2026_11_07.md",
+      "docs/planning/oc_eval/RUBRIC.md"
+    ]
+  }
+}

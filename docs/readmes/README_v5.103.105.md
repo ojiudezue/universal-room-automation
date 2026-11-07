@@ -29,7 +29,8 @@ at WARNING for every step, which made it log noise with no signal.
 
 Each mutation turned a named test red: `>` to `>=`, dropping the `<= 0` conjunct, always-warn, and ENTER/EXIT back to WARNING.
 
-## Live validation (prospective)
-- **Live:** open a room options flow and click through a few steps. The HA log should show no
-  `CFLOW-TIMING` WARNING lines for those (fast) steps.
-- **Live:** with the logger set to debug for `_cflow_timing`, ENTER/EXIT lines appear at DEBUG.
+## Validated 2026-11-06 (restart 14:55 CT)
+| Criterion | Result | Evidence |
+|---|---|---|
+| No CFLOW-TIMING WARNING on fast steps | PASS | Opened Stair Closet + Master Bedroom options flows via REST; core log `CFLOW-TIMING: SLOW` count = 0 |
+| ENTER/EXIT at DEBUG | in-suite only | Debug logging not enabled on the house (no need to change logger config); covered by tests |

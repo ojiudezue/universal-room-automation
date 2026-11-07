@@ -1,0 +1,33 @@
+# NM diag text menu: Review B (async / lifecycle / race / cross-channel)
+
+Branch `feature/nm-diag-text-menu` @ 22171817. Base verified: `git merge-base HEAD develop` = 4d9963ad. Diff is three-dot `4d9963ad...HEAD`. Not an HVAC or presence change (house_status only reads HVAC zones for display), so those state-of-play docs were not required.
+
+Verdict: **SHIP**. No CRITICAL or HIGH findings. One MEDIUM needs a live check, and there are three LOWs.
+
+## Findings
+
+| # | Sev | Where | Interleaving / repro | Bug class |
+|---|---|---|---|---|
+| B1 | MEDIUM (liveness, not safety) | `notification_manager.py` `_parse_whatsapp_event` (self-chat only, from==to) | The only accepted WhatsApp bridge shape is a self-chat message, which is by definition `fromMe=true`. The branch's own recorder note says 0 of 1704 bridge events had `fromMe=true`. If the bridge only forwards incoming-from-others messages (the whatsapp-web.js `message` vs `message_create` split; I could not verify this because the bridge add-on source is not on the mount), then no WhatsApp diag or command ever arrives, and the suite cannot show it. Repro: send `diag` in the operator self-chat, then check `notification_inbound` for a `channel='whatsapp'` row. | Computed-but-not-consumed at the transport boundary (#53 shape). This is an unverified producer. |
+| B2 | LOW | Send rail at the top of each of the four senders (`_send_pushover`/`_send_companion`/`_send_whatsapp`/`_send_imessage`) | The epoch bump runs BEFORE the dispatch await only. Repro: a HIGH alert, which leaves `_alert_state` IDLE and carries "Reply: 1=Ack 2=Status 3=Silence", calls `_send_pushover`, and the bump to E+1 happens. During the HTTP await, or before the phone shows the push, the user, who has not seen the alert yet, sends `diag` on WhatsApp. The window is stored as (t, E+1). The alert then lands, the user replies `3` meaning silence, and the epoch still matches, so the digit resolves to `who` and silence is NOT applied. CRITICALs are safe here because `_enter_alerting` sets the state synchronously (`:2756`) and `_resolve_diag` reads it live. Cheap hardening: bump again after the dispatch returns, or bump in `finally`. | Ordering across an await (pop-before-await family) |
+| B3 | LOW | `_handle_diag`, the silent over-budget branch | Each inbound past the notice writes one `log_inbound` row through the direct `_db()` INSERT+commit (`database.py:5051`), not the batched write queue, with no cap. This only matters under an external flood, because no reply is sent so no echo loop can feed it. It is the same pattern as all legacy inbound rows. | DB per-row write (WAL single-writer pressure) |
+| B4 | LOW / info | `_handle_whatsapp_reply` | A bridge reconnect that replays old messages would re-process them, and there is no message `timestamp`/`id` dedup. A replayed `diag` or digit is harmless because diag is read-only and the budget bounds it. A replayed safe word or `silence` is the bigger exposure, and it is NEW for WhatsApp because this branch revives WhatsApp inbound, which was dead before (wrong keys). Whether the bridge replays is unverified. Suggest a follow-up card to drop events whose payload `timestamp` is older than N seconds. | Stale-data trust boundary (#7) |
+
+## Cleared, with evidence
+
+- **Epoch capture vs awaits.** It is captured at step 0 (`_process_inbound_reply` entry). On every path that reaches `_resolve_diag` there is no await between capture and resolve: the only await in between is the safe-word cap-reject branch, and that branch returns. All window writes and reads happen inside sync `_resolve_diag`. The state rail is read live at resolve time. A CRITICAL that fires during the menu-reply await bumps the epoch and sets ALERTING, so the next `1` takes the stored != entry path, the notice is blocked (state not IDLE), and the digit falls to legacy ack (I1 holds).
+- **Window and budget dict concurrency.** The budget filter, length check and append happen with no await between them (`_handle_diag`), so they are atomic on the event loop. Keys are (person, channel), bounded by persons x channels, and the window dict is lazily pruned. Two same-person inbounds on two channels use separate keys and never share a window, which is by design.
+- **Duplicate `diag`.** Two windows are written with the same epoch and two menus are sent, with the budget counting 2. This is idempotent.
+- **Echo ring.** The bridge `send_message` is a fire-and-forget `ws.send_json` (`/config/custom_components/whatsapp/client.py:57-84`). `_record_outbound_text` runs in the same task continuation right after it, so the echo round trip cannot win in practice. Diag replies go through the same senders (`menu_safe=True`), so they are recorded. Dedup-on-append keeps repeated menus to one slot.
+- **Exception propagation.** `house_status` functions guard every read, and `_build_diag_answer` wraps them again (`status unavailable`). `log_inbound` and the four senders swallow and log their own errors. A residual programming error in an `async_create_task` task is logged by HA's loop exception handler, so the failure is not silent. The task tracking is pre-existing: this diff only changes the arguments of the four `async_create_task` calls.
+- **Teardown and reload.** No new listener or timer was added. The WhatsApp and Companion listener unsubs are pre-existing (`:1432-1439`). Windows and budget are RAM only and die with the NM instance, so a restart closes every window, which is the documented behavior.
+- **Dry run.** The bump runs before the dry-run return in all four senders, so the rail still closes windows. Replies go to `_log_dry_run`.
+- **Companion user_id.** The lookup is sync in the `@callback` and the whole body is wrapped. While the person entity is reloading, `async_all("person")` misses and returns None, which gives the pre-fix no-reply behavior. The mobile_app webhook fires events with `registration_context` (HA `mobile_app/webhook.py:315-320`), so `context.user_id` is populated.
+- **house_status during setup or teardown.** Every accessor goes through `_manager`/`_coord` with None guards. `alerts` uses `_db_read`, which catches its own errors. There is no actuation or persistence.
+- **Cross-channel budget.** The budget is 10 per (person, channel) per 600 s, so 40 per person per 600 s across 4 channels. Diag replies cannot form a loop because they are multi-line (I3) and are echo-recorded.
+
+## Bug class tally
+#53-shape (unverified producer) 1, ordering across an await 1, DB per-row write 1, stale-data trust boundary (#7) 1.
+
+## Must-fix
+None for ship. B1 must be covered by a live-validation row (a self-chat `diag` produces a `whatsapp` inbound row and a reply). Card B2 and B4 as LOW follow-ups.
