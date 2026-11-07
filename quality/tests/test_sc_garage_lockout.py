@@ -106,7 +106,10 @@ async def make_rig(
     for cov in (COVER_A, COVER_B):
         w.seed(cov, "closed", {"device_class": "garage"})
     for pid, st in (persons or {EZ: "not_home", OJI: "home", KIOSK: "unknown"}).items():
-        w.seed(pid, st, last_changed=start - timedelta(hours=3))
+        # Review A H1: HA's person restore writes a FRESH State, so every
+        # person's last_changed is the boot time (components/person
+        # __init__.py:464-468). Never an older value.
+        w.seed(pid, st, last_changed=start)
     w.seed(EZ_DIST, "30000", {"unit_of_measurement": "ft"})
     if seed_hook is not None:
         seed_hook(w)
@@ -481,14 +484,56 @@ async def test_restart_daytime_with_stale_night_lock_releases_now():
 
 
 @pytest.mark.asyncio
-async def test_boot_recent_arrival_releases():
-    def seed(w):
-        w.seed(EZ, "home", last_changed=datetime(2026, 11, 8, 1, 55, tzinfo=TZ))
-
+async def test_restart_resident_restored_home_stays_engaged():
+    """Review A H1: engaged for SLEEP, HA restarts at 02:00, residents
+    restore `home` with last_changed = boot time -> stays engaged, reason
+    sleep, released only at the morning backstop."""
     rig = await make_rig(start=datetime(2026, 11, 8, 2, 0, tzinfo=TZ), house="sleep",
-                         lockouts="locked", past_boot=False, seed_hook=seed)
-    await settle()
+                         lockouts="locked", past_boot=False,
+                         persons={EZ: "home", OJI: "home", KIOSK: "unknown"})
+    await rig.w.advance(700)
+    assert rig.unlocks() == []
+    assert rig.regime.reason == "sleep"
+    await rig.w.advance((datetime(2026, 11, 8, 7, 0, 1, tzinfo=TZ) - rig.w.now).total_seconds())
     assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_early_sleep_override_before_sleep_start_holds_until_morning():
+    """Review A M1: SLEEP override at 22:30 with sleep_start 23."""
+    rig = await make_rig(start=datetime(2026, 11, 7, 22, 20, tzinfo=TZ),
+                         opts=options(sleep_start_hour=23))
+    await rig.edge("sleep")  # 22:30:01
+    assert rig.locks() == [LOCK_A, LOCK_B]
+    await rig.w.advance(60)  # 22:31
+    assert rig.unlocks() == []
+    await rig.w.advance((datetime(2026, 11, 8, 6, 59, 59, tzinfo=TZ) - rig.w.now).total_seconds())
+    assert rig.unlocks() == []
+    await rig.w.advance(2)
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_backstop_delay_dst_fall_back():
+    """Review A L3: 2026-11-01 02:00 CDT -> 01:00 CST (America/Chicago).
+    SLEEP engage 23:00 CDT Oct 31 (04:00Z) -> 07:00 CST Nov 1 (13:00Z) is
+    8 wall hours but 9 real hours (32400 s); a wall-clock subtraction of
+    aware datetimes gives 28800."""
+    from zoneinfo import ZoneInfo
+
+    chicago = ZoneInfo("America/Chicago")
+    rig = await make_rig()
+    rig.w.now = datetime(2026, 10, 31, 23, 0, tzinfo=chicago)
+    cfg = rig.regime._cfg()
+    assert rig.regime._backstop_delay_s(cfg) == 32400.0
+    # Spring forward: 2027-03-14 02:00 CST -> 03:00 CDT. 23:00 Mar 13 ->
+    # 07:00 CDT is 7 real hours.
+    rig.w.now = datetime(2027, 3, 13, 23, 0, tzinfo=chicago)
+    assert rig.regime._backstop_delay_s(cfg) == 25200.0
+    # Guest clock across fall back: 23:00 Oct 31 -> 22:00 Nov 1 is 23 wall
+    # hours but 24 real hours.
+    rig.w.now = datetime(2026, 10, 31, 23, 0, tzinfo=chicago)
+    assert rig.regime._seconds_until_hour(22) == 86400.0
 
 
 @pytest.mark.asyncio
@@ -666,6 +711,102 @@ async def test_arriving_signal_branch_above_observation_return():
     rig.sc._handle_person_arriving_signal({"person_entity": EZ, "source": "ble"})
     await settle()
     assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_interior_camera_face_for_resident_home_does_not_release():
+    """Review A M2: Oji home all night (real transition seen), an interior
+    zone camera recognises him at 02:00 -> SIGNAL_PERSON_ARRIVING
+    source camera_face -> no release."""
+    rig = await make_rig(lockouts="locked")
+    await rig.person(OJI, "Work")
+    await rig.person(OJI, "home")
+    await rig.w.advance(3 * 3600)
+    rig.w.set_state(LOCK_A, "locked")
+    rig.w.set_state(LOCK_B, "locked")
+    rig.w.calls.clear()
+    rig.sc._handle_person_arriving_signal({"person_entity": OJI, "source": "camera_face"})
+    await settle()
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_camera_face_after_real_absence_releases():
+    rig = await make_rig(lockouts="locked")
+    await rig.person(EZ, "Work")
+    await rig.person(EZ, "not_home")
+    await rig.w.advance(16 * 60)
+    rig.sc._handle_person_arriving_signal({"person_entity": EZ, "source": "camera_face"})
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_arriving_signal_short_absence_does_not_release():
+    """< 15 min real away: not an arrival (same H3a rule as P1 blips)."""
+    rig = await make_rig(lockouts="locked")
+    await rig.person(EZ, "Work")
+    await rig.person(EZ, "not_home")
+    await rig.w.advance(14 * 60)
+    rig.sc._handle_person_arriving_signal({"person_entity": EZ, "source": "ble"})
+    await settle()
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_excluded_persons_proximity_sensor_does_not_release():
+    """Review A L1: an excluded person's distance sensor maps to that person
+    (live map) and is then filtered out, instead of releasing as None."""
+    kiosk_dist = "sensor.madronehaos_wall_kiosk_distance"
+    rig = await make_rig(lockouts="locked", opts=options(
+        security_lockout_distance_sensors=[EZ_DIST, kiosk_dist]))
+    rig.w.set_state(kiosk_dist, "6000", {"unit_of_measurement": "ft"})
+    rig.w.set_state(kiosk_dist, "100", {"unit_of_measurement": "ft"})
+    await settle()
+    assert rig.unlocks() == []
+
+
+@pytest.mark.asyncio
+async def test_unexcluded_resident_proximity_enters_releasing_set():
+    """Review A L1: a person excluded at setup, un-excluded live, still maps
+    -> enters releasing_set, so the re-engage waits for them (INV-3)."""
+    kiosk_dist = "sensor.madronehaos_wall_kiosk_distance"
+    rig = await make_rig(opts=options(
+        security_lockout_distance_sensors=[EZ_DIST, kiosk_dist]))
+    await rig.edge("sleep")
+    rig.w.cm_entry.options["security_lockout_excluded_persons"] = []
+    rig.w.set_state(kiosk_dist, "6000", {"unit_of_measurement": "ft"})
+    rig.w.set_state(kiosk_dist, "2600", {"unit_of_measurement": "ft"})  # ~792 m
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+    assert KIOSK in rig.regime.releasing_set
+    rig.w.calls.clear()
+    await rig.w.advance(901)
+    assert rig.locks() == []  # kiosk still en route
+
+
+@pytest.mark.asyncio
+async def test_engage_inflight_cleared_after_lock_landed():
+    """Review A L2: after a lock lands, a later manual unlock + release must
+    not send a redundant unlock to an unlocked lockout."""
+    rig = await make_rig()
+    await rig.edge("sleep")  # locks land (apply_service_state)
+    rig.w.set_state(LOCK_A, "unlocked")  # operator unlocks by hand
+    rig.w.calls.clear()
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_engage_inflight_expires_after_readback_window():
+    """A lock command the opener never applied stops counting as in flight."""
+    rig = await make_rig()
+    rig.w.apply_service_state = False
+    await rig.edge("sleep")  # lock issued, state stays unlocked
+    await rig.w.advance(21)
+    rig.w.calls.clear()
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == []
 
 
 @pytest.mark.asyncio

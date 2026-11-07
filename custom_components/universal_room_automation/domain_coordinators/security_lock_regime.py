@@ -299,8 +299,24 @@ class LockRegimeController:
             return True
         return self._ts() < self._setup_ts + GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S
 
-    def _backstop_delay_s(self, cfg: dict[str, Any]) -> float:
-        """Seconds until the morning backstop; 0 = release now (daytime, past it)."""
+    @staticmethod
+    def _local_wall(day: Any, hour: int, minute: float, tzinfo: Any) -> datetime:
+        """Local wall-clock datetime for ``day`` (DST-safe with a ZoneInfo tz:
+        the offset is resolved for that date, not copied from ``now``)."""
+        base = datetime(day.year, day.month, day.day, tzinfo=tzinfo)
+        return datetime(
+            base.year, base.month, base.day, hour, 0, tzinfo=tzinfo
+        ) + timedelta(minutes=minute)
+
+    def _backstop_delay_s(self, cfg: dict[str, Any], *, allow_immediate: bool = False) -> float:
+        """Real seconds until the next morning backstop (review A M1 / L3).
+
+        ``allow_immediate`` (boot rebuild only): a stale night lock found in
+        the daytime, past today's deadline and before tonight's sleep start,
+        releases now (deviation (d)). Every engage-time schedule uses the
+        NEXT deadline, so an early SLEEP (e.g. override at 22:30 with
+        sleep_start 23) holds until tomorrow morning.
+        """
         from ..const import (  # noqa: PLC0415
             CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
             GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
@@ -316,21 +332,22 @@ class LockRegimeController:
             ),
         )
         now = self._now()
-        today_deadline = now.replace(hour=end, minute=0, second=0, microsecond=0) + (
-            timedelta(minutes=backstop_min)
+        today_deadline = self._local_wall(now.date(), end, backstop_min, now.tzinfo)
+        if now.timestamp() < today_deadline.timestamp():
+            return today_deadline.timestamp() - now.timestamp()
+        if allow_immediate and now.hour < start:
+            return 0.0
+        tomorrow = self._local_wall(
+            now.date() + timedelta(days=1), end, backstop_min, now.tzinfo
         )
-        if now < today_deadline:
-            return (today_deadline - now).total_seconds()
-        if now.hour >= start:
-            return (today_deadline + timedelta(days=1) - now).total_seconds()
-        return 0.0
+        return tomorrow.timestamp() - now.timestamp()
 
     def _seconds_until_hour(self, hour: int) -> float:
         now = self._now()
-        target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-        if target <= now:
-            target += timedelta(days=1)
-        return (target - now).total_seconds()
+        target = self._local_wall(now.date(), hour, 0, now.tzinfo)
+        if target.timestamp() <= now.timestamp():
+            target = self._local_wall(now.date() + timedelta(days=1), hour, 0, now.tzinfo)
+        return target.timestamp() - now.timestamp()
 
     # ------------------------------------------------------------------
     # House state + gates
@@ -404,6 +421,13 @@ class LockRegimeController:
                 )
             )
 
+        # Review A L2: forget an issued lock.lock once the lockout reads locked.
+        lockouts = self.lockout_entities(cfg)
+        if lockouts:
+            self._other_unsubs.append(
+                self._track_state(self._hass, lockouts, self._on_lockout_event)
+            )
+
         sensors = self._distance_sensors(cfg)
         if sensors:
             self._distance_unsub = self._track_state(
@@ -425,9 +449,15 @@ class LockRegimeController:
         return float(GARAGE_LOCKOUT_BOOT_RECHECK_S)
 
     def _boot_rebuild(self, cfg: dict[str, Any]) -> None:
-        """Boot never engages. Recent arrival releases; else rebuild reason (H1)."""
-        from ..const import GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S  # noqa: PLC0415
+        """Boot never engages and never releases on a resident reading home;
+        it only rebuilds ``reason`` (H1).
 
+        Review A H1: there is NO setup-time "recent arrival" release. HA's
+        person restore writes a fresh State (last_changed = boot time), so
+        such a rule fired on every night restart with anyone home. Real
+        arrivals during a restart are caught by the boot-arrival window in
+        ``_arrival_counts`` (any -> home edge within 600 s of setup).
+        """
         if not self.kill_switch_on():
             return
         locked = [
@@ -436,19 +466,6 @@ class LockRegimeController:
         ]
         if not locked:
             return
-        now_ts = self._ts()
-        for pid in sorted(self._residents):
-            st = self._hass.states.get(pid)
-            if _state_value(st) != "home":
-                continue
-            changed = getattr(st, "last_changed", None)
-            try:
-                changed_ts = changed.timestamp()
-            except Exception:  # noqa: BLE001
-                continue
-            if now_ts - changed_ts <= GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S:
-                self._release("boot_recent_arrival", person=pid)
-                return
         house = self._house_state()
         if house == "sleep":
             self.reason = REASON_SLEEP
@@ -458,7 +475,7 @@ class LockRegimeController:
             self.reason = REASON_BOOT_UNKNOWN
         self._record("boot_rebuild", trigger=f"boot:{house}", written=[])
         if self.reason in SLEEP_LIKE_REASONS:
-            self._schedule_backstop(cfg)
+            self._schedule_backstop(cfg, allow_immediate=True)
 
     def _on_boot_recheck(self, _now: Any = None) -> None:
         self._boot_recheck_unsub = None
@@ -626,6 +643,12 @@ class LockRegimeController:
             person = str(getattr(payload, "person_entity", "") or "")
         if not person or not self._is_resident(person, self._cfg()):
             return
+        # Review A M2: Presence also dispatches this signal for any face seen
+        # on ANY zone camera, interior included (source camera_face), so
+        # "arriving" is not a physical arrival. Count it only when the
+        # person was really away (same rule + boot exceptions as P1 blips).
+        if not self._really_away(person, self._ts()):
+            return
         self._release("arriving_signal", person=person)
 
     def on_hazard(self) -> None:
@@ -707,10 +730,14 @@ class LockRegimeController:
                 self._last_real[pid] = (new_val, now_ts, False)
 
     def _arrival_counts(self, pid: str, old_val: str | None, now_ts: float) -> bool:
-        from ..const import GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN  # noqa: PLC0415
-
         if old_val not in _UNREAL_STATES:
             return True  # not_home / named zone -> home
+        return self._really_away(pid, now_ts)
+
+    def _really_away(self, pid: str, now_ts: float) -> bool:
+        """Was ``pid`` genuinely away (H3a) — with the M-2 boot exceptions."""
+        from ..const import GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN  # noqa: PLC0415
+
         if self._in_boot_arrival_window():
             return True  # M-2 (i)
         prev = self._last_real.get(pid)
@@ -737,8 +764,17 @@ class LockRegimeController:
         return person_state.lower() in names
 
     def _person_for_sensor(self, sensor_id: str) -> str | None:
-        """Proximity sensors are named <proximity>_<person>_distance."""
-        for pid in self._residents:
+        """Proximity sensors are named <proximity>_<person>_distance.
+
+        Review A L1: map against ALL live person ids (not the setup resident
+        snapshot); the caller applies the resident / exclusion filter.
+        """
+        candidates: set[str] = set(self._person_unsubs) | set(self._residents)
+        try:
+            candidates |= {s.entity_id for s in self._hass.states.async_all("person")}
+        except Exception:  # noqa: BLE001
+            pass
+        for pid in sorted(candidates):
             obj = pid.split(".", 1)[1]
             if sensor_id.endswith(f"_{obj}_distance"):
                 return pid
@@ -801,7 +837,7 @@ class LockRegimeController:
                     )
                 continue
             self._unavailable_warned.discard(ent)
-            pending_lock = ent in self._engage_inflight
+            pending_lock = self._lock_in_flight(ent, val)
             if val != "locked" and not pending_lock:
                 continue
             if ent in self._release_inflight:
@@ -813,16 +849,35 @@ class LockRegimeController:
         self._after_release(trigger, person, cfg)
         self._record("release", trigger=trigger, written=written)
 
+    def _on_lockout_event(self, event: Any) -> None:
+        if _state_value(event.data.get("new_state")) == "locked":
+            self._engage_inflight.pop(event.data.get("entity_id", ""), None)
+
+    def _lock_in_flight(self, ent: str, val: str | None) -> bool:
+        """True while a lock.lock we issued may still land (review A L2).
+
+        Cleared once the lockout is seen ``locked`` (the command landed) or
+        after the read-back window (the command was lost / refused).
+        """
+        from ..const import GARAGE_LOCKOUT_READBACK_S  # noqa: PLC0415
+
+        issued = self._engage_inflight.get(ent)
+        if issued is None:
+            return False
+        if val == "locked" or self._ts() - issued > GARAGE_LOCKOUT_READBACK_S:
+            self._engage_inflight.pop(ent, None)
+            return False
+        return True
+
     def _after_release(self, trigger: str, person: str | None, cfg: dict[str, Any]) -> None:
         is_arrival = person is not None or trigger.startswith("proximity:")
         if trigger.startswith("house_state:") or trigger in (
-            "backstop", "boot_recent_arrival",
+            "backstop",
         ):
             self._cancel_reengage()
             self._cancel_backstop()
             self.reason = REASON_NONE
-            if trigger != "boot_recent_arrival":
-                self.releasing_set.clear()
+            self.releasing_set.clear()
             return
         if is_arrival:
             if self.reason == REASON_VACATION:
@@ -1059,10 +1114,12 @@ class LockRegimeController:
     # Backstop (INV-4)
     # ------------------------------------------------------------------
 
-    def _schedule_backstop(self, cfg: dict[str, Any]) -> None:
+    def _schedule_backstop(self, cfg: dict[str, Any], *, allow_immediate: bool = False) -> None:
         self._cancel_backstop()
         self._backstop_unsub = self._call_later(
-            self._hass, self._backstop_delay_s(cfg), self._on_backstop
+            self._hass,
+            self._backstop_delay_s(cfg, allow_immediate=allow_immediate),
+            self._on_backstop,
         )
 
     def _cancel_backstop(self) -> None:
