@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T11:13:40-06:00_ - _Data commit: `c5fdc738cd22`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T11:23:18-06:00_ - _Data commit: `3e419eb211e4`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
@@ -437,12 +437,14 @@ thread: **notifications** - status: **in_progress**
 _created 2026-11-07 12:40_
 - **Why:** Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Ec...
 - **Next:** Building A now (operator 2026-11-07). Plan doc -> 1 plan review -> build -> Tier 2 reviews -> deploy.
-- **Forensic keys (5):**
+- **Forensic keys (7):**
   - `tier`: 2
   - `adjacency`: Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card.
   - `design_2026_11_07`: Operator: a 'diag' entry command returns a numbered menu; replying with the number or the command name runs it and returns the result. Conflict found: bare '1'/'2'/'3' already mean ack/status/silence for every sender (notification_manage...
   - `shared_layer_2026_11_07`: The query functions are the shared read-only house-status layer: NM replies use them now; the OC agent calls the same ones as tools later (citable, deterministic answers).
   - `oc_followups_2026_11_07`: From reading the L02 judged runs (2026-11-04, sonnet-5.5): M1 1.0/0.5/1.0; every M2 'invented' flag was citation hygiene (true fact cited to the wrong result, unsupported absence claims, 6 s vs 8 s), not fabrication. Follow-ups: (1) re-s...
+  - `built_2026_11_07`: Branch feature/nm-diag-text-menu @637b0bb8 (tag pre-review-nm-diag). D0: iMessage is the only live inbound channel (608 rows, all iMessage); SC lock list holds only the front lock (garage hallway + master bedroom absent -> doors answer s...
+  - `residual_companion_no_reply`: Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix.
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
