@@ -229,7 +229,7 @@ cards:
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
-  status: waiting_operator
+  status: planned
   tier: 2
   created: "2026-11-07 12:10"
   updated: "2026-11-07 12:10"
@@ -238,6 +238,8 @@ cards:
   why: "lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part shipped 2026-11-07: tiles per garage, and 'Lock all' also engages both lockouts. Unverified: whether myQ still reaches these openers (they run Konnected blaQ / ratgdo) and whether ratgdo's lock also blocks the wireless keypad on this opener model; test physically before relying on it."
   next: "PICK: A (recommended) HA automation: lockout ON at bedtime/house Sleep, OFF at 6 AM, and OFF immediately when a resident's phone arrives home (person -> home), so red-eye returns open with the car remote as usual; or B the same in the URA Security coordinator (lockout becomes part of arming, Tier 2 build) -> I build A first as a house-visible automation once you OK it."
   adjacency: "Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07."
+  plan_2026_11_07: "Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night semantics; which residents; 07:00 backstop."
+  finding_periodic_sweep_2026_11_07: "Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card after operator look."
 - id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
   title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
   thread: config_flow
