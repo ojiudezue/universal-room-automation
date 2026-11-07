@@ -43,6 +43,12 @@ from typing import Any, Callable
 
 _LOGGER = logging.getLogger(__name__)
 
+# Bound at import, not per call: a later sys.modules swap of
+# homeassistant.util.unit_conversion (test stubs do this) must not change
+# the converter this module uses.
+from homeassistant.exceptions import HomeAssistantError  # noqa: E402
+from homeassistant.util.unit_conversion import DistanceConverter  # noqa: E402
+
 POLICY_NAME = "security.lock_regime.garage_lockout"
 
 REASON_NONE = "none"
@@ -71,9 +77,6 @@ def distance_to_metres(value: Any, unit: Any) -> float | None:
     ``HomeAssistantError`` (unit_conversion.py:145-150, pinned HA); a
     non-numeric state raises ValueError / TypeError. Each means no signal.
     """
-    from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
-    from homeassistant.util.unit_conversion import DistanceConverter  # noqa: PLC0415
-
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -382,8 +385,10 @@ class LockRegimeController:
             live = {s.entity_id for s in self._hass.states.async_all("person")}
         except Exception:  # noqa: BLE001
             live = set()
+        # Subscribe EVERY person (exclusions are filtered at event time), so
+        # an options edit of the exclusion list is live without a reload.
         excluded = self._excluded(cfg)
-        for pid in sorted((live | persisted) - excluded):
+        for pid in sorted(live | persisted):
             self._subscribe_person(pid)
         self._residents = (live | persisted) - excluded
         self._save_residents()
@@ -649,11 +654,11 @@ class LockRegimeController:
 
     def _on_person_added(self, event: Any) -> None:
         pid = event.data.get("entity_id", "")
-        if not pid or self._torn_down:
-            return
-        if not self._is_resident(pid, self._cfg()):
+        if not pid or self._torn_down or not pid.startswith("person."):
             return
         self._subscribe_person(pid)
+        if not self._is_resident(pid, self._cfg()):
+            return
         self._residents.add(pid)
         if pid in self.releasing_set:
             self.releasing_set[pid]["removed"] = False

@@ -797,6 +797,36 @@ async def test_proximity_crossing_releases():
 
 
 @pytest.mark.asyncio
+async def test_proximity_survives_unit_conversion_module_swap(monkeypatch):
+    """Suite polluter (test_zone_safety_alert._install_aggregation_mocks)
+    replaces homeassistant.util.unit_conversion with a TemperatureConverter-
+    only stub at run time. The regime binds DistanceConverter at import."""
+    import sys
+    import types
+
+    stub = types.ModuleType("homeassistant.util.unit_conversion")
+    monkeypatch.setitem(sys.modules, "homeassistant.util.unit_conversion", stub)
+    rig = await make_rig(lockouts="locked")
+    rig.w.set_state(EZ_DIST, "6000", {"unit_of_measurement": "ft"})
+    rig.w.set_state(EZ_DIST, "3000", {"unit_of_measurement": "ft"})
+    await settle()
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
+async def test_unexcluded_person_releases_without_reload():
+    """Excluded-persons edits apply live (key is reload-suppressed)."""
+    rig = await make_rig(lockouts="locked")
+    await rig.person(KIOSK, "not_home")
+    await rig.person(KIOSK, "home")
+    assert rig.unlocks() == []
+    rig.w.cm_entry.options["security_lockout_excluded_persons"] = []
+    await rig.person(KIOSK, "not_home")
+    await rig.person(KIOSK, "home")
+    assert rig.unlocks() == [LOCK_A, LOCK_B]
+
+
+@pytest.mark.asyncio
 async def test_distance_sensor_unit_ft_converted():
     """6000 ft (1829 m) -> 5000 ft (1524 m): both outside 1500 m."""
     rig = await make_rig(lockouts="locked")
