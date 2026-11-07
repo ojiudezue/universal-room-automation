@@ -323,6 +323,75 @@ _NM_SAFEWORD_WINDOW_RE = re.compile(
 # unacked CRITICAL row). Requires review to change (safety-adjacent).
 NM_RECOVERY_MAX_AGE_H = 24.0
 
+# NM-INBOUND-HOUSE-QUERIES-1 (docs/planning/PLANNING_nm_diag_text_menu.md):
+# read-only "diag" house-status menu over inbound text. Rung-1 constants —
+# they bound a new inbound path next to the CRITICAL-ack parser, so changing
+# them requires review.
+# Kill switches on this branch, and what each covers (Review A A4):
+# - NM_DIAG_ENABLED: the diag menu only. False -> no diag token is ever
+#   resolved and _process_inbound_reply is byte-identical to the pre-cycle
+#   code (the I4 oracle diffs exactly this function).
+# - NM_WHATSAPP_INBOUND_ENABLED: WhatsApp inbound ingestion
+#   (_parse_whatsapp_event). False -> every WhatsApp inbound is ignored, as it
+#   effectively was before the bridge-key fix.
+# - Companion person attribution (_person_for_companion_event) has no switch:
+#   it only lets status / silence / text-input replies reach the tapping
+#   person; an unresolvable user keeps the pre-fix no-reply behaviour.
+NM_DIAG_ENABLED: bool = True
+# WhatsApp inbound, self-chat only (rung 1: widening a command trust
+# boundary must require review). Kill switch: False.
+NM_WHATSAPP_INBOUND_ENABLED: bool = True
+# Review B LOW-4: drop a WhatsApp inbound whose (from, timestamp, body) was
+# already processed within this many seconds, so a bridge replay after a
+# reconnect can never re-apply a safe word or a silence. Rung 1. Kill switch:
+# 0 disables dedup. Payloads without a bridge timestamp are not deduped.
+NM_WHATSAPP_DEDUP_TTL_S: int = 600
+# How long after "diag" a bare digit maps to a menu item. 0 -> names only
+# (digits never map; the menu lists words).
+NM_DIAG_MENU_WINDOW_S: int = 120
+# After a send closed the window (send rail), a bare 1/2/3 within this many
+# seconds of the window opening gets a "menu closed" notice (no effect) when
+# no alert reply is expected. 0 -> no notice, digits go straight to legacy.
+NM_DIAG_CLOSED_NOTICE_S: int = 300
+# Diag loop backstop per (person, channel). NOT a kill switch.
+NM_DIAG_REPLY_BUDGET: int = 10
+NM_DIAG_REPLY_BUDGET_WINDOW_S: int = 600
+# Reply cap incl. the channel title prefix (Pushover message limit is 1024
+# chars, https://pushover.net/api, verified 2026-11-07).
+NM_DIAG_MAX_REPLY_CHARS: int = 900
+# Longest title prefix a reply carries ("*URA*\n" on WhatsApp).
+_NM_DIAG_TITLE_PREFIX_LEN = len("*URA*\n")
+DIAG_ITEMS: tuple[str, ...] = (
+    "doors", "garage", "who", "hvac", "energy", "alerts", "health",
+)
+# Exact whole-text match only (no first-token / substring parse — I3).
+DIAG_COMMANDS: dict[str, str] = {
+    "diag": "menu", "menu": "menu", "house": "menu",
+    **{item: item for item in DIAG_ITEMS},
+}
+DIAG_MENU_TEXT = (
+    "House menu (reply number or word):\n"
+    "1 doors  2 garage  3 who\n"
+    "4 hvac   5 energy  6 alerts\n"
+    "7 health"
+)
+DIAG_MENU_WORDS_TEXT = (
+    "House menu (reply a word):\n"
+    "doors garage who hvac\n"
+    "energy alerts health"
+)
+DIAG_MENU_ALERT_TEXT = (
+    "Alert active: numbers mean ack/status/silence.\n"
+    "Use words: doors garage who hvac\n"
+    "energy alerts health"
+)
+DIAG_BAD_PICK_TEXT = "Pick 1-7 or a name:\ndoors garage who hvac energy alerts health"
+DIAG_CLOSED_NOTICE_TEXT = (
+    "Menu closed: an alert was just sent.\n"
+    "Reply diag to reopen, or use words (ack, silence)."
+)
+DIAG_HELP_LINE = "diag = house status menu"
+
 # Halo level order (halo/const.py LEVEL_RANK) — used to never downgrade a
 # held panel lease (Halo S1b review A2).
 _PANEL_LEVEL_RANK = {"info": 1, "warn": 2, "alert": 3, "critical": 4}
@@ -474,6 +543,19 @@ class NotificationManager:
         )
         self._echo_suppressed_count: int = 0
         self._last_reply_at: dict[tuple[str, str], datetime] = {}
+        # NM-INBOUND-HOUSE-QUERIES-1: diag menu windows, RAM only (a restart
+        # closes every window). (person_id, channel) -> (opened_at, epoch
+        # captured at inbound entry). The send rail bumps the epoch at the
+        # top of each of the four text senders (menu_safe=False).
+        self._diag_windows: dict[tuple[str, str], tuple[datetime, int]] = {}
+        self._diag_send_epoch: int = 0
+        # (person_id, channel) -> reply times inside the budget window, and
+        # whether the over-budget notice was already sent this window.
+        self._diag_budget: dict[tuple[str, str], list[datetime]] = {}
+        self._diag_budget_notified_at: dict[tuple[str, str], datetime] = {}
+        self._inbound_by_command["diag"] = 0
+        # Review B LOW-4: (from, timestamp, body) -> first-seen time.
+        self._wa_inbound_seen: dict[tuple[str, Any, str], datetime] = {}
 
         # =====================================================================
         # NM Cycle B (2026-07-20): Safety rails
@@ -2214,6 +2296,8 @@ class NotificationManager:
         device: str = "",
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
+        *,
+        menu_safe: bool = False,
     ) -> None:
         """Send notification via Pushover.
 
@@ -2223,6 +2307,9 @@ class NotificationManager:
         pushover build during SNAP-1 planning, so we do not attempt it
         here; the URL form remains the ratified path for this channel.
         """
+        # NM-INBOUND-HOUSE-QUERIES-1 send rail (see _send_companion).
+        if not menu_safe:
+            self._diag_send_epoch += 1
         if self._dry_run_active:
             await self._log_dry_run(channel="pushover", target=device or user_key[:8], title=title)
             return
@@ -2251,6 +2338,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("Pushover send failed: %s", e)
             self._update_channel_health("pushover", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_companion(
         self,
@@ -2261,8 +2353,21 @@ class NotificationManager:
         is_critical: bool = False,
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
+        *,
+        menu_safe: bool = False,
+        reply: bool = False,
     ) -> None:
-        """Send notification via HA Companion App."""
+        """Send notification via HA Companion App.
+
+        ``reply=True`` (only from ``_send_reply``, Review A A2): a text reply
+        carries NO action buttons — the plain Acknowledge button bulk-acks
+        without a safe word and must never sit under a CRITICAL's status
+        reply. Alert pushes keep their buttons.
+        """
+        # NM-INBOUND-HOUSE-QUERIES-1 send rail: close every diag menu window
+        # (sync, before dry-run return and before any await).
+        if not menu_safe:
+            self._diag_send_epoch += 1
         if self._dry_run_active:
             await self._log_dry_run(channel="companion", target=service_name, title=title)
             return
@@ -2272,7 +2377,9 @@ class NotificationManager:
                 "title": title,
                 "message": message,
             }
-            if is_critical:
+            if reply:
+                pass  # no actions on a reply
+            elif is_critical:
                 data["data"] = {
                     "actions": [
                         {
@@ -2307,11 +2414,18 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("Companion app send failed: %s", e)
             self._update_channel_health("companion", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_whatsapp(
         self, title: str, message: str, phone: str,
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
+        *,
+        menu_safe: bool = False,
     ) -> None:
         """Send notification via WhatsApp (ha-wa-bridge).
 
@@ -2326,6 +2440,9 @@ class NotificationManager:
         absent, and reads url first when present — passing both would
         make the server-side fetch the URL, defeating the point).
         """
+        # NM-INBOUND-HOUSE-QUERIES-1 send rail (see _send_companion).
+        if not menu_safe:
+            self._diag_send_epoch += 1
         if self._dry_run_active:
             await self._log_dry_run(channel="whatsapp", target=phone, title=title)
             return
@@ -2351,11 +2468,18 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("WhatsApp send failed: %s", e)
             self._update_channel_health("whatsapp", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_imessage(
         self, title: str, message: str, handle: str,
         snapshot_url: str | None = None,
         snapshot_path: str | None = None,
+        *,
+        menu_safe: bool = False,
     ) -> None:
         """Send notification via BlueBubbles (iMessage).
 
@@ -2369,6 +2493,9 @@ class NotificationManager:
         is FALSE for the installed version and has been removed
         (No-Fabrication hygiene).
         """
+        # NM-INBOUND-HOUSE-QUERIES-1 send rail (see _send_companion).
+        if not menu_safe:
+            self._diag_send_epoch += 1
         if self._dry_run_active:
             await self._log_dry_run(channel="imessage", target=handle, title=title)
             return
@@ -2394,6 +2521,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("iMessage send via BlueBubbles failed: %s", e)
             self._update_channel_health("imessage", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_tts(self, title: str, message: str) -> None:
         """Send TTS announcement to configured speakers."""
@@ -3386,26 +3518,67 @@ class NotificationManager:
             )
         elif action == "STATUS_URA":
             self.hass.async_create_task(
-                self._process_inbound_reply(None, "companion", "status")
+                self._process_inbound_reply(
+                    self._person_for_companion_event(event), "companion", "status",
+                )
             )
         elif action == "SILENCE_URA":
             self.hass.async_create_task(
-                self._process_inbound_reply(None, "companion", "silence")
+                self._process_inbound_reply(
+                    self._person_for_companion_event(event), "companion", "silence",
+                )
             )
         elif action == "ACKNOWLEDGE_URA_CRITICAL":
             # Text input action — the reply text is in event.data
             text = event.data.get("reply_text", event.data.get("textInput", ""))
             if text:
                 self.hass.async_create_task(
-                    self._process_inbound_reply(None, "companion", text)
+                    self._process_inbound_reply(
+                        self._person_for_companion_event(event), "companion", text,
+                    )
                 )
+
+    def _person_for_companion_event(self, event) -> str | None:
+        """NM-COMPANION-STATUS-NO-REPLY-1: person entity for a Companion
+        action, from the event's ``context.user_id``.
+
+        Same lookup as the arrester's ``_resolve_context_user_to_person``
+        (hvac_override.py:880-907): walk ``person.*`` states and match the
+        ``user_id`` attribute. Restricted to NM-configured persons, because
+        ``_send_reply`` can only reach a configured person. Unresolvable ->
+        None (the pre-fix behaviour: processed, no reply). Never raises.
+        """
+        try:
+            user_id = getattr(getattr(event, "context", None), "user_id", None)
+            if not user_id:
+                return None
+            configured = {
+                p.get(CONF_NM_PERSON_ENTITY)
+                for p in self._config.get(CONF_NM_PERSONS, [])
+            }
+            for st in self.hass.states.async_all("person"):
+                attrs = st.attributes or {}
+                if attrs.get("user_id") == user_id and st.entity_id in configured:
+                    return st.entity_id
+        except Exception:  # noqa: BLE001 — never break the action handler
+            _LOGGER.debug("NM: companion person lookup failed", exc_info=True)
+        return None
 
     @callback
     def _handle_whatsapp_reply(self, event: Event) -> None:
-        """Handle inbound WhatsApp message via ha-wa-bridge."""
-        phone = event.data.get("phone", "")
-        message = event.data.get("message", "")
+        """Handle inbound WhatsApp message via ha-wa-bridge.
+
+        NM-WA-INBOUND-KEYS-1 (2026-11-07): the installed bridge
+        (custom_components/whatsapp, event ``whatsapp_message_received``)
+        sends ``from`` / ``to`` / ``body`` / ``isGroup`` / ``fromMe`` …, not
+        ``phone`` / ``message``, so every WhatsApp inbound was dropped here.
+        Parsed via ``_parse_whatsapp_event``; legacy keys still accepted.
+        """
+        phone, message = self._parse_whatsapp_event(event.data or {})
         if not message:
+            return
+        if self._is_whatsapp_replay(event.data or {}):
+            _LOGGER.debug("WhatsApp inbound replay dropped (dedup)")
             return
         person_id = self._match_person_by_phone(phone)
         if person_id is None:
@@ -3414,6 +3587,65 @@ class NotificationManager:
         self.hass.async_create_task(
             self._process_inbound_reply(person_id, "whatsapp", message)
         )
+
+    def _is_whatsapp_replay(self, data: dict) -> bool:
+        """True if this (from, timestamp, body) was processed within
+        NM_WHATSAPP_DEDUP_TTL_S; otherwise records it and returns False."""
+        ts = data.get("timestamp")
+        if NM_WHATSAPP_DEDUP_TTL_S <= 0 or ts in (None, ""):
+            return False
+        now = dt_util.utcnow()
+        self._wa_inbound_seen = {
+            k: t for k, t in self._wa_inbound_seen.items()
+            if (now - t).total_seconds() < NM_WHATSAPP_DEDUP_TTL_S
+        }
+        key = (str(data.get("from", "")), ts, str(data.get("body", "")))
+        if key in self._wa_inbound_seen:
+            return True
+        self._wa_inbound_seen[key] = now
+        return False
+
+    @staticmethod
+    def _wa_jid_digits(jid: str) -> str:
+        """'15550001:12@c.us' -> '15550001' (strip @server and :device)."""
+        local = str(jid or "").split("@", 1)[0].split(":", 1)[0]
+        return "".join(ch for ch in local if ch.isdigit())
+
+    def _parse_whatsapp_event(self, data: dict) -> tuple[str, str]:
+        """Return (sender phone digits, text) or ("", "") to ignore.
+
+        Review A (A1/A7): SELF-CHAT ONLY. The bridge runs on the operator's
+        own number (NM person phone == bridge ``to``, verified 2026-11-07),
+        so every direct chat from anyone else to that number is personal
+        conversation and is NEVER parsed as a command — configured family
+        members included (they use iMessage). Rules, in order:
+        - ``NM_WHATSAPP_INBOUND_ENABLED`` False -> ignore everything.
+        - Groups, newsletters and broadcasts are ignored (``isGroup`` or a
+          ``@g.us`` / ``@newsletter`` / ``@broadcast`` from/to), for every
+          payload shape (checked before the legacy branch).
+        - Legacy shape (``phone`` / ``message``, no bridge emits it today:
+          0 of 1704 recorder events) passes through for old callers/tests.
+        - Bridge shape: accepted only when from-number == to-number (the
+          self-chat); ``_handle_whatsapp_reply`` then requires that number to
+          be a configured NM person phone. NM's own sends also land in the
+          self-chat; echo rail 1 (``_is_self_echo``, every ``_send_whatsapp``
+          body is recorded) drops them first in ``_process_inbound_reply``.
+          Recorder 2026-11-07: 0 of 1704 bridge events had fromMe=true, so
+          the bridge may not emit own messages at all today.
+        """
+        if not NM_WHATSAPP_INBOUND_ENABLED:
+            return "", ""
+        frm = str(data.get("from", "") or "")
+        to = str(data.get("to", "") or "")
+        non_direct = ("@g.us", "@newsletter", "@broadcast")
+        if data.get("isGroup") or frm.endswith(non_direct) or to.endswith(non_direct):
+            return "", ""
+        if "message" in data or "phone" in data:
+            return str(data.get("phone", "") or ""), str(data.get("message", "") or "")
+        frm_digits = self._wa_jid_digits(frm)
+        if not frm_digits or frm_digits != self._wa_jid_digits(to):
+            return "", ""  # not the self-chat: personal conversation
+        return frm_digits, str(data.get("body", "") or "")
 
     async def _handle_pushover_webhook(
         self, hass: HomeAssistant, webhook_id: str, request
@@ -3551,6 +3783,12 @@ class NotificationManager:
         raw_text: str,
     ) -> str:
         """Process an inbound text reply. Returns response text."""
+        # NM-INBOUND-HOUSE-QUERIES-1 step 0 (HIGH-1): capture the send-rail
+        # epoch and the clock BEFORE any await on this path. Every diag window
+        # write / comparison below uses these locals, never a re-read, so a
+        # send racing this inbound bumps the epoch AFTER the stored value.
+        epoch_at_entry = self._diag_send_epoch
+        now_at_entry = dt_util.utcnow()
         # Echo-loop rail 1: drop our own reflected sends before they can
         # match any command (an echo once matched the silence path and
         # silenced alerts without operator intent).
@@ -3649,9 +3887,27 @@ class NotificationManager:
                 return response
         is_safe_word, _sw_source = self._match_safe_word(text, person_id)
 
+        # NM-INBOUND-HOUSE-QUERIES-1 step 4: synchronous diag resolution (no
+        # await, no I/O). Safe word wins; an UNRESOLVED Companion action
+        # (person None) is skipped — a resolved Companion person
+        # (_person_for_companion_event) gets diag, under the same send and
+        # state rails keyed (person, "companion");
+        # NM_DIAG_ENABLED=False -> None always (pre-cycle path, I4 oracle).
+        diag = (
+            None
+            if (is_safe_word or person_id is None or not NM_DIAG_ENABLED)
+            else self._resolve_diag(
+                text, person_id, channel, epoch_at_entry, now_at_entry,
+            )
+        )
+
         # Check if currently silenced
         if self._silence_until and dt_util.utcnow() < self._silence_until:
-            if command not in ("status", "help") and not is_safe_word:
+            if (
+                command not in ("status", "help")
+                and not is_safe_word
+                and diag is None
+            ):
                 response = "Alerts silenced. Will resume at {}.".format(
                     self._silence_until.strftime("%H:%M")
                 )
@@ -3801,6 +4057,12 @@ class NotificationManager:
             )
             return response
 
+        # NM-INBOUND-HOUSE-QUERIES-1 step 7: read-only diag answer.
+        if diag is not None:
+            return await self._handle_diag(
+                database, person_id, channel, raw_text, diag, now_at_entry,
+            )
+
         if command == "ack":
             self._inbound_by_command["ack"] += 1
             if is_critical:
@@ -3846,6 +4108,8 @@ class NotificationManager:
             response = RESPONSE_DICT_TEXT
             if is_critical:
                 response = CRITICAL_RESPONSE_TEXT
+            if NM_DIAG_ENABLED:
+                response = f"{response}\n{DIAG_HELP_LINE}"
             await self._log_and_reply(
                 database, person_id, channel, raw_text,
                 "help", response, success=True,
@@ -3868,6 +4132,144 @@ class NotificationManager:
         await self._log_and_reply(
             database, person_id, channel, raw_text,
             "unknown", response, success=False,
+        )
+        return response
+
+    # =========================================================================
+    # NM-INBOUND-HOUSE-QUERIES-1: diag text menu
+    # =========================================================================
+
+    def _resolve_diag(
+        self,
+        text: str,
+        person_id: str,
+        channel: str,
+        epoch_at_entry: int,
+        now_at_entry: datetime,
+    ) -> str | None:
+        """Map normalized inbound text to a diag action, or None (legacy).
+
+        Synchronous by design (HIGH-1): this is the ONLY place a menu window
+        is written, from the step-0 locals, before any await on the path.
+        Returns an item key, "menu", "bad_pick", "closed_notice" or None.
+        """
+        key = (person_id, channel)
+        cmd = DIAG_COMMANDS.get(text)
+        if cmd == "menu":
+            # Only open a window while no CRITICAL alert machinery is live
+            # (state rail); a resend refreshes opened_at and the epoch.
+            if self._alert_state is AlertState.IDLE:
+                self._diag_windows[key] = (now_at_entry, epoch_at_entry)
+            return "menu"
+        if cmd is not None:
+            return cmd  # names resolve regardless of window and alert state
+        if not text.isdecimal():  # A5: "\u00b3".isdigit() is True but int() raises
+            return None
+        rec = self._diag_windows.get(key)
+        if rec is None:
+            return None
+        opened_at, stored_epoch = rec
+        age_s = (now_at_entry - opened_at).total_seconds()
+        if age_s >= max(NM_DIAG_MENU_WINDOW_S, NM_DIAG_CLOSED_NOTICE_S):
+            del self._diag_windows[key]  # lazy prune
+            return None
+        if stored_epoch != epoch_at_entry:
+            # Send rail closed this window. Notice only when no alert reply
+            # is expected; otherwise the digit is legacy (I1).
+            if (
+                NM_DIAG_MENU_WINDOW_S > 0
+                and NM_DIAG_CLOSED_NOTICE_S > 0
+                and text in ("1", "2", "3")
+                and age_s < NM_DIAG_CLOSED_NOTICE_S
+                and self._alert_state is AlertState.IDLE
+                and not self._active_alert_data
+            ):
+                del self._diag_windows[key]
+                return "closed_notice"
+            return None
+        if self._alert_state is not AlertState.IDLE:
+            return None  # state rail (CRITICAL-only defence)
+        if age_s >= NM_DIAG_MENU_WINDOW_S:
+            return None
+        n = int(text)
+        if 1 <= n <= len(DIAG_ITEMS):
+            return DIAG_ITEMS[n - 1]
+        return "bad_pick"
+
+    def _diag_menu_text(self) -> str:
+        if self._alert_state is not AlertState.IDLE:
+            return DIAG_MENU_ALERT_TEXT
+        if NM_DIAG_MENU_WINDOW_S <= 0:
+            return DIAG_MENU_WORDS_TEXT
+        return DIAG_MENU_TEXT
+
+    async def _build_diag_answer(self, item: str) -> str:
+        """Render one house_status item (read-only, never raises)."""
+        from .. import house_status
+
+        max_chars = NM_DIAG_MAX_REPLY_CHARS - _NM_DIAG_TITLE_PREFIX_LEN
+        try:
+            if item == "alerts":
+                result = await house_status.alerts(self.hass, self)
+            else:
+                result = getattr(house_status, item)(self.hass)
+            return house_status.render(result, max_chars)
+        except Exception:  # noqa: BLE001 — a status query must never crash NM
+            _LOGGER.debug("NM diag: %s answer failed", item, exc_info=True)
+            return f"{item.capitalize()}\nstatus unavailable"
+
+    async def _handle_diag(
+        self,
+        database,
+        person_id: str,
+        channel: str,
+        raw_text: str,
+        diag: str,
+        now_at_entry: datetime,
+    ) -> str:
+        """Answer a resolved diag action: budget, build, log, reply (rail2 off)."""
+        self._inbound_by_command["diag"] = self._inbound_by_command.get("diag", 0) + 1
+        key = (person_id, channel)
+        window_s = NM_DIAG_REPLY_BUDGET_WINDOW_S
+        times = [
+            t for t in self._diag_budget.get(key, [])
+            if (now_at_entry - t).total_seconds() < window_s
+        ]
+        if len(times) >= NM_DIAG_REPLY_BUDGET:
+            self._diag_budget[key] = times
+            notified = self._diag_budget_notified_at.get(key)
+            if notified is not None and (now_at_entry - notified).total_seconds() < window_s:
+                # Silent for the rest of the window: row logged, no reply.
+                if database:
+                    await database.log_inbound(
+                        person_id, channel, raw_text,
+                        "diag_rate_limited", "", None, False,
+                    )
+                async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+                return ""
+            self._diag_budget_notified_at[key] = now_at_entry
+            oldest = min(times) if times else now_at_entry
+            mins = max(1, int((window_s - (now_at_entry - oldest).total_seconds()) // 60) + 1)
+            response = f"Too many requests,\ntry again in {mins} min"
+            await self._log_and_reply(
+                database, person_id, channel, raw_text,
+                "diag_rate_limited", response, success=False, rail2=False,
+            )
+            return response
+        times.append(now_at_entry)
+        self._diag_budget[key] = times
+
+        if diag == "menu":
+            response = self._diag_menu_text()
+        elif diag == "bad_pick":
+            response = DIAG_BAD_PICK_TEXT
+        elif diag == "closed_notice":
+            response = DIAG_CLOSED_NOTICE_TEXT
+        else:
+            response = await self._build_diag_answer(diag)
+        await self._log_and_reply(
+            database, person_id, channel, raw_text,
+            f"diag_{diag}", response, success=True, rail2=False,
         )
         return response
 
@@ -3991,8 +4393,16 @@ class NotificationManager:
         parsed_command: str,
         response: str,
         success: bool,
+        *,
+        rail2: bool = True,
     ) -> None:
-        """Log inbound to DB, send reply, and update sensors."""
+        """Log inbound to DB, send reply, and update sensors.
+
+        ``rail2=False`` (diag replies only, NM-INBOUND-HOUSE-QUERIES-1
+        HIGH-2): the reply neither checks nor stamps ``_last_reply_at``, so a
+        diag exchange can never swallow a later ack / safe-word / silence
+        confirmation (I1b). The diag budget bounds diag loops instead.
+        """
         alert_id = None
         if self._active_alert_data and database:
             alert_id = await self._slot_row_id(database)
@@ -4013,7 +4423,9 @@ class NotificationManager:
         # the command's effect. Security denials are exempt (Review A
         # H-2): a repeat unauthorized attempt must never look like
         # success.
-        if person_id:
+        if person_id and not rail2:
+            await self._send_reply(person_id, channel, response)
+        elif person_id:
             key = (person_id, channel)
             now = dt_util.utcnow()
             last = self._last_reply_at.get(key)
@@ -4049,20 +4461,24 @@ class NotificationManager:
         if channel == "whatsapp":
             phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if phone:
-                await self._send_whatsapp("URA", message, phone)
+                await self._send_whatsapp("URA", message, phone, menu_safe=True)
         elif channel == "imessage":
             handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
             if handle:
-                await self._send_imessage("URA", message, handle)
+                await self._send_imessage("URA", message, handle, menu_safe=True)
         elif channel == "pushover":
             key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
             device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if key:
-                await self._send_pushover("URA", message, Severity.LOW, key, device)
+                await self._send_pushover(
+                    "URA", message, Severity.LOW, key, device, menu_safe=True,
+                )
         elif channel == "companion":
             svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
             if svc:
-                await self._send_companion("URA", message, Severity.LOW, svc)
+                await self._send_companion(
+                    "URA", message, Severity.LOW, svc, menu_safe=True, reply=True,
+                )
 
     def _get_person_name(self, person_id: str | None) -> str:
         """Get a display name for a person entity ID."""

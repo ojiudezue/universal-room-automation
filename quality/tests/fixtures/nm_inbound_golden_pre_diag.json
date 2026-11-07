@@ -1,0 +1,8250 @@
+{
+ "_merge_base_sha": "4d9963ade45ac9b732f1f8147e43941a8260bc23",
+ "_note": "captured from pre-diag NM code (notification_manager.py unmodified at this sha); I4 oracle",
+ "records": {
+  "critical_alerting|imessage|0": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|1": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "1",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|10": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|2": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "2",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|3": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|4": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|7": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|9": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|?": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "?",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|a": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "a",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ack",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "acknowledge",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|dukeword": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "imessage"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert acknowledged by Op."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|dukeword 2h": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "imessage"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "critical_alerting|imessage|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nWindow capped at 3h \u2014 try 'duke 3h' or less."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     7,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "h",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|help": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "help",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|info": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "info",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ok",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|s": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "s",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|status": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "status",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|imessage|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|0": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|1": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "1",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|10": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|2": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "2",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|3": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|4": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|7": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|9": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|?": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "?",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|a": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "a",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ack",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "acknowledge",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|dukeword": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "pushover"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert acknowledged by Op.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|dukeword 2h": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "pushover"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "critical_alerting|pushover|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     7,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "h",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|help": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "help",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|info": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "info",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ok",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|s": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "s",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|status": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "status",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|pushover|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|0": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|1": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "1",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|10": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|2": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "2",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|3": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|4": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|7": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|9": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|?": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "?",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|a": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "a",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ack",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "acknowledge",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|dukeword": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "whatsapp"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert acknowledged by Op.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|dukeword 2h": {
+   "acks": [
+    [
+     [
+      "acked_by_channel",
+      "whatsapp"
+     ],
+     [
+      "acked_by_person",
+      "person.op"
+     ],
+     [
+      "authority_reason",
+      "any"
+     ],
+     [
+      "bulk_authority",
+      "non_security"
+     ],
+     [
+      "safe_word_source",
+      "global"
+     ],
+     [
+      "safe_word_verified",
+      true
+     ]
+    ]
+   ],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+     7,
+     true
+    ]
+   ],
+   "ret": "CRITICAL alert acknowledged by Op. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "critical_alerting|whatsapp|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nWindow capped at 3h \u2014 try 'duke 3h' or less.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     7,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "h",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     7,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|help": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "help",
+     "help",
+     "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+     7,
+     true
+    ]
+   ],
+   "ret": "Reply with your safe word to acknowledge.\nReply: 2=Status  3=Silence repeats (30 min)",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|info": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "info",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nCRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ok",
+     "ack",
+     "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+     7,
+     false
+    ]
+   ],
+   "ret": "CRITICAL alert requires safe word. Reply with your safe word to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|s": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "s",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|status": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "status",
+     "status",
+     "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+     7,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status:\n- Active: smoke in kitchen (CRITICAL)\n- State: ALERTING",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "critical_alerting|whatsapp|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     7,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|imessage|0": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|1": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|10": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|2": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|3": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|imessage|4": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|7": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|9": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|?": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|a": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_context|imessage|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nWindow capped at 3h \u2014 try 'duke 3h' or less."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nUnknown command. Reply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|help": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|info": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|imessage|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|imessage|s": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|imessage|status": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|imessage|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|pushover|0": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|1": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|10": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|2": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|3": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|pushover|4": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|7": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|9": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|?": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|a": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_context|pushover|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|help": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|info": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|pushover|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|pushover|s": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|pushover|status": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|pushover|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|0": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "0",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|1": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|10": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "10",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|2": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|3": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|4": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "4",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|7": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "7",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|9": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "9",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|?": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|a": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_context|whatsapp|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nWindow capped at 3h \u2014 try 'duke 3h' or less.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nUnknown command. Reply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "hello there",
+     "unknown",
+     "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     false
+    ]
+   ],
+   "ret": "Unknown command. Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|help": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|info": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|s": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|status": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_context|whatsapp|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|0": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|1": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|10": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|2": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|3": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|4": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|7": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|9": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|?": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|a": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_no_context|imessage|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nWindow capped at 3h \u2014 try 'duke 3h' or less."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|hello there": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|help": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|info": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alerts."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|s": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|status": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|imessage|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNon-CRITICAL alerts silenced for 30 minutes."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|0": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|1": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|10": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|2": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|3": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|4": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|7": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|9": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|?": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|a": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_no_context|pushover|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|hello there": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|help": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|info": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alerts.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|s": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|status": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|pushover|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Non-CRITICAL alerts silenced for 30 minutes.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|0": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|1": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "1",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|10": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|2": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|3": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "3",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|4": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|7": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|9": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|?": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|a": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "a",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ack",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "acknowledge",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "idle_no_context|whatsapp|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nWindow capped at 3h \u2014 try 'duke 3h' or less.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|hello there": {
+   "acks": [],
+   "calls": [],
+   "logs": [],
+   "ret": "",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|help": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|info": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "mute",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alerts.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ok",
+     "ack",
+     "No active alerts.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alerts.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "quiet",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|s": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "silence",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|status": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "idle_no_context|whatsapp|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNon-CRITICAL alerts silenced for 30 minutes.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "stop",
+     "silence",
+     "Non-CRITICAL alerts silenced for 30 minutes.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Non-CRITICAL alerts silenced for 30 minutes.",
+   "silence_changed": true,
+   "tasks": 0
+  },
+  "silenced|imessage|0": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "0",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|1": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "1",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|10": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "10",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|2": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|3": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "3",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|4": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "4",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|7": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "7",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|9": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "9",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|?": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|a": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "a",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ack",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "acknowledge",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "silenced|imessage|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nWindow capped at 3h \u2014 try 'duke 3h' or less."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|h": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "hello there",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|help": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nReply: 1=Ack  2=Status  3=Silence"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|info": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "mute",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "ok",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "quiet",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|s": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "silence",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|status": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nURA Alert Status: No active alerts. All clear."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|imessage|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "bluebubbles",
+     "send_message",
+     {
+      "addresses": "op@example.com",
+      "message": "URA\nAlerts silenced. Will resume at 12:20."
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "imessage",
+     "stop",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|0": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "0",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|1": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "1",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|10": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "10",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|2": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|3": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "3",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|4": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "4",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|7": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "7",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|9": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "9",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|?": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|a": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "a",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ack",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "acknowledge",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "silenced|pushover|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|h": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "hello there",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|help": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Reply: 1=Ack  2=Status  3=Silence",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|info": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "mute",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "ok",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "quiet",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|s": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "silence",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|status": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "URA Alert Status: No active alerts. All clear.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|pushover|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "notify",
+     "pushover",
+     {
+      "message": "Alerts silenced. Will resume at 12:20.",
+      "title": "URA"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "pushover",
+     "stop",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|0": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "0",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|1": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "1",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|10": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "10",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|2": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "2",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|3": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "3",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|4": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "4",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|7": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "7",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|9": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "9",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|?": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "?",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|a": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "a",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|ack": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ack",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|acknowledge": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "acknowledge",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|dukeword": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|dukeword 2h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nNo active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "[safe_word]",
+     "safe_word",
+     "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+     null,
+     false
+    ]
+   ],
+   "ret": "No active alert to acknowledge. Perimeter alerts silenced for 120m; resume at 14:00.",
+   "silence_changed": false,
+   "tasks": 1
+  },
+  "silenced|whatsapp|dukeword 9h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nWindow capped at 3h \u2014 try 'duke 3h' or less.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "dukeword 9h",
+     "safe_word_window_rejected",
+     "Window capped at 3h \u2014 try 'duke 3h' or less.",
+     null,
+     false
+    ]
+   ],
+   "ret": "Window capped at 3h \u2014 try 'duke 3h' or less.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|h": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "h",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|hello there": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "hello there",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|help": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nReply: 1=Ack  2=Status  3=Silence",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "help",
+     "help",
+     "Reply: 1=Ack  2=Status  3=Silence",
+     null,
+     true
+    ]
+   ],
+   "ret": "Reply: 1=Ack  2=Status  3=Silence",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|info": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "info",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|mute": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "mute",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|ok": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "ok",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|quiet": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "quiet",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|s": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "s",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|silence": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "silence",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|status": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nURA Alert Status: No active alerts. All clear.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "status",
+     "status",
+     "URA Alert Status: No active alerts. All clear.",
+     null,
+     true
+    ]
+   ],
+   "ret": "URA Alert Status: No active alerts. All clear.",
+   "silence_changed": false,
+   "tasks": 0
+  },
+  "silenced|whatsapp|stop": {
+   "acks": [],
+   "calls": [
+    [
+     "whatsapp",
+     "send_message",
+     {
+      "message": "*URA*\nAlerts silenced. Will resume at 12:20.",
+      "number": "+15550001"
+     }
+    ]
+   ],
+   "logs": [
+    [
+     "person.op",
+     "whatsapp",
+     "stop",
+     "silenced",
+     "Alerts silenced. Will resume at 12:20.",
+     null,
+     true
+    ]
+   ],
+   "ret": "Alerts silenced. Will resume at 12:20.",
+   "silence_changed": false,
+   "tasks": 0
+  }
+ }
+}
