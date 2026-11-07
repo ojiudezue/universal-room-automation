@@ -212,17 +212,17 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-11-06T17:42:32-06:00</b></span>
-<span>data <b>bf6761c3e040</b></span>
+<span>generated <b>2026-11-07T02:05:23-06:00</b></span>
+<span>data <b>59996674a7f2</b></span>
 <span>reconciled <b>2026-11-07</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">10<span class="den"> / 173</span></span>
+<span class="metric">7<span class="den"> / 173</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 50 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 45 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
 <li class="" data-fid="OPTIMIZER-META-NEVER-PAGES-1@2026-11-07T02:04:00" data-card="OPTIMIZER-META-NEVER-PAGES-1">
 <span class="oc measured">measured</span>
@@ -539,41 +539,6 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <button type="button" class="ack" data-fid="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-11-01T02:05:00">✓ ack</button>
 </li>
 <li class="decision-row" data-card="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for EC-ENPHASE-CONNECTIVITY-RESILIENCE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-31T02:24:00" data-card="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1">
-<span class="oc escalated">escalated</span>
-<span class="fhd">Third false &#x27;Envoy write reverted&#x27; CRITICAL page (10-30 23:06, 4 channels). Proven false: the local Envoy confirmed reserve 20 at 21:00, the cloud stayed stale at 10, and the page fired 0.3 s after a re-send as the Envoy dropped. 3 in 7 days, all at the nightly drop. Your APPROVE (Tier-3 fix-up) is still the ask; recommendation now A.<br><span class="ft">2026-10-31T02:24:00</span>
-</span>
-<button type="button" class="ack" data-fid="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-31T02:24:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="EC-ENPHASE-CONNECTIVITY-RESILIENCE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for EC-ENPHASE-CONNECTIVITY-RESILIENCE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="ENVOY-STREAM-SOC-TIER-1@2026-10-31T02:14:00" data-card="ENVOY-STREAM-SOC-TIER-1">
-<span class="oc measured">measured</span>
-<span class="fhd">Board fix: the stream-SOC fallback card still said &#x27;parked, nothing to do&#x27; while its Tier-3 branch has a build, 4 reviews and fix-ups. Moved to in_progress. Not touched overnight (Tier 3). Still open for your attended session: confirm review B&#x27;s HIGH is closed and commit the 4 review docs, then the pre-deploy checkpoint. The stream entity stayed live through last night&#x27;s 37-min Envoy drop.<br><span class="ft">2026-10-31T02:14:00</span>
-</span>
-<button type="button" class="ack" data-fid="ENVOY-STREAM-SOC-TIER-1@2026-10-31T02:14:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="ENVOY-STREAM-SOC-TIER-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for ENVOY-STREAM-SOC-TIER-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-31T02:12:00" data-card="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1">
-<span class="oc measured">measured</span>
-<span class="fhd">Merge-prep re-check: all review-lane branches (integ/overnight-2026-10-27 and its 3 parts, plus feature/ec-stream-soc-tier) still merge clean onto develop, and develop has no integration-code changes since their base, so their test results still hold. Review lane is at 4 (WIP cap), so no new builds tonight.<br><span class="ft">2026-10-31T02:12:00</span>
-</span>
-<button type="button" class="ack" data-fid="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-31T02:12:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="FRONT-DOOR-LOCK-OFFLINE-1@2026-10-31T02:10:00" data-card="FRONT-DOOR-LOCK-OFFLINE-1">
-<span class="oc measured">measured</span>
-<span class="fhd">Waiting-lane re-check (live states 02:0x): front-door lock still unavailable (Z-Wave node dead), kitchen smoke detector still unavailable, BP1_B proxy still offline, Ollama .62 unreachable, panel channel still off. Frigate healthy (71 detections/s, camera-dark off). No card&#x27;s blocker has cleared, so no asks changed.<br><span class="ft">2026-10-31T02:10:00</span>
-</span>
-<button type="button" class="ack" data-fid="FRONT-DOOR-LOCK-OFFLINE-1@2026-10-31T02:10:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="FRONT-DOOR-LOCK-OFFLINE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for FRONT-DOOR-LOCK-OFFLINE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
-<li class="" data-fid="ENVOY-FLAKINESS-181243-1@2026-10-31T02:06:00" data-card="ENVOY-FLAKINESS-181243-1">
-<span class="oc escalated">escalated</span>
-<span class="fhd">Envoy dropouts: your &#x27;APPROVE the HA update&#x27; ask was stale (you already updated to 2026.10.4). The nightly drop recurred on it (10-30 23:04-23:42, 37 min), so the core fix does not cover it. Cause measured: one Envoy endpoint (production.json) hangs and blanks the whole integration. I added &#x27;Revision 2&#x27; to the upstream draft; new ask: DO post it.<br><span class="ft">2026-10-31T02:06:00</span>
-</span>
-<button type="button" class="ack" data-fid="ENVOY-FLAKINESS-181243-1@2026-10-31T02:06:00">✓ ack</button>
-</li>
-<li class="decision-row" data-card="ENVOY-FLAKINESS-181243-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for ENVOY-FLAKINESS-181243-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
 </ul></details>
 </section>
 <div class="summary">
@@ -1247,7 +1212,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>bf6761c3e040</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>59996674a7f2</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
