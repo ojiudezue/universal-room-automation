@@ -4585,6 +4585,46 @@ class OptimizationCoordinator(BaseCoordinator):
                 getattr(finding, "created_by", "tier1"),
             )
             return OPTIMIZER_OUTCOME_DISALLOWED
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 D4b Layer 1 (plan rev 5 M-3):
+        # SC-owned covers are disallowed here, at every level, whether or
+        # not Security is running. Configured garage list first; any raise
+        # in the predicate fails CLOSED.
+        if target_entity.startswith("cover."):
+            from ..const import CONF_SECURITY_GARAGE_ENTITIES  # noqa: PLC0415
+
+            try:
+                from ..cover_ownership import (  # noqa: PLC0415
+                    is_security_owned_or_configured_cover,
+                )
+
+                owned = is_security_owned_or_configured_cover(
+                    self.hass, target_entity,
+                    cm_config.get(CONF_SECURITY_GARAGE_ENTITIES) or [],
+                )
+            except Exception:  # noqa: BLE001
+                owned = True
+            if owned:
+                finding.applied_outcome = OPTIMIZER_OUTCOME_DISALLOWED
+                await self._log_activity(
+                    action="clamped", importance="notable",
+                    description=(
+                        f"security_owned_cover: {target_entity} blocked from "
+                        f"actuation ({service})"
+                    ),
+                    details={
+                        "action_id": action_id, "level": level,
+                        "reason": "security_owned_cover",
+                        "target_entity": target_entity,
+                        "service": service,
+                        "created_by": getattr(finding, "created_by", "tier1"),
+                    },
+                    finding=finding,
+                )
+                _LOGGER.info(
+                    "Optimizer: security_owned_cover blocked %s (service=%s)",
+                    target_entity, service,
+                )
+                return OPTIMIZER_OUTCOME_DISALLOWED
         return None
 
     # ------------------------------------------------------------------
