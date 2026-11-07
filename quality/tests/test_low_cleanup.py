@@ -608,11 +608,31 @@ class TestDisabledCoordinatorGuard:
         )
 
     def test_security_person_arriving_enabled_guard(self):
-        """Security _handle_person_arriving_signal checks _enabled."""
-        self._check_handler_has_enabled_guard(
-            "custom_components/universal_room_automation/domain_coordinators/security.py",
-            "_handle_person_arriving_signal",
-        )
+        """Security _handle_person_arriving_signal honours _enabled — BEHAVIOURAL.
+
+        GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 converted the 500-char source
+        window (the lock-regime feed now sits above the guard). Drive the
+        real handler: disabled -> no expected arrival; enabled -> one.
+        """
+        from types import SimpleNamespace
+        from _lockout_harness import load
+
+        sec = load("domain_coordinators.security")
+        hass = SimpleNamespace(data={}, states=SimpleNamespace(get=lambda e: None))
+        coord = sec.SecurityCoordinator(hass)
+        coord._get_signal_config = lambda key, default=False: True
+        sent = []
+        orig_send = sec.async_dispatcher_send
+        sec.async_dispatcher_send = lambda *a, **k: sent.append(a)
+        try:
+            coord._enabled = False
+            coord._handle_person_arriving_signal({"person_entity": "person.ezinne"})
+            assert coord._sanction_checker.get_expected_arrivals_snapshot() == []
+            coord._enabled = True
+            coord._handle_person_arriving_signal({"person_entity": "person.ezinne"})
+            assert len(coord._sanction_checker.get_expected_arrivals_snapshot()) == 1
+        finally:
+            sec.async_dispatcher_send = orig_send
 
     def test_energy_safety_hazard_enabled_guard(self):
         """Energy _handle_safety_hazard checks _enabled."""
