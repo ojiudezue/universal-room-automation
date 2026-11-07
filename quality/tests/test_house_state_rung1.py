@@ -181,6 +181,9 @@ def _stub_security(flag: bool, queued: list):
     mgr = _NS(queue_intent=lambda intent: queued.append(intent))
     return _NS(
         _auto_follow_house_state=flag,
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: the bridge feeds the lock regime
+        # first; None = no regime (this test covers the arming path only).
+        _lock_regime=None,
         COORDINATOR_ID="security",
         hass=_NS(data={"universal_room_automation": {"coordinator_manager": mgr}}),
     )
@@ -234,6 +237,7 @@ def test_security_house_state_subscribed_and_flag_gated():
     queued4: list = []
     stub_no_mgr = _NS(
         _auto_follow_house_state=True,
+        _lock_regime=None,
         COORDINATOR_ID="security",
         hass=_NS(data={"universal_room_automation": {}}),
     )

@@ -7347,6 +7347,14 @@ _OFFPEAK_DRAIN_QUALITY: dict[str, str] = {
 # no config/options-flow path writes these keys), so the entity-state
 # read sees fresh values without a live-attr push.
 _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
+    # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: CM keys the lock regime reads live
+    # (literals == const CONF_* values; also in OPTIONS_RELOAD_SUPPRESS_KEYS).
+    "security_garage_lockout_enabled",
+    "security_lockout_engage_on_guest_sleep",
+    "security_lockout_excluded_persons",
+    "garage_lockout_approach_radius_m",
+    "garage_lockout_morning_backstop_min",
+    "garage_lockout_reengage_delay_s",
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
     _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
@@ -7637,6 +7645,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # `async_update_entry`), so the new record list is picked up on the
     # next natural read — no reload required.
     CONF_APPLIANCE_RECORDS,
+    # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: lock-regime switches / Numbers /
+    # exclusion list. The regime reads entry.options LIVE on every event
+    # (security_lock_regime._cfg), so no reload and no live-attr push.
+    # Literals == const.CONF_SECURITY_GARAGE_LOCKOUT_ENABLED etc.
+    "security_garage_lockout_enabled",
+    "security_lockout_engage_on_guest_sleep",
+    "security_lockout_excluded_persons",
+    "garage_lockout_approach_radius_m",
+    "garage_lockout_morning_backstop_min",
+    "garage_lockout_reengage_delay_s",
 })
 
 

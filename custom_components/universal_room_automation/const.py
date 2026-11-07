@@ -3425,6 +3425,71 @@ CONF_SECURITY_DELEGATE_LIGHTS_TO_NM: Final = "security_delegate_lights_to_nm"
 # should require code review. Not exposed as an operator knob.
 SECURITY_AUTO_FOLLOW_ARM_DELAY_S: Final = 30
 
+# GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 (plan rev 5,
+# docs/planning/PLANNING_sc_garage_remote_lockout.md §7). Lock regime =
+# locks policy owned by SecurityCoordinator, independent of arming.
+# Rung 3 (options-backed switch): kill switch. Absent key = OFF (ship
+# default). ON -> OFF releases both lockouts once (direct write, not
+# suppressed by SC observation), then no lockout writes.
+CONF_SECURITY_GARAGE_LOCKOUT_ENABLED: Final = "security_garage_lockout_enabled"
+DEFAULT_SECURITY_GARAGE_LOCKOUT_ENABLED: Final = False
+# Rung 3 (options-backed switch): operator answer Q-G1 (2026-11-07) option
+# (a): engage on GUEST inside the CM sleep window. OFF = GUEST inert.
+CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP: Final = (
+    "security_lockout_engage_on_guest_sleep"
+)
+DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP: Final = True
+# Rung 2 (options flow): the remote-lockout lock entities. Must never
+# overlap security_lock_entities (validator rejects it); the sweep and
+# lockdown iterate only security_lock_entities.
+CONF_SECURITY_LOCKOUT_ENTITIES: Final = "security_lockout_entities"
+# Rung 2 (options flow): persons that never count as residents. The
+# resident set is every person.* minus this list (dynamic, plan §6.1a).
+# Empty = every person is a resident.
+CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS: Final = (
+    "security_lockout_excluded_persons"
+)
+# Rung 2 (options flow): per-resident HA proximity distance sensors (P5).
+# Empty = no P5.
+CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS: Final = (
+    "security_lockout_distance_sensors"
+)
+# Rung 2 (options flow): optional approach zone; person -> that zone name
+# is an extra P5 edge. Empty = off.
+CONF_SECURITY_LOCKOUT_APPROACH_ZONE: Final = "security_lockout_approach_zone"
+# Rung 3 (Numbers, CM options-backed, read live by the regime).
+# Radius 0 = P5 off. Backstop 0 = release exactly at sleep_end_hour.
+# Re-engage delay 0 = never re-engage after an arrival.
+CONF_GARAGE_LOCKOUT_APPROACH_RADIUS_M: Final = "garage_lockout_approach_radius_m"
+GARAGE_LOCKOUT_APPROACH_RADIUS_M: Final = 1500
+CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = (
+    "garage_lockout_morning_backstop_min"
+)
+GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = 60
+CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = "garage_lockout_reengage_delay_s"
+GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = 900
+# Rung 1 (module constants, review-only).
+# Re-engage is ABANDONED (not forced) if the releasing residents are not
+# settled within this bound.
+GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600
+# Restart safety: a resident who reached `home` within this window before
+# setup releases at boot; and any -> home edge inside this window after
+# setup counts unconditionally (M-2).
+GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S: Final = 600
+# Edges before setup + this only rebuild `reason`, never engage (M1);
+# the house state is re-read once at this delay (H1).
+GARAGE_LOCKOUT_BOOT_RECHECK_S: Final = 120
+GARAGE_LOCKOUT_READBACK_S: Final = 20
+GARAGE_LOCKOUT_READBACK_RETRIES: Final = 1
+# Test oracle only (event -> lock.unlock call). NOT read by production code;
+# no timeout may be wired to it (plan §7, review 2 L4).
+GARAGE_LOCKOUT_RELEASE_MAX_S: Final = 5
+# unknown/unavailable -> home counts as an arrival only if the last real
+# state was not home and held >= this long (H3a). 0 = every blip counts.
+GARAGE_LOCKOUT_BLIP_MIN_AWAY_MIN: Final = 15
+# Bound on the awaited unlock inside SC teardown on the disable path (C1).
+GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S: Final = 5
+
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"
 ZONE_MODE_OCCUPIED: Final = "occupied"

@@ -478,7 +478,21 @@ Answered (2026-11-07): see rev 2 list and the Phase 2 answers at the end. No new
 
 ## 13. D0 results
 
-(pending)
+**Phase 1 read-only checks (builder, 2026-11-07, live HA via ha-mcp + `core.config_entries` on the mount).** The Phase 2 recorder arrival probe (Q1-Q11, G1-G6) is NOT run here; it belongs to Phase 2.
+
+| Check | Observed | Consequence |
+|---|---|---|
+| Lockout entities | `lock.konnected_f0f5bd523b00_lock` `unlocked`, `lock.ratgdov25i_dbfe2a_lock_remotes` `unlocked`; both `supported_features 0` | as planned |
+| Q12 cover device class | both covers `device_class: garage`, `closed` | INV-1 room/HVAC filters hold; D4b's configured leg is defence in depth |
+| `security_lock_entities` | **3** locks now: front entry, `lock.master_bedroom_lock`, `lock.garage_hallway_doorlock_kwikset916_zwave_garagehallway` (plan §1.1 said 1) | no lockout overlap; the validator keeps it so |
+| `security_garage_entities` | both covers | D4b configured leg covers both |
+| Sleep window (CM) | `sleep_start_hour 22.0`, `sleep_end_hour 6.0` (stored as floats; regime casts to int) | backstop 07:00, guest window 22-06 |
+| `security_auto_follow` / SC enabled | False / True | the regime feed must sit before the auto-follow return (it does) |
+| `optimizer_autonomy_level` | `shadow` | the hole is not live today |
+| `CONF_OPTIMIZER_SAFETY_DENY_ENTITIES` | **absent** | the §1.3 operator action (garages into the deny list) has NOT been done; D4b closes it in code once shipped |
+| Proximity sensors (unit ft) | Oji 9042 ft (2756 m), **Ezinne 0.0 while `home`**, Ziri `unknown`, Jaya `unknown` | proximity reads 0 inside `zone.home` (partial answer to the distance-definition question); Ziri/Jaya have no P5 today |
+| Persons | oji `not_home`, ezinne `home`, ziri `not_home`, jaya `not_home`, wall_kiosk `unknown` | wall_kiosk to be listed in `security_lockout_excluded_persons` by the operator (no code default) |
+| `switch.ura_security_observation_mode` | entity not found under that id | not load-bearing; observation is read from the coordinator attribute |
 
 ## 14. Plan review 1 → resolution (rev 3)
 
