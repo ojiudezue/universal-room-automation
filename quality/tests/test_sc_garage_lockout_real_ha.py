@@ -11,20 +11,58 @@ another test file cannot change what this test exercises.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 import threading
 from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
-from homeassistant.helpers.event import (
-    async_call_later,
-    async_track_state_added_domain,
-    async_track_state_change_event,
-    async_track_state_removed_domain,
-)
+import homeassistant.helpers as _ha_helpers
 from homeassistant.util import dt as dt_util
 
 from _lockout_harness import load
+
+
+def _pristine_event_module():
+    """A fresh copy of HA's helpers/event.py loaded from the installed source.
+
+    test_house_state_rung2a.py (pre-existing) overwrites async_call_later /
+    async_track_state_change_event / async_track_time_interval ON the real
+    homeassistant.helpers.event module at collection time, so importing them
+    by name can return its fakes. A private copy re-executes the real source
+    (its relative imports resolve to the real homeassistant.helpers package);
+    its tracker keys are its own, which is fine for this test.
+    """
+    name = "homeassistant.helpers._ura_lockout_pristine_event"
+    if name in sys.modules:
+        return sys.modules[name]
+    import homeassistant.core as ha_core
+
+    def _real_callback(func):  # HA core.py:210-213, verbatim behaviour
+        setattr(func, "_hass_callback", True)
+        return func
+
+    path = _ha_helpers.__path__[0] + "/event.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    # Several files also replace homeassistant.core.callback with a no-op;
+    # give the copy HA's real decorator for the duration of its import only.
+    saved = ha_core.callback
+    ha_core.callback = _real_callback
+    try:
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    finally:
+        ha_core.callback = saved
+    return mod
+
+
+_EV = _pristine_event_module()
+async_call_later = _EV.async_call_later
+async_track_state_change_event = _EV.async_track_state_change_event
+async_track_state_added_domain = _EV.async_track_state_added_domain
+async_track_state_removed_domain = _EV.async_track_state_removed_domain
 
 const = load("const")
 R = load("domain_coordinators.security_lock_regime")
