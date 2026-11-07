@@ -15,7 +15,12 @@ import types
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-import nm_diag_harness  # noqa: F401  (HA stub bootstrap)
+# NOTE: deliberately does NOT import test_notification_manager / the NM diag
+# harness. That bootstrap replaces sys.modules package entries at import time;
+# importing it from a file that collects early ("test_h...") moved that
+# surgery ahead of every file between here and test_imsg_audit_fix_1 and broke
+# test_nm_life_safety_slot_precedence + test_restart_safety_doctrine_1
+# in-suite (order-dependent). Normal package import only.
 from custom_components.universal_room_automation.const import DOMAIN
 
 hs = importlib.import_module("custom_components.universal_room_automation.house_status")
