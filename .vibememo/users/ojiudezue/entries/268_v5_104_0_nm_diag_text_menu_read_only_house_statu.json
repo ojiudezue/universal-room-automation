@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "268",
+  "author": "ojiudezue",
+  "session_id": "claude_20261107_200033_ship_v5_104_0",
+  "timestamp": "2026-11-07T20:00:33Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.104.0 shipped: NM diag text menu + read-only house_status; WhatsApp and Companion inbound fixed",
+  "summary": "NM diag text menu + read-only house_status; WhatsApp and Companion inbound fixed",
+  "why": "Operator wanted to query house state by text. Deterministic menu first because the OC agent still fails its eval on diagnosis depth; the house_status layer is reusable as OC tools. Digits 1/2/3 already mean ack/status/silence, so menu digits are windowed with an alert-active check and close-on-send; diag replies bypass the reply floor so safe-word confirmations are never dropped. WhatsApp inbound had been silently dead (wrong payload keys) and the bridge runs on the operator's own number, so only self-chat is trusted.",
+  "implications": "Shipped NM-INBOUND-HOUSE-QUERIES-1 at v5.104.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.104.0.md (Live criteria).",
+  "revisit_trigger": "iMessage diag returns live values; if the WhatsApp self-chat check shows no inbound rows, the bridge never forwards fromMe",
+  "refs": {
+    "cards": [
+      "NM-INBOUND-HOUSE-QUERIES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.104.0.md"
+    ],
+    "release_notes": "Text diag (or menu/house) to get a numbered house-status menu: doors, garage, who, hvac, energy, alerts, health. Reply with a number inside 2 minutes or text a name any time. Alert reply digits 1/2/3 keep their meaning whenever an alert is active. WhatsApp inbound now works from the operator self-chat only; HA app replies now answer."
+  }
+}

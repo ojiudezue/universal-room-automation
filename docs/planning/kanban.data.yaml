@@ -214,7 +214,8 @@ cards:
 - id: NM-INBOUND-HOUSE-QUERIES-1
   title: "Ask the house by text: WhatsApp / iMessage questions about house state and simple diagnostics"
   thread: notifications
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.104.0
   tier: 2
   created: "2026-11-07 12:40"
   updated: "2026-11-07 12:40"
