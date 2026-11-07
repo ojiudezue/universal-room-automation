@@ -961,7 +961,7 @@ While the alert state is not IDLE, `diag` returns a words-only menu ("Alert acti
 | `HOUSE_STATUS_STALE_S` | 300 | "(N min old)" threshold |
 | `HOUSE_STATUS_GARAGE_LOCKOUT_ENTITIES` | konnected + ratgdo lockout locks | empty = no lockout lines |
 
-**Known limits:** `doors` lists only the SC-configured locks (live config on 2026-11-07 had only the front-entry lock; add others under the security coordinator options). `health` reads only enabled `*_unavailable_entities` sensors (21 of 47 rooms on 2026-11-07; the rest are disabled by the integration default). Companion gets no reply (pre-existing: `_log_and_reply` sends only when `person_id` is set).
+**Known limits:** `doors` lists only the SC-configured locks (live config on 2026-11-07 had only the front-entry lock; add others under the security coordinator options). `health` reads only enabled `*_unavailable_entities` sensors (21 of 47 rooms on 2026-11-07; the rest are disabled by the integration default). Companion actions resolve the person from `event.context.user_id` (`_person_for_companion_event`), so status / silence / text-input replies go back on that person's companion service; an unresolvable user still gets no reply. WhatsApp inbound reads the bridge's `from`/`body` keys (`_parse_whatsapp_event`): groups, newsletters and broadcasts are ignored, and `fromMe` is accepted only in the self-chat (the bridge runs on the operator's own number). Recorder on 2026-11-07 showed no `fromMe=true` events, so the operator's own self-chat texts may not reach NM until the bridge emits them.
 
 ---
 
