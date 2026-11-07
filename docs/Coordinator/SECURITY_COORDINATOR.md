@@ -546,6 +546,45 @@ SECURITY_LIGHT_PATTERNS = {
 
 ---
 
+## 7b. LOCK REGIME VS ARMING (GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1, branch `feature/sc-garage-lockout-phase1`, NOT deployed)
+
+Arming (ArmedState, auto-follow, sanction checker, alerts) and the **lock regime** (what is
+locked) are separate. `domain_coordinators/security_lock_regime.py` `LockRegimeController`,
+owned by SC (`SecurityCoordinator.lock_regime`), owns one policy: the two opener "remote
+lockout" locks (`security_lockout_entities`, never in `security_lock_entities`; the options
+step rejects overlap). It never touches ArmedState and never goes through `evaluate()`.
+
+- **Engage** (direct `lock.lock`, regime-owned): SLEEP or VACATION edge; GUEST inside the CM
+  sleep window with switch *Garage Lockout On Guest Nights* ON (default ON, operator Q-G1), on
+  the GUEST edge or at `sleep_start_hour` by a regime clock. Edge-only: edges in the first
+  `GARAGE_LOCKOUT_BOOT_RECHECK_S` (120 s) after setup only rebuild `reason`; the kill switch
+  OFF → ON never catches up. Each lockout's whole engage predicate (kill switch, SC alive,
+  release generation, no release in flight, house state, re-engage row, lockout `unlocked`) is
+  evaluated synchronously immediately before its own call, with no `await` between. Under SC
+  observation mode an engage is logged `would_engage` and not issued.
+- **Release** (direct `lock.unlock` + read-back at 20 s, one retry, then HIGH NM): wake,
+  HOME_* (override or guest exit), ARRIVING, morning backstop (`sleep_end_hour` +
+  `garage_lockout_morning_backstop_min`, never for VACATION), any resident arrival (person →
+  `home`, `SIGNAL_PERSON_ARRIVING`, proximity distance crossing inside
+  `garage_lockout_approach_radius_m`, optional approach zone), critical smoke/fire/CO with
+  egress unlock configured, kill switch ON → OFF, and SC teardown when the LIVE CM entry says SC
+  should not run (the Enabled switch's real disable path). **Release is never suppressed by SC
+  observation mode.** A release also unlocks a lockout whose `lock.lock` is still in flight.
+- **Residents:** every `person.*` minus `security_lockout_excluded_persons`, tracked live
+  (added/removed domain trackers) and persisted in Store
+  `universal_room_automation.lock_regime_residents`.
+- **Re-engage** after an arrival at night: `garage_lockout_reengage_delay_s` (900 s) later,
+  only if both doors are closed, the house still reads SLEEP (or GUEST for a guest night),
+  it is still inside the sleep window and every releasing resident is settled (home, or back
+  beyond the radius); abandoned after `GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S` (3600 s).
+- **Optimizer:** `_check_safety_denylist` disallows any SC-owned cover (configured garage list
+  first, then garage/gate device class) at every level; `honor_optimizer_intent` also vetoes.
+- **Diagnostics:** `lock_regime_garage_lockout_{enabled,reason,last_action,reengage_at,missing_residents}`
+  on the Security armed-state sensor.
+- **Residuals:** HA down at night (no URA release possible); integration disabled/deleted
+  (teardown reads "should run", no release); Presence observation ON (no edges); first 120 s
+  after a restart (edges do not engage); SC observation ON is not "zero writes" for releases.
+
 ## 8. HOUSE STATE INTEGRATION
 
 ### Automatic Armed State
