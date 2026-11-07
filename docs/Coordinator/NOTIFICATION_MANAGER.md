@@ -919,6 +919,50 @@ The code supersedes the `repeat_interval: 30s` sketch above. Unacked CRITICAL al
 - The value is read through `_refresh_config` on every notify and repeat tick. The key is in `_NM_C_KEYS`, so a save applies in place without a CM reload, and `_apply_in_place` calls `reschedule_repeat_for_config_change()` to re-arm an active alert's pending repeat with the new interval. The `repeat_phase` attribute reports `life_safety` (urgent), `fast_start`, `phase1`, `phase2`, `daily` or `legacy`.
 - Life-safety classification still drives the DND and mute bypass (severity HIGH and above only), the token-bucket bypass (CRITICAL only), the boot-settle exemption and per-hazard cooldowns. The setting changes only the repeat cadence.
 
+### Inbound house queries (`diag` menu, NM-INBOUND-HOUSE-QUERIES-1)
+
+Plan: `docs/planning/PLANNING_nm_diag_text_menu.md` (rev 2). Read-only. No text ever actuates anything beyond the existing ack / silence / safe-word effects.
+
+**Grammar** (whole message, `strip().lower()`, exact match only; table `DIAG_COMMANDS`):
+
+| Text | Effect |
+|---|---|
+| `diag`, `menu`, `house` | reply with the menu; opens a per-(person, channel) window when the alert state is IDLE |
+| `doors` `garage` `who` `hvac` `energy` `alerts` `health` | that answer, any time (also while silenced) |
+| `1`..`7` | menu item N, only inside an open window that no send has closed, while IDLE |
+| other digits inside an open window | "Pick 1-7 or a name" |
+| anything else | the legacy path, unchanged |
+
+While the alert state is not IDLE, `diag` returns a words-only menu ("Alert active: numbers mean ack/status/silence") and opens no window.
+
+**Answers** come from `custom_components/universal_room_automation/house_status.py` (`doors`, `garage`, `who`, `hvac`, `energy`, `alerts`, `health`, `render`). Each returns a `StatusResult` with a `source` per field (so the OC agent can call the same functions as cited tools later). Sources: SC `security_lock_entities` / `security_garage_entities`; the two garage remote-lockout locks read directly (`HOUSE_STATUS_GARAGE_LOCKOUT_ENTITIES`); `CoordinatorManager.house_state`; `census_count`; `person_state_for_trust` + `get_person_location`; HVAC `ZoneState` with "running" from the zone `ac_load_sensor` through the arrester's `_read_kwh_rate(warn=False)` (not `hvac_action`); `battery_soc`, `solar_production_w`, `net_power_w`; NM alert state, `get_active_criticals` age-capped by `_recovery_row_is_stale`, each coordinator's `anomaly_detector.get_sensor_state()`; per-room `*_unavailable_entities` resolved by unique_id, URA repairs.
+
+**Precedence inside `_process_inbound_reply`:** step 0 captures `epoch_at_entry` / `now_at_entry` before any await; echo rail 1; kill switch `_messaging_suppressed`; safe-word pre-parse and match; `_resolve_diag` (synchronous, the only window writer; skipped for a safe word, for Companion `person_id=None`, and when `NM_DIAG_ENABLED` is False); silence gate (diag exempt); safe-word branch; diag dispatch; legacy ack / status / silence / help / unknown.
+
+**Rails that keep `1`/`2`/`3` meaning ack/status/silence:**
+- *Send rail (primary; the only guard for HIGH/MEDIUM/LOW alerts):* the first statement of each of the four text senders (`_send_pushover`, `_send_companion`, `_send_whatsapp`, `_send_imessage`) is `if not menu_safe: self._diag_send_epoch += 1`, before the dry-run return. Only `_send_reply` passes `menu_safe=True` (keyword-only). A window whose stored epoch differs from the inbound's captured epoch is closed. Test `test_no_text_service_call_outside_four_senders` fails if a text `async_call` appears anywhere else in NM. Non-NM `notify.*` callers (`aggregation.py` zone safety alert, `button.py` export) carry no response dictionary and are out of scope.
+- *State rail (CRITICAL-only defence):* digits stay legacy while `_alert_state` is not IDLE.
+- *Closed notice:* a bare `1`/`2`/`3` within `NM_DIAG_CLOSED_NOTICE_S` of opening a window that a send then closed, with the state IDLE and no `_active_alert_data`, gets "Menu closed: an alert was just sent…" and no effect. Accepted cost: a `3` meant as silence right after a HIGH alert needs the word `silence`.
+
+**Rate limits:** diag replies bypass echo rail 2 entirely (`_log_and_reply(..., rail2=False)` neither checks nor stamps `_last_reply_at`), so checking the doors never swallows a later ack / safe-word / silence confirmation. Diag has its own per-(person, channel) budget; over budget gets one "Too many requests" reply, then silence for the window (rows still logged as `diag_rate_limited`).
+
+**Audit:** one `notification_inbound` row per diag query, `parsed_command` = `diag_menu`, `diag_<item>`, `diag_bad_pick`, `diag_closed_notice` or `diag_rate_limited`. Counter key `diag` in `inbound_by_command`. The `help` reply gains `diag = house status menu`; alert bodies (`RESPONSE_DICT_TEXT`) are unchanged.
+
+**Knobs (all rung 1, `notification_manager.py` / `house_status.py`):**
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `NM_DIAG_ENABLED` | True | the only kill switch; False = pre-cycle behaviour byte for byte |
+| `NM_DIAG_MENU_WINDOW_S` | 120 | digit window; 0 = names only |
+| `NM_DIAG_CLOSED_NOTICE_S` | 300 | closed-notice span; 0 = no notice |
+| `NM_DIAG_REPLY_BUDGET` / `NM_DIAG_REPLY_BUDGET_WINDOW_S` | 10 / 600 | diag loop backstop (not a kill switch) |
+| `NM_DIAG_MAX_REPLY_CHARS` | 900 | reply cap incl. title prefix (Pushover limit 1024) |
+| `HOUSE_STATUS_AC_RUNNING_KW` | 0.3 | "running" threshold |
+| `HOUSE_STATUS_STALE_S` | 300 | "(N min old)" threshold |
+| `HOUSE_STATUS_GARAGE_LOCKOUT_ENTITIES` | konnected + ratgdo lockout locks | empty = no lockout lines |
+
+**Known limits:** `doors` lists only the SC-configured locks (live config on 2026-11-07 had only the front-entry lock; add others under the security coordinator options). `health` reads only enabled `*_unavailable_entities` sensors (21 of 47 rooms on 2026-11-07; the rest are disabled by the integration default). Companion gets no reply (pre-existing: `_log_and_reply` sends only when `person_id` is set).
+
 ---
 
 ## 10. DIAGNOSTICS
