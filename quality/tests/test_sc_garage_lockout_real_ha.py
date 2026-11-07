@@ -80,10 +80,22 @@ async def hass():
         async_test_home_assistant,
     )
 
-    async with async_test_home_assistant(load_registries=False) as real_hass:
-        yield real_hass
-        await real_hass.async_block_till_done()
-        await real_hass.async_stop(force=True)
+    # Review C F17: HA's loader registers phcc's own top-level
+    # ``custom_components`` namespace when this file is the first to start a
+    # real core (it imports the integration under a private package name),
+    # which later broke ``from custom_components.universal_room_automation
+    # import ...`` in test_low_cleanup. Restore those entries afterwards.
+    before = {k: v for k, v in sys.modules.items() if k.split(".")[0] == "custom_components"}
+    try:
+        async with async_test_home_assistant(load_registries=False) as real_hass:
+            yield real_hass
+            await real_hass.async_block_till_done()
+            await real_hass.async_stop(force=True)
+    finally:
+        for k in [k for k in sys.modules if k.split(".")[0] == "custom_components"]:
+            if k not in before:
+                del sys.modules[k]
+        sys.modules.update(before)
 
 
 @pytest.mark.asyncio
