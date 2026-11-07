@@ -159,7 +159,7 @@ Candidate producers, all UNVERIFIED for this house until D0:
 
 ### 5.2 Fail-safe directions
 
-- Lockout: **released** (rev 1 §5 stands: boot never engages; recent arrival at boot releases; unavailable skipped with dedup; read-back + one retry + HIGH NM; kill switch OFF leaves state as is, operator-accepted).
+- Lockout: **released** (rev 1 §5 stands: boot never engages; recent arrival at boot releases; unavailable skipped with dedup; read-back + one retry + HIGH NM; kill switch OFF RELEASES both lockouts — operator decision 2026-11-07 'Release on off', superseding rev 1/2 'leave as is').
 - Auto-open: **closed / no action.** Any doubt (missing attribute, stale fix, restart, exception, unavailable door) = no open. The lockout release still happens, so the remote works.
 
 ---
@@ -225,7 +225,7 @@ Separate module so INV-1 is checkable by file: it is the only file in the integr
 
 | Knob | Default | Rung | Why / kill semantics |
 |---|---|---|---|
-| `CONF_SECURITY_GARAGE_LOCKOUT_ENABLED` | off at ship | 3 Switch `switch.ura_security_coordinator_garage_lockout` | Phase 1 kill; OFF = no lockout writes, state left as is (operator-accepted) |
+| `CONF_SECURITY_GARAGE_LOCKOUT_ENABLED` | off at ship | 3 Switch `switch.ura_security_coordinator_garage_lockout` | Phase 1 kill; turning it OFF issues one `lock.unlock` on both lockouts (skipping unavailable ones, read-back + one retry, HIGH NM on failure), then no further lockout writes. Operator decision 2026-11-07: 'Release on off' |
 | `CONF_SECURITY_LOCKOUT_ENTITIES` | the two lockout locks | 2 (CM options, domain=lock) | Validator rejects overlap with `security_lock_entities` |
 | `CONF_SECURITY_LOCKOUT_RESIDENTS` | empty = the four persons with trackers | 2 | Operator-accepted: all four; `wall_kiosk` excluded |
 | `CONF_SECURITY_LOCKOUT_APPROACH_ZONE` | empty | 2 (entity selector domain=zone) | P5 early release + Phase 2 A1; empty = no approach input |
@@ -266,7 +266,7 @@ One script over the HA recorder (keeps ~7 days) plus the URA DB (`house_state_lo
 - **Discriminates:** a positive lead with zero replay FPs means Phase 2 is buildable; any replay FP or a negative median lead means Phase 2 parks (Phase 1 still ships). A "looks plausible" design would not tell these apart.
 
 #### D1: Config + kill switch
-As rev 1 minus `_ON_AWAY`, plus `CONF_SECURITY_LOCKOUT_APPROACH_ZONE`. Tests: `test_lockout_config_roundtrip`, `test_lockout_entities_overlap_rejected`, `test_lockout_switch_restores`. Live: fields present; switch present.
+As rev 1 minus `_ON_AWAY`, plus `CONF_SECURITY_LOCKOUT_APPROACH_ZONE`. Kill switch semantics (operator 2026-11-07, 'Release on off'): ON→OFF releases both lockouts once, then the regime stops writing; OFF at boot (restore) does NOT issue writes (only an operator edge releases). Tests: `test_lockout_config_roundtrip`, `test_lockout_entities_overlap_rejected`, `test_lockout_switch_restores`, `test_kill_switch_off_releases_both`, `test_kill_switch_off_skips_unavailable`, `test_kill_switch_restore_off_no_write`. Live: fields present; switch present.
 
 #### D2: Lock regime + engage / morning / vacation
 `LockRegimeController` with §6.1, fed from `_on_house_state_changed_signal` BEFORE the auto-follow return.
@@ -365,7 +365,7 @@ Leave shadow only when the shadow log shows: ≥ 10 operator vehicular arrivals 
 
 ## 12. Operator questions
 
-Answered (2026-11-07): approach zone yes; hold-until-arrival yes (now: Vacation only); keypad physical test before relying on it; kill switch keeps state; all four residents; 07:00 backstop; Away does not engage; Vacation engages until a resident arrives; auto-open trial for the operator only behind its own toggle.
+Answered (2026-11-07): approach zone yes; hold-until-arrival yes (now: Vacation only); keypad physical test before relying on it; kill switch OFF releases both lockouts (changed 2026-11-07 from 'keeps state'); all four residents; 07:00 backstop; Away does not engage; Vacation engages until a resident arrives; auto-open trial for the operator only behind its own toggle.
 
 Open:
 - **Q-A1. Which door for auto-open?** Proposed: the one D0 shows your arrivals use most (≥ 80 %). If you already know (the CX-90's bay), say which.
