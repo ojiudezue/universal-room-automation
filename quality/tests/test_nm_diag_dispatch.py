@@ -285,3 +285,21 @@ def test_reply_bounded(clock, monkeypatch):
     sent = _sent(nm)[0][2]["message"]
     assert len(sent) <= 900
     assert ret.endswith("…(more: health)")
+
+
+def test_rate_limited_notice_does_not_stamp_rail2(clock):
+    """Review C F1: protects rail2=False on the diag_rate_limited notice in
+    _handle_diag: the over-budget reply must not swallow a later safe-word
+    confirmation inside NM_REPLY_MIN_INTERVAL_S."""
+    nm = make_nm()
+    for _ in range(10):
+        _say(nm, "diag")
+        clock.now += timedelta(seconds=1)
+    assert _say(nm, "doors").startswith("Too many requests")
+    assert nm._last_reply_at == {}
+    _critical(nm)
+    clock.now += timedelta(seconds=5)
+    n = len(_sent(nm))
+    ret = _say(nm, SAFE_WORD)
+    assert ret.startswith("CRITICAL alert acknowledged")
+    assert [a[2]["message"] for a in _sent(nm)[n:]] == ["URA\n" + ret]

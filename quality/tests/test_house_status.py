@@ -328,3 +328,21 @@ def test_render_cap_and_problem_first():
     assert out.endswith("…(more: doors)")
     short = hs.render(hs.StatusResult("who", _now(), [], 0), 900)
     assert "\n" in short
+
+
+def test_render_never_exceeds_max_chars_with_suffix():
+    """Review C F3: protects the suffix reserve in render(): across caps and
+    line lengths the output (suffix included) never exceeds max_chars."""
+    for line_len in (5, 17, 40):
+        fields = [hs.Field(f"r{i}", "x" * line_len) for i in range(60)]
+        r = hs.StatusResult("health", _now(), fields, 0)
+        for cap in range(30, 400, 7):
+            out = hs.render(r, cap)
+            assert len(out) <= cap, (line_len, cap, len(out))
+            # The reserve keeps whole lines: every line between the header and
+            # the suffix is a complete field line, never one chopped mid-way.
+            whole = {f"r{i}: " + "x" * line_len for i in range(60)}
+            body = out.split("\n")[1:]
+            if body and body[-1] == "…(more: health)":
+                body = body[:-1]
+            assert all(ln in whole for ln in body), (line_len, cap, body[-1:])

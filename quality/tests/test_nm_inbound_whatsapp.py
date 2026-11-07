@@ -196,3 +196,14 @@ def test_dedup_kill_switch_zero(clock, monkeypatch):
     nm = make_nm()
     _drive(nm, _evt(**SELF, body="status"))
     assert len(_drive(nm, _evt(**SELF, body="status"))) == 1
+
+
+@pytest.mark.parametrize("extra", [{"to": "120363000000@g.us"}, {"from": "120363000000@g.us"},
+                                   {"to": "status@broadcast"}, {"from": "1203@newsletter"}])
+def test_legacy_shape_group_suffix_ignored(clock, extra):
+    """Review C F2: protects the from/to suffix halves of the non-direct guard
+    for legacy-keyed payloads (no isGroup flag)."""
+    nm = make_nm()
+    ev = SimpleNamespace(data={"phone": OP_CFG, "message": "3", **extra})
+    assert _drive(nm, ev) == []
+    assert nm._silence_until is None
