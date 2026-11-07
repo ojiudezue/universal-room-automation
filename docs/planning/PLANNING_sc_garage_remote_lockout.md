@@ -378,3 +378,13 @@ Open:
 ## 13. D0 results
 
 (pending)
+
+
+## Operator answers to Phase 2 questions (2026-11-07)
+Operator: 'I thought I answered those questions?' — taken as acceptance of the planner recommendations, as for rev 1:
+- Q-A1 door: the bay D0 shows the operator uses on >=80% of arrivals.
+- Q-A2 approach zone: `zone.home_approach`, 1500 m, passive; created at D0.
+- Q-A3 too few arrivals: ship Phase 2 in shadow-only to collect data.
+- Q-A4 Sleep: auto-open stays off at night until the shadow log shows zero false night opens.
+- Q-A5 after auto-open: HIGH notice at 180 s, no auto-close.
+- Q-A6 proximity: add an HA `proximity` entry (home, operator) at D0.
