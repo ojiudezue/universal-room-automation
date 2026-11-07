@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T11:40:45-06:00_ - _Data commit: `06cd1bd15183`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T12:07:50-06:00_ - _Data commit: `3153a9185bd3`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 11 |
@@ -21,10 +21,18 @@ _Generated: 2026-11-07T11:40:45-06:00_ - _Data commit: `06cd1bd15183`_ - _last_r
 | 🅿️ Parked | 114 |
 | ✅ Done | 412 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
-### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
+### `SC-LOCK-SWEEP-EXCLUDE-1` - Register every lock in SC but let individual locks opt out of the periodic lock sweep (master bedroom: passage mode, sweep only drains battery) — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
+thread: **security** - status: **inbox**
+_created 2026-11-07 16:20_
+- **Why:** No exclusion exists: CONF_SECURITY_LOCK_ENTITIES (const.py:3406) is the only list and _evaluate_lock_check iterates all of it (security.py:1685). Operator added lock.master_bedroom_lock to SC on 2026-11-07, so the sweep now commands it e...
+- **Next:** PICK: A (recommended) new CONF_SECURITY_LOCK_SWEEP_EXCLUDE list (options flow, defaults empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep and the retry cap; decide whether lockdown also ...
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **security** - status: **inbox**
 _created 2026-11-07 15:40_
 - **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
@@ -1550,8 +1558,9 @@ thread: **security** - status: **parked**
 _created 2026-11-07 14:30_
 - **Why:** Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred.
 - **Next:** Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships.
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `tier`: 2
+  - `policy_master_bedroom_2026_11_07`: Operator: master bedroom lock is manually locked when Oji AND Ezinne are both out of the house. Candidate first door-lock rule for the regime (engage when both named persons away; release on either arriving).
 
 ### `SC-ARMING-ALARM-ONLY-1` - SC arming auto-follow is weak (off live; Sleep unmapped); redefine arming as alarm-only — _#28 · WSJF 2.5 · v2 tc1 u2 /e2_
 thread: **security** - status: **parked**
