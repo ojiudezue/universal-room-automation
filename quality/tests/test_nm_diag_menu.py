@@ -359,3 +359,26 @@ def test_superscript_digit_is_not_a_pick(clock):
     nm._notifications_today_count = 1
     _say(nm, "diag")
     assert _say(nm, "\u00b3").startswith("Unknown command")
+
+
+@pytest.mark.parametrize("which", ["whatsapp", "imessage", "pushover", "companion"])
+def test_diag_opened_during_send_await_is_closed_after(clock, which):
+    """Review B LOW-2: protects the post-await bump (finally) in each sender.
+    A HIGH alert is mid-send; a `diag` on another channel opens a window during
+    that await; a later `3` must silence (closed notice is acceptable), never `who`."""
+    nm = make_nm()
+    nm._notifications_today_count = 1
+    inner = []
+    busy = []
+
+    async def _slow_call(domain, service, data, blocking=True):
+        if not busy:  # only the alert send; the nested menu reply passes through
+            busy.append(1)
+            inner.append(await nm._process_inbound_reply(PERSON, "whatsapp", "diag"))
+
+    nm.hass.services.async_call = _slow_call
+    _send(nm, which)
+    assert inner and inner[0].startswith("House menu")
+    ret = _say(nm, "3", channel="whatsapp")
+    assert not ret.startswith("Who")
+    assert ret in (nm_mod.DIAG_CLOSED_NOTICE_TEXT,) or ret.startswith("Non-CRITICAL alerts silenced")

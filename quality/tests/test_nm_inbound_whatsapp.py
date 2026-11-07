@@ -169,3 +169,30 @@ def test_diag_over_whatsapp_end_to_end(clock):
     assert [a[0] for a in sent] == ["whatsapp", "whatsapp"]
     assert sent[1][2]["number"] == OP_CFG
     assert [c.args[3] for c in nm._test_db.log_inbound.call_args_list] == ["diag_menu", "diag_doors"]
+
+
+def test_replay_of_same_event_is_dropped(clock):
+    """Review B LOW-4: protects _is_whatsapp_replay in _handle_whatsapp_reply —
+    a bridge replay of the same (from, timestamp, body) never re-applies silence."""
+    nm = make_nm()
+    first = _drive(nm, _evt(**SELF, body="silence"))
+    assert first and first[0].startswith("Non-CRITICAL alerts silenced")
+    nm._silence_until = None
+    assert _drive(nm, _evt(**SELF, body="silence")) == []
+    assert nm._silence_until is None
+    # a NEW message (new bridge timestamp) is processed
+    assert _drive(nm, _evt(**SELF, body="silence", timestamp=1793959700))
+
+
+def test_replay_after_ttl_is_processed(clock):
+    nm = make_nm()
+    _drive(nm, _evt(**SELF, body="status"))
+    clock.now = clock.now + __import__("datetime").timedelta(seconds=600)
+    assert len(_drive(nm, _evt(**SELF, body="status"))) == 1
+
+
+def test_dedup_kill_switch_zero(clock, monkeypatch):
+    monkeypatch.setattr(h.nm_mod, "NM_WHATSAPP_DEDUP_TTL_S", 0)
+    nm = make_nm()
+    _drive(nm, _evt(**SELF, body="status"))
+    assert len(_drive(nm, _evt(**SELF, body="status"))) == 1

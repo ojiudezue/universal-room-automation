@@ -341,6 +341,11 @@ NM_DIAG_ENABLED: bool = True
 # WhatsApp inbound, self-chat only (rung 1: widening a command trust
 # boundary must require review). Kill switch: False.
 NM_WHATSAPP_INBOUND_ENABLED: bool = True
+# Review B LOW-4: drop a WhatsApp inbound whose (from, timestamp, body) was
+# already processed within this many seconds, so a bridge replay after a
+# reconnect can never re-apply a safe word or a silence. Rung 1. Kill switch:
+# 0 disables dedup. Payloads without a bridge timestamp are not deduped.
+NM_WHATSAPP_DEDUP_TTL_S: int = 600
 # How long after "diag" a bare digit maps to a menu item. 0 -> names only
 # (digits never map; the menu lists words).
 NM_DIAG_MENU_WINDOW_S: int = 120
@@ -549,6 +554,8 @@ class NotificationManager:
         self._diag_budget: dict[tuple[str, str], list[datetime]] = {}
         self._diag_budget_notified_at: dict[tuple[str, str], datetime] = {}
         self._inbound_by_command["diag"] = 0
+        # Review B LOW-4: (from, timestamp, body) -> first-seen time.
+        self._wa_inbound_seen: dict[tuple[str, Any, str], datetime] = {}
 
         # =====================================================================
         # NM Cycle B (2026-07-20): Safety rails
@@ -2331,6 +2338,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("Pushover send failed: %s", e)
             self._update_channel_health("pushover", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_companion(
         self,
@@ -2402,6 +2414,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("Companion app send failed: %s", e)
             self._update_channel_health("companion", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_whatsapp(
         self, title: str, message: str, phone: str,
@@ -2451,6 +2468,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("WhatsApp send failed: %s", e)
             self._update_channel_health("whatsapp", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_imessage(
         self, title: str, message: str, handle: str,
@@ -2499,6 +2521,11 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.error("iMessage send via BlueBubbles failed: %s", e)
             self._update_channel_health("imessage", False)
+        finally:
+            # Review B LOW-2: close windows again AFTER the send await — a
+            # `diag` that opened a window during this send must not survive.
+            if not menu_safe:
+                self._diag_send_epoch += 1
 
     async def _send_tts(self, title: str, message: str) -> None:
         """Send TTS announcement to configured speakers."""
@@ -3550,6 +3577,9 @@ class NotificationManager:
         phone, message = self._parse_whatsapp_event(event.data or {})
         if not message:
             return
+        if self._is_whatsapp_replay(event.data or {}):
+            _LOGGER.debug("WhatsApp inbound replay dropped (dedup)")
+            return
         person_id = self._match_person_by_phone(phone)
         if person_id is None:
             _LOGGER.debug("WhatsApp message from unknown phone %s (ignored)", phone[-4:] if phone else "?")
@@ -3557,6 +3587,23 @@ class NotificationManager:
         self.hass.async_create_task(
             self._process_inbound_reply(person_id, "whatsapp", message)
         )
+
+    def _is_whatsapp_replay(self, data: dict) -> bool:
+        """True if this (from, timestamp, body) was processed within
+        NM_WHATSAPP_DEDUP_TTL_S; otherwise records it and returns False."""
+        ts = data.get("timestamp")
+        if NM_WHATSAPP_DEDUP_TTL_S <= 0 or ts in (None, ""):
+            return False
+        now = dt_util.utcnow()
+        self._wa_inbound_seen = {
+            k: t for k, t in self._wa_inbound_seen.items()
+            if (now - t).total_seconds() < NM_WHATSAPP_DEDUP_TTL_S
+        }
+        key = (str(data.get("from", "")), ts, str(data.get("body", "")))
+        if key in self._wa_inbound_seen:
+            return True
+        self._wa_inbound_seen[key] = now
+        return False
 
     @staticmethod
     def _wa_jid_digits(jid: str) -> str:
