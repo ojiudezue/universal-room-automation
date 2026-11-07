@@ -211,6 +211,18 @@ cards:
   revisit_trigger: "Operator upgrades the house to an HA 2026.11.x point release AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1)."
   next: "Me, once the trigger fires: write the joint A+B plan (per-form field triage table), one plan review, then build; Tier 2."
   adjacency: "Swept board (HA-2027-DEPRECATIONS-URA-1, ONBOARDING-SIMPLIFY-1, TEST-HARNESS-REAL-HA-DEFAULT-1) + PLANNING_onboarding_simplify_phase2.md O-items: ADJACENT, carded as sibling because it has its own trigger and acceptance."
+- id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
+  title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
+  thread: config_flow
+  status: waiting_operator
+  tier: 1
+  created: "2026-11-07 10:40"
+  updated: "2026-11-07 10:40"
+  rank: {value: 2, time_criticality: 1, effort: 1}
+  origin: "Operator 2026-11-07: 'Athom is gone. Remove it. We keep referencing it. Is it phantom in the room config?'"
+  why: "Study A entry.data has mmwave_sensors=['binary_sensor.athom_presence_sensor_d93b20_mmwave_sensor'] (entity gone from the registry; 100% unavailable 7 days). CONF_MMWAVE_SENSORS is the string 'presence_sensors' (const.py:533), and no code reads the literal 'mmwave_sensors' key (only strings.json/en.json labels :483/:498), so it has zero runtime effect, but every config read surfaces it. Only Study A has the key. The options flow cannot clear entry.data keys; reconfigure aborts to options (config_flow.py:1273)."
+  next: "APPROVE: a small migration step (async_migrate_entry or setup-time scrub) that drops the legacy 'mmwave_sensors' key from entry.data, plus removing the stale strings.json labels -> I build it Tier 1 and ship it with the next deploy (needs one restart, at a time you pick)."
+  adjacency: "Swept board for mmwave/legacy-key/config-scrub: NEW. Related: FORM-CONDITIONAL-FIELDS-1 (same forms surface, no overlap)."
 - id: DASH-V8-ANI-WEATHER-TRIAL-1
   title: "ura-v8 Now tab: trial Animated Weather Card next to weather_hero"
   thread: dashboard
