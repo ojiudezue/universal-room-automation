@@ -74,8 +74,55 @@ EZ = "person.ezinne"
 _REAL_NOW = dt_util.now
 
 
+# Names other test files overwrite ON the real homeassistant.core module at
+# import (e.g. test_fan_incident_2026_08_01_replay.py sets State / Event /
+# HomeAssistant to MagicMock and callback to an identity lambda). The real
+# core looks these up in its own globals, so a real hass would mint Mock
+# states. Repair them for this test only, then restore what was there.
+_CORE_NAMES = ("State", "Event", "HomeAssistant", "callback", "HassJob",
+               "Context", "ServiceCall", "CALLBACK_TYPE")
+
+
+def _is_genuine(name, obj):
+    return (getattr(obj, "__module__", None) == "homeassistant.core"
+            and getattr(obj, "__qualname__", getattr(obj, "__name__", None)) == name)
+
+
+def _genuine_core_attr(name):
+    """The real homeassistant.core object for ``name``, found in any module
+    that imported it before the overwrite (their own references survive)."""
+    for mod in list(sys.modules.values()):
+        obj = getattr(mod, name, None) if mod is not None else None
+        try:
+            if _is_genuine(name, obj):
+                return obj
+        except Exception:  # noqa: BLE001 — exotic module attrs
+            continue
+    return None
+
+
+@pytest.fixture
+def _real_core_globals():
+    import homeassistant.core as ha_core
+
+    saved = {}
+    for name in _CORE_NAMES:
+        cur = getattr(ha_core, name, None)
+        if cur is None or _is_genuine(name, cur):
+            continue
+        real = _genuine_core_attr(name)
+        if real is not None:
+            saved[name] = cur
+            setattr(ha_core, name, real)
+    try:
+        yield
+    finally:
+        for name, cur in saved.items():
+            setattr(ha_core, name, cur)
+
+
 @pytest_asyncio.fixture
-async def hass():
+async def hass(_real_core_globals):
     from pytest_homeassistant_custom_component.common import (
         async_test_home_assistant,
     )
