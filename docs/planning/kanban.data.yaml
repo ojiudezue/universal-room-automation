@@ -230,6 +230,8 @@ cards:
   residual_companion_no_reply: "Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix."
   bug_whatsapp_inbound_dropped_2026_11_07: "Root cause of zero WhatsApp inbound rows: NM _handle_whatsapp_reply (notification_manager.py:3404-3415) reads event keys phone/message, but the bridge (custom_components/whatsapp, event whatsapp_message_received) sends from/body/author/isGroup/fromMe/chatName. message is always empty, so every WhatsApp text is silently dropped. Payloads in the recorder are mostly family GROUP chats, so the fix must ignore isGroup, map from (strip @c.us) to the person phone, use body, and decide fromMe (bridge may run on the operator's own number). Folding into this cycle (operator asked why WhatsApp is not a reply channel)."
   operator_2026_11_07: "Operator added the garage hallway and master bedroom locks to SC (doors answer now covers them; they are now also under SC lock sweeps). Companion no-reply fix APPROVED, folding into this cycle."
+  residual_review_b_low3: "Over-budget diag inbound writes one uncapped log_inbound row per message via direct INSERT+commit (database.py:5051), not the batched write queue; same pattern as legacy inbound. Matters only under an external flood. Deferred."
+  live_check_whatsapp_fromme: "Review B MEDIUM-1: send diag in the operator WhatsApp self-chat and confirm a channel=whatsapp row in notification_inbound; if none, the bridge never forwards fromMe and WhatsApp commands stay dark (iMessage is the live channel)."
 - id: SC-SWEEP-CLOSES-OPEN-GARAGE-1
   title: "SC hourly lock sweep closes any open garage door regardless of arming or occupancy"
   thread: security

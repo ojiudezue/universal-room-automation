@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T12:17:53-06:00_ - _Data commit: `b20aad3666c7`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T12:20:19-06:00_ - _Data commit: `1b2ebc05ba0f`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
@@ -453,7 +453,7 @@ thread: **notifications** - status: **in_progress**
 _created 2026-11-07 12:40_
 - **Why:** Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Ec...
 - **Next:** Building A now (operator 2026-11-07). Plan doc -> 1 plan review -> build -> Tier 2 reviews -> deploy.
-- **Forensic keys (9):**
+- **Forensic keys (11):**
   - `tier`: 2
   - `adjacency`: Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card.
   - `design_2026_11_07`: Operator: a 'diag' entry command returns a numbered menu; replying with the number or the command name runs it and returns the result. Conflict found: bare '1'/'2'/'3' already mean ack/status/silence for every sender (notification_manage...
@@ -463,6 +463,8 @@ _created 2026-11-07 12:40_
   - `residual_companion_no_reply`: Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix.
   - `bug_whatsapp_inbound_dropped_2026_11_07`: Root cause of zero WhatsApp inbound rows: NM _handle_whatsapp_reply (notification_manager.py:3404-3415) reads event keys phone/message, but the bridge (custom_components/whatsapp, event whatsapp_message_received) sends from/body/author/i...
   - `operator_2026_11_07`: Operator added the garage hallway and master bedroom locks to SC (doors answer now covers them; they are now also under SC lock sweeps). Companion no-reply fix APPROVED, folding into this cycle.
+  - `residual_review_b_low3`: Over-budget diag inbound writes one uncapped log_inbound row per message via direct INSERT+commit (database.py:5051), not the batched write queue; same pattern as legacy inbound. Matters only under an external flood. Deferred.
+  - `live_check_whatsapp_fromme`: Review B MEDIUM-1: send diag in the operator WhatsApp self-chat and confirm a channel=whatsapp row in notification_inbound; if none, the bridge never forwards fromMe and WhatsApp commands stay dark (iMessage is the live channel).
 
 ### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
