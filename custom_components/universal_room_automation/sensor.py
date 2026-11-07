@@ -7242,11 +7242,19 @@ class SecurityArmedStateSensor(AggregationEntity, SensorEntity):
         # execution attr for state-driven arming. INV-1 per-coordinator
         # observability surface — the last auto-follow arm/would-arm.
         state_driven = getattr(security, "_state_driven_arming_last", {}) or {}
-        return {
+        attrs = {
             "status": security.get_security_status(),
             "active_alert": security.active_alert,
             "state_driven_arming_last": dict(state_driven),
         }
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 D5: lock-regime diagnostics.
+        regime = getattr(security, "lock_regime", None)
+        if regime is not None:
+            try:
+                attrs.update(regime.snapshot())
+            except Exception:  # noqa: BLE001
+                pass
+        return attrs
 
     @property
     def icon(self) -> str:
