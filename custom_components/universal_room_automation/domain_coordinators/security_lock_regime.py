@@ -37,6 +37,7 @@ test files installed.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -46,8 +47,25 @@ _LOGGER = logging.getLogger(__name__)
 # Bound at import, not per call: a later sys.modules swap of
 # homeassistant.util.unit_conversion (test stubs do this) must not change
 # the converter this module uses.
+from homeassistant.core import callback as _ha_callback  # noqa: E402
 from homeassistant.exceptions import HomeAssistantError  # noqa: E402
 from homeassistant.util.unit_conversion import DistanceConverter  # noqa: E402
+
+
+def callback(func):  # noqa: D401 — review B-C1
+    """HA ``@callback``: run on the event loop, never in the executor.
+
+    Every method this module hands to ``async_call_later`` /
+    ``async_track_*`` MUST carry it, or HA types it as an Executor job
+    (core.py ``get_hassjob_callable_job_type``) and runs it on a worker
+    thread, where ``hass.async_create_task`` raises. Applies HA's decorator
+    and then sets HA's marker (``_hass_callback``, core.py:210-218)
+    explicitly, so a test file that swapped ``homeassistant.core.callback``
+    for a no-op cannot strip it.
+    """
+    func = _ha_callback(func)
+    setattr(func, "_hass_callback", True)
+    return func
 
 POLICY_NAME = "security.lock_regime.garage_lockout"
 
@@ -162,6 +180,8 @@ class LockRegimeController:
         self._reengage_gen: int | None = None
         self._readback_unsubs: dict[str, Callable[[], None]] = {}
         self._tasks: set[asyncio.Task] = set()
+        # Review B-M1: release unlocks awaited (bounded) at teardown.
+        self._unlock_tasks: set[asyncio.Task] = set()
         # entity_id -> pending release (write or read-back in flight).
         self._release_inflight: set[str] = set()
         # entity_id -> ts a lock.lock was issued and not yet seen `locked`.
@@ -389,8 +409,15 @@ class LockRegimeController:
         if self._store is not None:
             try:
                 data = await self._store.async_load()
-                if isinstance(data, dict):
-                    persisted = {str(p) for p in data.get("residents", [])}
+                raw = data.get("residents") if isinstance(data, dict) else None
+                if isinstance(raw, list) and all(isinstance(p, str) for p in raw):
+                    persisted = {p for p in raw if p.startswith("person.")}
+                elif data is not None:
+                    # Review B-L3: a corrupt shape (e.g. a string) must not be
+                    # iterated into bogus subscriptions.
+                    _LOGGER.warning(
+                        "Lock regime: resident store has an unexpected shape; ignoring it"
+                    )
             except Exception:  # noqa: BLE001
                 _LOGGER.warning(
                     "Lock regime: resident store load failed; using the live "
@@ -477,6 +504,7 @@ class LockRegimeController:
         if self.reason in SLEEP_LIKE_REASONS:
             self._schedule_backstop(cfg, allow_immediate=True)
 
+    @callback
     def _on_boot_recheck(self, _now: Any = None) -> None:
         self._boot_recheck_unsub = None
         if self._torn_down:
@@ -518,10 +546,28 @@ class LockRegimeController:
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
+        # Review B-M1: an unlock already in flight is a family-release
+        # discharge; let it finish (bounded) instead of cancelling it, or a
+        # reload mid-release strands the lockout (the new instance never
+        # releases at boot, review A H1). Chosen over a persisted "release
+        # pending" Store mark: the only teardown path is a reload in the same
+        # process (HA stop does not run teardown), so awaiting discharges it
+        # without a second persisted state machine to reconcile at boot.
+        from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
+
+        pending = [t for t in self._unlock_tasks if not t.done()]
+        if pending:
+            try:
+                await asyncio.wait(
+                    pending, timeout=GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock regime: awaiting unlocks raised", exc_info=True)
         for task in list(self._tasks):
             if not task.done():
                 task.cancel()
         self._tasks.clear()
+        self._unlock_tasks.clear()
 
     async def async_release_if_disabled(self) -> None:
         """C1 + M-1: release on the real SC-disable path, before teardown.
@@ -613,6 +659,7 @@ class LockRegimeController:
             return
         self._request_engage(engage_reason, f"house_state:{new}")
 
+    @callback
     def _on_guest_clock(self, _now: Any = None) -> None:
         """Q-G1: house already reads GUEST at sleep_start_hour -> engage."""
         self._guest_clock_unsub = None
@@ -675,6 +722,7 @@ class LockRegimeController:
             self._hass, [pid], self._on_person_event
         )
 
+    @callback
     def _on_person_added(self, event: Any) -> None:
         pid = event.data.get("entity_id", "")
         if not pid or self._torn_down or not pid.startswith("person."):
@@ -687,6 +735,7 @@ class LockRegimeController:
             self.releasing_set[pid]["removed"] = False
         self._save_residents()
 
+    @callback
     def _on_person_removed(self, event: Any) -> None:
         pid = event.data.get("entity_id", "")
         if not pid or self._torn_down:
@@ -700,6 +749,7 @@ class LockRegimeController:
             self.releasing_set[pid]["removed"] = True
         self._save_residents()
 
+    @callback
     def _on_person_event(self, event: Any) -> None:
         if self._torn_down:
             return
@@ -790,6 +840,7 @@ class LockRegimeController:
             cfg, CONF_GARAGE_LOCKOUT_APPROACH_RADIUS_M, GARAGE_LOCKOUT_APPROACH_RADIUS_M
         )
 
+    @callback
     def _on_distance_event(self, event: Any) -> None:
         if self._torn_down:
             return
@@ -842,13 +893,16 @@ class LockRegimeController:
                 continue
             if ent in self._release_inflight:
                 continue  # H3b: one release in flight per entity
-            self._release_inflight.add(ent)
+            # Review B-M2: mark in flight only once the unlock task exists, so
+            # a failing spawn can never leave the entity stuck in the latch.
+            if not self._spawn_unlock(ent, trigger, GARAGE_RETRIES()):
+                continue
             self._engage_inflight.pop(ent, None)
             written.append(ent)
-            self._spawn(self._async_unlock(ent, trigger, GARAGE_RETRIES()))
         self._after_release(trigger, person, cfg)
         self._record("release", trigger=trigger, written=written)
 
+    @callback
     def _on_lockout_event(self, event: Any) -> None:
         if _state_value(event.data.get("new_state")) == "locked":
             self._engage_inflight.pop(event.data.get("entity_id", ""), None)
@@ -902,13 +956,34 @@ class LockRegimeController:
 
         old = self._readback_unsubs.pop(ent, None)
         _safe_unsub(old)
+        # Review B-C1: a @callback bound through partial (HA unwraps partials
+        # when typing the job), never a lambda (which HA runs in the executor).
         self._readback_unsubs[ent] = self._call_later(
             self._hass,
             float(GARAGE_LOCKOUT_READBACK_S),
-            lambda _now=None, e=ent, t=trigger, r=retries_left: self._on_readback(e, t, r),
+            functools.partial(self._on_readback, ent, trigger, retries_left),
         )
 
-    def _on_readback(self, ent: str, trigger: str, retries_left: int) -> None:
+    def _spawn_unlock(self, ent: str, trigger: str, retries_left: int) -> bool:
+        """Start an unlock task and mark ``ent`` in flight; False if it failed."""
+        coro = self._async_unlock(ent, trigger, retries_left)
+        try:
+            task = self._hass.async_create_task(coro)
+        except Exception:  # noqa: BLE001
+            coro.close()
+            self._release_inflight.discard(ent)
+            _LOGGER.warning("Lock regime: could not start unlock of %s", ent, exc_info=True)
+            return False
+        self._release_inflight.add(ent)
+        if isinstance(task, asyncio.Task):
+            self._tasks.add(task)
+            self._unlock_tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+            task.add_done_callback(self._unlock_tasks.discard)
+        return True
+
+    @callback
+    def _on_readback(self, ent: str, trigger: str, retries_left: int, _now: Any = None) -> None:
         self._readback_unsubs.pop(ent, None)
         if self._torn_down:
             self._release_inflight.discard(ent)
@@ -916,11 +991,14 @@ class LockRegimeController:
         if _state_value(self._hass.states.get(ent)) != "locked":
             self._release_inflight.discard(ent)
             return
-        if retries_left > 0:
-            self._spawn(self._async_unlock(ent, trigger, retries_left - 1))
-            return
         self._release_inflight.discard(ent)
-        self._spawn(self._notify_failure(ent, trigger))
+        if retries_left > 0:
+            self._spawn_unlock(ent, trigger, retries_left - 1)
+            return
+        try:
+            self._spawn(self._notify_failure(ent, trigger))
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock regime: failure NM for %s not sent", ent, exc_info=True)
 
     async def _notify_failure(self, ent: str, trigger: str, *, timeout: bool = False) -> None:
         from ..const import DOMAIN  # noqa: PLC0415
@@ -939,7 +1017,7 @@ class LockRegimeController:
                 "the HA app or the opener's own app."
             ),
             hazard_type="lockout_release_failed",
-            location="garage",
+            location=f"garage:{ent}",  # review B-L1: per-lock NM dedup key
         )
         try:
             if timeout:
@@ -1090,6 +1168,7 @@ class LockRegimeController:
         self._reengage_gen = None
         self.reengage_at = None
 
+    @callback
     def _on_reengage_timer(self, _now: Any = None) -> None:
         self._reengage_unsub = None
         self.reengage_at = None
@@ -1126,6 +1205,7 @@ class LockRegimeController:
         _safe_unsub(self._backstop_unsub)
         self._backstop_unsub = None
 
+    @callback
     def _on_backstop(self, _now: Any = None) -> None:
         self._backstop_unsub = None
         if self._torn_down:

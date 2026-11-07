@@ -19,7 +19,20 @@ import types
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from homeassistant.core import HassJob, HassJobType  # bound at import (review B-C1)
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def assert_loop_callback(cb) -> None:
+    """Review B-C1: every callable the regime registers with a timer or a
+    state tracker must be an HA @callback, by HA's OWN job-type detection.
+    A plain method / lambda is an Executor job and would run on a worker
+    thread in production."""
+    job_type = HassJob(cb).job_type
+    assert job_type == HassJobType.Callback, (
+        f"{cb!r} registered as {job_type}, not a loop @callback"
+    )
 URA = ROOT / "custom_components" / "universal_room_automation"
 PKG = "_ura_lockout_pkg"
 
@@ -69,6 +82,7 @@ class World:
     def __init__(self, start: datetime, cm_options: dict, *, entry_type: str) -> None:
         self.now = start
         self.timers: list[dict] = []
+        self.registered: list = []  # every callable handed to a seam
         self.listeners: list[dict] = []
         self.added_cbs: list = []
         self.removed_cbs: list = []
@@ -130,6 +144,8 @@ class World:
         return self.now
 
     def call_later(self, hass, delay, cb):
+        assert_loop_callback(cb)
+        self.registered.append(cb)
         rec = {"at": self.now + timedelta(seconds=float(delay)), "cb": cb,
                "cancelled": False, "delay": float(delay)}
         self.timers.append(rec)
@@ -161,6 +177,8 @@ class World:
 
     # -- trackers ----------------------------------------------------------
     def track_state(self, hass, entity_ids, cb):
+        assert_loop_callback(cb)
+        self.registered.append(cb)
         ids = [entity_ids] if isinstance(entity_ids, str) else list(entity_ids)
         rec = {"ids": set(ids), "cb": cb, "active": True}
         self.listeners.append(rec)
@@ -171,10 +189,14 @@ class World:
         return _unsub
 
     def track_added(self, hass, domain, cb):
+        assert_loop_callback(cb)
+        self.registered.append(cb)
         self.added_cbs.append(cb)
         return lambda: self.added_cbs.remove(cb) if cb in self.added_cbs else None
 
     def track_removed(self, hass, domain, cb):
+        assert_loop_callback(cb)
+        self.registered.append(cb)
         self.removed_cbs.append(cb)
         return lambda: self.removed_cbs.remove(cb) if cb in self.removed_cbs else None
 

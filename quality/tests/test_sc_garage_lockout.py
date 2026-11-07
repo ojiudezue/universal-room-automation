@@ -1651,6 +1651,123 @@ async def test_sc_teardown_release_timeout_does_not_block_unload(monkeypatch):
 
 
 # ============================================================================
+# Review B fix-ups
+# ============================================================================
+
+_LOOP_CALLBACKS = (
+    "_on_person_event", "_on_person_added", "_on_person_removed",
+    "_on_distance_event", "_on_lockout_event", "_on_backstop",
+    "_on_reengage_timer", "_on_boot_recheck", "_on_guest_clock", "_on_readback",
+)
+
+
+@pytest.mark.asyncio
+async def test_every_registered_regime_callback_is_a_loop_callback():
+    """B-C1 anchor: enumerate what the regime hands to timers / trackers
+    across a full night and assert HA types each as a Callback job (the
+    harness also asserts this at every registration)."""
+    from homeassistant.core import HassJob, HassJobType
+
+    rig = await make_rig(past_boot=False)
+    await rig.w.advance(601)  # boot recheck + window
+    await rig.edge("sleep")  # backstop
+    await rig.person(EZ, "home")  # P1 -> unlock -> read-back + re-engage
+    rig.w.set_state(EZ_DIST, "6000", {"unit_of_measurement": "ft"})
+    await settle()
+    names = set()
+    for cb in rig.w.registered:
+        assert HassJob(cb).job_type == HassJobType.Callback, cb
+        target = cb.func if hasattr(cb, "func") else cb
+        names.add(getattr(target, "__name__", repr(target)))
+    expected = set(_LOOP_CALLBACKS)
+    assert expected <= names, expected - names
+    for name in _LOOP_CALLBACKS:
+        assert HassJob(getattr(rig.regime, name)).job_type == HassJobType.Callback, name
+
+
+@pytest.mark.asyncio
+async def test_failed_spawn_never_poisons_release_latch():
+    """B-M2: async_create_task raising during a release must not leave the
+    lockout in _release_inflight; the next release still unlocks."""
+    rig = await make_rig(lockouts="locked")
+    real = rig.w.hass.async_create_task
+    boom = {"left": 1}
+
+    def flaky(coro, *a, **k):
+        if boom["left"] and asyncio.iscoroutine(coro) and coro.__name__ == "_async_unlock":
+            boom["left"] -= 1
+            raise RuntimeError("loop closing")
+        return real(coro, *a, **k)
+
+    rig.w.hass.async_create_task = flaky
+    rig.sc._handle_person_arriving_signal({"person_entity": EZ})
+    await settle()
+    assert LOCK_A not in rig.regime._release_inflight
+    rig.w.calls.clear()
+    await rig.edge("arriving")
+    assert LOCK_A in rig.unlocks()
+
+
+@pytest.mark.asyncio
+async def test_reload_mid_unlock_still_releases():
+    """B-M1: an arrival unlock in flight, then an SC reload (teardown) -> the
+    unlock completes; the lockout ends released."""
+    rig = await make_rig(lockouts="locked")
+    gate = asyncio.Event()
+    orig = rig.w.hass.services.async_call
+
+    async def slow(domain, service, data, blocking=False, **kw):
+        if service == "unlock":
+            await gate.wait()
+        await orig(domain, service, data, blocking=blocking, **kw)
+
+    rig.w.hass.services.async_call = slow
+    await rig.person(EZ, "home")  # unlock tasks now awaiting the opener
+    teardown = asyncio.ensure_future(rig.sc.async_teardown())
+    await settle()
+    gate.set()
+    await asyncio.wait_for(teardown, 2)
+    assert rig.w.hass.states.get(LOCK_A).state == "unlocked"
+    assert rig.w.hass.states.get(LOCK_B).state == "unlocked"
+
+
+@pytest.mark.asyncio
+async def test_failure_notifications_name_each_lockout():
+    """B-L1: NM dedups on coordinator:title:location, so the location must
+    carry the entity or a second failed lockout is never named."""
+    rig = await make_rig(lockouts="locked")
+    notes = []
+
+    class NM:
+        async def async_notify(self, **kw):
+            notes.append(kw)
+
+    rig.w.hass.data[const.DOMAIN]["notification_manager"] = NM()
+    rig.w.apply_service_state = False
+    await rig.person(EZ, "home")
+    await rig.w.advance(45)
+    keys = {(n["coordinator_id"], n["title"], n["location"]) for n in notes}
+    assert len(keys) == 2
+    assert {n["location"] for n in notes} == {f"garage:{LOCK_A}", f"garage:{LOCK_B}"}
+
+
+@pytest.mark.asyncio
+async def test_corrupt_resident_store_shape_ignored():
+    """B-L3: a string where a list belongs must not become per-char ids."""
+    class Store:
+        async def async_load(self):
+            return {"residents": "person.ziri"}
+
+        def async_delay_save(self, fn, delay):
+            pass
+
+    rig = await make_rig(lockouts="locked", store=Store())
+    subscribed = set().union(*(rec["ids"] for rec in rig.w.listeners))
+    assert "p" not in subscribed and "person.ziri" not in subscribed
+    assert EZ in subscribed  # live persons still subscribed
+
+
+# ============================================================================
 # D1 — config surface
 # ============================================================================
 
