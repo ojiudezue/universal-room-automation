@@ -255,6 +255,7 @@ cards:
   next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
   policy_master_bedroom_2026_11_07: "Operator: master bedroom lock is manually locked when Oji AND Ezinne are both out of the house. Candidate first door-lock rule for the regime (engage when both named persons away; release on either arriving)."
+  operator_2026_11_07_master_bedroom: "Approved: build the master bedroom rule (lock when Oji AND Ezinne are both away, unlock when either returns) in the lock regime, behind its own knob (switch entity, default OFF until validated; rung 3 live-tunable). Persons list configurable, not hard-coded."
 - id: SC-ARMING-ALARM-ONLY-1
   title: "SC arming auto-follow is weak (off live; Sleep unmapped); redefine arming as alarm-only"
   thread: security
@@ -277,8 +278,9 @@ cards:
   rank: {value: 4, time_criticality: 3, effort: 1}
   origin: "Operator 2026-11-07: 'we should register every lock in SC, we should be able to exclude locks from sweep now we have an internal lock for master bedroom. That lock is in passage mode and open anyway. So sweeping it will simply run down the battery and won't lock it. It's manually locked when I and Ezinne are both out of the house.'"
   why: "No exclusion exists: CONF_SECURITY_LOCK_ENTITIES (const.py:3406) is the only list and _evaluate_lock_check iterates all of it (security.py:1685). Operator added lock.master_bedroom_lock to SC on 2026-11-07, so the sweep now commands it every interval. The 'lock when Oji AND Ezinne are both away' rule is a lock-regime policy and belongs in SC-LOCK-REGIME-DOOR-LOCKS-1."
-  next: "PICK: A (recommended) new CONF_SECURITY_LOCK_SWEEP_EXCLUDE list (options flow, defaults empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep and the retry cap; decide whether lockdown also skips them (recommend: lockdown still includes them) -> Tier 1 build after SECURITY-LOCK-SWEEP-RETRY-CAP-1 merges (same function). Interim: remove master bedroom from the SC list until then, or accept the drain."
+  next: "Tier 1 build after SECURITY-LOCK-SWEEP-RETRY-CAP-1 merges (same function): CONF_SECURITY_LOCK_SWEEP_EXCLUDE (options flow, default empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep, its retry cap AND security lockdown."
   links: {sibling_of: SC-LOCK-REGIME-DOOR-LOCKS-1}
+  operator_2026_11_07: "Lockdown must NOT lock an excluded door; lockdown should focus on egress locks. Excluded = interior/passage locks."
 - id: SC-GEOFENCE-PERSON-SNAPSHOT-1
   title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
   thread: security

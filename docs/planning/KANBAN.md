@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T12:07:50-06:00_ - _Data commit: `3153a9185bd3`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T12:17:53-06:00_ - _Data commit: `b20aad3666c7`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
@@ -28,9 +28,10 @@ _raw capture_
 thread: **security** - status: **inbox**
 _created 2026-11-07 16:20_
 - **Why:** No exclusion exists: CONF_SECURITY_LOCK_ENTITIES (const.py:3406) is the only list and _evaluate_lock_check iterates all of it (security.py:1685). Operator added lock.master_bedroom_lock to SC on 2026-11-07, so the sweep now commands it e...
-- **Next:** PICK: A (recommended) new CONF_SECURITY_LOCK_SWEEP_EXCLUDE list (options flow, defaults empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep and the retry cap; decide whether lockdown also ...
-- **Forensic keys (1):**
+- **Next:** Tier 1 build after SECURITY-LOCK-SWEEP-RETRY-CAP-1 merges (same function): CONF_SECURITY_LOCK_SWEEP_EXCLUDE (options flow, default empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep, its ...
+- **Forensic keys (2):**
   - `tier`: 1
+  - `operator_2026_11_07`: Lockdown must NOT lock an excluded door; lockdown should focus on egress locks. Excluded = interior/passage locks.
 
 ### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **security** - status: **inbox**
@@ -1558,9 +1559,10 @@ thread: **security** - status: **parked**
 _created 2026-11-07 14:30_
 - **Why:** Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred.
 - **Next:** Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
   - `policy_master_bedroom_2026_11_07`: Operator: master bedroom lock is manually locked when Oji AND Ezinne are both out of the house. Candidate first door-lock rule for the regime (engage when both named persons away; release on either arriving).
+  - `operator_2026_11_07_master_bedroom`: Approved: build the master bedroom rule (lock when Oji AND Ezinne are both away, unlock when either returns) in the lock regime, behind its own knob (switch entity, default OFF until validated; rung 3 live-tunable). Persons list configur...
 
 ### `SC-ARMING-ALARM-ONLY-1` - SC arming auto-follow is weak (off live; Sleep unmapped); redefine arming as alarm-only — _#28 · WSJF 2.5 · v2 tc1 u2 /e2_
 thread: **security** - status: **parked**
