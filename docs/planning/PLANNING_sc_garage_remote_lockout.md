@@ -571,3 +571,7 @@ Operator: 'I thought I answered those questions?' — taken as acceptance of the
 - Q-A4 Sleep: auto-open stays off at night until the shadow log shows zero false night opens.
 - Q-A5 after auto-open: HIGH notice at 180 s, no auto-close.
 - Q-A6 proximity: add an HA `proximity` entry (home, operator) at D0. (Done 2026-11-07, tracking all four residents.)
+
+
+## Operator answer Q-G1 (2026-11-07)
+Operator: 'Lockout engages on guest during sleep hours.' Option (a) adopted: the lock regime engages on GUEST during sleep hours (same CM sleep window as SLEEP), behind its own toggle `CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP` (default ON); release semantics as SLEEP-engaged (wake / morning backstop / arrival). Option (b) GUEST->SLEEP presence edge is NOT pursued. The three follow-up cards in §8 were minted 2026-11-07 (da0ec039); SC-GEOFENCE-PERSON-SNAPSHOT-1 minted with this answer. Phase 1 build is unblocked.

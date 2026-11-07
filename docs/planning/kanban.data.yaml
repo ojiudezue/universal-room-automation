@@ -266,10 +266,22 @@ cards:
   why: "Lockout plan audit 2026-11-07: security.py:175-186 mapping leaves Sleep unmapped, auto-follow off live, bridge exits at :1104."
   next: "Revisit after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+- id: SC-GEOFENCE-PERSON-SNAPSHOT-1
+  title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
+  thread: security
+  status: inbox
+  tier: 1
+  created: "2026-11-07 15:40"
+  updated: "2026-11-07 15:40"
+  rank: {value: 3, time_criticality: 2, effort: 1}
+  origin: "Lockout plan review 1 M1 + operator 2026-11-07: resident list should persist across restarts and track adds/removals in real time."
+  why: "security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses async_track_state_added_domain/_removed_domain (helpers/event.py:653/:711) + a persisted Store; same fix applies here."
+  next: "Build after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, reusing its resident-tracking helper (Tier 1)."
+  links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
-  status: planned
+  status: in_progress
   tier: 2
   created: "2026-11-07 12:10"
   updated: "2026-11-07 12:10"
@@ -282,6 +294,7 @@ cards:
   finding_periodic_sweep_2026_11_07: "Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card after operator look."
   operator_2026_11_07_decisions: "Separate arming from locks: arming = security system + alarms; locks = a reasonable locking regime that does not need the alarm armed. Keep lockouts out of the lock sweeps. Accepts planner recommendations (approach zone, hold-until-arrival, keypad test, kill switch keeps state, all four residents, 07:00 backstop) EXCEPT away: lockout on Vacation only for now (Away is frequent; Vacation is manual). NEW ask: when a fast (vehicular) approach by the operator is seen, disengage the lockout AND open the garage, as an operator-only trial before family, behind its own toggle so it can be turned off and hardened."
   proximity_2026_11_07: "Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_travel, nearest_*. At creation: Oji 20,833 ft (~6.3 km), Ezinne 0; Ziri and Jaya unknown (Jaya has BLE trackers only, no GPS; Ziri tracker gave no coordinates). Phase 1 answers: all six Phase 2 recommendations accepted."
+  phase1_build_2026_11_07: "Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree)."
 - id: ROOM-CONFIG-LEGACY-MMWAVE-KEY-1
   title: "Study A carries an inert legacy 'mmwave_sensors' key (dead Athom radar) in entry.data that no code reads and no form can clear"
   thread: config_flow
