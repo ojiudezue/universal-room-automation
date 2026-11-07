@@ -165,6 +165,8 @@ async def async_setup_entry(
             ChatterBurstKNumber(hass, entry),
             ChatterTFloorNumber(hass, entry),
         ]
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: 3 rung-3 lock-regime knobs.
+        entities.extend(_build_security_lockout_numbers(hass, entry))
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
             entities.append(cls(hass, entry))
@@ -4408,6 +4410,73 @@ class ChatterTFloorNumber(_ChatterCMNumberBase):
             entity_id="number.ura_chatter_t_floor",
         )
 
+
+
+class _SecurityLockoutNumber(_ChatterCMNumberBase):
+    """GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 rung-3 knob on the Security device.
+
+    entry.options is the sole source of truth; the lock regime reads the
+    key LIVE (no live-attr push); the key is in OPTIONS_RELOAD_SUPPRESS_KEYS
+    and _NO_LIVE_ATTR_KEYS, so a change never reloads the CM.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, **kw) -> None:
+        super().__init__(hass, entry, **kw)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+        )
+
+
+def _build_security_lockout_numbers(hass: HomeAssistant, entry: ConfigEntry) -> list:
+    from .const import (
+        CONF_GARAGE_LOCKOUT_APPROACH_RADIUS_M,
+        CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
+        CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S,
+        GARAGE_LOCKOUT_APPROACH_RADIUS_M,
+        GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
+        GARAGE_LOCKOUT_REENGAGE_DELAY_S,
+    )
+    return [
+        # 0 = proximity release (P5) off.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_GARAGE_LOCKOUT_APPROACH_RADIUS_M,
+            default=float(GARAGE_LOCKOUT_APPROACH_RADIUS_M),
+            min_val=0.0, max_val=10000.0, step=50.0, unit="m",
+            unique_suffix="garage_lockout_approach_radius_m",
+            name="Garage Lockout Approach Radius",
+            icon="mdi:map-marker-radius",
+            entity_id="number.ura_garage_lockout_approach_radius",
+        ),
+        # 0 = release exactly at sleep_end_hour.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN,
+            default=float(GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN),
+            min_val=0.0, max_val=240.0, step=5.0, unit="min",
+            unique_suffix="garage_lockout_morning_backstop_min",
+            name="Garage Lockout Morning Backstop",
+            icon="mdi:weather-sunset-up",
+            entity_id="number.ura_garage_lockout_morning_backstop",
+        ),
+        # 0 = never re-engage after an arrival.
+        _SecurityLockoutNumber(
+            hass, entry,
+            conf_key=CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S,
+            default=float(GARAGE_LOCKOUT_REENGAGE_DELAY_S),
+            min_val=0.0, max_val=7200.0, step=60.0, unit="s",
+            unique_suffix="garage_lockout_reengage_delay_s",
+            name="Garage Lockout Re-engage Delay",
+            icon="mdi:timer-lock-outline",
+            entity_id="number.ura_garage_lockout_reengage_delay",
+        ),
+    ]
 
 
 class ExcessSolarConfirmNumber(NumberEntity):
