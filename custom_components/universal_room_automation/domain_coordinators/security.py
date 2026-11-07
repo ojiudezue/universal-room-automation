@@ -652,6 +652,35 @@ class SecurityCoordinator(BaseCoordinator):
         # fire that lands DURING or AFTER async_teardown becomes a no-op.
         self._shutting_down: bool = False
 
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: lock regime (locks policy,
+        # separate from arming). Built in async_setup.
+        self._lock_regime = None
+
+    @property
+    def lock_regime(self):
+        """The LockRegimeController, or None before setup / if it failed."""
+        return self._lock_regime
+
+    async def _async_setup_lock_regime(self) -> None:
+        """Build and start the lock regime; a failure never blocks SC setup."""
+        try:
+            from .security_lock_regime import LockRegimeController  # noqa: PLC0415
+
+            store = None
+            try:
+                from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+                store = Store(
+                    self.hass, 1, f"{DOMAIN}.lock_regime_residents"
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock regime: no resident Store", exc_info=True)
+            regime = LockRegimeController(self.hass, self, store=store)
+            await regime.async_setup()
+            self._lock_regime = regime
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock regime setup failed", exc_info=True)
+
     async def async_setup(self) -> None:
         """Set up the Security Coordinator."""
         _LOGGER.info(
@@ -796,6 +825,8 @@ class SecurityCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug("Failed to load security anomaly baselines (non-fatal)")
 
+        await self._async_setup_lock_regime()
+
         _LOGGER.info("Security Coordinator setup complete")
 
     async def evaluate(
@@ -843,6 +874,18 @@ class SecurityCoordinator(BaseCoordinator):
         # B-M1 fix-up: mark shutdown BEFORE cancelling listeners so a fire
         # that races past cancel returns immediately at the gate re-check.
         self._shutting_down = True
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 C1 / M-1: release on the real
+        # disable path (live CM entry says SC should not run), then cancel
+        # every regime timer. Both before _cancel_listeners.
+        if self._lock_regime is not None:
+            try:
+                await self._lock_regime.async_release_if_disabled()
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime disable release raised", exc_info=True)
+            try:
+                await self._lock_regime.async_teardown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock regime teardown raised", exc_info=True)
         self._cancel_listeners()
         # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
         # re-setup after teardown re-subscribes cleanly. ``_cancel_listeners``
@@ -1098,6 +1141,14 @@ class SecurityCoordinator(BaseCoordinator):
         ``self._auto_follow_house_state`` (line ~685) before the arming map
         runs, so no ArmedState mutation and no actions are produced.
         """
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: the lock regime is fed BEFORE the
+        # auto-follow return so locks never depend on security_auto_follow.
+        # Isolated: a regime error cannot touch the arming path below.
+        if self._lock_regime is not None:
+            try:
+                self._lock_regime.on_house_state_changed(payload)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime house-state feed raised", exc_info=True)
         try:
             # Flag-off short circuit — avoid even queueing to keep the
             # no-op path byte-cheap and observable.
@@ -1909,6 +1960,23 @@ class SecurityCoordinator(BaseCoordinator):
             self._last_veto_reason = "alarm_panel_domain"
             return False
 
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 D4b Layer 2: SC-owned covers
+        # (configured garage list first, then garage/gate device class).
+        if target.startswith("cover."):
+            try:
+                from ..cover_ownership import (  # noqa: PLC0415
+                    is_security_owned_or_configured_cover,
+                )
+
+                owned = is_security_owned_or_configured_cover(
+                    self.hass, target, self._garage_entities
+                )
+            except Exception:  # noqa: BLE001 — fail closed
+                owned = True
+            if owned:
+                self._last_veto_reason = "security_owned_cover"
+                return False
+
         return True
 
     # =========================================================================
@@ -2056,6 +2124,10 @@ class SecurityCoordinator(BaseCoordinator):
         """
         if not self._enabled:
             return
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 M3: ONLY the lockout release sits
+        # above the observation return (life safety); the door-egress loop
+        # below is unchanged.
+        self._maybe_release_lockouts_for_hazard(hazard)
         if self.observation_mode:
             _LOGGER.debug("Security: Safety hazard received — suppressed by observation mode")
             return
@@ -2103,6 +2175,33 @@ class SecurityCoordinator(BaseCoordinator):
                     hazard_type, severity,
                 )
 
+    def _maybe_release_lockouts_for_hazard(self, hazard: Any) -> None:
+        """Release garage lockouts on a critical smoke/fire/CO hazard.
+
+        Same gate as the egress unlock (CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS);
+        observation-independent by design. Never raises.
+        """
+        if self._lock_regime is None or hazard is None:
+            return
+        try:
+            if isinstance(hazard, dict):
+                hazard_type = hazard.get("hazard_type", "")
+                severity = hazard.get("severity", "")
+            else:
+                hazard_type = getattr(hazard, "hazard_type", "")
+                severity = getattr(hazard, "severity", "")
+            if hazard_type not in ("smoke", "fire", "carbon_monoxide"):
+                return
+            if severity != "critical":
+                return
+            from ..const import CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS
+
+            if not self._get_signal_config(CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS):
+                return
+            self._lock_regime.on_hazard()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Lock regime hazard release raised", exc_info=True)
+
     @callback
     def _handle_person_arriving_signal(self, payload: Any) -> None:
         """Handle person arriving signal — add to expected arrivals.
@@ -2110,6 +2209,13 @@ class SecurityCoordinator(BaseCoordinator):
         v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
         Gated by CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED config toggle.
         """
+        # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 L3: P2 feeds the lock regime above
+        # both early returns (enabled + observation).
+        if self._lock_regime is not None:
+            try:
+                self._lock_regime.on_person_arriving(payload)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("Lock regime arrival feed raised", exc_info=True)
         if not self._enabled:
             return
         if self.observation_mode:
