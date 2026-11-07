@@ -211,6 +211,18 @@ cards:
   revisit_trigger: "Operator upgrades the house to an HA 2026.11.x point release AND test harness pin raised (TEST-HARNESS-REAL-HA-DEFAULT-1)."
   next: "Me, once the trigger fires: write the joint A+B plan (per-form field triage table), one plan review, then build; Tier 2."
   adjacency: "Swept board (HA-2027-DEPRECATIONS-URA-1, ONBOARDING-SIMPLIFY-1, TEST-HARNESS-REAL-HA-DEFAULT-1) + PLANNING_onboarding_simplify_phase2.md O-items: ADJACENT, carded as sibling because it has its own trigger and acceptance."
+- id: NM-INBOUND-HOUSE-QUERIES-1
+  title: "Ask the house by text: WhatsApp / iMessage questions about house state and simple diagnostics"
+  thread: notifications
+  status: pre_planning
+  tier: 2
+  created: "2026-11-07 12:40"
+  updated: "2026-11-07 12:40"
+  rank: {value: 4, time_criticality: 1, effort: 3}
+  origin: "Operator 2026-11-07: 'I wonder if we can process text from WhatsApp and IMessage as ways to query house state and do simple diagnostics?'"
+  why: "Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Echo-loop guard exists (:283-310, NM_ECHO_GUARD_*). Free-text answering has a candidate engine in the OC agent work: a read-only tool catalogue (docs/planning/oc_eval/tools.json, 32 tools) and a live eval harness (PLANNING_oc_live_eval_and_context_pack.md) whose latest L02 runs (sonnet-5.5, 2026-11-04) still FAIL on invented claims (M2)."
+  next: "PICK: A (recommended) deterministic commands first: add 'doors', 'garage', 'who's home', 'hvac', 'energy', 'alerts' replies built from live entities, no LLM, same sender allowlist; or B free-text questions answered by a read-only LLM agent, gated on the OC eval passing M2 (no invented claims) -> I plan A as a Tier 2 NM cycle; B waits on the OC eval."
+  adjacency: "Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card."
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
