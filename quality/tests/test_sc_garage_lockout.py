@@ -526,6 +526,10 @@ async def test_backstop_delay_dst_fall_back():
     rig.w.now = datetime(2026, 10, 31, 23, 0, tzinfo=chicago)
     cfg = rig.regime._cfg()
     assert rig.regime._backstop_delay_s(cfg) == 32400.0
+    # Same-night branch: 00:30 CDT Nov 1 (05:30Z) -> 07:00 CST (13:00Z) =
+    # 7.5 real hours (27000 s); wall subtraction gives 23400.
+    rig.w.now = datetime(2026, 11, 1, 0, 30, tzinfo=chicago)
+    assert rig.regime._backstop_delay_s(cfg) == 27000.0
     # Spring forward: 2027-03-14 02:00 CST -> 03:00 CDT. 23:00 Mar 13 ->
     # 07:00 CDT is 7 real hours.
     rig.w.now = datetime(2027, 3, 13, 23, 0, tzinfo=chicago)
