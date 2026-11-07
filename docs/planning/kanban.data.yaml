@@ -214,7 +214,7 @@ cards:
 - id: DASH-V8-ANI-WEATHER-TRIAL-1
   title: "ura-v8 Now tab: trial Animated Weather Card next to weather_hero"
   thread: dashboard
-  status: waiting_operator
+  status: shipped_organic
   tier: 1
   created: "2026-11-06 15:20"
   updated: "2026-11-06 15:20"
@@ -223,7 +223,8 @@ cards:
   why: "custom:animated-weather-card (alexsto1an/ha-ani-weather-card, MIT, HACS default, v1.2.0). Source checked: pauses off-screen (IntersectionObserver) and on hidden tab, honors prefers-reduced-motion, animate:false switch. Risk = wall-panel CPU (GSAP + canvas blur); see AUDIT_ura_v8_panel_render_spin_2026_10_26.md."
   built_2026_11_06: "Live 15:3x: backup docs/dashboard-prototypes/ura-v8-backups/20261106T_pre_ani_weather_trial.json; HACS v1.2.0 pinned (resource /hacsfiles/ha-ani-weather-card/...); Now view section 0 cards 7-8 = animated-weather-card (weather.phalanxmadrone + local 2024_weather_station temp/feels/humidity/pressure/wind speed+dir, 1 decimal, spill particles, auto_pause) + animated-sun-tracker-card. Not configured: AI note, planes (excluded), moon phase (no moon sensor), indoor reading (no house-wide avg sensor)."
   switched_2026_11_06: "Operator: 'Switch it to the main weather provider. And you can use a template for now.' Station overrides removed (2024 Weather Station is an ambient_network public cloud station, not confirmed ours); card reads weather.phalanxmadrone only. Indoor reading = template helpers sensor.house_indoor_temperature / sensor.house_indoor_humidity (entries 01M6SKV8XWBQ255247672EM8QZ / 01M6SKV9GS5E8M0XF89K79RWHH) reading house_avg_* attributes of the URA delta-outside sensors. RESIDUAL (stopgap): URA should expose House Avg Temperature/Humidity as real sensors and exclude equipment closets (AV Closet 81F, Study A Closet 83F) and outdoor rooms from the average (aggregation.py:1256-1274); then repoint the card and delete the two helpers."
-  next: "REVIEW: look at the Now tab on a phone and on a wall panel -> keep (I remove weather_hero) / panels animate:false / roll back from the backup."
+  next: "Residual only: URA House Avg Temp/Humidity sensors (closets+outdoor excluded) -> repoint card, delete the two indoor template helpers."
+  kept_2026_11_07: "Operator KEEP. Study A (.90) A/B, screen awake on Now, 20 samples each: animate on 42% busy vs off 40% (noise); load = mic/wake-word ~35% core, kiosk app ~30%, camera/RTSP ~18%. weather_hero hidden via never-matching screen visibility (kept in config). Card: wind_direction_sensor_entity=sensor.phalanxmadrone_wind_bearing, all show_* true, note_entity=sensor.weather_extras (template helper 01M6V418A41HYMGAX0CB9S23PX: cloud/gust/dew/visibility; carries old card's Cloud stat), note_max_age 0. No moon sensor (Moon integration not installed)."
   adjacency: "Swept DASH-V8-* + dashboarding workstream: NEW."
 - id: DASH-V8-ROOM-STATUS-CHIPS-1
   groom_2026_10_28: "Overnight groom: the old next (inventory chip sources, add detail controls, then chips) described work that was already built on 10-22 (built_2026_10_22); rewritten as the operator REVIEW it is actually waiting on. Not re-verified live tonight (dashboard check needs a browser)."
