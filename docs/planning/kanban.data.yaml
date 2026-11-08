@@ -321,6 +321,17 @@ cards:
   operator_2026_11_07: "Lockdown must NOT lock an excluded door; lockdown should focus on egress locks. Excluded = interior/passage locks."
   queue_2026_11_07: "Queued with SC-LOCK-REGIME-DOOR-LOCKS-1 right after lockout Phase 1 ships; master bedroom lock removed from SC on 2026-11-07 must be re-added as excluded when this ships."
   restart_pending_2026_11_08: "v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coordinator_away_lock does not exist yet. README v5.106.0 live checks cannot run until the next restart. The README still has no post-restart validation table."
+- id: WA-BRIDGE-DOMAIN-1
+  title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
+  thread: notifications
+  status: in_progress
+  tier: 1
+  created: "2026-11-08 09:10"
+  updated: "2026-11-08 09:40"
+  rank: {value: 3, time_criticality: 3, effort: 1}
+  origin: "Operator 2026-11-08: bridge add-on update added a required API token; operator added the wa_bridge 3.1.1 integration and asked to reconfigure URA to use it and test it; keeps the old whatsapp entry until 3.x is validated."
+  why: "NM _send_whatsapp called whatsapp.send_message only (notification_manager.py:2460). Post-restart the 2.x client logged 11x 401 from the bridge, so every URA WhatsApp send failed. Direct wa_bridge.send_message to the operator number succeeded 2026-11-08 ~09:05."
+  next: "Ship v5.106.1 (prefer wa_bridge, fall back to whatsapp); after restart send an NM test notification and confirm arrival + one inbound WhatsApp reaches _handle_whatsapp_reply; write the README Validated table. DO (you): remove the 2.x entry once validated."
 - id: TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1
   title: "Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills"
   thread: quality

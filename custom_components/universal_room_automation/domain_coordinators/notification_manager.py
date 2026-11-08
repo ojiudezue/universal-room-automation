@@ -346,6 +346,10 @@ NM_WHATSAPP_INBOUND_ENABLED: bool = True
 # reconnect can never re-apply a safe word or a silence. Rung 1. Kill switch:
 # 0 disables dedup. Payloads without a bridge timestamp are not deduped.
 NM_WHATSAPP_DEDUP_TTL_S: int = 600
+# WhatsApp send service domains, in preference order: ha-wa-bridge 3.x
+# (`wa_bridge`), then the 2.x domain. The last entry is used when neither
+# service is registered, so the failure logs and marks channel health.
+NM_WHATSAPP_SERVICE_DOMAINS: tuple[str, ...] = ("wa_bridge", "whatsapp")
 # How long after "diag" a bare digit maps to a menu item. 0 -> names only
 # (digits never map; the menu lists words).
 NM_DIAG_MENU_WINDOW_S: int = 120
@@ -2456,8 +2460,15 @@ class NotificationManager:
                 payload["media_path"] = snapshot_path
             elif snapshot_url:
                 payload["media_url"] = snapshot_url
+            # ha-wa-bridge 3.x renamed its domain whatsapp -> wa_bridge (same
+            # send_message fields); prefer it, fall back to a 2.x install.
+            wa_domain = next(
+                (d for d in NM_WHATSAPP_SERVICE_DOMAINS
+                 if self.hass.services.has_service(d, "send_message")),
+                NM_WHATSAPP_SERVICE_DOMAINS[-1],
+            )
             await self.hass.services.async_call(
-                "whatsapp", "send_message",
+                wa_domain, "send_message",
                 payload,
                 blocking=True,
             )
@@ -3569,7 +3580,7 @@ class NotificationManager:
         """Handle inbound WhatsApp message via ha-wa-bridge.
 
         NM-WA-INBOUND-KEYS-1 (2026-11-07): the installed bridge
-        (custom_components/whatsapp, event ``whatsapp_message_received``)
+        (ha-wa-bridge: whatsapp 2.x / wa_bridge 3.x, event ``whatsapp_message_received``)
         sends ``from`` / ``to`` / ``body`` / ``isGroup`` / ``fromMe`` …, not
         ``phone`` / ``message``, so every WhatsApp inbound was dropped here.
         Parsed via ``_parse_whatsapp_event``; legacy keys still accepted.
