@@ -171,7 +171,7 @@ Don't re-order these in custom automations layered on top — the precedence pre
 
 A **separate** subsystem from arbitrage — it holds the battery as backup ahead of a power-threat storm, replacing reliance on Enphase Storm Guard (cloud-only, no local veto, blunt 100% grid pre-charge, multi-day stale locks). Config lives under **Energy → Weather Providers** (`inclement.py`; CONF keys `energy_const.py:204-215`).
 
-**Detection — event-type relevance is the PRIMARY gate.** URA parses your NWS Alerts sensor (`CONF_INCLEMENT_NWS_ALERTS_ENTITY`) and gates first on the **Event name**: only events matching the operator-curated power-threat list (`DEFAULT_INCLEMENT_POWER_THREAT_EVENTS` — Tornado, Severe Thunderstorm, Ice Storm, Winter Storm, High Wind, Extreme Wind, Hurricane, Blizzard; `energy_const.py:224`) can ever hold the battery. **Severity is only a secondary noise filter** (default min "Severe"), never the gate. So a `Flood Watch` (Severity=Severe) fails the gate → NOTICE → battery discharges normally. *This is the "beats Enphase" property — Enphase Storm Guard would hold; URA does not.*
+**Detection — event-type relevance is the PRIMARY gate.** URA parses your NWS Alerts sensor (`CONF_INCLEMENT_NWS_ALERTS_ENTITY`) and gates first on the **Event name**: only NWS products listed in URA's product table can ever hold the battery. Which of those products hold the battery, and which of those may also buy grid power, is chosen in the Energy Coordinator options under **"Alerts that hold the battery"** and **"Of those, alerts that may buy grid power"**. **Severity never gates or demotes a hold** (it is shown in attributes only). So a `Flood Watch` (Severity=Severe) is not selected to hold by default → NOTICE → battery discharges normally. *This is the "beats Enphase" property — Enphase Storm Guard would hold; URA does not.* (The v5.5.0 "Power-threat events" list and "Min severity" options are retired; stored values are ignored.)
 
 **Graduated hold-depth ladder — not a binary hold:**
 | Rung | What it does |
@@ -303,8 +303,6 @@ The HVAC Coordinator reads these to know how aggressively to coast / precool / p
 | Field | CONF key | Default | What it does |
 |---|---|---|---|
 | **NWS Alerts entity** | `inclement_nws_alerts_entity` | (unset → dormant) | The NWS Alerts sensor URA parses for power-threat events |
-| **Power-threat events** | `inclement_power_threat_events` | Tornado, Severe Thunderstorm, Ice Storm, Winter Storm, High Wind, Extreme Wind, Hurricane, Blizzard | The event-name allowlist (PRIMARY gate) |
-| **Min severity** | `inclement_warn_min_severity` | Severe | Secondary noise filter, applied after the event gate |
 | **Grid pre-charge on hold** | `inclement_grid_precharge_on_hold` | False | Whether to burn grid to backup-fill (solar-first by default) |
 | **Partial-hold reserve floor** | `inclement_partial_hold_reserve_floor` | 50% | Elevated reserve during a `partial_hold` |
 | **Recoverable surplus margin** | `inclement_recoverable_surplus_margin_pct` | 5 %SOC | Margin solar surplus must exceed to count a discharge "recoverable" |

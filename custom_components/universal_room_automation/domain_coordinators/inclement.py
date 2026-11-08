@@ -18,7 +18,7 @@ Design property (load-bearing, D-A): **Event-type outage-relevance is the
 PRIMARY gate.** Severity / Certainty / product-type (Watch vs Warning) are
 independent CAP axes and are NEVER the gate — a Flood Watch (Severity=Severe)
 fails the gate and exits as NOTICE because "Flood" is absent from the
-power-threat list.
+product table (the retired v5.5.0 power-threat list played this role).
 
 Robustness / bug-class prevention:
 - #21 (timezone naive/aware): all datetime ops via dt_util; naive coerced.

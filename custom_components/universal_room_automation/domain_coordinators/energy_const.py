@@ -838,13 +838,10 @@ EV_UNTRUSTED_SOC_EXEMPT_PATHS: Final = frozenset(
 
 # Primary surface (4 knobs)
 CONF_INCLEMENT_NWS_ALERTS_ENTITY: Final = "inclement_nws_alerts_entity"
-# EC storm Stage B D-B5: the legacy key below is RETIRED (removed from the
-# options flow; the product table + the Stage E operator selection replace
-# it). KEEP+DOCUMENT: the constant (and its default list) are kept ONLY so
-# `EnergyCoordinator._check_legacy_threat_list` can detect a customized
-# stored value (repair issue) — never read by the decision path. Stage E
-# E1.9 deleted the warn-min-severity key/default/options (0 readers).
-CONF_INCLEMENT_POWER_THREAT_EVENTS: Final = "inclement_power_threat_events"
+# The v5.5.0 power-threat event list and warn-min-severity keys are retired
+# (Stage B D-B5 / Stage E E1.9 / EC inclement leftovers D2): the product table
+# + the Stage E operator selection replace them. Stored values in old CM
+# options are inert (no reader) and deliberately not purged.
 CONF_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = "inclement_grid_precharge_on_hold"
 
 # Advanced subsection (3 knobs)
@@ -859,18 +856,6 @@ CONF_INCLEMENT_WATCH_REQUIRES_CORROBORATION: Final = "inclement_watch_requires_c
 INCLEMENT_ADVANCED_SECTION: Final = "inclement_advanced"
 
 # Defaults
-# D-B (RETIRED, KEEP+DOCUMENT): the v5.5.0 power-threat default list. Read
-# only by the legacy repair check (a stored list equal to this is silent).
-DEFAULT_INCLEMENT_POWER_THREAT_EVENTS: Final = [
-    "Tornado",
-    "Severe Thunderstorm",
-    "Ice Storm",
-    "Winter Storm",
-    "High Wind",
-    "Extreme Wind",
-    "Hurricane",
-    "Blizzard",
-]
 # D-I: never burn grid energy to backup-fill on a watch (solar-first).
 DEFAULT_INCLEMENT_GRID_PRECHARGE_ON_HOLD: Final = False
 # D-E (FIN-1): reserve floor URA preserves during a partial_hold.

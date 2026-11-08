@@ -214,7 +214,7 @@ Replaced the legacy Storm Guard's blunt 100% grid pre-charge with an **NWS alert
 - `Ends`/`Expires`: drop expired via `_alert_expires_at()` (`:129`).
 - `Certainty` ∈ observed/likely → tier candidate; else → `watch`-candidate.
 - Event ending in "warning" → tier bumps.
-- `Severity` gated against `warn_min_severity` (severity < config → demoted warn → watch).
+- `Severity` is attributes-only since Stage B D-B2 (never gates or demotes; `warn_min_severity` and the power-threat list are retired).
 - `_max_tier` across alerts wins.
 
 ### 5.2 Hold-depth decision (`_hold_depth_decision`-family, `inclement.py:551–705`)

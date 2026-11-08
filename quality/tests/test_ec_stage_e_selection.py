@@ -561,6 +561,34 @@ def test_selection_form_keys_popped():
     assert keys[CONF_INCLEMENT_BUY_PRODUCTS].default() == ["Winter Storm Warning"]
 
 
+_LEGACY_STORED = {
+    # Fossil v5.5.0 keys still present in the live CM options (2026-11-08).
+    "inclement_power_threat_events": [
+        "Tornado", "Severe Thunderstorm", "Ice Storm", "Winter Storm",
+        "High Wind", "Extreme Wind", "Hurricane", "Blizzard", "Flood"],
+    "inclement_warn_min_severity": "Extreme",
+}
+
+
+def test_options_flow_tolerates_legacy_inclement_keys():
+    """EC inclement leftovers D2 / INV-L1: the energy options step renders
+    and saves with the retired keys stored (no vol.Invalid), and the save
+    passes them through untouched (no purge)."""
+    keys = _form_defaults(_flow(_LEGACY_STORED))
+    assert not ({"inclement_power_threat_events",
+                 "inclement_warn_min_severity"} & set(keys))
+    hold_default = keys[CONF_INCLEMENT_HOLD_PRODUCTS].default()
+    buy_default = keys[CONF_INCLEMENT_BUY_PRODUCTS].default()
+    r = _submit(_flow(_LEGACY_STORED), {
+        CONF_INCLEMENT_HOLD_PRODUCTS: hold_default,
+        CONF_INCLEMENT_BUY_PRODUCTS: buy_default,
+    })
+    assert r["type"] == "create_entry", r
+    saved = r["data"]
+    for k, v in _LEGACY_STORED.items():
+        assert saved[k] == v
+
+
 def test_selection_validation_buy_subset_of_hold():
     r = _submit(_flow(), {
         CONF_INCLEMENT_HOLD_PRODUCTS: ["Winter Storm Watch"],
@@ -649,6 +677,8 @@ def test_legacy_plumbing_removed():
                     "CONF_INCLEMENT_WARN_MIN_SEVERITY",
                     "DEFAULT_INCLEMENT_WARN_MIN_SEVERITY",
                     "INCLEMENT_WARN_MIN_SEVERITY_OPTIONS",
+                    "DEFAULT_INCLEMENT_POWER_THREAT_EVENTS",
+                    "_check_legacy_threat_list",
                     "_event_matches_threat"}
     legacy_strings = {"inclement_power_threat_events",
                       "inclement_warn_min_severity"}
@@ -662,16 +692,18 @@ def test_legacy_plumbing_removed():
                 name = n.id
             elif isinstance(n, ast.alias) and n.name in legacy_names:
                 name = n.name
+            elif isinstance(n, ast.Attribute) and n.attr in legacy_names:
+                name = n.attr
+            elif (isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and n.name in legacy_names):
+                name = n.name
             elif isinstance(n, ast.Constant) and n.value in legacy_strings:
                 name = n.value
             if name:
                 readers.add((p.name, owner(n), name))
-    allowed = {
-        ("energy_const.py", "<module>", "CONF_INCLEMENT_POWER_THREAT_EVENTS"),
-        ("energy_const.py", "<module>", "inclement_power_threat_events"),
-        ("energy.py", "_check_legacy_threat_list",
-         "CONF_INCLEMENT_POWER_THREAT_EVENTS"),
-    }
+    # EC inclement leftovers D2: the last readers (the repair check and the
+    # constants it read) are removed — nothing may reference them.
+    allowed: set = set()
     assert readers <= allowed, readers - allowed
     # The two retired fields are absent from the rendered options schema.
     keys = _form_defaults(_flow())
@@ -682,6 +714,7 @@ def test_legacy_plumbing_removed():
         txt = (PKG / p).read_text()
         assert "inclement_warn_min_severity" not in txt
         assert '"inclement_power_threat_events"' not in txt
+        assert "inclement_legacy_threat_list_retired" not in txt
 
 
 def test_product_table_iterated_only_in_match_and_build_selection():

@@ -1319,10 +1319,6 @@ class EnergyCoordinator(BaseCoordinator):
         # OUTAGE_SWEEP_INTERVAL_H). Idempotent; cancelled in async_teardown.
         self._arm_outage_ledger()
 
-        # EC storm Stage B D-B5: one repair issue if the retired legacy
-        # threat list was customized (no options write).
-        self._check_legacy_threat_list()
-
         # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
         # coordinator gets a chance to veto an Optimizer-proposed actuation
         # before it dispatches. Bug Class #50 guardrail — store the unsub on
@@ -9508,38 +9504,6 @@ class EnergyCoordinator(BaseCoordinator):
 
         except Exception:
             _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
-
-    def _check_legacy_threat_list(self) -> bool:
-        """EC storm Stage B D-B5: the power-threat list is retired. If the
-        stored value differs from the v5.5.0 default, raise ONE repair issue
-        (``inclement_legacy_threat_list_retired``). Never writes options.
-        Returns True iff the issue was raised. Never raises."""
-        try:
-            from .energy_const import (
-                CONF_INCLEMENT_POWER_THREAT_EVENTS,
-                DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-            )
-            stored = self._get_cm_options().get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
-            if stored is None:
-                return False
-            if isinstance(stored, str):
-                stored = [ln.strip() for ln in stored.splitlines() if ln.strip()]
-            if list(stored) == list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS):
-                return False
-            from homeassistant.helpers import issue_registry as ir
-            from ..const import DOMAIN
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                "inclement_legacy_threat_list_retired",
-                is_fixable=False,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="inclement_legacy_threat_list_retired",
-            )
-            return True
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("legacy threat-list check failed", exc_info=True)
-            return False
 
     def _get_cm_options(self) -> dict:
         """Return current Coordinator Manager options, re-read on every call.
