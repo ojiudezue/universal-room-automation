@@ -7352,6 +7352,13 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     "security_garage_lockout_enabled",
     "security_lockout_engage_on_guest_sleep",
     "security_lockout_excluded_persons",
+    # SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1: read live
+    # (SC._sweep_excluded, regime away_lock_on / away_lock_persons).
+    # security_away_lock_entities is NOT here: edits reload the CM because
+    # its ownership listener is registered at setup (plan D3h).
+    "security_lock_sweep_exclude",
+    "security_away_lock_enabled",
+    "security_away_lock_persons",
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
@@ -7652,6 +7659,13 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     "security_garage_lockout_enabled",
     "security_lockout_engage_on_guest_sleep",
     "security_lockout_excluded_persons",
+    # SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1: read live
+    # (SC._sweep_excluded, regime away_lock_on / away_lock_persons).
+    # security_away_lock_entities is NOT here: edits reload the CM because
+    # its ownership listener is registered at setup (plan D3h).
+    "security_lock_sweep_exclude",
+    "security_away_lock_enabled",
+    "security_away_lock_persons",
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
