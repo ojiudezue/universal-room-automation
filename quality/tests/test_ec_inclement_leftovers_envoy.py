@@ -136,6 +136,28 @@ def test_degraded_hold_current_counts_toward_envoy_offline_page(clock):
     assert pages[0]["title"] == "Envoy Offline"
 
 
+def test_fully_blind_decision_reports_envoy_unavailable(clock):
+    """Review C LOW: the second decision-shaped literal dict (fully blind:
+    Envoy SOC unavailable and no fallback tier) carries envoy_available
+    False, and three such ticks page "Envoy Offline" through the tracker."""
+    c, s = _shell(clock, degraded=True, site="defer")
+    s._soc_lkg = None
+    s._soc_lkg_at = None
+    for i in range(3):
+        clock.t = OCT_03 + timedelta(minutes=5 * i)
+        d = s.determine_mode(
+            "off_peak", "shoulder", now=clock.t.astimezone(_CDT),
+        )
+        # Not the degraded path (the blind return precedes that stamp).
+        assert getattr(s, "_degraded_telemetry_source", None) is None
+        assert "post-reboot HOLD CURRENT" not in d["reason"], d["reason"]
+        assert d["envoy_available"] is False
+        c._track_envoy_availability(d)
+    asyncio.get_event_loop().run_until_complete(asyncio.sleep(0))
+    assert c._envoy_unavailable_count == 3
+    assert len([n for n in c.nm if n.get("hazard_type") == "envoy_offline"]) == 1
+
+
 # ---------------------------------------------------------------------------
 # Whole-surface pin (review M4): every decision-shaped dict literal in
 # energy_battery.py carries `envoy_available`, never as literal True.

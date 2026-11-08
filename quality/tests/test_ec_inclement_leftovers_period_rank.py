@@ -216,6 +216,38 @@ def test_above_bottom_rate_fallbacks(period):
     assert above_bottom_rate(live, "summer", "shoulder_peak") is False
 
 
+def test_rate_order_warning_logs_on_inverted_tariff(caplog):
+    """Review A LOW-1: an inverted file (off_peak above mid_peak) loads
+    unchanged but logs one WARNING naming the season; PEC logs none."""
+    import logging
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_tou as et,
+    )
+    data = json.loads(_FIXTURE.read_text())
+    with caplog.at_level(logging.WARNING, logger=et.__name__):
+        eng = TOURateEngine._from_parsed_data(data, "live.json", "live.json")
+    assert eng.file_status == "ok"
+    assert not [r for r in caplog.records if "rate-ranked" in r.getMessage()]
+    inv = json.loads(_FIXTURE.read_text())
+    sh = inv["seasons"]["shoulder"]["periods"]
+    sh["off_peak"]["import_rate"], sh["mid_peak"]["import_rate"] = 0.09, 0.04
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=et.__name__):
+        eng = TOURateEngine._from_parsed_data(inv, "inv.json", "inv.json")
+    assert eng.file_status == "ok"                     # never rejected
+    assert eng._rates["shoulder"]["periods"]["off_peak"]["import_rate"] == 0.09
+    msgs = [r.getMessage() for r in caplog.records
+            if "rate-ranked" in r.getMessage()]
+    assert len(msgs) == 1 and "'shoulder'" in msgs[0]
+    # Pure helper: a peak priced below mid_peak is flagged too.
+    assert et._rate_order_warnings({"s": {"periods": {
+        "off_peak": {"import_rate": 0.04}, "mid_peak": {"import_rate": 0.09},
+        "peak": {"import_rate": 0.05}}}}) != []
+    assert et._rate_order_warnings({"s": {"periods": {
+        "off_peak": {"import_rate": 0.04},
+        "mid_peak": {"import_rate": 0.04}}}}) == []
+
+
 def test_season_at_failures_are_none():
     assert season_at(None, _BOUNDARY_2100) is None
     assert season_at(_live_engine(), None) is None
@@ -415,6 +447,34 @@ def test_intent_anchor_current_period_routes_through_above_bottom_rate():
     assert (a["anchor_period"], a["anchor_starts_in_minutes"]) == ("mid_peak", 0)
 
 
+# Current-period site, season boundary (Review C HIGH): at 06-30 21:00 the
+# CURRENT period is ranked in today's season A (mid_peak above bottom) while
+# the transition (00:00) falls in season B, where mid_peak is the bottom and
+# the next period off_peak is also the bottom (so the first branch does not
+# anchor). Ranking the current period at the transition instant would read B
+# and drop the anchor.
+_SEASON_FLIP_CUR = {
+    "a": {"months": [1, 2, 3, 4, 5, 6], "periods": {
+        "off_peak": _p([(0, 17)], 0.04),
+        "mid_peak": _p([(17, 24)], 0.09),
+    }},
+    "b": {"months": [7, 8, 9, 10, 11, 12], "periods": {
+        "off_peak": _p([(0, 17)], 0.03),
+        "mid_peak": _p([(17, 24)], 0.03),
+    }},
+}
+
+
+def test_intent_anchor_current_period_ranked_in_todays_season(monkeypatch):
+    tou = _eng(_SEASON_FLIP_CUR)
+    tr = tou.get_next_transition(_BOUNDARY_2100)
+    assert (tr["next_period"], tr["hours_until"]) == ("off_peak", 3)
+    assert tou.get_current_period(_BOUNDARY_2100) == "mid_peak"
+    pinned = _Transition(_SEASON_FLIP_CUR, "off_peak", 3, "mid_peak")
+    a = _intent_attrs(pinned, monkeypatch, now=_BOUNDARY_2100)
+    assert (a["anchor_period"], a["anchor_starts_in_minutes"]) == ("mid_peak", 0)
+
+
 def test_intent_anchor_ranks_not_names_synthetic_tariff():
     """Plan §D4 acceptance: next off_peak (mid-rank) → anchored; next
     super_off_peak (bottom) → None (the `off_peak` elif is out of scope)."""
@@ -471,7 +531,8 @@ _LITS = {"peak", "mid_peak"}
 
 def _period_literal_sites(trees):
     """`trees`: iterable of (relative path, ast.Module). Returns
-    {"path::func::literal": count}. Docstrings (the first-statement string
+    {"path::Class.func::literal": count} ("func" for a module-level
+    function, "<module>" outside functions). Docstrings (the first-statement string
     of a Module / ClassDef / FunctionDef / AsyncFunctionDef) are excluded;
     comments are not AST nodes."""
     out: dict[str, int] = {}
@@ -491,11 +552,18 @@ def _period_literal_sites(trees):
             if not (isinstance(n, ast.Constant) and isinstance(n.value, str)
                     and n.value in _LITS and id(n) not in docs):
                 continue
+            # Key = nearest enclosing function, qualified by its nearest
+            # enclosing class ("Class.func"); "<module>" outside functions.
             o, fn = n, "<module>"
             while o in parents:
                 o = parents[o]
                 if isinstance(o, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     fn = o.name
+                    while o in parents:
+                        o = parents[o]
+                        if isinstance(o, ast.ClassDef):
+                            fn = f"{o.name}.{fn}"
+                            break
                     break
             k = f"{rel}::{fn}::{n.value}"
             out[k] = out.get(k, 0) + 1
@@ -520,7 +588,9 @@ def test_period_literal_sites_pinned():
         f"through energy_tou.above_bottom_rate, or edit "
         f"TOU_PERIOD_NAME_LITERAL_SITES in a reviewed change.")
     # Independent hand count (plan §D4.2 regenerated after migration).
-    assert sum(pin.values()) == 50 and len(pin) == 29
+    # (+2 for energy_tou._RATE_ORDER, Review A LOW-1; keys class-qualified,
+    # Review B LOW, so the three energy_pool determine_* no longer merge.)
+    assert sum(pin.values()) == 52 and len(pin) == 31
 
 
 def test_period_literal_pin_ignores_docstrings():
@@ -540,7 +610,7 @@ def test_period_literal_pin_ignores_docstrings():
     got = _period_literal_sites([("m.py", ast.parse(src))])
     assert got == {
         "m.py::<module>::peak": 1,
-        "m.py::f::mid_peak": 1,
-        "m.py::f::peak": 1,
+        "m.py::C.f::mid_peak": 1,
+        "m.py::C.f::peak": 1,
         "m.py::g::peak": 1,
     }
