@@ -585,6 +585,51 @@ step rejects overlap). It never touches ArmedState and never goes through `evalu
   (teardown reads "should run", no release); Presence observation ON (no edges); first 120 s
   after a restart (edges do not engage); SC observation ON is not "zero writes" for releases.
 
+### 7c. Never-auto-lock locks + the away lock (SC-LOCK-SWEEP-EXCLUDE-1 + SC-LOCK-REGIME-DOOR-LOCKS-1, branch `feature/sc-lock-exclude-away-lock`, NOT deployed)
+
+Plan: `docs/planning/PLANNING_sc_lock_exclude_and_door_regime.md` rev 3.
+
+- **Never auto-lock** (`security_lock_sweep_exclude`, options flow, read live, a subset of
+  `security_lock_entities`): the periodic lock sweep (`_evaluate_lock_check`) and lockdown
+  (`_generate_lockdown_actions`, both callers) skip these locks, and the garage engage predicate
+  refuses one (`why=excluded`, legacy overlap guard). They still show in `doors` (note
+  "not auto-locked"; `unlocked` is not a problem, `jammed` / offline is), stay on the
+  offline-lock notice, and are still unlocked by the hazard egress path. The aggregator counts
+  them as `locks_excluded`, not in `locks_total/locked/unlocked/jammed`, so they never block
+  ARMED and never raise the optimizer SECURITY_POSTURE finding; compliance drops them by key.
+  `sensor.ura_security_last_lock_sweep` attr `excluded` lists those seen per sweep.
+- **Away lock** (lock-regime policy 2, switch *Away Lock*, default OFF): locks every
+  `security_away_lock_entities` lock (must also be never-auto-lock, and never a lockout) once
+  EVERY `security_away_lock_persons` person reads exactly `not_home` (named zones are not away)
+  for `SECURITY_AWAY_LOCK_ENGAGE_DWELL_S` (300 s), measured from persisted per-person
+  `not_home` stamps (never `person.last_changed`). One attempt per all-away formation: if the
+  read-back (20 s) does not see `locked` (passage mode), one LOW advisory and no ownership.
+  Release (direct unlock + read-back + one retry + HIGH NM, never suppressed by observation or
+  either switch) whenever a listed person reads `home` (any reading, a restored state and a
+  short blip included: no blip gate on the release side; also at the boot recheck for a person
+  who got home while HA was down), on P2 (arriving signal, 15-min really-away gate), on a
+  critical hazard, the switch going OFF, or SC disable. It only unlocks locks it owns or has an
+  engage in flight for; a human unlock drops ownership; a lock that is unavailable at release
+  stays owned (retried by the next release); `jammed` / `locking` / `unlocking` get an unlock
+  attempt. A release during an engage loop stops the loop (release epoch), and cfg is re-read
+  per lock. It never touches the garage policy's `reason` / `release_gen` / backstop /
+  re-engage. Boot: replayed edges never arm; the 120 s boot recheck arms the remaining dwell.
+  Store `universal_room_automation.lock_regime_residents` carries `residents`,
+  `away_lock_owned`, `away_not_home_since`, `away_lock_inflight` (an engage whose read-back was
+  lost to a restart; owned at setup unless it reads `unlocked`) and `away_attempted_marker`
+  (the outing an attempt belonged to, so a restart mid-outing neither re-locks nor re-notifies).
+  Teardown flushes the Store. Diagnostics:
+  `lock_regime_away_lock_{enabled,owned,last_action,pending_engage_at}`.
+- **Accepted residual (review B6):** a live edit of `security_away_lock_persons` is not
+  re-evaluated. A person added while already `not_home` has no since-stamp until their next
+  state change, so nothing engages until then; removing the last at-home person does not
+  re-arm either. Same shape as "OFF -> ON never catches up".
+- **Accepted redundant defences (review C G12/G13, not separately mutation-anchored):** the
+  away release's own dwell cancel and save (the attempted latch + the per-ownership saves
+  cover them), its no-target early return, the re-arm kill-switch / entities gate (the engage
+  predicate re-checks both), and `_clear_attempted`'s save (always paired with the stamp-pop
+  save). Each is backed by a tested layer; removing one alone cannot cause a wrong lock write.
+
 ## 8. HOUSE STATE INTEGRATION
 
 ### Automatic Armed State

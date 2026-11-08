@@ -242,6 +242,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "security_garage_lockout_enabled",
     "security_lockout_engage_on_guest_sleep",
     "security_lockout_excluded_persons",
+    # SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1 -> 120.
+    "security_lock_sweep_exclude",
+    "security_away_lock_enabled",
+    "security_away_lock_persons",
     "garage_lockout_approach_radius_m",
     "garage_lockout_morning_backstop_min",
     "garage_lockout_reengage_delay_s",
@@ -402,7 +406,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +2 EC-BILL-UTILITY-DIVERGENCE-FROM-STATS-1 utility statistic ids -> 110
     # +1 EC-BILL-CYCLE-DAY-WIRED-1 energy_bill_cycle_day -> 111
     # +6 GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 live lock-regime keys -> 117
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 117
+    # +3 SC-LOCK-SWEEP-EXCLUDE-1 / SC-LOCK-REGIME-DOOR-LOCKS-1 live keys -> 120
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 120
 
 
 # ---------------------------------------------------------------------------

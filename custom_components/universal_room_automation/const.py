@@ -3404,6 +3404,30 @@ CONF_GLOBAL_HUMIDITY_SENSORS: Final = "global_humidity_sensors"
 
 # v3.6.0-c3: Security Coordinator config constants
 CONF_SECURITY_LOCK_ENTITIES: Final = "security_lock_entities"
+# SC-LOCK-SWEEP-EXCLUDE-1 (plan docs/planning/PLANNING_sc_lock_exclude_and_door_regime.md
+# rev 3 D1). Rung 2 (options flow): subset of security_lock_entities that the
+# periodic lock sweep and a security lockdown never lock (interior / passage
+# locks). They still show in Doors, the dashboard and the offline-lock notice,
+# and the hazard egress unlock still covers them. Read live (no reload).
+# Empty = today's behaviour.
+CONF_SECURITY_LOCK_SWEEP_EXCLUDE: Final = "security_lock_sweep_exclude"
+# SC-LOCK-REGIME-DOOR-LOCKS-1 (same plan, D3/D4): the away lock, a second
+# lock-regime policy. Rung 3 (options-backed switch "Away Lock"): kill switch,
+# absent key = OFF. ON -> OFF releases the locks this policy locked, once.
+CONF_SECURITY_AWAY_LOCK_ENABLED: Final = "security_away_lock_enabled"
+DEFAULT_SECURITY_AWAY_LOCK_ENABLED: Final = False
+# Rung 2 (options flow): locks the away lock locks. Each must also be in
+# security_lock_sweep_exclude (validator). Edits reload the CM (the ownership
+# listener is registered at setup). Empty = rule inert.
+CONF_SECURITY_AWAY_LOCK_ENTITIES: Final = "security_away_lock_entities"
+# Rung 2 (options flow): the people who must ALL read person.state ==
+# "not_home" (named zones do not count) before the away lock locks; any one
+# arriving home releases it. Read live. Empty = rule inert.
+CONF_SECURITY_AWAY_LOCK_PERSONS: Final = "security_away_lock_persons"
+# Rung 1 (module constant, review-only): every listed person must have read
+# not_home for this long before the away lock engages (GPS-flap guard on a
+# lock actuation). 0 = engage on the first all-away edge.
+SECURITY_AWAY_LOCK_ENGAGE_DWELL_S: Final = 300
 CONF_SECURITY_GARAGE_ENTITIES: Final = "security_garage_entities"
 CONF_SECURITY_ENTRY_SENSORS: Final = "security_entry_sensors"
 CONF_SECURITY_LIGHT_ENTITIES: Final = "security_light_entities"
@@ -3441,7 +3465,8 @@ CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP: Final = (
 DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP: Final = True
 # Rung 2 (options flow): the remote-lockout lock entities. Must never
 # overlap security_lock_entities (validator rejects it); the sweep and
-# lockdown iterate only security_lock_entities.
+# lockdown iterate only security_lock_entities minus
+# security_lock_sweep_exclude.
 CONF_SECURITY_LOCKOUT_ENTITIES: Final = "security_lockout_entities"
 # Rung 2 (options flow): persons that never count as residents. The
 # resident set is every person.* minus this list (dynamic, plan §6.1a).
@@ -3468,7 +3493,11 @@ CONF_GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = (
 GARAGE_LOCKOUT_MORNING_BACKSTOP_MIN: Final = 60
 CONF_GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = "garage_lockout_reengage_delay_s"
 GARAGE_LOCKOUT_REENGAGE_DELAY_S: Final = 900
-# Rung 1 (module constants, review-only).
+# Rung 1 (module constants, review-only). The GARAGE_LOCKOUT_* read-back,
+# blip and boot constants below are SHARED lock-regime constants: the away
+# lock (SC-LOCK-REGIME-DOOR-LOCKS-1) uses READBACK_S / READBACK_RETRIES /
+# BLIP_MIN_AWAY_MIN / BOOT_RECHECK_S / BOOT_ARRIVAL_WINDOW_S with the same
+# meaning. Not renamed (churn on a shipped surface).
 # Re-engage is ABANDONED (not forced) if the releasing residents are not
 # settled within this bound.
 GARAGE_LOCKOUT_REENGAGE_MAX_WAIT_S: Final = 3600

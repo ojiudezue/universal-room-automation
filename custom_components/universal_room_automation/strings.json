@@ -940,7 +940,10 @@
         "title": "🔒 Security",
         "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured — no auto-discovery.",
         "data": {
-          "security_lock_entities": "Lock Entities",
+          "security_lock_entities": "Door locks",
+          "security_lock_sweep_exclude": "Never auto-lock these",
+          "security_away_lock_entities": "Lock when everyone below is out",
+          "security_away_lock_persons": "People for the away lock",
           "security_garage_entities": "Garage Door Entities",
           "security_entry_sensors": "Entry Sensors (Door/Window)",
           "security_light_entities": "Security Light Entities",
@@ -956,7 +959,10 @@
           "security_lockout_approach_zone": "Approach zone (optional early release)"
         },
         "data_description": {
-          "security_lock_entities": "Door locks to control during security events and periodic lock checks. Must be manually selected.",
+          "security_lock_entities": "Every lock URA should know about. All of them show in Doors and on the dashboard.",
+          "security_lock_sweep_exclude": "Interior or passage-mode locks. The lock check and a security lockdown leave them alone. Pick from Door locks.",
+          "security_away_lock_entities": "Locked once all the people below are away, unlocked when any of them comes home. Must also be in Never auto-lock.",
+          "security_away_lock_persons": "The lock above locks only when all of these people are away. Leave empty to turn the rule off.",
           "security_garage_entities": "Garage doors and automated egress points. Treated as locks for periodic check and lockdown.",
           "security_entry_sensors": "Door/window binary sensors to monitor for entry events.",
           "security_light_entities": "Lights to activate at full brightness during security alerts. Must be manually selected.",
@@ -966,13 +972,15 @@
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
           "security_auto_follow": "Automatically set armed state based on house state (away → armed_away, home → armed_home). Off by default.",
           "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state.",
-          "security_lockout_entities": "The opener locks that block car remotes and keypads (Garage Lockout switch). Locked at night and on vacation, released when a resident arrives. Never list a door lock from Lock Entities here.",
+          "security_lockout_entities": "The opener locks that block car remotes and keypads (Garage Lockout switch). Locked at night and on vacation, released when a resident arrives. Never list a lock from Door locks here.",
           "security_lockout_excluded_persons": "Every person counts as a resident who can release the lockout by arriving, except the people listed here (for example a wall-tablet person with no trackers).",
-          "security_lockout_distance_sensors": "HA proximity distance sensors, one per resident. Crossing inside the approach radius releases the lockout before the person reaches home.",
+          "security_lockout_distance_sensors": "HA proximity distance sensors, one per resident. Crossing inside the approach radius releases the lockout before the person reaches home. Only proximity distance sensors are listed.",
           "security_lockout_approach_zone": "Optional. A person entering this zone also releases the lockout."
         },
         "error": {
-          "lockout_overlaps_locks": "A lockout lock is also listed under Lock Entities. Remove it from one list."
+          "lockout_overlaps_locks": "A lockout lock is also listed under Door locks. Remove it from one list.",
+          "exclude_not_in_locks": "Every lock in Never auto-lock must also be in Door locks.",
+          "away_lock_not_excluded": "Every away lock must also be in Never auto-lock, or the lock check would lock it all the time."
         }
       },
       "coordinator_energy": {
