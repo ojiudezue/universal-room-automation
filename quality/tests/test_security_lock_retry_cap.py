@@ -243,3 +243,27 @@ def test_cap_notice_not_lost_to_observation_mode():
     coord.observation_mode = False
     notes = sum(len(_cap_notes(_run_evaluate(coord))) for _ in range(3))
     assert notes == 1
+
+
+# ------------------------------------------------ merge with SC-LOCK-SWEEP-EXCLUDE-1
+EXCL = "lock.master_bedroom"
+
+
+def test_excluded_lock_never_opens_or_keeps_a_retry_episode():
+    """Exclusion precedes the retry cap: an excluded unlocked lock is never
+    commanded, never counted toward the cap, never gets a cap notice, and a
+    stale capped episode from before it was excluded is cleared."""
+    coord, states = _make(locks=(LOCK, EXCL))
+    coord._sweep_excluded = lambda: {EXCL}
+    states.set(LOCK, "locked")
+    states.set(EXCL, "unlocked")
+    coord._lock_retry_episodes[EXCL] = {"attempts": 3, "capped_at": T0}
+    for i in range(5):
+        actions = _run(coord, T0 + timedelta(minutes=30 * i))
+        assert _cmds(actions, EXCL) == []
+        assert _cap_notes(actions) == []
+    assert EXCL not in coord._lock_retry_episodes
+    sweep = coord._last_lock_sweep
+    assert sweep["excluded"] == [EXCL]
+    assert sweep["retry_capped"] == []
+    assert EXCL not in sweep["found_unlocked"]
