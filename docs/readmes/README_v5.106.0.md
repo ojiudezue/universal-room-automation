@@ -50,3 +50,13 @@ suite name-diff vs develop: 0 new, 0 gone. Three files that fail in isolation fa
 - Integration loads; `switch.ura_security_coordinator_away_lock` exists and is OFF; garage lockout switch unchanged.
 - Options form shows the new fields together; distance picker lists only the `madronehaos_*_distance` sensors.
 - No lock calls on `lock.master_bedroom_lock` while the switch is OFF; no `security_lock_regime` errors after boot.
+
+## Validated 2026-11-08 (post-restart 08:24 CST, Away Lock OFF)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loads; Away Lock switch exists, OFF; garage lockout unchanged | PASS | `switch.ura_security_coordinator_away_lock` = off, `switch.ura_security_coordinator_garage_lockout` = off (both last_changed = boot 14:24:39Z) |
+| Form fields grouped | PASS | `coordinator_security` step order: lock list, never-auto-lock, Away Lock locks, Away Lock persons, then lockout entities, excluded persons, distance sensors, approach zone (flow opened and aborted, not saved) |
+| Distance picker filtered | PASS | selector filter `integration: proximity, domain: sensor, device_class: distance`; defaults are the `sensor.madronehaos_*_distance` sensors |
+| No lock calls while OFF | PASS | logbook since 14:20Z empty for `lock.master_bedroom_lock` and both garage lockouts; last_changed = restore at boot |
+| No `security_lock_regime` errors after boot | PASS | system_log (current boot): no entries for `security_lock_regime` or the security coordinator; URA entries are the known boot warnings. Raw journald was not readable this run. |
+| Away Lock engage/release | PENDING | needs the operator setup (bedroom lock in the list + excluded, persons set, passage mode off, switch on) |

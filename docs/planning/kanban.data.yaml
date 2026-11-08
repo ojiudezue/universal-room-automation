@@ -9,6 +9,12 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "SC-GEOFENCE-PERSON-SNAPSHOT-1@2026-11-08T02:23:00", "card_id": "SC-GEOFENCE-PERSON-SNAPSHOT-1", "at": "2026-11-08T02:23:00", "outcome": "measured", "headline": "Checked the 2 inbox cards: both still real (Security's arrival listener misses people added after startup; a test file pollutes later tests). Both are small and planned, and I'll build them once the review lane drains.", "acknowledged": false}
+  - {"fid": "SECURITY-LOCK-SWEEP-RETRY-CAP-1@2026-11-08T02:23:00", "card_id": "SECURITY-LOCK-SWEEP-RETRY-CAP-1", "at": "2026-11-08T02:23:00", "outcome": "built-to-review", "headline": "The lock-retry fix stopped merging after last night's v5.106.0 (same function). I re-merged it on top: locks on the never-auto-lock list now skip the retry cap too. A review said SHIP, and 2 small fixes are in. With the other two review fixes it is one branch, integ/overnight-2026-11-08, full suite clean (0 new failures). Ready for your daytime deploy; that restart also turns on v5.106.0.", "acknowledged": false}
+  - {"fid": "NM-INBOUND-HOUSE-QUERIES-1@2026-11-08T02:05:00", "card_id": "NM-INBOUND-HOUSE-QUERIES-1", "at": "2026-11-08T02:05:00", "outcome": "done", "headline": "Closed 'ask the house by text': the diag menu answered 5 different questions over iMessage tonight. WhatsApp and HA-app replies have never been seen, so I opened a small card asking you to send 'diag' once on each.", "acknowledged": false}
+  - {"fid": "PERIMETER-DETECTION-WENT-DARK-1@2026-11-08T02:05:00", "card_id": "PERIMETER-DETECTION-WENT-DARK-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "Frigate2 was down 7.3 h yesterday (13:14-20:32), the seventh outage. This time URA noticed and paged you 3 times. It is healthy now (24 detections/s). Your Coral-vs-scheduled-restart pick is still open.", "acknowledged": false}
+  - {"fid": "SC-LOCK-SWEEP-EXCLUDE-1@2026-11-08T02:05:00", "card_id": "SC-LOCK-SWEEP-EXCLUDE-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "v5.106.0 (never-auto-lock list + Away Lock) is installed but not running: HA still needs a restart (held overnight). Its live checks wait for that restart.", "acknowledged": false}
+  - {"fid": "SAFETY-SENSOR-FLEET-HEALTH-1@2026-11-08T02:05:00", "card_id": "SAFETY-SENSOR-FLEET-HEALTH-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "Re-checked the cards waiting on you: kitchen smoke sensor and BLE proxy BP1_B are still offline. Nothing else changed.", "acknowledged": false}
   - {"fid": "OPTIMIZER-META-NEVER-PAGES-1@2026-11-07T02:04:00", "card_id": "OPTIMIZER-META-NEVER-PAGES-1", "at": "2026-11-07T02:04:00", "outcome": "measured", "headline": "Review lane re-check: no code changed on develop since last night, and both branches waiting for you (integ/overnight-2026-11-04 with the optimizer-page and lock-retry fixes; fix/anomaly-undeclare-dead-metrics) still merge clean. All 3 are ready for the next daytime deploy. No new builds tonight because 3 cards already wait in review.", "acknowledged": false}
   - {"fid": "ROOM-TYPE-TRIMMED-MENU-1@2026-11-07T02:04:00", "card_id": "ROOM-TYPE-TRIMMED-MENU-1", "at": "2026-11-07T02:04:00", "outcome": "done", "headline": "Closed the room-menu trim card: your 11-05 change (trim closets in Advanced mode too, drop the per-room electricity rate) passed every live check after the 11-06 restart (Stair Closet 8 entries, Master Bedroom all 12, cost from the house TOU rate).", "acknowledged": false}
   - {"fid": "CONFIG-FLOW-SLOW-ONBOARDING-1@2026-11-07T02:04:00", "card_id": "CONFIG-FLOW-SLOW-ONBOARDING-1", "at": "2026-11-07T02:04:00", "outcome": "parked", "headline": "Parked the slow room-setup card: the v5.103.105 log clean-up passed live (no slow-step warnings on normal dialogs). Nothing to build until a setup is slow again, and that slow step will now log itself with its timing.", "acknowledged": false}
@@ -54,12 +60,35 @@ meta:
   - {"fid": "ENVOY-FLAKINESS-181243-1@2026-11-01T02:06:00", "card_id": "ENVOY-FLAKINESS-181243-1", "at": "2026-11-01T02:06:00", "outcome": "measured", "headline": "Envoy nightly drop recurred a third night in a row on HA 2026.10.4 (10-31 23:07-23:36, ~27 min). Ask unchanged: DO post Revision 2 of the upstream report.", "acknowledged": false}
   - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-11-01T02:07:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-11-01T02:07:00", "outcome": "measured", "headline": "Waiting-lane re-check (live 02:01): front-door lock, kitchen smoke detector, BP1_B proxy still offline; Ollama .62 unreachable; panel channel off. Frigate healthy. No blocker cleared, so no asks changed.", "acknowledged": false}
   - {"fid": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-11-01T02:08:00", "card_id": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1", "at": "2026-11-01T02:08:00", "outcome": "measured", "headline": "Merge-prep: all review-lane branches still merge clean onto develop and develop has no code changes since, so their test validation stands. Review lane is full (4), so no new builds overnight; these wait for your attended deploy.", "acknowledged": false}
-  - {"fid": "ENVOY-FLAKINESS-181243-1@2026-10-31T02:06:00", "card_id": "ENVOY-FLAKINESS-181243-1", "at": "2026-10-31T02:06:00", "outcome": "escalated", "headline": "Envoy dropouts: your 'APPROVE the HA update' ask was stale (you already updated to 2026.10.4). The nightly drop recurred on it (10-30 23:04-23:42, 37 min), so the core fix does not cover it. Cause measured: one Envoy endpoint (production.json) hangs and blanks the whole integration. I added 'Revision 2' to the upstream draft; new ask: DO post it.", "acknowledged": false}
-  - {"fid": "ENVOY-STREAM-SOC-TIER-1@2026-10-31T02:14:00", "card_id": "ENVOY-STREAM-SOC-TIER-1", "at": "2026-10-31T02:14:00", "outcome": "measured", "headline": "Board fix: the stream-SOC fallback card still said 'parked, nothing to do' while its Tier-3 branch has a build, 4 reviews and fix-ups. Moved to in_progress. Not touched overnight (Tier 3). Still open for your attended session: confirm review B's HIGH is closed and commit the 4 review docs, then the pre-deploy checkpoint. The stream entity stayed live through last night's 37-min Envoy drop.", "acknowledged": false}
-  - {"fid": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1@2026-10-31T02:24:00", "card_id": "EC-ENPHASE-CONNECTIVITY-RESILIENCE-1", "at": "2026-10-31T02:24:00", "outcome": "escalated", "headline": "Third false 'Envoy write reverted' CRITICAL page (10-30 23:06, 4 channels). Proven false: the local Envoy confirmed reserve 20 at 21:00, the cloud stayed stale at 10, and the page fired 0.3 s after a re-send as the Envoy dropped. 3 in 7 days, all at the nightly drop. Your APPROVE (Tier-3 fix-up) is still the ask; recommendation now A.", "acknowledged": false}
-  - {"fid": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1@2026-10-31T02:12:00", "card_id": "HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1", "at": "2026-10-31T02:12:00", "outcome": "measured", "headline": "Merge-prep re-check: all review-lane branches (integ/overnight-2026-10-27 and its 3 parts, plus feature/ec-stream-soc-tier) still merge clean onto develop, and develop has no integration-code changes since their base, so their test results still hold. Review lane is at 4 (WIP cap), so no new builds tonight.", "acknowledged": false}
-  - {"fid": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-31T02:10:00", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "at": "2026-10-31T02:10:00", "outcome": "measured", "headline": "Waiting-lane re-check (live states 02:0x): front-door lock still unavailable (Z-Wave node dead), kitchen smoke detector still unavailable, BP1_B proxy still offline, Ollama .62 unreachable, panel channel still off. Frigate healthy (71 detections/s, camera-dark off). No card's blocker has cleared, so no asks changed.", "acknowledged": false}
 cards:
+- id: NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1
+  title: Prove the text 'diag' menu answers on WhatsApp and the HA app (only iMessage is proven live)
+  thread: notifications
+  status: waiting_operator
+  tier: 1
+  created: 2026-11-08 02:05
+  updated: 2026-11-08 02:05
+  refinement_status: initial
+  rank:
+    value: 3
+    time_criticality: 2
+    effort: 1
+  problem_solution:
+  - 'Problem: the house now answers text questions (''diag'', ''health'', ''who''), but it has only ever been seen working over iMessage. WhatsApp has never delivered a single inbound message to URA, so we do not know whether WhatsApp questions reach it at all, and the fix for replies in the Home Assistant phone app has never been tried. Solution: send ''diag'' once from your WhatsApp self-chat and once as a reply in the HA app; I then read the inbound log and either close this or open a fix.'
+  origin:
+    date: '2026-11-08'
+    gist: overnight soak-exit of NM-INBOUND-HOUSE-QUERIES-1 found WhatsApp + Companion legs unprovable without an operator message
+  why: Residual of a shipped capability (finish-the-arc rule 4 would fold it, but the parent closed and the remaining step needs an operator action, so it needs its own decision queue entry).
+  approval: implied
+  tags:
+  - tier-1
+  links:
+    parent: NM-INBOUND-HOUSE-QUERIES-1
+    related:
+    - NM-BB-CHATGUID-SELFSEND-1
+    context: NM-INBOUND-HOUSE-QUERIES-1 shipped the diag menu (v5.104.0) and carries the Review B MEDIUM-1 fromMe question; NM-BB-CHATGUID-SELFSEND-1 is the same inbound path.
+  adjacency: 'Swept NM-* cards: the parent carries the question as live_check_whatsapp_fromme; no other card owns it. NEW residual card.'
+  next: 'DO: text ''diag'' in your WhatsApp self-chat, and reply ''diag'' to any URA notification in the HA app -> I read notification_inbound; a channel=whatsapp row and a companion row with a reply close this; no WhatsApp row means the bridge drops fromMe and I card that fix.'
 - id: OPTIMIZER-META-NEVER-PAGES-1
   mergeprep_2026_11_07_overnight: "02:04 CST: no code or test commits on develop since the 11-06 merge-prep (git log --since 11-06 02:00 -- custom_components quality is empty); git merge-tree vs develop e8348bf8 still clean. The prior validation still describes current develop - ready for the next attended deploy."
   mergeprep_2026_11_06_overnight: "02:02-02:03 CST. integ/overnight-2026-11-04 is 29 behind and 8 ahead of develop; git merge-tree = clean. develop changed const.py since (the only file overlap). Merged into a temp worktree: the branch's three test files pass (33 passed) and test_zone_orphan_device_guard passes on its own (9 passed). Running them together, test_optimizer_meta_never_pages makes test_zone_orphan_device_guard fail 9/9 (AttributeError: no _remove_orphan_zone_devices). Not caused by this branch: the same failure happens on plain develop when test_notification_manager.py or test_nm_notify_signature_sites.py run first, because those stub the URA package at import. Logged as an instance on TEST-STRATEGY-REARCH-1. Branch still ready for the attended deploy. Temp worktree removed."
@@ -70,7 +99,7 @@ cards:
   status: "review"
   tier: 1
   created: "2026-11-04 02:11"
-  updated: "2026-11-07 02:04"
+  updated: "2026-11-08 02:23"
   refinement_status: initial
   approval: implied
   tags: [tier-1, found-during-probe, measure-before-build, mutation-drill]
@@ -93,8 +122,9 @@ cards:
     related: [OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1, OC-SHADOW-SAMPLES-EMPTY-1]
     context: "OPTIMIZER-PAGING-PRIMITIVE-1 B1 (v5.101.1) added the truncation notice this card measured as ineffective (residual with its own fix, so a new card). The OC redesign owns the corpus-shape fix parked above."
   adjacency_2026_11_04: "NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_optimization_coordinator.md / OC v2 agentic mention META display only)."
-  next: "APPROVE at the next attended (daytime) deploy: ships together with SECURITY-LOCK-SWEEP-RETRY-CAP-1 from integ/overnight-2026-11-04 (README draft e1dc68f0 on fix/optimizer-meta-never-pages). Live check after: the next LLM META finding at critical lands in the digest/dashboard and no 4-channel page goes out."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
   refs: [domain_coordinators/optimization.py _notify_if_severe, domain_coordinators/optimization_llm.py to_prompt_body]
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
   thread: "energy"
@@ -214,15 +244,15 @@ cards:
 - id: NM-INBOUND-HOUSE-QUERIES-1
   title: "Ask the house by text: WhatsApp / iMessage questions about house state and simple diagnostics"
   thread: notifications
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.104.0
   tier: 2
   created: "2026-11-07 12:40"
-  updated: "2026-11-07 12:40"
+  updated: "2026-11-08 02:23"
   rank: {value: 4, time_criticality: 1, effort: 3}
   origin: "Operator 2026-11-07: 'I wonder if we can process text from WhatsApp and IMessage as ways to query house state and do simple diagnostics?'"
   why: "Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Echo-loop guard exists (:283-310, NM_ECHO_GUARD_*). Free-text answering has a candidate engine in the OC agent work: a read-only tool catalogue (docs/planning/oc_eval/tools.json, 32 tools) and a live eval harness (PLANNING_oc_live_eval_and_context_pack.md) whose latest L02 runs (sonnet-5.5, 2026-11-04) still FAIL on invented claims (M2)."
-  next: "Building A now (operator 2026-11-07). Plan doc -> 1 plan review -> build -> Tier 2 reviews -> deploy."
+  next: "Closed. Residual live check -> NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1."
   adjacency: "Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card."
   design_2026_11_07: "Operator: a 'diag' entry command returns a numbered menu; replying with the number or the command name runs it and returns the result. Conflict found: bare '1'/'2'/'3' already mean ack/status/silence for every sender (notification_manager.py:244-251, parsed at :3586). Proposed resolution: numbers mean menu items only inside a short per-sender menu window opened by 'diag'; the window closes early when any alert is sent to that person, so '1' to ack a CRITICAL is never captured by the menu. Command names ('doors', 'garage'...) work at any time without the menu."
   shared_layer_2026_11_07: "The query functions are the shared read-only house-status layer: NM replies use them now; the OC agent calls the same ones as tools later (citable, deterministic answers)."
@@ -233,6 +263,7 @@ cards:
   operator_2026_11_07: "Operator added the garage hallway and master bedroom locks to SC (doors answer now covers them; they are now also under SC lock sweeps). Companion no-reply fix APPROVED, folding into this cycle."
   residual_review_b_low3: "Over-budget diag inbound writes one uncapped log_inbound row per message via direct INSERT+commit (database.py:5051), not the batched write queue; same pattern as legacy inbound. Matters only under an external flood. Deferred."
   live_check_whatsapp_fromme: "Review B MEDIUM-1: send diag in the operator WhatsApp self-chat and confirm a channel=whatsapp row in notification_inbound; if none, the bridge never forwards fromMe and WhatsApp commands stay dark (iMessage is the live channel)."
+  disposed_2026_11_08_overnight: "SOAK EXIT, met-with-residual. One-shot read of notification_inbound (URA DB, read-only) ~02:04 CST: the diag menu works live on iMessage. Since 11-07 17:00 CST it answered diag_menu, diag_health, diag_who, diag_doors and diag_hvac, each success=1 with a real reply (e.g. 'health' at 11-08 00:38Z -> 'Health (4 need attention) ... rooms reporting: 21/47'). WhatsApp: still 0 inbound rows on any day (only channel seen is imessage, 50 rows since 11-06), so Review B MEDIUM-1 (does the bridge forward fromMe?) is unproven, and so is the Companion reply fix. Neither can be proven without you sending a message. Primary closed; the residual is carded as NM-DIAG-WHATSAPP-COMPANION-LIVE-CHECK-1."
 - id: SC-SWEEP-CLOSES-OPEN-GARAGE-1
   title: "SC hourly lock sweep closes any open garage door regardless of arming or occupancy"
   thread: security
@@ -253,14 +284,15 @@ cards:
   shipped_version: v5.106.0
   tier: 2
   created: "2026-11-07 14:30"
-  updated: "2026-11-07 14:30"
+  updated: "2026-11-08 02:05"
   rank: {value: 5, time_criticality: 4, effort: 2}
   origin: "Lockout plan rev 3 (2026-11-07)."
   why: "Operator 2026-11-07: separate arming (alarm) from locks (locking regime). Lockout cycle builds the regime for garage lockouts only; door-lock policy migration deferred."
-  next: "QUEUED: build immediately after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships (operator 2026-11-07: queue right after, no stragglers). Scope: master bedroom rule in the lock regime (lock when Oji AND Ezinne both away; unlock when either returns), own knob (switch, default OFF until validated), persons list configurable. Ships together with SC-LOCK-SWEEP-EXCLUDE-1 so the master bedroom lock can be re-added to SC as sweep/lockdown-excluded."
+  next: "After the next attended HA restart: run the README v5.106.0 live checks (away-lock switch exists and is OFF, options form fields, no lock calls on lock.master_bedroom_lock while OFF, no security_lock_regime errors) and write the Validated table into the README. DO (you, after restart): add the master bedroom lock to the never-auto-lock list."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
   policy_master_bedroom_2026_11_07: "Operator: master bedroom lock is manually locked when Oji AND Ezinne are both out of the house. Candidate first door-lock rule for the regime (engage when both named persons away; release on either arriving)."
   operator_2026_11_07_master_bedroom: "Approved: build the master bedroom rule (lock when Oji AND Ezinne are both away, unlock when either returns) in the lock regime, behind its own knob (switch entity, default OFF until validated; rung 3 live-tunable). Persons list configurable, not hard-coded."
+  restart_pending_2026_11_08: "v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coordinator_away_lock does not exist yet. README v5.106.0 live checks cannot run until the next restart. The README still has no post-restart validation table."
 - id: SC-ARMING-ALARM-ONLY-1
   title: "SC arming auto-follow is weak (off live; Sleep unmapped); redefine arming as alarm-only"
   thread: security
@@ -280,39 +312,54 @@ cards:
   shipped_version: v5.106.0
   tier: 1
   created: "2026-11-07 16:20"
-  updated: "2026-11-07 16:20"
+  updated: "2026-11-08 02:05"
   rank: {value: 4, time_criticality: 3, effort: 1}
   origin: "Operator 2026-11-07: 'we should register every lock in SC, we should be able to exclude locks from sweep now we have an internal lock for master bedroom. That lock is in passage mode and open anyway. So sweeping it will simply run down the battery and won't lock it. It's manually locked when I and Ezinne are both out of the house.'"
   why: "No exclusion exists: CONF_SECURITY_LOCK_ENTITIES (const.py:3406) is the only list and _evaluate_lock_check iterates all of it (security.py:1685). Operator added lock.master_bedroom_lock to SC on 2026-11-07, so the sweep now commands it every interval. The 'lock when Oji AND Ezinne are both away' rule is a lock-regime policy and belongs in SC-LOCK-REGIME-DOOR-LOCKS-1."
-  next: "Tier 1 build after SECURITY-LOCK-SWEEP-RETRY-CAP-1 merges (same function): CONF_SECURITY_LOCK_SWEEP_EXCLUDE (options flow, default empty); excluded locks stay registered (status, doors answer, Lock all) but are skipped by the sweep, its retry cap AND security lockdown."
+  next: "After the next attended HA restart: run the README v5.106.0 live checks (away-lock switch exists and is OFF, options form fields, no lock calls on lock.master_bedroom_lock while OFF, no security_lock_regime errors) and write the Validated table into the README. DO (you, after restart): add the master bedroom lock to the never-auto-lock list."
   links: {sibling_of: SC-LOCK-REGIME-DOOR-LOCKS-1}
   operator_2026_11_07: "Lockdown must NOT lock an excluded door; lockdown should focus on egress locks. Excluded = interior/passage locks."
   queue_2026_11_07: "Queued with SC-LOCK-REGIME-DOOR-LOCKS-1 right after lockout Phase 1 ships; master bedroom lock removed from SC on 2026-11-07 must be re-added as excluded when this ships."
+  restart_pending_2026_11_08: "v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coordinator_away_lock does not exist yet. README v5.106.0 live checks cannot run until the next restart. The README still has no post-restart validation table."
+- id: WA-BRIDGE-DOMAIN-1
+  title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
+  thread: notifications
+  status: shipped_organic
+  shipped_version: v5.106.1
+  tier: 1
+  created: "2026-11-08 09:10"
+  updated: "2026-11-08 09:40"
+  rank: {value: 3, time_criticality: 3, effort: 1}
+  origin: "Operator 2026-11-08: bridge add-on update added a required API token; operator added the wa_bridge 3.1.1 integration and asked to reconfigure URA to use it and test it; keeps the old whatsapp entry until 3.x is validated."
+  why: "NM _send_whatsapp called whatsapp.send_message only (notification_manager.py:2460). Post-restart the 2.x client logged 11x 401 from the bridge, so every URA WhatsApp send failed. Direct wa_bridge.send_message to the operator number succeeded 2026-11-08 ~09:05."
+  next: "Ship v5.106.1 (prefer wa_bridge, fall back to whatsapp); after restart send an NM test notification and confirm arrival + one inbound WhatsApp reaches _handle_whatsapp_reply; write the README Validated table. DO (you): remove the 2.x entry once validated."
 - id: TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1
   title: "Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills"
   thread: quality
-  status: inbox
+  status: "planned"
   tier: 1
   created: "2026-11-07 17:30"
-  updated: "2026-11-07 17:30"
+  updated: "2026-11-08 02:06"
   rank: {value: 2, time_criticality: 1, effort: 1}
   origin: "Lockout P1 final validation + builder triage 2026-11-07."
   why: "(1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore fixture, 60d68f63) and fails test_low_cleanup's test_hvac_decision_cycle_enabled_guard + test_hvac_observation_switch_has_deferred_restore when it runs first (pre-existing on develop). (2) test_ble_extend_not_create MUTATION_m2 anchor no longer matches coordinator.py (drill can never match). (3) test_d7_donor_hygiene DONOR_VICTIMS lacks test_sleep_fans_and_flash.py (StopIteration). (4) 9 files fail in isolation on develop (boot_settle_gate, v4621_humidity_fan_hardening, v4714_1_forgotten_phone_hotfix, v570_guest_detection_trust, hvac_pull_energy_constraint_at_setup, opt_meta_boot_transient, optimization_coordinator, snap1_at_detection_snapshots, solar_follow_amps)."
   next: "Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4)."
+  verify_2026_11_08_overnight: "STILL-REAL for (1): quality/tests/test_fan_incident_2026_08_01_replay.py:146-155 still setattr()s mocks onto an already-imported real module at import time (the 'else: setattr(_existing, ...)' branch), so it pollutes later real-HA tests. (2)-(4) were not re-checked tonight. Parsimony: BUILD (Tier 1, test-only, no production change). Held by the WIP cap: 3 cards already wait in review."
 - id: SC-GEOFENCE-PERSON-SNAPSHOT-1
   arc_cut_v5_106_0: "separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)"
   arc_cut_v5_105_0: "separate SC geofence listener fix, queued next after door-locks"
   title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
   thread: security
-  status: inbox
+  status: "planned"
   tier: 1
   created: "2026-11-07 15:40"
-  updated: "2026-11-07 15:40"
+  updated: "2026-11-08 02:05"
   rank: {value: 3, time_criticality: 2, effort: 1}
   origin: "Lockout plan review 1 M1 + operator 2026-11-07: resident list should persist across restarts and track adds/removals in real time."
   why: "security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses async_track_state_added_domain/_removed_domain (helpers/event.py:653/:711) + a persisted Store; same fix applies here."
-  next: "Build after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, reusing its resident-tracking helper (Tier 1)."
+  next: "Tier 1 build: resubscribe the geofence listener on person.* add/remove, reusing the lock-regime pattern at security_lock_regime.py:163-173, plus a test that adds a person after setup. Starts once the review lane drains below 3."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+  verify_2026_11_08_overnight: "STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock regime's add/remove resubscribe (security_lock_regime.py:163-173, async_track_state_added_domain / async_track_state_removed_domain), which shipped in v5.105.0 (the blocker in 'next' has cleared). Parsimony: BUILD (Tier 1, one listener, no new knob). Not built tonight: 3 cards already wait in review (WIP cap rule 3)."
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
@@ -320,11 +367,11 @@ cards:
   shipped_version: v5.105.0
   tier: 2
   created: "2026-11-07 12:10"
-  updated: "2026-11-07 12:10"
+  updated: "2026-11-08 02:05"
   rank: {value: 4, time_criticality: 2, effort: 2}
   origin: "Operator 2026-11-07: lockout 'prevents the external keypad from being guessed or bypassed. The SC does not have this concept.' Asked about auto-release ~6 AM and red-eye arrivals at 3 AM; wants Garage B included."
   why: "lock.konnected_f0f5bd523b00_lock (Garage A) and lock.ratgdov25i_dbfe2a_lock_remotes (Garage B) block car remotes and the outside keypad; the wall button and HA still work. The Security coordinator has no lockout concept. Dashboard part shipped 2026-11-07: tiles per garage, and 'Lock all' also engages both lockouts. Unverified: whether myQ still reaches these openers (they run Konnected blaQ / ratgdo) and whether ratgdo's lock also blocks the wireless keypad on this opener model; test physically before relying on it."
-  next: "PICK: A (recommended) HA automation: lockout ON at bedtime/house Sleep, OFF at 6 AM, and OFF immediately when a resident's phone arrives home (person -> home), so red-eye returns open with the car remote as usual; or B the same in the URA Security coordinator (lockout becomes part of arming, Tier 2 build) -> I build A first as a house-visible automation once you OK it."
+  next: "Shipped v5.105.0 and validated 11-07 with the feature OFF (README v5.105.0). Organic proof needs the feature on: DO turn on the garage lockout switch when you want it live -> I check the first night's engage at Sleep and release at the morning backstop or on an arrival. Dispose by 11-14: done if on and proven, or parked with 'feature left off' as the revival trigger."
   adjacency: "Swept board for garage/lockout/keypad: NEW. Related: security arming cards; the 'leave garage B alone' constraint is lifted for this scheme by the operator 2026-11-07."
   plan_2026_11_07: "Option B picked. Plan rev1 docs/planning/PLANNING_sc_garage_remote_lockout.md (ea4bc6a8), pre-review. Open operator questions: approach zone 1-2 km; away/vacation engage + hold-until-arrival; keypad physical test; kill-switch-at-night semantics; which residents; 07:00 backstop."
   finding_periodic_sweep_2026_11_07: "Planner audit: the SC periodic lock sweep closes ANY open garage every 60 min regardless of arming, and re-locks everything in security_lock_entities (so lockouts must stay off that list). Out of scope for this cycle; candidate own card after operator look."
@@ -819,7 +866,7 @@ cards:
   verified_2026_10_27: "Still needed. 02:05 CDT: binary_sensor.smoke_sensor_s1_smoke unavailable since 10-26 10:06 (kitchen Heiman re-pair outstanding); kitchen gas sensor reporting (off)."
   verify_2026_10_23: "Overnight re-check 02:01 (HA MCP): binary_sensor.smoke_sensor_s1_smoke still unavailable since the 10-21 18:25 restart. Re-pair still needed. No change."
   verify_2026_10_22: "Overnight re-check 02:0x: still blocked. binary_sensor.smoke_sensor_s1_smoke = unavailable (since the 10-21 18:25 restart), so the house's only smoke detector is still invisible to HA. binary_sensor.gas_zigbee_kitchen_gas = off (reporting). Re-pair is still needed."
-  updated: "2026-11-07 02:03"
+  updated: "2026-11-08 02:05"
   reverified_2026_10_29_overnight: "STILL-REAL 02:01 CDT: binary_sensor.smoke_sensor_s1_smoke (kitchen Heiman) unavailable since 10-26 10:06. Re-pair DO stands."
   recheck_2026_10_26: "Overnight ~02:03 CDT live read: binary_sensor.smoke_sensor_s1_smoke unavailable, lock.doorlock_kwikset_zwave_frontentry unavailable (sensor.node_3_node_status dead), BP1_B distance sensor unavailable; kitchen gas off (ok); Frigate2 running, 47 detection fps, camera_input_dark off. Still waiting on your hands; no change since 10-25."
   links_added_2026_10_21: "related+ELK-M1-HA-USABILITY-1: ELK fire/heat zones are the wired fire-detection path; usable ELK zones partly cover the smoke-detector gap."
@@ -846,6 +893,7 @@ cards:
   reverified_2026_10_21_overnight: "Still waiting on you (live 02:0x CDT): binary_sensor.smoke_sensor_s1_smoke unavailable (since the 10-20 22:20 restart, still not re-paired)."
   reverified_2026_10_24_overnight: 'STILL WAITING (2026-10-24 02:08, ha-mcp): the kitchen Heiman (binary_sensor.smoke_sensor_s1_smoke and its battery/fault/test siblings) all read unavailable. Re-pair still needed.'
   recheck_2026_10_25_overnight: "STILL-REAL: binary_sensor.smoke_sensor_s1_smoke unavailable (re-stamped 10-24 21:20 at the restart, unavailable since 10-15). Your DO stands. The 10-24 16:42 CDT kitchen smoke CRITICAL was the TEST safety alert (notification_log rows 23810-23815, title TEST), not a real event."
+  recheck_2026_11_08_overnight: "~02:05 CST, live read: binary_sensor.smoke_sensor_s1_smoke still unavailable (since the 11-07 18:22 restart), sensor.node_3_node_status alive, gas_zigbee_kitchen_gas off. Unchanged; your DO stands. Also unchanged: BP1_B (BLE-PROXY-PLACEMENT-1) still unavailable."
 - id: HVAC-S10-NOTIFY-UNDELIVERED-1
   revisit_trigger: "The first Custom Preset Ranges give-up (thermostat unreachable / range not taking / original not restored). Check notification_log shows it at HIGH with delivered=1 on the companion/lights channels; close done, or reopen with the row."
   disposed_2026_10_22_overnight: "SOAK EXIT: cannot be evaluated in its window, so it is PARKED with a revival trigger. It shipped in v5.103.69; README validation 10-17 listed 'S10 HIGH delivery' as event-gated, proven in-suite only. URA notification_log since the 10-17 13:23 restart has zero hvac-coordinator notifications, so no Custom Preset Ranges give-up event has happened. The card's old 'next' (approve the merge) is obsolete: it shipped."
@@ -8670,7 +8718,7 @@ cards:
   status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: '2026-10-23 02:05'
+  updated: "2026-11-08 02:05"
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -8728,6 +8776,7 @@ cards:
     may close the card outright. NOTE this does NOT reproduce the symptom — reproduction needs a live
     send, which is not something to do unattended at 3am into someone messages.'
   INSTANCE_2026_10_19_overnight_send_failures: "system_log (ha_get_logs source=system, 02:2x CDT): notification_manager.py:2305 'iMessage send via BlueBubbles failed: ' (empty error text) x11, first 10-18 22:19:21, last 10-18 23:54:52 CDT. The iMessage channel is failing at transport level tonight; other channels not checked here. Relevant to this card's house-Apple-ID setup (Messages on the Mac mini) and worth one look at the BlueBubbles server when you are back."
+  INSTANCE_2026_11_08_self_echo_volume: "Measured read-only (notification_inbound, 11-01..11-08): URA's own outbound alerts come back as inbound iMessages from person.oji_udezue and are parsed as 'unknown' commands, 7-23 a day (11-06: 23 of 23 inbound rows; 11-08 so far: 11 of 18). They are Perimeter Alert and Uptime Kuma texts. Each row stores response_text 'Unknown command. Reply: 1=Ack 2=Status 3=Silence'. I did NOT verify whether that reply is actually sent back, which would mean one extra text per alert. Steady state, no growth, no loop. This card's fix (send by chat GUID from a separate house Apple ID) removes it."
 - id: EVSE-SOLAR-IDLE-DERESERVE-1
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
@@ -29290,16 +29339,17 @@ cards:
 
   measured_2026_10_02_overnight: "FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and person/motion detections resumed 10-01 11:28 CDT (10-01: hot_tub 52, back_yard 40, playroom 5, front_side_ptz 4, madrone_g6_entry 3, front_door_aerial 3, garage_a 2 person ONs). 09-30 had ZERO person ONs on any camera (the 09-29 hang). THEN IT HUNG AGAIN, SAME SIGNATURE AS 09-29: sensor.frigate_detection_fps_2 updated ~177x/hour until 10-01 16:22 CDT and has been frozen at 126 since (no rows after); sensor.frigate_coral_inference_speed_2 unavailable since 10-01 14:37Z; Frigate itself is up (uptime_2 / camera_fps_2 ~120 / skipped_fps_2 ~1-3 all still updating). Detection ONs across *_person_occupancy_2 + *_motion_3: 492 across 24 sensors in the 5 h BEFORE 16:25 CDT vs 19 on ONE sensor in the ~10 h after. So exterior person detection has been dark ~10 h as of 02:05 CDT and nothing in URA noticed (again). Last person ON fleet-wide: 10-01 16:16:51 CDT. NOT remediated: homelab-side restart in an occupied sleeping house = operator action. Paged via HA persistent_notification (no phone push at night, per the 09-26 precedent). New fact for the cause: the hang recurred ~5 h after a restart, so a restart is a stopgap, not a fix."
   status: "waiting_operator"
-  updated: "2026-11-07 02:03"
+  updated: "2026-11-08 02:05"
   reverified_2026_10_29_overnight: "Healthy 02:04 CDT: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 54 (fresh 02:04), camera_input_dark off. Only event since last pass: a 35 s Frigate blip 10-28 02:54:48-02:55:23 (dark trip-wire on 02:55:09, off 02:55:39, self-cleared). No sixth hang. PICK unchanged, low urgency."
   reverified_2026_10_24_overnight: 'Healthy, no new hang (2026-10-24 02:08, ha-mcp): sensor.frigate_status_2 running since 10-23 18:44 CDT, sensor.frigate_detection_fps_2 = 69 (fresh 02:08), binary_sensor.ura_coordinator_manager_camera_input_dark off since 10-23 18:44. The four *_inference_speed sensors are still unavailable while detection runs (recorder: last row 10-23 04:42), confirming again they are not a health signal. PICK unchanged, low urgency.'
   recheck_2026_10_25_overnight: "Healthy: sensor.frigate_status_2 running, sensor.frigate_detection_fps_2 = 38 and changing (last change 02:08:59), camera_input_dark off. Corrected the stale clause in next (the tripwire redesign was default-taken 10-17 and is now built)."
+  INSTANCE_2026_11_08_seventh_outage: "SEVENTH OUTAGE, and the first one that was NOTICED. Recorder (read-only): sensor.frigate_status_2 went unavailable 11-07 13:14 CST and came back 20:32 (7.3 h), then had 4 short drops (22:00, 22:56, 23:01, 23:03, under 1 min each). URA's camera-input-dark check paged you (optimization, HIGH, companion) at 13:23, 14:13 and 18:33 CST ('18/18 Frigate person_count sensors unavailable ... Reload the Frigate integration'). Uptime Kuma also texted Frigate2 ECONNREFUSED at 18:56 and 20:20. Now: running, uptime 3.0 h, 24 detections/s, camera_input_dark off. Your PICK (Coral faulty vs scheduled restart) is unchanged."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   organic_evidence_2026_11_04: "Live 02:05 11-04: binary_sensor.ura_coordinator_manager_camera_input_dark detector_frozen_s=0, detector_hung_fired=false, detector_hung_deferred_quiet=false, sensor.frigate_detection_fps_2=30 (moving). system_log since the 18:01 restart: no 'camera_detector_hung' and no 'Optimizer evaluator ... raised' warning. Detector-check-resolved and healthy rows PASS. CARD-WAS-WRONG on next: it shipped in v5.103.101 (no APPROVE needed)."
   mergeprep_2026_11_02_overnight: "Merge-prep re-check 02:05-02:22 CST 11-02. Develop gained code since the last check (v5.103.97 zone power, v5.103.98 EC savings, both touching sensor.py). feat/camera-detector-hung-tripwire-v2 merges clean on its own (git merge-tree). integ/overnight-2026-10-27 (99 behind, 13 ahead) merged into a temp worktree off develop: py_compile OK. Full suite merged = 30 failed / 18872 passed. Plain develop = 30 failed / 18804 passed. The failing-name lists are IDENTICAL, so the branch adds 68 passing tests and no new failure. The 30 are pre-existing on develop: 21 calendar-coupled (TEST-DPM-WINTER-MONTH-COUPLED-1) + 9 order-dependent. Temp worktrees removed. Still ready for the attended deploy."
   status: shipped_organic
   shipped_version: v5.103.101
-  updated: "2026-11-04 02:11"
+  updated: "2026-11-08 02:05"
   mergeprep_2026_10_29_overnight: "integ/overnight-2026-10-27 re-checked 02:04 CDT: 5 commits behind develop, all board/README docs (no custom_components or quality changes since the 10-27 validation), git merge-tree vs develop = clean. The 10-27 '0 new failures' validation still describes current develop; ready to ship as-is at the next attended deploy."
   triage_2026_10_17: "Default taken: redo the trip-wire as the card proposes, then both reviews again."
   INSTANCE_2026_10_07_frigate2_offline_24h: "Another unnoticed silence: Frigate2 went off the network 10-06 02:08 CDT and every Frigate2 person/motion entity has been unavailable for ~24 h with no alert (see PERIMETER-DETECTION-WENT-DARK-1 REOPENED_2026_10_07). Note the shape: this time the entities went UNAVAILABLE, not frozen-off, so a tripwire that treats a whole-fleet 'unavailable' as silence would have caught it at the first check - worth keeping in the redesign's acceptance criteria."
@@ -29514,6 +29564,7 @@ cards:
   validated_2026_10_27: "Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged clean) vs baseline c456aee10. Baseline 1 failed / 18,509 passed (test_deploy_scripts::test_v4710_trap_restores_clean_url_on_sigint, pre-existing, did not recur on rerun = flaky). First candidate run had 1 NEW name, test_hvac_kwh_avoided_restart_zero::test_thirty_day_kwh_sensor_may_decrease: order-dependent (module's imported SensorStateClass was a MagicMock in suite order; isolated PASS). Fixed test-only on fix/hvac-kwh-avoided-restart-zero b93140575 (compare StrEnum by string value; production unchanged). Rerun 02:19-02:27: 0 failed / 18,578 passed. Zero new names. Branch test files 93/93. Source-mutation re-drill of the test change was not run (permission denied for source edits overnight); the builder's 6/7 mutation record stands."
   next: "DO (daytime, optional): the plan's D2 staged detector pause (pause Frigate detection ~16 min) so the page is seen firing once and clearing -> I read the NM row and close this card. If you would rather not, say so and I close it on the in-suite proof at the 11-10 dispose date."
   mergeprep_2026_11_03_overnight: "Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1 (integ/overnight-2026-10-27 merges clean onto develop @30e4c61a, 129 commits of drift; test_camera_detector_hung.py all green on the merge; 0 new failures in neighbouring files)."
+  organic_note_2026_11_08: "Tonight's 7.3 h Frigate2 outage (11-07 13:14-20:32) was host/status UNAVAILABLE mode, and the camera-input-dark check caught it (3 HIGH pages). This card's hung-detector path (frozen detection_fps while Frigate reports running) was not exercised, so its live proof is still pending. The 11-10 dispose date stands."
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   INSTANCE_2026_10_22_recount: "Overnight recount by the close method (one [audit] row per alert for person.oji_udezue, CDT days): 10-18 27, 10-19 33, 10-20 30, 10-21 74. 10-21 tops the ~60/day reopen bar, but 48 of the 74 fell in one 13:00-14:59 block, spread across ~10 cameras (back_yard 9, pool_equipment 8, front_side_ptz 8, utilities_ptz 7, rear_ptz 6, Study B porch 6, hot_tub 6, g5_bullet 6+4, pool overhead 4). That looks like real daytime activity on the property (a service visit or yard work), not a single phantom source. The other 22 hours carried 26 alerts. NOT reopened on one burst day. Reopen if 2 consecutive days exceed 60, or any single camera exceeds 20 in a day."
   disposed_2026_10_20_overnight: "DONE - close criterion met. One-shot recount (URA notification_log, one [audit] row per alert for person.oji_udezue, CDT days): 10-14 132 (69 CRITICAL), 10-15 123 (67), 10-16 81 (74), 10-17 59 (50), 10-18 27 (8 CRITICAL), 10-19 33 (6 CRITICAL). With the family home the CRITICAL share collapsed (the travel-week nobody-tracked-home branch) and the total is ~half the <60/day bar on both normal days. 10-19 sources: utilities_ptz 7, rear_ptz 11 (two legs), g5_bullet 5, Study B porch 2, front_side_ptz 1. No lever needed; building more suppression now would be negative value."
@@ -33505,14 +33556,15 @@ cards:
   thread: diagnostics
   status: "review"
   created: '2026-10-24 08:00'
-  updated: "2026-11-07 02:04"
+  updated: "2026-11-08 02:23"
   tags: [anomaly, security, safety, hvac]
   origin: {date: '2026-10-24', gist: 'grooming of the five unminted README_v5.103.25 s5 follow-ups'}
   why: 'Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; Security then reads nominal + constant annotation. (c) alert_trigger_frequency: ordinal per-event score, variance 0 in a quiet house, so first non-LOW verdict is z>=10 CRITICAL -> reshape to e.g. a daily count of non-LOW verdicts. (d) active_hazard_count: recorded only on hazard response, gate 720, 42 samples -> sample on the periodic check (safety.py ~2645) so it takes 0..N, or retire.'
   swept_2026_10_24: 'DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this metric have a valid input shape). Adjacent: RESTART-SAFETY-DOCTRINE-1 (names the event-driven unreachable class). None existed on the board or BACKLOG.'
-  next: "APPROVE at the next attended (daytime) deploy; can ride with integ/overnight-2026-11-04 (no file overlap). Live check after restart: the Security anomaly sensor reads nominal (coverage full; alert_trigger_frequency is flagged constant, not blind); the HVAC one stays partial with only comfort_deviation_hours not_wired; the log shows one 'Pruning 1 orphaned baseline row(s)' line each for security and hvac. After it ships the card goes back to planned for residual (c)/(d)."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
   links: {related: [RESTART-SAFETY-DOCTRINE-1, HVAC-COMFORT-DEVIATION-PRODUCER-1]}
   rank: {value: 3, time_criticality: 2, effort: 3}
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: DASH-ANOMALY-COVERAGE-BADGE-1
   title: 'PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes'
   thread: dashboarding
@@ -33692,7 +33744,7 @@ cards:
   mergeprep_2026_11_06_overnight: "Same check as OPTIMIZER-META-NEVER-PAGES-1 (same integ branch): merges clean onto develop; test_security_lock_retry_cap passes on the merge, including when run with test_zone_orphan_device_guard (21 passed). Still ready for the attended deploy."
   reviewed_2026_11_05_overnight: "Tier-1 review (docs/reviews/code-review/security_lock_retry_cap_review.md, b52140f9) was FIX-REQUIRED: HIGH-1 observation mode spent the retry budget then silently never locked; MEDIUM-1 transient locking/jammed/closing states re-armed the episode so the cap never engaged; MEDIUM-2 found_unlocked hid a capped unlocked door; LOW-1 no 24 h re-arm. Fix-up 95bdf6fc addresses all four (orchestrator read the diff 02:05). Orchestrator per-site mutation re-drill 02:18 (PYTHONDONTWRITEBYTECODE=1, pycache cleared, worktree agent-a226bb91bbbc99071): obs-mode attempt guard -> test_observation_mode_does_not_spend_retries RED; found_unlocked=found -> test_capped_device_still_in_found_unlocked RED; re-arm reset -> test_rearm_after_24h RED; obs-mode notice guard -> test_cap_notice_not_lost_to_observation_mode RED; restored 12 passed, git status clean. Full-suite name-diff 02:04-02:17 CST 11-05 (serial, one run each, __pycache__ cleared): base = develop d2d07201 worktree base-overnight-2026-11-04 -> 12 failed / 19043 passed; candidate = integ/overnight-2026-11-04 af8fe026 (both branches merged onto d2d07201) -> 12 failed / 19061 passed. Failing-name lists IDENTICAL (0 new, 0 fixed); +18 passing = the two branches' new tests. The 12 pre-existing failures are order-dependent (test_radar_tuning_phase_a x6, test_energy_today_midnight_freeze x3, test_zone_safety_alert x2, test_shared_power_read_staleness x1; all pass when their files run alone, except the last, which passes when run singly). Develop has moved 2 docs-only commits since d2d07201 (no custom_components/quality change)."
   verify_2026_11_04_overnight: "STILL-REAL (02:14): _evaluate_lock_check (security.py ~1678-1760) had no retry cap / backoff; only the unavailable-device notice was deduped. Gate: Tier 1, BUILD (simplest cap + one notice), no config-only fix (no knob existed). Built 02:14-02:21 on fix/security-lock-sweep-retry-cap @25bc49bb (worktree): SECURITY_LOCK_RETRY_CAP = 3 in const.py (rung 1 module constant, 0 = unlimited), episode keyed on the state's last_changed, reset on locked/closed, one NM notice after N failures. Emission sites: periodic lock loop + garage loop capped; lockdown (_generate_lockdown_actions 1642-1672) is one-shot per alert, left uncapped. The 46/day in March fits the 30-min interval then (max 48/day), so no hidden second path. 6 tests drive the real _evaluate_lock_check; 7 mutation drills RED. In review (one Tier-1 pass, safety-posture framing)."
-  updated: "2026-11-07 02:02"
+  updated: "2026-11-08 02:23"
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
   status: "review"
@@ -33700,7 +33752,8 @@ cards:
   created: "2026-11-01"
   origin: "Operator 2026-11-01: does the security sweep close doors, does it check the lock is closed before acting; suspicion it tired batteries."
   why: "AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no backoff: when a lock command fails it re-sends every interval (Mar 8-12: 74 lock commands, 116/133 rows still unlocked after). Battery causality unproven (battery already 20% before the burst)."
-  next: "APPROVE at the next attended (daytime) deploy, together with OPTIMIZER-META-NEVER-PAGES-1 (integ/overnight-2026-11-04; README draft docs/readmes/README_DRAFT_security_lock_retry_cap.md). The front-door Kwikset is back online since 11-06 13:27 (battery swapped; FRONT-DOOR-LOCK-OFFLINE-1 closed), so the live proof after deploy can use it: the retry cap only fires if a lock command fails 3 times, so the live check is 'no repeated lock-retry notices in notification_log', not a forced failure."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: FRONT-LOCK-OFFLINE-1
   updated: "2026-11-02 02:04"
   DEDUPE_2026_11_02: "DUPLICATE of FRONT-DOOR-LOCK-OFFLINE-1 (same entity lock.doorlock_kwikset_zwave_frontentry, same operator action). Created 11-01 by an attended session that missed the older card. Its evidence and the operator's 11-01 note (new locks being installed soon) were copied onto the survivor verbatim. Closed here."

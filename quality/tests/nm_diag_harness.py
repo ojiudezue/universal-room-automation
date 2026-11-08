@@ -74,6 +74,9 @@ def fixed_clock(clock: Clock):
 def make_nm():
     """Real NM, one person on whatsapp + imessage + pushover, DB mock."""
     hass = _make_hass()
+    # A ha-wa-bridge 2.x install (no `wa_bridge` service), so WhatsApp sends keep
+    # the `whatsapp` domain the merge-base golden fixtures recorded.
+    hass.services.has_service = lambda domain, service: domain != "wa_bridge"
     cfg = _make_config(**{
         CONF_NM_SAFE_WORD: SAFE_WORD,
         CONF_NM_WHATSAPP_ENABLED: True,

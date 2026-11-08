@@ -207,3 +207,19 @@ def test_legacy_shape_group_suffix_ignored(clock, extra):
     ev = SimpleNamespace(data={"phone": OP_CFG, "message": "3", **extra})
     assert _drive(nm, ev) == []
     assert nm._silence_until is None
+
+
+@pytest.mark.parametrize("registered, expected", [
+    ({"wa_bridge", "whatsapp"}, "wa_bridge"),  # 3.x installed beside 2.x: 3.x wins
+    ({"wa_bridge"}, "wa_bridge"),
+    ({"whatsapp"}, "whatsapp"),                # 2.x only
+    (set(), "whatsapp"),                       # neither: last entry, so the send fails loudly
+])
+def test_send_uses_wa_bridge_domain_when_registered(registered, expected):
+    """WA-BRIDGE-DOMAIN-1: ha-wa-bridge 3.x renamed whatsapp -> wa_bridge."""
+    nm = make_nm()
+    nm.hass.services.has_service = lambda domain, service: domain in registered
+    run(nm._send_whatsapp("T", "body", "+15550001"))
+    sent = [c.args for c in nm.hass.services.async_call.call_args_list]
+    assert [(a[0], a[1]) for a in sent] == [(expected, "send_message")]
+    assert sent[0][2] == {"number": "+15550001", "message": "*T*\nbody"}
