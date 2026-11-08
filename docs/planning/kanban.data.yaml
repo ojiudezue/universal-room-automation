@@ -246,6 +246,7 @@ cards:
   next: "PICK: A keep sweep-close but add per-door hold-off + occupancy check, or B make sweep-close an opt-in knob -> I plan it before lockout Phase 2."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
 - id: SC-LOCK-REGIME-DOOR-LOCKS-1
+  arc_cut_v5_105_0: "queued as the very next cycle per operator (no stragglers), builds on this regime"
   title: "Move door-lock policy into the new SC lock regime (arming = alarm only)"
   thread: security
   status: planned
@@ -297,6 +298,7 @@ cards:
   why: "(1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore fixture, 60d68f63) and fails test_low_cleanup's test_hvac_decision_cycle_enabled_guard + test_hvac_observation_switch_has_deferred_restore when it runs first (pre-existing on develop). (2) test_ble_extend_not_create MUTATION_m2 anchor no longer matches coordinator.py (drill can never match). (3) test_d7_donor_hygiene DONOR_VICTIMS lacks test_sleep_fans_and_flash.py (StopIteration). (4) 9 files fail in isolation on develop (boot_settle_gate, v4621_humidity_fan_hardening, v4714_1_forgotten_phone_hotfix, v570_guest_detection_trust, hvac_pull_energy_constraint_at_setup, opt_meta_boot_transient, optimization_coordinator, snap1_at_detection_snapshots, solar_follow_amps)."
   next: "Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4)."
 - id: SC-GEOFENCE-PERSON-SNAPSHOT-1
+  arc_cut_v5_105_0: "separate SC geofence listener fix, queued next after door-locks"
   title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
   thread: security
   status: inbox
@@ -311,7 +313,8 @@ cards:
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.105.0
   tier: 2
   created: "2026-11-07 12:10"
   updated: "2026-11-07 12:10"
