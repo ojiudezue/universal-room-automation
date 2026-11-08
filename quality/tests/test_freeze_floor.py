@@ -30,6 +30,10 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.universal_room_automation.domain_coordinators import (
+    energy_tou as _energy_tou_real,
+)
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ROOT_REL = "custom_components/universal_room_automation"
@@ -595,6 +599,12 @@ async def _noop_async_none(*_a, **_kw):
 _SIBLING_STUBS: dict[str, dict] = {
     # hvac_override.py:116 — `from .energy_billing import _get_effective_rate_kwh`
     "energy_billing": {"_get_effective_rate_kwh": lambda *a, **kw: 0.0},
+    # hvac_predict.py — `from .energy_tou import above_bottom_rate,
+    # season_at` (EC inclement leftovers D4). The REAL pure helpers.
+    "energy_tou": {
+        "above_bottom_rate": _energy_tou_real.above_bottom_rate,
+        "season_at": _energy_tou_real.season_at,
+    },
     # hvac_predict.py:1345 — `from . import hvac_excursion` (whole module).
     # Needs a REAL async context manager, not a MagicMock: the nudge path uses
     # `async with hvac_excursion.auto_release_on_incomplete(...)`, and a plain

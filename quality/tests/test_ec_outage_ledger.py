@@ -1641,9 +1641,10 @@ async def test_cycle_body_runs_grid_buy_notify():
 
 
 @pytest.mark.asyncio
-async def test_async_setup_runs_legacy_threat_list_check():
-    """EC storm Stage B D-B5 call-site anchor: async_setup calls
-    `_check_legacy_threat_list` (the repair-issue check)."""
+async def test_async_setup_arms_outage_ledger():
+    """async_setup arms the outage ledger (D-L2(i) call-site anchor). The
+    retired legacy threat-list repair check it used to anchor too was
+    removed (EC inclement leftovers D2)."""
     class _Shell(EnergyCoordinator):
         def __init__(self):
             pass
@@ -1665,8 +1666,6 @@ async def test_async_setup_runs_legacy_threat_list_check():
     c._unsub_listeners = []
     c._outage_ledger = SimpleNamespace(arm=lambda: armed.append(True))
     c._write_verifier = object()
-    checked = []
-    c._check_legacy_threat_list = lambda: checked.append(True)
 
     class _Stop(Exception):
         pass
@@ -1694,4 +1693,5 @@ async def test_async_setup_runs_legacy_threat_list_check():
     finally:
         E.async_track_time_interval = orig_track
         E.async_dispatcher_connect = orig_conn
-    assert armed == [True] and checked == [True]
+    assert armed == [True]
+    assert not hasattr(c, "_check_legacy_threat_list")

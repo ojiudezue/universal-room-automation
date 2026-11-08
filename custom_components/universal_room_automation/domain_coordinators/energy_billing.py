@@ -871,8 +871,8 @@ class CostTracker:
 # touch `cost_today` / `cost_this_cycle` (the shared billing hot-path). It is
 # also independent of any specific entity plumbing — the caller passes in a
 # snapshot each tick, which makes it directly unit-testable end-to-end.
-
-_DISPLACED_PERIODS = ("peak", "mid_peak")
+# The displaced-period test lives at the consumer (`energy.py`
+# `_apply_arbitrage_tick`, `energy_tou.above_bottom_rate`).
 
 
 class ArbitrageInventory:

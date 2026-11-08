@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.106.1
+# Universal Room Automation vv5.106.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -9416,6 +9416,16 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
             next_period = transition.get("next_period", "unknown")
             hours_until = transition.get("hours_until", 0)
             minutes_until = round(hours_until * 60)
+            # EC leftovers D4: rank the NEXT period in the season at the
+            # transition instant (literal fallback if unrankable).
+            from .domain_coordinators.energy_tou import (
+                above_bottom_rate,
+                season_at,
+            )
+            try:
+                _next_when = dt_util.now() + timedelta(hours=float(hours_until))
+            except (TypeError, ValueError):
+                _next_when = None
             # Expected action on transition
             if next_period == "off_peak":
                 # B-LOW-1(a) fix-up: off-peak transition now also drives
@@ -9427,7 +9437,9 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
                     "EVs will turn ON proactively unless a "
                     "battery-protection guard is active."
                 )
-            elif next_period in ("peak", "mid_peak"):
+            elif above_bottom_rate(
+                tou, season_at(tou, _next_when), next_period,
+            ):
                 expected_action = "EV TOU pause will engage; battery holds"
             else:
                 expected_action = "re-evaluate"

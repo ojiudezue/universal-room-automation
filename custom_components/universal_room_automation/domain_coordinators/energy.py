@@ -127,7 +127,7 @@ from .energy_const import (
     LOAD_SHEDDING_MODE_FIXED,
     LOAD_SHEDDING_PRIORITY,
 )
-from .energy_tou import TOURateEngine
+from .energy_tou import TOURateEngine, above_bottom_rate, season_at
 # EC-RESERVE-WRITE-GOVERNOR-1: the reserve_write row's `status` vocabulary
 # is the HVAC typed outcome (stdlib-only module, no import cycle). Imported,
 # never re-typed — `test_reserve_row_status_uses_hvac_writestatus` pins
@@ -1318,10 +1318,6 @@ class EnergyCoordinator(BaseCoordinator):
         # OUTAGE_SWEEP_INITIAL_DELAY_S after setup, then every
         # OUTAGE_SWEEP_INTERVAL_H). Idempotent; cancelled in async_teardown.
         self._arm_outage_ledger()
-
-        # EC storm Stage B D-B5: one repair issue if the retired legacy
-        # threat list was customized (no options write).
-        self._check_legacy_threat_list()
 
         # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
         # coordinator gets a chance to veto an Optimizer-proposed actuation
@@ -4610,7 +4606,7 @@ class EnergyCoordinator(BaseCoordinator):
         )
         if not ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED or tick is None:
             return
-        from .energy_billing import _DISPLACED_PERIODS, discharge_savings_usd
+        from .energy_billing import discharge_savings_usd
         await self._ensure_arbitrage_inventory_loaded(now)
         if not getattr(self, "_arb_inventory_loaded", False):
             return  # B1: restore pending (read failed / SOC unknown)
@@ -4631,7 +4627,8 @@ class EnergyCoordinator(BaseCoordinator):
             inv.add(unsplit_kwh, offpeak)
 
         row: dict[str, Any] | None = None
-        if period in _DISPLACED_PERIODS and served_kwh > 0:
+        # EC leftovers D4: displaced = the passed period above the bottom rate.
+        if above_bottom_rate(self._tou, season, period) and served_kwh > 0:
             if ARBITRAGE_COST_BASIS_MODE == "inventory":
                 basis = inv.avg_basis(ARBITRAGE_INVENTORY_MIN_KWH)
                 source = "inventory"
@@ -7674,6 +7671,9 @@ class EnergyCoordinator(BaseCoordinator):
                     plug_actions = self._smart_plugs.determine_actions(
                         period,
                         force_charge_active=_fc_active,
+                        # EC leftovers D4: rank the period (plug tier has no
+                        # coord ref).
+                        tou_engine=self._tou,
                         grid_charge_on=bool(grid_charge_intent),
                         # v3 (funnel) — thread must-start-by so plug
                         # onset funnel has the backstop (plug tier has
@@ -9509,38 +9509,6 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
 
-    def _check_legacy_threat_list(self) -> bool:
-        """EC storm Stage B D-B5: the power-threat list is retired. If the
-        stored value differs from the v5.5.0 default, raise ONE repair issue
-        (``inclement_legacy_threat_list_retired``). Never writes options.
-        Returns True iff the issue was raised. Never raises."""
-        try:
-            from .energy_const import (
-                CONF_INCLEMENT_POWER_THREAT_EVENTS,
-                DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-            )
-            stored = self._get_cm_options().get(CONF_INCLEMENT_POWER_THREAT_EVENTS)
-            if stored is None:
-                return False
-            if isinstance(stored, str):
-                stored = [ln.strip() for ln in stored.splitlines() if ln.strip()]
-            if list(stored) == list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS):
-                return False
-            from homeassistant.helpers import issue_registry as ir
-            from ..const import DOMAIN
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                "inclement_legacy_threat_list_retired",
-                is_fixable=False,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="inclement_legacy_threat_list_retired",
-            )
-            return True
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("legacy threat-list check failed", exc_info=True)
-            return False
-
     def _get_cm_options(self) -> dict:
         """Return current Coordinator Manager options, re-read on every call.
 
@@ -9739,11 +9707,17 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _update_energy_situation(self, tou_period: str) -> None:
         """Assess overall energy situation."""
+        from homeassistant.util import dt as dt_util
+
         if self.load_shedding_active:
             self._energy_situation = "constrained"
-        elif tou_period == "peak":
-            self._energy_situation = "optimizing"
-        elif tou_period == "mid_peak":
+        elif above_bottom_rate(
+            getattr(self, "_tou", None),
+            season_at(getattr(self, "_tou", None), dt_util.now()),
+            tou_period,
+        ):
+            # EC leftovers D4: the PASSED period above the season's bottom
+            # rate (literal fallback when it cannot be ranked).
             self._energy_situation = "optimizing"
         else:
             self._energy_situation = "normal"
@@ -9769,8 +9743,14 @@ class EnergyCoordinator(BaseCoordinator):
             self._sustained_import_readings.clear()
             return
 
-        # Only shed during peak and mid-peak
-        if tou_period not in ("peak", "mid_peak"):
+        # Only shed above the season's bottom rate (EC leftovers D4: ranks
+        # the PASSED period; literal peak/mid_peak fallback when unrankable).
+        from homeassistant.util import dt as dt_util
+
+        _tou = getattr(self, "_tou", None)
+        if not above_bottom_rate(
+            _tou, season_at(_tou, dt_util.now()), tou_period,
+        ):
             # B-CRIT-1 fix-up: period flip peak/mid_peak → off_peak must
             # iterate active tiers and call `_execute_shed_action(activate=
             # False)` for each — without this, D1's `_paused_by_load_shed`

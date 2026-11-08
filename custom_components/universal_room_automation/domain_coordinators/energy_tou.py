@@ -394,6 +394,13 @@ class TOURateEngine:
                     "months": season_data["months"],
                     "periods": periods,
                 }
+            # Review A LOW-1 (EC leftovers): warn, never reject or reorder,
+            # when a season's import rates are not ordered off_peak <=
+            # mid_peak <= peak. Rank-based sites ("above the bottom rate")
+            # follow the RATES, so an inverted file makes a period NAMED
+            # off_peak pause loads. Log only — no behaviour change.
+            for _msg in _rate_order_warnings(rate_table):
+                _LOGGER.warning("TOU rate file %s: %s", filepath_str, _msg)
 
             fixed = data.get("fixed_charges", {})
             fixed_charges = {
@@ -805,3 +812,67 @@ class TOURateEngine:
             "rate_source": self._rate_source,
             "tou_file_status": self._file_status,
         }
+
+
+_RATE_ORDER: tuple[str, ...] = ("off_peak", "mid_peak", "peak")
+
+
+def _rate_order_warnings(rate_table: dict) -> list[str]:
+    """One message per season whose present named periods' import rates are
+    not non-decreasing in off_peak -> mid_peak -> peak order. Pure; never
+    raises (an unreadable rate is skipped — the validator owns types)."""
+    out: list[str] = []
+    for season, sdata in (rate_table or {}).items():
+        try:
+            periods = sdata["periods"]
+            seq = [(name, float(periods[name]["import_rate"]))
+                   for name in _RATE_ORDER if name in periods]
+        except Exception:  # noqa: BLE001
+            continue
+        for (a, ra), (b, rb) in zip(seq, seq[1:]):
+            if ra > rb:
+                out.append(
+                    f"season {season!r}: {a} import rate {ra} is above {b} "
+                    f"{rb} (expected off_peak <= mid_peak <= peak); "
+                    f"rate-ranked decisions follow the rates, not the names"
+                )
+    return out
+
+
+# ── EC inclement leftovers D4 (parent Stage D) — "above the bottom rate" ──
+# One pure rule for every site that means "the passed period is above the
+# season's lowest distinct import rate" (load shed, EVSE / plug TOU pause,
+# energy situation, HVAC intent anchor, situation next-boundary text,
+# arbitrage displaced-period savings). It ranks the PASSED period — never
+# the clock period — so a caller handing in its own `tou_period` (or a
+# future period) is ranked as handed in.
+
+
+def season_at(tou: Any, when: datetime | None) -> str | None:
+    """``tou.get_season(when)``, or None when it cannot be resolved (no
+    engine, no ``when``, or the engine raises). None makes
+    ``above_bottom_rate`` fall back to the legacy literal."""
+    if tou is None or when is None:
+        return None
+    try:
+        return tou.get_season(when)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def above_bottom_rate(tou: Any, season: str | None, period: str | None) -> bool:
+    """True iff ``period`` ranks above ``season``'s lowest distinct import
+    rate. Ranks the PASSED period (never re-derives it from the clock).
+    Falls back to the legacy literal when the engine / season / period
+    cannot be ranked (engine None, a non-int rank such as a MagicMock,
+    unknown season or period)."""
+    try:
+        rank = (
+            tou.period_rank(season, period)
+            if (tou is not None and season) else None
+        )
+    except Exception:  # noqa: BLE001
+        rank = None
+    if isinstance(rank, int) and not isinstance(rank, bool):
+        return rank > 0
+    return period in ("peak", "mid_peak")  # legacy fallback (pinned)

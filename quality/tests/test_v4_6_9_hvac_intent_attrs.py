@@ -102,6 +102,12 @@ def _make_predictor(
     import logging
     import types
 
+    # Imported BEFORE the homeassistant.util shim swap below so the real
+    # module binds the real dt_util.
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_tou as _energy_tou,
+    )
+
     raw_src = _extract_get_intent_attrs_src()
 
     # Strip 4-space class indent
@@ -154,6 +160,10 @@ def _make_predictor(
         "Any": object,
         "DOMAIN": "universal_room_automation",
         "timezone": _tz,
+        # EC leftovers D4: the TOU anchor ranks periods through the real
+        # module-level helpers (a MagicMock engine → literal fallback).
+        "above_bottom_rate": _energy_tou.above_bottom_rate,
+        "season_at": _energy_tou.season_at,
     }
 
     try:

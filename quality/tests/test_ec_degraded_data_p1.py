@@ -2740,6 +2740,43 @@ async def test_decision_cycle_threads_grid_charge_into_plug_paths(
         assert spy.seen.get(n) is cfg_on, (n, spy.seen)
 
 
+@pytest.mark.asyncio
+async def test_decision_cycle_threads_tou_engine_into_plug_tou_path(clock, mono):
+    """EC inclement leftovers D4 wire-in anchor (enclosing method
+    `_decision_cycle_body`): the plug TOU path receives the coordinator's
+    TOU engine, so `SmartPlugController.determine_actions` ranks the period
+    instead of falling back to the peak/mid_peak literal."""
+    s, hass, _ = _strategy(clock, stream=False)
+    ev = _evpool()
+    ev.hass = hass
+    c = _cycle_shell(clock, s, hass, ev)
+    seen: dict = {}
+
+    class _TouSpy(_PlugSpy):
+        def determine_actions(self, *a, **kw):
+            seen["tou_engine"] = kw.get("tou_engine", "MISSING")
+            return []
+
+    c._smart_plugs = _TouSpy()
+    c._ev_tou_enabled = True
+    c._excess_solar_enabled = False
+    c._excess_solar_kwh = 10.0
+    c._grid_import_cap_enabled = False
+    c._grid_import_cap_kw = 12.0
+    c._dp_carrier = None
+    c._dp_must_start_by_min = None
+    c._last_soc_recovered = False
+
+    async def _anoop(*a, **k):
+        return None
+    c._check_fill_priority_nm_trip = _anoop
+    c._post_excess_solar_bookkeeping = lambda *a, **k: None
+    c._send_nm_alert = _anoop
+    await c._decision_cycle_body()
+    assert "tou_engine" in seen, seen
+    assert seen["tou_engine"] is c._tou
+
+
 # ===========================================================================
 # Review-D L2 — CFG ledger restore age-gates on the newer dispatch stamp
 # ===========================================================================

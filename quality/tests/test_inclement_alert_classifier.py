@@ -75,9 +75,6 @@ for _submod_name in ("energy_const", "inclement"):
 from custom_components.universal_room_automation.domain_coordinators.inclement import (
     AlertClassifier,
 )
-from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -107,11 +104,7 @@ def make_alert(
     return alert
 
 
-def classify(alerts, threat=None, warn_min="Severe"):
-    # Stage E E1.9 (expected diff): the retired legacy kwargs are removed
-    # from AlertClassifier; `threat` / `warn_min` are accepted here only so
-    # the legacy-semantics tests below keep proving they have no effect.
-    del threat, warn_min
+def classify(alerts):
     c = AlertClassifier(selection=None)
     return c.classify(alerts, now=_NOW)
 
@@ -213,9 +206,10 @@ def test_max_tier_aggregates_across_contributors():
 
 
 def test_legacy_threat_list_is_ignored_red_flag_stays_gated_out():
-    threat = list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS) + ["Red Flag"]
+    # The retired v5.5.0 list could add "Red Flag"; the product table never
+    # holds on it.
     r = classify([make_alert(event="Red Flag Warning", severity="Severe",
-                             certainty="Observed")], threat=threat)
+                             certainty="Observed")])
     assert r.tier == "none"
     assert "Red Flag Warning" in r.gated_out_events
 
@@ -226,7 +220,7 @@ def test_severity_never_demotes_table_tier():
                              severity="Moderate", certainty="Observed")])
     assert r.tier == "warn"
     r2 = classify([make_alert(event="Tornado Warning", severity="Minor",
-                              certainty="Possible")], warn_min="Extreme")
+                              certainty="Possible")])
     assert r2.tier == "warn"
 
 

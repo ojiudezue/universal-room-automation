@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
+from .energy_tou import above_bottom_rate, season_at
 from .hvac_const import (
     DEFAULT_ENERGY_PRECOOL_OFFSET,
     DEFAULT_ENERGY_PRECOOL_SCOPE,
@@ -2054,13 +2055,28 @@ class HVACPredictor:
 
         if energy is not None:
             try:
+                from datetime import timedelta
+
                 tou = energy.tou_engine
                 transition = tou.get_next_transition()
+                _tou_now = dt_util.now()
                 # Bug Class #8: guard the transition dict
                 if isinstance(transition, dict):
                     next_period = transition.get("next_period")
                     hours_until = transition.get("hours_until")
-                    if next_period in ("peak", "mid_peak"):
+                    # EC leftovers D4: rank the NEXT period in the season at
+                    # the transition instant (the wrap branch of
+                    # get_next_transition uses the next day's season).
+                    try:
+                        _next_when = (
+                            _tou_now + timedelta(hours=float(hours_until))
+                            if hours_until is not None else None
+                        )
+                    except (TypeError, ValueError):
+                        _next_when = None
+                    if above_bottom_rate(
+                        tou, season_at(tou, _next_when), next_period,
+                    ):
                         anchor_period = next_period
                         if hours_until is not None:
                             anchor_starts_in_minutes = int(
@@ -2070,7 +2086,9 @@ class HVACPredictor:
                         # Currently in a peak window — anchor to the current period
                         try:
                             current = tou.get_current_period()
-                            if current in ("peak", "mid_peak"):
+                            if above_bottom_rate(
+                                tou, season_at(tou, _tou_now), current,
+                            ):
                                 anchor_period = current
                                 anchor_starts_in_minutes = 0
                         except Exception:  # noqa: BLE001
