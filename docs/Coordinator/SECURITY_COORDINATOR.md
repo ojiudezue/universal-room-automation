@@ -624,6 +624,11 @@ Plan: `docs/planning/PLANNING_sc_lock_exclude_and_door_regime.md` rev 3.
   re-evaluated. A person added while already `not_home` has no since-stamp until their next
   state change, so nothing engages until then; removing the last at-home person does not
   re-arm either. Same shape as "OFF -> ON never catches up".
+- **Accepted redundant defences (review C G12/G13, not separately mutation-anchored):** the
+  away release's own dwell cancel and save (the attempted latch + the per-ownership saves
+  cover them), its no-target early return, the re-arm kill-switch / entities gate (the engage
+  predicate re-checks both), and `_clear_attempted`'s save (always paired with the stamp-pop
+  save). Each is backed by a tested layer; removing one alone cannot cause a wrong lock write.
 
 ## 8. HOUSE STATE INTEGRATION
 

@@ -211,3 +211,27 @@ def test_strings_have_new_keys():
         )
         blocks.append((step["data"], step["data_description"], errors))
     assert blocks[0] == blocks[1]
+
+
+# ---- Review C G6: rendered defaults come from stored options (no erase on
+# an untouched submit).
+
+
+@pytest.mark.asyncio
+async def test_g6_untouched_submit_keeps_stored_lock_fields():
+    stored = {
+        "security_lock_entities": [DOOR, BED],
+        "security_lock_sweep_exclude": [BED],
+        "security_away_lock_entities": [BED],
+        "security_away_lock_persons": [OJI, EZ],
+    }
+    step = _step()
+    fake = _fake(stored)
+    form = await step(fake, None)
+    validated = form["schema"]({})  # the operator changed nothing
+    for key, value in stored.items():
+        assert validated[key] == value, key
+    res = await step(fake, validated)
+    assert res["type"] == "create_entry"
+    for key, value in stored.items():
+        assert res["data"][key] == value, key

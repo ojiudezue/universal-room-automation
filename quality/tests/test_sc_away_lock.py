@@ -1163,6 +1163,220 @@ async def test_b5_teardown_flushes_store():
                                   "away_lock_inflight", "away_attempted_marker"}
 
 
+# ============================================================================
+# Review C (test authority) additions
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_g1_named_zone_does_not_release_owned():
+    rig = await _engaged()
+    await rig.w.advance(1800)
+    await rig.person(OJI, "Work")
+    assert rig.unlocks() == []
+    assert rig.regime.away_lock_owned == {BED}
+
+
+@pytest.mark.asyncio
+async def test_g2_release_not_suppressed_by_observation_mode():
+    rig = await _engaged()
+    rig.sc.observation_mode = True
+    await rig.person(OJI, "home")
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g3_sc_disable_releases_with_away_switch_off():
+    rig = await _engaged()
+    rig.w.cm_entry.options["security_away_lock_enabled"] = False  # no release edge
+    rig.w.cm_entry.options["security_coordinator_enabled"] = False
+    await rig.regime.async_release_if_disabled()
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g4_switch_off_then_on_same_outing_never_relocks():
+    """Switch OFF during the dwell (before any engage), then ON again: the
+    release latched this outing, so the next listed-person edge never arms."""
+    rig = await make_rig()
+    await rig.person(OJI, "not_home")
+    await rig.person(EZ, "not_home")
+    await rig.w.advance(100)
+    rig.w.cm_entry.options["security_away_lock_enabled"] = False
+    rig.regime.on_kill_switch_changed(False, "security_away_lock_enabled")
+    await settle()
+    assert rig.regime._away_dwell_unsub is None
+    rig.w.cm_entry.options["security_away_lock_enabled"] = True
+    rig.w.set_state(OJI, "not_home", {"gps_accuracy": 3})  # next listed-person edge
+    await settle()
+    await rig.w.advance(3600)
+    assert rig.locks() == []
+
+
+@pytest.mark.asyncio
+async def test_g5_home_unavailable_not_home_needs_fresh_dwell():
+    """Review C G5: a home reading drops the stamp, so home -> unavailable
+    -> not_home counts the dwell again (no GPS-flap shortcut)."""
+    rig = await make_rig()
+    await rig.person(EZ, "not_home")
+    await rig.person(OJI, "not_home")
+    await rig.w.advance(200)
+    await rig.person(OJI, "home")
+    await rig.person(OJI, "unavailable")
+    await rig.person(OJI, "not_home")
+    await rig.w.advance(299)
+    assert rig.locks() == []
+    await rig.w.advance(2)
+    assert rig.locks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g8_marker_tracks_latest_stamp_two_people():
+    """The outing key is the LATEST stamp: if the last person out started a
+    new outing while HA was down, the restart may attempt again."""
+    store = MemStore()
+    rig = await make_rig(store=store)
+    await rig.person(OJI, "not_home")
+    await rig.w.advance(1000)
+    await rig.person(EZ, "not_home")  # EZ holds the latest stamp
+    await rig.w.advance(321)
+    assert rig.regime.away_lock_owned == {BED}
+    rig.w.set_state(BED, "unlocked")  # human unlock: ownership lost
+    await settle()
+    payload = dict(store.saved)
+    since = dict(payload["away_not_home_since"])
+    since[EZ] = since[EZ] + 2000  # EZ came back and left again while HA was down
+    payload["away_not_home_since"] = since
+    rig2 = await _restart(rig, payload, persons={OJI: "not_home", EZ: "not_home",
+                                                KIOSK: "unknown"})
+    await rig2.w.advance(3600)
+    assert rig2.locks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g9_attempt_marker_saved_at_attempt():
+    store = MemStore()
+    rig = await make_rig(store=store)
+    rig.sc.observation_mode = True  # no in-flight save follows the attempt
+    await rig.both_out()
+    assert rig.regime.away_lock_last_action["action"] == "would_engage"
+    assert store.saved["away_attempted_marker"] == rig.regime._formation_key(rig.regime._cfg())
+    assert store.saved["away_attempted_marker"] is not None
+
+
+@pytest.mark.asyncio
+async def test_g10_sc_disable_failed_unlock_high_away_nm_and_save():
+    store = MemStore()
+    rig = await _engaged(store=store)
+    rig.w.cm_entry.options["security_coordinator_enabled"] = False
+
+    async def refuse(domain, service, data, blocking=False, **kw):
+        rig.w.calls.append((domain, service, data.get("entity_id"), blocking))
+        raise RuntimeError("lock offline")
+
+    rig.w.hass.services.async_call = refuse
+    await rig.regime.async_release_if_disabled()
+    assert rig.unlocks() == [BED]
+    highs = [n for n in rig.nm.notes if n["title"] == "Away Lock release failed"]
+    assert len(highs) == 1
+    assert highs[0]["severity"] == load("domain_coordinators.base").Severity.HIGH
+    assert store.saved["away_lock_owned"] == []
+
+
+@pytest.mark.asyncio
+async def test_g10_sc_disable_mid_engage_stops_loop():
+    """The SC-disable release bumps the release epoch, so an engage loop that
+    yields after lock 1 never locks lock 2."""
+    study = "lock.study_lock"
+    rig = await make_rig(opts=options(
+        security_lock_entities=[DOOR, BED, study],
+        security_lock_sweep_exclude=[BED, study],
+        security_away_lock_entities=[BED, study],
+    ))
+    rig.w.seed(study, "unlocked")
+    real = rig.w.hass.services.async_call
+    pending = []
+
+    async def yielding(domain, service, data, blocking=False, **kw):
+        await real(domain, service, data, blocking=blocking, **kw)
+        if (domain, service, data.get("entity_id")) == ("lock", "lock", BED):
+            rig.w.cm_entry.options["security_coordinator_enabled"] = False
+            pending.append(asyncio.ensure_future(rig.regime.async_release_if_disabled()))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+    rig.w.hass.services.async_call = yielding
+    await rig.both_out()
+    await asyncio.gather(*pending)
+    assert rig.locks() == [BED]
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g11_engage_call_failure_clears_inflight():
+    rig = await make_rig()
+
+    async def boom(domain, service, data, blocking=False, **kw):
+        rig.w.calls.append((domain, service, data.get("entity_id"), blocking))
+        raise RuntimeError("zwave timeout")
+
+    rig.w.hass.services.async_call = boom
+    await rig.both_out()
+    assert rig.locks() == [BED]
+    assert rig.regime._away_engage_inflight == {}
+    assert rig.regime._away_readback_unsubs == {}
+
+
+@pytest.mark.asyncio
+async def test_g11_away_lock_call_is_non_blocking():
+    rig = await make_rig()
+    await rig.both_out()
+    assert ("lock", "lock", BED, False) in rig.w.calls
+
+
+def _dwell_timers(rig):
+    return [t for t in rig.w.live_timers()
+            if getattr(t["cb"], "__name__", "") == "_on_away_dwell"]
+
+
+@pytest.mark.asyncio
+async def test_g12_rearm_keeps_a_single_dwell_timer():
+    rig = await make_rig()
+    await rig.person(OJI, "not_home")
+    await rig.person(EZ, "not_home")
+    for i in range(5):
+        rig.w.set_state(OJI, "not_home", {"gps_accuracy": i})
+        await settle()
+    assert len(_dwell_timers(rig)) == 1
+    await rig.w.advance(301)
+    assert rig.locks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g12_concurrent_engage_runs_once():
+    rig = await make_rig()
+    await rig.person(OJI, "not_home")
+    await rig.person(EZ, "not_home")
+    await rig.w.advance(299)
+    rig.regime._cancel_away_dwell()
+    rig.w.now = rig.w.now + timedelta(seconds=2)
+    # The lock state lags the command, so the unlocked check alone cannot
+    # stop a second engage; only the attempted guard does.
+    _refuse_lock(rig)
+    await asyncio.gather(rig.regime._async_away_engage("a"),
+                         rig.regime._async_away_engage("b"))
+    assert rig.locks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_g12_release_skips_owned_lock_already_unlocked():
+    rig = await _engaged()
+    rig.w.seed(BED, "unlocked")  # unlocked with no event reaching the regime
+    await rig.person(OJI, "home")
+    assert rig.unlocks() == []
+    assert rig.regime.away_lock_owned == set()
+
+
 def test_live_keys_in_reload_suppress_and_no_live_attr_sets():
     init = load("__init__")
     for key in ("security_lock_sweep_exclude", "security_away_lock_enabled",

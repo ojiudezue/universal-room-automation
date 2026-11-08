@@ -337,3 +337,37 @@ def test_doors_excluded_jammed_is_problem():
         coordinators={"security": sc})
     by = {f.source: f for f in hs.doors(w.hass).fields}
     assert by[BED].problem is True
+
+
+# ---- Review C G7: _sweep_excluded coercion, intersect and fallback.
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (BED, {BED}),                           # a single string (not a list)
+        ((BED, DOOR), {BED, DOOR}),             # tuple
+        ([BED, "lock.not_registered"], {BED}),  # intersect with the lock list
+        (42, set()),                            # junk
+        (None, set()),
+    ],
+)
+def test_g7_sweep_excluded_coercion(raw, expected):
+    w, sc = make_sc(opts=options(security_lock_sweep_exclude=raw))
+    assert sc._sweep_excluded() == expected
+
+
+@pytest.mark.asyncio
+async def test_g7_single_string_exclude_skips_sweep():
+    w, sc = make_sc(opts=options(security_lock_sweep_exclude=BED))
+    assert _lock_targets(await sc._evaluate_lock_check()) == [DOOR]
+
+
+def test_g7_sweep_excluded_read_failure_excludes_nothing():
+    w, sc = make_sc()
+
+    def boom(domain=None):
+        raise RuntimeError("config entries unavailable")
+
+    w.hass.config_entries.async_entries = boom
+    assert sc._sweep_excluded() == set()
