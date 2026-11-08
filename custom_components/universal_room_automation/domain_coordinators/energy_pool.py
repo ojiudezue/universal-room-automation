@@ -1361,6 +1361,17 @@ class EVChargerController:
                 _LOGGER.info("EV: force-charge override expired — resuming strict TOU")
                 self._force_charge_until = None
 
+        # EC leftovers D4: rank the PASSED period against the season's bottom
+        # rate (literal peak/mid_peak fallback when it cannot be ranked).
+        from .energy_tou import above_bottom_rate, season_at
+        _tou_c = coord if coord is not None else getattr(
+            self, "_energy_coord", None,
+        )
+        _tou = getattr(_tou_c, "_tou", None)
+        _above_bottom = above_bottom_rate(
+            _tou, season_at(_tou, _dt_util_now_or_none()), tou_period,
+        )
+
         for evse_id, config in self._evse.items():
             switch_entity = config.get("switch", "")
             if not switch_entity:
@@ -1368,7 +1379,7 @@ class EVChargerController:
 
             state = self._get_evse_state(evse_id)
 
-            if tou_period in ("peak", "mid_peak"):
+            if _above_bottom:
                 # B-MED-2 fix-up: clear stale proactive-hold bookkeeping FIRST,
                 # before any `continue` short-circuit, so the hold-set can't
                 # leak when excess_solar or force_charge wins the iteration.
@@ -3903,6 +3914,7 @@ class SmartPlugController:
         force_charge_active: bool = False,
         grid_charge_on: bool = False,
         must_start_by_min: int | None = None,
+        tou_engine: Any = None,
     ) -> list[dict[str, Any]]:
         """Determine smart plug actions based on TOU period.
 
@@ -3933,15 +3945,25 @@ class SmartPlugController:
             force_charge_active: True when EVPool's admin force-charge
                 override is currently open. When True, plug proactive-on
                 is skipped (force-charge is authorized by its own path).
+            tou_engine: the coordinator's TOURateEngine, used to rank
+                ``tou_period`` (pause above the season's bottom rate).
+                None → the legacy peak/mid_peak literal.
         """
         actions: list[dict[str, Any]] = []
+        # EC leftovers D4: rank the PASSED period (`tou_engine` threaded by
+        # the coordinator; None → literal peak/mid_peak fallback).
+        from .energy_tou import above_bottom_rate, season_at
+        _above_bottom = above_bottom_rate(
+            tou_engine, season_at(tou_engine, _dt_util_now_or_none()),
+            tou_period,
+        )
 
         for entity_id in self._plugs:
             state = self.hass.states.get(entity_id)
             if state is None:
                 continue
 
-            if tou_period in ("peak", "mid_peak"):
+            if _above_bottom:
                 # Clear any stale proactive-offpeak hold — set is
                 # off-peak-intent only. Mirrors EVSE cleanup at line ~505.
                 self._proactive_offpeak_holds.discard(entity_id)

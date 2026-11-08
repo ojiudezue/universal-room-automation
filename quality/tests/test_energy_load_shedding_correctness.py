@@ -241,11 +241,18 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
 )
 
 _LOGGER = _logging.getLogger("test_load_shedding_correctness")
+from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
+    energy_tou as _energy_tou,
+)
 _extracted_ns: dict = {
     "_LOGGER": _LOGGER,
     "_DOMAIN": _DOMAIN,
     "LOAD_SHEDDING_PRIORITY": LOAD_SHEDDING_PRIORITY,
     "Any": object,
+    # EC leftovers D4: energy.py's module-level imports used by the
+    # extracted `_update_load_shedding` (rank the passed period).
+    "above_bottom_rate": _energy_tou.above_bottom_rate,
+    "season_at": _energy_tou.season_at,
     # Required for the `from .energy_pool import ...` line inside the
     # pool branch — relative-import resolves against __name__/__package__.
     "__name__": (

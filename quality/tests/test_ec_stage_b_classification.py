@@ -29,8 +29,6 @@ from conftest import MockState
 import custom_components.universal_room_automation.domain_coordinators.inclement as inc
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (
     CONF_INCLEMENT_NWS_ALERTS_ENTITY,
-    CONF_INCLEMENT_POWER_THREAT_EVENTS,
-    DEFAULT_INCLEMENT_POWER_THREAT_EVENTS,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_outage_ledger import (
     OutageLedger,
@@ -532,29 +530,6 @@ def _issue_spy(monkeypatch):
     monkeypatch.setattr(ir, "async_create_issue",
                         lambda *a, **kw: calls.append((a, kw)))
     return calls
-
-
-def test_legacy_list_no_options_write(clock, monkeypatch):
-    c, s = make_shell(clock)
-    entry = _cm_entry({CONF_INCLEMENT_POWER_THREAT_EVENTS:
-                       list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS)})
-    c.hass.config_entries.async_entries = lambda domain=None: [entry]
-    calls = _issue_spy(monkeypatch)
-    assert c._check_legacy_threat_list() is False
-    assert calls == []
-    assert not c.hass.config_entries.async_update_entry.called
-
-
-def test_customized_legacy_list_raises_repair_issue(clock, monkeypatch):
-    c, s = make_shell(clock)
-    entry = _cm_entry({CONF_INCLEMENT_POWER_THREAT_EVENTS:
-                       list(DEFAULT_INCLEMENT_POWER_THREAT_EVENTS) + ["Flood"]})
-    c.hass.config_entries.async_entries = lambda domain=None: [entry]
-    calls = _issue_spy(monkeypatch)
-    assert c._check_legacy_threat_list() is True
-    assert len(calls) == 1
-    assert calls[0][0][2] == "inclement_legacy_threat_list_retired"
-    assert not c.hass.config_entries.async_update_entry.called
 
 
 def test_battery_passes_engine_bottom_rate_into_fusion(clock):

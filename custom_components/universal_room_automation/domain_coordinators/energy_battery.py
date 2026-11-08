@@ -5753,7 +5753,13 @@ class BatteryStrategy:
             "battery_power": self.battery_power,
             "solar_day_class": self.classify_solar_day(),
             "tomorrow_solar_class": tomorrow_class,
-            "envoy_available": True,
+            # EC-INCLEMENT-LEFTOVERS D5: same rule as `_result` — a degraded
+            # (Envoy-blind) tick must not report the Envoy available, or
+            # `_track_envoy_availability` resets its outage count and the
+            # "Envoy Offline" page never fires.
+            "envoy_available": bool(
+                getattr(self, "_degraded_telemetry_source", None) is None
+            ),
             "season": season,
             "arbitrage_active": True,
             "arbitrage_enabled": self._arbitrage_enabled,
