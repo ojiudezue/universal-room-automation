@@ -46,3 +46,12 @@ unknown-person alert and the entry alert. They fire once per alert event.
 - `sensor.ura_security_last_lock_sweep` shows the capped device in `found_unlocked` and
   `retry_capped`, and not in `lock_actions_sent`.
 - After the device is seen locked/closed, a later failure gets a fresh 3 tries.
+
+## Rebased onto v5.106.0 (overnight 2026-11-08)
+Ships from `integ/overnight-2026-11-08` (develop c7e049ae + this fix + OPTIMIZER-META-NEVER-PAGES-1 +
+ANOMALY-METRIC-DISPOSITION-1). It supersedes `integ/overnight-2026-11-04`, which no longer merges because v5.106.0
+changed the same function. Behaviour with the never-auto-lock list: excluded locks skip the retry cap entirely (never
+commanded, never counted, no cap notice). `sensor.ura_*_last_lock_sweep` gains a `retry_capped` attribute. Merge review:
+docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md (SHIP, 2 LOWs fixed).
+Extra live check after restart: the sweep sensor shows `retry_capped: []` and `excluded` lists the master bedroom lock
+once you add it to the never-auto-lock list.
