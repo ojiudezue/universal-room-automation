@@ -54,3 +54,4 @@
 - 2026-11-07 18:21 **v5.105.0** — v5.105.0 — Garage remote lockout: SC lock regime (Phase 1) (cards: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1)
 - 2026-11-08 01:05 **v5.106.0** — v5.106.0 — SC "Never auto-lock" list + Away Lock (cards: SC-LOCK-SWEEP-EXCLUDE-1,SC-LOCK-REGIME-DOOR-LOCKS-1)
 - 2026-11-08 09:14 **v5.106.1** — v5.106.1 — WhatsApp sends via ha-wa-bridge 3.x (`wa_bridge`) (cards: WA-BRIDGE-DOMAIN-1)
+- 2026-11-08 13:03 **v5.106.2** — v5.106.2 — Inclement leftovers: TOU rate ranking, Envoy-blind outage counter, retired threat-list removal (cards: EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1,EC-BLIND-DEESCALATE-TOP-RATE-1)

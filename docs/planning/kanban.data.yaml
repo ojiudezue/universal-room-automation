@@ -321,6 +321,19 @@ cards:
   operator_2026_11_07: "Lockdown must NOT lock an excluded door; lockdown should focus on egress locks. Excluded = interior/passage locks."
   queue_2026_11_07: "Queued with SC-LOCK-REGIME-DOOR-LOCKS-1 right after lockout Phase 1 ships; master bedroom lock removed from SC on 2026-11-07 must be re-added as excluded when this ships."
   restart_pending_2026_11_08: "v5.106.0 is INSTALLED but not running: update.universal_room_automation_update reads installed v5.106.0 with 'Restart of Home Assistant required' (installed 11-08 01:05 CST; restart held while the house sleeps). switch.ura_security_coordinator_away_lock does not exist yet. README v5.106.0 live checks cannot run until the next restart. The README still has no post-restart validation table."
+- id: EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1
+  title: "Inclement full-hold degraded path returns envoy_available=True on a degraded tick (resets the Envoy outage counter)"
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.106.2
+  tier: 2
+  created: "2026-11-08 10:00"
+  updated: "2026-11-08 10:00"
+  rank: {value: 2, time_criticality: 1, effort: 1}
+  origin: "Inclement-leftovers sweep 2026-11-08: PLANNING_ec_storm_and_blind_decisions.md deviations (A-HIGH-1) said 'reported for a follow-up card' but no card was ever created."
+  why: "Pre-existing, left unchanged in the storm cycle: the full-hold degraded clear/restore path has the same shape as pre-onset and reports envoy_available=True on a degraded tick, which resets the Envoy outage counter for that tick. Effect: the blind/outage escalation can under-count during a storm hold."
+  next: "Verify against current energy_battery.py (the plan's line refs are from v5.103.6x): find the full-hold degraded branch, confirm the envoy_available value on a degraded tick, and decide fix vs document. Sibling: EC-INCLEMENT-HARDENING-1."
+  links: {sibling_of: EC-INCLEMENT-HARDENING-1}
 - id: WA-BRIDGE-DOMAIN-1
   title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
   thread: notifications
@@ -1243,7 +1256,8 @@ cards:
   operator_2026_10_16: '"boo. it needs more resilience. This text matching is nonsense when there are better candidates." Widened: 35 literal period-name checks (== "peak" / "mid_peak") across energy.py 9, energy_battery.py 13, energy_pool.py 8, energy_tou.py 1, hvac_predict.py 2. Better candidates already exist in the TOU engine: get_current_rate / get_effective_import_rate (energy_tou.py:472/:488), get_next_high_rate_transition / get_today_high_rate_transitions (:645/:689). Direction: one TOU primitive (rate rank within the active season, e.g. is_top_rate / rate_tier) and audit all 35 sites — classify each as "means top rate" vs "means the literal named period" before migrating. Tier: likely 3 (shared primitive, cost + safety, many consumers).'
   title: 'TOU decisions key on literal period names ("peak"/"mid_peak", 35 sites) instead of rate rank; e.g. Envoy-blind de-escalation misses the shoulder/winter top rate (mid_peak 17-21)'
   thread: energy
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.106.2
   tier: 3
   origin: 'Operator 2026-10-16: "What does this do? Should we treat mid peak as peak in this case since its the highest of 2 rates vs 3?"'
   why: 'energy_battery.py ~5636 _is_peak_or_into_peak = tou_period == "peak" or transition_into == "peak". October schedule: off-peak 00-17, mid-peak 17-21 (top rate), off-peak 21-24 -> blind at 17:00 with charge_from_grid on (arbitrage CHARGE window 14:30-17) imports through the most expensive window. Fix: key on "highest-priced period in the active season schedule" (derive from tou_rates.json), not the literal name.'

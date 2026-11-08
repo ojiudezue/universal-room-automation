@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "272",
+  "author": "ojiudezue",
+  "session_id": "claude_20261108_190352_ship_v5_106_2",
+  "timestamp": "2026-11-08T19:03:52Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.106.2 shipped: EC inclement leftovers: TOU rate ranking, Envoy-blind outage counter, threat-list removal",
+  "summary": "EC inclement leftovers: TOU rate ranking, Envoy-blind outage counter, threat-list removal",
+  "why": "Operator asked to fix the inclement-weather leftovers. Verification against current code showed the cards were stale; three real gaps remained: the attain HOLD-CURRENT literal dict reported envoy_available True while the Envoy was blind, resetting the outage counter and suppressing the Envoy Offline page; decisions keyed on the literal text peak/mid_peak where they mean priced above the cheapest rate (operator 10-16 ruling to stop text matching); and dead threat-list plumbing. Tier 2-DB with plan review, three framing-disjoint code reviews (one mutation GREEN site fixed), full-suite name-diff clean.",
+  "implications": "Shipped EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1, EC-BLIND-DEESCALATE-TOP-RATE-1 at v5.106.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.106.2.md (Live criteria).",
+  "revisit_trigger": "battery_strategy envoy_available true + Envoy outage count 0 after restart; mode/reason/inclement_* attrs match the pre-deploy snapshot for the same TOU period; no repairs issue; no energy_tou rate-order warning on PEC",
+  "refs": {
+    "cards": [
+      "EC-STORM-FULLHOLD-DEGRADED-ENVOY-AVAILABLE-1",
+      "EC-BLIND-DEESCALATE-TOP-RATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.106.2.md"
+    ],
+    "release_notes": "Attain HOLD-CURRENT reports real Envoy availability (outage counter no longer reset while blind); 8 above-bottom-rate TOU sites rank the passed period via one helper with all named-period literals pinned; retired inclement threat-list tail removed; tariff rate-order warning."
+  }
+}
