@@ -4516,6 +4516,9 @@ OPTIMIZER_DIMENSION_PREDICTION_ACCURACY: Final = "prediction_accuracy"
 # NM Cycle A-2 — single tuple of dimension value strings, used by the
 # options-flow allowlist SelectSelector without pulling in the heavy
 # optimization coordinator module (which drags HA imports).
+# Note (OPTIMIZER-META-NEVER-PAGES-1): ticking "meta" in the HIGH allowlist
+# has no effect — META findings never page (optimization.py
+# _notify_if_severe guard); they are persisted + digested only.
 OPTIMIZER_DIMENSIONS_ALL: Final = (
     OPTIMIZER_DIMENSION_SENSOR_HEALTH,
     OPTIMIZER_DIMENSION_COMFORT,

@@ -452,34 +452,9 @@ def test_should_defer_high_to_digest_both_branches():
     ) is False
 
 
-def test_optimizer_consumer_wired_to_should_defer_helper():
-    """Mutation-anchored: `_notify_if_severe` MUST invoke
-    `should_defer_high_to_digest(...)` and `return` on truthy.
-
-    Mutation `if False and should_defer_high_to_digest(...)` — the string
-    " and " inside the `if` disqualifies the assertion below (we require the
-    call to be the sole predicate of an `if ...:` line). Removing the
-    `return` after the log line also flunks (asserts `return` sits
-    inside the branch).
-    """
-    src = (CC / "domain_coordinators" / "optimization.py").read_text(encoding="utf-8")
-    idx = src.find("async def _notify_if_severe")
-    assert idx != -1
-    body = src[idx: idx + 3000]
-    # Import present.
-    assert "from ._nm_cycle_a import should_defer_high_to_digest" in body
-    # Gate is exactly `if should_defer_high_to_digest(self.hass, finding):`
-    # (no trailing conjunction that would bypass the helper's return value).
-    assert "if should_defer_high_to_digest(self.hass, finding):" in body, (
-        "gate must be a bare `if should_defer_high_to_digest(...):` — any "
-        "extra conjunction (`and`/`or`) would let a mutation bypass the helper"
-    )
-    # `return` follows the log inside the branch.
-    gate_start = body.find("if should_defer_high_to_digest(self.hass, finding):")
-    branch = body[gate_start: gate_start + 500]
-    assert "return" in branch, "defer branch must `return`"
-    # The deprecated bare-frozenset import must NOT reappear.
-    assert "from ..const import OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS" not in body
+# test_optimizer_consumer_wired_to_should_defer_helper (source grep) was
+# converted to a behavioural test (OPTIMIZER-META-NEVER-PAGES-1):
+# test_optimizer_meta_never_pages.py::test_high_finding_honours_should_defer_helper
 
 
 # ---------------------------------------------------------------------------
