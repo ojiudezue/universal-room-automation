@@ -1302,9 +1302,12 @@ HVAC_METRICS: Final = [
     "short_cycle_rate",
     "override_frequency",
     "comfort_deviation_hours",
-    # v4.7.8 fix-up C-M1: defined for symmetry, not yet wired. Listed in
-    # HVAC_SUPPRESSED_FROM_PERSISTENCE below per v4.6.3.1 P2 doctrine.
-    "egress_pause_frequency",
+    # ANOMALY-METRIC-DISPOSITION-1 (2026-11-06): egress_pause_frequency was
+    # UNDECLARED here. Reserved in v4.7.8 (fix-up C-M1) for a producer that was
+    # never built (egress pauses are rare events, too sparse for a z-score
+    # baseline). A declared-but-unfed metric kept the HVAC anomaly sensor at
+    # `partial` for good. AnomalyDetector.load_baselines drops its persisted
+    # metric_baselines row as an orphan on the next load.
 ]
 
 # v4.6.5.1 P2: Module-level suppression registry — promoted from a local set
@@ -1329,11 +1332,8 @@ HVAC_METRICS: Final = [
 #   and removed it from this frozenset. Kept out of this comment's silent
 #   list to reflect the new reality.
 #
-# v4.7.8 fix-up C-M1: egress_pause_frequency is reserved per v4.6.3.1 P2
-# doctrine — silent metrics MUST be explicitly listed rather than absent.
-# Not yet wired (no record_observation call site exists). Will be wired in
-# a follow-up cycle once a baseline is available (≥ HVAC_ANOMALY_MIN_SAMPLES
-# observations / ~14 days). Deferred per plan §13.
+# egress_pause_frequency (reserved v4.7.8 fix-up C-M1, never wired) was
+# undeclared by ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) — see HVAC_METRICS.
 # HVAC-ANOMALY-BLIND-1 D2: short_cycle_rate is now WIRED (per-zone daily
 # count, event-driven producer) and its per-day cardinality is well-
 # conditioned (measured std 0.78-1.71 across 7-8 days of live data — see
@@ -1345,7 +1345,6 @@ HVAC_METRICS: Final = [
 HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
     "zone_call_frequency",
     "comfort_deviation_hours",
-    "egress_pause_frequency",
 })
 
 # HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
@@ -1354,11 +1353,11 @@ HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
 # (starved producer = bug); either way they are blind, so the anomaly sensor
 # reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
 # have no record_observation site (meta-test in test_v465_observability_gap.py).
-# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1 (egress_pause_frequency);
-# producer card: HVAC-COMFORT-DEVIATION-PRODUCER-1 (comfort_deviation_hours).
+# egress_pause_frequency was undeclared by ANOMALY-METRIC-DISPOSITION-1
+# (2026-11-06); producer card: HVAC-COMFORT-DEVIATION-PRODUCER-1
+# (comfort_deviation_hours).
 HVAC_UNWIRED_METRICS: Final = frozenset({
     "comfort_deviation_hours",
-    "egress_pause_frequency",
 })
 
 # Minimum samples before anomaly detection activates (14 days * 24/day)

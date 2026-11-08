@@ -84,7 +84,13 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 # Metrics tracked by anomaly detection
-SECURITY_METRICS = ["alert_trigger_frequency", "entry_anomaly_score"]
+# ANOMALY-METRIC-DISPOSITION-1 (2026-11-06): entry_anomaly_score was
+# UNDECLARED. Declared since v3.6.0 with no producer; the entry verdicts it
+# would have scored already feed alert_trigger_frequency. A declared-but-unfed
+# metric kept the Security anomaly sensor at `partial` for good.
+# AnomalyDetector.load_baselines drops its persisted metric_baselines row as
+# an orphan on the next load.
+SECURITY_METRICS = ["alert_trigger_frequency"]
 
 # Hazard types the NM post-cooldown re-fire path (_re_evaluate_hazard) may
 # re-evaluate against ``_active_alert``. "intruder" is what Security actually
@@ -101,11 +107,10 @@ SECURITY_REFIRE_HAZARD_TYPES: frozenset[str] = frozenset(
 # in security.py) OR listed here. Introspected by the parametric meta-test
 # in test_v465_observability_gap.py.
 #
-# - entry_anomaly_score: defined in SECURITY_METRICS but no record_observation
-#   call site exists — silent slot. Documented per v4.6.3.1 doctrine.
-SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
-    "entry_anomaly_score",
-})
+# Empty since ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) undeclared
+# entry_anomaly_score (its only member). Kept defined: the Security ctor and
+# the meta-tests read it.
+SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
 
 # HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
 # producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
@@ -113,10 +118,9 @@ SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
 # (starved producer = bug); either way they are blind, so the anomaly sensor
 # reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
 # have no record_observation site (meta-test in test_v465_observability_gap.py).
-# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1.
-SECURITY_UNWIRED_METRICS: frozenset[str] = frozenset({
-    "entry_anomaly_score",
-})
+# Empty since ANOMALY-METRIC-DISPOSITION-1 (2026-11-06) undeclared
+# entry_anomaly_score. Kept defined: the Security ctor and meta-tests read it.
+SECURITY_UNWIRED_METRICS: frozenset[str] = frozenset()
 
 
 # ============================================================================
@@ -965,10 +969,9 @@ class SecurityCoordinator(BaseCoordinator):
         - alert_trigger_frequency: recorded as a Severity score (LOW=1, MEDIUM=2,
           HIGH=3, CRITICAL=4). Continuous ordinal — not binary. Each entry event
           produces a real severity score value. Suitable for z-score. WIRE.
-        - entry_anomaly_score: defined in SECURITY_METRICS but never recorded via
-          record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
-          metric is silent; z-score detection never fires for it.
-          Reference: v4.6.3.1 binary-metric doctrine — suppress silent metrics.
+        - entry_anomaly_score: UNDECLARED by ANOMALY-METRIC-DISPOSITION-1
+          (2026-11-06). It never had a record_observation site and the entry
+          verdict is already scored by alert_trigger_frequency.
         """
         # v4.6.5.1 P2: SUPPRESSED_FROM_PERSISTENCE was promoted to module-level
         # constant `SECURITY_SUPPRESSED_FROM_PERSISTENCE` at the top of this
