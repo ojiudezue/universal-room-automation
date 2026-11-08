@@ -39,11 +39,18 @@ Back up the live Frigate config first. Draw the zones on the current frames in t
    - **front_door_aerial, madrone_g6_entry, doorbell_lite, rear_ptz, front_side_ptz:** each zone ends at the
      property line. On rear_ptz and front_side_ptz this sits alongside the existing road object masks.
    - **Garages, Study B porch, back_yard, hot_tub:** no street in view, so no required zone. Use step 2 instead.
-2. **Size and score filters for the empty-frame cameras.** On back_yard, hot_tub and front_side_ptz, set a person
-   `min_area` that matches a real adult at the far edge of the lawn. Measure it from 3–5 true detections in the
-   audit. Raise `threshold` from 0.7 to 0.75. Keep `min_score` at 0.5 (Frigate still tracks low-score starts).
-3. **pool_equipment:** re-check the static masks against audit frames #43, #45 and #46, and extend the mask to the
-   object that is still firing.
+   - **Also on utilities_ptz and g5_bullet:** object masks on the road band and the sidewalk strip. This is the
+     method that took the PTZ road events to 0. Draw these polygons from where the bottoms of recent detection
+     boxes actually fall, not by eye (HomeLab).
+2. **Size and score filters for the empty-frame cameras.** On back_yard, hot_tub and front_side_ptz:
+   - Raise the person `min_score` to 0.6.
+   - Set `threshold` to 0.72–0.75. back_yard and hot_tub currently sit at 0.6, below the 0.7 default.
+   - Set `min_area` to about 1,500–2,500 px at 1280×720, per camera, from the box sizes of real detections.
+   - **front_side_ptz:** if its empty frames come from roaming off the parked view, the masks no longer line up. A
+     return-to-home position matters more there than filters.
+3. **pool_equipment:** the Oct 9 masks are live (2 object masks and 1 motion mask). The phantom that remains means
+   either a different static spot, or masks that don't cover the bottom-center of the detection box. HomeLab checks
+   the object coordinates on audit frames #43, #45 and #46 and extends the mask.
 
 **Why first:** the noise is stopped at its source, and no URA code changes.
 **Measure:** seven days later, alerts per camera against the 30-day baseline in the audit. Spot-check 10 snapshots per
@@ -53,8 +60,9 @@ the property line, not the driveway, and why the spot-check is in the measure st
 
 ### Phase 2: Protect street band (owner: HomeLab, or the operator in the UniFi UI; revert = remove the zone)
 On rear_ptz and g5_bullet, set a Protect smart-detect zone or exclusion zone that leaves out the street and
-sidewalk band. This is the only fix that reaches the Protect-only street walkers. The UniFi settings were not
-read, so HomeLab confirms what is currently there first.
+sidewalk band. This is the only fix that reaches the Protect-only street walkers. The Protect integration API does
+not expose zones, so the current setup has to be read, and the change made, in the Protect UI. Either the operator
+does it, or HomeLab does it with the operator's OK.
 
 ### Phase 3: URA interim gates before an alert (owner: URA; Tier 2 with reviews; knobs default to today's behaviour)
 1. **Use the data URA already receives.** Extend the Frigate event handler (`perimeter_alert.py:779-815`) to
@@ -78,7 +86,9 @@ LOW means quiet: it is logged and shown on the dashboard, with no push. Nothing 
 - **Frigate 2:** no action. 9.2 TB free on Unraid. Alerts and detections are kept 14 days, continuous recording
   5 days, at about 1.2 TB a day across all cameras. There is no archive, and that is fine for review clips.
 - **`/config/www/doorbell_alerts`:** fix this one. It holds 2.3 GB in 5,396 files, 3,325 of them older than 30 days,
-  with no cleanup. It is publicly reachable under `/local/` without auth. Proposal:
+  with no cleanup. It is publicly reachable under `/local/` without auth, and it sits inside every HA backup,
+  adding 2.3 GB to each. HA's own automations write it: `doorbell_detection_whatsapp_alert` and/or
+  `g6_doorbell_analysis`. HomeLab does not own them. Proposal:
   1. Point the doorbell automation at `/media/doorbell_alerts`.
   2. Add a 30-day retention: a daily cleanup in the automation or a shell command, with the age as a knob.
   3. Move or delete the existing files, with operator OK on what is kept.
