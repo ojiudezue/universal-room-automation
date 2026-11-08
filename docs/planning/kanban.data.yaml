@@ -9,6 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {"fid": "SC-GEOFENCE-PERSON-SNAPSHOT-1@2026-11-08T02:23:00", "card_id": "SC-GEOFENCE-PERSON-SNAPSHOT-1", "at": "2026-11-08T02:23:00", "outcome": "measured", "headline": "Checked the 2 inbox cards: both still real (Security's arrival listener misses people added after startup; a test file pollutes later tests). Both are small and planned, and I'll build them once the review lane drains.", "acknowledged": false}
+  - {"fid": "SECURITY-LOCK-SWEEP-RETRY-CAP-1@2026-11-08T02:23:00", "card_id": "SECURITY-LOCK-SWEEP-RETRY-CAP-1", "at": "2026-11-08T02:23:00", "outcome": "built-to-review", "headline": "The lock-retry fix stopped merging after last night's v5.106.0 (same function). I re-merged it on top: locks on the never-auto-lock list now skip the retry cap too. A review said SHIP, and 2 small fixes are in. With the other two review fixes it is one branch, integ/overnight-2026-11-08, full suite clean (0 new failures). Ready for your daytime deploy; that restart also turns on v5.106.0.", "acknowledged": false}
   - {"fid": "NM-INBOUND-HOUSE-QUERIES-1@2026-11-08T02:05:00", "card_id": "NM-INBOUND-HOUSE-QUERIES-1", "at": "2026-11-08T02:05:00", "outcome": "done", "headline": "Closed 'ask the house by text': the diag menu answered 5 different questions over iMessage tonight. WhatsApp and HA-app replies have never been seen, so I opened a small card asking you to send 'diag' once on each.", "acknowledged": false}
   - {"fid": "PERIMETER-DETECTION-WENT-DARK-1@2026-11-08T02:05:00", "card_id": "PERIMETER-DETECTION-WENT-DARK-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "Frigate2 was down 7.3 h yesterday (13:14-20:32), the seventh outage. This time URA noticed and paged you 3 times. It is healthy now (24 detections/s). Your Coral-vs-scheduled-restart pick is still open.", "acknowledged": false}
   - {"fid": "SC-LOCK-SWEEP-EXCLUDE-1@2026-11-08T02:05:00", "card_id": "SC-LOCK-SWEEP-EXCLUDE-1", "at": "2026-11-08T02:05:00", "outcome": "measured", "headline": "v5.106.0 (never-auto-lock list + Away Lock) is installed but not running: HA still needs a restart (held overnight). Its live checks wait for that restart.", "acknowledged": false}
@@ -97,7 +99,7 @@ cards:
   status: "review"
   tier: 1
   created: "2026-11-04 02:11"
-  updated: "2026-11-07 02:04"
+  updated: "2026-11-08 02:23"
   refinement_status: initial
   approval: implied
   tags: [tier-1, found-during-probe, measure-before-build, mutation-drill]
@@ -120,8 +122,9 @@ cards:
     related: [OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1, OC-SHADOW-SAMPLES-EMPTY-1]
     context: "OPTIMIZER-PAGING-PRIMITIVE-1 B1 (v5.101.1) added the truncation notice this card measured as ineffective (residual with its own fix, so a new card). The OC redesign owns the corpus-shape fix parked above."
   adjacency_2026_11_04: "NEW (residual of a done card). Swept: board (findings_recent appears only on OPTIMIZER-PAGING-PRIMITIVE-1, OPT-META-BOOT-TRANSIENT-1, OPTIMIZER-NOTIFY-FLOOD-DEDUP-1, all done), BACKLOG.md (no match), PLANNING_*/AUDIT_* (PLANNING_audit_optimization_coordinator.md / OC v2 agentic mention META display only)."
-  next: "APPROVE at the next attended (daytime) deploy: ships together with SECURITY-LOCK-SWEEP-RETRY-CAP-1 from integ/overnight-2026-11-04 (README draft e1dc68f0 on fix/optimizer-meta-never-pages). Live check after: the next LLM META finding at critical lands in the digest/dashboard and no 4-channel page goes out."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
   refs: [domain_coordinators/optimization.py _notify_if_severe, domain_coordinators/optimization_llm.py to_prompt_body]
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: EC-PREDICTOR-SOLCAST-UNWIRED-1
   title: "The daily solar forecast has been blank since 10-13 because the forecast model is never told which Solcast sensor to read (it is configured, just not passed in), so 'forecast today', 'predicted import' and 'battery full time' read unknown"
   thread: "energy"
@@ -245,7 +248,7 @@ cards:
   shipped_version: v5.104.0
   tier: 2
   created: "2026-11-07 12:40"
-  updated: "2026-11-08 02:05"
+  updated: "2026-11-08 02:23"
   rank: {value: 4, time_criticality: 1, effort: 3}
   origin: "Operator 2026-11-07: 'I wonder if we can process text from WhatsApp and IMessage as ways to query house state and do simple diagnostics?'"
   why: "Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Echo-loop guard exists (:283-310, NM_ECHO_GUARD_*). Free-text answering has a candidate engine in the OC agent work: a read-only tool catalogue (docs/planning/oc_eval/tools.json, 32 tools) and a live eval harness (PLANNING_oc_live_eval_and_context_pack.md) whose latest L02 runs (sonnet-5.5, 2026-11-04) still FAIL on invented claims (M2)."
@@ -321,28 +324,30 @@ cards:
 - id: TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1
   title: "Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills"
   thread: quality
-  status: inbox
+  status: "planned"
   tier: 1
   created: "2026-11-07 17:30"
-  updated: "2026-11-07 17:30"
+  updated: "2026-11-08 02:06"
   rank: {value: 2, time_criticality: 1, effort: 1}
   origin: "Lockout P1 final validation + builder triage 2026-11-07."
   why: "(1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore fixture, 60d68f63) and fails test_low_cleanup's test_hvac_decision_cycle_enabled_guard + test_hvac_observation_switch_has_deferred_restore when it runs first (pre-existing on develop). (2) test_ble_extend_not_create MUTATION_m2 anchor no longer matches coordinator.py (drill can never match). (3) test_d7_donor_hygiene DONOR_VICTIMS lacks test_sleep_fans_and_flash.py (StopIteration). (4) 9 files fail in isolation on develop (boot_settle_gate, v4621_humidity_fan_hardening, v4714_1_forgotten_phone_hotfix, v570_guest_detection_trust, hvac_pull_energy_constraint_at_setup, opt_meta_boot_transient, optimization_coordinator, snap1_at_detection_snapshots, solar_follow_amps)."
   next: "Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4)."
+  verify_2026_11_08_overnight: "STILL-REAL for (1): quality/tests/test_fan_incident_2026_08_01_replay.py:146-155 still setattr()s mocks onto an already-imported real module at import time (the 'else: setattr(_existing, ...)' branch), so it pollutes later real-HA tests. (2)-(4) were not re-checked tonight. Parsimony: BUILD (Tier 1, test-only, no production change). Held by the WIP cap: 3 cards already wait in review."
 - id: SC-GEOFENCE-PERSON-SNAPSHOT-1
   arc_cut_v5_106_0: "separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)"
   arc_cut_v5_105_0: "separate SC geofence listener fix, queued next after door-locks"
   title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
   thread: security
-  status: inbox
+  status: "planned"
   tier: 1
   created: "2026-11-07 15:40"
-  updated: "2026-11-07 15:40"
+  updated: "2026-11-08 02:05"
   rank: {value: 3, time_criticality: 2, effort: 1}
   origin: "Lockout plan review 1 M1 + operator 2026-11-07: resident list should persist across restarts and track adds/removals in real time."
   why: "security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses async_track_state_added_domain/_removed_domain (helpers/event.py:653/:711) + a persisted Store; same fix applies here."
-  next: "Build after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, reusing its resident-tracking helper (Tier 1)."
+  next: "Tier 1 build: resubscribe the geofence listener on person.* add/remove, reusing the lock-regime pattern at security_lock_regime.py:163-173, plus a test that adds a person after setup. Starts once the review lane drains below 3."
   links: {parent: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1}
+  verify_2026_11_08_overnight: "STILL-REAL. security.py:2098-2117 _setup_geofence_listener reads hass.states.async_all('person') once at setup and subscribes to that fixed list, so a person added later (or loaded after SC) is never watched. Prior art: REUSE the lock regime's add/remove resubscribe (security_lock_regime.py:163-173, async_track_state_added_domain / async_track_state_removed_domain), which shipped in v5.105.0 (the blocker in 'next' has cleared). Parsimony: BUILD (Tier 1, one listener, no new knob). Not built tonight: 3 cards already wait in review (WIP cap rule 3)."
 - id: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1
   title: "Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out"
   thread: security
@@ -33539,14 +33544,15 @@ cards:
   thread: diagnostics
   status: "review"
   created: '2026-10-24 08:00'
-  updated: "2026-11-07 02:04"
+  updated: "2026-11-08 02:23"
   tags: [anomaly, security, safety, hvac]
   origin: {date: '2026-10-24', gist: 'grooming of the five unminted README_v5.103.25 s5 follow-ups'}
   why: 'Specs in docs/planning/PLANNING_anomaly_detector_blind_metrics.md:168-172. (a) egress_pause_frequency: rare input, no producer -> undeclare (orphan prune cleans row). (b) entry_anomaly_score: redundant with entry verdicts -> undeclare; Security then reads nominal + constant annotation. (c) alert_trigger_frequency: ordinal per-event score, variance 0 in a quiet house, so first non-LOW verdict is z>=10 CRITICAL -> reshape to e.g. a daily count of non-LOW verdicts. (d) active_hazard_count: recorded only on hazard response, gate 720, 42 samples -> sample on the periodic check (safety.py ~2645) so it takes 0..N, or retire.'
   swept_2026_10_24: 'DEDUPE_2026_10_24: merges three README-named cards (ANOMALY-UNWIRED-METRIC-DISPOSITION-1, SECURITY-ALERT-TRIGGER-METRIC-SHAPE-1, SAFETY-ANOMALY-STRUCTURALLY-INERT-1) - same shared AnomalyDetector surface and same decision type (does this metric have a valid input shape). Adjacent: RESTART-SAFETY-DOCTRINE-1 (names the event-driven unreachable class). None existed on the board or BACKLOG.'
-  next: "APPROVE at the next attended (daytime) deploy; can ride with integ/overnight-2026-11-04 (no file overlap). Live check after restart: the Security anomaly sensor reads nominal (coverage full; alert_trigger_frequency is flagged constant, not blind); the HVAC one stays partial with only comfort_deviation_hours not_wired; the log shows one 'Pruning 1 orphaned baseline row(s)' line each for security and hvac. After it ships the card goes back to planned for residual (c)/(d)."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
   links: {related: [RESTART-SAFETY-DOCTRINE-1, HVAC-COMFORT-DEVIATION-PRODUCER-1]}
   rank: {value: 3, time_criticality: 2, effort: 3}
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: DASH-ANOMALY-COVERAGE-BADGE-1
   title: 'PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes'
   thread: dashboarding
@@ -33726,7 +33732,7 @@ cards:
   mergeprep_2026_11_06_overnight: "Same check as OPTIMIZER-META-NEVER-PAGES-1 (same integ branch): merges clean onto develop; test_security_lock_retry_cap passes on the merge, including when run with test_zone_orphan_device_guard (21 passed). Still ready for the attended deploy."
   reviewed_2026_11_05_overnight: "Tier-1 review (docs/reviews/code-review/security_lock_retry_cap_review.md, b52140f9) was FIX-REQUIRED: HIGH-1 observation mode spent the retry budget then silently never locked; MEDIUM-1 transient locking/jammed/closing states re-armed the episode so the cap never engaged; MEDIUM-2 found_unlocked hid a capped unlocked door; LOW-1 no 24 h re-arm. Fix-up 95bdf6fc addresses all four (orchestrator read the diff 02:05). Orchestrator per-site mutation re-drill 02:18 (PYTHONDONTWRITEBYTECODE=1, pycache cleared, worktree agent-a226bb91bbbc99071): obs-mode attempt guard -> test_observation_mode_does_not_spend_retries RED; found_unlocked=found -> test_capped_device_still_in_found_unlocked RED; re-arm reset -> test_rearm_after_24h RED; obs-mode notice guard -> test_cap_notice_not_lost_to_observation_mode RED; restored 12 passed, git status clean. Full-suite name-diff 02:04-02:17 CST 11-05 (serial, one run each, __pycache__ cleared): base = develop d2d07201 worktree base-overnight-2026-11-04 -> 12 failed / 19043 passed; candidate = integ/overnight-2026-11-04 af8fe026 (both branches merged onto d2d07201) -> 12 failed / 19061 passed. Failing-name lists IDENTICAL (0 new, 0 fixed); +18 passing = the two branches' new tests. The 12 pre-existing failures are order-dependent (test_radar_tuning_phase_a x6, test_energy_today_midnight_freeze x3, test_zone_safety_alert x2, test_shared_power_read_staleness x1; all pass when their files run alone, except the last, which passes when run singly). Develop has moved 2 docs-only commits since d2d07201 (no custom_components/quality change)."
   verify_2026_11_04_overnight: "STILL-REAL (02:14): _evaluate_lock_check (security.py ~1678-1760) had no retry cap / backoff; only the unavailable-device notice was deduped. Gate: Tier 1, BUILD (simplest cap + one notice), no config-only fix (no knob existed). Built 02:14-02:21 on fix/security-lock-sweep-retry-cap @25bc49bb (worktree): SECURITY_LOCK_RETRY_CAP = 3 in const.py (rung 1 module constant, 0 = unlimited), episode keyed on the state's last_changed, reset on locked/closed, one NM notice after N failures. Emission sites: periodic lock loop + garage loop capped; lockdown (_generate_lockdown_actions 1642-1672) is one-shot per alert, left uncapped. The 46/day in March fits the 30-min interval then (max 48/day), so no hidden second path. 6 tests drive the real _evaluate_lock_check; 7 mutation drills RED. In review (one Tier-1 pass, safety-posture framing)."
-  updated: "2026-11-07 02:02"
+  updated: "2026-11-08 02:23"
   title: "Security lock sweep re-sends lock/close every interval forever when the command doesn't take (46 lock commands on 2026-03-11): add a retry cap + one notification"
   thread: security
   status: "review"
@@ -33734,7 +33740,8 @@ cards:
   created: "2026-11-01"
   origin: "Operator 2026-11-01: does the security sweep close doors, does it check the lock is closed before acting; suspicion it tired batteries."
   why: "AUDIT_security_sweep_and_mopup.md: _evaluate_lock_check (security.py:1678, 60-min timer, security.py:701-709) is state-gated (no command to an already locked/closed device) and DOES close garage covers (security.py:1712-1721), but has no backoff: when a lock command fails it re-sends every interval (Mar 8-12: 74 lock commands, 116/133 rows still unlocked after). Battery causality unproven (battery already 20% before the burst)."
-  next: "APPROVE at the next attended (daytime) deploy, together with OPTIMIZER-META-NEVER-PAGES-1 (integ/overnight-2026-11-04; README draft docs/readmes/README_DRAFT_security_lock_retry_cap.md). The front-door Kwikset is back online since 11-06 13:27 (battery swapped; FRONT-DOOR-LOCK-OFFLINE-1 closed), so the live proof after deploy can use it: the retry cap only fires if a lock command fails 3 times, so the live check is 'no repeated lock-retry notices in notification_log', not a forced failure."
+  next: "APPROVE at the next attended (daytime) deploy: ship integ/overnight-2026-11-08 (it supersedes integ/overnight-2026-11-04, which no longer merges). It carries all 3 review cards: SECURITY-LOCK-SWEEP-RETRY-CAP-1, OPTIMIZER-META-NEVER-PAGES-1, ANOMALY-METRIC-DISPOSITION-1. The same restart also activates the already-installed v5.106.0. README drafts: docs/readmes/README_DRAFT_security_lock_retry_cap.md, README_DRAFT_optimizer_meta_never_pages.md, README_DRAFT_anomaly_undeclare_dead_metrics.md."
+  mergeprep_2026_11_08_overnight: "Overnight 11-08 merge-prep: develop gained v5.106.0 (never-auto-lock list + Away Lock), which edits the same lock-sweep function, so integ/overnight-2026-11-04 and fix/security-lock-sweep-retry-cap NO LONGER MERGE (conflicts in security.py + const.py). Rebuilt as integ/overnight-2026-11-08 = develop c7e049ae + retry cap (conflict resolved: exclusion runs before the cap; an excluded lock clears any stale episode) + optimizer meta-never-pages + anomaly undeclare (both merged clean). Merge review (ura-reviewer, framing A): SHIP, 2 LOWs fixed in-cycle (retry_capped now on the sweep sensor; episodes of removed locks pruned), each with a mutation-RED test. Full suite name-diff vs plain develop: 14 failed / 19,511 passed vs 14 failed / 19,488 passed, identical failing names (0 new). Review record: docs/reviews/code-review/security_lock_retry_cap_merge_onto_v5106_review.md. Head e8eb052a."
 - id: FRONT-LOCK-OFFLINE-1
   updated: "2026-11-02 02:04"
   DEDUPE_2026_11_02: "DUPLICATE of FRONT-DOOR-LOCK-OFFLINE-1 (same entity lock.doorlock_kwikset_zwave_frontentry, same operator action). Created 11-01 by an attended session that missed the older card. Its evidence and the operator's 11-01 note (new locks being installed soon) were copied onto the survivor verbatim. Closed here."
