@@ -58,6 +58,38 @@ camera so that real visitors still alert.
 **Risk:** a polygon drawn too tight could miss a real person at the edge of the property. That is why zones end at
 the property line, not the driveway, and why the spot-check is in the measure step.
 
+### Phase 1b: point URA at the zone sensors (owner: URA; config first, code only if needed)
+**HomeLab review finding, verified in URA code:** `required_zones` gates Frigate's own review alerts and
+snapshots. It does not gate the camera-level `binary_sensor.<cam>_person_occupancy`, which still counts a
+person standing on the street. URA's perimeter alert triggers on those camera-level sensors
+(`perimeter_alert.py:431-519`, engine detection by the `_person_occupancy` suffix). `frigate_events` is only
+used to attach the snapshot. **So Phase 1 on its own does not quiet URA's pushes.**
+
+Fix:
+1. **Name zones per camera** (`utilities_property`, `g5_property`, `rear_property`, and so on). Frigate merges
+   same-named zones across cameras into one entity, so a shared "property" zone would break this.
+2. **Point URA's perimeter camera inputs** at the per-zone sensors
+   (`binary_sensor.<cam>_property_person_occupancy`) for the street-facing cameras.
+   - Before switching, verify that URA's engine detection, `_2` sibling pairing and cross-NVR logic resolve a
+     zone sensor to its camera.
+   - If they don't, the code change is small: map the zone sensor to its camera.
+   - Revert: restore the previous camera list.
+3. Phase 3.2 (Frigate zone agreement from the `frigate_events` payload) stays the fallback for cameras
+   where zone sensors can't be used.
+
+**Geometry corrections from HomeLab** (frames from 2026-11-08):
+- **utilities_ptz:** the rock edging slopes, so the zone is the polygon `0,0.47 0.5,0.43 1,0.41 1,1 0,1`. It also
+  excludes the berm and treeline phantoms.
+- **g5_bullet:** the zone is everything below the diagonal `0.55,0 → 1,0.22`, so the driveway mouth stays in.
+  Exclude the top strip (y < 0.07), which holds the timestamp overlay and the eave.
+- **min_area:** about 70% of the smallest real person box at the farthest point of the property worth caring
+  about, taken from the Frigate events API at 1280×720. Expected about 1,500–3,000 px on back_yard and hot_tub.
+  Then set threshold to 0.75.
+- **PTZ cameras** (front_side_ptz, rear_ptz, and utilities_ptz if it roams): zones and masks only line up at the
+  parked view. Add a return-to-home preset, or confirm they stay parked.
+- **Applying Phase 1:** one Frigate restart (about 1 minute). HomeLab backs up the config first and verifies every
+  camera afterwards.
+
 ### Phase 2: Protect street band (owner: HomeLab, or the operator in the UniFi UI; revert = remove the zone)
 On rear_ptz and g5_bullet, set a Protect smart-detect zone or exclusion zone that leaves out the street and
 sidewalk band. This is the only fix that reaches the Protect-only street walkers. The Protect integration API does
@@ -95,7 +127,7 @@ LOW means quiet: it is logged and shown on the dashboard, with no push. Nothing 
   4. Optionally copy anything worth keeping to the Unraid share.
 
 ## Order and checkpoints
-1. Phase 1 plus Phase 2, then seven days of measurement. Report alerts per camera before and after, plus the
+1. Phase 1 plus Phase 1b (together, otherwise URA's pushes don't change) plus Phase 2, then seven days of measurement. Report alerts per camera before and after, plus the
    snapshot spot-check.
 2. Phase 3.1–3.3, built and reviewed in parallel with the Phase 1 measurement. They ship after it, so their effect
    is measured on top of Phase 1.
