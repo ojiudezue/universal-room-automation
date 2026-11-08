@@ -127,7 +127,7 @@ from .energy_const import (
     LOAD_SHEDDING_MODE_FIXED,
     LOAD_SHEDDING_PRIORITY,
 )
-from .energy_tou import TOURateEngine
+from .energy_tou import TOURateEngine, above_bottom_rate, season_at
 # EC-RESERVE-WRITE-GOVERNOR-1: the reserve_write row's `status` vocabulary
 # is the HVAC typed outcome (stdlib-only module, no import cycle). Imported,
 # never re-typed — `test_reserve_row_status_uses_hvac_writestatus` pins
@@ -4606,7 +4606,7 @@ class EnergyCoordinator(BaseCoordinator):
         )
         if not ARBITRAGE_DISCHARGE_ACCRUAL_ENABLED or tick is None:
             return
-        from .energy_billing import _DISPLACED_PERIODS, discharge_savings_usd
+        from .energy_billing import discharge_savings_usd
         await self._ensure_arbitrage_inventory_loaded(now)
         if not getattr(self, "_arb_inventory_loaded", False):
             return  # B1: restore pending (read failed / SOC unknown)
@@ -4627,7 +4627,8 @@ class EnergyCoordinator(BaseCoordinator):
             inv.add(unsplit_kwh, offpeak)
 
         row: dict[str, Any] | None = None
-        if period in _DISPLACED_PERIODS and served_kwh > 0:
+        # EC leftovers D4: displaced = the passed period above the bottom rate.
+        if above_bottom_rate(self._tou, season, period) and served_kwh > 0:
             if ARBITRAGE_COST_BASIS_MODE == "inventory":
                 basis = inv.avg_basis(ARBITRAGE_INVENTORY_MIN_KWH)
                 source = "inventory"
@@ -7670,6 +7671,9 @@ class EnergyCoordinator(BaseCoordinator):
                     plug_actions = self._smart_plugs.determine_actions(
                         period,
                         force_charge_active=_fc_active,
+                        # EC leftovers D4: rank the period (plug tier has no
+                        # coord ref).
+                        tou_engine=self._tou,
                         grid_charge_on=bool(grid_charge_intent),
                         # v3 (funnel) — thread must-start-by so plug
                         # onset funnel has the backstop (plug tier has
@@ -9703,11 +9707,17 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _update_energy_situation(self, tou_period: str) -> None:
         """Assess overall energy situation."""
+        from homeassistant.util import dt as dt_util
+
         if self.load_shedding_active:
             self._energy_situation = "constrained"
-        elif tou_period == "peak":
-            self._energy_situation = "optimizing"
-        elif tou_period == "mid_peak":
+        elif above_bottom_rate(
+            getattr(self, "_tou", None),
+            season_at(getattr(self, "_tou", None), dt_util.now()),
+            tou_period,
+        ):
+            # EC leftovers D4: the PASSED period above the season's bottom
+            # rate (literal fallback when it cannot be ranked).
             self._energy_situation = "optimizing"
         else:
             self._energy_situation = "normal"
@@ -9733,8 +9743,14 @@ class EnergyCoordinator(BaseCoordinator):
             self._sustained_import_readings.clear()
             return
 
-        # Only shed during peak and mid-peak
-        if tou_period not in ("peak", "mid_peak"):
+        # Only shed above the season's bottom rate (EC leftovers D4: ranks
+        # the PASSED period; literal peak/mid_peak fallback when unrankable).
+        from homeassistant.util import dt as dt_util
+
+        _tou = getattr(self, "_tou", None)
+        if not above_bottom_rate(
+            _tou, season_at(_tou, dt_util.now()), tou_period,
+        ):
             # B-CRIT-1 fix-up: period flip peak/mid_peak → off_peak must
             # iterate active tiers and call `_execute_shed_action(activate=
             # False)` for each — without this, D1's `_paused_by_load_shed`

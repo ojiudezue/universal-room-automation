@@ -3001,3 +3001,49 @@ EC_RESTORE_STEP_TIMEOUT_S: Final[float] = 10.0
 # budget is spent is not run at boot; it is marked skipped and handled like a
 # timed-out step. Each step's own timeout is clipped to the remaining budget.
 EC_RESTORE_TOTAL_BUDGET_S: Final[float] = 45.0
+
+
+# EC inclement leftovers D4 (parent EC storm/blind Stage D) — PIN LIST, not a
+# behaviour knob (rung 1: review-gated by design). Every non-docstring
+# `ast.Constant` equal to "peak" / "mid_peak" in the integration's *.py,
+# keyed "<path under the package>::<enclosing function or <module>>::<literal>"
+# -> occurrence count. `test_period_literal_sites_pinned` walks the AST with
+# the same rule and asserts equality, so a NEW period-name literal (or a
+# removed one) fails until this pin is edited in a reviewed change.
+# Classes: T-fb top-rate primitive fallback; T-change top rate kept named
+# (operator Q1 = B); N the named period on purpose; DEF tariff definition /
+# name normalization; H-fb the above-bottom helper's literal fallback.
+# "Above the bottom rate" sites never appear here: they route through
+# `energy_tou.above_bottom_rate`. Keys are single strings so this dict adds
+# no "peak" / "mid_peak" constant of its own.
+TOU_PERIOD_NAME_LITERAL_SITES: Final[dict[str, int]] = {
+    "domain_coordinators/energy.py::_decision_cycle_body::peak": 1,  # N: SOC-at-peak degradation baseline
+    "domain_coordinators/energy.py::_get_displaced_rate::mid_peak": 2,  # N: displaced-rate lookup (season top rate by tariff structure)
+    "domain_coordinators/energy.py::_get_displaced_rate::peak": 2,  # N: displaced-rate lookup: summer peak rate
+    "domain_coordinators/energy.py::_update_hvac_constraint::mid_peak": 2,  # N: summer post-peak mid_peak; mid_peak poor-solar
+    "domain_coordinators/energy.py::_update_hvac_constraint::peak": 2,  # T-change + N: shed at peak + low SOC (T-change, Q1=B); HVAC coast at peak
+    "domain_coordinators/energy.py::_update_load_shedding::peak": 1,  # N: peak import learning history
+    "domain_coordinators/energy_battery.py::_adopt_attain_state_from_hardware::mid_peak": 1,  # N: attain D1b gate
+    "domain_coordinators/energy_battery.py::_attain_target_boundary::mid_peak": 1,  # N: mid_peak -> walk to next peak
+    "domain_coordinators/energy_battery.py::_attain_target_boundary::peak": 2,  # N: walk compare + returned period name
+    "domain_coordinators/energy_battery.py::_evaluate_untrusted_boundary_page::peak": 1,  # T-change: skip untrusted-SOC page in peak (Q1=B)
+    "domain_coordinators/energy_battery.py::_is_top_rate_edge::peak": 4,  # T-fb: no-engine / exception fallback of the Stage A primitive
+    "domain_coordinators/energy_battery.py::_midpeak_rate_lt_peak::mid_peak": 1,  # N: rate-dict key
+    "domain_coordinators/energy_battery.py::_midpeak_rate_lt_peak::peak": 1,  # N: rate-dict key
+    "domain_coordinators/energy_battery.py::_result::mid_peak": 1,  # N: phase label from reason text (display)
+    "domain_coordinators/energy_battery.py::_run_attain_branch::mid_peak": 4,  # N: D1b rate re-check x2; stage label x2
+    "domain_coordinators/energy_battery.py::_should_attain_peak_buffer::mid_peak": 1,  # N: attain D1b gate
+    "domain_coordinators/energy_battery.py::determine_mode::mid_peak": 2,  # N: mid_peak branch; tou_period kwarg into attain
+    "domain_coordinators/energy_battery.py::determine_mode::peak": 1,  # N: peak strategy branch
+    "domain_coordinators/energy_const.py::<module>::mid_peak": 3,  # DEF: PEC_TOU_RATES keys
+    "domain_coordinators/energy_const.py::<module>::peak": 1,  # DEF: PEC_TOU_RATES key
+    "domain_coordinators/energy_pool.py::determine_actions::peak": 1,  # T-change: pool reduce at peak (Q1=B)
+    "domain_coordinators/energy_pool.py::determine_excess_solar_actions::peak": 1,  # T-change: excess-solar EVSE never in peak (Q1=B)
+    "domain_coordinators/energy_pool.py::determine_fill_priority_actions::mid_peak": 2,  # N: fill-priority inert bracket (two classes)
+    "domain_coordinators/energy_pool.py::determine_fill_priority_actions::peak": 2,  # N: fill-priority inert bracket (two classes)
+    "domain_coordinators/energy_tou.py::<module>::mid_peak": 3,  # DEF: period-name normalizer + _VALID_PERIODS
+    "domain_coordinators/energy_tou.py::<module>::peak": 4,  # DEF: period-name normalizer + _VALID_PERIODS
+    "domain_coordinators/energy_tou.py::above_bottom_rate::mid_peak": 1,  # H-fb: literal fallback of the D4 helper
+    "domain_coordinators/energy_tou.py::above_bottom_rate::peak": 1,  # H-fb: literal fallback of the D4 helper
+    "domain_coordinators/energy_tou.py::peak_ahead_before_offpeak::peak": 1,  # N: summer bracket walk
+}

@@ -805,3 +805,42 @@ class TOURateEngine:
             "rate_source": self._rate_source,
             "tou_file_status": self._file_status,
         }
+
+
+# ── EC inclement leftovers D4 (parent Stage D) — "above the bottom rate" ──
+# One pure rule for every site that means "the passed period is above the
+# season's lowest distinct import rate" (load shed, EVSE / plug TOU pause,
+# energy situation, HVAC intent anchor, situation next-boundary text,
+# arbitrage displaced-period savings). It ranks the PASSED period — never
+# the clock period — so a caller handing in its own `tou_period` (or a
+# future period) is ranked as handed in.
+
+
+def season_at(tou: Any, when: datetime | None) -> str | None:
+    """``tou.get_season(when)``, or None when it cannot be resolved (no
+    engine, no ``when``, or the engine raises). None makes
+    ``above_bottom_rate`` fall back to the legacy literal."""
+    if tou is None or when is None:
+        return None
+    try:
+        return tou.get_season(when)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def above_bottom_rate(tou: Any, season: str | None, period: str | None) -> bool:
+    """True iff ``period`` ranks above ``season``'s lowest distinct import
+    rate. Ranks the PASSED period (never re-derives it from the clock).
+    Falls back to the legacy literal when the engine / season / period
+    cannot be ranked (engine None, a non-int rank such as a MagicMock,
+    unknown season or period)."""
+    try:
+        rank = (
+            tou.period_rank(season, period)
+            if (tou is not None and season) else None
+        )
+    except Exception:  # noqa: BLE001
+        rank = None
+    if isinstance(rank, int) and not isinstance(rank, bool):
+        return rank > 0
+    return period in ("peak", "mid_peak")  # legacy fallback (pinned)

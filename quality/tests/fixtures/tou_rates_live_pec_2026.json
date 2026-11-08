@@ -1,0 +1,62 @@
+{
+  "utility": "PEC",
+  "effective_date": "2026-01-01",
+  "note": "PEC Interconnection Metering TOU rates (<50kW). Source: mypec.com/residential-rates/2026-rate-update/",
+  "seasons": {
+    "summer": {
+      "months": [6, 7, 8, 9],
+      "periods": {
+        "off_peak": {
+          "hours": [[0, 14], [21, 24]],
+          "import_rate": 0.043481,
+          "export_rate": 0.043481
+        },
+        "mid_peak": {
+          "hours": [[14, 16], [20, 21]],
+          "import_rate": 0.093169,
+          "export_rate": 0.093169
+        },
+        "peak": {
+          "hours": [[16, 20]],
+          "import_rate": 0.161843,
+          "export_rate": 0.161843
+        }
+      }
+    },
+    "shoulder": {
+      "months": [3, 4, 5, 10, 11],
+      "periods": {
+        "off_peak": {
+          "hours": [[0, 17], [21, 24]],
+          "import_rate": 0.043481,
+          "export_rate": 0.043481
+        },
+        "mid_peak": {
+          "hours": [[17, 21]],
+          "import_rate": 0.086442,
+          "export_rate": 0.086442
+        }
+      }
+    },
+    "winter": {
+      "months": [12, 1, 2],
+      "periods": {
+        "off_peak": {
+          "hours": [[0, 5], [9, 17], [21, 24]],
+          "import_rate": 0.043481,
+          "export_rate": 0.043481
+        },
+        "mid_peak": {
+          "hours": [[5, 9], [17, 21]],
+          "import_rate": 0.086442,
+          "export_rate": 0.086442
+        }
+      }
+    }
+  },
+  "fixed_charges": {
+    "service_availability_monthly": 32.50,
+    "delivery_per_kwh": 0.022546,
+    "transmission_per_kwh": 0.019930
+  }
+}
