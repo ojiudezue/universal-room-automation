@@ -111,9 +111,18 @@ does it, or HomeLab does it with the operator's OK.
    - **One system-wide setting, not per camera** (operator). A Switch entity, default off, turned on for this house.
    - **Eligibility is automatic, per camera.** The demote applies only while BOTH legs for that camera are live and
      reporting. If either leg goes down it switches off for that camera, so alerts revert to today's behaviour.
-   - **Capability parity gate.** It applies only on cameras where the two engines mostly agree on real events,
-     measured per camera. back_yard had 116 Frigate person detections vs 4 Protect in the week to 11-08, so it
-     does not qualify until Protect detection there is fixed (Phase 2).
+   - **Agreement is learned at runtime, not set up front** (operator: detections ≠ capability; the cause of a gap
+     can be the integration, the NVR's model, its tuning, or something else, and can't be known before runtime).
+     URA keeps a rolling per-camera agreement rate: of the alerts raised while both legs were live, the share the
+     other engine corroborated within the existing pairing window. Below a threshold, one-source alerts on that
+     camera carry no information and are not demoted. Self-calibrating, portable, and it re-qualifies a camera when
+     the other engine improves. Knobs: window length and minimum agreement (rung 1 until measured). No such
+     tracker exists today (grep: perimeter has none; `camera_census._cross_validate_platforms` is the nearest
+     pattern to reuse). Example: back_yard, 116 Frigate vs 4 Protect person detections in the week to 11-08, would
+     currently not qualify.
+   - **Diagnostic, separate from the gate:** per camera, compare the HA sensor's detection count against the NVR's own
+     event log (Protect API, Frigate API) to tell "integration drops events" from "NVR didn't detect". Surface it
+     on the diagnostics sensor; it explains a low agreement rate, it does not drive the demote.
    - **Single-NVR homes:** never applies. Their noise is handled by Phases 1, 3.1–3.3 and image checks.
 
 LOW means quiet: it is logged and shown on the dashboard, with no push. Nothing is dropped.
