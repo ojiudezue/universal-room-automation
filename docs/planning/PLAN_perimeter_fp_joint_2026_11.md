@@ -106,10 +106,15 @@ does it, or HomeLab does it with the operator's OK.
 3. **Run the burst demote all day instead of 23:00–05:00.** This is a constant change (`const.py:2481/:2491`) and
    never demotes the first alert. Before shipping, replay the 30 days of alerts to show the alerts it would have
    demoted and confirm none were real visitors.
-4. **Demote single-source first alerts: operator decision.** On cameras with live Frigate 2 and Protect legs, demote a
-   first alert that only one engine raised. That fits both false-positive groups, but it relaxes the
-   2026-09-12 fence against demoting on one source. Recommendation: hold it until Phases 1–2 and 3.2 have been
-   measured. It may not be needed.
+4. **Demote single-source first alerts: APPROVED by the operator 2026-11-08 (relaxes the 2026-09-12 fence).** On
+   cameras with live Frigate 2 and Protect legs, demote a first alert that only one engine raised.
+   - **One system-wide setting, not per camera** (operator). A Switch entity, default off, turned on for this house.
+   - **Eligibility is automatic, per camera.** The demote applies only while BOTH legs for that camera are live and
+     reporting. If either leg goes down it switches off for that camera, so alerts revert to today's behaviour.
+   - **Capability parity gate.** It applies only on cameras where the two engines mostly agree on real events,
+     measured per camera. back_yard had 116 Frigate person detections vs 4 Protect in the week to 11-08, so it
+     does not qualify until Protect detection there is fixed (Phase 2).
+   - **Single-NVR homes:** never applies. Their noise is handled by Phases 1, 3.1–3.3 and image checks.
 
 LOW means quiet: it is logged and shown on the dashboard, with no push. Nothing is dropped.
 
