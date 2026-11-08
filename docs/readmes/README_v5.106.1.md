@@ -29,3 +29,12 @@ test flakes and passes in isolation).
 - A URA WhatsApp send (an NM test notification) arrives, and the core log shows no `WhatsApp send failed`.
 - `wa_bridge` add-on log shows the handshake accepted (no 401).
 - After the operator removes the 2.x entry, sends still arrive.
+
+## Validated 2026-11-08 (post-restart 11:00 CST)
+| Criterion | Result | Evidence |
+|---|---|---|
+| URA WhatsApp send arrives | PASS | `universal_room_automation.test_notification` (channel `whatsapp`, LOW) after restart; operator confirmed receipt |
+| No `WhatsApp send failed` in core log | PASS | system_log (current boot): no NM WhatsApp errors; only the 2.x client's 401s (`custom_components.whatsapp.client`), expected while the old entry exists |
+| Bridge accepts 3.x | PASS | direct `wa_bridge.send_message` to the operator succeeded earlier (operator confirmed) |
+| Sends survive removal of the 2.x entry | PENDING | operator removes the 2.x entry when ready; code falls back only when `wa_bridge` is absent (tests) |
+| Inbound WhatsApp reaches `_handle_whatsapp_reply` | NOT RUN | needs an operator self-chat message; event name unchanged in 3.x per upstream notes |
