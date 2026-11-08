@@ -324,7 +324,8 @@ cards:
 - id: WA-BRIDGE-DOMAIN-1
   title: "URA WhatsApp sends fail after ha-wa-bridge 3.x (domain renamed whatsapp -> wa_bridge; 2.x gets 401 once the add-on requires a token)"
   thread: notifications
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.106.1
   tier: 1
   created: "2026-11-08 09:10"
   updated: "2026-11-08 09:40"

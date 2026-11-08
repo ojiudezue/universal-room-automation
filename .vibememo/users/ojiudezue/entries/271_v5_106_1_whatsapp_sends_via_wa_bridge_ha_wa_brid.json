@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "271",
+  "author": "ojiudezue",
+  "session_id": "claude_20261108_151427_ship_v5_106_1",
+  "timestamp": "2026-11-08T15:14:27Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.106.1 shipped: WhatsApp sends via wa_bridge (ha-wa-bridge 3.x)",
+  "summary": "WhatsApp sends via wa_bridge (ha-wa-bridge 3.x)",
+  "why": "ha-wa-bridge 3.0 renamed its HA domain to wa_bridge and 3.1 made the bridge add-on require an API token that the 2.x integration cannot send, so after the operator updated the add-on the 2.x client got HTTP 401 and NM's hard-coded whatsapp.send_message failed on every alert. A direct wa_bridge.send_message to the operator succeeded, so the fix is choosing the registered domain per send: wa_bridge first, whatsapp fallback, so it works with both installed during the operator's validation window and after 2.x is removed.",
+  "implications": "Shipped WA-BRIDGE-DOMAIN-1 at v5.106.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.106.1.md (Live criteria).",
+  "revisit_trigger": "NM channel health whatsapp status ok with a non-null last_success after restart, and zero 'WhatsApp send failed' lines in the core log for a day",
+  "refs": {
+    "cards": [
+      "WA-BRIDGE-DOMAIN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.106.1.md"
+    ],
+    "release_notes": "NM sends WhatsApp through wa_bridge.send_message when the 3.x integration is registered, else whatsapp (2.x). Fixes every URA WhatsApp send failing after the bridge add-on began requiring an API token."
+  }
+}
