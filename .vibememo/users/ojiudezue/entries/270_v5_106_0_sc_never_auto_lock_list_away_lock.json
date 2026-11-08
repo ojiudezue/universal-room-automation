@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "270",
+  "author": "ojiudezue",
+  "session_id": "claude_20261108_070514_ship_v5_106_0",
+  "timestamp": "2026-11-08T07:05:14Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.106.0 shipped: SC never-auto-lock list + Away Lock",
+  "summary": "SC never-auto-lock list + Away Lock",
+  "why": "The master bedroom lock is interior and in passage mode, so sweeping it only drained its battery and lockdown should focus on egress doors. The operator wanted every lock registered in SC with a toggle for which ones get swept, and the manual habit of locking the bedroom when both Oji and Ezinne are out automated behind a knob. Release is biased to fail open: any home reading unlocks, and it only unlocks locks it locked itself.",
+  "implications": "Shipped SC-LOCK-SWEEP-EXCLUDE-1, SC-LOCK-REGIME-DOOR-LOCKS-1 at v5.106.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.106.0.md (Live criteria).",
+  "revisit_trigger": "If the bedroom is ever found locked with a listed person home, if the not-taken LOW notice fires every outing (passage mode), or when HA gains a passage-mode control for this lock.",
+  "refs": {
+    "cards": [
+      "SC-LOCK-SWEEP-EXCLUDE-1",
+      "SC-LOCK-REGIME-DOOR-LOCKS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.106.0.md"
+    ],
+    "release_notes": "Never auto-lock these: excluded locks are shown but never swept, locked by lockdown or by the garage lockout. Away Lock locks chosen excluded locks after every chosen person is not_home for 5 min, unlocks its own locks on any home reading, hazard, switch off or SC disable. Ships OFF. See docs/readmes/README_v5.106.0.md."
+  }
+}

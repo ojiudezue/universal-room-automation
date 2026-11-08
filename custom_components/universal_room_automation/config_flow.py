@@ -9051,24 +9051,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS,
             CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS,
             CONF_SECURITY_LOCKOUT_APPROACH_ZONE,
+            CONF_SECURITY_LOCK_SWEEP_EXCLUDE,
+            CONF_SECURITY_AWAY_LOCK_ENTITIES,
+            CONF_SECURITY_AWAY_LOCK_PERSONS,
         )
-        from .domain_coordinators.security_lock_regime import lockout_overlap
+        from .domain_coordinators.security_lock_regime import (
+            lock_exclude_not_subset,
+            lockout_overlap,
+        )
 
         errors: dict[str, str] = {}
         if user_input is not None:
+            # SC-LOCK-SWEEP-EXCLUDE-1 (review L3): run every check, report
+            # every error together, save only when there are none.
+            locks = user_input.get(CONF_SECURITY_LOCK_ENTITIES, [])
+            exclude = user_input.get(CONF_SECURITY_LOCK_SWEEP_EXCLUDE, [])
             # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 §3.3: a lockout must never be
             # a sweep / lockdown lock.
             if lockout_overlap(
-                user_input.get(CONF_SECURITY_LOCK_ENTITIES, []),
-                user_input.get(CONF_SECURITY_LOCKOUT_ENTITIES, []),
+                locks, user_input.get(CONF_SECURITY_LOCKOUT_ENTITIES, []),
             ):
                 errors[CONF_SECURITY_LOCKOUT_ENTITIES] = "lockout_overlaps_locks"
-            else:
+            # The exclude list is a subset of the lock list.
+            if lock_exclude_not_subset(locks, exclude):
+                errors[CONF_SECURITY_LOCK_SWEEP_EXCLUDE] = "exclude_not_in_locks"
+            # An away-lock lock must be excluded, or the sweep would lock it
+            # all the time.
+            if lock_exclude_not_subset(
+                exclude, user_input.get(CONF_SECURITY_AWAY_LOCK_ENTITIES, []),
+            ):
+                errors[CONF_SECURITY_AWAY_LOCK_ENTITIES] = "away_lock_not_excluded"
+            if not errors:
                 return self.async_create_entry(
                     title="",
                     data={**self._config_entry.options, **user_input},
                 )
 
+        # Field order = render order: the lock fields sit together (operator
+        # 2026-11-07), then the garage lockout fields.
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_SECURITY_LOCK_ENTITIES,
@@ -9077,6 +9097,66 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(
                     domain="lock", multiple=True
                 )
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCK_SWEEP_EXCLUDE,
+                default=self._get_current(CONF_SECURITY_LOCK_SWEEP_EXCLUDE, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_AWAY_LOCK_ENTITIES,
+                default=self._get_current(CONF_SECURITY_AWAY_LOCK_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_AWAY_LOCK_PERSONS,
+                default=self._get_current(CONF_SECURITY_AWAY_LOCK_PERSONS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person", multiple=True)
+            ),
+            # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 (rung 2): garage lock regime.
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_ENTITIES,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS, []),
+            ): selector.EntitySelector(
+                # Only HA proximity distance sensors (operator 2026-11-07).
+                # `filter` is the current shape (HA helpers/selector.py
+                # ENTITY_FILTER_SELECTOR_CONFIG_SCHEMA; the top-level
+                # integration/device_class keys are the frozen legacy form).
+                # A plain dict == selector.EntityFilterSelectorConfig (a
+                # TypedDict) at runtime. The selector validates format and
+                # top-level domain only, so a stored value outside the
+                # filter stays valid.
+                selector.EntitySelectorConfig(
+                    multiple=True,
+                    filter={
+                        "integration": "proximity",
+                        "domain": "sensor",
+                        "device_class": "distance",
+                    },
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_APPROACH_ZONE,
+                description={"suggested_value": self._get_current(
+                    CONF_SECURITY_LOCKOUT_APPROACH_ZONE
+                )},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="zone")
             ),
             vol.Optional(
                 CONF_SECURITY_GARAGE_ENTITIES,
@@ -9167,33 +9247,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ],
                     mode=selector.SelectSelectorMode.LIST,
                 )
-            ),
-            # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 (rung 2): garage lock regime.
-            vol.Optional(
-                CONF_SECURITY_LOCKOUT_ENTITIES,
-                default=self._get_current(CONF_SECURITY_LOCKOUT_ENTITIES, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="lock", multiple=True)
-            ),
-            vol.Optional(
-                CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS,
-                default=self._get_current(CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="person", multiple=True)
-            ),
-            vol.Optional(
-                CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS,
-                default=self._get_current(CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS, []),
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", multiple=True)
-            ),
-            vol.Optional(
-                CONF_SECURITY_LOCKOUT_APPROACH_ZONE,
-                description={"suggested_value": self._get_current(
-                    CONF_SECURITY_LOCKOUT_APPROACH_ZONE
-                )},
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="zone")
             ),
         })
 

@@ -73,3 +73,11 @@ suite has no new failing names against develop.
   `house_state:sleep`, and the morning gives `unlocked` with trigger waking or backstop.
 - The armed-state sensor attributes show the regime state.
 - Core log has no `security_lock_regime` errors after boot.
+
+## Validated 2026-11-07 (post-restart, feature OFF)
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loads, lockout switch exists, OFF | PASS | `switch.ura_security_coordinator_garage_lockout` = off |
+| Lockouts untouched while OFF | PASS | both `lock.*_lock` / `_lock_remotes` = unlocked; last_changed = boot re-registration only |
+| No `security_lock_regime` errors after boot | PASS | system_log: URA entries are pre-existing boot warnings only |
+| SLEEP engage / morning release | PENDING | needs operator to enable the switch after the keypad test |

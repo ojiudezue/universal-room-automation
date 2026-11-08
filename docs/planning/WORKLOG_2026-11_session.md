@@ -52,3 +52,4 @@
 - 2026-11-05 15:55 **v5.103.105** — v5.103.105 — Config-flow timing logs: DEBUG by default, WARNING only for slow steps (cards: CONFIG-FLOW-SLOW-ONBOARDING-1)
 - 2026-11-07 14:00 **v5.104.0** — v5.104.0 — Ask the house by text: `diag` menu over iMessage / WhatsApp / HA app (cards: NM-INBOUND-HOUSE-QUERIES-1)
 - 2026-11-07 18:21 **v5.105.0** — v5.105.0 — Garage remote lockout: SC lock regime (Phase 1) (cards: GARAGE-REMOTE-LOCKOUT-SCHEDULE-1)
+- 2026-11-08 01:05 **v5.106.0** — v5.106.0 — SC "Never auto-lock" list + Away Lock (cards: SC-LOCK-SWEEP-EXCLUDE-1,SC-LOCK-REGIME-DOOR-LOCKS-1)

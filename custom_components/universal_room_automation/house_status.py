@@ -16,7 +16,7 @@ never raises.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import logging
 from typing import Any
@@ -141,10 +141,22 @@ def doors(hass) -> StatusResult:
         ids = []
     if not ids:
         return _result("doors", [Field("locks", "none configured", source="security_lock_entities")])
-    return _result("doors", [
-        _state_field(hass, eid, _label(hass, eid), bad=("unlocked", "open", "jammed", "unlocking"))
-        for eid in ids
-    ])
+    # SC-LOCK-SWEEP-EXCLUDE-1: a never-auto-lock (interior) lock is listed
+    # with a note; reading unlocked is not a problem, jammed / offline is.
+    try:
+        excluded = set(sc._sweep_excluded())
+    except Exception:  # noqa: BLE001
+        excluded = set()
+    fields = []
+    for eid in ids:
+        if eid in excluded:
+            f = _state_field(hass, eid, _label(hass, eid), bad=("jammed",))
+            fields.append(replace(f, note=f.note or "not auto-locked"))
+        else:
+            fields.append(_state_field(
+                hass, eid, _label(hass, eid), bad=("unlocked", "open", "jammed", "unlocking")
+            ))
+    return _result("doors", fields)
 
 
 def garage(hass) -> StatusResult:

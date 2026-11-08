@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.105.0
+# Universal Room Automation vv5.106.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7593,6 +7593,8 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
             "found_unlocked": sweep.get("found_unlocked", []),
             "lock_actions_sent": sweep.get("lock_actions_sent", []),
             "unavailable": sweep.get("unavailable", []),
+            # SC-LOCK-SWEEP-EXCLUDE-1: registered locks the sweep skipped.
+            "excluded": sweep.get("excluded", []),
             "checks_today": sweep.get("checks_today", 0),
         }
 
@@ -7746,7 +7748,7 @@ class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         """Return flat lock/camera counts + last_state_change_iso.
 
-        Shape is always stable (Bug Class #37): all 9 keys are always
+        Shape is always stable (Bug Class #37): all 10 keys are always
         present regardless of whether locks/cameras are configured.
         """
         agg = self._get_aggregator()
@@ -7756,6 +7758,7 @@ class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
                 "locks_locked": 0,
                 "locks_unlocked": 0,
                 "locks_jammed": 0,
+                "locks_excluded": 0,
                 "cameras_total": 0,
                 "cameras_streaming": 0,
                 "cameras_idle": 0,
@@ -7767,6 +7770,9 @@ class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
             "locks_locked": agg["locks_locked"],
             "locks_unlocked": agg["locks_unlocked"],
             "locks_jammed": agg["locks_jammed"],
+            # SC-LOCK-SWEEP-EXCLUDE-1 (review M1): .get keeps the stable
+            # shape if an older coordinator dict lacks the key.
+            "locks_excluded": agg.get("locks_excluded", 0),
             "cameras_total": agg["cameras_total"],
             "cameras_streaming": agg["cameras_streaming"],
             "cameras_idle": agg["cameras_idle"],

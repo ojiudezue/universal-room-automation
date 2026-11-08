@@ -661,6 +661,39 @@ class SecurityCoordinator(BaseCoordinator):
         """The LockRegimeController, or None before setup / if it failed."""
         return self._lock_regime
 
+    def _sweep_excluded(self) -> set[str]:
+        """SC-LOCK-SWEEP-EXCLUDE-1: registered locks the sweep and lockdown
+        never lock (``security_lock_sweep_exclude`` ∩ ``security_lock_entities``).
+
+        Read live from the CM entry on every call (no reload needed). The
+        read cannot raise; no CM entry = SC not running = exclude nothing.
+        """
+        from ..const import (  # noqa: PLC0415
+            CONF_ENTRY_TYPE,
+            CONF_SECURITY_LOCK_SWEEP_EXCLUDE,
+            DOMAIN,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+
+        cfg: dict[str, Any] = {}
+        regime = self._lock_regime
+        try:
+            if regime is not None:
+                cfg = regime._cfg()
+            else:
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                        cfg = {**(entry.data or {}), **(entry.options or {})}
+                        break
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        raw = cfg.get(CONF_SECURITY_LOCK_SWEEP_EXCLUDE) if isinstance(cfg, dict) else None
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return set()
+        return {str(e) for e in raw} & set(self._lock_entities)
+
     async def _async_setup_lock_regime(self) -> None:
         """Build and start the lock regime; a failure never blocks SC setup."""
         try:
@@ -1696,7 +1729,9 @@ class SecurityCoordinator(BaseCoordinator):
         """Generate actions to lock all doors and close garage doors."""
         actions: list[ServiceCallAction] = []
 
-        for lock_id in self._lock_entities:
+        # SC-LOCK-SWEEP-EXCLUDE-1 D2a: lockdown is for egress locks only.
+        excluded = self._sweep_excluded()
+        for lock_id in [lk for lk in self._lock_entities if lk not in excluded]:
             actions.append(
                 ServiceCallAction(
                     coordinator_id=self.COORDINATOR_ID,
@@ -1732,14 +1767,21 @@ class SecurityCoordinator(BaseCoordinator):
         actions: list[CoordinatorAction] = []
         unlocked: list[str] = []
         unavailable: list[str] = []
+        # SC-LOCK-SWEEP-EXCLUDE-1 D2b: captured once, before any await.
+        excluded = self._sweep_excluded()
+        excluded_seen: list[str] = []
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
             if state is None or state.state in ("unavailable", "unknown"):
+                # Excluded locks stay on the offline notice (operator Q).
                 unavailable.append(lock_id)
                 self._lock_compliance[lock_id] = "unavailable"
                 continue
             self._lock_compliance[lock_id] = state.state
+            if lock_id in excluded:
+                excluded_seen.append(lock_id)
+                continue
             if state.state == "unlocked":
                 unlocked.append(lock_id)
                 actions.append(
@@ -1846,6 +1888,7 @@ class SecurityCoordinator(BaseCoordinator):
             "found_unlocked": unlocked,
             "lock_actions_sent": unlocked.copy(),
             "unavailable": unavailable,
+            "excluded": excluded_seen,
             "checks_today": self._lock_checks_today.value,
         }
 
@@ -2473,13 +2516,18 @@ class SecurityCoordinator(BaseCoordinator):
         dashboard must reflect reality even when actions are gated.
         """
         # --- Lock enumeration ---
-        locks_total = len(self._lock_entities)
+        # SC-LOCK-SWEEP-EXCLUDE-1 D2d: never-auto-lock (interior) locks are
+        # not security posture; counted separately as locks_excluded.
+        excluded = self._sweep_excluded()
+        posture_locks = [e for e in self._lock_entities if e not in excluded]
+        locks_total = len(posture_locks)
+        locks_excluded = len(self._lock_entities) - locks_total
         locks_locked = 0
         locks_unlocked = 0
         locks_jammed = 0
 
         lock_last_changed: datetime | None = None
-        for entity_id in self._lock_entities:
+        for entity_id in posture_locks:
             try:
                 state = self.hass.states.get(entity_id)
             except Exception:
@@ -2569,6 +2617,7 @@ class SecurityCoordinator(BaseCoordinator):
             "locks_locked": locks_locked,
             "locks_unlocked": locks_unlocked,
             "locks_jammed": locks_jammed,
+            "locks_excluded": locks_excluded,
             "cameras_total": cameras_total,
             "cameras_streaming": cameras_streaming,
             "cameras_idle": cameras_idle,
@@ -2578,11 +2627,18 @@ class SecurityCoordinator(BaseCoordinator):
 
     def get_compliance_summary(self) -> dict[str, Any]:
         """Return lock compliance summary."""
-        total = len(self._lock_entities) + len(self._garage_entities)
+        # SC-LOCK-SWEEP-EXCLUDE-1 (review L2): excluded locks are filtered BY
+        # KEY from both the numerator and the total, so the rate never
+        # exceeds 100 %.
+        excluded = self._sweep_excluded()
+        total = (
+            len([e for e in self._lock_entities if e not in excluded])
+            + len(self._garage_entities)
+        )
         locked = sum(
             1
-            for v in self._lock_compliance.values()
-            if v in ("locked", "closed")
+            for k, v in self._lock_compliance.items()
+            if k not in excluded and v in ("locked", "closed")
         )
         return {
             "total_devices": total,

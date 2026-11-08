@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.105.0
+# Universal Room Automation vv5.106.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -5150,8 +5150,10 @@ def _build_security_lockout_switches(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> list[SwitchEntity]:
     from .const import (  # noqa: PLC0415
+        CONF_SECURITY_AWAY_LOCK_ENABLED,
         CONF_SECURITY_GARAGE_LOCKOUT_ENABLED,
         CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
+        DEFAULT_SECURITY_AWAY_LOCK_ENABLED,
         DEFAULT_SECURITY_GARAGE_LOCKOUT_ENABLED,
         DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
     )
@@ -5174,6 +5176,17 @@ def _build_security_lockout_switches(
             object_id="ura_security_coordinator_garage_lockout_guest_nights",
             icon="mdi:account-clock",
             release_on_off=False,
+        ),
+        # SC-LOCK-REGIME-DOOR-LOCKS-1 D4: away-lock kill switch. OFF releases
+        # only the locks the away lock locked (routed by conf key).
+        SecurityLockoutOptionSwitch(
+            hass, entry,
+            conf_key=CONF_SECURITY_AWAY_LOCK_ENABLED,
+            default=DEFAULT_SECURITY_AWAY_LOCK_ENABLED,
+            name="Away Lock",
+            object_id="ura_security_coordinator_away_lock",
+            icon="mdi:lock-clock",
+            release_on_off=True,
         ),
     ]
 
@@ -5245,7 +5258,7 @@ class SecurityLockoutOptionSwitch(SwitchEntity):
             security = manager.coordinators.get("security") if manager else None
             regime = getattr(security, "lock_regime", None) if security else None
             if regime is not None:
-                regime.on_kill_switch_changed(False)
+                regime.on_kill_switch_changed(False, self._conf_key)
 
 
 class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

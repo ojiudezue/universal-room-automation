@@ -68,6 +68,8 @@ def callback(func):  # noqa: D401 — review B-C1
     return func
 
 POLICY_NAME = "security.lock_regime.garage_lockout"
+POLICY_GARAGE_LOCKOUT = "garage_lockout"
+POLICY_AWAY_LOCK = "away_lock"
 
 REASON_NONE = "none"
 REASON_SLEEP = "sleep"
@@ -105,20 +107,31 @@ def distance_to_metres(value: Any, unit: Any) -> float | None:
         return None
 
 
+def _as_set(raw: Any) -> set[str]:
+    """Coerce an options value (str / list / None) to a set of entity ids."""
+    if isinstance(raw, str):
+        return {raw} if raw else set()
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        return {str(x) for x in raw}
+    return set()
+
+
 def lockout_overlap(lock_entities: Any, lockout_entities: Any) -> list[str]:
     """Entities listed both as sweep/lockdown locks and as remote lockouts.
 
     Options-flow validator (plan §3.3): a lockout must never be in
     ``security_lock_entities``, or the sweep and lockdown would lock it.
     """
-    def _as_set(raw: Any) -> set[str]:
-        if isinstance(raw, str):
-            return {raw}
-        if isinstance(raw, (list, tuple, set, frozenset)):
-            return {str(x) for x in raw}
-        return set()
-
     return sorted(_as_set(lock_entities) & _as_set(lockout_entities))
+
+
+def lock_exclude_not_subset(lock_entities: Any, exclude: Any) -> list[str]:
+    """Entries of ``exclude`` that are not in ``lock_entities`` (SC-LOCK-SWEEP-EXCLUDE-1).
+
+    Also used for "away-lock entities must be excluded" (the same subset
+    rule with the exclude list as the superset).
+    """
+    return sorted(_as_set(exclude) - _as_set(lock_entities))
 
 
 class LockRegimeController:
@@ -193,6 +206,34 @@ class LockRegimeController:
         self._last_distance_m: dict[str, float | None] = {}
         self._residents: set[str] = set()
         self._unavailable_warned: set[str] = set()
+
+        # SC-LOCK-REGIME-DOOR-LOCKS-1 (plan rev 3 D3a): the away-lock policy.
+        # Its own state; it never touches reason / release_gen / backstop /
+        # re-engage (garage policy).
+        # Entities this policy locked (read-back saw `locked`). Persisted.
+        self.away_lock_owned: set[str] = set()
+        # entity -> ts a lock.lock was issued, until its read-back ran.
+        self._away_engage_inflight: dict[str, float] = {}
+        self._away_readback_unsubs: dict[str, Callable[[], None]] = {}
+        self._away_dwell_unsub: Callable[[], None] | None = None
+        self._away_pending_at: float | None = None
+        # One engage attempt per all-away formation (M6). Cleared when any
+        # listed person reads a real non-not_home state.
+        self._away_attempted: bool = False
+        # Fix-up B2: the formation the attempt belongs to (max listed
+        # since-stamp at attempt time). Persisted, so a restart mid-outing
+        # neither re-engages nor re-notifies.
+        self._away_attempted_marker: float | None = None
+        # Fix-up B1: bumped by every away release; an engage loop aborts
+        # when it changed since the loop started.
+        self._away_release_epoch: int = 0
+        # Fix-up A5/B4: persisted in-flight engages, reconciled at setup.
+        self._away_inflight_restored: set[str] = set()
+        self._away_advisory_sent: bool = False
+        # person -> ts the person was first seen not_home in this outing.
+        # Persisted: the ONLY dwell source after a restart (H1).
+        self._away_not_home_since: dict[str, float] = {}
+        self.away_lock_last_action: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Live configuration (never a setup snapshot, Bug Class #14 / M-1)
@@ -269,6 +310,40 @@ class LockRegimeController:
         if isinstance(raw, str):
             raw = [raw]
         return [str(s) for s in raw if isinstance(s, str) and s]
+
+    def sweep_exclude(self, cfg: dict[str, Any] | None = None) -> set[str]:
+        """``security_lock_sweep_exclude`` as configured (live)."""
+        from ..const import CONF_SECURITY_LOCK_SWEEP_EXCLUDE  # noqa: PLC0415
+
+        cfg = self._cfg() if cfg is None else cfg
+        return _as_set(cfg.get(CONF_SECURITY_LOCK_SWEEP_EXCLUDE))
+
+    def away_lock_on(self, cfg: dict[str, Any] | None = None) -> bool:
+        """Away-lock kill switch. Never the garage ``kill_switch_on`` (M4)."""
+        from ..const import (  # noqa: PLC0415
+            CONF_SECURITY_AWAY_LOCK_ENABLED,
+            DEFAULT_SECURITY_AWAY_LOCK_ENABLED,
+        )
+
+        cfg = self._cfg() if cfg is None else cfg
+        return bool(
+            cfg.get(CONF_SECURITY_AWAY_LOCK_ENABLED, DEFAULT_SECURITY_AWAY_LOCK_ENABLED)
+        )
+
+    def away_lock_entities(self, cfg: dict[str, Any] | None = None) -> list[str]:
+        from ..const import CONF_SECURITY_AWAY_LOCK_ENTITIES  # noqa: PLC0415
+
+        cfg = self._cfg() if cfg is None else cfg
+        return sorted(e for e in _as_set(cfg.get(CONF_SECURITY_AWAY_LOCK_ENTITIES)) if e)
+
+    def away_lock_persons(self, cfg: dict[str, Any] | None = None) -> list[str]:
+        from ..const import CONF_SECURITY_AWAY_LOCK_PERSONS  # noqa: PLC0415
+
+        cfg = self._cfg() if cfg is None else cfg
+        return sorted(
+            p for p in _as_set(cfg.get(CONF_SECURITY_AWAY_LOCK_PERSONS))
+            if p.startswith("person.")
+        )
 
     def _num(self, cfg: dict[str, Any], key: str, default: float) -> float:
         try:
@@ -409,6 +484,9 @@ class LockRegimeController:
         if self._store is not None:
             try:
                 data = await self._store.async_load()
+                # D3g: each key is loaded independently; a missing or bad
+                # away-lock key never affects the resident set.
+                self._load_away_store(data)
                 raw = data.get("residents") if isinstance(data, dict) else None
                 if isinstance(raw, list) and all(isinstance(p, str) for p in raw):
                     persisted = {p for p in raw if p.startswith("person.")}
@@ -435,7 +513,8 @@ class LockRegimeController:
         for pid in sorted(live | persisted):
             self._subscribe_person(pid)
         self._residents = (live | persisted) - excluded
-        self._save_residents()
+        self._away_setup(cfg)
+        self._save_store()
 
         if self._track_added_domain is not None:
             self._other_unsubs.append(
@@ -453,6 +532,12 @@ class LockRegimeController:
         if lockouts:
             self._other_unsubs.append(
                 self._track_state(self._hass, lockouts, self._on_lockout_event)
+            )
+        # D3d: away-lock ownership loss (a human unlocked it).
+        away_ents = self.away_lock_entities(cfg)
+        if away_ents:
+            self._other_unsubs.append(
+                self._track_state(self._hass, away_ents, self._on_away_lock_event)
             )
 
         sensors = self._distance_sensors(cfg)
@@ -516,6 +601,10 @@ class LockRegimeController:
             elif house == "vacation":
                 self.reason = REASON_VACATION
                 self._cancel_backstop()
+        # D3e (H1): arm the away-lock dwell for the remainder, from the
+        # persisted not_home stamps. Replayed boot edges never armed it.
+        self._away_boot_discharge(self._cfg())
+        self._away_rearm(self._cfg())
         missing = sorted(
             pid for pid in self._residents if self._hass.states.get(pid) is None
         )
@@ -540,12 +629,17 @@ class LockRegimeController:
             "_boot_recheck_unsub",
             "_guest_clock_unsub",
             "_reengage_unsub",
+            "_away_dwell_unsub",
         ):
             _safe_unsub(getattr(self, attr))
             setattr(self, attr, None)
+        self._away_pending_at = None
         for unsub in self._readback_unsubs.values():
             _safe_unsub(unsub)
         self._readback_unsubs.clear()
+        for unsub in self._away_readback_unsubs.values():
+            _safe_unsub(unsub)
+        self._away_readback_unsubs.clear()
         # Review B-M1: an unlock already in flight is a family-release
         # discharge; let it finish (bounded) instead of cancelling it, or a
         # reload mid-release strands the lockout (the new instance never
@@ -568,6 +662,14 @@ class LockRegimeController:
                 task.cancel()
         self._tasks.clear()
         self._unlock_tasks.clear()
+        # Fix-up B5: flush the Store now; a delayed save could otherwise be
+        # overwritten by the next instance's setup save after a reload.
+        save_now = getattr(self._store, "async_save", None)
+        if save_now is not None:
+            try:
+                await save_now(self._store_payload())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock regime: store flush at teardown failed", exc_info=True)
 
     async def async_release_if_disabled(self) -> None:
         """C1 + M-1: release on the real SC-disable path, before teardown.
@@ -587,6 +689,14 @@ class LockRegimeController:
         cfg = {**(entry.data or {}), **(entry.options or {})}
         if coordinator_should_run(cfg, "security", hass=None):
             return
+        await self._garage_release_on_disable(cfg)
+        # M4: the away lock is released independently of the garage switch.
+        await self._away_release_on_disable()
+
+    async def _garage_release_on_disable(self, cfg: dict[str, Any]) -> None:
+        """Garage branch of the SC-disable release (unchanged behaviour)."""
+        from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
+
         if not self.kill_switch_on():
             return
         self.release_gen += 1
@@ -688,15 +798,20 @@ class LockRegimeController:
             person = str(payload.get("person_entity", "") or "")
         else:
             person = str(getattr(payload, "person_entity", "") or "")
-        if not person or not self._is_resident(person, self._cfg()):
+        if not person:
             return
-        # Review A M2: Presence also dispatches this signal for any face seen
-        # on ANY zone camera, interior included (source camera_face), so
-        # "arriving" is not a physical arrival. Count it only when the
-        # person was really away (same rule + boot exceptions as P1 blips).
-        if not self._really_away(person, self._ts()):
-            return
-        self._release("arriving_signal", person=person)
+        cfg = self._cfg()
+        # Away lock P2 (D3c): a listed person, same really-away gate.
+        away_p2 = person in self.away_lock_persons(cfg)
+        if self._is_resident(person, cfg):
+            # Review A M2: Presence also dispatches this signal for any face
+            # seen on ANY zone camera, interior included (source camera_face),
+            # so "arriving" is not a physical arrival. Count it only when the
+            # person was really away (same rule + boot exceptions as P1 blips).
+            if self._really_away(person, self._ts()):
+                self._release("arriving_signal", person=person)
+        if away_p2 and self._really_away(person, self._ts()):
+            self._away_release("arriving_signal")
 
     def on_hazard(self) -> None:
         """Critical smoke/fire/CO with egress unlock configured."""
@@ -705,9 +820,22 @@ class LockRegimeController:
         self._cancel_reengage()
         self._release("hazard")
         self.reason = REASON_NONE
+        self._away_release("hazard")
 
-    def on_kill_switch_changed(self, enabled: bool) -> None:
-        """ON -> OFF releases once. OFF -> ON never catches up (INV-5)."""
+    def on_kill_switch_changed(self, enabled: bool, key: str | None = None) -> None:
+        """ON -> OFF releases once. OFF -> ON never catches up (INV-5).
+
+        ``key`` routes by the switch's conf key (D4): the away-lock switch
+        releases only away-lock-owned locks; any other key (or None) is the
+        garage kill switch, unchanged.
+        """
+        from ..const import CONF_SECURITY_AWAY_LOCK_ENABLED  # noqa: PLC0415
+
+        if key == CONF_SECURITY_AWAY_LOCK_ENABLED:
+            if self._torn_down or enabled:
+                return
+            self._away_release("kill_switch_off")
+            return
         if self._torn_down or enabled:
             return
         self._cancel_reengage()
@@ -733,7 +861,7 @@ class LockRegimeController:
         self._residents.add(pid)
         if pid in self.releasing_set:
             self.releasing_set[pid]["removed"] = False
-        self._save_residents()
+        self._save_store()
 
     @callback
     def _on_person_removed(self, event: Any) -> None:
@@ -747,7 +875,7 @@ class LockRegimeController:
         # or the max wait passes.
         if pid in self.releasing_set:
             self.releasing_set[pid]["removed"] = True
-        self._save_residents()
+        self._save_store()
 
     @callback
     def _on_person_event(self, event: Any) -> None:
@@ -757,8 +885,12 @@ class LockRegimeController:
         new = event.data.get("new_state")
         old = event.data.get("old_state")
         cfg = self._cfg()
-        if new is None or not self._is_resident(pid, cfg):
+        if new is None:
             return
+        # Plan rev 3 §2.2 / Build DO: _last_real is kept for EVERY person.*
+        # (an away-lock person may be a lockout-excluded person); the garage
+        # effects below stay resident-gated, byte-identical.
+        resident = self._is_resident(pid, cfg)
         new_val = _state_value(new)
         now_ts = self._ts()
         if old is None:
@@ -766,14 +898,18 @@ class LockRegimeController:
             # stamp last_real as restored (M-2).
             if new_val not in _UNREAL_STATES:
                 self._last_real[pid] = (new_val, now_ts, True)
+            self._away_on_person(pid, None, new_val, now_ts, cfg)
             return
         old_val = _state_value(old)
-        if new_val == "home" and old_val != "home":
-            if self._arrival_counts(pid, old_val, now_ts):
-                self._release(f"person:{pid}", person=pid)
-        elif new_val not in _UNREAL_STATES and new_val != old_val:
-            if self._is_approach_zone(new_val, cfg):
-                self._release(f"approach_zone:{pid}", person=pid)
+        if resident:
+            if new_val == "home" and old_val != "home":
+                if self._arrival_counts(pid, old_val, now_ts):
+                    self._release(f"person:{pid}", person=pid)
+            elif new_val not in _UNREAL_STATES and new_val != old_val:
+                if self._is_approach_zone(new_val, cfg):
+                    self._release(f"approach_zone:{pid}", person=pid)
+        # Away lock: before _last_real moves, so P1 sees the pre-edge state.
+        self._away_on_person(pid, old_val, new_val, now_ts, cfg)
         if new_val not in _UNREAL_STATES:
             prev = self._last_real.get(pid)
             if prev is None or prev[0] != new_val or prev[2]:
@@ -942,7 +1078,9 @@ class LockRegimeController:
             ):
                 self._schedule_reengage(cfg)
 
-    async def _async_unlock(self, ent: str, trigger: str, retries_left: int) -> None:
+    async def _async_unlock(
+        self, ent: str, trigger: str, retries_left: int, policy: str = "garage_lockout"
+    ) -> None:
         try:
             await self._hass.services.async_call(
                 "lock", "unlock", {"entity_id": ent}, blocking=True, **_ctx_kwargs()
@@ -961,12 +1099,20 @@ class LockRegimeController:
         self._readback_unsubs[ent] = self._call_later(
             self._hass,
             float(GARAGE_LOCKOUT_READBACK_S),
-            functools.partial(self._on_readback, ent, trigger, retries_left),
+            functools.partial(
+                self._on_readback, ent, trigger, retries_left, policy=policy
+            ),
         )
 
-    def _spawn_unlock(self, ent: str, trigger: str, retries_left: int) -> bool:
-        """Start an unlock task and mark ``ent`` in flight; False if it failed."""
-        coro = self._async_unlock(ent, trigger, retries_left)
+    def _spawn_unlock(
+        self, ent: str, trigger: str, retries_left: int, policy: str = "garage_lockout"
+    ) -> bool:
+        """Start an unlock task and mark ``ent`` in flight; False if it failed.
+
+        ``policy`` ("garage_lockout" / "away_lock") only changes the
+        failure-NM wording (D3c).
+        """
+        coro = self._async_unlock(ent, trigger, retries_left, policy)
         try:
             task = self._hass.async_create_task(coro)
         except Exception:  # noqa: BLE001
@@ -983,7 +1129,14 @@ class LockRegimeController:
         return True
 
     @callback
-    def _on_readback(self, ent: str, trigger: str, retries_left: int, _now: Any = None) -> None:
+    def _on_readback(
+        self,
+        ent: str,
+        trigger: str,
+        retries_left: int,
+        _now: Any = None,
+        policy: str = "garage_lockout",
+    ) -> None:
         self._readback_unsubs.pop(ent, None)
         if self._torn_down:
             self._release_inflight.discard(ent)
@@ -993,21 +1146,60 @@ class LockRegimeController:
             return
         self._release_inflight.discard(ent)
         if retries_left > 0:
-            self._spawn_unlock(ent, trigger, retries_left - 1)
+            self._spawn_unlock(ent, trigger, retries_left - 1, policy)
             return
         try:
-            self._spawn(self._notify_failure(ent, trigger))
+            self._spawn(self._notify_failure(ent, trigger, policy=policy))
         except Exception:  # noqa: BLE001
             _LOGGER.warning("Lock regime: failure NM for %s not sent", ent, exc_info=True)
 
-    async def _notify_failure(self, ent: str, trigger: str, *, timeout: bool = False) -> None:
+    async def _notify_failure(
+        self,
+        ent: str,
+        trigger: str,
+        *,
+        timeout: bool = False,
+        policy: str = "garage_lockout",
+    ) -> None:
         from ..const import DOMAIN  # noqa: PLC0415
         from .base import Severity  # noqa: PLC0415
 
         nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return
-        coro = nm.async_notify(
+        if policy == POLICY_AWAY_LOCK:
+            name = self._friendly(ent)
+            coro = nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.HIGH,
+                title="Away Lock release failed",
+                message=(
+                    f"{name} is still locked after a release ({trigger}). "
+                    "Unlock it from the HA app or by hand."
+                ),
+                hazard_type="away_lock_release_failed",
+                location=f"away_lock:{ent}",
+            )
+        else:
+            coro = self._garage_failure_coro(nm, ent, trigger, Severity)
+        try:
+            if timeout:
+                from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
+
+                await asyncio.wait_for(coro, timeout=GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S)
+            else:
+                await coro
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
+
+    def _friendly(self, ent: str) -> str:
+        st = self._hass.states.get(ent)
+        name = (getattr(st, "attributes", {}) or {}).get("friendly_name") if st else None
+        return str(name) if name else ent
+
+    @staticmethod
+    def _garage_failure_coro(nm: Any, ent: str, trigger: str, Severity: Any) -> Any:  # noqa: N803
+        return nm.async_notify(
             coordinator_id="security",
             severity=Severity.HIGH,
             title="Garage lockout release failed",
@@ -1019,15 +1211,6 @@ class LockRegimeController:
             hazard_type="lockout_release_failed",
             location=f"garage:{ent}",  # review B-L1: per-lock NM dedup key
         )
-        try:
-            if timeout:
-                from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
-
-                await asyncio.wait_for(coro, timeout=GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S)
-            else:
-                await coro
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Lock regime: NM notify failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Engage (write-time predicate, rev 5 H-1)
@@ -1049,6 +1232,11 @@ class LockRegimeController:
             return "kill_switch_off"
         if not self._sc_alive():
             return "sc_not_running"
+        if ent in self.sweep_exclude(cfg):
+            # D2c / INV-X1: an excluded lock is never locked by the garage
+            # policy, even from an options state written before the
+            # validators existed.
+            return "excluded"
         if intent["gen"] != self.release_gen:
             return "release_since_intent"
         if ent in self._release_inflight:
@@ -1214,6 +1402,422 @@ class LockRegimeController:
             self._release("backstop")
 
     # ------------------------------------------------------------------
+    # Away lock (SC-LOCK-REGIME-DOOR-LOCKS-1, plan rev 3 D3 + amendments)
+    # ------------------------------------------------------------------
+    # Lock every away-lock entity once ALL listed persons read exactly
+    # `not_home` for SECURITY_AWAY_LOCK_ENGAGE_DWELL_S; release when any one
+    # of them arrives. Ownership (INV-X3) = read-back saw `locked`, or an
+    # engage is in flight. Never routed through _release / _after_release.
+
+    def _away_setup(self, cfg: dict[str, Any]) -> None:
+        """Setup: validate the config (D3i), reconcile persisted state."""
+        lockouts = set(self.lockout_entities(cfg))
+        exclude = self.sweep_exclude(cfg)
+        overlap = sorted(exclude & lockouts)
+        if overlap:
+            _LOGGER.warning(
+                "Lock regime: %s are both remote lockouts and never-auto-lock "
+                "locks; unsupported, fix the Security options", overlap,
+            )
+        away_ents = self.away_lock_entities(cfg)
+        not_excluded = lock_exclude_not_subset(exclude, away_ents)
+        if not_excluded:
+            _LOGGER.warning(
+                "Lock regime: away-lock locks %s are not in Never auto-lock; "
+                "the away lock skips them", not_excluded,
+            )
+        both = sorted(set(away_ents) & lockouts)
+        if both:
+            _LOGGER.warning(
+                "Lock regime: away-lock locks %s are also remote lockouts; "
+                "the away lock skips them", both,
+            )
+        # A persisted owned lock a human unlocked while HA was down is no
+        # longer ours.
+        for ent in sorted(self.away_lock_owned):
+            if _state_value(self._hass.states.get(ent)) == "unlocked":
+                self.away_lock_owned.discard(ent)
+        # A5/B4: an engage whose read-back was lost to a restart: if the lock
+        # does not read unlocked now (locked, or undecided), treat it as ours.
+        for ent in sorted(self._away_inflight_restored):
+            if _state_value(self._hass.states.get(ent)) != "unlocked":
+                self.away_lock_owned.add(ent)
+        self._away_inflight_restored = set()
+        # Persisted since-stamps: kept only while the person still reads
+        # not_home (or unknown/unavailable, undecided). A listed person
+        # reading not_home with no stamp counts from setup.
+        now_ts = self._ts()
+        listed = set(self.away_lock_persons(cfg))
+        for pid in sorted(set(self._away_not_home_since) | listed):
+            val = _state_value(self._hass.states.get(pid))
+            if val == "not_home":
+                if pid in listed:
+                    self._away_not_home_since.setdefault(pid, now_ts)
+            elif val is not None and val not in _UNREAL_STATES:
+                self._away_not_home_since.pop(pid, None)
+        # B2: the persisted attempt still holds only for the same formation.
+        marker = self._away_attempted_marker
+        if marker is not None and marker == self._formation_key(cfg):
+            self._away_attempted = True
+        else:
+            self._away_attempted = False
+            self._away_attempted_marker = None
+
+    def _formation_key(self, cfg: dict[str, Any]) -> float | None:
+        """Identity of the current all-away outing: the latest since-stamp
+        across listed persons (None unless every listed person has one)."""
+        persons = self.away_lock_persons(cfg)
+        if not persons:
+            return None
+        stamps = [self._away_not_home_since.get(p) for p in persons]
+        if any(t is None for t in stamps):
+            return None
+        return max(stamps)
+
+    def _set_attempted(self) -> None:
+        self._away_attempted = True
+        self._away_attempted_marker = self._formation_key(self._cfg())
+        self._save_store()
+
+    def _clear_attempted(self) -> None:
+        changed = self._away_attempted or self._away_attempted_marker is not None
+        self._away_attempted = False
+        self._away_attempted_marker = None
+        if changed:
+            self._save_store()
+
+    def _away_boot_discharge(self, cfg: dict[str, Any]) -> None:
+        """A1/B3: a listed person reading home at the boot recheck (got home
+        while HA was down) releases owned / in-flight away locks."""
+        if not self._away_targets():
+            return
+        for pid in self.away_lock_persons(cfg):
+            if _state_value(self._hass.states.get(pid)) == "home":
+                self._away_release(f"boot_recheck:{pid}")
+                return
+
+    def _away_on_person(
+        self,
+        pid: str,
+        old_val: str | None,
+        new_val: str | None,
+        now_ts: float,
+        cfg: dict[str, Any],
+    ) -> None:
+        """Person edge for the away lock. ``old_val`` None = restore/added."""
+        if pid not in self.away_lock_persons(cfg):
+            return
+        changed = False
+        if new_val == "not_home":
+            if old_val is not None and old_val not in _UNREAL_STATES and old_val != "not_home":
+                # A real leave: a fresh outing.
+                self._away_not_home_since[pid] = now_ts
+                changed = True
+            elif pid not in self._away_not_home_since:
+                self._away_not_home_since[pid] = now_ts
+                changed = True
+        elif new_val is None or new_val in _UNREAL_STATES:
+            # Undecided: cannot engage now, but keep the outing's stamp.
+            self._cancel_away_dwell()
+            return
+        else:
+            # home or a named zone: not away (operator 2026-11-07).
+            if self._away_not_home_since.pop(pid, None) is not None:
+                changed = True
+            self._cancel_away_dwell()
+            # A1: ANY home reading of a listed person releases what the away
+            # lock holds (restored / no-prior-state and blip-gated returns
+            # included). No blip gate on this side: releasing is fail-safe.
+            if new_val == "home" and self._away_targets():
+                self._away_release(f"person:{pid}")
+            # After the release (which latches it): this person is not away,
+            # so the next all-away formation may attempt again (M6).
+            self._clear_attempted()
+        if changed:
+            self._save_store()
+        if self._in_boot_window():
+            # D3e: replayed boot edges (HA person restore included) never
+            # arm; the boot recheck does.
+            return
+        self._away_rearm(cfg)
+
+    def _away_due_ts(self, cfg: dict[str, Any]) -> float | None:
+        """When every listed person will have been not_home for the dwell.
+
+        None if the list is empty, or any listed person does not read
+        exactly `not_home` now, or has no since-stamp.
+        """
+        from ..const import SECURITY_AWAY_LOCK_ENGAGE_DWELL_S  # noqa: PLC0415
+
+        persons = self.away_lock_persons(cfg)
+        if not persons:
+            return None
+        due = 0.0
+        for pid in persons:
+            if _state_value(self._hass.states.get(pid)) != "not_home":
+                return None
+            since = self._away_not_home_since.get(pid)
+            if since is None:
+                return None
+            due = max(due, since + float(SECURITY_AWAY_LOCK_ENGAGE_DWELL_S))
+        return due
+
+    def away_lock_predicate(self, ent: str, cfg: dict[str, Any]) -> str | None:
+        """INV-X2, synchronous. None = lock.lock may be issued on ``ent`` now."""
+        if not self.away_lock_on(cfg):
+            return "kill_switch_off"
+        if not self._sc_alive():
+            return "sc_not_running"
+        if ent not in self.away_lock_entities(cfg):
+            return "not_away_lock_entity"
+        if ent not in self.sweep_exclude(cfg):
+            return "not_excluded"
+        if ent in self.lockout_entities(cfg):
+            return "is_lockout"
+        due = self._away_due_ts(cfg)
+        if due is None:
+            return "not_all_away"
+        if self._ts() < due:
+            return "dwell"
+        if ent in self._release_inflight:
+            return "release_inflight"
+        val = _state_value(self._hass.states.get(ent))
+        if val != "unlocked":
+            return f"lock_{val}"
+        return None
+
+    def _away_rearm(self, cfg: dict[str, Any]) -> None:
+        """(Re)arm the one-shot dwell timer (M6): only while every listed
+        person reads not_home and this formation has not been attempted."""
+        self._cancel_away_dwell()
+        if self._torn_down or self._away_attempted:
+            return
+        if not self.away_lock_on(cfg) or not self.away_lock_entities(cfg):
+            return
+        due = self._away_due_ts(cfg)
+        if due is None:
+            return
+        delay = max(0.0, due - self._ts())
+        self._away_pending_at = due
+        self._away_dwell_unsub = self._call_later(self._hass, delay, self._on_away_dwell)
+
+    def _cancel_away_dwell(self) -> None:
+        _safe_unsub(self._away_dwell_unsub)
+        self._away_dwell_unsub = None
+        self._away_pending_at = None
+
+    def _away_pending_iso(self) -> str | None:
+        if self._away_pending_at is None:
+            return None
+        try:
+            return datetime.fromtimestamp(
+                self._away_pending_at, tz=self._now().tzinfo
+            ).isoformat()
+        except Exception:  # noqa: BLE001
+            return None
+
+    @callback
+    def _on_away_dwell(self, _now: Any = None) -> None:
+        self._away_dwell_unsub = None
+        self._away_pending_at = None
+        if self._torn_down:
+            return
+        self._spawn(self._async_away_engage("all_away"))
+
+    async def _async_away_engage(self, trigger: str) -> None:
+        if self._away_attempted:
+            return
+        self._set_attempted()
+        self._away_advisory_sent = False
+        epoch = self._away_release_epoch
+        for ent in self.away_lock_entities(self._cfg()):
+            # B1/A4: a release since the loop started ends it; cfg is re-read
+            # per lock (the switch may have flipped during the last await).
+            if self._away_release_epoch != epoch:
+                return
+            cfg = self._cfg()
+            why = self.away_lock_predicate(ent, cfg)
+            if why is None and getattr(self._sc, "observation_mode", False):
+                self._record(
+                    "would_engage", trigger=trigger, written=[ent],
+                    policy=POLICY_AWAY_LOCK,
+                )
+                continue
+            if why is not None:
+                self._record(
+                    "engage_dropped", trigger=trigger, written=[],
+                    extra={"entity": ent, "why": why}, policy=POLICY_AWAY_LOCK,
+                )
+                continue
+            # No await between the predicate above and this call (INV-X2).
+            self._away_engage_inflight[ent] = self._ts()
+            self._save_store()  # A5: persist the in-flight engage (sync)
+            try:
+                await self._hass.services.async_call(
+                    "lock", "lock", {"entity_id": ent}, blocking=False, **_ctx_kwargs()
+                )
+            except Exception:  # noqa: BLE001
+                self._away_engage_inflight.pop(ent, None)
+                _LOGGER.warning("Lock regime: away lock of %s failed", ent, exc_info=True)
+                continue
+            if ent not in self._away_engage_inflight:
+                continue  # released while the call was being issued
+            from ..const import GARAGE_LOCKOUT_READBACK_S  # noqa: PLC0415
+
+            _safe_unsub(self._away_readback_unsubs.pop(ent, None))
+            self._away_readback_unsubs[ent] = self._call_later(
+                self._hass,
+                float(GARAGE_LOCKOUT_READBACK_S),
+                functools.partial(self._on_away_readback, ent),
+            )
+
+    @callback
+    def _on_away_readback(self, ent: str, _now: Any = None) -> None:
+        """D3b engage read-back: `locked` -> owned; else one LOW advisory."""
+        self._away_readback_unsubs.pop(ent, None)
+        if self._torn_down:
+            return
+        if self._away_engage_inflight.pop(ent, None) is None:
+            return  # released meanwhile (H2)
+        if _state_value(self._hass.states.get(ent)) == "locked":
+            self.away_lock_owned.add(ent)
+            self._save_store()
+            self._record("engage", trigger="all_away", written=[ent], policy=POLICY_AWAY_LOCK)
+            return
+        self._record(
+            "engage_not_taken", trigger="all_away", written=[],
+            extra={"entity": ent}, policy=POLICY_AWAY_LOCK,
+        )
+        if self._away_advisory_sent:
+            return
+        self._away_advisory_sent = True
+        try:
+            self._spawn(self._notify_away_not_taken(ent))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: away advisory not sent", exc_info=True)
+
+    async def _notify_away_not_taken(self, ent: str) -> None:
+        from ..const import DOMAIN  # noqa: PLC0415
+        from .base import Severity  # noqa: PLC0415
+
+        nm = self._hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return
+        try:
+            await nm.async_notify(
+                coordinator_id="security",
+                severity=Severity.LOW,
+                title="Away Lock",
+                message=(
+                    f"Away Lock: {self._friendly(ent)} did not lock "
+                    "(passage mode may be on)."
+                ),
+                hazard_type="away_lock_not_taken",
+                location=f"away_lock:{ent}",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Lock regime: away advisory failed", exc_info=True)
+
+    @callback
+    def _on_away_lock_event(self, event: Any) -> None:
+        """D3d: unlocked with no engage in flight -> no longer ours.
+
+        Deviation from plan D3d (H2 safety): a `locked` reading does NOT
+        forget the in-flight entry; the read-back does, so a release inside
+        the read-back window still targets the entity.
+        """
+        if self._torn_down:
+            return
+        ent = event.data.get("entity_id", "")
+        if _state_value(event.data.get("new_state")) != "unlocked":
+            return
+        if ent in self._away_engage_inflight or ent not in self.away_lock_owned:
+            return
+        self.away_lock_owned.discard(ent)
+        self._save_store()
+        self._record("ownership_lost", trigger="manual_unlock", written=[],
+                     extra={"entity": ent}, policy=POLICY_AWAY_LOCK)
+
+    def _away_targets(self) -> list[str]:
+        return sorted(self.away_lock_owned | set(self._away_engage_inflight))
+
+    def _away_release(self, trigger: str) -> None:
+        """Unlock owned + in-flight away locks (INV-X3). Direct write, never
+        gated by observation mode or either kill switch (fail-safe)."""
+        # No re-engage in this formation after any release.
+        self._away_release_epoch += 1
+        self._cancel_away_dwell()
+        self._set_attempted()
+        targets = self._away_targets()
+        if not targets:
+            return
+        written: list[str] = []
+        for ent in targets:
+            inflight = self._away_engage_inflight.pop(ent, None) is not None
+            _safe_unsub(self._away_readback_unsubs.pop(ent, None))
+            val = _state_value(self._hass.states.get(ent))
+            if val is None or val in _UNREAL_STATES:
+                _LOGGER.warning("Lock regime: away lock %s is %s; release skipped", ent, val)
+                # Stays (B4: or becomes) owned; a later release retries.
+                self.away_lock_owned.add(ent)
+                continue
+            self.away_lock_owned.discard(ent)
+            if val == "unlocked" and not inflight:
+                continue  # already unlocked
+            # A2: locked / jammed / locking / unlocking -> unlock attempt
+            # (read-back + one retry + HIGH NM if it still reads locked).
+            if ent in self._release_inflight:
+                continue
+            if self._spawn_unlock(ent, trigger, GARAGE_RETRIES(), POLICY_AWAY_LOCK):
+                written.append(ent)
+        self._save_store()
+        self._record("release", trigger=trigger, written=written, policy=POLICY_AWAY_LOCK)
+
+    async def _away_release_on_disable(self) -> None:
+        """SC disable (M4): unlock owned / in-flight away locks before teardown."""
+        from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
+
+        self._away_release_epoch += 1
+        self._cancel_away_dwell()
+        targets = self._away_targets()
+        if not targets:
+            return
+        for ent in targets:
+            inflight = self._away_engage_inflight.pop(ent, None) is not None
+            _safe_unsub(self._away_readback_unsubs.pop(ent, None))
+            val = _state_value(self._hass.states.get(ent))
+            if val is None or val in _UNREAL_STATES:
+                # A3: same as _away_release; keep ownership.
+                self.away_lock_owned.add(ent)
+                _LOGGER.warning(
+                    "Lock regime: away lock %s is %s at SC disable; release skipped",
+                    ent, val,
+                )
+                continue
+            self.away_lock_owned.discard(ent)
+            if val == "unlocked" and not inflight:
+                continue
+            try:
+                await asyncio.wait_for(
+                    self._hass.services.async_call(
+                        "lock", "unlock", {"entity_id": ent}, blocking=True,
+                        **_ctx_kwargs(),
+                    ),
+                    timeout=GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S,
+                )
+                self._record("release", trigger="sc_disabled", written=[ent],
+                             policy=POLICY_AWAY_LOCK)
+            except Exception:  # noqa: BLE001 — includes TimeoutError
+                _LOGGER.warning(
+                    "Lock regime: away-lock release of %s on SC disable failed", ent,
+                    exc_info=True,
+                )
+                await self._notify_failure(
+                    ent, "sc_disabled", timeout=True, policy=POLICY_AWAY_LOCK
+                )
+        self._save_store()
+
+    # ------------------------------------------------------------------
     # Bookkeeping
     # ------------------------------------------------------------------
 
@@ -1223,15 +1827,47 @@ class LockRegimeController:
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
 
-    def _save_residents(self) -> None:
+    def _store_payload(self) -> dict[str, Any]:
+        """D3g: the WHOLE payload, always from current in-memory state."""
+        return {
+            "residents": sorted(self._residents),
+            "away_lock_owned": sorted(self.away_lock_owned),
+            "away_not_home_since": dict(sorted(self._away_not_home_since.items())),
+            "away_lock_inflight": sorted(self._away_engage_inflight),
+            "away_attempted_marker": self._away_attempted_marker,
+        }
+
+    def _save_store(self) -> None:
         if self._store is None:
             return
         try:
-            self._store.async_delay_save(
-                lambda: {"residents": sorted(self._residents)}, 1.0
-            )
+            self._store.async_delay_save(lambda: self._store_payload(), 1.0)
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("Lock regime: resident store save failed", exc_info=True)
+            _LOGGER.debug("Lock regime: store save failed", exc_info=True)
+
+    def _load_away_store(self, data: Any) -> None:
+        if not isinstance(data, dict):
+            return
+        owned = data.get("away_lock_owned")
+        if isinstance(owned, list):
+            self.away_lock_owned = {o for o in owned if isinstance(o, str) and o}
+        since = data.get("away_not_home_since")
+        if isinstance(since, dict):
+            parsed: dict[str, float] = {}
+            for pid, ts in since.items():
+                if not isinstance(pid, str) or not pid.startswith("person."):
+                    continue
+                try:
+                    parsed[pid] = float(ts)
+                except (TypeError, ValueError):
+                    continue
+            self._away_not_home_since = parsed
+        inflight = data.get("away_lock_inflight")
+        if isinstance(inflight, list):
+            self._away_inflight_restored = {o for o in inflight if isinstance(o, str) and o}
+        marker = data.get("away_attempted_marker")
+        if isinstance(marker, (int, float)) and not isinstance(marker, bool):
+            self._away_attempted_marker = float(marker)
 
     def _record(
         self,
@@ -1240,21 +1876,46 @@ class LockRegimeController:
         trigger: str,
         written: list[str],
         extra: dict[str, Any] | None = None,
+        policy: str = POLICY_GARAGE_LOCKOUT,
     ) -> None:
-        """Log AFTER any write was issued (never between check and call)."""
+        """Log AFTER any write was issued (never between check and call).
+
+        ``policy=away_lock`` records into ``away_lock_last_action`` with
+        "Away Lock" wording; the garage record shape is unchanged.
+        """
         from ..const import DOMAIN  # noqa: PLC0415
 
-        record = {
-            "action": action,
-            "trigger": trigger,
-            "entities": list(written),
-            "reason": self.reason,
-            "release_gen": self.release_gen,
-            "at": self._now().isoformat(),
-        }
+        away = policy == POLICY_AWAY_LOCK
+        if away:
+            record = {
+                "action": action,
+                "trigger": trigger,
+                "entities": list(written),
+                "policy": POLICY_AWAY_LOCK,
+                "at": self._now().isoformat(),
+            }
+        else:
+            record = {
+                "action": action,
+                "trigger": trigger,
+                "entities": list(written),
+                "reason": self.reason,
+                "release_gen": self.release_gen,
+                "at": self._now().isoformat(),
+            }
         if extra:
             record.update(extra)
-        self.last_action = record
+        if away:
+            self.away_lock_last_action = record
+            decision_type = f"lock_regime_away_lock_{action}"
+            description = (
+                f"Away Lock {action}: "
+                f"{', '.join(self._friendly(e) for e in written)} ({trigger})"
+            )
+        else:
+            self.last_action = record
+            decision_type = f"lock_regime_{action}"
+            description = f"Garage lockout {action}: {', '.join(written)} ({trigger})"
         decision_logger = getattr(self._sc, "decision_logger", None)
         if decision_logger is not None:
             try:
@@ -1263,7 +1924,7 @@ class LockRegimeController:
                 decision_logger.log_decision(
                     DecisionLog(
                         coordinator_id="security",
-                        decision_type=f"lock_regime_{action}",
+                        decision_type=decision_type,
                         context=trigger,
                         action=",".join(written) or action,
                     )
@@ -1277,8 +1938,8 @@ class LockRegimeController:
                     self._spawn(
                         activity_logger.log(
                             coordinator="security",
-                            action=f"lock_regime_{action}",
-                            description=f"Garage lockout {action}: {', '.join(written)} ({trigger})",
+                            action=decision_type,
+                            description=description,
                             importance="notable",
                             details=dict(record),
                         )
@@ -1293,6 +1954,11 @@ class LockRegimeController:
             "lock_regime_garage_lockout_last_action": dict(self.last_action),
             "lock_regime_garage_lockout_reengage_at": self.reengage_at,
             "lock_regime_garage_lockout_missing_residents": list(self.missing_residents),
+            # D3f: away lock (added keys only).
+            "lock_regime_away_lock_enabled": self.away_lock_on(),
+            "lock_regime_away_lock_owned": sorted(self.away_lock_owned),
+            "lock_regime_away_lock_last_action": dict(self.away_lock_last_action),
+            "lock_regime_away_lock_pending_engage_at": self._away_pending_iso(),
         }
 
 

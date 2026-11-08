@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: "2026-11-07"
+  last_reconciled: "2026-11-08"
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -249,7 +249,8 @@ cards:
   arc_cut_v5_105_0: "queued as the very next cycle per operator (no stragglers), builds on this regime"
   title: "Move door-lock policy into the new SC lock regime (arming = alarm only)"
   thread: security
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.106.0
   tier: 2
   created: "2026-11-07 14:30"
   updated: "2026-11-07 14:30"
@@ -275,7 +276,8 @@ cards:
 - id: SC-LOCK-SWEEP-EXCLUDE-1
   title: "Register every lock in SC but let individual locks opt out of the periodic lock sweep (master bedroom: passage mode, sweep only drains battery)"
   thread: security
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.106.0
   tier: 1
   created: "2026-11-07 16:20"
   updated: "2026-11-07 16:20"
@@ -298,6 +300,7 @@ cards:
   why: "(1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore fixture, 60d68f63) and fails test_low_cleanup's test_hvac_decision_cycle_enabled_guard + test_hvac_observation_switch_has_deferred_restore when it runs first (pre-existing on develop). (2) test_ble_extend_not_create MUTATION_m2 anchor no longer matches coordinator.py (drill can never match). (3) test_d7_donor_hygiene DONOR_VICTIMS lacks test_sleep_fans_and_flash.py (StopIteration). (4) 9 files fail in isolation on develop (boot_settle_gate, v4621_humidity_fan_hardening, v4714_1_forgotten_phone_hotfix, v570_guest_detection_trust, hvac_pull_energy_constraint_at_setup, opt_meta_boot_transient, optimization_coordinator, snap1_at_detection_snapshots, solar_follow_amps)."
   next: "Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4)."
 - id: SC-GEOFENCE-PERSON-SNAPSHOT-1
+  arc_cut_v5_106_0: "separate SC geofence listener fix (different code path from the lock regime, which already tracks persons live)"
   arc_cut_v5_105_0: "separate SC geofence listener fix, queued next after door-locks"
   title: "SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC"
   thread: security
