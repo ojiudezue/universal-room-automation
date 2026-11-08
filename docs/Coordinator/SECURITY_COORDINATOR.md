@@ -605,14 +605,25 @@ Plan: `docs/planning/PLANNING_sc_lock_exclude_and_door_regime.md` rev 3.
   `not_home` stamps (never `person.last_changed`). One attempt per all-away formation: if the
   read-back (20 s) does not see `locked` (passage mode), one LOW advisory and no ownership.
   Release (direct unlock + read-back + one retry + HIGH NM, never suppressed by observation or
-  either switch) when any listed person arrives (P1 → home, P2 arriving signal with the 15-min
-  really-away gate), on a critical hazard, the switch going OFF, or SC disable. It only unlocks
-  locks it owns or has an engage in flight for; a human unlock drops ownership. It never
-  touches the garage policy's `reason` / `release_gen` / backstop / re-engage. Boot: replayed
-  edges never arm; the 120 s boot recheck arms the remaining dwell. Store
-  `universal_room_automation.lock_regime_residents` now carries `residents`,
-  `away_lock_owned`, `away_not_home_since`. Diagnostics:
+  either switch) whenever a listed person reads `home` (any reading, a restored state and a
+  short blip included: no blip gate on the release side; also at the boot recheck for a person
+  who got home while HA was down), on P2 (arriving signal, 15-min really-away gate), on a
+  critical hazard, the switch going OFF, or SC disable. It only unlocks locks it owns or has an
+  engage in flight for; a human unlock drops ownership; a lock that is unavailable at release
+  stays owned (retried by the next release); `jammed` / `locking` / `unlocking` get an unlock
+  attempt. A release during an engage loop stops the loop (release epoch), and cfg is re-read
+  per lock. It never touches the garage policy's `reason` / `release_gen` / backstop /
+  re-engage. Boot: replayed edges never arm; the 120 s boot recheck arms the remaining dwell.
+  Store `universal_room_automation.lock_regime_residents` carries `residents`,
+  `away_lock_owned`, `away_not_home_since`, `away_lock_inflight` (an engage whose read-back was
+  lost to a restart; owned at setup unless it reads `unlocked`) and `away_attempted_marker`
+  (the outing an attempt belonged to, so a restart mid-outing neither re-locks nor re-notifies).
+  Teardown flushes the Store. Diagnostics:
   `lock_regime_away_lock_{enabled,owned,last_action,pending_engage_at}`.
+- **Accepted residual (review B6):** a live edit of `security_away_lock_persons` is not
+  re-evaluated. A person added while already `not_home` has no since-stamp until their next
+  state change, so nothing engages until then; removing the last at-home person does not
+  re-arm either. Same shape as "OFF -> ON never catches up".
 
 ## 8. HOUSE STATE INTEGRATION
 

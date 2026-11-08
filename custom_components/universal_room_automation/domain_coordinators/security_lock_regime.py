@@ -220,6 +220,15 @@ class LockRegimeController:
         # One engage attempt per all-away formation (M6). Cleared when any
         # listed person reads a real non-not_home state.
         self._away_attempted: bool = False
+        # Fix-up B2: the formation the attempt belongs to (max listed
+        # since-stamp at attempt time). Persisted, so a restart mid-outing
+        # neither re-engages nor re-notifies.
+        self._away_attempted_marker: float | None = None
+        # Fix-up B1: bumped by every away release; an engage loop aborts
+        # when it changed since the loop started.
+        self._away_release_epoch: int = 0
+        # Fix-up A5/B4: persisted in-flight engages, reconciled at setup.
+        self._away_inflight_restored: set[str] = set()
         self._away_advisory_sent: bool = False
         # person -> ts the person was first seen not_home in this outing.
         # Persisted: the ONLY dwell source after a restart (H1).
@@ -594,6 +603,7 @@ class LockRegimeController:
                 self._cancel_backstop()
         # D3e (H1): arm the away-lock dwell for the remainder, from the
         # persisted not_home stamps. Replayed boot edges never armed it.
+        self._away_boot_discharge(self._cfg())
         self._away_rearm(self._cfg())
         missing = sorted(
             pid for pid in self._residents if self._hass.states.get(pid) is None
@@ -652,6 +662,14 @@ class LockRegimeController:
                 task.cancel()
         self._tasks.clear()
         self._unlock_tasks.clear()
+        # Fix-up B5: flush the Store now; a delayed save could otherwise be
+        # overwritten by the next instance's setup save after a reload.
+        save_now = getattr(self._store, "async_save", None)
+        if save_now is not None:
+            try:
+                await save_now(self._store_payload())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Lock regime: store flush at teardown failed", exc_info=True)
 
     async def async_release_if_disabled(self) -> None:
         """C1 + M-1: release on the real SC-disable path, before teardown.
@@ -1419,6 +1437,12 @@ class LockRegimeController:
         for ent in sorted(self.away_lock_owned):
             if _state_value(self._hass.states.get(ent)) == "unlocked":
                 self.away_lock_owned.discard(ent)
+        # A5/B4: an engage whose read-back was lost to a restart: if the lock
+        # does not read unlocked now (locked, or undecided), treat it as ours.
+        for ent in sorted(self._away_inflight_restored):
+            if _state_value(self._hass.states.get(ent)) != "unlocked":
+                self.away_lock_owned.add(ent)
+        self._away_inflight_restored = set()
         # Persisted since-stamps: kept only while the person still reads
         # not_home (or unknown/unavailable, undecided). A listed person
         # reading not_home with no stamp counts from setup.
@@ -1431,6 +1455,46 @@ class LockRegimeController:
                     self._away_not_home_since.setdefault(pid, now_ts)
             elif val is not None and val not in _UNREAL_STATES:
                 self._away_not_home_since.pop(pid, None)
+        # B2: the persisted attempt still holds only for the same formation.
+        marker = self._away_attempted_marker
+        if marker is not None and marker == self._formation_key(cfg):
+            self._away_attempted = True
+        else:
+            self._away_attempted = False
+            self._away_attempted_marker = None
+
+    def _formation_key(self, cfg: dict[str, Any]) -> float | None:
+        """Identity of the current all-away outing: the latest since-stamp
+        across listed persons (None unless every listed person has one)."""
+        persons = self.away_lock_persons(cfg)
+        if not persons:
+            return None
+        stamps = [self._away_not_home_since.get(p) for p in persons]
+        if any(t is None for t in stamps):
+            return None
+        return max(stamps)
+
+    def _set_attempted(self) -> None:
+        self._away_attempted = True
+        self._away_attempted_marker = self._formation_key(self._cfg())
+        self._save_store()
+
+    def _clear_attempted(self) -> None:
+        changed = self._away_attempted or self._away_attempted_marker is not None
+        self._away_attempted = False
+        self._away_attempted_marker = None
+        if changed:
+            self._save_store()
+
+    def _away_boot_discharge(self, cfg: dict[str, Any]) -> None:
+        """A1/B3: a listed person reading home at the boot recheck (got home
+        while HA was down) releases owned / in-flight away locks."""
+        if not self._away_targets():
+            return
+        for pid in self.away_lock_persons(cfg):
+            if _state_value(self._hass.states.get(pid)) == "home":
+                self._away_release(f"boot_recheck:{pid}")
+                return
 
     def _away_on_person(
         self,
@@ -1443,7 +1507,6 @@ class LockRegimeController:
         """Person edge for the away lock. ``old_val`` None = restore/added."""
         if pid not in self.away_lock_persons(cfg):
             return
-        restored = old_val is None
         changed = False
         if new_val == "not_home":
             if old_val is not None and old_val not in _UNREAL_STATES and old_val != "not_home":
@@ -1462,16 +1525,14 @@ class LockRegimeController:
             if self._away_not_home_since.pop(pid, None) is not None:
                 changed = True
             self._cancel_away_dwell()
-            if (
-                new_val == "home"
-                and not restored
-                and old_val != "home"
-                and self._arrival_counts(pid, old_val, now_ts)
-            ):
+            # A1: ANY home reading of a listed person releases what the away
+            # lock holds (restored / no-prior-state and blip-gated returns
+            # included). No blip gate on this side: releasing is fail-safe.
+            if new_val == "home" and self._away_targets():
                 self._away_release(f"person:{pid}")
             # After the release (which latches it): this person is not away,
             # so the next all-away formation may attempt again (M6).
-            self._away_attempted = False
+            self._clear_attempted()
         if changed:
             self._save_store()
         if self._in_boot_window():
@@ -1566,10 +1627,15 @@ class LockRegimeController:
     async def _async_away_engage(self, trigger: str) -> None:
         if self._away_attempted:
             return
-        self._away_attempted = True
+        self._set_attempted()
         self._away_advisory_sent = False
-        cfg = self._cfg()
-        for ent in self.away_lock_entities(cfg):
+        epoch = self._away_release_epoch
+        for ent in self.away_lock_entities(self._cfg()):
+            # B1/A4: a release since the loop started ends it; cfg is re-read
+            # per lock (the switch may have flipped during the last await).
+            if self._away_release_epoch != epoch:
+                return
+            cfg = self._cfg()
             why = self.away_lock_predicate(ent, cfg)
             if why is None and getattr(self._sc, "observation_mode", False):
                 self._record(
@@ -1585,6 +1651,7 @@ class LockRegimeController:
                 continue
             # No await between the predicate above and this call (INV-X2).
             self._away_engage_inflight[ent] = self._ts()
+            self._save_store()  # A5: persist the in-flight engage (sync)
             try:
                 await self._hass.services.async_call(
                     "lock", "lock", {"entity_id": ent}, blocking=False, **_ctx_kwargs()
@@ -1678,8 +1745,9 @@ class LockRegimeController:
         """Unlock owned + in-flight away locks (INV-X3). Direct write, never
         gated by observation mode or either kill switch (fail-safe)."""
         # No re-engage in this formation after any release.
+        self._away_release_epoch += 1
         self._cancel_away_dwell()
-        self._away_attempted = True
+        self._set_attempted()
         targets = self._away_targets()
         if not targets:
             return
@@ -1690,10 +1758,14 @@ class LockRegimeController:
             val = _state_value(self._hass.states.get(ent))
             if val is None or val in _UNREAL_STATES:
                 _LOGGER.warning("Lock regime: away lock %s is %s; release skipped", ent, val)
-                continue  # stays owned; a later release retries
+                # Stays (B4: or becomes) owned; a later release retries.
+                self.away_lock_owned.add(ent)
+                continue
             self.away_lock_owned.discard(ent)
-            if val != "locked" and not inflight:
+            if val == "unlocked" and not inflight:
                 continue  # already unlocked
+            # A2: locked / jammed / locking / unlocking -> unlock attempt
+            # (read-back + one retry + HIGH NM if it still reads locked).
             if ent in self._release_inflight:
                 continue
             if self._spawn_unlock(ent, trigger, GARAGE_RETRIES(), POLICY_AWAY_LOCK):
@@ -1705,6 +1777,7 @@ class LockRegimeController:
         """SC disable (M4): unlock owned / in-flight away locks before teardown."""
         from ..const import GARAGE_LOCKOUT_TEARDOWN_RELEASE_TIMEOUT_S  # noqa: PLC0415
 
+        self._away_release_epoch += 1
         self._cancel_away_dwell()
         targets = self._away_targets()
         if not targets:
@@ -1712,9 +1785,17 @@ class LockRegimeController:
         for ent in targets:
             inflight = self._away_engage_inflight.pop(ent, None) is not None
             _safe_unsub(self._away_readback_unsubs.pop(ent, None))
-            self.away_lock_owned.discard(ent)
             val = _state_value(self._hass.states.get(ent))
-            if val != "locked" and not inflight:
+            if val is None or val in _UNREAL_STATES:
+                # A3: same as _away_release; keep ownership.
+                self.away_lock_owned.add(ent)
+                _LOGGER.warning(
+                    "Lock regime: away lock %s is %s at SC disable; release skipped",
+                    ent, val,
+                )
+                continue
+            self.away_lock_owned.discard(ent)
+            if val == "unlocked" and not inflight:
                 continue
             try:
                 await asyncio.wait_for(
@@ -1752,6 +1833,8 @@ class LockRegimeController:
             "residents": sorted(self._residents),
             "away_lock_owned": sorted(self.away_lock_owned),
             "away_not_home_since": dict(sorted(self._away_not_home_since.items())),
+            "away_lock_inflight": sorted(self._away_engage_inflight),
+            "away_attempted_marker": self._away_attempted_marker,
         }
 
     def _save_store(self) -> None:
@@ -1779,6 +1862,12 @@ class LockRegimeController:
                 except (TypeError, ValueError):
                     continue
             self._away_not_home_since = parsed
+        inflight = data.get("away_lock_inflight")
+        if isinstance(inflight, list):
+            self._away_inflight_restored = {o for o in inflight if isinstance(o, str) and o}
+        marker = data.get("away_attempted_marker")
+        if isinstance(marker, (int, float)) and not isinstance(marker, bool):
+            self._away_attempted_marker = float(marker)
 
     def _record(
         self,

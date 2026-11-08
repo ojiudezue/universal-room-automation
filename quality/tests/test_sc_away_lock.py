@@ -692,8 +692,14 @@ async def test_switch_default_off():
     rig = await make_rig(opts=opts)
     sw = _switches(rig)["switch.ura_security_coordinator_away_lock"]
     assert sw.is_on is False
-    assert sw.name == "Away Lock"
-    assert sw.unique_id == "universal_room_automation_ura_security_coordinator_away_lock"
+    # Read our own _attr_* values, not HA Entity properties:
+    # test_fan_incident_2026_08_01_replay.py:118 installs a bare
+    # SwitchEntity stub into sys.modules["homeassistant.components.switch"] at
+    # import, so in a full run the switch module may subclass a class with no
+    # `name` / `unique_id` properties (validator full-suite failure).
+    assert sw._attr_name == "Away Lock"
+    assert sw._attr_unique_id == "universal_room_automation_ura_security_coordinator_away_lock"
+    assert sw.entity_id == "switch.ura_security_coordinator_away_lock"
 
 
 @pytest.mark.asyncio
@@ -950,6 +956,211 @@ async def test_snapshot_away_keys():
     assert snap["lock_regime_away_lock_pending_engage_at"] is None
     # Garage keys still present, unchanged names.
     assert "lock_regime_garage_lockout_last_action" in snap
+
+
+# ============================================================================
+# Fix-up pass (reviews A + B)
+# ============================================================================
+
+
+class FlushStore(MemStore):
+    def __init__(self, data=None):
+        super().__init__(data)
+        self.flushed = None
+
+    async def async_save(self, data):
+        self.flushed = data
+
+
+def _owned_payload(**extra):
+    payload = {"residents": [EZ, OJI], "away_lock_owned": [BED],
+               "away_not_home_since": {OJI: DAY.timestamp() - 3000,
+                                       EZ: DAY.timestamp() - 3000}}
+    payload.update(extra)
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_a1_restart_person_home_at_boot_recheck_releases_owned():
+    """A1 repro 1 / B3: Oji got home while HA was down. No event reaches the
+    regime (state already home at setup); the boot recheck releases."""
+    rig = await make_rig(store=MemStore(_owned_payload()), past_boot=False, bed="locked",
+                         persons={OJI: "home", EZ: "not_home", KIOSK: "unknown"})
+    assert rig.regime.away_lock_owned == {BED}
+    await rig.w.advance(119)
+    assert rig.unlocks() == []
+    await rig.w.advance(2)  # boot recheck at 120 s
+    assert rig.unlocks() == [BED]
+    assert rig.regime.away_lock_owned == set()
+
+
+@pytest.mark.asyncio
+async def test_a1_restored_home_event_releases_owned():
+    rig = await make_rig(store=MemStore(_owned_payload()), past_boot=False, bed="locked",
+                         persons={KIOSK: "unknown"})
+    rig.w.set_state(OJI, "home")  # HA person restore (old_state None)
+    await settle()
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_a1_blip_gated_return_under_15_min_releases():
+    """A1 repro 2: engaged at +5 min; Oji not_home -> unknown -> home at
+    +10 min. The garage 15-min blip gate does not apply to the away lock."""
+    rig = await _engaged()
+    await rig.w.advance(240)
+    await rig.person(OJI, "unknown")
+    await rig.person(OJI, "home")
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_b1_hazard_after_first_lock_second_never_locked():
+    study = "lock.study_lock"
+    rig = await make_rig(opts=options(
+        security_lock_entities=[DOOR, BED, study],
+        security_lock_sweep_exclude=[BED, study],
+        security_away_lock_entities=[BED, study],
+    ))
+    rig.w.seed(study, "unlocked")
+
+    def hazard_after_bed(domain, service, ent):
+        if (domain, service, ent) == ("lock", "lock", BED):
+            rig.regime.on_hazard()
+
+    rig.w.call_hooks.append(hazard_after_bed)
+    await rig.both_out()
+    assert study not in rig.locks()
+    assert rig.locks() == [BED]
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_a4_switch_off_mid_loop_second_never_locked():
+    study = "lock.study_lock"
+    rig = await make_rig(opts=options(
+        security_lock_entities=[DOOR, BED, study],
+        security_lock_sweep_exclude=[BED, study],
+        security_away_lock_entities=[BED, study],
+    ))
+    rig.w.seed(study, "unlocked")
+
+    def switch_off_after_bed(domain, service, ent):
+        if (domain, service, ent) == ("lock", "lock", BED):
+            rig.w.cm_entry.options["security_away_lock_enabled"] = False
+
+    rig.w.call_hooks.append(switch_off_after_bed)
+    await rig.both_out()
+    assert rig.locks() == [BED]
+
+
+async def _restart(rig, store_payload, **kw):
+    return await make_rig(start=rig.w.now, store=MemStore(store_payload),
+                          past_boot=False, **kw)
+
+
+@pytest.mark.asyncio
+async def test_b2_restart_mid_outing_no_renotify_passage_mode():
+    store = MemStore()
+    rig = await make_rig(store=store)
+    _refuse_lock(rig)
+    await rig.both_out()
+    await rig.w.advance(21)
+    assert len(rig.nm.notes) == 1
+    payload = dict(store.saved)
+    rig2 = await _restart(rig, payload, persons={OJI: "not_home", EZ: "not_home",
+                                                KIOSK: "unknown"})
+    await rig2.w.advance(3600)
+    assert rig2.locks() == []
+    assert rig2.nm.notes == []
+
+
+@pytest.mark.asyncio
+async def test_b2_restart_after_human_unlock_does_not_relock():
+    store = MemStore()
+    rig = await _engaged(store=store)
+    rig.w.set_state(BED, "unlocked")  # at-home guest unlocks it
+    await settle()
+    await rig.w.advance(3600)
+    rig2 = await _restart(rig, dict(store.saved), persons={OJI: "not_home", EZ: "not_home",
+                                                          KIOSK: "unknown"})
+    await rig2.w.advance(3600)
+    assert rig2.locks() == []
+
+
+@pytest.mark.asyncio
+async def test_b2_new_outing_after_restart_still_engages():
+    store = MemStore()
+    rig = await _engaged(store=store)
+    rig2 = await _restart(rig, dict(store.saved), bed="unlocked",
+                          persons={OJI: "home", EZ: "not_home", KIOSK: "unknown"})
+    await rig2.w.advance(121)
+    await rig2.person(OJI, "not_home")  # a fresh formation
+    await rig2.w.advance(301)
+    assert rig2.locks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_a2_owned_jammed_release_attempts_unlock():
+    rig = await _engaged()
+    rig.w.set_state(BED, "jammed")
+    await settle()
+    await rig.w.advance(1800)
+    await rig.person(OJI, "home")
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_a3_sc_disable_unavailable_keeps_ownership():
+    rig = await _engaged()
+    rig.w.set_state(BED, "unavailable")
+    rig.w.cm_entry.options["security_coordinator_enabled"] = False
+    await rig.regime.async_release_if_disabled()
+    assert rig.unlocks() == []
+    assert rig.regime.away_lock_owned == {BED}
+
+
+@pytest.mark.asyncio
+async def test_b4_inflight_unavailable_at_release_becomes_owned():
+    rig = await make_rig()
+    await rig.person(OJI, "not_home")
+    await rig.w.advance(1000)
+    await rig.person(EZ, "not_home")
+    await rig.w.advance(301)  # engaged; read-back pending
+    rig.w.set_state(BED, "unavailable")
+    await settle()
+    await rig.person(OJI, "home")
+    assert rig.unlocks() == []
+    assert rig.regime.away_lock_owned == {BED}
+    rig.w.set_state(BED, "locked")  # comes back locked
+    await settle()
+    await rig.person(EZ, "home")
+    assert rig.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_a5_restart_inside_readback_window_owns_locked_lock():
+    store = MemStore()
+    rig = await make_rig(store=store)
+    await rig.both_out()  # lock.lock issued; read-back not run
+    payload = dict(store.saved)
+    assert payload["away_lock_inflight"] == [BED]
+    rig2 = await _restart(rig, payload, bed="locked",
+                          persons={OJI: "not_home", EZ: "not_home", KIOSK: "unknown"})
+    assert rig2.regime.away_lock_owned == {BED}
+    await rig2.person(OJI, "home")
+    assert rig2.unlocks() == [BED]
+
+
+@pytest.mark.asyncio
+async def test_b5_teardown_flushes_store():
+    store = FlushStore()
+    rig = await _engaged(store=store)
+    await rig.sc.async_teardown()
+    assert store.flushed is not None
+    assert store.flushed["away_lock_owned"] == [BED]
+    assert set(store.flushed) >= {"residents", "away_lock_owned", "away_not_home_since",
+                                  "away_lock_inflight", "away_attempted_marker"}
 
 
 def test_live_keys_in_reload_suppress_and_no_live_attr_sets():
