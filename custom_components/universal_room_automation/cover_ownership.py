@@ -122,3 +122,24 @@ def is_security_owned_cover(hass: HomeAssistant, entity_id: str) -> bool:
 
     # Fallback: entity registry.
     return _registry_device_class(hass, entity_id) in SECURITY_OWNED_COVER_DEVICE_CLASSES
+
+
+def is_security_owned_or_configured_cover(
+    hass: HomeAssistant, entity_id: str, configured_garages: object
+) -> bool:
+    """True if ``entity_id`` is a configured SC garage OR a garage/gate cover.
+
+    GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 D4b (plan rev 4 H2 / rev 5 M-3). The
+    configured-list leg (``security_garage_entities``) is checked FIRST, so a
+    device_class change or a state-less, registry-less window cannot reopen
+    the hole for a configured garage (``is_security_owned_cover`` fails open).
+    """
+    if isinstance(configured_garages, str):
+        configured = {configured_garages}
+    elif isinstance(configured_garages, (list, tuple, set, frozenset)):
+        configured = {str(x) for x in configured_garages}
+    else:
+        configured = set()
+    if entity_id in configured:
+        return True
+    return is_security_owned_cover(hass, entity_id)

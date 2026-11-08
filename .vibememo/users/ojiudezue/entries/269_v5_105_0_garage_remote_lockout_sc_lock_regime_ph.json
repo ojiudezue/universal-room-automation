@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "269",
+  "author": "ojiudezue",
+  "session_id": "claude_20261108_002114_ship_v5_105_0",
+  "timestamp": "2026-11-08T00:21:14Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.105.0 shipped: Garage remote lockout: SC lock regime (Phase 1)",
+  "summary": "Garage remote lockout: SC lock regime (Phase 1)",
+  "why": "The garage openers' remote lockouts stop the outside keypad and car remotes, but nothing engaged them, so the keypad could be guessed at night. The operator split arming (alarm only) from a lock regime inside SC. Releases are biased to fail open so family on a 3 AM red-eye is never locked out: arrival, wake, morning backstop, hazard and the kill switch all release, and a restart never engages.",
+  "implications": "Shipped GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 at v5.105.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.105.0.md (Live criteria).",
+  "revisit_trigger": "If a resident is ever locked out, if the 20 s release read-back fires a HIGH notification, or before Phase 2 auto-open on fast approach is built.",
+  "refs": {
+    "cards": [
+      "GARAGE-REMOTE-LOCKOUT-SCHEDULE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.105.0.md"
+    ],
+    "release_notes": "SC lock regime owns the garage remote lockouts (engage on sleep/vacation/guest-night, release on wake/arrival/backstop/hazard/kill switch). Ships OFF behind switch.ura_security_coordinator_garage_lockout. See docs/readmes/README_v5.105.0.md."
+  }
+}

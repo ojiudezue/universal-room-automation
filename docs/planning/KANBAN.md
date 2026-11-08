@@ -2,26 +2,26 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-07T12:58:19-06:00_ - _Data commit: `1756b718fc61`_ - _last_reconciled: 2026-11-07_
+_Generated: 2026-11-07T14:00:33-06:00_ - _Data commit: `d068962bca4b`_ - _last_reconciled: 2026-11-07_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 31 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 3 |
+| 🚀 Shipped (organic open) | 4 |
 | 🅿️ Parked | 113 |
 | ✅ Done | 412 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `SC-GEOFENCE-PERSON-SNAPSHOT-1` - SC geofence person listener snapshots person.* once at setup; misses persons added later or loaded after SC — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -29,6 +29,14 @@ thread: **security** - status: **inbox**
 _created 2026-11-07 15:40_
 - **Why:** security.py:1987-1995 _setup_geofence_listener reads hass.states.async_all('person') once and returns when empty, so the sanction checker never subscribes if persons load after SC and misses persons added later. The lockout regime uses a...
 - **Next:** Build after GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 Phase 1 ships, reusing its resident-tracking helper (Tier 1).
+- **Forensic keys (1):**
+  - `tier`: 1
+
+### `TEST-SUITE-POLLUTION-AND-STALE-DRILLS-1` - Test hygiene: fan_incident replay corrupts real homeassistant.core; two stale mutation drills — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
+thread: **quality** - status: **inbox**
+_created 2026-11-07 17:30_
+- **Why:** (1) quality/tests/test_fan_incident_2026_08_01_replay.py:146-153 setattr()s MagicMock onto the REAL homeassistant.core (State/Event/HomeAssistant/callback) at import; it breaks later real-HA tests (lockout real-HA test needed a restore f...
+- **Next:** Fix (1) by scoping the stub to the test (monkeypatch) instead of import-time setattr; repair (2)/(3); triage (4).
 - **Forensic keys (1):**
   - `tier`: 1
 
@@ -442,7 +450,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `GARAGE-REMOTE-LOCKOUT-SCHEDULE-1` - Garage remote lockout (A + B): on at night, off in the morning, and released when a family member arrives so a 3 AM return is not locked out — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
@@ -459,25 +467,7 @@ _created 2026-11-07 12:10_
   - `proximity_2026_11_07`: Operator: set up proximity for all 4 persons. Created core proximity entry 01M6VGHPVWX72KF6ENND5HY309 (zone.home; person.oji_udezue, ezinne, ziri, jaya; default tolerance). Sensors sensor.madronehaos_<person>_distance / _direction_of_tra...
   - `phase1_build_2026_11_07`: Plan rev 5 (874e5615) + Q-G1 = option (a) guest-in-sleep-hours engages. Phase 1 build dispatched (ura-builder, worktree).
 
-### `NM-INBOUND-HOUSE-QUERIES-1` - Ask the house by text: WhatsApp / iMessage questions about house state and simple diagnostics — _#2 · WSJF 2.3 · v4 tc1 u2 /e3_
-thread: **notifications** - status: **in_progress**
-_created 2026-11-07 12:40_
-- **Why:** Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Ec...
-- **Next:** Building A now (operator 2026-11-07). Plan doc -> 1 plan review -> build -> Tier 2 reviews -> deploy.
-- **Forensic keys (11):**
-  - `tier`: 2
-  - `adjacency`: Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card.
-  - `design_2026_11_07`: Operator: a 'diag' entry command returns a numbered menu; replying with the number or the command name runs it and returns the result. Conflict found: bare '1'/'2'/'3' already mean ack/status/silence for every sender (notification_manage...
-  - `shared_layer_2026_11_07`: The query functions are the shared read-only house-status layer: NM replies use them now; the OC agent calls the same ones as tools later (citable, deterministic answers).
-  - `oc_followups_2026_11_07`: From reading the L02 judged runs (2026-11-04, sonnet-5.5): M1 1.0/0.5/1.0; every M2 'invented' flag was citation hygiene (true fact cited to the wrong result, unsupported absence claims, 6 s vs 8 s), not fabrication. Follow-ups: (1) re-s...
-  - `built_2026_11_07`: Branch feature/nm-diag-text-menu @637b0bb8 (tag pre-review-nm-diag). D0: iMessage is the only live inbound channel (608 rows, all iMessage); SC lock list holds only the front lock (garage hallway + master bedroom absent -> doors answer s...
-  - `residual_companion_no_reply`: Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix.
-  - `bug_whatsapp_inbound_dropped_2026_11_07`: Root cause of zero WhatsApp inbound rows: NM _handle_whatsapp_reply (notification_manager.py:3404-3415) reads event keys phone/message, but the bridge (custom_components/whatsapp, event whatsapp_message_received) sends from/body/author/i...
-  - `operator_2026_11_07`: Operator added the garage hallway and master bedroom locks to SC (doors answer now covers them; they are now also under SC lock sweeps). Companion no-reply fix APPROVED, folding into this cycle.
-  - `residual_review_b_low3`: Over-budget diag inbound writes one uncapped log_inbound row per message via direct INSERT+commit (database.py:5051), not the batched write queue; same pattern as legacy inbound. Matters only under an external flood. Deferred.
-  - `live_check_whatsapp_fromme`: Review B MEDIUM-1: send diag in the operator WhatsApp self-chat and confirm a channel=whatsapp row in notification_inbound; if none, the bridge never forwards fromMe and WhatsApp commands stay dark (iMessage is the live channel).
-
-### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OC-CONTEXT-PACK-1` - OC agent context should feel like the orchestrator's: HA + URA ground-truth docs, live config snapshot, doctrine, goals - iterate it against live cases — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **optimization** - status: **in_progress**
 _created 2026-11-01 · updated 2026-11-05 02:40_
 - **Why:** Already decided in VISION_optimization_coordinator_self_fixing_house.md:157 ('Knowledge, loaded fresh every run': HA concepts; URA_ARCHITECTURE_MAP, HVAC + presence state-of-play, SENSOR_FLEET_CLASSES, DEVICE_TREE; live config snapshot; ...
@@ -1097,7 +1087,7 @@ _created 2026-10-14 02:50 · updated 2026-11-02 02:04 · refined_
   - `applied_2026_10_24`: Set HM gc_refreeze_h 0 -> 4 h at ~22:05Z (options flow; stored value 4.0 verified in core.config_entries). Discriminator: sensor.hahm_loop_lag_p95 gc_gen2_1h and hahm_loop_stalls < 5/h at an 8-12 h re-read; else lower to 2 h.
   - `measured_2026_10_14_overnight`: HA Health Monitor diagnostics, ~50 min after the 01:16 CDT restart: gen-2 collections 59 (mean 1,804 ms, max 2,137 ms); gen-1 4,734 (mean 3.9 ms); gen-0 52,079. Stall samples: 44 of 50 are gen-2 GC; burst of one every ~3.5 s at 06:29-06:...
 
-## 🚀 Shipped (organic open) (3)
+## 🚀 Shipped (organic open) (4)
 _live, awaiting proof_
 
 ### `DASH-V8-ANI-WEATHER-TRIAL-1` - ura-v8 Now tab: trial Animated Weather Card next to weather_hero — _#1 · WSJF 8.0 · v3 tc3 u2 /e1_
@@ -1174,6 +1164,24 @@ _created 2026-09-17 02:20 · updated 2026-11-04 02:11 · refined_
   - `build_record_2026_10_25`: CAPTURE GAP CLOSED: the 10-21 overnight pass planned (docs/planning/PLANNING_camera_detector_hung_tripwire.md Rev 2, plan-reviewed) AND built this card on feat/camera-detector-hung-tripwire (b499108d8, frozen detection_fps stat check, CA...
   - `validated_2026_10_27`: Serial full-suite name-diff 10-27 (ura-validator + orchestrator rerun): candidate integ/overnight-2026-10-27 (develop c456aee10 + fix/nm-ack-tts-gate + fix/hvac-kwh-avoided-restart-zero + feat/camera-detector-hung-tripwire-v2, merged cle...
   - `mergeprep_2026_11_03_overnight`: Same merge-prep as HVAC-KWH-AVOIDED-TOTAL-NOT-MONOTONIC-1 (integ/overnight-2026-10-27 merges clean onto develop @30e4c61a, 129 commits of drift; test_camera_detector_hung.py all green on the merge; 0 new failures in neighbouring files).
+
+### `NM-INBOUND-HOUSE-QUERIES-1` - Ask the house by text: WhatsApp / iMessage questions about house state and simple diagnostics — _#4 · WSJF 2.3 · v4 tc1 u2 /e3_
+thread: **notifications** - status: **shipped_organic**
+_created 2026-11-07 12:40_
+- **Why:** Inbound already exists: NM receives WhatsApp + iMessage (BlueBubbles) + Pushover + Companion replies (notification_manager.py:456-461) and parses a fixed command set: ack / status / silence / help / safe word (RESPONSE_COMMANDS :244). Ec...
+- **Next:** Building A now (operator 2026-11-07). Plan doc -> 1 plan review -> build -> Tier 2 reviews -> deploy.
+- **Forensic keys (11):**
+  - `tier`: 2
+  - `adjacency`: Swept NM-* (NM-BB-CHATGUID-SELFSEND-1 adjacent: same inbound path), OC-* (OC-CONTEXT-PACK-1, OC-SELF-OPTIMIZING-HOUSE-REDESIGN-1: engine for B), memory project_nm_bb_wa_audit_2026_05_30: ADJACENT, new card.
+  - `design_2026_11_07`: Operator: a 'diag' entry command returns a numbered menu; replying with the number or the command name runs it and returns the result. Conflict found: bare '1'/'2'/'3' already mean ack/status/silence for every sender (notification_manage...
+  - `shared_layer_2026_11_07`: The query functions are the shared read-only house-status layer: NM replies use them now; the OC agent calls the same ones as tools later (citable, deterministic answers).
+  - `oc_followups_2026_11_07`: From reading the L02 judged runs (2026-11-04, sonnet-5.5): M1 1.0/0.5/1.0; every M2 'invented' flag was citation hygiene (true fact cited to the wrong result, unsupported absence claims, 6 s vs 8 s), not fabrication. Follow-ups: (1) re-s...
+  - `built_2026_11_07`: Branch feature/nm-diag-text-menu @637b0bb8 (tag pre-review-nm-diag). D0: iMessage is the only live inbound channel (608 rows, all iMessage); SC lock list holds only the front lock (garage hallway + master bedroom absent -> doors answer s...
+  - `residual_companion_no_reply`: Companion (HA app) inbound replies never get any reply, even status, because person_id is None. Folded here per finish-the-arc rule 4; needs its own fix.
+  - `bug_whatsapp_inbound_dropped_2026_11_07`: Root cause of zero WhatsApp inbound rows: NM _handle_whatsapp_reply (notification_manager.py:3404-3415) reads event keys phone/message, but the bridge (custom_components/whatsapp, event whatsapp_message_received) sends from/body/author/i...
+  - `operator_2026_11_07`: Operator added the garage hallway and master bedroom locks to SC (doors answer now covers them; they are now also under SC lock sweeps). Companion no-reply fix APPROVED, folding into this cycle.
+  - `residual_review_b_low3`: Over-budget diag inbound writes one uncapped log_inbound row per message via direct INSERT+commit (database.py:5051), not the batched write queue; same pattern as legacy inbound. Matters only under an external flood. Deferred.
+  - `live_check_whatsapp_fromme`: Review B MEDIUM-1: send diag in the operator WhatsApp self-chat and confirm a channel=whatsapp row in notification_inbound; if none, the bridge never forwards fromMe and WhatsApp commands stay dark (iMessage is the live channel).
 
 ## 🅿️ Parked (113)
 _revisit-trigger set_

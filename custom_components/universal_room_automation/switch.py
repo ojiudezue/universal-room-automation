@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.104.0
+# Universal Room Automation vv5.105.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -337,6 +337,9 @@ async def async_setup_entry(
             NMPanelChannelSwitch(hass, entry),
             # v3.6.37: Security → NM light delegation toggle
             SecurityDelegateLightsSwitch(hass),
+            # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1: lock-regime switches
+            # (CM-options-backed, no RestoreEntity).
+            *_build_security_lockout_switches(hass, entry),
             # v3.7.6: Energy Observation Mode toggle
             EnergyObservationModeSwitch(hass, entry),
             # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4 §3.4.1: on-demand
@@ -5141,6 +5144,108 @@ class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
         security = manager.coordinators.get("security")
         if security is not None:
             security.delegate_lights_to_nm = self._is_on
+
+
+def _build_security_lockout_switches(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> list[SwitchEntity]:
+    from .const import (  # noqa: PLC0415
+        CONF_SECURITY_GARAGE_LOCKOUT_ENABLED,
+        CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
+        DEFAULT_SECURITY_GARAGE_LOCKOUT_ENABLED,
+        DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
+    )
+
+    return [
+        SecurityLockoutOptionSwitch(
+            hass, entry,
+            conf_key=CONF_SECURITY_GARAGE_LOCKOUT_ENABLED,
+            default=DEFAULT_SECURITY_GARAGE_LOCKOUT_ENABLED,
+            name="Garage Lockout",
+            object_id="ura_security_coordinator_garage_lockout",
+            icon="mdi:garage-lock",
+            release_on_off=True,
+        ),
+        SecurityLockoutOptionSwitch(
+            hass, entry,
+            conf_key=CONF_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
+            default=DEFAULT_SECURITY_LOCKOUT_ENGAGE_ON_GUEST_SLEEP,
+            name="Garage Lockout On Guest Nights",
+            object_id="ura_security_coordinator_garage_lockout_guest_nights",
+            icon="mdi:account-clock",
+            release_on_off=False,
+        ),
+    ]
+
+
+class SecurityLockoutOptionSwitch(SwitchEntity):
+    """CM-options-backed switch for the garage lock regime.
+
+    GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 (plan §7). No RestoreEntity: the value
+    is the CM entry option (absent key = the default), so a restored
+    ``unavailable`` cannot occur (rev 3 L4). The key is in
+    OPTIONS_RELOAD_SUPPRESS_KEYS, so a toggle never reloads the CM; the
+    regime reads the option live. Turning the kill switch OFF calls the
+    regime's release edge after the option is persisted.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        *,
+        conf_key: str,
+        default: bool,
+        name: str,
+        object_id: str,
+        icon: str,
+        release_on_off: bool,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = conf_key
+        self._default = default
+        self._release_on_off = release_on_off
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{object_id}"
+        self.entity_id = f"switch.{object_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        merged = {**self._entry.data, **self._entry.options}
+        return bool(merged.get(self._conf_key, self._default))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._write(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._write(False)
+
+    async def _write(self, value: bool) -> None:
+        old = self.is_on
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: value},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info("SecurityLockoutOptionSwitch: %s %s -> %s", self._conf_key, old, value)
+        if self._release_on_off and old and not value:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            security = manager.coordinators.get("security") if manager else None
+            regime = getattr(security, "lock_regime", None) if security else None
+            if regime is not None:
+                regime.on_kill_switch_changed(False)
 
 
 class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

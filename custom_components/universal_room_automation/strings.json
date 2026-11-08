@@ -949,7 +949,11 @@
           "security_camera_record_duration": "Camera Record Duration (seconds)",
           "security_alarm_panel": "Alarm Panel Entity",
           "security_auto_follow": "Auto-Follow House State",
-          "security_lock_check_interval": "Periodic Lock Check Interval (minutes)"
+          "security_lock_check_interval": "Periodic Lock Check Interval (minutes)",
+          "security_lockout_entities": "Garage remote lockout locks",
+          "security_lockout_excluded_persons": "People who never release the lockout",
+          "security_lockout_distance_sensors": "Proximity distance sensors (early release)",
+          "security_lockout_approach_zone": "Approach zone (optional early release)"
         },
         "data_description": {
           "security_lock_entities": "Door locks to control during security events and periodic lock checks. Must be manually selected.",
@@ -961,7 +965,14 @@
           "security_camera_record_duration": "Duration in seconds for camera recording triggers.",
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
           "security_auto_follow": "Automatically set armed state based on house state (away → armed_away, home → armed_home). Off by default.",
-          "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
+          "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state.",
+          "security_lockout_entities": "The opener locks that block car remotes and keypads (Garage Lockout switch). Locked at night and on vacation, released when a resident arrives. Never list a door lock from Lock Entities here.",
+          "security_lockout_excluded_persons": "Every person counts as a resident who can release the lockout by arriving, except the people listed here (for example a wall-tablet person with no trackers).",
+          "security_lockout_distance_sensors": "HA proximity distance sensors, one per resident. Crossing inside the approach radius releases the lockout before the person reaches home.",
+          "security_lockout_approach_zone": "Optional. A person entering this zone also releases the lockout."
+        },
+        "error": {
+          "lockout_overlaps_locks": "A lockout lock is also listed under Lock Entities. Remove it from one list."
         }
       },
       "coordinator_energy": {

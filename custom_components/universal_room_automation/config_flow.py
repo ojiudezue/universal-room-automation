@@ -9047,13 +9047,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_SECURITY_ALARM_PANEL,
             CONF_SECURITY_AUTO_FOLLOW,
             CONF_SECURITY_LOCK_CHECK_INTERVAL,
+            CONF_SECURITY_LOCKOUT_ENTITIES,
+            CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS,
+            CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS,
+            CONF_SECURITY_LOCKOUT_APPROACH_ZONE,
         )
+        from .domain_coordinators.security_lock_regime import lockout_overlap
 
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 §3.3: a lockout must never be
+            # a sweep / lockdown lock.
+            if lockout_overlap(
+                user_input.get(CONF_SECURITY_LOCK_ENTITIES, []),
+                user_input.get(CONF_SECURITY_LOCKOUT_ENTITIES, []),
+            ):
+                errors[CONF_SECURITY_LOCKOUT_ENTITIES] = "lockout_overlaps_locks"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, **user_input},
+                )
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -9154,11 +9168,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
+            # GARAGE-REMOTE-LOCKOUT-SCHEDULE-1 (rung 2): garage lock regime.
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_ENTITIES,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_EXCLUDED_PERSONS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS,
+                default=self._get_current(CONF_SECURITY_LOCKOUT_DISTANCE_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", multiple=True)
+            ),
+            vol.Optional(
+                CONF_SECURITY_LOCKOUT_APPROACH_ZONE,
+                description={"suggested_value": self._get_current(
+                    CONF_SECURITY_LOCKOUT_APPROACH_ZONE
+                )},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="zone")
+            ),
         })
 
         return self.async_show_form(
             step_id="coordinator_security",
             data_schema=data_schema,
+            errors=errors,
         )
 
     async def async_step_coordinator_music_following(self, user_input=None):
