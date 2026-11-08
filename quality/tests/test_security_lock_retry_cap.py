@@ -267,3 +267,14 @@ def test_excluded_lock_never_opens_or_keeps_a_retry_episode():
     assert sweep["excluded"] == [EXCL]
     assert sweep["retry_capped"] == []
     assert EXCL not in sweep["found_unlocked"]
+
+
+def test_episode_for_unconfigured_device_is_dropped():
+    """A capped episode for a lock no longer configured is pruned at the next
+    sweep, so it cannot linger in retry_capped until restart (review LOW 2)."""
+    coord, states = _make(locks=(LOCK,))
+    states.set(LOCK, "locked")
+    coord._lock_retry_episodes["lock.removed"] = {"attempts": 3, "capped_at": T0}
+    _run(coord)
+    assert "lock.removed" not in coord._lock_retry_episodes
+    assert coord._last_lock_sweep["retry_capped"] == []

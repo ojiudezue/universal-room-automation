@@ -1818,6 +1818,11 @@ class SecurityCoordinator(BaseCoordinator):
         # SC-LOCK-SWEEP-EXCLUDE-1 D2b: captured once, before any await.
         excluded = self._sweep_excluded()
         excluded_seen: list[str] = []
+        # Drop retry episodes for devices no longer configured, so a removed
+        # lock/cover cannot linger in ``retry_capped`` until restart.
+        _configured = set(self._lock_entities) | set(self._garage_entities)
+        for _eid in [e for e in self._lock_retry_episodes if e not in _configured]:
+            del self._lock_retry_episodes[_eid]
         # Devices that just hit SECURITY_LOCK_RETRY_CAP (notify once each).
         retry_capped: list[str] = []
         # Every device seen unlocked/open (incl. capped ones) for the sensor;
