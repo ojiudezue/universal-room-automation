@@ -3336,6 +3336,40 @@ FACE_PRODUCER_STALE_TTL_S: Final = 120
 # in the `guest:<first_token>` namespace. Options-flow rung.
 CONF_KNOWN_FACE_GUESTS: Final = "known_face_guests"
 DEFAULT_KNOWN_FACE_GUESTS: Final = []
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D5 (options-flow rung, per-install
+# structure like known_face_guests): explicit face-library-name aliases,
+# entries "FaceName=target" where target is a tracked person slug (with or
+# without "person.") or a known_face_guests name. Read fresh per lookup by
+# camera_census._canonical_person_slug and presence face pre-arrival.
+# Empty = no aliasing (the canonicalizer is unchanged).
+CONF_FACE_NAME_ALIASES: Final = "face_name_aliases"
+DEFAULT_FACE_NAME_ALIASES: Final = []
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D2 (rung 1, module constant — changing
+# face-source discovery needs review). True = Frigate face-name sensors are
+# found in the entity registry by (platform frigate, unique_id type token
+# "sensor_recognized_face") and joined by device_id; the old name-built ids
+# are the fallback only when the registry yields nothing for a camera.
+# False = the pre-cycle name-pattern path everywhere (byte-identical),
+# including the suffix-derived FaceLeg engine tag.
+FACE_SOURCE_REGISTRY_DISCOVERY_ENABLED: Final = True
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D3 (rung 1 — changes census trust inputs).
+# True = a Frigate camera whose person sensor does not end in
+# "_person_occupancy" (17 of 29 here end "_person_occupancy_2") reads its
+# face sensor through the person sensor's device instead of being skipped.
+# The legacy suffix path still runs first. False = legacy skip, counted in
+# face_source_skipped_person_sensors. D0 recorder probe gate PASSED
+# 2026-11-08 (AUDIT_face_source_registry_discovery_2026_11.md §8).
+FACE_SOURCE_INCLUDE_DISAMBIGUATED_PERSON_SENSORS: Final = True
+# FACE-SOURCE-REGISTRY-DISCOVERY-1 D3/S8 split (builder, rung 1, default
+# OFF pending operator call). Presence face pre-arrival
+# (`PresenceCoordinator._get_face_for_camera`) dispatches
+# SIGNAL_PERSON_ARRIVING(source=camera_face), which the SC lock regime
+# consumes: `_release` (garage lockouts) and `_away_release` (UNLOCKS the
+# away-lock door locks) for a resident who was really away. The 17 cameras
+# the skip fix adds include the doorbell / garage / entry cameras, so this
+# flag ALSO gates the S8 device join; S5-S7 (census) follow the flag above.
+# False = S8 legacy skip for `_N` person sensors (pre-cycle behaviour).
+FACE_SOURCE_PRESENCE_ARRIVAL_DISAMBIGUATED: Final = False
 # D4: kill-switch that ENABLES the provenance filter + producer-health
 # guard (see plan §6 knob table). ON by default; opposite concept
 # from the on-demand drill switch (`switch.egress_identity_face_failsafe_drill`).
