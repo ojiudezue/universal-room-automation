@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-11-08T23:26:54-06:00_ - _Data commit: `a3d500abe6ed`_ - _last_reconciled: 2026-11-08_
+_Generated: 2026-11-08T23:30:41-06:00_ - _Data commit: `05fc4b2dd6e1`_ - _last_reconciled: 2026-11-08_
 
 
 ## Columns
@@ -242,8 +242,9 @@ thread: **security** - status: **planned**
 _created 2026-11-08 23:45_
 - **Why:** Frigate face labels are known to name the wrong resident (presence doc corrections #28: Jaya labelled Oji on 10-24). The 17 cameras the skip fix adds include doorbell/garage/entry. An unlock is the highest-cost wrong action.
 - **Next:** Apply the operator's 2026-11-08 identity rule (face counts only with an independent same-person BLE/tracker ARRIVAL edge, as in v5.107.0 D10.5) to lock-regime arrivals from camera_face; reuse the D10.5 arrival-edge helper. Then flip FACE...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `tier`: 2
+  - `existing_guard_2026_11_08`: Operator asked if this was already built. Partly: security_lock_regime.on_person_arriving (:793-813) already counts a camera_face arrival only if _really_away(person) (Review A M2, away-lock cycle). That blocks faces of people already ho...
   - `adjacency_2026_11_08`: Swept board for lock regime / face arrival: none. ADJACENT to FACE-SOURCE-REGISTRY-DISCOVERY-1 (same signal) and PERIMETER-FP D10.5 (same corroboration rule). NEW problem statement (unlock safety).
 
 ### `DASH-ANOMALY-COVERAGE-BADGE-1` - PWA badge shows anomaly severity only: add coverage (e.g. HVAC 3/5 partial) so blind coordinators are visible without reading attributes — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
