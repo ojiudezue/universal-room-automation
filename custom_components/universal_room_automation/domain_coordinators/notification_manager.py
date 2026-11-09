@@ -1975,6 +1975,9 @@ class NotificationManager:
             # the local `_in_quiet` / `_dnd_bypass` computed above so the
             # digest-DND branch and the audit row see the same values.
             _dnd_bypass_applied = _in_quiet and _dnd_bypass
+            # PERIMETER-FP D7 (v5.107.0): what ACTUALLY fired for THIS
+            # recipient (channels_fired is per notify, not per person).
+            fired_for_person: list[str] = []
 
             # NM Cycle C fix-up (2026-07-20, D-R2 MED + D-R3): digest-row
             # writes are NOT transport sends and must NOT be gated on the
@@ -1994,6 +1997,7 @@ class NotificationManager:
                 if _pushover_key and effective_pref == NM_DELIVERY_IMMEDIATE:
                     await self._send_pushover(title, message_with_dict, severity, _pushover_key, _pushover_device, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
                     channels_fired.append("pushover")
+                    fired_for_person.append("pushover")
                     if database:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
@@ -2021,6 +2025,7 @@ class NotificationManager:
                         snapshot_path=snapshot_path,
                     )
                     channels_fired.append("companion")
+                    fired_for_person.append("companion")
                     if database:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
@@ -2041,12 +2046,16 @@ class NotificationManager:
             _phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if _channel_gate.get("whatsapp", False) and "whatsapp" in _router_allowed:
                 if _phone and effective_pref == NM_DELIVERY_IMMEDIATE:
-                    await self._send_whatsapp(title, message_with_dict, _phone, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
-                    channels_fired.append("whatsapp")
+                    # PERIMETER-FP D7: count WhatsApp only when it was sent.
+                    _wa_ok = await self._send_whatsapp(title, message_with_dict, _phone, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
+                    if _wa_ok:
+                        channels_fired.append("whatsapp")
+                        fired_for_person.append("whatsapp")
                     if database:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
-                            hazard_type, location, person_id, "whatsapp", 1,
+                            hazard_type, location, person_id, "whatsapp",
+                            1 if _wa_ok else 0,
                         )
             if (
                 effective_pref == NM_DELIVERY_DIGEST
@@ -2065,6 +2074,7 @@ class NotificationManager:
                 if _imessage_handle and effective_pref == NM_DELIVERY_IMMEDIATE:
                     await self._send_imessage(title, message_with_dict, _imessage_handle, snapshot_url=snapshot_url, snapshot_path=snapshot_path)
                     channels_fired.append("imessage")
+                    fired_for_person.append("imessage")
                     if database:
                         await database.log_notification(
                             coordinator_id, severity_str, title, message,
@@ -2089,10 +2099,10 @@ class NotificationManager:
             # gate. Idle ticks emit ZERO audit rows (function is never
             # reached without a routing decision).
             if database:
-                per_person_fired = sorted(
-                    ch for ch in ("pushover", "companion", "whatsapp", "imessage")
-                    if (_channel_gate.get(ch, False) and ch in _router_allowed)
-                )
+                # PERIMETER-FP D7 (v5.107.0): built from what fired for THIS
+                # recipient, not from the gate config (pre-cycle rows listed
+                # channels that were never sent, e.g. digest or no handle).
+                per_person_fired = sorted(set(fired_for_person))
                 # NM-IMAGE-1 (rev-2): when the security-image predicate
                 # forced this emit to IMMEDIATE, label the audit row with
                 # the named constant so post-deploy analytics can trace
@@ -2430,8 +2440,14 @@ class NotificationManager:
         snapshot_path: str | None = None,
         *,
         menu_safe: bool = False,
-    ) -> None:
+    ) -> bool:
         """Send notification via WhatsApp (ha-wa-bridge).
+
+        PERIMETER-FP D7 (v5.107.0): returns True only when the send was
+        attempted without a known-bad bridge status AND the service call did
+        not raise (dry-run returns True, as callers treated it as sent).
+        Known gap: wa_bridge returns no ack, so a logged-out phone session
+        behind a connected bridge still reads as success.
 
         SNAP-1: prefer ``media_path`` (local file, verified accepted by
         the installed whatsapp integration at
@@ -2449,7 +2465,7 @@ class NotificationManager:
             self._diag_send_epoch += 1
         if self._dry_run_active:
             await self._log_dry_run(channel="whatsapp", target=phone, title=title)
-            return
+            return True
         try:
             outbound_text = f"*{title}*\n{message}"
             payload: dict[str, Any] = {
@@ -2467,6 +2483,15 @@ class NotificationManager:
                  if self.hass.services.has_service(d, "send_message")),
                 NM_WHATSAPP_SERVICE_DOMAINS[-1],
             )
+            if wa_domain == "wa_bridge":
+                _ready, _status = self._wa_bridge_ready()
+                if not _ready:
+                    _LOGGER.warning(
+                        "WhatsApp send skipped: wa_bridge not ready (status=%s)",
+                        _status,
+                    )
+                    self._update_channel_health("whatsapp", False)
+                    return False
             await self.hass.services.async_call(
                 wa_domain, "send_message",
                 payload,
@@ -2476,14 +2501,61 @@ class NotificationManager:
             # failed send must not seed the echo buffer (proof-of-send).
             self._record_outbound_text(outbound_text)
             self._update_channel_health("whatsapp", True)
+            return True
         except Exception as e:
             _LOGGER.error("WhatsApp send failed: %s", e)
             self._update_channel_health("whatsapp", False)
+            return False
         finally:
             # Review B LOW-2: close windows again AFTER the send await — a
             # `diag` that opened a window during this send must not survive.
             if not menu_safe:
                 self._diag_send_epoch += 1
+
+    # PERIMETER-FP D7: wa_bridge `connection_status` values that mean
+    # "down" (wa_bridge 3.1.1 client.py:30-91). Anything else is UNKNOWN and
+    # treated as ready (today's behaviour) — the check can only turn a send
+    # into a failure on a known-bad answer (INV-WA-TRUTH).
+    _WA_BRIDGE_DOWN_STATUSES = frozenset(
+        {"auth_failed", "error", "reconnecting", "disconnected"}
+    )
+
+    def _wa_bridge_ready(self) -> tuple[bool, str]:
+        """Pre-send check. Returns (ready, status_label). Never raises."""
+        # Public signal: wa_bridge config entries exist but none is LOADED.
+        try:
+            from homeassistant.config_entries import ConfigEntryState  # noqa: PLC0415
+            entries = list(self.hass.config_entries.async_entries("wa_bridge"))
+            if entries and not any(
+                getattr(e, "state", None) == ConfigEntryState.LOADED for e in entries
+            ):
+                return False, "entry_not_loaded"
+        except Exception:  # noqa: BLE001
+            pass
+        # Private signal, fully guarded.
+        try:
+            bridges = self.hass.data.get("wa_bridge")
+            if not isinstance(bridges, dict) or not bridges:
+                return True, self._wa_probe_unknown("no_bridge_data")
+            statuses = [getattr(b, "connection_status", None) for b in bridges.values()]
+            if any(st == "connected" for st in statuses):
+                return True, "connected"
+            known_bad = [st for st in statuses if st in self._WA_BRIDGE_DOWN_STATUSES]
+            if known_bad and len(known_bad) == len(statuses):
+                return False, str(known_bad[0])
+            return True, self._wa_probe_unknown(str(statuses))
+        except Exception:  # noqa: BLE001
+            return True, self._wa_probe_unknown("exception")
+
+    def _wa_probe_unknown(self, label: str) -> str:
+        self._whatsapp_probe_unknown = getattr(self, "_whatsapp_probe_unknown", 0) + 1
+        if not getattr(self, "_whatsapp_probe_unknown_logged", False):
+            self._whatsapp_probe_unknown_logged = True
+            _LOGGER.info(
+                "WhatsApp pre-send check: bridge status unknown (%s) — "
+                "sending as before", label,
+            )
+        return f"unknown:{label}"
 
     async def _send_imessage(
         self, title: str, message: str, handle: str,
@@ -5440,8 +5512,9 @@ class NotificationManager:
             if "whatsapp" in selected_set and self._config.get(CONF_NM_WHATSAPP_ENABLED):
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
-                    await self._send_whatsapp("URA Daily Summary", digest_message, phone)
-                    sent_any = True
+                    # PERIMETER-FP D7: only a real send counts.
+                    if await self._send_whatsapp("URA Daily Summary", digest_message, phone):
+                        sent_any = True
             if "imessage" in selected_set and self._config.get(CONF_NM_IMESSAGE_ENABLED):
                 handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
                 if handle:
@@ -5467,8 +5540,9 @@ class NotificationManager:
         if not sent and self._config.get(CONF_NM_WHATSAPP_ENABLED):
             phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if phone:
-                await self._send_whatsapp("URA Daily Summary", digest_message, phone)
-                sent = True
+                # PERIMETER-FP D7: a failed send falls through to iMessage.
+                if await self._send_whatsapp("URA Daily Summary", digest_message, phone):
+                    sent = True
 
         if not sent and self._config.get(CONF_NM_IMESSAGE_ENABLED):
             handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
