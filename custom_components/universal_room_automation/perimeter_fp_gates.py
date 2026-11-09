@@ -142,7 +142,12 @@ class AgreementTracker:
         return {"outcomes": {c: [bool(x) for x in d] for c, d in self._outcomes.items()}}
 
     def load_dict(self, data: Any) -> bool:
-        """Load persisted outcomes. Malformed data -> empty tracker, False."""
+        """Load persisted outcomes. Malformed data -> empty tracker, False.
+
+        Outcomes already finalised in memory (between subscription and the
+        awaited load) are APPENDED after the loaded ones, never dropped
+        (review B-LOW-3)."""
+        existing = {c: list(d) for c, d in self._outcomes.items()}
         try:
             raw = (data or {}).get("outcomes", {})
             if not isinstance(raw, dict):
@@ -155,8 +160,12 @@ class AgreementTracker:
                     (bool(v) for v in vals if isinstance(v, bool)),
                     maxlen=self.window_n,
                 )
+            for cam, vals in existing.items():
+                loaded.setdefault(cam, deque(maxlen=self.window_n)).extend(vals)
             self._outcomes = loaded
             return True
         except Exception:  # noqa: BLE001
-            self._outcomes = {}
+            self._outcomes = {
+                c: deque(v, maxlen=self.window_n) for c, v in existing.items()
+            }
             return False

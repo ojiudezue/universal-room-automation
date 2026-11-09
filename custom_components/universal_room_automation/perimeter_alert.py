@@ -163,6 +163,8 @@ from .const import (
     PERIMETER_EGRESS_IDENTITY_MATCH_S,
     PERIMETER_EGRESS_KNOWN_MIN_CONF,
     PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S,
+    PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S,
+    PERIMETER_EGRESS_XCORR_SETTLE_S,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
@@ -450,6 +452,12 @@ class PerimeterAlertManager:
         # list of (detection_ts, person_id, identity_confidence).
         self._recent_egress_identity: dict[str, list[tuple[datetime, str, float]]] = {}
         self._unsub_egress_identity: Any = None
+        # D10.5 (review B-MED-2): real not_home -> home edges per person slug
+        # (epoch seconds), recorded by a live listener; boot replays and
+        # transitions inside the post-setup exclusion are ignored.
+        self._person_arrivals: dict[str, float] = {}
+        self._unsub_person_arrivals: Any = None
+        self._fp_setup_ts: float | None = None
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -967,6 +975,17 @@ class PerimeterAlertManager:
             self._unsub_egress_identity = self.hass.bus.async_listen(
                 "ura_person_egress_event", _on_egress_identity,
             )
+            # Arrival edges for the face+non-face rule (same edge shape as
+            # the SC lock regime's `_on_person_event` / `_arrival_counts`,
+            # security_lock_regime.py:881-935, mirrored here because that
+            # method is private, instance-bound, and biased the OTHER way at
+            # boot — it treats boot as "counts as arrival", we must not).
+            self._fp_setup_ts = dt_util.now().timestamp()
+            _persons = [f"person.{s}" for s in self._tracked_person_slugs()]
+            if _persons:
+                self._unsub_person_arrivals = async_track_state_change_event(
+                    self.hass, _persons, self._on_person_arrival_event,
+                )
 
         # PERIMETER-FP D5: load the persisted agreement tracker.
         await self._async_load_agreement()
@@ -1237,6 +1256,20 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_egress_identity = None
+        if self._unsub_person_arrivals is not None:
+            try:
+                self._unsub_person_arrivals()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_person_arrivals = None
+        # D5 (review B-LOW-3): flush finalised agreement outcomes now so a
+        # reload's new manager does not load a store 30 s stale.
+        if self._agreement_store is not None:
+            try:
+                await self._agreement_store.async_save(self._agreement.to_dict())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("PerimeterAlertManager: agreement flush failed",
+                              exc_info=True)
 
         # SNAP-1 fix-up (F1): cancel any in-flight edge-capture tasks.
         for _key, _entry in list(self._edge_captures.items()):
@@ -2814,6 +2847,9 @@ class PerimeterAlertManager:
                     self._sensor_to_camera[leg.entity_id] = cam_entity_id
                     self._sensor_platforms[leg.entity_id] = leg.integration or ""
                     self._sensor_engine[leg.entity_id] = leg.engine
+                    # Review A-L1 / B-LOW-1: late legs feed liveness too.
+                    _ck = self._camera_key_for_sensor(leg.entity_id) or leg.entity_id
+                    self._person_legs_by_key.setdefault(_ck, set()).add(leg.entity_id)
                     self._unsub_perimeter.append(
                         async_track_state_change_event(
                             self.hass, [leg.entity_id],
@@ -4562,7 +4598,12 @@ class PerimeterAlertManager:
                 age = abs((now - rec["received_at"]).total_seconds())
             d["inputs"] = {"frigate_name": frigate_name, "zones": sorted(wanted),
                            "entered_zones": entered, "event_age_s": age}
-            if PERIMETER_ZONE_AGREEMENT_MAX_AGE_S <= 0:
+            if entity_id in zones:
+                # Review A-M2: the edge IS the property zone sensor — being in
+                # the zone is the evidence; the shared per-camera cache may
+                # hold an older/other object's record. Never demote.
+                d["reason"] = "zone_leg_edge"
+            elif PERIMETER_ZONE_AGREEMENT_MAX_AGE_S <= 0:
                 d["reason"] = "disabled"
             elif self._exemption_shields(cam_key, now, exemption_active):
                 d["reason"] = "classification_transition_exemption"
@@ -4816,12 +4857,14 @@ class PerimeterAlertManager:
 
     def _known_identity_for(
         self, cam_key: str, edge: datetime,
-    ) -> tuple[str, float, str] | None:
+    ) -> tuple[str, float, str] | None:  # noqa: C901
         """D10.5: a KNOWN identity freshness-matched to this edge, at >= the
         doctrine floor (manual §5.5(a): >= 0.9). Sources: the egress bus
         event (detection timestamp within ±MATCH_S) and face legs whose
         last_changed is at/after edge-MATCH_S. A leg with no timestamp is
         NOT fresh here (H4). Frigate legs carry no score -> 0.60 -> unknown."""
+        if float(PERIMETER_EGRESS_KNOWN_MIN_CONF) > 1.0:
+            return None  # documented kill: > 1 disables the known-person demote
         floor = max(0.9, float(PERIMETER_EGRESS_KNOWN_MIN_CONF))
         match_s = float(PERIMETER_EGRESS_IDENTITY_MATCH_S)
         census = self.hass.data.get(DOMAIN, {}).get("census")
@@ -4869,47 +4912,123 @@ class PerimeterAlertManager:
             # Operator 2026-11-08: a below-floor face (Frigate, unscored =
             # 0.60) clears the §5.5(a) bar ONLY with an independent non-face
             # signal for the SAME person in the window.
-            src = self._nonface_agrees(slug, edge)
+            src = self._nonface_agrees(slug, edge, cam_key)
             if src and best is None:
                 best = (slug, floor, f"face+{src}")
         return best
 
-    def _nonface_agrees(self, slug: str, edge: datetime) -> str | None:
-        """Existing non-face signals for `slug` near `edge` (REUSED, no new
-        producer): the PersonCoordinator Bermuda/BLE room transition, or the
-        HA person tracker going home. Returns the source name or None."""
+    def _nonface_agrees(
+        self, slug: str, edge: datetime, cam_key: str = "",
+    ) -> str | None:
+        """A real ARRIVAL of `slug` near `edge` from an existing non-face
+        signal (review B-MED-2). Either:
+          - person tracker: a LIVE not_home -> home edge (listener-recorded,
+            `_on_person_arrival_event`) within the window; or
+          - Bermuda: PersonCoordinator moved the person INTO an area at or
+            near this egress camera (`_near_areas`) within the window.
+        Both ignore transitions inside PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S
+        after setup (restore stamps last_changed at boot). Returns the source
+        name or None. Window <= 0 disables (review A-L2)."""
         win = float(PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S)
+        if win <= 0:
+            return None
+        boot_end = (self._fp_setup_ts or 0.0) + float(PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S)
+        edge_ts = edge.timestamp()
 
-        def _near(ts: Any) -> bool:
-            try:
-                return abs((edge - ts).total_seconds()) <= win
-            except Exception:  # noqa: BLE001
-                return False
+        def _ok(ts: float | None) -> bool:
+            return ts is not None and ts >= boot_end and abs(edge_ts - ts) <= win
 
+        if _ok(self._person_arrivals.get(slug)):
+            return "person_tracker"
         try:
+            near = self._near_areas(cam_key)
             pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
             data = getattr(pc, "data", None) or {}
             for name, rec in data.items():
-                if str(name).lower().replace(" ", "_") != slug:
+                if str(name).lower().replace(" ", "_") != slug or not isinstance(rec, dict):
                     continue
-                if (
-                    isinstance(rec, dict)
-                    and rec.get("method") == "bermuda"
-                    and rec.get("location") not in (None, "", "away", "unknown")
-                    and _near(rec.get("last_changed"))
-                ):
+                if rec.get("method") != "bermuda" or not near:
+                    continue
+                here = {zone_slug(rec.get("location")), zone_slug(rec.get("bermuda_area"))}
+                moved = zone_slug(rec.get("previous_location")) != zone_slug(rec.get("location"))
+                lc = rec.get("last_changed")
+                lc_ts = lc.timestamp() if isinstance(lc, datetime) else None
+                if moved and (here & near) and _ok(lc_ts):
                     return "ble"
         except Exception:  # noqa: BLE001
             pass
+        return None
+
+    def _tracked_person_slugs(self) -> list[str]:
         try:
-            st = self.hass.states.get(f"person.{slug}")
-            if st is not None and st.state == "home" and _near(
-                getattr(st, "last_changed", None)
-            ):
-                return "person_tracker"
+            raw = self._get_integration_config().get("tracked_persons", []) or []
+            return [str(p).replace("person.", "").strip().lower() for p in raw if p]
+        except Exception:  # noqa: BLE001
+            return []
+
+    @callback
+    def _on_person_arrival_event(self, event: Any) -> None:
+        """Record a live not_home -> home edge (old_state None = restore,
+        not an arrival). Boot exclusion is applied at read time."""
+        try:
+            new = event.data.get("new_state")
+            old = event.data.get("old_state")
+            if new is None or old is None:
+                return
+            if getattr(new, "state", None) != "home" or getattr(old, "state", None) != "not_home":
+                return
+            slug = str(event.data.get("entity_id", "")).replace("person.", "").lower()
+            if slug:
+                self._person_arrivals[slug] = dt_util.now().timestamp()
         except Exception:  # noqa: BLE001
             pass
-        return None
+
+    def _area_of_entity(self, entity_id: str) -> str:
+        """HA area name (slugged) of an entity via entity/device registry."""
+        try:
+            from homeassistant.helpers import (  # noqa: PLC0415
+                area_registry as ar, device_registry as dr, entity_registry as er,
+            )
+            ent = er.async_get(self.hass).async_get(entity_id)
+            area_id = getattr(ent, "area_id", None)
+            if not area_id and getattr(ent, "device_id", None):
+                dev = dr.async_get(self.hass).async_get(ent.device_id)
+                area_id = getattr(dev, "area_id", None)
+            if not area_id:
+                return ""
+            area = ar.async_get(self.hass).async_get_area(area_id)
+            return zone_slug(getattr(area, "name", None) or area_id)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _near_areas(self, cam_key: str) -> set[str]:
+        """Areas at/near a dual-role egress camera: the camera's own area,
+        plus the areas of its EXPLICITLY configured door-interior neighbours
+        (transit_validator door groups; the unset fallback of 'every
+        interior camera' is NOT used here — too wide for an arrival)."""
+        out: set[str] = set()
+        cams = [c for c in self._dual_role_cameras
+                if self._camera_key_for_sensor(
+                    f"binary_sensor.{self._camera_slug_stem(c)}_person_detected") == cam_key
+                or self._camera_slug_stem(c) == cam_key]
+        for c in cams:
+            a = self._area_of_entity(c)
+            if a:
+                out.add(a)
+        try:
+            tv = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+            if tv is not None:
+                group = tv._door_group_for_stem(cam_key)
+                nb = getattr(tv, "_interior_neighbours_by_group", {}) or {}
+                if group is not None and group in nb:
+                    for n in nb[group]:
+                        a = self._area_of_entity(n)
+                        if a:
+                            out.add(a)
+        except Exception:  # noqa: BLE001
+            pass
+        out.discard("")
+        return out
 
     async def _apply_egress_identity_gate(
         self, cam_key: str, entity_id: str, now: datetime,
@@ -4949,14 +5068,14 @@ class PerimeterAlertManager:
             corroborated = self._other_family_fire_since(cam_key, family, since) or (
                 self._adjacent_activity(cam_key, dt_util.now())
             )
-            # Unknown + uncorroborated + second NVR live: a short bounded
-            # corroboration settle (the D5 settle knob) before demoting, so
-            # the other engine's edge a few seconds later still counts.
-            if known is None and second_live and not corroborated and PERIMETER_SS_SETTLE_S > 0:
+            # Unknown + uncorroborated + second NVR live: a bounded
+            # corroboration settle (own knob, review A-M4) before demoting,
+            # so the other engine's edge a little later still counts.
+            if known is None and second_live and not corroborated and PERIMETER_EGRESS_XCORR_SETTLE_S > 0:
                 if not held:
                     self._dispatch_in_flight.add(cam_key)
                     held = True
-                if not await self._async_hold(cam_key, float(PERIMETER_SS_SETTLE_S)):
+                if not await self._async_hold(cam_key, float(PERIMETER_EGRESS_XCORR_SETTLE_S)):
                     d["reason"] = "dropped_teardown"
                     self._record_gate(cam_key, d)
                     return severity, True, False

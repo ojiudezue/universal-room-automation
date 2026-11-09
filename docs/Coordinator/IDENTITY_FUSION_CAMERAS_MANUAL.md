@@ -367,8 +367,11 @@ under `gate_decisions_by_camera`:
   LOW for a KNOWN person (§5.5(a): ≥ 0.9 — egress event or scored face leg
   freshness-matched to the edge; OR, operator 2026-11-08, a below-floor
   Frigate face match corroborated by an existing non-face signal for the SAME
-  person — Bermuda/BLE room transition or `person.<slug>` → home within
-  `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S`); LOW when unknown and not
+  person showing a real ARRIVAL within `PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S`
+  (120 s): a live `person.<slug>` not_home → home edge, or a Bermuda move into
+  the camera's own area or its configured door-interior neighbours' areas;
+  transitions within 600 s of setup are ignored; interior room hops never count
+  — review B-MED-2); LOW when unknown and not
   corroborated by the other NVR family while it is live; contextual severity
   otherwise. A face alone, or a latched name, never demotes.
 

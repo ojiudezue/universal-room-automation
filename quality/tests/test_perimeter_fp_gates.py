@@ -566,25 +566,24 @@ def test_burst_demote_daytime_when_not_night_only(monkeypatch):
     assert mgr._last_burst_decision[RP_KEY]["reason"] == "burst_isolated"
 
 
-def test_burst_night_only_flipped_on_d4a_go():
-    assert _const.PERIMETER_BURST_NIGHT_ONLY is False
-    assert _perimeter.PERIMETER_BURST_NIGHT_ONLY is False
+def test_burst_night_only_ships_true_option_c():
+    """Review A-M3 option C: code path ships, flag stays night-only until a
+    daytime-only re-sample."""
+    assert _const.PERIMETER_BURST_NIGHT_ONLY is True
+    assert _perimeter.PERIMETER_BURST_NIGHT_ONLY is True
 
 
 def test_burst_demote_daytime_with_shipped_constant(monkeypatch):
-    """No monkeypatch of the constant: the shipped default demotes a
-    13:00 isolated repeat (literal hour, not the window constant)."""
+    """No monkeypatch of the constant: with the shipped default a 13:00
+    isolated repeat is NOT burst-demoted (literal hour)."""
     fixed = _now().replace(hour=13)
     monkeypatch.setattr(_perimeter.dt_util, "now", lambda: fixed)
     hass, nm = _build(perimeter=(RP_CAM,))
     mgr, _subs = _setup(hass, monkeypatch)
     mgr._recent_alerts_by_camera[RP_KEY] = [fixed - timedelta(minutes=10)]
     _run(mgr._async_handle_perimeter_trigger(RP_PR))
-    assert _sev(nm) == Severity.LOW
-    mgr._last_alert.clear()
-    mgr._recent_fires[RP_KEY] = [("frigate2", fixed)]
-    _run(mgr._async_handle_perimeter_trigger(RP_PR))
-    assert _sev(nm) == Severity.CRITICAL  # sibling-corroborated repeat
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_burst_decision[RP_KEY]["reason"] == "outside_night_window"
 
 
 # =========================================================================
@@ -1002,14 +1001,35 @@ def _leg(slug, conf, age_s=0):
                            last_changed=_now() - timedelta(seconds=age_s))
 
 
-def _d105(monkeypatch, legs=None, corroborate=True, f2_state="off"):
-    hass, nm = _build(perimeter=(DB_CAM,), egress=(DB_CAM,))
+def _d105(monkeypatch, legs=None, corroborate=True, f2_state="off", booted_s=3600):
+    hass, nm = _build(perimeter=(DB_CAM,), egress=(DB_CAM,), extra_opts={
+        "tracked_persons": ["person.oji_udezue", "person.jaya_udezue"]})
     hass._states[DB_F2] = _St(f2_state)
     hass.data[_const.DOMAIN]["census"] = _Census(legs)
+    # Doorbell lives in "Front Porch"; nothing else has an area.
+    monkeypatch.setattr(PerimeterAlertManager, "_area_of_entity",
+                        lambda self, e: "front_porch" if e == DB_CAM else "")
     mgr, subs = _setup(hass, monkeypatch)
+    mgr._fp_setup_ts = _now().timestamp() - booted_s
+    mgr._subs = subs
     if corroborate:
         mgr._recent_fires[DB_KEY] = [("frigate2", _now() - timedelta(seconds=4))]
     return hass, nm, mgr
+
+
+def _person_cb(mgr):
+    for ents, cb in mgr._subs:
+        if "person.oji_udezue" in ents:
+            return cb
+    raise AssertionError("person arrival listener not registered")
+
+
+def _person_edge(slug, old, new):
+    return SimpleNamespace(data={
+        "entity_id": f"person.{slug}",
+        "old_state": None if old is None else _St(old),
+        "new_state": _St(new),
+    })
 
 
 def _reason(mgr):
@@ -1040,9 +1060,10 @@ def test_egress_gate_face_only_pages(monkeypatch):
     assert _sev(nm) == Severity.CRITICAL and _reason(mgr) == "egress_unknown_corroborated"
 
 
-def _with_ble(hass, slug_name, age_s=10):
+def _with_ble(hass, slug_name, age_s=10, location="Front Porch", prev="away"):
     pc = SimpleNamespace(data={slug_name: {
-        "method": "bermuda", "location": "foyer",
+        "method": "bermuda", "location": location, "bermuda_area": location,
+        "previous_location": prev,
         "last_changed": _now() - timedelta(seconds=age_s),
     }})
     hass.data[_const.DOMAIN]["person_coordinator"] = pc
@@ -1058,10 +1079,86 @@ def test_egress_gate_face_plus_ble_agree_demotes(monkeypatch):
 
 
 def test_egress_gate_face_plus_person_tracker_demotes(monkeypatch):
+    """Real arrival: live not_home -> home edge via the registered listener."""
     hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
-    hass._states["person.oji_udezue"] = _St("home", last_changed=_now() - timedelta(seconds=30))
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "home"))
     _run(mgr._async_handle_perimeter_trigger(DB_PR))
     assert _sev(nm) == Severity.LOW
+    assert mgr._last_gate_decisions[DB_KEY]["egress_identity"]["inputs"]["known"][2] == "face+person_tracker"
+
+
+def test_egress_gate_tracker_home_without_arrival_edge_pages(monkeypatch):
+    """`person.*` reads home with a fresh last_changed but no live
+    not_home -> home edge (restore / flap) -> NOT an arrival."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    hass._states["person.oji_udezue"] = _St("home", last_changed=_now() - timedelta(seconds=30))
+    _person_cb(mgr)(_person_edge("oji_udezue", None, "home"))           # restore
+    _person_cb(mgr)(_person_edge("oji_udezue", "unavailable", "home"))  # flap
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_restart_within_window_pages(monkeypatch):
+    """HA restarted 60 s ago: both a tracker edge and a Bermuda move inside
+    the post-boot exclusion are ignored -> page."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)], booted_s=60)
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "home"))
+    _with_ble(hass, "Oji Udezue", age_s=30)
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+@pytest.mark.parametrize("booted,expected", [(599, Severity.CRITICAL), (601, Severity.LOW)])
+def test_egress_gate_boot_exclusion_boundary(monkeypatch, booted, expected):
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)], booted_s=booted)
+    _person_cb(mgr)(_person_edge("oji_udezue", "not_home", "home"))  # at now
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == expected
+
+
+def test_egress_gate_interior_room_hop_pages(monkeypatch):
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _with_ble(hass, "Oji Udezue", location="Kitchen", prev="Family Room")
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_ble_no_move_pages(monkeypatch):
+    """Bermuda record already at the porch, no transition -> not arrival."""
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _with_ble(hass, "Oji Udezue", prev="Front Porch")
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_near_area_includes_configured_neighbours(monkeypatch):
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    monkeypatch.setattr(PerimeterAlertManager, "_area_of_entity",
+                        lambda self, e: {DB_CAM: "front_porch",
+                                         "camera.foyer": "foyer"}.get(e, ""))
+    hass.data[_const.DOMAIN]["transit_validator"] = SimpleNamespace(
+        _door_group_for_stem=lambda stem: "front" if stem == DB_KEY else None,
+        _interior_neighbours_by_group={"front": ["camera.foyer"]},
+    )
+    _with_ble(hass, "Oji Udezue", location="Foyer", prev="away")
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.LOW
+
+
+def test_egress_gate_known_min_conf_over_one_disables(monkeypatch):
+    monkeypatch.setattr(_perimeter, "PERIMETER_EGRESS_KNOWN_MIN_CONF", 1.01)
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None), _leg("oji_udezue", 0.99)])
+    _with_ble(hass, "Oji Udezue")
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
+
+
+def test_egress_gate_nonface_window_zero_disables(monkeypatch):
+    monkeypatch.setattr(_perimeter, "PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S", 0)
+    hass, nm, mgr = _d105(monkeypatch, legs=[_leg("oji_udezue", None)])
+    _with_ble(hass, "Oji Udezue", age_s=0)
+    _run(mgr._async_handle_perimeter_trigger(DB_PR))
+    assert _sev(nm) == Severity.CRITICAL
 
 
 @pytest.mark.parametrize("age,expected", [(119, Severity.LOW), (120, Severity.LOW), (121, Severity.CRITICAL)])
@@ -1101,13 +1198,22 @@ def test_egress_gate_doctrine_floor(monkeypatch):
 
 def test_egress_gate_uncorroborated_low_after_settle(monkeypatch):
     _h, nm, mgr = _d105(monkeypatch, corroborate=False)
-    _run(_drive(mgr, DB_PR))
+    _run(_drive(mgr, DB_PR, fire_delays=(20,)))
     assert _sev(nm) == Severity.LOW and _reason(mgr) == "egress_uncorroborated"
+
+
+def test_egress_gate_settle_knob_independent_of_d5(monkeypatch):
+    """Review A-M4: a D5 settle of 0 does not change D10.5's settle."""
+    monkeypatch.setattr(_perimeter, "PERIMETER_SS_SETTLE_S", 0)
+    _h, nm, mgr = _d105(monkeypatch, corroborate=False)
+    _run(_drive(mgr, DB_PR, fire_delays=(20,)))
+    assert 20 in [d for d, _cb in _scheduled]
 
 
 def test_egress_gate_corroborated_during_settle_pages_once(monkeypatch):
     _h, nm, mgr = _d105(monkeypatch, corroborate=False)
-    _run(_drive(mgr, DB_PR, during=lambda: mgr._on_perimeter_event(_edge(DB_F2))))
+    _run(_drive(mgr, DB_PR, during=lambda: mgr._on_perimeter_event(_edge(DB_F2)),
+                fire_delays=(20,)))
     assert nm.async_notify.await_count == 1
     assert _sev(nm) == Severity.CRITICAL and _reason(mgr) == "egress_unknown_corroborated"
 
@@ -1175,3 +1281,81 @@ def test_gate_decision_stats_surface(monkeypatch):
     assert st["gate_decisions_by_camera"][UT_KEY]["zone_agreement"]["reason"] == "outside_property_zone"
     assert UT_ZONE in st["zone_map"]
     assert UT_KEY in st["frigate_bus_by_camera"]
+
+
+
+# =========================================================================
+# Fix-up pass (reviews A/B)
+# =========================================================================
+
+def test_zone_agreement_skipped_on_zone_leg_edge(monkeypatch):
+    """A-M2: the zone sensor's own edge is never demoted by D3."""
+    hass, nm = _build(perimeter=(UT_CAM,), zones=[UT_ZONE],
+                      extra_opts={_const.CONF_PERIMETER_ZONE_AGREEMENT_DEMOTE: True})
+    mgr, _subs = _setup(hass, monkeypatch)
+    _frigate_cb(hass)(SimpleNamespace(data={"type": "new", "after": {
+        "id": "e1", "camera": "utilities_ptz", "label": "person", "entered_zones": []}}))
+    _run(mgr._async_handle_perimeter_trigger(UT_ZONE))
+    assert _sev(nm) == Severity.CRITICAL
+    assert mgr._last_gate_decisions[UT_KEY]["zone_agreement"]["reason"] == "zone_leg_edge"
+
+
+def test_rescan_late_leg_reaches_liveness(monkeypatch):
+    """A-L1 / B-LOW-1: a leg found by _rescan_siblings feeds _families_live."""
+    hass, _nm = _build(perimeter=(RP_CAM,), legs={RP_CAM: [(RP_PR, "protect")]})
+    mgr, _subs = _setup(hass, monkeypatch)
+    assert mgr._families_live(RP_KEY) == {"protect"}
+    hass._states[RP_F2] = _St("off")
+    late = {RP_CAM: [(RP_PR, "protect"), (RP_F2, "frigate2")]}
+
+    class _R:
+        def resolve_detection_legs(self, cam, family, stem_aliases=None):
+            src = late if family == "person" else {}
+            return [SimpleNamespace(entity_id=e, engine=g, integration="", device_id="")
+                    for (e, g) in src.get(cam, [])]
+    hass.data[_const.DOMAIN]["camera_manager"]._get_resolver = lambda: _R()
+    mgr._rescan_siblings(mgr._resolve_camera_infos(_const.CONF_PERIMETER_CAMERAS))
+    assert mgr._families_live(RP_KEY) == {"protect", "frigate"}
+
+
+def test_agreement_load_keeps_in_memory_samples():
+    tr = _gates.AgreementTracker(window_n=10, pair_window_s=60)
+    t0 = _now()
+    tr.open_sample("cam", t0, "protect", True)
+    tr.finalize_due(t0 + timedelta(seconds=61))
+    assert tr.load_dict({"outcomes": {"cam": [False, False]}}) is True
+    assert list(tr._outcomes["cam"]) == [False, False, True]
+
+
+def test_agreement_flushed_on_teardown(monkeypatch):
+    saved = {}
+
+    class _Store:
+        def __init__(self, *a):
+            pass
+
+        async def async_load(self):
+            return None
+
+        def async_delay_save(self, fn, delay):
+            pass
+
+        async def async_save(self, data):
+            saved["data"] = data
+
+    import sys
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.storage", SimpleNamespace(Store=_Store))
+    hass, _nm = _build(perimeter=(RP_CAM,))
+    mgr, _subs = _setup(hass, monkeypatch)
+    mgr._agreement.load_dict({"outcomes": {RP_KEY: [True, False]}})
+    _run(mgr.async_teardown())
+    assert saved["data"]["outcomes"][RP_KEY] == [True, False]
+
+
+def test_diag_gate_attributes_unrecorded():
+    import importlib
+    sensor_mod = importlib.import_module("custom_components.universal_room_automation.sensor")
+    un = sensor_mod.ExteriorOpenTracksDiagnosticSensor._unrecorded_attributes
+    for k in ("gate_decisions_by_camera", "agreement_by_camera",
+              "frigate_bus_by_camera", "zone_map"):
+        assert k in un

@@ -851,3 +851,13 @@ leg's `frigate2` tag.
 5. D10.5: an unknown, uncorroborated alert with both NVRs live waits the D5 settle (`PERIMETER_SS_SETTLE_S`, 8 s,
    in-flight held) before demoting, so the other engine's edge a few seconds later still counts.
 6. D1 config field is Advanced and placed last in the Camera Census step (Simple mode is capped at 7 fields).
+
+**Review fix-up (reviews A + B, SHIP):** D4 back to night-only (option C; flip after a daytime-only re-sample).
+D10.5 non-face corroboration tightened to a real arrival (live `not_home → home` edge from its own `person.*`
+listener — the SC lock regime's `_arrival_counts` / `_really_away`, security_lock_regime.py:918-935, has the same
+edge shape but is private and treats boot as an arrival, the opposite bias; or a Bermuda move into the door
+camera's area / configured door neighbours), with a 600 s post-setup exclusion
+(`PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S`). D10.5 settle split from D5: `PERIMETER_EGRESS_XCORR_SETTLE_S = 20`
+(D5a door-camera lag p90 18.0 / 20.2 / 22.4 s, capped at 20). Failed WhatsApp rows `delivered=-1`. D3 skips
+zone-leg edges. Late rescan legs feed liveness; KNOWN_MIN_CONF > 1 and window 0 disable; agreement store
+flushed on teardown and merged on load; diag gate attributes unrecorded.

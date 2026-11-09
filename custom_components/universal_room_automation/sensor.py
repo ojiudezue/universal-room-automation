@@ -4409,6 +4409,13 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
     per-track path strings + classifications for dashboard consumption.
     """
 
+    # PERIMETER-FP (v5.107.0, review B-LOW-5): the gate / Frigate-bus blobs
+    # change on every event; keep them out of the recorder.
+    _unrecorded_attributes = frozenset({
+        "gate_decisions_by_camera", "agreement_by_camera",
+        "agreement_store_loaded", "frigate_bus_by_camera", "zone_map",
+        "dual_role_cameras",
+    })
     _attr_has_entity_name = True
     _attr_icon = "mdi:map-marker-path"
     _attr_entity_category = EntityCategory.DIAGNOSTIC

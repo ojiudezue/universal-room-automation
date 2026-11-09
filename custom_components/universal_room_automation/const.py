@@ -2476,11 +2476,11 @@ PERIMETER_BURST_WINDOW_S: Final = 1800
 PERIMETER_BURST_MIN_ALERTS: Final = 2
 # When True, demotion only applies inside PERIMETER_BURST_NIGHT_WINDOW.
 # Person alerts dispatch all day since CONSOL-1 (no alert-hours gate), so
-# this is NOT redundant. PERIMETER-FP D4 (v5.107.0): flipped to False on the
-# D4a replay GO (30-day replay, 584 would-demote; 30 snapshot sample, 0 true
-# person on property; see PLANNING_perimeter_fp_build_2026_11.md appendix).
-# True restores night-only demotion.
-PERIMETER_BURST_NIGHT_ONLY: Final = False
+# this is NOT redundant. PERIMETER-FP D4 (v5.107.0): the all-day code path
+# ships but the flag stays True (option C, review A-M3): flip to False only
+# after a DAYTIME-only re-sample of >= 30 would-demotes
+# (scripts/probe_perimeter_burst_replay.py).
+PERIMETER_BURST_NIGHT_ONLY: Final = True
 # CONSOL-1 fix-up A4: XCORR-1 night_only gate previously delegated through
 # `_is_in_alert_hours` → the person-path 23-05 window. CONSOL-1 §D2 removed
 # the person alert-hours gate, and §D6 renamed the shared helper to a
@@ -2548,6 +2548,17 @@ PERIMETER_EGRESS_KNOWN_MIN_CONF: Final = 0.9
 # SAME person (Bermuda/BLE room transition, or person tracker -> home)
 # lands within this many seconds of the edge. 0 disables the combination.
 PERIMETER_EGRESS_FACE_NONFACE_WINDOW_S: Final = 120
+# D10.5 (rung 1, review B-MED-2): non-face transitions inside this many
+# seconds after perimeter setup are ignored — HA restore stamps
+# `last_changed` at boot, so a boot-time "home" is not an arrival.
+# Same 600 s as GARAGE_LOCKOUT_BOOT_ARRIVAL_WINDOW_S (lock regime).
+PERIMETER_EGRESS_ARRIVAL_BOOT_EXCLUDE_S: Final = 600
+# D10.5 (rung 1, review A-M4): own corroboration settle, decoupled from the
+# D5 settle. D5a probe (30 d): second-engine lag p90 doorbell_lite 20.2 s,
+# front_door_aerial 18.0 s, madrone_g6_entry 22.4 s (p50 1.3-2.2 s). 20 s
+# covers two of the three p90s and caps the delay on a time-sensitive page.
+# 0 = no settle (lookback only).
+PERIMETER_EGRESS_XCORR_SETTLE_S: Final = 20
 
 # ----------------------------------------------------------------------------
 # Exterior-person NM escalation (D1/D2/D4 — PLANNING_exterior_person_escalation)
